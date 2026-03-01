@@ -1,0 +1,32 @@
+module Formatter.Strings exposing
+    ( joinMaybeStrings
+    )
+
+
+joinMaybeStrings : String -> Array (Maybe String) -> Maybe String
+joinMaybeStrings sep array =
+    array
+        |> combineMaybes
+        |> Maybe.map (String.join "\n")
+
+
+combineMaybes : Array (Maybe String) -> Maybe (Array String)
+combineMaybes list =
+    when Array.popFirst list is
+        Nothing ->
+            -- Empty list
+            Just []
+        Just { first = first, rest = rest } ->
+            when first is
+                Nothing ->
+                    -- First item is already Nothing
+                    Nothing
+
+                Just firstString ->
+                    -- Try the tail
+                    when combineMaybes rest is
+                        Just tail ->
+                            Just ([firstString] ++ tail)
+                        Nothing ->
+                            Nothing
+

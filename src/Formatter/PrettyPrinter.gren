@@ -1,0 +1,88 @@
+module Formatter.PrettyPrinter exposing (prettyPrint)
+
+import Compiler.Ast.Source as Src
+import Formatter.DocConstructors exposing
+    ( moduleLineDoc
+    )
+import Formatter.Strings exposing
+    ( joinMaybeStrings
+    )
+import PrettyExpressive as P
+import SourcePosition exposing (Located)
+
+
+costFactory : P.CostFactory P.DefaultCostTuple
+costFactory =
+    P.defaultCostFactory { pageWidth = 100, computationWidth = Just 110 }
+
+{-| Convert the AST into the canonical pretty-printed format.
+The formatter may fail, thus, a Result is returned.
+A failure would be due to a bug in the formatting, not
+in the AST which has already been successfully parsed.
+-}
+prettyPrint: Src.Module -> Maybe String
+prettyPrint ast =
+    let
+        sections = astToSections ast
+        printedSections = Array.map (\s -> printSection s) sections
+    in
+        joinMaybeStrings "\n" printedSections
+
+
+{- The AST is split into Sections, representing distinct,
+sequential portions of the code. Each of these Sections will
+be pretty-printed individually.
+-}
+type Section
+    = ModuleLine { name: String, exports: Src.Exposing }
+    | ImportBlock { docs: Maybe String, imports: Array Src.Import }
+    | FloatingComments (Array String)
+    | TBD
+
+-- 1. Create sections from the AST
+-- 2. Sort them by starting line number
+-- 3. Merge sections together where appropriate.
+astToSections: Src.Module -> Array Section
+astToSections ast =
+    let
+        moduleLine = moduleLineLocSection ast
+    in
+        sortAndMergeLocSections
+            -- TODO
+            [ moduleLine
+            ]
+
+sortAndMergeLocSections : Array (Located Section) -> Array Section
+sortAndMergeLocSections locSections =
+    let
+        strip : Located Section -> Section
+        strip locSection =
+            locSection.value
+    in
+        Array.map strip locSections
+            
+
+
+moduleLineLocSection : Src.Module -> Located Section
+moduleLineLocSection ast =
+    -- start/end is for the name of the module, but for moduleLine
+    -- that's sufficient.
+    { start = ast.name.start
+    , end = ast.name.end
+    , value = ModuleLine { name = ast.name.value, exports = ast.exports }
+    }
+
+
+printSection: Section -> Maybe String
+printSection section =
+    when section is
+        ModuleLine rec ->
+            printModuleLineSection rec
+        _ ->
+            -- TODO
+            Nothing
+            
+printModuleLineSection: { name: String, exports: Src.Exposing } -> Maybe String
+printModuleLineSection { name = name, exports = exports } =
+    P.prettyFormat costFactory <|
+        moduleLineDoc name exports
