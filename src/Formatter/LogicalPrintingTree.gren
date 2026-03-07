@@ -1,0 +1,238 @@
+module Formatter.LogicalPrintingTree exposing (..)
+
+import Compiler.Ast.Source as Src
+import SourcePosition exposing (Located, Position, emptyPos, at)
+
+import Formatter.SingleRootTree as SRT exposing (SingleRootTree)
+
+type ListBrackets
+    = ListParen
+    | ListCurly
+
+type LPBox
+    -- This is needed just to use as a root node
+    = RootBox
+
+    -- Sets the original source row for the children
+    | SetOriginalRow Int
+
+    -- Just regular text; printed as-is. Can never be broken.
+    -- The location is the original source location, if we have it.
+    | UnbreakableText (Located String)
+
+    -- Flows across as far as possible. When it goes
+    -- to the first new line, it indents one over and continues.
+    -- Subsequent lines stay at that indentation
+    | AcrossThenIndent
+
+    -- Lists
+    | AllAcrossOrAllVertical ListBrackets
+
+lpBoxToString : LPBox -> String
+lpBoxToString lpbox =
+    let
+        pstr = (\pos -> "@ (r=" ++ (String.fromInt pos.row) ++
+            ", c=" ++ (String.fromInt pos.col) ++ ")")
+    in
+    when lpbox is
+        RootBox -> "root"
+        SetOriginalRow row -> "(orig row " ++ (String.fromInt row) ++ ")"
+        UnbreakableText s ->
+            "\"" ++ s.value ++ "\" " ++ (pstr s.start)
+        AcrossThenIndent -> "(acrossThenIndent)"
+        AllAcrossOrAllVertical br -> "(allAcrossOrAllVertical)"
+
+lptToString : SingleRootTree LPBox -> String
+lptToString lpTree =
+    SRT.prettyPrint lpBoxToString lpTree
+
+makeRootLPBox : LPBox
+makeRootLPBox =
+    RootBox
+
+nilPos : Position
+nilPos =
+    { row = -1
+    , col = -1
+    }
+
+makeLogicalPrintingTree : Src.Module -> SingleRootTree LPBox
+makeLogicalPrintingTree modAst =
+    let
+        lpt0 = SRT.new makeRootLPBox
+        lpt1 = processModuleLine modAst lpt0
+        lpt2 = processImports modAst lpt1
+        lptx = sortOriginalRows lpt2
+    in
+        lptx
+
+sortOriginalRows : SingleRootTree LPBox -> SingleRootTree LPBox
+sortOriginalRows lpTree =
+    let
+        unsortedChildren = SRT.getRootChildren lpTree
+        sortedChildren = Array.sortWith
+            (\a b ->
+                let
+                    anode = SRT.getNode a lpTree
+                    bnode = SRT.getNode b lpTree
+                in
+                    when anode is
+                        Just (SetOriginalRow arow) ->
+                            when bnode is
+                                Just (SetOriginalRow brow) ->
+                                    compare arow brow
+                                _ ->
+                                    compare 0 1
+                        _ ->
+                            compare 0 1
+            ) unsortedChildren
+
+    in
+        SRT.setRootChildren sortedChildren lpTree
+
+
+-- TODO: ports
+processModuleLine : Src.Module -> SingleRootTree LPBox -> SingleRootTree LPBox
+processModuleLine modAst lpTree =
+    let
+        r0 = SRT.insert (SetOriginalRow 1) lpTree
+        r1 = SRT.insert (mkText { row = 1, col = 1} "module") r0.tree
+        r2 = SRT.insert (mkTextFromLocString modAst.name) r1.tree
+        r3 = SRT.insert (mkText nilPos "exposing") r2.tree
+        r4 =
+            when modAst.exports is
+                Src.Open ->
+                    SRT.insert (mkText emptyPos "(..)") r3.tree
+                -- XXX handle empty exposed, like in imports
+                Src.Explicit exposed ->
+                    insertNodeWithChildren (mkAllAcrossOrAllVertical ListParen)
+                        (Array.map (\x -> processExposed x) exposed) r3.tree
+
+        -- Add the children to this row
+        t1 = r4.tree
+            |> SRT.setChildren r0.id (Array.map (\r -> r.id) [r1, r2, r3, r4])
+
+        -- Add this entire row to the root node
+        t2 = SRT.appendRootChild r0.id t1
+
+    in
+        t2
+
+
+mkText : Position -> String -> LPBox
+mkText pos text =
+    let
+        end =
+            { pos
+                | col = pos.col + String.count text
+            }
+    in
+        UnbreakableText
+        { start = pos
+        , end =  end
+        , value = text
+        }
+
+mkTextFromLocString : Located String -> LPBox
+mkTextFromLocString ltext =
+    UnbreakableText ltext
+
+
+
+insertNodeWithChildren :
+    LPBox ->
+    Array (LPBox) ->
+    SingleRootTree LPBox -> { id : Int, tree : SingleRootTree LPBox }
+insertNodeWithChildren parent children tree =
+    let
+        { childIds, accTree } =
+            Array.foldl
+                (\child acc ->
+                    let
+                        result =
+                            SRT.insert child acc.accTree
+                    in
+                    { childIds = Array.pushLast result.id acc.childIds
+                    , accTree = result.tree
+                    }
+                )
+                { childIds = [], accTree = tree }
+                children
+
+        parentResult =
+            SRT.insert parent accTree
+    in
+    { id = parentResult.id
+    , tree = SRT.setChildren parentResult.id childIds parentResult.tree
+    }
+
+
+mkAllAcrossOrAllVertical : ListBrackets -> LPBox
+mkAllAcrossOrAllVertical brackets =
+    AllAcrossOrAllVertical brackets
+        
+
+processExposed : Src.Exposed -> LPBox
+processExposed exposed =
+    when exposed is
+        Src.ExposedLower sp ->
+            UnbreakableText sp
+
+        -- TODO what is privacy?
+        Src.ExposedUpper { name = sp, privacy = privacy } ->
+            UnbreakableText sp
+
+        Src.ExposedOperator sp ->
+            UnbreakableText sp
+
+processImports : Src.Module -> SingleRootTree LPBox -> SingleRootTree LPBox
+processImports modAst lpTree =
+    Array.foldl processImport lpTree modAst.imports
+
+processImport : Located Src.Import -> SingleRootTree LPBox -> SingleRootTree LPBox
+processImport locImport lpTree =
+    let
+        r0 = SRT.insert (SetOriginalRow locImport.start.row) lpTree
+        r1 = SRT.insert (mkText { row = locImport.start.row, col = 1} "import") r0.tree
+        r2 = SRT.insert (mkTextFromLocString locImport.value.module_) r1.tree
+        { ids = ids3, tree = r3tree } =
+            when locImport.value.alias is
+                Nothing ->
+                    { ids = [], tree = r2.tree }
+                Just name ->
+                    let
+                        a1 = SRT.insert (mkText nilPos "as") r2.tree
+                        a2 = SRT.insert (mkText nilPos name) a1.tree
+                    in
+                        { ids = [a1.id, a2.id], tree = a2.tree }
+
+        { ids = ids4, tree = r4tree } =
+            when locImport.value.expose is
+                Src.Open -> 
+                    let
+                        o1 = SRT.insert (mkText nilPos "exposing") r3tree
+                        o2 = SRT.insert (mkText nilPos "(..)") o1.tree
+                    in
+                        { ids = [o1.id, o2.id], tree = o2.tree }
+                Src.Explicit xlist ->
+                    when Array.popFirst xlist is
+                        Just { first = first, rest = rest } ->
+                            let
+                                o1 = SRT.insert (mkText nilPos "exposing") r3tree
+                                xr = insertNodeWithChildren (mkAllAcrossOrAllVertical ListParen)
+                                    (Array.map (\x -> processExposed x) xlist) o1.tree
+                            in
+                                { ids = [o1.id, xr.id], tree = xr.tree }
+                        Nothing ->
+                            { ids = [], tree = r3tree }
+
+        children = [r1.id, r2.id] ++ ids3 ++ ids4
+
+        -- Add the children to this row
+        t1 = r4tree
+            |> SRT.setChildren r0.id children
+
+        -- Add this entire row to the root node
+        t2 = SRT.appendRootChild r0.id t1
+    in
+        t2
