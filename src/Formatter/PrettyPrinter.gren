@@ -2,19 +2,17 @@ module Formatter.PrettyPrinter exposing (prettyPrint)
 
 import Compiler.Ast.Source as Src
 import Compiler.Parse.Context as Ctx
---import Formatter.Flows exposing (makeFlowTree)
-import Formatter.LogicalPrintingTree exposing
-    ( makeLogicalPrintingTree
-    , lptToString
-    , lptAddComments
-    )
+
+import Formatter.LogicalPrintingTree exposing (lptToString)
+import Formatter.LPTCreate exposing (makeLogicalPrintingTree)
+import Formatter.LPTComments exposing (lptAddComments)
+
 import Formatter.DocConstructors exposing
     ( moduleLineDoc
     )
 import Formatter.Strings exposing
     ( joinMaybeStrings
     )
-import Formatter.SingleRootTree as SRT
 import PrettyExpressive as P
 import SourcePosition exposing (Located)
 

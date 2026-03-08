@@ -1,0 +1,129 @@
+module Formatter.LPTComments exposing (..)
+
+import Dict
+
+import Compiler.Ast.Source as Src
+import Compiler.Parse.Context as Ctx
+
+import Formatter.LogicalPrintingTree exposing (LPBox(..),
+    ListBrackets(..))
+
+import Formatter.SingleRootTree as SRT exposing (SingleRootTree)
+
+lptAddComments: Ctx.Context -> SingleRootTree LPBox -> Result String (SingleRootTree LPBox)
+lptAddComments ctx lpTree =
+    let
+        -- Each value is an Array Comment; We con't want an Array (Array
+        -- Comment); fold them all into a single Array Comment
+        comments = Array.foldl (\arrayC acc -> acc ++ arrayC ) [] (Dict.values ctx.comments)
+    in
+    Array.foldl
+        (\comment acc ->
+            when acc is
+                Err err ->
+                    Err err
+
+                Ok currentTree ->
+                    lptAddComment comment currentTree
+        )
+        (Ok lpTree)
+        comments
+
+type CommentInsertionPoint
+    = ExistingNode { id : Int, lpBox : LPBox }
+    | NewNode { row: Int }
+
+lptAddComment: Ctx.Comment -> SingleRootTree LPBox -> Result String (SingleRootTree LPBox)
+lptAddComment comment lpTree =
+    Err "foo"
+    {-
+    let
+
+    in
+    when comment.value is
+        Ctx.Line lineString ->
+        Ctx.MultiLine mlineString ->
+
+-}
+
+{-
+The function scans the root's children looking for an OriginalRows whose
+range includes row. If it finds one, it returns that id and the unchanged
+tree. If not, it inserts a new OriginalRows { first = row, last = row },
+then uses insertSorted to slot the new id into the right position among
+the existing children -- it walks the children until it finds one whose
+first is greater than row, and places the new id just before it. If row
+is larger than all existing entries, it ends up at the end.
+-}
+findOrCreateOriginalRow : Int -> SingleRootTree LPBox -> { id : Int, tree : SingleRootTree LPBox }
+findOrCreateOriginalRow row tree =
+    let
+        rootChildIds =
+            SRT.getRootChildren tree
+
+        found =
+            Array.foldl
+                (\childId acc ->
+                    when acc is
+                        Just _ ->
+                            acc
+
+                        Nothing ->
+                            when SRT.getNode childId tree is
+                                Just (OriginalRows { first, last }) ->
+                                    if first <= row && row <= last then
+                                        Just childId
+                                    else
+                                        Nothing
+
+                                _ ->
+                                    Nothing
+                )
+                Nothing
+                rootChildIds
+    in
+    when found is
+        Just id ->
+            { id = id, tree = tree }
+
+        Nothing ->
+            let
+                result =
+                    SRT.insert (OriginalRows { first = row, last = row }) tree
+
+                newChildren =
+                    insertSorted result.id row rootChildIds result.tree
+            in
+            { id = result.id
+            , tree = SRT.setRootChildren newChildren result.tree
+            }
+
+
+insertSorted : Int -> Int -> Array Int -> SingleRootTree LPBox -> Array Int
+insertSorted newId row existing tree =
+    let
+        { before, after } =
+            Array.foldl
+                (\childId acc ->
+                    if acc.inserted then
+                        { acc | after = Array.pushLast childId acc.after }
+                    else
+                        when SRT.getNode childId tree is
+                            Just (OriginalRows { first }) ->
+                                if row < first then
+                                    { acc
+                                        | after = Array.pushLast childId acc.after
+                                        , inserted = True
+                                    }
+                                else
+                                    { acc | before = Array.pushLast childId acc.before }
+
+                            _ ->
+                                { acc | before = Array.pushLast childId acc.before }
+                )
+                { before = [], after = [], inserted = False }
+                existing
+    in
+    before
+        |> Array.pushLast newId
+        |> (\arr -> Array.foldl Array.pushLast arr after)
