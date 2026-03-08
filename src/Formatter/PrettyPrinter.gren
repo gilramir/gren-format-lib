@@ -1,8 +1,13 @@
 module Formatter.PrettyPrinter exposing (prettyPrint)
 
 import Compiler.Ast.Source as Src
+import Compiler.Parse.Context as Ctx
 --import Formatter.Flows exposing (makeFlowTree)
-import Formatter.LogicalPrintingTree exposing (makeLogicalPrintingTree, lptToString)
+import Formatter.LogicalPrintingTree exposing
+    ( makeLogicalPrintingTree
+    , lptToString
+    , lptAddComments
+    )
 import Formatter.DocConstructors exposing
     ( moduleLineDoc
     )
@@ -21,16 +26,23 @@ costFactory =
 
 
 
-prettyPrint: Src.Module -> Result String String
-prettyPrint ast =
+prettyPrint: Src.Module -> Ctx.Context -> Result String String
+prettyPrint ast ctx =
     let
+        _ = Debug.log "(ast)" ast
+        _ = Debug.log "(ctx)" ctx
         lpt = makeLogicalPrintingTree ast
         _ = Debug.log "(lpt-pretty)" ("\n" ++ (lptToString lpt))
 
 --        sections = astToSections ast
 --        printedSections = Array.map (\s -> printSection s) sections
     in
-        Ok "test"
+        when lptAddComments ctx lpt is
+            Ok lptWc ->
+                Ok "test"
+            Err wcReason ->
+                Err wcReason
+                
 
 {-
         when joinMaybeStrings "\n" printedSections is

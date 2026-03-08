@@ -1,6 +1,9 @@
 module Formatter.LogicalPrintingTree exposing (..)
 
+import Dict
+
 import Compiler.Ast.Source as Src
+import Compiler.Parse.Context as Ctx
 import SourcePosition exposing (Located, Position, emptyPos, at)
 
 import Formatter.SingleRootTree as SRT exposing (SingleRootTree)
@@ -14,7 +17,7 @@ type LPBox
     = RootBox
 
     -- Sets the original source row for the children
-    | SetOriginalRow Int
+    | OriginalRows { first: Int, last: Int }
 
     -- Just regular text; printed as-is. Can never be broken.
     -- The location is the original source location, if we have it.
@@ -31,12 +34,13 @@ type LPBox
 lpBoxToString : LPBox -> String
 lpBoxToString lpbox =
     let
-        pstr = (\pos -> "@ (r=" ++ (String.fromInt pos.row) ++
-            ", c=" ++ (String.fromInt pos.col) ++ ")")
+        pstr = (\pos -> "@ (c=" ++ (String.fromInt pos.col) ++
+            ", r=" ++ (String.fromInt pos.row) ++ ")")
     in
     when lpbox is
         RootBox -> "root"
-        SetOriginalRow row -> "(orig row " ++ (String.fromInt row) ++ ")"
+        OriginalRows { first = first, last = last } ->
+            "(orig row " ++ (String.fromInt first) ++ " - " ++ (String.fromInt last) ++ ")"
         UnbreakableText s ->
             "\"" ++ s.value ++ "\" " ++ (pstr s.start)
         AcrossThenIndent -> "(acrossThenIndent)"
@@ -58,44 +62,120 @@ nilPos =
 
 makeLogicalPrintingTree : Src.Module -> SingleRootTree LPBox
 makeLogicalPrintingTree modAst =
-    let
-        lpt0 = SRT.new makeRootLPBox
-        lpt1 = processModuleLine modAst lpt0
-        lpt2 = processImports modAst lpt1
-        lptx = sortOriginalRows lpt2
-    in
-        lptx
+    SRT.new makeRootLPBox
+        |> processModuleLine modAst
+        |> processImports modAst
+        |> finalizeOriginalRows
 
-sortOriginalRows : SingleRootTree LPBox -> SingleRootTree LPBox
-sortOriginalRows lpTree =
+finalizeOriginalRows : SingleRootTree LPBox -> SingleRootTree LPBox
+finalizeOriginalRows lpTree =
     let
-        unsortedChildren = SRT.getRootChildren lpTree
-        sortedChildren = Array.sortWith
-            (\a b ->
-                let
-                    anode = SRT.getNode a lpTree
-                    bnode = SRT.getNode b lpTree
-                in
-                    when anode is
-                        Just (SetOriginalRow arow) ->
-                            when bnode is
-                                Just (SetOriginalRow brow) ->
-                                    compare arow brow
-                                _ ->
-                                    compare 0 1
-                        _ ->
-                            compare 0 1
-            ) unsortedChildren
-
+        t1 = addLastRowToOriginalRows lpTree
+        fixedChildren = SRT.getRootChildren t1
+        sortedChildren = sortOriginalRows fixedChildren t1
     in
-        SRT.setRootChildren sortedChildren lpTree
+        SRT.setRootChildren sortedChildren t1
+
+sortOriginalRows : Array Int -> SingleRootTree LPBox -> Array Int
+sortOriginalRows ids lpTree =
+    Array.sortWith
+        (\a b ->
+            let
+                anode = SRT.getNode a lpTree
+                bnode = SRT.getNode b lpTree
+            in
+                when anode is
+                    Just (OriginalRows { first = afirst, last = alast }) ->
+                        when bnode is
+                            Just (OriginalRows { first = bfirst, last = blast}) ->
+                                compare alast bfirst
+                            _ ->
+                                compare 0 1
+                    _ ->
+                        compare 0 1
+        ) ids
+
+addLastRowToOriginalRows : SingleRootTree LPBox -> SingleRootTree LPBox
+addLastRowToOriginalRows lpTree =
+    let
+        originalChildren = SRT.getRootChildren lpTree
+    in
+    Array.foldl
+        (\id currentTree ->
+            when lastRowInBranch id currentTree is
+                Just lastRow ->
+                    changeOriginalLastRow id lastRow currentTree
+                Nothing ->
+                    -- Couldn't find a last row? Nothing to do
+                    currentTree
+        )
+        lpTree
+        originalChildren
+
+changeOriginalLastRow : Int -> Int -> SingleRootTree LPBox -> SingleRootTree LPBox
+changeOriginalLastRow id lastRow lpTree =
+    when SRT.getNode id lpTree is
+        Just node ->
+            when node is
+                OriginalRows firstLast ->
+                    let
+                        newNode = OriginalRows
+                                    { firstLast
+                                        | last = lastRow
+                                    }
+                    in
+                        SRT.replaceNode id newNode lpTree
+                _ ->
+                    lpTree
+        -- Impossible
+        Nothing ->
+            lpTree
+
+
+
+lastRowInBranch : Int -> SingleRootTree LPBox -> Maybe Int
+lastRowInBranch topId lpTree =
+    SRT.depthFirst topId lpTree
+        |> Array.map (\r ->
+            let
+                { depth = depth, id = id, value = node } = r
+            in
+                getLastRow node
+            )
+        |> Array.foldl
+            (\maybeVal acc ->
+                when acc is
+                    Nothing ->
+                        when maybeVal is
+                            Just val -> Just val
+                            Nothing -> Nothing
+
+                    Just current ->
+                        when maybeVal is
+                            Just val ->
+                                Just (max val current)
+                            Nothing ->
+                                Just current
+            )
+            Nothing
+
+getLastRow : LPBox -> Maybe Int
+getLastRow lpbox =
+    when lpbox is
+        RootBox -> Nothing
+        OriginalRows { first = first, last = last } -> Just last
+        UnbreakableText locString -> Just locString.end.row
+        AcrossThenIndent -> Nothing
+        AllAcrossOrAllVertical _ -> Nothing
+
+
 
 
 -- TODO: ports
 processModuleLine : Src.Module -> SingleRootTree LPBox -> SingleRootTree LPBox
 processModuleLine modAst lpTree =
     let
-        r0 = SRT.insert (SetOriginalRow 1) lpTree
+        r0 = SRT.insert (OriginalRows { first = 1, last = -1 }) lpTree
         r1 = SRT.insert (mkText { row = 1, col = 1} "module") r0.tree
         r2 = SRT.insert (mkTextFromLocString modAst.name) r1.tree
         r3 = SRT.insert (mkText nilPos "exposing") r2.tree
@@ -192,7 +272,7 @@ processImports modAst lpTree =
 processImport : Located Src.Import -> SingleRootTree LPBox -> SingleRootTree LPBox
 processImport locImport lpTree =
     let
-        r0 = SRT.insert (SetOriginalRow locImport.start.row) lpTree
+        r0 = SRT.insert (OriginalRows { first = locImport.start.row, last = locImport.end.row}) lpTree
         r1 = SRT.insert (mkText { row = locImport.start.row, col = 1} "import") r0.tree
         r2 = SRT.insert (mkTextFromLocString locImport.value.module_) r1.tree
         { ids = ids3, tree = r3tree } =
@@ -236,3 +316,30 @@ processImport locImport lpTree =
         t2 = SRT.appendRootChild r0.id t1
     in
         t2
+
+
+
+lptAddComments: Ctx.Context -> SingleRootTree LPBox -> Result String (SingleRootTree LPBox)
+lptAddComments ctx lpTree =
+    let
+        -- Each value is an Array Comment; We con't want an Array (Array
+        -- Comment); fold them all into a single Array Comment
+        comments = Array.foldl (\arrayC acc -> acc ++ arrayC ) [] (Dict.values ctx.comments)
+    in
+    Array.foldl
+        (\comment acc ->
+            when acc is
+                Err err ->
+                    Err err
+
+                Ok currentTree ->
+                    lptAddComment comment currentTree
+        )
+        (Ok lpTree)
+        comments
+
+lptAddComment: Ctx.Comment -> SingleRootTree LPBox -> Result String (SingleRootTree LPBox)
+lptAddComment comment lpTree =
+    Ok lpTree
+
+
