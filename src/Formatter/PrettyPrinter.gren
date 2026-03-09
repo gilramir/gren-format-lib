@@ -6,6 +6,7 @@ import Compiler.Parse.Context as Ctx
 import Formatter.LogicalPrintingTree exposing (lptToString)
 import Formatter.LPTCreate exposing (makeLogicalPrintingTree)
 import Formatter.LPTComments exposing (lptAddComments)
+import Formatter.LPTVerticalSpace exposing (insertEmptyLines)
 
 import Formatter.DocConstructors exposing
     ( moduleLineDoc
@@ -43,7 +44,8 @@ prettyPrint ast ctx =
                     Err wcReason
             Ok lptWc ->
                 let
-                    _ = Debug.log "(ok_lpt)" ("\n" ++ (lptToString lptWc))
+                    lptXl = insertEmptyLines lptWc
+                    _ = Debug.log "(ok_lpt)" ("\n" ++ (lptToString lptXl))
                 in
                     Ok "test"
                 

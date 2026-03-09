@@ -7,7 +7,7 @@ import Compiler.Parse.Context as Ctx
 import SourcePosition exposing (Located, Position)
 
 import Formatter.LogicalPrintingTree exposing (LPBox(..),
-    ListBrackets(..))
+    ListBrackets(..), SyntaxType(..))
 
 import Formatter.SingleRootTree as SRT exposing (SingleRootTree)
 
@@ -45,7 +45,7 @@ lptAddComment comment lpTree =
 lptAddSingleLineComment: String -> Ctx.Comment -> SingleRootTree LPBox -> Result String (SingleRootTree LPBox)
 lptAddSingleLineComment commentString comment lpTree =
     let
-        { id = origRowId, tree = t1 } = findOrCreateOriginalRow comment.row lpTree
+        { id = origRowId, tree = t1 } = findOrCreateOriginalRow comment.row StSingleLineComment lpTree
         { id = commentId , tree = t2 } = insertComment origRowId comment.row comment.col
                                             commentString t1
     in
@@ -61,8 +61,8 @@ the existing children -- it walks the children until it finds one whose
 first is greater than row, and places the new id just before it. If row
 is larger than all existing entries, it ends up at the end.
 -}
-findOrCreateOriginalRow : Int -> SingleRootTree LPBox -> { id : Int, tree : SingleRootTree LPBox }
-findOrCreateOriginalRow row tree =
+findOrCreateOriginalRow : Int -> SyntaxType -> SingleRootTree LPBox -> { id : Int, tree : SingleRootTree LPBox }
+findOrCreateOriginalRow row stype tree =
     let
         rootChildIds =
             SRT.getRootChildren tree
@@ -95,7 +95,7 @@ findOrCreateOriginalRow row tree =
         Nothing ->
             let
                 result =
-                    SRT.insert (OriginalRows { first = row, last = row }) tree
+                    SRT.insert (OriginalRows { first = row, last = row, stype = stype }) tree
 
                 newChildren =
                     insertSorted result.id row rootChildIds result.tree

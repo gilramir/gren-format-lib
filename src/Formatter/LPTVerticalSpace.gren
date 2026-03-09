@@ -1,0 +1,122 @@
+module Formatter.LPTVerticalSpace exposing (..)
+
+import SourcePosition exposing (Located, Position, emptyPos, at)
+
+import Formatter.LogicalPrintingTree exposing (LPBox(..),
+    ListBrackets(..), SyntaxType(..))
+import Formatter.SingleRootTree as SRT exposing (SingleRootTree)
+
+{-
+Algorithm:
+
+Background:
+
+We have a SingleRootTree LPBox tree, and the children of the root node are all
+OriginalRows nodes at this point.
+For each OriginalRows we now the first row (integer), last
+row (integer), and syntax type.
+
+The first child of the root always has a StModule type. That can never change.
+
+Goal:
+
+We will insert LPBox EmptyLine nodes in the root's children, interspersed with
+the LPBox OriginalRows nodes.
+
+Rules:
+
+1. We operator solely on the children of the root nodes. Each node is an LPBox,
+    but if I abbreviate my instructions by naming a SyntaxTree type, then I am
+    referring to an OriginalRows LPBox. E.g., if I say "StModule node", I mean,
+    "An OriginalRows node where the stype is StModule".
+
+2. After the StModule node (which is always the 1st child), insert one
+EmptyRow.
+
+3. Between two StImport nodes whose last and first rows are back to back
+(meaning, one finishes on row N, and the next one starts on row N + 1), do
+nothing. However, if there is row difference between StImports is more than 1,
+then insert one EmptyRow node between them.
+
+-}
+
+{-
+The function walks the root's children one at a time, tracking the
+previous node. At each step it checks two things:
+
+If the previous node was StModule, it inserts an EmptyLine before the
+current child regardless of what comes next.
+If both the previous and current are StImport and there's a row gap
+greater than 1, it inserts an EmptyLine between them. Back-to-back imports
+(gap of exactly 1) get nothing.
+
+Everything else passes through unchanged. At the end it replaces the
+root's children with the new array that includes the interspersed
+EmptyLine node ids.
+-}
+
+insertEmptyLines : SingleRootTree LPBox -> SingleRootTree LPBox
+insertEmptyLines tree =
+    let
+        rootId =
+            SRT.getRootId tree
+
+        childIds =
+            SRT.getRootChildren tree
+
+        { newTree, newChildren } =
+            Array.foldl
+                (\childId acc ->
+                    let
+                        node =
+                            SRT.getNode childId acc.newTree
+                    in
+                    when { prev = acc.prev, current = node } is
+                        -- After StModule, always insert an EmptyLine
+                        { prev = Just (OriginalRows { stype = StModule }), current = _ } ->
+                            let
+                                result =
+                                    SRT.insert EmptyLine acc.newTree
+                            in
+                            { newTree = result.tree
+                            , newChildren =
+                                acc.newChildren
+                                    |> Array.pushLast result.id
+                                    |> Array.pushLast childId
+                            , prev = node
+                            }
+
+                        -- Between two StImports with a gap > 1 row
+                        { prev = Just (OriginalRows prevRows) , current = Just (OriginalRows currentRows) } ->
+                            if prevRows.stype == StImport && currentRows.stype == StImport && currentRows.first > prevRows.last + 1 then
+                                let
+                                    result =
+                                        SRT.insert EmptyLine acc.newTree
+                                in
+                                { newTree = result.tree
+                                , newChildren =
+                                    acc.newChildren
+                                        |> Array.pushLast result.id
+                                        |> Array.pushLast childId
+                                , prev = node
+                                }
+                            else
+                                { acc
+                                    | newChildren = Array.pushLast childId acc.newChildren
+                                    , prev = node
+                                }
+
+                        -- Everything else: just append
+                        _ ->
+                            { acc
+                                | newChildren = Array.pushLast childId acc.newChildren
+                                , prev = node
+                            }
+                )
+                { newTree = tree
+                , newChildren = []
+                , prev = Nothing
+                }
+                childIds
+    in
+    SRT.setRootChildren newChildren newTree

@@ -12,12 +12,21 @@ type ListBrackets
     = ListParen
     | ListCurly
 
+type SyntaxType
+    = StModule
+    | StImport
+    | StSingleLineComment
+    | StMultiLineComment
+
 type LPBox
     -- This is needed just to use as a root node
     = RootBox
 
     -- Sets the original source row for the children
-    | OriginalRows { first: Int, last: Int }
+    | OriginalRows { first: Int, last: Int, stype: SyntaxType }
+
+    -- An empty line inserted after we have grouped everything
+    | EmptyLine
 
     -- Just regular text; printed as-is. Can never be broken.
     -- The location is the original source location, if we have it.
@@ -48,6 +57,7 @@ lpBoxToString lpbox =
         AcrossThenIndent -> "(acrossThenIndent)"
         AllAcrossOrAllVertical br -> "(allAcrossOrAllVertical)"
         SingleLineComment s -> "comment " ++ pstr(s.start) ++ " -- " ++ s.value
+        EmptyLine -> "(nl)"
 
 lptToString : SingleRootTree LPBox -> String
 lptToString lpTree =
