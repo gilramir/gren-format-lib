@@ -30,16 +30,22 @@ prettyPrint ast ctx =
         _ = Debug.log "(ast)" ast
         _ = Debug.log "(ctx)" ctx
         lpt = makeLogicalPrintingTree ast
-        _ = Debug.log "(lpt-pretty)" ("\n" ++ (lptToString lpt))
+--        _ = Debug.log "(lpt-pretty)" ("\n" ++ (lptToString lpt))
 
 --        sections = astToSections ast
 --        printedSections = Array.map (\s -> printSection s) sections
     in
         when lptAddComments ctx lpt is
-            Ok lptWc ->
-                Ok "test"
             Err wcReason ->
-                Err wcReason
+                let
+                    _ = Debug.log "(failed_lpt)" ("\n" ++ (lptToString lpt))
+                in
+                    Err wcReason
+            Ok lptWc ->
+                let
+                    _ = Debug.log "(ok_lpt)" ("\n" ++ (lptToString lptWc))
+                in
+                    Ok "test"
                 
 
 {-

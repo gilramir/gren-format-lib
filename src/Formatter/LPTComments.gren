@@ -4,6 +4,7 @@ import Dict
 
 import Compiler.Ast.Source as Src
 import Compiler.Parse.Context as Ctx
+import SourcePosition exposing (Located, Position)
 
 import Formatter.LogicalPrintingTree exposing (LPBox(..),
     ListBrackets(..))
@@ -29,22 +30,27 @@ lptAddComments ctx lpTree =
         (Ok lpTree)
         comments
 
-type CommentInsertionPoint
-    = ExistingNode { id : Int, lpBox : LPBox }
-    | NewNode { row: Int }
 
 lptAddComment: Ctx.Comment -> SingleRootTree LPBox -> Result String (SingleRootTree LPBox)
 lptAddComment comment lpTree =
-    Err "foo"
-    {-
-    let
-
-    in
     when comment.value is
         Ctx.Line lineString ->
+            lptAddSingleLineComment lineString comment lpTree
         Ctx.MultiLine mlineString ->
+            -- TODO
+            Err <| "Cannot handle multiline comments yet, row=" ++
+                String.fromInt comment.row ++ ", col=" ++
+                String.fromInt comment.col
 
--}
+lptAddSingleLineComment: String -> Ctx.Comment -> SingleRootTree LPBox -> Result String (SingleRootTree LPBox)
+lptAddSingleLineComment commentString comment lpTree =
+    let
+        { id = origRowId, tree = t1 } = findOrCreateOriginalRow comment.row lpTree
+        { id = commentId , tree = t2 } = insertComment origRowId comment.row comment.col
+                                            commentString t1
+    in
+        Ok t2
+
 
 {-
 The function scans the root's children looking for an OriginalRows whose
@@ -127,3 +133,229 @@ insertSorted newId row existing tree =
     before
         |> Array.pushLast newId
         |> (\arr -> Array.foldl Array.pushLast arr after)
+
+
+{-
+The function inserts a SingleLineComment into the tree, then figures
+out where it belongs among the children of the originalRow node. It
+walks the existing children, counting how many UnbreakableText or
+SingleLineComment nodes have a start position that comes before (or
+at) the given row/col. That count becomes the insertion index. It then
+splits the children at that index, slots the new comment id in between,
+and sets the updated children array.
+-}
+insertComment :
+    Int
+    -> Int
+    -> Int
+    -> String
+    -> SingleRootTree LPBox
+    -> { id : Int, tree : SingleRootTree LPBox }
+insertComment originalRowId row col commentText tree =
+    let
+        commentLocated =
+            { start = { row = row, col = col }
+            , end = { row = row, col = col + String.count commentText }
+            , value = commentText
+            }
+
+        result =
+            SRT.insert (SingleLineComment commentLocated) tree
+
+        parentId =
+            findDeepestParent originalRowId row col result.tree
+    in
+    insertAmongChildren parentId result.id row col result.tree
+
+
+findDeepestParent : Int -> Int -> Int -> SingleRootTree LPBox -> Int
+findDeepestParent parentId row col tree =
+    let
+        childIds =
+            SRT.children parentId tree
+
+        candidate =
+            Array.foldl
+                (\childId acc ->
+                    when acc is
+                        Just _ ->
+                            acc
+
+                        Nothing ->
+                            let
+                                nodeChildren =
+                                    SRT.children childId tree
+                            in
+                            if Array.isEmpty nodeChildren then
+                                -- Leaf node (UnbreakableText, etc.); don't recurse into it
+                                Nothing
+                            else if subtreeContainsRow childId row tree then
+                                when lastRowInSubtree childId tree is
+                                    Just lastRow ->
+                                        if lastRow == row then
+                                            Just childId
+                                        else
+                                            Nothing
+
+                                    Nothing ->
+                                        Nothing
+                            else
+                                Nothing
+                )
+                Nothing
+                (Array.reverse childIds)
+    in
+    when candidate is
+        Nothing ->
+            parentId
+
+        Just childId ->
+            findDeepestParent childId row col tree
+
+
+
+subtreeContainsRow : Int -> Int -> SingleRootTree LPBox -> Bool
+subtreeContainsRow nodeId row tree =
+    SRT.depthFirst nodeId tree
+        |> Array.foldl
+            (\entry found ->
+                if found then
+                    True
+                else
+                    when entry.value is
+                        UnbreakableText located ->
+                            located.start.row <= row && row <= located.end.row
+
+                        SingleLineComment located ->
+                            located.start.row <= row && row <= located.end.row
+
+                        _ ->
+                            False
+            )
+            False
+
+
+lastRowInSubtree : Int -> SingleRootTree LPBox -> Maybe Int
+lastRowInSubtree nodeId tree =
+    SRT.depthFirst nodeId tree
+        |> Array.foldl
+            (\entry acc ->
+                when entry.value is
+                    UnbreakableText located ->
+                        when acc is
+                            Nothing ->
+                                Just located.end.row
+
+                            Just current ->
+                                Just (max current located.end.row)
+
+                    SingleLineComment located ->
+                        when acc is
+                            Nothing ->
+                                Just located.end.row
+
+                            Just current ->
+                                Just (max current located.end.row)
+
+                    _ ->
+                        acc
+            )
+            Nothing
+
+
+insertAmongChildren :
+    Int
+    -> Int
+    -> Int
+    -> Int
+    -> SingleRootTree LPBox
+    -> { id : Int, tree : SingleRootTree LPBox }
+insertAmongChildren parentId commentId row col tree =
+    let
+        childIds =
+            SRT.children parentId tree
+    in
+    if Array.isEmpty childIds then
+        { id = commentId
+        , tree = SRT.appendChild parentId commentId tree
+        }
+    else
+        let
+            insertionIndex =
+                Array.foldl
+                    (\childId acc ->
+                        if subtreeEndsBefore childId row col tree then
+                            acc + 1
+                        else
+                            acc
+                    )
+                    0
+                    childIds
+
+            { before, after } =
+                splitAt insertionIndex childIds
+
+            newChildren =
+                before
+                    |> Array.pushLast commentId
+                    |> (\arr -> Array.foldl Array.pushLast arr after)
+        in
+        { id = commentId
+        , tree = SRT.setChildren parentId newChildren tree
+        }
+
+
+{-
+positionBefore returns True if the position is on an earlier row, or on
+the same row with an equal or earlier column.
+-}
+positionBefore : Position -> Int -> Int -> Bool
+positionBefore pos row col =
+    pos.row < row || (pos.row == row && pos.col <= col)
+
+
+{-
+splitAt is a small helper that divides an array at a given index.
+-}
+splitAt : Int -> Array a -> { before : Array a, after : Array a }
+splitAt index arr =
+    Array.foldl
+        (\item acc ->
+            if acc.count < index then
+                { acc
+                    | before = Array.pushLast item acc.before
+                    , count = acc.count + 1
+                }
+            else
+                { acc | after = Array.pushLast item acc.after }
+        )
+        { before = [], after = [], count = 0 }
+        arr
+        |> (\result -> { before = result.before, after = result.after })
+
+
+
+subtreeEndsBefore : Int -> Int -> Int -> SingleRootTree LPBox -> Bool
+subtreeEndsBefore nodeId row col tree =
+    SRT.depthFirst nodeId tree
+        |> Array.foldl
+            (\entry lastPos ->
+                when entry.value is
+                    UnbreakableText located ->
+                        Just located.end
+
+                    SingleLineComment located ->
+                        Just located.end
+
+                    _ ->
+                        lastPos
+            )
+            Nothing
+        |> (\maybePos ->
+                when maybePos is
+                    Nothing ->
+                        True
+
+                    Just pos ->
+                        positionBefore pos row col
+           )

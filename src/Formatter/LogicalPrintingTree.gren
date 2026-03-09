@@ -23,6 +23,8 @@ type LPBox
     -- The location is the original source location, if we have it.
     | UnbreakableText (Located String)
 
+    | SingleLineComment (Located String)
+
     -- Flows across as far as possible. When it goes
     -- to the first new line, it indents one over and continues.
     -- Subsequent lines stay at that indentation
@@ -34,8 +36,8 @@ type LPBox
 lpBoxToString : LPBox -> String
 lpBoxToString lpbox =
     let
-        pstr = (\pos -> "@ (c=" ++ (String.fromInt pos.col) ++
-            ", r=" ++ (String.fromInt pos.row) ++ ")")
+        pstr = (\pos -> "@ (r=" ++ (String.fromInt pos.row) ++
+            ", c=" ++ (String.fromInt pos.col) ++ ")")
     in
     when lpbox is
         RootBox -> "root"
@@ -45,6 +47,7 @@ lpBoxToString lpbox =
             "\"" ++ s.value ++ "\" " ++ (pstr s.start)
         AcrossThenIndent -> "(acrossThenIndent)"
         AllAcrossOrAllVertical br -> "(allAcrossOrAllVertical)"
+        SingleLineComment s -> "comment " ++ pstr(s.start) ++ " -- " ++ s.value
 
 lptToString : SingleRootTree LPBox -> String
 lptToString lpTree =

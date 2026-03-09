@@ -127,6 +127,7 @@ getLastRow lpbox =
         UnbreakableText locString -> Just locString.end.row
         AcrossThenIndent -> Nothing
         AllAcrossOrAllVertical _ -> Nothing
+        SingleLineComment _ -> Nothing
 
 
 
@@ -135,10 +136,15 @@ getLastRow lpbox =
 processModuleLine : Src.Module -> SingleRootTree LPBox -> SingleRootTree LPBox
 processModuleLine modAst lpTree =
     let
-        r0 = SRT.insert (OriginalRows { first = 1, last = -1 }) lpTree
-        r1 = SRT.insert (mkText { row = 1, col = 1} "module") r0.tree
+        r0 = SRT.insert (OriginalRows { first = modAst.name.start.row, last = -1 }) lpTree
+        r1 = SRT.insert (mkText { row = modAst.name.start.row, col = 1} "module") r0.tree
         r2 = SRT.insert (mkTextFromLocString modAst.name) r1.tree
-        r3 = SRT.insert (mkText nilPos "exposing") r2.tree
+
+        exposingPos = 
+            { row = modAst.name.start.row
+            , col = modAst.name.start.col + String.count modAst.name.value + 1
+            }
+        r3 = SRT.insert (mkText exposingPos "exposing") r2.tree
         r4 =
             when modAst.exports is
                 Src.Open ->
@@ -250,7 +256,12 @@ processImport locImport lpTree =
             when locImport.value.expose is
                 Src.Open -> 
                     let
-                        o1 = SRT.insert (mkText nilPos "exposing") r3tree
+                        exposingPos = 
+                            { row = locImport.value.module_.start.row
+                            , col = locImport.value.module_.start.col +
+                                String.count locImport.value.module_.value + 1
+                            }
+                        o1 = SRT.insert (mkText exposingPos "exposing") r3tree
                         o2 = SRT.insert (mkText nilPos "(..)") o1.tree
                     in
                         { ids = [o1.id, o2.id], tree = o2.tree }
@@ -258,7 +269,12 @@ processImport locImport lpTree =
                     when Array.popFirst xlist is
                         Just { first = first, rest = rest } ->
                             let
-                                o1 = SRT.insert (mkText nilPos "exposing") r3tree
+                                exposingPos = 
+                                    { row = locImport.value.module_.start.row
+                                    , col = locImport.value.module_.start.col +
+                                        String.count locImport.value.module_.value + 1
+                                    }
+                                o1 = SRT.insert (mkText exposingPos "exposing") r3tree
                                 xr = insertNodeWithChildren (mkAllAcrossOrAllVertical ListParen)
                                     (Array.map (\x -> processExposed x) xlist) o1.tree
                             in
