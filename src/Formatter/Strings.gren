@@ -1,5 +1,6 @@
 module Formatter.Strings exposing
     ( joinMaybeStrings
+    , joinResultStrings
     )
 
 
@@ -30,3 +31,28 @@ combineMaybes list =
                         Nothing ->
                             Nothing
 
+{-
+The fold accumulates an Ok (Array String) as long as everything
+succeeds. If any item is Err, it short-circuits and passes the error
+through. At the end, Result.map joins the collected strings with the
+separator.
+-}
+joinResultStrings : String -> Array (Result String String) -> Result String String
+joinResultStrings sep array =
+    Array.foldl
+        (\item acc ->
+            when acc is
+                Err err ->
+                    Err err
+
+                Ok strings ->
+                    when item is
+                        Err err ->
+                            Err err
+
+                        Ok str ->
+                            Ok (Array.pushLast str strings)
+        )
+        (Ok [])
+        array
+        |> Result.map (String.join sep)

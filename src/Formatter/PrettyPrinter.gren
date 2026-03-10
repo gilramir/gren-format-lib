@@ -7,22 +7,9 @@ import Formatter.LogicalPrintingTree exposing (lptToString)
 import Formatter.LPTCreate exposing (makeLogicalPrintingTree)
 import Formatter.LPTComments exposing (lptAddComments)
 import Formatter.LPTVerticalSpace exposing (insertEmptyLines)
+import Formatter.LPTPretty exposing (makePrettyResult)
 
-import Formatter.DocConstructors exposing
-    ( moduleLineDoc
-    )
-import Formatter.Strings exposing
-    ( joinMaybeStrings
-    )
-import PrettyExpressive as P
 import SourcePosition exposing (Located)
-
-
-costFactory : P.CostFactory P.DefaultCostTuple
-costFactory =
-    P.defaultCostFactory { pageWidth = 100, computationWidth = Just 110 }
-
-
 
 
 prettyPrint: Src.Module -> Ctx.Context -> Result String String
@@ -31,7 +18,6 @@ prettyPrint ast ctx =
         _ = Debug.log "(ast)" ast
         _ = Debug.log "(ctx)" ctx
         lpt = makeLogicalPrintingTree ast
---        _ = Debug.log "(lpt-pretty)" ("\n" ++ (lptToString lpt))
 
 --        sections = astToSections ast
 --        printedSections = Array.map (\s -> printSection s) sections
@@ -47,95 +33,11 @@ prettyPrint ast ctx =
                     lptXl = insertEmptyLines lptWc
                     _ = Debug.log "(ok_lpt)" ("\n" ++ (lptToString lptXl))
                 in
-                    Ok "test"
-                
+                    let
+                        res = makePrettyResult lptXl
+                        _ = when res is
+                            Ok r -> Debug.log "(result)" r
+                            Err r -> Debug.log "(error)" r
+                    in
+                    res
 
-{-
-        when joinMaybeStrings "\n" printedSections is
-            Just formatted ->
-                Ok formatted
-            Nothing ->
-                Err "Failed to format due to a bug in gren format"
--}
-
-
-
-
-
-
-
-{-| Convert the AST into the canonical pretty-printed format.
-The formatter may fail, thus, a Result is returned.
-A failure would be due to a bug in the formatting, not
-in the AST which has already been successfully parsed.
--}
-prettyPrint0: Src.Module -> Result String String
-prettyPrint0 ast =
-    let
-        sections = astToSections ast
-        printedSections = Array.map (\s -> printSection s) sections
-    in
-        when joinMaybeStrings "\n" printedSections is
-            Just formatted ->
-                Ok formatted
-            Nothing ->
-                Err "Failed to format due to a bug in gren format"
-
-
-{- The AST is split into Sections, representing distinct,
-sequential portions of the code. Each of these Sections will
-be pretty-printed individually.
--}
-type Section
-    = ModuleLine { name: String, exports: Src.Exposing }
-    | ImportBlock { docs: Maybe String, imports: Array Src.Import }
-    | FloatingComments (Array String)
-    | TBD
-
--- 1. Create sections from the AST
--- 2. Sort them by starting line number
--- 3. Merge sections together where appropriate.
-astToSections: Src.Module -> Array Section
-astToSections ast =
-    let
-        moduleLine = moduleLineLocSection ast
-    in
-        sortAndMergeLocSections
-            -- TODO
-            [ moduleLine
-            ]
-
-sortAndMergeLocSections : Array (Located Section) -> Array Section
-sortAndMergeLocSections locSections =
-    let
-        strip : Located Section -> Section
-        strip locSection =
-            locSection.value
-    in
-        Array.map strip locSections
-            
-
-
-moduleLineLocSection : Src.Module -> Located Section
-moduleLineLocSection ast =
-    -- start/end is for the name of the module, but for moduleLine
-    -- that's sufficient.
-    { start = ast.name.start
-    , end = ast.name.end
-    , value = ModuleLine { name = ast.name.value, exports = ast.exports }
-    }
-
-
-printSection: Section -> Maybe String
-printSection section =
-    when section is
-        ModuleLine rec ->
-            printModuleLineSection rec
-        _ ->
-            -- TODO
-            Nothing
-            
-printModuleLineSection: { name: String, exports: Src.Exposing } -> Maybe String
-printModuleLineSection { name = name, exports = exports } =
-    P.prettyFormat costFactory <|
-        moduleLineDoc name exports

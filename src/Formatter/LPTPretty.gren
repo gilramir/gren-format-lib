@@ -1,0 +1,47 @@
+module Formatter.LPTPretty exposing (..)
+
+import Formatter.LogicalPrintingTree exposing (LPBox(..),
+    ListBrackets(..), SyntaxType(..))
+import Formatter.SingleRootTree as SRT exposing (SingleRootTree)
+
+import Formatter.DocConstructors exposing
+    ( moduleLineDoc
+    )
+import Formatter.Strings exposing
+    ( joinResultStrings
+    )
+
+import PrettyExpressive as P
+
+costFactory : P.CostFactory P.DefaultCostTuple
+costFactory =
+    P.defaultCostFactory { pageWidth = 100, computationWidth = Just 110 }
+
+
+makePrettyResult : SingleRootTree LPBox -> Result String String
+makePrettyResult lpTree =
+    let
+        topNodesAndIds = SRT.getRootChildrenWithNodes lpTree
+        prettyLines = Array.map (\r -> makePrettyLine r.id r.node) topNodesAndIds
+    in
+        joinResultStrings "\n" prettyLines
+
+makePrettyLine : Int -> LPBox -> Result String String
+makePrettyLine id lpBox =
+    when lpBox is
+        OriginalRows { stype = stype } ->
+            Ok <| "stree node " ++ String.fromInt id
+        EmptyLine ->
+            Ok ""
+        _ ->
+            Err "Unexpected item in LPTree root children"
+
+
+
+{-
+
+printModuleLineSection: { name: String, exports: Src.Exposing } -> Maybe String
+printModuleLineSection { name = name, exports = exports } =
+    P.prettyFormat costFactory <|
+        moduleLineDoc name exports
+-}
