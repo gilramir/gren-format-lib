@@ -1,6 +1,7 @@
 module Formatter.LPTComments exposing (..)
 
 import Dict
+import Math exposing (maxSafeInteger)
 
 import Compiler.Ast.Source as Src
 import Compiler.Parse.Context as Ctx
@@ -187,18 +188,9 @@ findDeepestParent parentId row col tree =
                                     SRT.children childId tree
                             in
                             if Array.isEmpty nodeChildren then
-                                -- Leaf node (UnbreakableText, etc.); don't recurse into it
                                 Nothing
                             else if subtreeContainsRow childId row tree then
-                                when lastRowInSubtree childId tree is
-                                    Just lastRow ->
-                                        if lastRow == row then
-                                            Just childId
-                                        else
-                                            Nothing
-
-                                    Nothing ->
-                                        Nothing
+                                Just childId
                             else
                                 Nothing
                 )
@@ -213,54 +205,31 @@ findDeepestParent parentId row col tree =
             findDeepestParent childId row col tree
 
 
-
 subtreeContainsRow : Int -> Int -> SingleRootTree LPBox -> Bool
 subtreeContainsRow nodeId row tree =
-    SRT.depthFirst nodeId tree
-        |> Array.foldl
-            (\entry found ->
-                if found then
-                    True
-                else
-                    when entry.value is
-                        UnbreakableText located ->
-                            located.start.row <= row && row <= located.end.row
+    let
+        range =
+            SRT.depthFirst nodeId tree
+                |> Array.foldl
+                    (\entry acc ->
+                        when entry.value is
+                            UnbreakableText located ->
+                                { minRow = min located.start.row acc.minRow
+                                , maxRow = max located.end.row acc.maxRow
+                                }
 
-                        SingleLineComment located ->
-                            located.start.row <= row && row <= located.end.row
+                            SingleLineComment located ->
+                                { minRow = min located.start.row acc.minRow
+                                , maxRow = max located.end.row acc.maxRow
+                                }
 
-                        _ ->
-                            False
-            )
-            False
+                            _ ->
+                                acc
+                    )
+                    { minRow = maxSafeInteger, maxRow = -1 }
+    in
+    range.maxRow >= 0 && range.minRow <= row && row <= range.maxRow
 
-
-lastRowInSubtree : Int -> SingleRootTree LPBox -> Maybe Int
-lastRowInSubtree nodeId tree =
-    SRT.depthFirst nodeId tree
-        |> Array.foldl
-            (\entry acc ->
-                when entry.value is
-                    UnbreakableText located ->
-                        when acc is
-                            Nothing ->
-                                Just located.end.row
-
-                            Just current ->
-                                Just (max current located.end.row)
-
-                    SingleLineComment located ->
-                        when acc is
-                            Nothing ->
-                                Just located.end.row
-
-                            Just current ->
-                                Just (max current located.end.row)
-
-                    _ ->
-                        acc
-            )
-            Nothing
 
 
 insertAmongChildren :

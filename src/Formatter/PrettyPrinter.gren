@@ -36,7 +36,7 @@ prettyPrint ast ctx =
                     let
                         res = makePrettyResult lptXl
                         _ = when res is
-                            Ok r -> Debug.log "(result)" r
+                            Ok r -> Debug.log "(result)" ("\n"++r)
                             Err r -> Debug.log "(error)" r
                     in
                     res

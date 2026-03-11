@@ -1,5 +1,7 @@
 module Formatter.LPTPretty exposing (..)
 
+import SourcePosition exposing (Located)
+
 import Formatter.LogicalPrintingTree exposing (LPBox(..),
     ListBrackets(..), SyntaxType(..))
 import Formatter.SingleRootTree as SRT exposing (SingleRootTree)
@@ -15,33 +17,423 @@ import PrettyExpressive as P
 
 costFactory : P.CostFactory P.DefaultCostTuple
 costFactory =
-    P.defaultCostFactory { pageWidth = 100, computationWidth = Just 110 }
+    P.defaultCostFactory { pageWidth = 100, computationWidth = Just 120 }
 
+-- How many spaces we indent
+grenIndent : Int
+grenIndent =
+    4
 
 makePrettyResult : SingleRootTree LPBox -> Result String String
 makePrettyResult lpTree =
     let
         topNodesAndIds = SRT.getRootChildrenWithNodes lpTree
-        prettyLines = Array.map (\r -> makePrettyLine r.id r.node) topNodesAndIds
+        prettyLines = Array.map (\r -> makePrettyLine r.id r.node lpTree) topNodesAndIds
     in
         joinResultStrings "\n" prettyLines
 
-makePrettyLine : Int -> LPBox -> Result String String
-makePrettyLine id lpBox =
+makePrettyLine : Int -> LPBox -> SingleRootTree LPBox -> Result String String
+makePrettyLine id lpBox lpTree =
     when lpBox is
         OriginalRows { stype = stype } ->
-            Ok <| "stree node " ++ String.fromInt id
+            when stype is
+                StModule -> makeFlowIndentable id lpTree
+                StImport -> makeFlowIndentable id lpTree
+                StSingleLineComment -> makeSingleLineComment id lpTree
+                _ -> Ok <| "stree node " ++ String.fromInt id
         EmptyLine ->
             Ok ""
         _ ->
             Err "Unexpected item in LPTree root children"
 
+{-
+makeFlowIndentable : Int -> SingleRootTree LPBox -> Result String String
+makeFlowIndentable id lpTree =
+    let
+        nodesAndIds = SRT.childrenWithNodes id lpTree
+        docs = Array.map (\nid -> makePDoc nid lpTree) nodesAndIds
+        finalDoc = flowIndentable grenIndent docs
+        _ = Debug.log "(pdoc)" finalDoc
+    in
+        genericRenderResult <| P.prettyFormat costFactory finalDoc
+-}
 
+
+makeFlowIndentable : Int -> SingleRootTree LPBox -> Result String String
+makeFlowIndentable id lpTree =
+    let
+        nodesAndIds = SRT.childrenWithNodes id lpTree
+        finalDoc = buildFlowDoc grenIndent nodesAndIds lpTree
+    in
+        genericRenderResult <| P.prettyFormat costFactory finalDoc
+
+
+{-| Like flowIndentable, but handles SingleLineComment nodes correctly:
+
+  - A comment on the same row as the preceding item is attached directly
+    to it (no separator), producing e.g. "exposing -- comment".
+  - A comment on a different row goes on its own line via a normal nl group.
+  - Either way, the comment appends hardNl so the next item always starts
+    on a fresh line — but because we track `lineTerminated`, we skip the
+    normal nl separator after a comment, avoiding a double newline.
+-}
+buildFlowDoc : Int -> Array { id : Int, node : LPBox } -> SingleRootTree LPBox -> P.Doc cost
+buildFlowDoc indent nodesAndIds lpTree =
+    let
+        -- separator: either "same line with space" or "new line with indent"
+        flowSep accDoc nextDoc =
+            P.concat accDoc (P.group (P.concat P.nl nextDoc))
+
+        foldResult =
+            Array.foldl
+                (\nid acc ->
+                    when nid.node is
+                        SingleLineComment loc ->
+                            let
+                                commentText = P.text ("-- " ++ loc.value)
+                                docWithComment =
+                                    if acc.isEmpty then
+                                        commentText
+                                    else if loc.start.row == acc.prevRow then
+                                        -- Same row as preceding item: attach with a space, no separator
+                                        P.concat acc.doc (P.concat (P.text " ") commentText)
+                                    else if acc.lineTerminated then
+                                        -- Previous item already ended with hardNl: no extra separator
+                                        P.concat acc.doc commentText
+                                    else
+                                        flowSep acc.doc commentText
+                            in
+                            -- hardNl forces the next item onto a new line.
+                            -- lineTerminated=True tells the next iteration to skip its separator.
+                            { doc = P.concat docWithComment P.hardNl
+                            , prevRow = loc.start.row
+                            , lineTerminated = True
+                            , isEmpty = False
+                            }
+
+                        AllAcrossOrAllVertical bracket ->
+                            let
+                                itemDoc = makeAllAcrossOrAllVertical bracket nid.id lpTree
+                                newDoc =
+                                    if acc.isEmpty then
+                                        itemDoc
+                                    else if acc.lineTerminated then
+                                        -- hardNl already ended the previous line; no extra separator
+                                        P.concat acc.doc itemDoc
+                                    else
+                                        flowSep acc.doc itemDoc
+                            in
+                            { doc = newDoc
+                            , prevRow = -1
+                            , lineTerminated = False
+                            , isEmpty = False
+                            }
+
+                        _ ->
+                            let
+                                itemDoc = makePDoc nid lpTree
+                                prevRow =
+                                    when nid.node is
+                                        UnbreakableText loc -> loc.start.row
+                                        _ -> -1
+                                newDoc =
+                                    if acc.isEmpty then
+                                        itemDoc
+                                    else if acc.lineTerminated then
+                                        P.concat acc.doc itemDoc
+                                    else
+                                        flowSep acc.doc itemDoc
+                            in
+                            { doc = newDoc
+                            , prevRow = prevRow
+                            , lineTerminated = False
+                            , isEmpty = False
+                            }
+                )
+                { doc = P.empty, prevRow = -1, lineTerminated = False, isEmpty = True }
+                nodesAndIds
+    in
+    P.nest indent foldResult.doc
+
+
+
+makeSingleLineComment : Int -> SingleRootTree LPBox -> Result String String
+makeSingleLineComment id lpTree =
+    let
+        nodes = SRT.childrenNodes id lpTree
+        resDoc =
+            when Array.popFirst nodes is
+                Just { first = first, rest = rest } ->
+                    if Array.isEmpty rest then
+                        when first is
+                            SingleLineComment locs -> Ok (P.text <| "-- " ++ locs.value)
+                            _ ->  Err "Unexpected node type in SingleLineComment"
+                    else
+                        Err "Too many nodes in SingleLineComment"
+                Nothing ->
+                    Err "No nodes in SingleLineComment"
+    in
+    when resDoc is
+        Ok doc ->
+            genericRenderResult <| P.prettyFormat costFactory doc
+        Err s ->
+            Err s
+        
+genericRenderResult : Maybe String -> Result String String
+genericRenderResult maybeFormatted =
+    when maybeFormatted is
+        Just s -> Ok s
+        Nothing -> Err "Failed to pretty-print"
+
+makePDoc : { id: Int, node : LPBox } -> SingleRootTree LPBox -> P.Doc cost
+makePDoc nid lpTree =
+    when nid.node is
+        UnbreakableText locs -> P.text locs.value
+        AllAcrossOrAllVertical bracket ->
+            makeAllAcrossOrAllVertical bracket nid.id lpTree
+        SingleLineComment locs -> lineComment locs.value
+        _ -> P.text "?"
+
+
+makeAllAcrossOrAllVertical : ListBrackets -> Int -> SingleRootTree LPBox -> P.Doc cost
+makeAllAcrossOrAllVertical brackets id lpTree =
+    let
+        nodes = SRT.childrenNodes id lpTree
+        --nodesAndIds = SRT.childrenWithNodes id lpTree
+        --docs = Array.map (\nid -> makePDoc nid lpTree) nodesAndIds
+    in
+        --indentIfNeeded grenIndent <| exposingListBoxes nodes
+        exposingListBoxes nodes
+        --P.nest grenIndent <| exposingListBoxes nodes
+           
+
+{-
+Strings flow across page with s space between them, but if they
+reach the margin, they get indented on the next line
+-}
+flowIndentable : Int -> Array (P.Doc cost) -> P.Doc cost
+flowIndentable indent docs =
+    P.nest indent 
+        (P.foldDoc
+            (\a b -> P.concat a (P.group (P.concat P.nl b)))
+            docs
+        )
 
 {-
 
-printModuleLineSection: { name: String, exports: Src.Exposing } -> Maybe String
-printModuleLineSection { name = name, exports = exports } =
-    P.prettyFormat costFactory <|
-        moduleLineDoc name exports
+The two renderings:
+
+-- flat (fits on one line):
+( first, second, last )
+
+-- broken (doesn't fit):
+( first
+, second
+, last
+)
 -}
+exposingList : Array (P.Doc cost) -> P.Doc cost
+exposingList items =
+    when Array.popFirst items is
+        Nothing ->
+            P.text "()"
+
+        Just { first, rest } ->
+            let
+                firstDoc = P.concat (P.text "( ") first
+                restDocs = Array.map (\d -> P.concat (P.text ", ") d) rest
+                allDocs  = [ firstDoc ] ++ restDocs
+
+                -- breakDoc: flat→"" (comma already in text), broken→newline
+                joined =
+                    P.foldDoc
+                        (\a b -> P.concat a (P.concat P.breakDoc b))
+                        allDocs
+
+                -- nl before ")": flat→" ", broken→newline
+            in
+            P.group
+                (P.concat joined (P.concat P.nl (P.text ")")))
+
+
+{-
+indentIfNeeded : Int -> P.Doc cost -> P.Doc cost
+indentIfNeeded indent doc =
+    (P.nest indent
+        (P.concat P.nl doc)
+    )
+-}
+
+{-
+P.concat
+    (P.text "module Foo exposing")
+    (P.nest 4
+        (P.concat P.nl
+            (exposingList [ P.text "Foo", P.text "Bar", P.text "Baz" ])
+        )
+    )
+-}
+
+{-
+The hardNl at the end means:
+
+flatten (lineComment s) produces failDoc — the comment can never be
+part of a flat layout, which is correct since -- ... consumes the rest
+of the line.
+Any doc concatenated after a lineComment is always on a fresh line.
+If a lineComment appears inside a group, the hardNl causes flatten to
+fail, so the group drops the flat branch entirely and uses the broken
+form.
+
+
+Use this when the comemnt is followed by more content (in the array of docs)
+-}
+lineComment : String -> P.Doc cost
+lineComment s =
+    P.concat (P.text ("-- " ++ s)) P.hardNl
+
+-- Use this when the comment is the last item, or when the
+-- surrounding structure supplies its own newline after it.
+lineCommentText : String -> P.Doc cost
+lineCommentText s =
+    P.text ("-- " ++ s)
+
+
+{-| Like `exposingList`, but handles interleaved single-line comments.
+
+  - If the array contains only `UnbreakableText` items, the result is
+    all-or-nothing: flat on one line, or one item per line.
+
+  - If any `SingleLineComment` is present, the result is always multi-line
+    (a comment consumes the rest of its line via `hardNl`, so flat layout
+    is impossible).
+
+  - A `SingleLineComment` on the same row as the immediately preceding
+    `UnbreakableText` is attached to that item's line with a space, and no
+    comma is inserted between them:
+
+        ( Dict
+        , empty -- a comment on the same row as "empty"
+        )
+
+  - A `SingleLineComment` on a different row from the preceding item gets
+    its own line.
+-}
+
+exposingListBoxes : Array LPBox -> P.Doc cost
+exposingListBoxes items =
+    let
+        hasComment =
+            Array.any
+                (\item ->
+                    when item is
+                        SingleLineComment _ -> True
+                        _                  -> False
+                )
+                items
+    in
+    if not hasComment then
+        let
+            textDocs =
+                Array.mapAndKeepJust
+                    (\item ->
+                        when item is
+                            UnbreakableText loc -> Just (P.text loc.value)
+                            _                  -> Nothing
+                    )
+                    items
+        in
+        exposingList textDocs
+
+    else
+        let
+            -- Each entry is { doc, isComment }.
+            -- isComment = True means no comma prefix should be added.
+            foldResult =
+                Array.foldl
+                    (\item acc ->
+                        when item is
+                            UnbreakableText loc ->
+                                let
+                                    flushed =
+                                        when acc.pending is
+                                            Nothing  -> acc.lineDocs
+                                            Just e   -> acc.lineDocs ++ [ e ]
+                                in
+                                { lineDocs = flushed
+                                , pending  = Just { doc = P.text loc.value, isComment = False }
+                                , prevRow  = loc.start.row
+                                }
+
+                            SingleLineComment loc ->
+                                if loc.start.row == acc.prevRow then
+                                    -- Attach to pending text on the same row.
+                                    let
+                                        attached =
+                                            when acc.pending is
+                                                Nothing ->
+                                                    { doc = P.text ("-- " ++ loc.value), isComment = True }
+                                                Just e ->
+                                                    { doc = P.concat e.doc (P.text (" -- " ++ loc.value))
+                                                    , isComment = False
+                                                    }
+                                    in
+                                    { acc
+                                        | lineDocs = acc.lineDocs ++ [ attached ]
+                                        , pending  = Nothing
+                                    }
+
+                                else
+                                    -- Standalone comment on its own row.
+                                    let
+                                        flushed =
+                                            when acc.pending is
+                                                Nothing  -> acc.lineDocs
+                                                Just e   -> acc.lineDocs ++ [ e ]
+                                    in
+                                    { lineDocs = flushed ++ [ { doc = P.text ("-- " ++ loc.value), isComment = True } ]
+                                    , pending  = Nothing
+                                    , prevRow  = loc.start.row
+                                    }
+                            _ ->
+                                -- Impossible
+                                { lineDocs = acc.lineDocs
+                                , pending  = Nothing
+                                , prevRow  = -1
+                                }
+                    )
+                    { lineDocs = [], pending = Nothing, prevRow = -1 }
+                    items
+
+            allLineDocs =
+                when foldResult.pending is
+                    Nothing  -> foldResult.lineDocs
+                    Just e   -> foldResult.lineDocs ++ [ e ]
+
+            -- Add "( " to the first non-comment item, ", " to subsequent
+            -- non-comment items, and no prefix to comment-only lines.
+            prefixed =
+                let
+                    { result } =
+                        Array.foldl
+                            (\{ doc, isComment } acc ->
+                                if isComment then
+                                    { acc | result = acc.result ++ [ doc ] }
+                                else
+                                    let
+                                        prefixedDoc =
+                                            if acc.seenText then
+                                                P.concat (P.text ", ") doc
+                                            else
+                                                P.concat (P.text "( ") doc
+                                    in
+                                    { result = acc.result ++ [ prefixedDoc ]
+                                    , seenText = True
+                                    }
+                            )
+                            { result = [], seenText = False }
+                            allLineDocs
+                in
+                result ++ [ P.text ")" ]
+        in
+        P.vcat prefixed
