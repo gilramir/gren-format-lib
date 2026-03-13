@@ -4,7 +4,7 @@ import SourcePosition exposing (Located)
 
 import Formatter.LogicalPrintingTree exposing (LPBox(..),
     ListBrackets(..), SyntaxType(..))
-import Formatter.SingleRootTree as SRT exposing (SingleRootTree)
+import Tree.SingleRootTree as SRT exposing (SingleRootTree)
 
 import Formatter.DocConstructors exposing
     ( moduleLineDoc

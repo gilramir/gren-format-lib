@@ -10,7 +10,7 @@ import SourcePosition exposing (Located, Position)
 import Formatter.LogicalPrintingTree exposing (LPBox(..),
     ListBrackets(..), SyntaxType(..))
 
-import Formatter.SingleRootTree as SRT exposing (SingleRootTree)
+import Tree.SingleRootTree as SRT exposing (SingleRootTree)
 
 lptAddComments: Ctx.Context -> SingleRootTree LPBox -> Result String (SingleRootTree LPBox)
 lptAddComments ctx lpTree =

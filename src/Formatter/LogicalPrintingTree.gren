@@ -6,7 +6,7 @@ import Compiler.Ast.Source as Src
 import Compiler.Parse.Context as Ctx
 import SourcePosition exposing (Located, Position, emptyPos, at)
 
-import Formatter.SingleRootTree as SRT exposing (SingleRootTree)
+import Tree.SingleRootTree as SRT exposing (SingleRootTree)
 
 type ListBrackets
     = ListParen
