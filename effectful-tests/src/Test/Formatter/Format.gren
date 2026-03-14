@@ -1,0 +1,80 @@
+module Test.Formatter.Format exposing (tests)
+
+import Bytes
+import Expect exposing (Expectation)
+import FileSystem
+import FileSystem.Path as Path
+import Task exposing (Task)
+import Test exposing (Test)
+import Test.Runner.Effectful as Effectful exposing (run, describe, test, await)
+
+import Compiler.Parse.Module as PM
+import Compiler.Parse.Context as Context
+import Formatter.PrettyPrinter as PPrint
+import String.Parser.Advanced as Parser
+
+tests : FileSystem.Permission -> Effectful.Test 
+tests fsPerm =
+    describe "Format"
+        [ importTests fsPerm
+        ]
+
+runPrettyPrinter : FileSystem.Permission -> String -> Task String String
+runPrettyPrinter fsPerm filename =
+    readTestFile fsPerm filename
+        |> Task.andThen
+         (\fileContent ->
+            let
+                parser = Parser.succeed (\ast payload -> {ast = ast, payload = payload })
+                    |> Parser.keep PM.parser
+                    |> Parser.keep Parser.getPayload
+            in
+            when Parser.run parser Context.empty fileContent is
+                Ok { ast = ast, payload = payload }->
+                    when PPrint.prettyPrint ast payload is
+                        Ok rendered ->
+                            -- We need to add a newline since the file
+                            -- with the expected version in it will have a
+                            -- newline at the end
+                            Task.succeed (rendered ++ "\n")
+
+                        Err errorString ->
+                            Task.fail errorString
+
+                Err errorString ->
+                    Task.fail <| PM.errorsToString fileContent errorString
+        )
+
+readTestFile : FileSystem.Permission -> String -> Task String String
+readTestFile fsPerm filename =
+    (Path.join <| Array.map Path.fromPosixString [ "testfiles", "Formatter", filename])
+        |> FileSystem.readFile fsPerm
+        |> Task.mapError (\fsErr -> FileSystem.errorToString fsErr)
+        |> Task.map Bytes.toString
+        |> Task.andThen (\ms ->
+            when ms is
+                Just s -> Task.succeed s
+                Nothing -> Task.fail "Failed to decode bytes"
+            )
+
+assertPretty : FileSystem.Permission -> String -> String -> Effectful.Test
+assertPretty fsPerm testDescription filenameBase =
+    let
+        originalFilename = filenameBase ++ ".gren"
+        prettyFilename = filenameBase ++ ".formatted.gren"
+    in
+    await ("pretty-printing original " ++ originalFilename)
+            (runPrettyPrinter fsPerm originalFilename)
+        <| \rendered ->
+            await ("reading expected " ++ prettyFilename) (readTestFile fsPerm prettyFilename)
+        <| \expectedFormatting ->
+            test testDescription <| \_ ->
+                Expect.equal rendered  expectedFormatting
+
+
+importTests: FileSystem.Permission -> Effectful.Test
+importTests fsPerm =
+    describe "Import Statements"
+        [ assertPretty fsPerm "import with comments" "ImportWithComments"
+        ]
+

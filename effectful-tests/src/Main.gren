@@ -1,0 +1,17 @@
+module Main exposing (main)
+
+import FileSystem
+import Init
+import Node
+
+import Test.Formatter.Format
+import Test.Runner.Effectful as Effectful exposing (run, describe)
+
+main : Effectful.Program a
+main =
+    Node.defineSimpleProgram <| \env ->
+        Init.await FileSystem.initialize <| \fsPerm ->
+            run env <|
+                describe "Gren Compiler Node effectful tests"
+                    [ Test.Formatter.Format.tests fsPerm
+                    ]

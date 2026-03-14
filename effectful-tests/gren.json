@@ -1,0 +1,24 @@
+{
+    "type": "application",
+    "platform": "node",
+    "source-directories": [
+        "src"
+    ],
+    "gren-version": "0.6.3",
+    "dependencies": {
+        "direct": {
+            "blaix/gren-effectful-tests": "6.0.0",
+            "gren-lang/compiler-node": "local:..",
+            "gren-lang/core": "local:../../core",
+            "gren-lang/node": "6.1.0",
+            "gren-lang/parser": "6.2.0",
+            "gren-lang/test": "5.0.0",
+            "gren-lang/test-runner-node": "7.0.0"
+        },
+        "indirect": {
+            "gilramir/gren-collections": "1.0.0",
+            "gilramir/gren-pretty-expressive": "1.1.0",
+            "gren-lang/url": "6.0.0"
+        }
+    }
+}

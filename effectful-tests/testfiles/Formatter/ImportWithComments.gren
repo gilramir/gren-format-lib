@@ -1,0 +1,31 @@
+module ViewItems exposing (viewItems)
+
+-- Comment line 3
+import Array as A exposing (mapAndKeepJust)
+
+
+import Basics exposing -- comment after 'exposing'
+    (max)
+
+import Dict exposing
+    ( Dict
+    , empty -- comment after 'empty'
+    )
+
+import Basics exposing -- comment after 'exposing'
+    (max
+    -- and between the items
+    , min)
+
+import String as S
+
+{- This is a
+multiline comment
+-}
+viewItems : Array String -> String
+viewItems items =
+  items
+        |> Array.sort
+            |> String.join
+                ", "
+
