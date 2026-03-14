@@ -5,10 +5,11 @@ import Math exposing (maxSafeInteger)
 
 import Compiler.Ast.Source as Src
 import Compiler.Parse.Context as Ctx
-import SourcePosition exposing (Located, Position)
+import SourcePosition exposing (Located, Position, at)
 
 import Formatter.LogicalPrintingTree exposing (LPBox(..),
     ListBrackets(..), SyntaxType(..))
+import Formatter.Strings exposing (countCodepointsLastLine, countNewlines)
 
 import Tree.SingleRootTree as SRT exposing (SingleRootTree)
 
@@ -34,23 +35,37 @@ lptAddComments ctx lpTree =
 
 lptAddComment: Ctx.Comment -> SingleRootTree LPBox -> Result String (SingleRootTree LPBox)
 lptAddComment comment lpTree =
-    when comment.value is
-        Ctx.Line lineString ->
-            lptAddSingleLineComment lineString comment lpTree
-        Ctx.Block mlineString ->
-            -- TODO
-            Err <| "Cannot handle multiline comments yet, row=" ++
-                String.fromInt comment.row ++ ", col=" ++
-                String.fromInt comment.col
-
-lptAddSingleLineComment: String -> Ctx.Comment -> SingleRootTree LPBox -> Result String (SingleRootTree LPBox)
-lptAddSingleLineComment commentString comment lpTree =
     let
-        { id = origRowId, tree = t1 } = findOrCreateOriginalRow comment.row StSingleLineComment lpTree
-        { id = commentId , tree = t2 } = insertComment origRowId comment.row comment.col
-                                            commentString t1
+        commentLpBox = mkCommentLpBox comment
+        stype = when comment.value is
+            Ctx.Line _ -> StSingleLineComment
+            Ctx.Block _ -> StBoxComment
+        { id = origRowId, tree = t1 } = findOrCreateOriginalRow comment.row stype lpTree
+        { id = commentId , tree = t2 } = insertComment commentLpBox origRowId comment.row comment.col t1
     in
         Ok t2
+
+
+mkCommentLpBox : Ctx.Comment -> LPBox
+mkCommentLpBox comment =
+    let
+        commentString = when comment.value is
+            Ctx.Line string -> string
+            Ctx.Block string -> string
+
+        numNewlines = countNewlines commentString
+
+        -- We want to know the width of the last line, to compute the final
+        -- column.
+        endCol = countCodepointsLastLine commentString
+        endRow = comment.row + numNewlines
+        start = { row = comment.row, col = comment.col }
+        end = { row = endRow, col = endCol }
+    in
+        when comment.value is
+            Ctx.Line string -> SingleLineComment <| at start end string
+            Ctx.Block string -> BlockComment <| at start end string
+
 
 
 {-
@@ -146,22 +161,16 @@ splits the children at that index, slots the new comment id in between,
 and sets the updated children array.
 -}
 insertComment :
-    Int
+    LPBox
     -> Int
     -> Int
-    -> String
+    -> Int
     -> SingleRootTree LPBox
     -> { id : Int, tree : SingleRootTree LPBox }
-insertComment originalRowId row col commentText tree =
+insertComment commentLpBox originalRowId row col tree =
     let
-        commentLocated =
-            { start = { row = row, col = col }
-            , end = { row = row, col = col + String.count commentText }
-            , value = commentText
-            }
-
         result =
-            SRT.insert (SingleLineComment commentLocated) tree
+            SRT.insert commentLpBox tree
 
         parentId =
             findDeepestParent originalRowId row col result.tree
@@ -212,6 +221,8 @@ subtreeContainsRow nodeId row tree =
             SRT.depthFirst nodeId tree
                 |> Array.foldl
                     (\entry acc ->
+                        -- This when expression needs to look at any LPBox
+                        -- which has a Located value, to look at minRow/maxRow
                         when entry.value is
                             UnbreakableText located ->
                                 { minRow = min located.start.row acc.minRow
@@ -219,6 +230,11 @@ subtreeContainsRow nodeId row tree =
                                 }
 
                             SingleLineComment located ->
+                                { minRow = min located.start.row acc.minRow
+                                , maxRow = max located.end.row acc.maxRow
+                                }
+
+                            BlockComment located ->
                                 { minRow = min located.start.row acc.minRow
                                 , maxRow = max located.end.row acc.maxRow
                                 }
@@ -309,11 +325,16 @@ subtreeEndsBefore nodeId row col tree =
     SRT.depthFirst nodeId tree
         |> Array.foldl
             (\entry lastPos ->
+                -- This when expression needs to look at any LPBox
+                -- which has a Located value, to look at locatee.end
                 when entry.value is
                     UnbreakableText located ->
                         Just located.end
 
                     SingleLineComment located ->
+                        Just located.end
+
+                    BlockComment located ->
                         Just located.end
 
                     _ ->

@@ -8,6 +8,7 @@ import SourcePosition exposing (Located, Position, emptyPos, at)
 
 import Formatter.LogicalPrintingTree exposing (LPBox(..),
     ListBrackets(..), SyntaxType(..))
+import Formatter.Strings exposing (countNewlines)
 import Tree.SingleRootTree as SRT exposing (SingleRootTree)
 
 makeRootLPBox : LPBox
@@ -128,8 +129,8 @@ getLastRow lpbox =
         AcrossThenIndent -> Nothing
         AllAcrossOrAllVertical _ -> Nothing
         SingleLineComment _ -> Nothing
+        BlockComment locString -> Just (locString.end.row + (countNewlines locString.value))
         EmptyLine  -> Nothing
-
 
 
 -- TODO: ports

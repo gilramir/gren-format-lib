@@ -1,7 +1,33 @@
 module Formatter.Strings exposing
-    ( joinMaybeStrings
+    ( countCodepointsLastLine
+    , countNewlines
+    , joinMaybeStrings
     , joinResultStrings
     )
+
+{-|
+Counts the number of newlines in the string
+-}
+countNewlines : String -> Int
+countNewlines string =
+    String.foldl (\char count ->
+        if char == '\n' then
+            count + 1
+        else
+            count
+        ) 0 string
+
+{-|
+Counts the number of codepoints  (XXX - check with Robin)
+on the last line of the string (split by newlines). If the
+string has only one line (no new lines), it counts the number
+of codepoints in that string.
+-}
+countCodepointsLastLine : String -> Int
+countCodepointsLastLine string =
+    when String.lastIndexOf "\n" string is
+        Nothing -> String.count string
+        Just pos -> (String.count string) - pos - 1
 
 
 joinMaybeStrings : String -> Array (Maybe String) -> Maybe String
