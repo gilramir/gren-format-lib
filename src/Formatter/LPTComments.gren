@@ -37,7 +37,7 @@ lptAddComment comment lpTree =
     when comment.value is
         Ctx.Line lineString ->
             lptAddSingleLineComment lineString comment lpTree
-        Ctx.MultiLine mlineString ->
+        Ctx.Block mlineString ->
             -- TODO
             Err <| "Cannot handle multiline comments yet, row=" ++
                 String.fromInt comment.row ++ ", col=" ++
