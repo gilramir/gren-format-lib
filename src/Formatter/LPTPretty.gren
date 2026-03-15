@@ -41,23 +41,12 @@ makePrettyLine id lpBox lpTree =
                 StImport -> makeFlowIndentable id lpTree
                 StSingleLineComment -> makeSingleLineComment id lpTree
                 StBoxComment -> makeBlockComment id lpTree
---                _ -> Ok <| "stree node " ++ String.fromInt id
+                StDocComment -> makeDocComment id lpTree
+                _ -> Ok <| "stree node " ++ String.fromInt id
         EmptyLine ->
             Ok ""
         _ ->
             Err "Unexpected item in LPTree root children"
-
-{-
-makeFlowIndentable : Int -> SingleRootTree LPBox -> Result String String
-makeFlowIndentable id lpTree =
-    let
-        nodesAndIds = SRT.childrenWithNodes id lpTree
-        docs = Array.map (\nid -> makePDoc nid lpTree) nodesAndIds
-        finalDoc = flowIndentable grenIndent docs
-        _ = Debug.log "(pdoc)" finalDoc
-    in
-        genericRenderResult <| P.prettyFormat costFactory finalDoc
--}
 
 
 makeFlowIndentable : Int -> SingleRootTree LPBox -> Result String String
@@ -69,7 +58,7 @@ makeFlowIndentable id lpTree =
         genericRenderResult <| P.prettyFormat costFactory finalDoc
 
 
-{-| Like flowIndentable, but handles SingleLineComment nodes correctly:
+{-| builds the flow, and handles SingleLineComment nodes correctly:
 
   - A comment on the same row as the preceding item is attached directly
     to it (no separator), producing e.g. "exposing -- comment".
@@ -189,13 +178,39 @@ makeBlockComment id lpTree =
                 Just { first = first, rest = rest } ->
                     if Array.isEmpty rest then
                         when first is
-                            BlockComment locs -> Ok (P.text <| "{-" ++ locs.value ++ "-}")
+                            --- XXX handle spce before -} but deal with newline
+                            BlockComment locs -> Ok (P.text <| "{- " ++ locs.value ++ "-}")
                             _ ->  Err "Unexpected node type in BlockComment"
                     else
                         -- XXX This is wrong; we might have more
                         Err "Too many nodes in BoxComment"
                 Nothing ->
                     Err "No nodes in BoxComment"
+    in
+    when resDoc is
+        Ok doc ->
+            genericRenderResult <| P.prettyFormat costFactory doc
+        Err s ->
+            Err s
+
+-- XXX - maybe combine with makeBlockComment
+makeDocComment : Int -> SingleRootTree LPBox -> Result String String
+makeDocComment id lpTree =
+    let
+        nodes = SRT.childrenNodes id lpTree
+        resDoc =
+            when Array.popFirst nodes is
+                Just { first = first, rest = rest } ->
+                    if Array.isEmpty rest then
+                        when first is
+                            --- XXX handle spce before -} but deal with newline
+                            DocComment locs -> Ok (P.text <| "{-| " ++ locs.value ++ "-}")
+                            _ ->  Err "Unexpected node type in DocComment"
+                    else
+                        -- XXX Is this is wrong; can we have more
+                        Err "Too many nodes in DocComment"
+                Nothing ->
+                    Err "No nodes in DocComment"
     in
     when resDoc is
         Ok doc ->

@@ -17,6 +17,9 @@ type SyntaxType
     | StImport
     | StSingleLineComment
     | StBoxComment
+    | StDocComment
+    | StFunctionSignature
+    | StFunctionDeclaration
 
 type LPBox
     -- This is needed just to use as a root node
@@ -35,14 +38,18 @@ type LPBox
     -- For when the line starts with and is only a single-line comment
     | SingleLineComment (Located String)
     | BlockComment (Located String)
+    | DocComment (Located String)
 
     -- Flows across as far as possible. When it goes
     -- to the first new line, it indents one over and continues.
     -- Subsequent lines stay at that indentation
     | AcrossThenIndent
 
-    -- Lists
+    -- Lists with surrounding brackets (for "exposing")
     | AllAcrossOrAllVertical ListBrackets
+
+    -- Function Signature Parameters (x -> y -> z)
+    | AllAcrossOrAllVerticalNoBrackets String
 
 lpBoxToString : LPBox -> String
 lpBoxToString lpbox =
@@ -58,8 +65,10 @@ lpBoxToString lpbox =
             "\"" ++ s.value ++ "\" " ++ (pstr s.start)
         AcrossThenIndent -> "(acrossThenIndent)"
         AllAcrossOrAllVertical br -> "(allAcrossOrAllVertical)"
+        AllAcrossOrAllVerticalNoBrackets sep -> "(allAcrossOrAllVerticalNoBrackets)"
         SingleLineComment s -> "line-comment " ++ pstr(s.start) ++ " -- " ++ s.value
-        BlockComment s -> "block-comment " ++ pstr(s.start) ++ " {-" ++ s.value ++ "-}"
+        BlockComment s -> "block-comment " ++ pstr(s.start) ++ " {- " ++ s.value ++ "-}"
+        DocComment s -> "doc-comment " ++ pstr(s.start) ++ " {-| " ++ s.value ++ "-}"
         EmptyLine -> "(nl)"
 
 lptToString : SingleRootTree LPBox -> String

@@ -24,16 +24,29 @@ nilPos =
 makeLogicalPrintingTree : Src.Module -> SingleRootTree LPBox
 makeLogicalPrintingTree modAst =
     SRT.new makeRootLPBox
+        -- TODO: aliases
+        -- TODO: binops
+        -- TODO: docs
+        -- TODO: effects
+        -- TODO: unions
         |> processModuleLine modAst
         |> processImports modAst
+        -- Values/Functions
+        |> processFunctions modAst
+        -- ali
         |> finalizeOriginalRows
 
+{-| Compute the last row number for each OriginalRows,
+and sort the root children (all Origianl Rows) based on row number
+-}
+-- XXX ModuleDeclarations already have "last row"; can we preserve that and not
+-- process it here?
 finalizeOriginalRows : SingleRootTree LPBox -> SingleRootTree LPBox
 finalizeOriginalRows lpTree =
     let
         t1 = addLastRowToOriginalRows lpTree
-        fixedChildren = SRT.getRootChildren t1
-        sortedChildren = sortOriginalRows fixedChildren t1
+        rootChildren = SRT.getRootChildren t1
+        sortedChildren = sortOriginalRows rootChildren t1
     in
         SRT.setRootChildren sortedChildren t1
 
@@ -56,6 +69,10 @@ sortOriginalRows ids lpTree =
                         compare 0 1
         ) ids
 
+{-| Look at all the nodes in an OriginalRows branch and find the last row
+number. Add it to the OriginalRows item
+-}
+-- XXX double-check to see if this is still needed
 addLastRowToOriginalRows : SingleRootTree LPBox -> SingleRootTree LPBox
 addLastRowToOriginalRows lpTree =
     let
@@ -120,6 +137,10 @@ lastRowInBranch topId lpTree =
             )
             Nothing
 
+{-| If the LPNode represents actual text in the source code, return the last
+row for it. LPNodes which are containers return Nothing; we're checking the
+actual text on the page
+-}
 getLastRow : LPBox -> Maybe Int
 getLastRow lpbox =
     when lpbox is
@@ -128,8 +149,11 @@ getLastRow lpbox =
         UnbreakableText locString -> Just locString.end.row
         AcrossThenIndent -> Nothing
         AllAcrossOrAllVertical _ -> Nothing
+        AllAcrossOrAllVerticalNoBrackets _ -> Nothing
         SingleLineComment _ -> Nothing
+        -- XXX - isn't locString correct now? just use end.row?
         BlockComment locString -> Just (locString.end.row + (countNewlines locString.value))
+        DocComment locString -> Just locString.end.row
         EmptyLine  -> Nothing
 
 
@@ -293,5 +317,42 @@ processImport locImport lpTree =
         t2 = SRT.appendRootChild r0.id t1
     in
         t2
+
+{-| Process the functions
+-}
+processFunctions : Src.Module -> SingleRootTree LPBox -> SingleRootTree LPBox
+processFunctions modAst lpTree =
+    Array.foldl processModDecl lpTree modAst.values
+
+{-| Process a function. This will create a StFunction line, maybe
+an StFunctionDeclarationLine, and maybe an StDocComment line.
+-}
+processModDecl : Src.ModuleDeclaration Src.Value -> SingleRootTree LPBox -> SingleRootTree LPBox
+processModDecl modDecl lpTree =
+    let
+        t0 = processFunctionDoc modDecl.value.docs lpTree
+--        r1 = processFunctionSignature modDecl.value.value r0.tree
+--        r2 = processFunctionBody modDecl.value.value r1.tree
+    in
+--        r2.tree
+        t0
+
+{-| Maybe or maybe not insert a DocComment for this function
+-}
+processFunctionDoc : Maybe (Located String) -> SingleRootTree LPBox -> SingleRootTree LPBox
+processFunctionDoc maybeLocString lpTree =
+    when maybeLocString is
+        Just locString ->
+            let
+                lpBox = DocComment locString
+                child = SRT.insert lpBox lpTree
+                parent = SRT.insert (OriginalRows
+                    { first = locString.start.row, last = locString.end.row, stype = StDocComment})
+                    child.tree
+                t1 = SRT.appendChild parent.id child.id parent.tree
+            in
+                SRT.appendRootChild parent.id t1
+        Nothing ->
+            lpTree
 
 
