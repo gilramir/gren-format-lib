@@ -59,7 +59,7 @@ lpBoxToString lpbox =
         AcrossThenIndent -> "(acrossThenIndent)"
         AllAcrossOrAllVertical br -> "(allAcrossOrAllVertical)"
         SingleLineComment s -> "line-comment " ++ pstr(s.start) ++ " -- " ++ s.value
-        BlockComment s -> "block-comment " ++ pstr(s.start) ++ " -- " ++ s.value
+        BlockComment s -> "block-comment " ++ pstr(s.start) ++ " {-" ++ s.value ++ "-}"
         EmptyLine -> "(nl)"
 
 lptToString : SingleRootTree LPBox -> String

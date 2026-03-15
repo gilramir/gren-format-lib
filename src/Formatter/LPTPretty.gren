@@ -40,7 +40,8 @@ makePrettyLine id lpBox lpTree =
                 StModule -> makeFlowIndentable id lpTree
                 StImport -> makeFlowIndentable id lpTree
                 StSingleLineComment -> makeSingleLineComment id lpTree
-                _ -> Ok <| "stree node " ++ String.fromInt id
+                StBoxComment -> makeBlockComment id lpTree
+--                _ -> Ok <| "stree node " ++ String.fromInt id
         EmptyLine ->
             Ok ""
         _ ->
@@ -172,6 +173,29 @@ makeSingleLineComment id lpTree =
                         Err "Too many nodes in SingleLineComment"
                 Nothing ->
                     Err "No nodes in SingleLineComment"
+    in
+    when resDoc is
+        Ok doc ->
+            genericRenderResult <| P.prettyFormat costFactory doc
+        Err s ->
+            Err s
+
+makeBlockComment : Int -> SingleRootTree LPBox -> Result String String
+makeBlockComment id lpTree =
+    let
+        nodes = SRT.childrenNodes id lpTree
+        resDoc =
+            when Array.popFirst nodes is
+                Just { first = first, rest = rest } ->
+                    if Array.isEmpty rest then
+                        when first is
+                            BlockComment locs -> Ok (P.text <| "{-" ++ locs.value ++ "-}")
+                            _ ->  Err "Unexpected node type in BlockComment"
+                    else
+                        -- XXX This is wrong; we might have more
+                        Err "Too many nodes in BoxComment"
+                Nothing ->
+                    Err "No nodes in BoxComment"
     in
     when resDoc is
         Ok doc ->
