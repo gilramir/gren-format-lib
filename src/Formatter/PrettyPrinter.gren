@@ -5,8 +5,6 @@ import Compiler.Parse.Context as Ctx
 
 import Formatter.LogicalPrintingTree exposing (lptToString)
 import Formatter.LPTCreate exposing (makeLogicalPrintingTree)
-import Formatter.LPTComments exposing (lptAddComments)
-import Formatter.LPTVerticalSpace exposing (insertEmptyLines)
 import Formatter.LPTPretty exposing (makePrettyResult)
 
 import SourcePosition exposing (Located)
@@ -14,30 +12,14 @@ import SourcePosition exposing (Located)
 
 prettyPrint: Src.Module -> Ctx.Context -> Result String String
 prettyPrint ast ctx =
-    let
-        _ = Debug.log "(ast)" ast
-        _ = Debug.log "(ctx)" ctx
-        lpt = makeLogicalPrintingTree ast
-
---        sections = astToSections ast
---        printedSections = Array.map (\s -> printSection s) sections
-    in
-        when lptAddComments ctx lpt is
-            Err wcReason ->
-                let
-                    _ = Debug.log "(failed_lpt)" ("\n" ++ (lptToString lpt))
-                in
-                    Err wcReason
-            Ok lptWc ->
-                let
-                    lptXl = insertEmptyLines lptWc
-                    _ = Debug.log "(ok_lpt)" ("\n" ++ (lptToString lptXl))
-                in
-                    let
-                        res = makePrettyResult lptXl
-                        _ = when res is
-                            Ok r -> Debug.log "(result)" ("\n"++r)
-                            Err r -> Debug.log "(error)" r
-                    in
-                    res
-
+    when makeLogicalPrintingTree ast ctx is
+        Err errString ->
+            Err errString
+        Ok lpTree ->
+            let
+                res = makePrettyResult lpTree
+                _ = when res is
+                    Ok r -> Debug.log "(result)" ("\n"++r)
+                    Err r -> Debug.log "(error)" r
+            in
+            res

@@ -7,8 +7,10 @@ import Compiler.Parse.Context as Ctx
 import SourcePosition exposing (Located, Position, emptyPos, at)
 
 import Formatter.LogicalPrintingTree exposing (LPBox(..),
-    ListBrackets(..), SyntaxType(..))
+    ListBrackets(..), SyntaxType(..), lptToString)
 import Formatter.Strings exposing (countNewlines)
+import Formatter.LPTComments exposing (lptAddComments)
+import Formatter.LPTVerticalSpace exposing (insertEmptyLines)
 import Tree.SingleRootTree as SRT exposing (SingleRootTree)
 
 makeRootLPBox : LPBox
@@ -21,8 +23,33 @@ nilPos =
     , col = -1
     }
 
-makeLogicalPrintingTree : Src.Module -> SingleRootTree LPBox
-makeLogicalPrintingTree modAst =
+makeLogicalPrintingTree: Src.Module -> Ctx.Context -> Result String (SingleRootTree LPBox)
+makeLogicalPrintingTree ast ctx =
+    let
+        _ = Debug.log "(ast)" ast
+        _ = Debug.log "(ctx)" ctx
+    in
+        when lptFromAst ast is
+            Err errString ->
+                Err ("Failed to create intermediate representation for pretty printing: "
+                    ++  errString)
+            Ok lpt ->
+                when lptAddComments ctx lpt is
+                    Err wcReason ->
+                        let
+                            _ = Debug.log "(failed_lpt)" ("\n" ++ (lptToString lpt))
+                        in
+                            Err ("Failed while placing comments: " ++ wcReason)
+                    Ok lptWc ->
+                        let
+                            lptXl = insertEmptyLines lptWc
+                            _ = Debug.log "(ok_lpt)" ("\n" ++ (lptToString lptXl))
+                        in
+                            Ok lptXl
+
+
+lptFromAst : Src.Module -> Result String (SingleRootTree LPBox)
+lptFromAst modAst =
     SRT.new makeRootLPBox
         -- TODO: aliases
         -- TODO: binops
@@ -30,25 +57,25 @@ makeLogicalPrintingTree modAst =
         -- TODO: effects
         -- TODO: unions
         |> processModuleLine modAst
-        |> processImports modAst
+        |> Result.andThen (processImports modAst)
         -- Values/Functions
-        |> processFunctions modAst
+        |> Result.andThen (processFunctions modAst)
         -- ali
-        |> finalizeOriginalRows
+        |> Result.andThen finalizeOriginalRows
 
 {-| Compute the last row number for each OriginalRows,
 and sort the root children (all Origianl Rows) based on row number
 -}
 -- XXX ModuleDeclarations already have "last row"; can we preserve that and not
 -- process it here?
-finalizeOriginalRows : SingleRootTree LPBox -> SingleRootTree LPBox
+finalizeOriginalRows : SingleRootTree LPBox -> Result String (SingleRootTree LPBox)
 finalizeOriginalRows lpTree =
     let
         t1 = addLastRowToOriginalRows lpTree
         rootChildren = SRT.getRootChildren t1
         sortedChildren = sortOriginalRows rootChildren t1
     in
-        SRT.setRootChildren sortedChildren t1
+        Ok (SRT.setRootChildren sortedChildren t1)
 
 sortOriginalRows : Array Int -> SingleRootTree LPBox -> Array Int
 sortOriginalRows ids lpTree =
@@ -158,7 +185,7 @@ getLastRow lpbox =
 
 
 -- TODO: ports
-processModuleLine : Src.Module -> SingleRootTree LPBox -> SingleRootTree LPBox
+processModuleLine : Src.Module -> SingleRootTree LPBox -> Result String (SingleRootTree LPBox)
 processModuleLine modAst lpTree =
     let
         r0 = SRT.insert (OriginalRows { first = modAst.name.start.row, last = -1, stype = StModule }) lpTree
@@ -187,7 +214,7 @@ processModuleLine modAst lpTree =
         t2 = SRT.appendRootChild r0.id t1
 
     in
-        t2
+        Ok t2
 
 
 mkText : Position -> String -> LPBox
@@ -256,9 +283,9 @@ processExposed exposed =
         Src.ExposedOperator sp ->
             UnbreakableText sp
 
-processImports : Src.Module -> SingleRootTree LPBox -> SingleRootTree LPBox
+processImports : Src.Module -> SingleRootTree LPBox -> Result String (SingleRootTree LPBox)
 processImports modAst lpTree =
-    Array.foldl processImport lpTree modAst.imports
+    Ok <| Array.foldl processImport lpTree modAst.imports
 
 processImport : Located Src.Import -> SingleRootTree LPBox -> SingleRootTree LPBox
 processImport locImport lpTree =
@@ -318,16 +345,29 @@ processImport locImport lpTree =
     in
         t2
 
+
+resultFoldl : (i -> a -> Result e a) -> a -> Array i -> Result e a
+resultFoldl callback initialAcc items =
+    let
+        callbackWrapper : i -> (Result e a) -> (Result e a)
+        callbackWrapper thisItem thisAccumResult =
+            when thisAccumResult is
+                Err e -> Err e
+                Ok a -> callback thisItem a
+    in
+        Array.foldl callbackWrapper (Ok initialAcc) items
+
 {-| Process the functions
 -}
-processFunctions : Src.Module -> SingleRootTree LPBox -> SingleRootTree LPBox
+processFunctions : Src.Module -> SingleRootTree LPBox -> Result String (SingleRootTree LPBox)
 processFunctions modAst lpTree =
-    Array.foldl processModDecl lpTree modAst.values
+    -- Ok <| Array.foldl processModDecl lpTree modAst.values
+    resultFoldl processModDecl lpTree modAst.values
 
 {-| Process a function. This will create a StFunction line, maybe
 an StFunctionDeclarationLine, and maybe an StDocComment line.
 -}
-processModDecl : Src.ModuleDeclaration Src.Value -> SingleRootTree LPBox -> SingleRootTree LPBox
+processModDecl : Src.ModuleDeclaration Src.Value -> SingleRootTree LPBox -> Result String (SingleRootTree LPBox)
 processModDecl modDecl lpTree =
     let
         t0 = processFunctionDoc modDecl.value.docs lpTree
@@ -335,7 +375,7 @@ processModDecl modDecl lpTree =
 --        r2 = processFunctionBody modDecl.value.value r1.tree
     in
 --        r2.tree
-        t0
+        Ok t0
 
 {-| Maybe or maybe not insert a DocComment for this function
 -}
