@@ -44,8 +44,17 @@ makeLogicalPrintingTree ast ctx =
                         let
                             lptXl = insertEmptyLines lptWc
                             _ = Debug.log "(ok_lpt)" ("\n" ++ (lptToString lptXl))
+                            -- Sanity check
+                            discoveredRoots = SRT.roots lptXl
                         in
-                            Ok lptXl
+                            if Array.length discoveredRoots == 1 then
+                                Ok lptXl
+                            else
+                                Err <| "Intermediate repr tree has " ++
+                                    (String.fromInt <| Array.length
+                                    discoveredRoots) ++ "roots"
+
+
 
 
 lptFromAst : Src.Module -> Result String (SingleRootTree LPBox)
@@ -424,11 +433,15 @@ insertValue locPat tree =
 processFunctionBodyArgs : Src.Value -> SingleRootTree LPBox -> Result String (SingleRootTree LPBox)
 processFunctionBodyArgs modVal tree =
     let
+        -- XXX problem is that the row is wrong if there is a funcSig
         nameNode = mkTextFromLocString modVal.name
-        name = SRT.insert nameNode tree
-        -- XXX need mkText "="
+        nameRec = SRT.insert nameNode tree
+
+        -- XXX need a better pos
+        eqNode = mkText modVal.name.start "="
+        eqRec = SRT.insert eqNode nameRec.tree
    in 
-    when resultFoldl folderInsertValue { ids = [], tree = name.tree } modVal.args is
+    when resultFoldl folderInsertValue { ids = [], tree = eqRec.tree } modVal.args is
         Err e -> Err e
         Ok { ids = argsIds, tree = t1 } ->
             let
@@ -436,7 +449,8 @@ processFunctionBodyArgs modVal tree =
                 parent = SRT.insert (OriginalRows
                     { first = modVal.name.start.row, last = modVal.name.end.row, stype = StFunctionDeclaration})
                     t1
-                t2 = SRT.setChildren parent.id argsIds parent.tree
+                allIds = [nameRec.id] ++ argsIds ++ [eqRec.id]
+                t2 = SRT.setChildren parent.id allIds parent.tree
                 t3  = SRT.appendRootChild parent.id t2
             in
                 Ok t3
