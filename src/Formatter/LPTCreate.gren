@@ -4,6 +4,7 @@ import Dict
 
 import Compiler.Ast.Source as Src
 import Compiler.Parse.Context as Ctx
+import Compiler.Parse.Number as PN
 import SourcePosition exposing (Located, Position, emptyPos, at)
 
 import Formatter.LogicalPrintingTree exposing (LPBox(..),
@@ -389,19 +390,35 @@ processModDecl modDecl lpTree =
                     Err err2 -> Err err2
                     Ok t2 -> Ok t2
 
-processFunctionBody : Src.Value -> SingleRootTree LPBox -> Result String (SingleRootTree LPBox)
-processFunctionBody modDecValue tree =
-    when processFunctionBodyArgs modDecValue tree is
-        Err err1 -> Err err1
-        Ok t1 ->
-            when processFunctionActualBody modDecValue.body t1 is
-                Err err2 -> Err err2
-                Ok t2 -> Ok t2
 
--- XXX- Place holder
-processFunctionActualBody : Src.Expression -> SingleRootTree LPBox -> Result String (SingleRootTree LPBox)
-processFunctionActualBody expr tree =
-    Ok tree
+-- Recursively insert expressions
+insertExpression : Src.Expression -> SingleRootTree LPBox -> Result String { ids: Array Int, tree: SingleRootTree LPBox }
+insertExpression locExpr tree =
+    when locExpr.value is
+        Src.NumberLiteral outcome ->
+            when outcome is
+                PN.Integer n ->
+                    let
+                        newNode = mkText locExpr.start (String.fromInt n)
+                        newRec = SRT.insert newNode tree
+                    in
+                        Ok { ids = [ newRec.id ], tree = newRec.tree }
+
+                PN.FloatingPoint n ->
+                    let
+                        newNode = mkText locExpr.start (String.fromFloat n)
+                        newRec = SRT.insert newNode tree
+                    in
+                        Ok { ids = [ newRec.id ], tree = newRec.tree }
+
+                PN.Hex n ->
+                    Err "Hex literal not yet handled"
+
+        _ ->
+            let
+                _ = Debug.log "(not-handled)" locExpr.value
+            in
+                Err "Unhandled expression type"
 
 
 folderInsertValue : Src.Pattern -> { ids: Array Int, tree: SingleRootTree LPBox }
@@ -420,7 +437,7 @@ insertValue locPat tree =
                 nameNode = mkText locPat.start name
                 nameRec = SRT.insert nameNode tree
             in
-                Ok { ids = [ nameRec.id ] , tree = nameRec.tree }
+                Ok { ids = [ nameRec.id ], tree = nameRec.tree }
        
         _ ->
             let
@@ -430,8 +447,8 @@ insertValue locPat tree =
         
 
 
-processFunctionBodyArgs : Src.Value -> SingleRootTree LPBox -> Result String (SingleRootTree LPBox)
-processFunctionBodyArgs modVal tree =
+processFunctionBody : Src.Value -> SingleRootTree LPBox -> Result String (SingleRootTree LPBox)
+processFunctionBody modVal tree =
     let
         -- XXX problem is that the row is wrong if there is a funcSig
         nameNode = mkTextFromLocString modVal.name
@@ -449,11 +466,16 @@ processFunctionBodyArgs modVal tree =
                 parent = SRT.insert (OriginalRows
                     { first = modVal.name.start.row, last = modVal.name.end.row, stype = StFunctionDeclaration})
                     t1
-                allIds = [nameRec.id] ++ argsIds ++ [eqRec.id]
-                t2 = SRT.setChildren parent.id allIds parent.tree
-                t3  = SRT.appendRootChild parent.id t2
             in
-                Ok t3
+            when insertExpression modVal.body parent.tree is
+                Err err2 -> Err err2
+                Ok { ids = bodyIds, tree = t2 } ->
+                    let
+                        allIds = [nameRec.id] ++ argsIds ++ [eqRec.id] ++ bodyIds
+                        t3 = SRT.setChildren parent.id allIds t2
+                        t4  = SRT.appendRootChild parent.id t3
+                    in
+                        Ok t4
 
 
 {-| Maybe or maybe not insert a DocComment for this function
