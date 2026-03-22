@@ -374,12 +374,73 @@ processModDecl modDecl lpTree =
         res1 = processFunctionSignature modDecl.value.value.signature t0
     in
         when res1 is
-            Err err -> Err err
-            Ok t1 -> Ok t1
---        r2 = processFunctionBody modDecl.value.value r1.tree
---    in
---        r2.tree
---        Ok t0
+            Err err1 -> Err err1
+            Ok t1 ->
+                when processFunctionBody modDecl.value.value t1 is
+                    Err err2 -> Err err2
+                    Ok t2 -> Ok t2
+
+processFunctionBody : Src.Value -> SingleRootTree LPBox -> Result String (SingleRootTree LPBox)
+processFunctionBody modDecValue tree =
+    when processFunctionBodyArgs modDecValue tree is
+        Err err1 -> Err err1
+        Ok t1 ->
+            when processFunctionActualBody modDecValue.body t1 is
+                Err err2 -> Err err2
+                Ok t2 -> Ok t2
+
+-- XXX- Place holder
+processFunctionActualBody : Src.Expression -> SingleRootTree LPBox -> Result String (SingleRootTree LPBox)
+processFunctionActualBody expr tree =
+    Ok tree
+
+
+folderInsertValue : Src.Pattern -> { ids: Array Int, tree: SingleRootTree LPBox }
+    -> Result String { ids : Array Int, tree : SingleRootTree LPBox }
+folderInsertValue locPat { ids = accIds, tree = accTree } =
+    when insertValue locPat accTree is
+        Err s -> Err s
+        Ok { ids = newIds, tree = newTree } ->
+            Ok { ids = accIds ++ newIds, tree = newTree }
+
+insertValue : Src.Pattern -> SingleRootTree LPBox -> Result String { ids: Array Int, tree: SingleRootTree LPBox }
+insertValue locPat tree =
+    when locPat.value is
+        Src.PVar name ->
+            let
+                nameNode = mkText locPat.start name
+                nameRec = SRT.insert nameNode tree
+            in
+                Ok { ids = [ nameRec.id ] , tree = nameRec.tree }
+       
+        _ ->
+            let
+                _ = Debug.log "(unexpected) value.value"
+            in
+                Err "Pattern type not handled in insertValue"
+        
+
+
+processFunctionBodyArgs : Src.Value -> SingleRootTree LPBox -> Result String (SingleRootTree LPBox)
+processFunctionBodyArgs modVal tree =
+    let
+        nameNode = mkTextFromLocString modVal.name
+        name = SRT.insert nameNode tree
+        -- XXX need mkText "="
+   in 
+    when resultFoldl folderInsertValue { ids = [], tree = name.tree } modVal.args is
+        Err e -> Err e
+        Ok { ids = argsIds, tree = t1 } ->
+            let
+                -- XXX - need to compute lastRow
+                parent = SRT.insert (OriginalRows
+                    { first = modVal.name.start.row, last = modVal.name.end.row, stype = StFunctionDeclaration})
+                    t1
+                t2 = SRT.setChildren parent.id argsIds parent.tree
+                t3  = SRT.appendRootChild parent.id t2
+            in
+                Ok t3
+
 
 {-| Maybe or maybe not insert a DocComment for this function
 -}
