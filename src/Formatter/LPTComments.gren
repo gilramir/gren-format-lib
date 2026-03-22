@@ -39,7 +39,7 @@ lptAddComment comment lpTree =
         commentLpBox = mkCommentLpBox comment
         stype = when comment.value is
             Ctx.Line _ -> StSingleLineComment
-            Ctx.Block _ -> StBoxComment
+            Ctx.Block _ -> StBlockComment
         { id = origRowId, tree = t1 } = findOrCreateOriginalRow comment.row stype lpTree
         { id = commentId , tree = t2 } = insertComment commentLpBox origRowId comment.row comment.col t1
     in

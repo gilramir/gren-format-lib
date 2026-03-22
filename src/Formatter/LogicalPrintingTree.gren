@@ -16,10 +16,21 @@ type SyntaxType
     = StModule
     | StImport
     | StSingleLineComment
-    | StBoxComment
+    | StBlockComment
     | StDocComment
     | StFunctionSignature
     | StFunctionDeclaration
+
+stypeToString : SyntaxType -> String
+stypeToString st =
+    when st is
+        StModule -> "module"
+        StImport -> "import"
+        StSingleLineComment -> "lineComment"
+        StBlockComment -> "blockComment"
+        StDocComment -> "docComment"
+        StFunctionSignature -> "funcSig"
+        StFunctionDeclaration -> "funcDecl"
 
 type LPBox
     -- This is needed just to use as a root node
@@ -59,8 +70,9 @@ lpBoxToString lpbox =
     in
     when lpbox is
         RootBox -> "root"
-        OriginalRows { first = first, last = last } ->
-            "(orig row " ++ (String.fromInt first) ++ " - " ++ (String.fromInt last) ++ ")"
+        OriginalRows { first = first, last = last, stype = stype } ->
+            "(orig row " ++ (stypeToString stype) ++ " " ++
+            (String.fromInt first) ++ " - " ++ (String.fromInt last) ++ ")"
         UnbreakableText s ->
             "\"" ++ s.value ++ "\" " ++ (pstr s.start)
         AcrossThenIndent -> "(acrossThenIndent)"

@@ -371,7 +371,7 @@ processModDecl : Src.ModuleDeclaration Src.Value -> SingleRootTree LPBox -> Resu
 processModDecl modDecl lpTree =
     let
         t0 = processFunctionDoc modDecl.value.docs lpTree
-        res1 = processFunctionSignature modDecl.value.value.signature t0
+        res1 = processFunctionSignature modDecl.value.value.name modDecl.value.value.signature t0
     in
         when res1 is
             Err err1 -> Err err1
@@ -463,8 +463,8 @@ processFunctionDoc maybeLocString lpTree =
 
 {-| Maybe or maybe not insert a FunctionSignature for this function
 -}
-processFunctionSignature : Maybe Src.Type -> SingleRootTree LPBox -> Result String (SingleRootTree LPBox)
-processFunctionSignature maybeType lpTree =
+processFunctionSignature : Located String ->  Maybe Src.Type -> SingleRootTree LPBox -> Result String (SingleRootTree LPBox)
+processFunctionSignature locName maybeType lpTree =
     when maybeType is
         Nothing ->
             Ok lpTree
@@ -472,7 +472,22 @@ processFunctionSignature maybeType lpTree =
             when makeSignatureBranch locType lpTree is
                 Err errstring -> Err errstring
                 Ok { ids = ids, tree = t1 } ->
-                    Ok t1
+                    let
+                        -- XXX - need to compute lastRow
+                        parent = SRT.insert (OriginalRows
+                            { first = locType.start.row, last = locType.end.row, stype = StFunctionSignature}) t1
+
+                        nameNode = mkTextFromLocString locName
+                        nameRec = SRT.insert nameNode parent.tree
+
+                        colonNode = mkText (incCol 1 locName.end) ":"
+                        colonRec = SRT.insert colonNode nameRec.tree
+
+                        allIds = [ nameRec.id, colonRec.id ] ++ ids
+                        t2 = SRT.setChildren parent.id allIds colonRec.tree
+                        t3  = SRT.appendRootChild parent.id t2
+                    in
+                        Ok t3
 {-
 [ text(String) ]
 

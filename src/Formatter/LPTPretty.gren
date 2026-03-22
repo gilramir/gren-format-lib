@@ -40,7 +40,7 @@ makePrettyLine id lpBox lpTree =
                 StModule -> makeFlowIndentable id lpTree
                 StImport -> makeFlowIndentable id lpTree
                 StSingleLineComment -> makeSingleLineComment id lpTree
-                StBoxComment -> makeBlockComment id lpTree
+                StBlockComment -> makeBlockComment id lpTree
                 StDocComment -> makeDocComment id lpTree
                 _ -> Ok <| "stree node " ++ String.fromInt id
         EmptyLine ->
@@ -183,9 +183,9 @@ makeBlockComment id lpTree =
                             _ ->  Err "Unexpected node type in BlockComment"
                     else
                         -- XXX This is wrong; we might have more
-                        Err "Too many nodes in BoxComment"
+                        Err "Too many nodes in BlockComment"
                 Nothing ->
-                    Err "No nodes in BoxComment"
+                    Err "No nodes in BlockComment"
     in
     when resDoc is
         Ok doc ->
