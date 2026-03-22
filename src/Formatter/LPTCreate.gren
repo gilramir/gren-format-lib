@@ -578,6 +578,16 @@ makeSignatureBranch locType tree =
                             in
                                 Ok { ids  = allIds, tree = arrowRec.tree }
 
+
+        -- S.Char -> TTypeQaul "Char" with qualifier "S"
+        -- XXX what about args?
+        Src.TTypeQual { args = _, name = name, qualifier = qual, varRegion = varRegion } ->
+            let
+                node = mkText varRegion.start (qual ++ "." ++ name)
+                r0 = SRT.insert node tree
+            in
+                Ok { ids = [r0.id], tree = r0.tree }
+
         _ ->
             let
                 _ = Debug.log "(unexpected)" locType.value
