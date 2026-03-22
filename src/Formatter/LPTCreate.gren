@@ -615,29 +615,41 @@ makeSignatureBranch locType tree =
                                 Ok { ids = inParenIds, tree = t2 }
                         
         -- e.g.:
-        -- String
-        -- Array String (args = [String])
+        -- String => name = String
+        -- Array String =>name = Array (args = [String])
         Src.TType { name = locName , args = args } ->
             let
                 firstNode = mkTextFromLocString locName
                 r0 = SRT.insert firstNode tree
             in
-                if Array.length args == 0 then
-                    Ok { ids = [r0.id], tree = r0.tree }
-                else
-                    when resultFoldl folderMakeSignatureBranch { ids = [], tree = r0.tree } args is
-                        Err s -> Err s
-                        Ok { ids = childrenIds, tree = t1 } ->
-                            let
-                                res1 = fixupParensChildrenNodes childrenIds t1
-                            in
-                                when res1 is
+                when Array.popFirst args is
+                    Nothing ->
+                        -- No args
+                        Ok { ids = [r0.id], tree = r0.tree }
+                    Just { first = firstArg, rest = afterArg0 } ->
+                        when Array.popFirst afterArg0 is
+                            Nothing ->
+                                -- Only 1 arg
+                                when makeSignatureBranch firstArg r0.tree is
+                                    Err err1 -> Err err1
+                                    Ok { ids = firstIds, tree = t1 } ->
+                                        Ok { ids = [r0.id] ++ firstIds, tree = t1 }
+
+                            Just { first = _, rest = _ } ->
+                                -- More than one arg
+                                when resultFoldl folderMakeSignatureBranch { ids = [], tree = r0.tree } args is
                                     Err s -> Err s
-                                    Ok t2 ->
+                                    Ok { ids = childrenIds, tree = t1 } ->
                                         let
-                                            t3 = SRT.setChildren r0.id childrenIds t2
+                                            res1 = fixupParensChildrenNodes childrenIds t1
                                         in
-                                            Ok { ids = childrenIds, tree = t3 }
+                                            when res1 is
+                                                Err s -> Err s
+                                                Ok t2 ->
+                                                    let
+                                                        t3 = SRT.setChildren r0.id childrenIds t2
+                                                    in
+                                                        Ok { ids = childrenIds, tree = t3 }
 
         Src.TLambda { from = from , to = to } ->
             when makeSignatureBranch from tree is
