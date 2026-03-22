@@ -373,7 +373,7 @@ processModDecl modDecl lpTree =
         t0 = processFunctionDoc modDecl.value.docs lpTree
         res1 = processFunctionSignature modDecl.value.value.signature t0
     in
-        when r1 is
+        when res1 is
             Err err -> Err err
             Ok t1 -> Ok t1
 --        r2 = processFunctionBody modDecl.value.value r1.tree
@@ -406,13 +406,12 @@ processFunctionSignature : Maybe Src.Type -> SingleRootTree LPBox -> Result Stri
 processFunctionSignature maybeType lpTree =
     when maybeType is
         Nothing ->
-            lpTree
+            Ok lpTree
         Just locType ->
-            when locType.value is
-                when makeSignatureBranch locType lpTree is
-                    Err errstring -> Err errstring
-                    Ok { ids = ids, tree = t1 } ->
-                        Ok t1
+            when makeSignatureBranch locType lpTree is
+                Err errstring -> Err errstring
+                Ok { ids = ids, tree = t1 } ->
+                    Ok t1
 {-
 [ text(String) ]
 
@@ -420,105 +419,170 @@ processFunctionSignature maybeType lpTree =
 [ preferNotBreak([ text("("Array ),  text(->),  text(Int")")]) ]
 -}
 
-{-
-incCol : Int -> Src.Position -> Src.Position
-incCol n pos ->
+incCol : Int -> Position -> Position
+incCol n pos =
     { pos
-        | col = col.row + n
+        | col = pos.col + n
     }
--}
 
 {-| Given an array of ints (nodes in the tree), which are the items insided a
 pair of parens, modify the text of the items so that the first text item has a
-"(" prepended to it, and the last text item has a ")" appened to it.
+"(" prepended to it, and the last text item has a ")" appended to it.
 -}
-fixupParensChildrenNodes : Src.Position -> Array Int -> SingleRootTree LPBox ->
-    Result String { ids: ArrayInt, tree: SingleRootTree LPBox }
-fixupParensChildrenNodes startPos ids tree =
-    when Array.length ids is
-        0 ->
+fixupParensChildrenNodes : Array Int -> SingleRootTree LPBox ->
+    Result String (SingleRootTree LPBox)
+fixupParensChildrenNodes ids tree =
+    when Array.popFirst ids is
+        Nothing ->
+            -- 0 items
+            -- XXX is this possible?
+            Ok tree
+            {-
             let
                 node = mkText startPos "()"
                 r0 = SRT.insert node tree
             in
                 Ok { ids = [r0.id], tree = r0.tree }
+            -}
 
-        1 ->
+        Just { first = firstId, rest = idsAfter0 } ->
+            fixupParensHasChildren firstId idsAfter0 tree
+
+
+fixupParensHasChildren : Int -> Array Int -> SingleRootTree LPBox ->
+    Result String (SingleRootTree LPBox)
+fixupParensHasChildren firstId idsAfter0 tree =
+    let
+        firstNode = SRT.getNode firstId tree
+        res1 = when firstNode is
+            Just (UnbreakableText locS) ->
+                Ok locS
+                {-
+                -}
+
+            Just _ ->
+                Err "Unexpected 1st value in TParens child list"
+            Nothing ->
+                -- Impossible
+                Err "Failed to find TParens 1st child node ID in tree"
+    in
+    when res1 is
+        Err s -> Err s
+        Ok firstLocs ->
             let
-                childId = Array.get 0 ids
-                childNode = SRT.get childId tree
+                maybeLastId = Array.popLast idsAfter0
             in
-                when childNode is
-                    UnbreakableText locS ->
+                when maybeLastId is
+                    Nothing ->
+                        -- There was only 1 child
                         let
-                            newNode = mkText locS.start ("(" + locs.value + ")") tree
-                            t2 = SRT.replace childId newNode tree
+                            newFirstNode = mkText firstLocs.start ("(" ++ firstLocs.value ++ ")")
+                            t1 = SRT.replaceNode firstId newFirstNode tree
                         in
-                            Ok { ids = [childId], tree = t2 }
-                    _ ->
-                        Err "Unexpected value in TParens child list"
-                            
-        -- 2 or more
-        _ ->
-            let
-                similar to above
+                            Ok t1
 
 
--- Create a tree of LPBoxes, not yet inserted into the Tree
+                    Just { initial = _, last = lastId } ->
+                        -- There were more than 1 child
+                        let
+                            lastNode = SRT.getNode lastId tree
+                            res2 = when lastNode is
+                                Just (UnbreakableText locS) ->
+                                    Ok locS
+
+                                Just _ ->
+                                    Err "Unexpected lastt value in TParens child list"
+                                Nothing ->
+                                    -- Impossible
+                                    Err "Failed to find TParens last child node ID in tree"
+                        in
+                        when res2 is
+                            Err s -> Err s
+                            Ok lastLocs ->
+                                let
+                                    newFirstNode = mkText firstLocs.start ("(" ++ firstLocs.value)
+                                    t1 = SRT.replaceNode firstId newFirstNode tree
+                                    newLastNode = mkText lastLocs.start (lastLocs.value ++ ")")
+                                    t2 = SRT.replaceNode lastId newLastNode t1
+                                in
+                                    Ok t2
+
+{-
+Helper function to use makeSignatureBranch with resultFoldl
+-}
+folderMakeSignatureBranch : Src.Type -> { ids: Array Int, tree: SingleRootTree LPBox }
+    -> Result String { ids : Array Int, tree : SingleRootTree LPBox }
+folderMakeSignatureBranch locType { ids = accIds, tree = accTree } =
+    when makeSignatureBranch locType accTree is
+        Err s -> Err s
+        Ok { ids = newIds, tree = newTree } ->
+            Ok { ids = accIds ++ newIds, tree = newTree }
+        
+
+
+-- Create a tree of LPBoxes, inserted into the Tree
 makeSignatureBranch : Src.Type -> SingleRootTree LPBox -> Result String { ids : Array Int, tree : SingleRootTree LPBox }
 makeSignatureBranch locType tree =
     when locType.value is
-        Located type_ ->
-            when type_ is
-                -- e.g.:
-                -- (Array String)
-                TParens inParenType ->
-                    when makeSignatureBranch inParenType lpTree is
-                        Err errstring -> Err errstring
-                        Ok { ids = inParenIds, tree = t1 }  ->
-                            fixupParensChildrenNodes locType.start ids t1
-                                
-                -- e.g.:
-                -- String
-                -- Array String (args = [String])
-                TType { name = locName , args = args } ->
-                    if Array.length args == 0 then
-                        firstNode = mkTextFromLocString locName
-                        r0 = SRT.insert firstNode tree
-                        Ok { ids = [r0.id] ++ ids, tree = r0.tree }
-                    then
-                        let 
-                            firstNode = mkText locName.start ("(" ++ locName.value)
-                            r0 = SRT.insert firstNode tree
-                        in
-                            when makeSignatureBranch args r0.tree is
-                                Err errstring -> Err errstring
-                                Ok { ids = restIds, tree = t1 }  ->
-                                    let
-                                        lastId = get last
-                                        lastNode = SRT.getNode
-                                        newLastNode = mkText lastNode.start (lastNode.value ++ ")")
-                                        SRT.replace lastId  newLastNode
-                                    in
-                                        Ok { ids = [r0.id] ++ restIds, tree = ?}
-
-                TLambda { from = from , to = to } ->
+        -- e.g.:
+        -- (Array String)
+        Src.TParens inParenType ->
+            when makeSignatureBranch inParenType tree is
+                Err errstring -> Err errstring
+                Ok { ids = inParenIds, tree = t1 }  ->
                     let
-                        when makeSignatureBranch args from tree is
-                            Err err1 -> Err err1
-                            Ok { ids = fromIds, tree = t1 }  ->
-                                when makeSignatureBranch args to t1 is
-                                    Err err1 -> Err err1
-                                    Ok { ids = toIds, tree = t2 }  ->
+                        res1 = fixupParensChildrenNodes inParenIds t1
+                    in
+                        when res1 is
+                            Err s -> Err s
+                            Ok t2 ->
+                                Ok { ids = inParenIds, tree = t2 }
+                        
+        -- e.g.:
+        -- String
+        -- Array String (args = [String])
+        Src.TType { name = locName , args = args } ->
+            let
+                firstNode = mkTextFromLocString locName
+                r0 = SRT.insert firstNode tree
+            in
+                if Array.length args == 0 then
+                    Ok { ids = [r0.id], tree = r0.tree }
+                else
+                    when resultFoldl folderMakeSignatureBranch { ids = [], tree = r0.tree } args is
+                        Err s -> Err s
+                        Ok { ids = childrenIds, tree = t1 } ->
+                            let
+                                res1 = fixupParensChildrenNodes childrenIds t1
+                            in
+                                when res1 is
+                                    Err s -> Err s
+                                    Ok t2 ->
                                         let
-                                            arrowLoc = ??? incCol 1 fromNode.end
-                                            arrowNode = mkTextFrom arrowLoc "->" arrowLoc
-                                            arrowRec = SRT.insert toRec.tree 
-                                            allIds = fromIds ++ [arrowRec.id] ++ toIds
-                                            OK { ids  = allIds, tree = arrowRec.tree }
+                                            t3 = SRT.setChildren r0.id childrenIds t2
+                                        in
+                                            Ok { ids = childrenIds, tree = t3 }
 
-                _ ->
-                    Err "Unhandled type in makeSignatureBranch"
+        Src.TLambda { from = from , to = to } ->
+            when makeSignatureBranch from tree is
+                Err err1 -> Err err1
+                Ok { ids = fromIds, tree = t1 }  ->
+                    when makeSignatureBranch to t1 is
+                        Err err1 -> Err err1
+                        Ok { ids = toIds, tree = t2 }  ->
+                            let
+                                arrowLoc = incCol 1 from.end
+                                arrowNode = mkText arrowLoc "->"
+                                arrowRec = SRT.insert arrowNode t2
+                                allIds = fromIds ++ [arrowRec.id] ++ toIds
+                            in
+                                Ok { ids  = allIds, tree = arrowRec.tree }
+
+        _ ->
+            let
+                _ = Debug.log "(unexpected)" locType.value
+            in
+            Err "Unhandled type in makeSignatureBranch"
 
 
 
