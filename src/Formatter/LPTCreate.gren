@@ -395,6 +395,13 @@ processModDecl modDecl lpTree =
 insertExpression : Src.Expression -> SingleRootTree LPBox -> Result String { ids: Array Int, tree: SingleRootTree LPBox }
 insertExpression locExpr tree =
     when locExpr.value is
+        Src.StringLiteral s ->
+            let
+                newNode = mkText locExpr.start ("\"" ++ s ++ "\"")
+                newRec = SRT.insert newNode tree
+            in
+                Ok { ids = [ newRec.id ], tree = newRec.tree }
+
         Src.NumberLiteral outcome ->
             when outcome is
                 PN.Integer n ->
@@ -413,6 +420,39 @@ insertExpression locExpr tree =
 
                 PN.Hex n ->
                     Err "Hex literal not yet handled"
+
+        Src.Binops { left = lhsExpr, operator = locStringOp, right = rhsExpr } ->
+            when insertExpression lhsExpr tree is
+                Err err1 -> Err err1
+                Ok lhsRec ->
+                    when insertExpression rhsExpr lhsRec.tree is
+                        Err err2 -> Err err2
+                        Ok rhsRec ->
+                            let
+                                opNode = mkTextFromLocString locStringOp
+                                opRec = SRT.insert opNode rhsRec.tree
+                            in
+                                -- XXX Here we want a special LPBox type, but I
+                                -- don't know what it is yet
+                                -- For now, just return the basic triplet
+                                Ok { ids = lhsRec.ids ++ [opRec.id] ++ rhsRec.ids,
+                                    tree = opRec.tree }
+
+
+        Src.VarQual { varType = varType , qualifier = qualString , name = nameString } ->
+            let
+                -- XXX what is varType?
+                text = qualString ++ "." ++ nameString
+                newNode = mkText locExpr.start text
+                newRec = SRT.insert newNode tree
+            in
+                Ok { ids = [ newRec.id ], tree = newRec.tree }
+
+        Src.Call { fn = fnExpr, args = argsExprs } ->
+            -- XXX need to look at varying # of args
+            let
+                fnRec = insertExpression fnExpr tree
+                ... need to fold the args
 
         _ ->
             let
