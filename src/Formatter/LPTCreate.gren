@@ -391,7 +391,8 @@ processModDecl modDecl lpTree =
                     Ok t2 -> Ok t2
 
 
--- Recursively insert expressions
+-- Recursively insert expressions. The returned IDs are the IDs in the "main"
+-- branch where we are inserted and don't include chidren IDs if we created any
 insertExpression : Src.Expression -> SingleRootTree LPBox -> Result String { ids: Array Int, tree: SingleRootTree LPBox }
 insertExpression locExpr tree =
     when locExpr.value is
@@ -449,19 +450,34 @@ insertExpression locExpr tree =
                 Ok { ids = [ newRec.id ], tree = newRec.tree }
 
         Src.Call { fn = fnExpr, args = argsExprs } ->
-                Err "Unhandled expression type: Call"
-        {-
-            -- XXX need to look at varying # of args
-            let
-                fnRec = insertExpression fnExpr tree
-                ... need to fold the args
--}
+            when Array.popFirst argsExprs is
+                Nothing ->
+                    Err "FIXME - 0 args is possible"
+                Just { first = arg0, rest = argsAfter0 } ->
+                    when Array.popFirst argsAfter0 is
+                        Nothing ->
+                            -- There was 1 arg
+                            when insertExpression fnExpr tree is
+                                Err err1 -> Err err1
+                                Ok fnRec ->
+                                    when insertExpression arg0 fnRec.tree is
+                                        Err err2 -> Err err2
+                                        Ok arg0Rec ->
+                                            Ok { ids = fnRec.ids ++ arg0Rec.ids, tree = arg0Rec.tree }
+
+                        Just { first = arg1, rest = argsAfter1 } ->
+                            -- 2 or more args
+                            Err "FIXME - saw > 1 arg"
 
         Src.CharLiteral c ->
                 Err "Unhandled expression type: CharLiteral"
 
         Src.Var { varType = varType, name = name } ->
-                Err "Unhandled expression type: Var"
+            let
+                newNode = mkText locExpr.start name
+                newRec = SRT.insert newNode tree
+            in
+                Ok { ids = [ newRec.id ], tree = newRec.tree }
 
         Src.ArrayLiteral exprArray ->
                 Err "Unhandled expression type: ArrayLiteral"
