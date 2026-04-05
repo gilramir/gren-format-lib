@@ -202,7 +202,7 @@ processModuleLine modAst lpTree =
         r1 = SRT.insert (mkText { row = modAst.name.start.row, col = 1} "module") r0.tree
         r2 = SRT.insert (mkTextFromLocString modAst.name) r1.tree
 
-        exposingPos = 
+        exposingPos =
             { row = modAst.name.start.row
             , col = modAst.name.start.col + String.count modAst.name.value + 1
             }
@@ -278,7 +278,7 @@ insertNodeWithChildren parent children tree =
 mkAllAcrossOrAllVertical : ListBrackets -> LPBox
 mkAllAcrossOrAllVertical brackets =
     AllAcrossOrAllVertical brackets
-        
+
 
 processExposed : Src.Exposed -> LPBox
 processExposed exposed =
@@ -316,9 +316,9 @@ processImport locImport lpTree =
 
         { ids = ids4, tree = r4tree } =
             when locImport.value.expose is
-                Src.Open -> 
+                Src.Open ->
                     let
-                        exposingPos = 
+                        exposingPos =
                             { row = locImport.value.module_.start.row
                             , col = locImport.value.module_.start.col +
                                 String.count locImport.value.module_.value + 1
@@ -331,7 +331,7 @@ processImport locImport lpTree =
                     when Array.popFirst xlist is
                         Just { first = first, rest = rest } ->
                             let
-                                exposingPos = 
+                                exposingPos =
                                     { row = locImport.value.module_.start.row
                                     , col = locImport.value.module_.start.col +
                                         String.count locImport.value.module_.value + 1
@@ -449,16 +449,55 @@ insertExpression locExpr tree =
                 Ok { ids = [ newRec.id ], tree = newRec.tree }
 
         Src.Call { fn = fnExpr, args = argsExprs } ->
+                Err "Unhandled expression type: Call"
+        {-
             -- XXX need to look at varying # of args
             let
                 fnRec = insertExpression fnExpr tree
                 ... need to fold the args
+-}
 
-        _ ->
-            let
-                _ = Debug.log "(not-handled)" locExpr.value
-            in
-                Err "Unhandled expression type"
+        Src.CharLiteral c ->
+                Err "Unhandled expression type: CharLiteral"
+
+        Src.Var { varType = varType, name = name } ->
+                Err "Unhandled expression type: Var"
+
+        Src.ArrayLiteral exprArray ->
+                Err "Unhandled expression type: ArrayLiteral"
+
+        Src.Record fieldArray ->
+                Err "Unhandled expression type: Record"
+
+        Src.Update { record = record, newValues = newValues } ->
+                Err "Unhandled expression type: Update"
+
+        Src.Operator opString ->
+                Err "Unhandled expression type: Operator"
+
+        Src.Negate expr ->
+                Err "Unhandled expression type: Negate"
+
+        Src.Lambda { patterns = patterns, body = body } ->
+                Err "Unhandled expression type: Lambda"
+
+        Src.Let { defs = defs, body = body } ->
+                Err "Unhandled expression type: Let"
+
+        Src.If { branches = branches, elseBranch = elseBranch } ->
+                Err "Unhandled expression type: If"
+
+        Src.When { expression = expression, branches = branches } ->
+                Err "Unhandled expression type: When"
+
+        Src.Accessor string ->
+                Err "Unhandled expression type: Accessor"
+
+        Src.Access { expression = expression, accessor = accessor } ->
+                Err "Unhandled expression type: Access"
+
+        Src.Parens expression ->
+                Err "Unhandled expression type: Parens"
 
 
 folderInsertValue : Src.Pattern -> { ids: Array Int, tree: SingleRootTree LPBox }
@@ -478,13 +517,13 @@ insertValue locPat tree =
                 nameRec = SRT.insert nameNode tree
             in
                 Ok { ids = [ nameRec.id ], tree = nameRec.tree }
-       
+
         _ ->
             let
                 _ = Debug.log "(unexpected) value.value"
             in
                 Err "Pattern type not handled in insertValue"
-        
+
 
 
 processFunctionBody : Src.Value -> SingleRootTree LPBox -> Result String (SingleRootTree LPBox)
@@ -497,7 +536,7 @@ processFunctionBody modVal tree =
         -- XXX need a better pos
         eqNode = mkText modVal.name.start "="
         eqRec = SRT.insert eqNode nameRec.tree
-   in 
+   in
     when resultFoldl folderInsertValue { ids = [], tree = eqRec.tree } modVal.args is
         Err e -> Err e
         Ok { ids = argsIds, tree = t1 } ->
@@ -669,7 +708,7 @@ folderMakeSignatureBranch locType { ids = accIds, tree = accTree } =
         Err s -> Err s
         Ok { ids = newIds, tree = newTree } ->
             Ok { ids = accIds ++ newIds, tree = newTree }
-        
+
 
 
 -- Create a tree of LPBoxes, inserted into the Tree
@@ -689,7 +728,7 @@ makeSignatureBranch locType tree =
                             Err s -> Err s
                             Ok t2 ->
                                 Ok { ids = inParenIds, tree = t2 }
-                        
+
         -- e.g.:
         -- String => name = String
         -- Array String =>name = Array (args = [String])
