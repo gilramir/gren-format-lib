@@ -179,7 +179,7 @@ makeBlockComment id lpTree =
                     if Array.isEmpty rest then
                         when first is
                             --- XXX handle spce before -} but deal with newline
-                            BlockComment locs -> Ok (P.text <| "{- " ++ locs.value ++ "-}")
+                            BlockComment locs -> Ok (P.text <| "{- " ++ locs.value ++ " -}")
                             _ ->  Err "Unexpected node type in BlockComment"
                     else
                         -- XXX This is wrong; we might have more
@@ -217,7 +217,7 @@ makeDocComment id lpTree =
             genericRenderResult <| P.prettyFormat costFactory doc
         Err s ->
             Err s
-        
+
 genericRenderResult : Maybe String -> Result String String
 genericRenderResult maybeFormatted =
     when maybeFormatted is
@@ -244,7 +244,7 @@ makeAllAcrossOrAllVertical brackets id lpTree =
         --indentIfNeeded grenIndent <| exposingListBoxes nodes
         exposingListBoxes nodes
         --P.nest grenIndent <| exposingListBoxes nodes
-           
+
 
 {-
 Strings flow across page with s space between them, but if they
@@ -252,7 +252,7 @@ reach the margin, they get indented on the next line
 -}
 flowIndentable : Int -> Array (P.Doc cost) -> P.Doc cost
 flowIndentable indent docs =
-    P.nest indent 
+    P.nest indent
         (P.foldDoc
             (\a b -> P.concat a (P.group (P.concat P.nl b)))
             docs
