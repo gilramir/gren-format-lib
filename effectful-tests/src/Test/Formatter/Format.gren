@@ -13,7 +13,9 @@ import Compiler.Parse.Context as Context
 import Formatter.PrettyPrinter as PPrint
 import String.Parser.Advanced as Parser
 
-tests : FileSystem.Permission -> Effectful.Test 
+import UnifiedDiff exposing (unifiedDiff)
+
+tests : FileSystem.Permission -> Effectful.Test
 tests fsPerm =
     describe "Format"
         [ importTests fsPerm
@@ -69,7 +71,8 @@ assertPretty fsPerm testDescription filenameBase =
             await ("reading expected " ++ prettyFilename) (readTestFile fsPerm prettyFilename)
         <| \expectedFormatting ->
             test testDescription <| \_ ->
-                Expect.equal rendered  expectedFormatting
+                (Expect.equal rendered expectedFormatting
+                        |> Expect.onFail (unifiedDiff expectedFormatting rendered) )
 
 
 importTests: FileSystem.Permission -> Effectful.Test

@@ -88,23 +88,52 @@ insertEmptyLines tree =
 
                         -- Between two StImports with a gap > 1 row
                         { prev = Just (OriginalRows prevRows) , current = Just (OriginalRows currentRows) } ->
-                            if prevRows.stype == StImport && currentRows.stype == StImport && currentRows.first > prevRows.last + 1 then
-                                let
-                                    result =
-                                        SRT.insert EmptyLine acc.newTree
-                                in
-                                { newTree = result.tree
-                                , newChildren =
-                                    acc.newChildren
-                                        |> Array.pushLast result.id
-                                        |> Array.pushLast childId
-                                , prev = node
-                                }
-                            else
-                                { acc
-                                    | newChildren = Array.pushLast childId acc.newChildren
-                                    , prev = node
-                                }
+                            when currentRows.stype is
+                                StImport ->
+                                    if prevRows.stype == StImport && currentRows.stype == StImport && currentRows.first > prevRows.last + 1 then
+                                        let
+                                            result =
+                                                SRT.insert EmptyLine acc.newTree
+                                        in
+                                        { newTree = result.tree
+                                        , newChildren =
+                                            acc.newChildren
+                                                |> Array.pushLast result.id
+                                                |> Array.pushLast childId
+                                        , prev = node
+                                        }
+                                    else
+                                        { acc
+                                            | newChildren = Array.pushLast childId acc.newChildren
+                                            , prev = node
+                                        }
+
+                                StBlockComment ->
+                                    -- Before an StBlockComment with a gap > 1 row
+                                    if currentRows.stype == StBlockComment && currentRows.first > prevRows.last + 1 then
+                                        let
+                                            result =
+                                                SRT.insert EmptyLine acc.newTree
+                                        in
+                                        { newTree = result.tree
+                                        , newChildren =
+                                            acc.newChildren
+                                                |> Array.pushLast result.id
+                                                |> Array.pushLast childId
+                                        , prev = node
+                                        }
+                                    else
+                                        { acc
+                                            | newChildren = Array.pushLast childId acc.newChildren
+                                            , prev = node
+                                        }
+
+                                _ ->
+                                    -- Everything else: just append
+                                    { acc
+                                        | newChildren = Array.pushLast childId acc.newChildren
+                                        , prev = node
+                                    }
 
                         -- Everything else: just append
                         _ ->

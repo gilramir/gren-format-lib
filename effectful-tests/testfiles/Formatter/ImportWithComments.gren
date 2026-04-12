@@ -20,12 +20,4 @@ import Basics exposing -- comment after 'exposing'
 import String as S
 
 {- This is a
-multiline comment
--}
-viewItems : Array String -> String
-viewItems items =
-  items
-        |> Array.sort
-            |> String.join
-                ", "
-
+multiline comment -}
