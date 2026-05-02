@@ -58,9 +58,6 @@ EmptyLine node ids.
 insertEmptyLines : SingleRootTree LPBox -> SingleRootTree LPBox
 insertEmptyLines tree =
     let
-        rootId =
-            SRT.getRootId tree
-
         childIds =
             SRT.getRootChildren tree
 
@@ -72,70 +69,25 @@ insertEmptyLines tree =
                             SRT.getNode childId acc.newTree
                     in
                     when { prev = acc.prev, current = node } is
-                        -- After StModule, always insert an EmptyLine
-                        { prev = Just (OriginalRows { stype = StModule }), current = _ } ->
-                            let
-                                result =
-                                    SRT.insert EmptyLine acc.newTree
-                            in
-                            { newTree = result.tree
-                            , newChildren =
-                                acc.newChildren
-                                    |> Array.pushLast result.id
-                                    |> Array.pushLast childId
-                            , prev = node
-                            }
+                        { prev = Just (OriginalRows prevRows), current = Just (OriginalRows currentRows) } ->
+                            if currentRows.first > prevRows.last + 1 then
+                                let
+                                    result =
+                                        SRT.insert EmptyLine acc.newTree
+                                in
+                                { newTree = result.tree
+                                , newChildren =
+                                    acc.newChildren
+                                        |> Array.pushLast result.id
+                                        |> Array.pushLast childId
+                                , prev = node
+                                }
+                            else
+                                { acc
+                                    | newChildren = Array.pushLast childId acc.newChildren
+                                    , prev = node
+                                }
 
-                        -- Between two StImports with a gap > 1 row
-                        { prev = Just (OriginalRows prevRows) , current = Just (OriginalRows currentRows) } ->
-                            when currentRows.stype is
-                                StImport ->
-                                    if prevRows.stype == StImport && currentRows.stype == StImport && currentRows.first > prevRows.last + 1 then
-                                        let
-                                            result =
-                                                SRT.insert EmptyLine acc.newTree
-                                        in
-                                        { newTree = result.tree
-                                        , newChildren =
-                                            acc.newChildren
-                                                |> Array.pushLast result.id
-                                                |> Array.pushLast childId
-                                        , prev = node
-                                        }
-                                    else
-                                        { acc
-                                            | newChildren = Array.pushLast childId acc.newChildren
-                                            , prev = node
-                                        }
-
-                                StBlockComment ->
-                                    -- Before an StBlockComment with a gap > 1 row
-                                    if currentRows.stype == StBlockComment && currentRows.first > prevRows.last + 1 then
-                                        let
-                                            result =
-                                                SRT.insert EmptyLine acc.newTree
-                                        in
-                                        { newTree = result.tree
-                                        , newChildren =
-                                            acc.newChildren
-                                                |> Array.pushLast result.id
-                                                |> Array.pushLast childId
-                                        , prev = node
-                                        }
-                                    else
-                                        { acc
-                                            | newChildren = Array.pushLast childId acc.newChildren
-                                            , prev = node
-                                        }
-
-                                _ ->
-                                    -- Everything else: just append
-                                    { acc
-                                        | newChildren = Array.pushLast childId acc.newChildren
-                                        , prev = node
-                                    }
-
-                        -- Everything else: just append
                         _ ->
                             { acc
                                 | newChildren = Array.pushLast childId acc.newChildren

@@ -35,14 +35,10 @@ makeLogicalPrintingTree ast ctx =
         Ok lpt ->
             when lptAddComments ctx lpt is
                 Err wcReason ->
-                    let
-                        _ = Debug.log "(failed_lpt)" ("\n" ++ (lptToString lpt))
-                    in
-                        Err ("Failed while placing comments: " ++ wcReason)
+                    Err ("Failed while placing comments: " ++ wcReason)
                 Ok lptWc ->
                     let
                         lptXl = insertEmptyLines lptWc
-                        _ = Debug.log "(ok_lpt)" ("\n" ++ (lptToString lptXl))
                         -- Sanity check
                         discoveredRoots = SRT.roots lptXl
                     in
@@ -412,7 +408,9 @@ insertExpression locExpr tree =
 
                 PN.FloatingPoint n ->
                     let
-                        newNode = mkText locExpr.start (String.fromFloat n)
+                        raw = String.fromFloat n
+                        str = if String.any (\c -> c == '.') raw then raw else raw ++ ".0"
+                        newNode = mkText locExpr.start str
                         newRec = SRT.insert newNode tree
                     in
                         Ok { ids = [ newRec.id ], tree = newRec.tree }
@@ -505,9 +503,7 @@ insertExpression locExpr tree =
             when insertExpression expression tree is
                 Err e -> Err e
                 Ok { ids = ids, tree = t1 } ->
-                    when fixupParensChildrenNodes ids t1 is
-                        Err e -> Err e
-                        Ok t2 -> Ok { ids = ids, tree = t2 }
+                    fixupParensChildrenNodes ids t1
 
         Src.ArrayLiteral exprArray ->
             when resultFoldl folderInsertExprAsItem { ids = [], tree = tree } exprArray is
@@ -531,27 +527,29 @@ insertExpression locExpr tree =
 
         Src.Update { record = record, newValues = newValues } ->
             let
-                openNode = mkText locExpr.start "{"
-                openRec = SRT.insert openNode tree
+                recText = simpleExprText record
             in
-            when insertExpression record openRec.tree is
+            when resultFoldl folderInsertRecordField { ids = [], tree = tree } newValues is
                 Err e -> Err e
-                Ok { ids = recordIds, tree = t1 } ->
+                Ok { ids = fieldIds, tree = t1 } ->
+                    -- Prepend "recName | " to the first text in the first field
                     let
-                        pipeNode = mkText emptyPos "|"
-                        pipeRec = SRT.insert pipeNode t1
+                        t2 =
+                            when Array.popFirst fieldIds is
+                                Nothing -> t1
+                                Just { first = firstFieldId } ->
+                                    when findDeepFirstTextId firstFieldId t1 is
+                                        Nothing -> t1
+                                        Just deepId ->
+                                            when SRT.getNode deepId t1 is
+                                                Just (UnbreakableText loc) ->
+                                                    SRT.replaceNode deepId
+                                                        (mkText loc.start (recText ++ " | " ++ loc.value)) t1
+                                                _ -> t1
+                        container = SRT.insert (AllAcrossOrAllVertical ListCurly) t2
+                        t3 = SRT.setChildren container.id fieldIds container.tree
                     in
-                    when resultFoldl folderInsertRecordField { ids = [], tree = pipeRec.tree } newValues is
-                        Err e -> Err e
-                        Ok { ids = fieldIds, tree = t2 } ->
-                            let
-                                closeNode = mkText emptyPos "}"
-                                closeRec = SRT.insert closeNode t2
-                                allChildIds = [openRec.id] ++ recordIds ++ [pipeRec.id] ++ fieldIds ++ [closeRec.id]
-                                container = SRT.insert AcrossThenIndent closeRec.tree
-                                t3 = SRT.setChildren container.id allChildIds container.tree
-                            in
-                                Ok { ids = [container.id], tree = t3 }
+                        Ok { ids = [container.id], tree = t3 }
 
         Src.Binops { left = lhsExpr, operator = locStringOp, right = rhsExpr } ->
             when insertExpression lhsExpr tree is
@@ -573,21 +571,30 @@ insertExpression locExpr tree =
                     resultFoldl folderInsertExprAsItem fnResult argsExprs
 
         Src.Lambda { patterns = patterns, body = body } ->
-            let
-                backslashNode = mkText locExpr.start "\\"
-                backslashRec = SRT.insert backslashNode tree
-            in
-            when resultFoldl folderInsertPattern { ids = [backslashRec.id], tree = backslashRec.tree } patterns is
+            when resultFoldl folderInsertPattern { ids = [], tree = tree } patterns is
                 Err e -> Err e
                 Ok { ids = patIds, tree = t1 } ->
+                    -- Prepend \ to the deepest first text node of the first pattern
                     let
+                        t2 =
+                            when Array.popFirst patIds is
+                                Nothing -> t1
+                                Just { first = firstPatId } ->
+                                    when findDeepFirstTextId firstPatId t1 is
+                                        Nothing -> t1
+                                        Just deepId ->
+                                            when SRT.getNode deepId t1 is
+                                                Just (UnbreakableText loc) ->
+                                                    SRT.replaceNode deepId
+                                                        (mkText locExpr.start ("\\" ++ loc.value)) t1
+                                                _ -> t1
                         arrowNode = mkText emptyPos "->"
-                        arrowRec = SRT.insert arrowNode t1
+                        arrowRec = SRT.insert arrowNode t2
                     in
                     when insertExpressionAsItem body arrowRec.tree is
                         Err e -> Err e
-                        Ok { id = bodyId, tree = t2 } ->
-                            Ok { ids = patIds ++ [arrowRec.id, bodyId], tree = t2 }
+                        Ok { id = bodyId, tree = t3 } ->
+                            Ok { ids = patIds ++ [arrowRec.id, bodyId], tree = t3 }
 
         Src.Let { defs = defs, body = body } ->
             let
@@ -653,6 +660,15 @@ insertExpression locExpr tree =
                     in
                     resultFoldl folderInsertWhenBranch { ids = [whenRec.id] ++ exprIds ++ [isRec.id], tree = isRec.tree } branches
 
+
+-- Extract text from simple expressions (Var, VarQual, Access chain) without touching the tree.
+simpleExprText : Src.Expression -> String
+simpleExprText locExpr =
+    when locExpr.value is
+        Src.Var { name = name } -> name
+        Src.VarQual { qualifier = q, name = n } -> q ++ "." ++ n
+        Src.Access { expression = expr, accessor = acc } -> simpleExprText expr ++ "." ++ acc
+        _ -> ""
 
 -- Wrap an expression as a single tree item.
 -- If the expression produces multiple sibling ids, group them under AcrossThenIndent.
@@ -1043,87 +1059,72 @@ incCol n pos =
         | col = pos.col + n
     }
 
-{-| Given an array of ints (nodes in the tree), which are the items insided a
-pair of parens, modify the text of the items so that the first text item has a
-"(" prepended to it, and the last text item has a ")" appended to it.
+{-| Walk a node's subtree to find the deepest first UnbreakableText id. -}
+findDeepFirstTextId : Int -> SingleRootTree LPBox -> Maybe Int
+findDeepFirstTextId id tree =
+    when SRT.getNode id tree is
+        Just (UnbreakableText _) -> Just id
+        _ ->
+            when Array.popFirst (SRT.childrenWithNodes id tree) is
+                Nothing -> Nothing
+                Just { first = child } -> findDeepFirstTextId child.id tree
+
+{-| Walk a node's subtree to find the deepest last UnbreakableText id. -}
+findDeepLastTextId : Int -> SingleRootTree LPBox -> Maybe Int
+findDeepLastTextId id tree =
+    when SRT.getNode id tree is
+        Just (UnbreakableText _) -> Just id
+        _ ->
+            when Array.popLast (SRT.childrenWithNodes id tree) is
+                Nothing -> Nothing
+                Just { last = child } -> findDeepLastTextId child.id tree
+
+{-| Wrap a list of expression ids in parentheses by modifying the deepest
+first and last UnbreakableText nodes in the tree (which may be nested inside
+AcrossThenIndent containers). Returns the (same or updated) id list and tree.
 -}
 fixupParensChildrenNodes : Array Int -> SingleRootTree LPBox ->
-    Result String (SingleRootTree LPBox)
+    Result String { ids : Array Int, tree : SingleRootTree LPBox }
 fixupParensChildrenNodes ids tree =
     when Array.popFirst ids is
         Nothing ->
-            -- 0 items
-            -- XXX is this possible?
-            Ok tree
-            {-
             let
-                node = mkText startPos "()"
-                r0 = SRT.insert node tree
+                r0 = SRT.insert (mkText emptyPos "()") tree
             in
                 Ok { ids = [r0.id], tree = r0.tree }
-            -}
 
-        Just { first = firstId, rest = idsAfter0 } ->
-            fixupParensHasChildren firstId idsAfter0 tree
-
-
-fixupParensHasChildren : Int -> Array Int -> SingleRootTree LPBox ->
-    Result String (SingleRootTree LPBox)
-fixupParensHasChildren firstId idsAfter0 tree =
-    let
-        firstNode = SRT.getNode firstId tree
-        res1 = when firstNode is
-            Just (UnbreakableText locS) ->
-                Ok locS
-                {-
-                -}
-
-            Just _ ->
-                Err "Unexpected 1st value in TParens child list"
-            Nothing ->
-                -- Impossible
-                Err "Failed to find TParens 1st child node ID in tree"
-    in
-    when res1 is
-        Err s -> Err s
-        Ok firstLocs ->
+        Just { first = firstId, rest = rest } ->
             let
-                maybeLastId = Array.popLast idsAfter0
+                lastId =
+                    when Array.popLast rest is
+                        Nothing -> firstId
+                        Just { last = l } -> l
+                maybeDeepFirst = findDeepFirstTextId firstId tree
+                maybeDeepLast = findDeepLastTextId lastId tree
             in
-                when maybeLastId is
-                    Nothing ->
-                        -- There was only 1 child
+            when { df = maybeDeepFirst, dl = maybeDeepLast } is
+                { df = Just deepFirstId, dl = Just deepLastId } ->
+                    let
+                        fl = when SRT.getNode deepFirstId tree is
+                            Just (UnbreakableText loc) -> loc
+                            _ -> { start = emptyPos, end = emptyPos, value = "" }
+                        ll = when SRT.getNode deepLastId tree is
+                            Just (UnbreakableText loc) -> loc
+                            _ -> { start = emptyPos, end = emptyPos, value = "" }
+                    in
+                    if deepFirstId == deepLastId then
                         let
-                            newFirstNode = mkText firstLocs.start ("(" ++ firstLocs.value ++ ")")
-                            t1 = SRT.replaceNode firstId newFirstNode tree
+                            t1 = SRT.replaceNode deepFirstId (mkText fl.start ("(" ++ fl.value ++ ")")) tree
                         in
-                            Ok t1
-
-
-                    Just { initial = _, last = lastId } ->
-                        -- There were more than 1 child
+                            Ok { ids = ids, tree = t1 }
+                    else
                         let
-                            lastNode = SRT.getNode lastId tree
-                            res2 = when lastNode is
-                                Just (UnbreakableText locS) ->
-                                    Ok locS
-
-                                Just _ ->
-                                    Err "Unexpected lastt value in TParens child list"
-                                Nothing ->
-                                    -- Impossible
-                                    Err "Failed to find TParens last child node ID in tree"
+                            t1 = SRT.replaceNode deepFirstId (mkText fl.start ("(" ++ fl.value)) tree
+                            t2 = SRT.replaceNode deepLastId (mkText ll.start (ll.value ++ ")")) t1
                         in
-                        when res2 is
-                            Err s -> Err s
-                            Ok lastLocs ->
-                                let
-                                    newFirstNode = mkText firstLocs.start ("(" ++ firstLocs.value)
-                                    t1 = SRT.replaceNode firstId newFirstNode tree
-                                    newLastNode = mkText lastLocs.start (lastLocs.value ++ ")")
-                                    t2 = SRT.replaceNode lastId newLastNode t1
-                                in
-                                    Ok t2
+                            Ok { ids = ids, tree = t2 }
+                _ ->
+                    Err "fixupParensChildrenNodes: could not find text nodes"
 
 {-
 Helper function to use makeSignatureBranch with resultFoldl
@@ -1148,13 +1149,7 @@ makeSignatureBranch locType tree =
             when makeSignatureBranch inParenType tree is
                 Err errstring -> Err errstring
                 Ok { ids = inParenIds, tree = t1 }  ->
-                    let
-                        res1 = fixupParensChildrenNodes inParenIds t1
-                    in
-                        when res1 is
-                            Err s -> Err s
-                            Ok t2 ->
-                                Ok { ids = inParenIds, tree = t2 }
+                    fixupParensChildrenNodes inParenIds t1
 
         -- e.g.:
         -- String => name = String
@@ -1178,20 +1173,17 @@ makeSignatureBranch locType tree =
                                         Ok { ids = [r0.id] ++ firstIds, tree = t1 }
 
                             Just { first = _, rest = _ } ->
-                                -- More than one arg
+                                -- More than one arg: wrap args in parens
                                 when resultFoldl folderMakeSignatureBranch { ids = [], tree = r0.tree } args is
                                     Err s -> Err s
                                     Ok { ids = childrenIds, tree = t1 } ->
-                                        let
-                                            res1 = fixupParensChildrenNodes childrenIds t1
-                                        in
-                                            when res1 is
-                                                Err s -> Err s
-                                                Ok t2 ->
-                                                    let
-                                                        t3 = SRT.setChildren r0.id childrenIds t2
-                                                    in
-                                                        Ok { ids = childrenIds, tree = t3 }
+                                        when fixupParensChildrenNodes childrenIds t1 is
+                                            Err s -> Err s
+                                            Ok { ids = wrappedIds, tree = t2 } ->
+                                                let
+                                                    t3 = SRT.setChildren r0.id wrappedIds t2
+                                                in
+                                                    Ok { ids = [r0.id] ++ wrappedIds, tree = t3 }
 
         Src.TLambda { from = from , to = to } ->
             when makeSignatureBranch from tree is
@@ -1218,11 +1210,43 @@ makeSignatureBranch locType tree =
             in
                 Ok { ids = [r0.id], tree = r0.tree }
 
-        _ ->
+        Src.TVar name ->
             let
-                _ = Debug.log "(unexpected)" locType.value
+                node = mkText locType.start name
+                r0 = SRT.insert node tree
             in
-            Err "Unhandled type in makeSignatureBranch"
+                Ok { ids = [r0.id], tree = r0.tree }
+
+        Src.TRecord { fields = fields, extending = _ } ->
+            let
+                folderField : Src.TRecordField
+                    -> { ids : Array Int, tree : SingleRootTree LPBox }
+                    -> Result String { ids : Array Int, tree : SingleRootTree LPBox }
+                folderField field acc =
+                    let
+                        nameNode = mkTextFromLocString field.field
+                        nameRec = SRT.insert nameNode acc.tree
+                        colonNode = mkText emptyPos ":"
+                        colonRec = SRT.insert colonNode nameRec.tree
+                    in
+                    when makeSignatureBranch field.signature colonRec.tree is
+                        Err e -> Err e
+                        Ok { ids = typeIds, tree = t1 } ->
+                            let
+                                allChildIds = [nameRec.id, colonRec.id] ++ typeIds
+                                itemContainer = SRT.insert AcrossThenIndent t1
+                                t2 = SRT.setChildren itemContainer.id allChildIds itemContainer.tree
+                            in
+                                Ok { ids = acc.ids ++ [itemContainer.id], tree = t2 }
+            in
+            when resultFoldl folderField { ids = [], tree = tree } fields is
+                Err e -> Err e
+                Ok { ids = fieldIds, tree = t1 } ->
+                    let
+                        container = SRT.insert (AllAcrossOrAllVertical ListCurly) t1
+                        t2 = SRT.setChildren container.id fieldIds container.tree
+                    in
+                        Ok { ids = [container.id], tree = t2 }
 
 
 

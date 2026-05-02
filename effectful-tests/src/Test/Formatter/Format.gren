@@ -19,6 +19,7 @@ tests : FileSystem.Permission -> Effectful.Test
 tests fsPerm =
     describe "Format"
         [ importTests fsPerm
+        , expressionTests fsPerm
         ]
 
 runPrettyPrinter : FileSystem.Permission -> String -> Task String String
@@ -79,5 +80,16 @@ importTests: FileSystem.Permission -> Effectful.Test
 importTests fsPerm =
     describe "Import Statements"
         [ assertPretty fsPerm "import with comments" "ImportWithComments"
+        ]
+
+expressionTests : FileSystem.Permission -> Effectful.Test
+expressionTests fsPerm =
+    describe "Expressions"
+        [ assertPretty fsPerm "simple arithmetic" "SimpleArithmetic"
+        , assertPretty fsPerm "when expression" "WhenExpression"
+        , assertPretty fsPerm "if expression" "IfExpression"
+        , assertPretty fsPerm "let expression" "LetExpression"
+        , assertPretty fsPerm "records" "Records"
+        , assertPretty fsPerm "lambdas and calls" "LambdasAndCalls"
         ]
 

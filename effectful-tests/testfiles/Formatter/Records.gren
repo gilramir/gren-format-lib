@@ -1,0 +1,21 @@
+module Records exposing (makePoint, movePoint, distSq)
+
+{- Record creation, access, and update -}
+
+-- Construct a 2D point record
+makePoint : Int -> Int -> { x : Int, y : Int }
+makePoint x y = {x = x, y = y}
+
+-- Shift a point by dx and dy
+movePoint : Int -> Int -> { x : Int, y : Int } -> { x : Int, y : Int }
+movePoint dx dy pt = {pt | x = pt.x + dx, y = pt.y + dy}
+
+-- Squared distance between two points
+distSq : { x : Int, y : Int } -> { x : Int, y : Int } -> Int
+distSq a b =
+    let
+        -- Differences in each axis
+        dx = a.x - b.x
+        dy = a.y - b.y
+    in
+    dx * dx + dy * dy

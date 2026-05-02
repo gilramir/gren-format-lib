@@ -1,0 +1,30 @@
+module LetExpression exposing ( circleArea, initials, labeledPair )
+
+{- Examples using let/in -}
+
+-- Area of a circle
+circleArea : Float -> Float
+circleArea radius =
+    let
+        pi = 3.14159
+        rSquared = radius * radius
+    in
+    pi * rSquared
+
+-- Extract initials from a first and last name
+initials : String -> String -> String
+initials first last =
+    let
+        f = String.left 1 first
+        l = String.left 1 last
+    in
+    f ++ ". " ++ l ++ "."
+
+-- Pair a label with a value as a string
+labeledPair : String -> Int -> String
+labeledPair label value =
+    let
+        -- Convert the value to a string
+        valueStr = String.fromInt value
+    in
+    label ++ ": " ++ valueStr

@@ -1,0 +1,37 @@
+module WhenExpression exposing (dayName, sign, describeList)
+
+{- Pattern matching with when/is -}
+
+-- Name of the day of the week (1 = Monday)
+dayName : Int -> String
+dayName n =
+    when n is
+        1 -> "Monday"
+        2 -> "Tuesday"
+        3 -> "Wednesday"
+        4 -> "Thursday"
+        5 -> "Friday"
+        6 -> "Saturday"
+        7 -> "Sunday"
+        _ -> "Unknown"
+
+-- Sign of a number
+sign : Int -> Int
+sign n =
+    when n is
+        0 -> 0
+        _ ->
+            if n > 0 then
+                1
+            else
+                -1
+
+-- Describe an array based on its contents
+describeList : Array a -> String
+describeList xs =
+    when Array.popFirst xs is
+        Nothing -> "empty"
+        Just { first, rest } ->
+            when Array.popFirst rest is
+                Nothing -> "one item"
+                Just _ -> "multiple items"

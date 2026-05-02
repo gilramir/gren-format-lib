@@ -1,0 +1,25 @@
+module IfExpression exposing (classify, clamp, between)
+
+-- Classify an integer as negative, zero, or positive
+classify : Int -> String
+classify n =
+    if n < 0 then
+        "negative"
+    else if n == 0 then
+        "zero"
+    else
+        "positive"
+
+{- Clamp a value to a range -}
+clamp : Int -> Int -> Int -> Int
+clamp lo hi n =
+    if n < lo then
+        lo
+    else if n > hi then
+        hi
+    else
+        n
+
+-- Check whether n is strictly between lo and hi
+between : Int -> Int -> Int -> Bool
+between lo hi n = n > lo && n < hi
