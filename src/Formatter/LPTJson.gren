@@ -1,0 +1,98 @@
+module Formatter.LPTJson exposing (lptToJson)
+
+import Json.Encode as Json
+
+import Compiler.SourcePosition exposing (Located, Position)
+import Formatter.LogicalPrintingTree exposing (LPBox(..), ListBrackets(..), SyntaxType(..), stypeToString)
+import Tree.SingleRootTree as SRT exposing (SingleRootTree)
+
+
+lptToJson : SingleRootTree LPBox -> String
+lptToJson tree =
+    let
+        rootId = SRT.getRootId tree
+    in
+    Json.encode 2 (nodeToJson rootId tree)
+
+
+nodeToJson : Int -> SingleRootTree LPBox -> Json.Value
+nodeToJson nodeId tree =
+    when SRT.get nodeId tree is
+        Nothing ->
+            Json.null
+
+        Just { value = node, children = childIds } ->
+            let
+                childrenJson =
+                    Json.array (\cid -> nodeToJson cid tree) childIds
+            in
+            Json.object
+                (lpBoxFields node ++ [ { key = "children", value = childrenJson } ])
+
+
+lpBoxFields : LPBox -> Array { key : String, value : Json.Value }
+lpBoxFields lpbox =
+    when lpbox is
+        RootBox ->
+            [ { key = "type", value = Json.string "RootBox" } ]
+
+        OriginalRows { first = first, last = last, stype = stype } ->
+            [ { key = "type", value = Json.string "OriginalRows" }
+            , { key = "first", value = Json.int first }
+            , { key = "last", value = Json.int last }
+            , { key = "stype", value = Json.string (stypeToString stype) }
+            ]
+
+        EmptyLine ->
+            [ { key = "type", value = Json.string "EmptyLine" } ]
+
+        UnbreakableText loc ->
+            [ { key = "type", value = Json.string "UnbreakableText" }
+            , { key = "value", value = Json.string loc.value }
+            , { key = "startRow", value = Json.int loc.start.row }
+            , { key = "startCol", value = Json.int loc.start.col }
+            , { key = "endRow", value = Json.int loc.end.row }
+            , { key = "endCol", value = Json.int loc.end.col }
+            ]
+
+        SingleLineComment loc ->
+            [ { key = "type", value = Json.string "SingleLineComment" }
+            , { key = "value", value = Json.string loc.value }
+            , { key = "startRow", value = Json.int loc.start.row }
+            , { key = "startCol", value = Json.int loc.start.col }
+            ]
+
+        BlockComment loc ->
+            [ { key = "type", value = Json.string "BlockComment" }
+            , { key = "value", value = Json.string loc.value }
+            , { key = "startRow", value = Json.int loc.start.row }
+            , { key = "startCol", value = Json.int loc.start.col }
+            ]
+
+        DocComment loc ->
+            [ { key = "type", value = Json.string "DocComment" }
+            , { key = "value", value = Json.string loc.value }
+            , { key = "startRow", value = Json.int loc.start.row }
+            , { key = "startCol", value = Json.int loc.start.col }
+            ]
+
+        AcrossThenIndent ->
+            [ { key = "type", value = Json.string "AcrossThenIndent" } ]
+
+        AllAcrossOrAllVertical brackets ->
+            [ { key = "type", value = Json.string "AllAcrossOrAllVertical" }
+            , { key = "brackets", value = Json.string (bracketsToString brackets) }
+            ]
+
+        AllAcrossOrAllVerticalNoBrackets sep ->
+            [ { key = "type", value = Json.string "AllAcrossOrAllVerticalNoBrackets" }
+            , { key = "separator", value = Json.string sep }
+            ]
+
+
+bracketsToString : ListBrackets -> String
+bracketsToString brackets =
+    when brackets is
+        ListParen -> "paren"
+        ListCurly -> "curly"
+        ListSquare -> "square"
