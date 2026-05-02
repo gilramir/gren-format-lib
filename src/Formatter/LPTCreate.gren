@@ -1,6 +1,8 @@
 module Formatter.LPTCreate exposing (..)
 
+import Char
 import Dict
+import Math
 
 import Compiler.Ast.Source as Src
 import Compiler.Parse.Context as Ctx
@@ -388,7 +390,7 @@ processModDecl modDecl lpTree =
 
 
 -- Recursively insert expressions. The returned IDs are the IDs in the "main"
--- branch where we are inserted and don't include chidren IDs if we created any
+-- branch and don't include children IDs if a container node was created.
 insertExpression : Src.Expression -> SingleRootTree LPBox -> Result String { ids: Array Int, tree: SingleRootTree LPBox }
 insertExpression locExpr tree =
     when locExpr.value is
@@ -416,125 +418,538 @@ insertExpression locExpr tree =
                         Ok { ids = [ newRec.id ], tree = newRec.tree }
 
                 PN.Hex n ->
-                    Err "Hex literal not yet handled"
+                    let
+                        newNode = mkText locExpr.start ("0x" ++ intToHex n)
+                        newRec = SRT.insert newNode tree
+                    in
+                        Ok { ids = [ newRec.id ], tree = newRec.tree }
 
-        Src.Binops { left = lhsExpr, operator = locStringOp, right = rhsExpr } ->
-            when insertExpression lhsExpr tree is
-                Err err1 -> Err err1
-                Ok lhsRec ->
-                    when insertExpression rhsExpr lhsRec.tree is
-                        Err err2 -> Err err2
-                        Ok rhsRec ->
-                            let
-                                opNode = mkTextFromLocString locStringOp
-                                opRec = SRT.insert opNode rhsRec.tree
-                            in
-                                -- XXX Here we want a special LPBox type, but I
-                                -- don't know what it is yet
-                                -- For now, just return the basic triplet
-                                Ok { ids = lhsRec.ids ++ [opRec.id] ++ rhsRec.ids,
-                                    tree = opRec.tree }
-
-
-        Src.VarQual { varType = varType , qualifier = qualString , name = nameString } ->
+        Src.CharLiteral c ->
             let
-                -- XXX what is varType?
-                text = qualString ++ "." ++ nameString
-                newNode = mkText locExpr.start text
+                newNode = mkText locExpr.start (charLiteralString c)
                 newRec = SRT.insert newNode tree
             in
                 Ok { ids = [ newRec.id ], tree = newRec.tree }
 
-        Src.Call { fn = fnExpr, args = argsExprs } ->
-            when Array.popFirst argsExprs is
-                Nothing ->
-                    Err "FIXME - 0 args is possible"
-                Just { first = arg0, rest = argsAfter0 } ->
-                    when Array.popFirst argsAfter0 is
-                        Nothing ->
-                            -- There was 1 arg
-                            when insertExpression fnExpr tree is
-                                Err err1 -> Err err1
-                                Ok fnRec ->
-                                    when insertExpression arg0 fnRec.tree is
-                                        Err err2 -> Err err2
-                                        Ok arg0Rec ->
-                                            Ok { ids = fnRec.ids ++ arg0Rec.ids, tree = arg0Rec.tree }
-
-                        Just { first = arg1, rest = argsAfter1 } ->
-                            -- 2 or more args
-                            Err "FIXME - saw > 1 arg"
-
-        Src.CharLiteral c ->
-                Err "Unhandled expression type: CharLiteral"
-
-        Src.Var { varType = varType, name = name } ->
+        Src.Var { varType = _, name = name } ->
             let
                 newNode = mkText locExpr.start name
                 newRec = SRT.insert newNode tree
             in
                 Ok { ids = [ newRec.id ], tree = newRec.tree }
 
-        Src.ArrayLiteral exprArray ->
-                Err "Unhandled expression type: ArrayLiteral"
-
-        Src.Record fieldArray ->
-                Err "Unhandled expression type: Record"
-
-        Src.Update { record = record, newValues = newValues } ->
-                Err "Unhandled expression type: Update"
+        Src.VarQual { varType = _, qualifier = qualString, name = nameString } ->
+            let
+                newNode = mkText locExpr.start (qualString ++ "." ++ nameString)
+                newRec = SRT.insert newNode tree
+            in
+                Ok { ids = [ newRec.id ], tree = newRec.tree }
 
         Src.Operator opString ->
-                Err "Unhandled expression type: Operator"
+            let
+                newNode = mkText locExpr.start opString
+                newRec = SRT.insert newNode tree
+            in
+                Ok { ids = [ newRec.id ], tree = newRec.tree }
 
         Src.Negate expr ->
-                Err "Unhandled expression type: Negate"
-
-        Src.Lambda { patterns = patterns, body = body } ->
-                Err "Unhandled expression type: Lambda"
-
-        Src.Let { defs = defs, body = body } ->
-                Err "Unhandled expression type: Let"
-
-        Src.If { branches = branches, elseBranch = elseBranch } ->
-                Err "Unhandled expression type: If"
-
-        Src.When { expression = expression, branches = branches } ->
-                Err "Unhandled expression type: When"
+            when insertExpression expr tree is
+                Err e -> Err e
+                Ok { ids = ids, tree = t1 } ->
+                    when Array.popFirst ids is
+                        Nothing -> Err "Negate: empty inner expression"
+                        Just { first = firstId, rest = _ } ->
+                            when SRT.getNode firstId t1 is
+                                Just (UnbreakableText loc) ->
+                                    let
+                                        newNode = mkText locExpr.start ("-" ++ loc.value)
+                                        t2 = SRT.replaceNode firstId newNode t1
+                                    in
+                                        Ok { ids = ids, tree = t2 }
+                                _ ->
+                                    let
+                                        negNode = mkText locExpr.start "-"
+                                        negRec = SRT.insert negNode t1
+                                    in
+                                        Ok { ids = [negRec.id] ++ ids, tree = negRec.tree }
 
         Src.Accessor string ->
-                Err "Unhandled expression type: Accessor"
+            let
+                newNode = mkText locExpr.start ("." ++ string)
+                newRec = SRT.insert newNode tree
+            in
+                Ok { ids = [ newRec.id ], tree = newRec.tree }
 
         Src.Access { expression = expression, accessor = accessor } ->
-                Err "Unhandled expression type: Access"
+            when insertExpression expression tree is
+                Err e -> Err e
+                Ok { ids = ids, tree = t1 } ->
+                    when Array.popLast ids is
+                        Nothing -> Err "Access: empty inner expression"
+                        Just { last = lastId, initial = _ } ->
+                            when SRT.getNode lastId t1 is
+                                Just (UnbreakableText loc) ->
+                                    let
+                                        newNode = mkText loc.start (loc.value ++ "." ++ accessor)
+                                        t2 = SRT.replaceNode lastId newNode t1
+                                    in
+                                        Ok { ids = ids, tree = t2 }
+                                _ ->
+                                    let
+                                        accNode = mkText emptyPos ("." ++ accessor)
+                                        accRec = SRT.insert accNode t1
+                                    in
+                                        Ok { ids = ids ++ [accRec.id], tree = accRec.tree }
 
         Src.Parens expression ->
-                Err "Unhandled expression type: Parens"
+            when insertExpression expression tree is
+                Err e -> Err e
+                Ok { ids = ids, tree = t1 } ->
+                    when fixupParensChildrenNodes ids t1 is
+                        Err e -> Err e
+                        Ok t2 -> Ok { ids = ids, tree = t2 }
+
+        Src.ArrayLiteral exprArray ->
+            when resultFoldl folderInsertExprAsItem { ids = [], tree = tree } exprArray is
+                Err e -> Err e
+                Ok { ids = itemIds, tree = t1 } ->
+                    let
+                        container = SRT.insert (AllAcrossOrAllVertical ListSquare) t1
+                        t2 = SRT.setChildren container.id itemIds container.tree
+                    in
+                        Ok { ids = [container.id], tree = t2 }
+
+        Src.Record fieldArray ->
+            when resultFoldl folderInsertRecordField { ids = [], tree = tree } fieldArray is
+                Err e -> Err e
+                Ok { ids = itemIds, tree = t1 } ->
+                    let
+                        container = SRT.insert (AllAcrossOrAllVertical ListCurly) t1
+                        t2 = SRT.setChildren container.id itemIds container.tree
+                    in
+                        Ok { ids = [container.id], tree = t2 }
+
+        Src.Update { record = record, newValues = newValues } ->
+            let
+                openNode = mkText locExpr.start "{"
+                openRec = SRT.insert openNode tree
+            in
+            when insertExpression record openRec.tree is
+                Err e -> Err e
+                Ok { ids = recordIds, tree = t1 } ->
+                    let
+                        pipeNode = mkText emptyPos "|"
+                        pipeRec = SRT.insert pipeNode t1
+                    in
+                    when resultFoldl folderInsertRecordField { ids = [], tree = pipeRec.tree } newValues is
+                        Err e -> Err e
+                        Ok { ids = fieldIds, tree = t2 } ->
+                            let
+                                closeNode = mkText emptyPos "}"
+                                closeRec = SRT.insert closeNode t2
+                                allChildIds = [openRec.id] ++ recordIds ++ [pipeRec.id] ++ fieldIds ++ [closeRec.id]
+                                container = SRT.insert AcrossThenIndent closeRec.tree
+                                t3 = SRT.setChildren container.id allChildIds container.tree
+                            in
+                                Ok { ids = [container.id], tree = t3 }
+
+        Src.Binops { left = lhsExpr, operator = locStringOp, right = rhsExpr } ->
+            when insertExpression lhsExpr tree is
+                Err e -> Err e
+                Ok { ids = lhsIds, tree = t1 } ->
+                    let
+                        opNode = mkTextFromLocString locStringOp
+                        opRec = SRT.insert opNode t1
+                    in
+                    when insertExpression rhsExpr opRec.tree is
+                        Err e -> Err e
+                        Ok { ids = rhsIds, tree = t2 } ->
+                            Ok { ids = lhsIds ++ [opRec.id] ++ rhsIds, tree = t2 }
+
+        Src.Call { fn = fnExpr, args = argsExprs } ->
+            when insertExpression fnExpr tree is
+                Err e -> Err e
+                Ok fnResult ->
+                    resultFoldl folderInsertExprAsItem fnResult argsExprs
+
+        Src.Lambda { patterns = patterns, body = body } ->
+            let
+                backslashNode = mkText locExpr.start "\\"
+                backslashRec = SRT.insert backslashNode tree
+            in
+            when resultFoldl folderInsertPattern { ids = [backslashRec.id], tree = backslashRec.tree } patterns is
+                Err e -> Err e
+                Ok { ids = patIds, tree = t1 } ->
+                    let
+                        arrowNode = mkText emptyPos "->"
+                        arrowRec = SRT.insert arrowNode t1
+                    in
+                    when insertExpressionAsItem body arrowRec.tree is
+                        Err e -> Err e
+                        Ok { id = bodyId, tree = t2 } ->
+                            Ok { ids = patIds ++ [arrowRec.id, bodyId], tree = t2 }
+
+        Src.Let { defs = defs, body = body } ->
+            let
+                letNode = mkText locExpr.start "let"
+                letRec = SRT.insert letNode tree
+            in
+            when resultFoldl folderInsertLetDef { ids = [letRec.id], tree = letRec.tree } defs is
+                Err e -> Err e
+                Ok { ids = letIds, tree = t1 } ->
+                    let
+                        inNode = mkText emptyPos "in"
+                        inRec = SRT.insert inNode t1
+                    in
+                    when insertExpression body inRec.tree is
+                        Err e -> Err e
+                        Ok { ids = bodyIds, tree = t2 } ->
+                            Ok { ids = letIds ++ [inRec.id] ++ bodyIds, tree = t2 }
+
+        Src.If { branches = branches, elseBranch = elseBranch } ->
+            when Array.popFirst branches is
+                Nothing -> Err "If: no branches"
+                Just { first = firstBranch, rest = restBranches } ->
+                    let
+                        ifNode = mkText locExpr.start "if"
+                        ifRec = SRT.insert ifNode tree
+                    in
+                    when insertExpression firstBranch.test ifRec.tree is
+                        Err e -> Err e
+                        Ok { ids = testIds, tree = t1 } ->
+                            let
+                                thenNode = mkText emptyPos "then"
+                                thenRec = SRT.insert thenNode t1
+                            in
+                            when insertExpressionAsItem firstBranch.body thenRec.tree is
+                                Err e -> Err e
+                                Ok { id = bodyId, tree = t2 } ->
+                                    let
+                                        firstIds = [ifRec.id] ++ testIds ++ [thenRec.id, bodyId]
+                                    in
+                                    when resultFoldl folderInsertElseIfBranch { ids = firstIds, tree = t2 } restBranches is
+                                        Err e -> Err e
+                                        Ok { ids = branchIds, tree = t3 } ->
+                                            let
+                                                elseNode = mkText emptyPos "else"
+                                                elseRec = SRT.insert elseNode t3
+                                            in
+                                            when insertExpressionAsItem elseBranch elseRec.tree is
+                                                Err e -> Err e
+                                                Ok { id = elseBodyId, tree = t4 } ->
+                                                    Ok { ids = branchIds ++ [elseRec.id, elseBodyId], tree = t4 }
+
+        Src.When { expression = expression, branches = branches } ->
+            let
+                whenNode = mkText locExpr.start "when"
+                whenRec = SRT.insert whenNode tree
+            in
+            when insertExpression expression whenRec.tree is
+                Err e -> Err e
+                Ok { ids = exprIds, tree = t1 } ->
+                    let
+                        isNode = mkText emptyPos "is"
+                        isRec = SRT.insert isNode t1
+                    in
+                    resultFoldl folderInsertWhenBranch { ids = [whenRec.id] ++ exprIds ++ [isRec.id], tree = isRec.tree } branches
 
 
-folderInsertValue : Src.Pattern -> { ids: Array Int, tree: SingleRootTree LPBox }
+-- Wrap an expression as a single tree item.
+-- If the expression produces multiple sibling ids, group them under AcrossThenIndent.
+insertExpressionAsItem : Src.Expression -> SingleRootTree LPBox -> Result String { id: Int, tree: SingleRootTree LPBox }
+insertExpressionAsItem locExpr tree =
+    when insertExpression locExpr tree is
+        Err e -> Err e
+        Ok { ids = ids, tree = t1 } ->
+            when Array.popFirst ids is
+                Nothing -> Err "insertExpressionAsItem: empty expression"
+                Just { first = onlyId, rest = rest } ->
+                    if Array.isEmpty rest then
+                        Ok { id = onlyId, tree = t1 }
+                    else
+                        let
+                            container = SRT.insert AcrossThenIndent t1
+                            t2 = SRT.setChildren container.id ids container.tree
+                        in
+                            Ok { id = container.id, tree = t2 }
+
+folderInsertExprAsItem : Src.Expression -> { ids: Array Int, tree: SingleRootTree LPBox }
     -> Result String { ids : Array Int, tree : SingleRootTree LPBox }
-folderInsertValue locPat { ids = accIds, tree = accTree } =
-    when insertValue locPat accTree is
+folderInsertExprAsItem expr { ids = accIds, tree = accTree } =
+    when insertExpressionAsItem expr accTree is
+        Err s -> Err s
+        Ok { id = newId, tree = newTree } ->
+            Ok { ids = accIds ++ [newId], tree = newTree }
+
+folderInsertRecordField : Src.RecordField -> { ids: Array Int, tree: SingleRootTree LPBox }
+    -> Result String { ids : Array Int, tree : SingleRootTree LPBox }
+folderInsertRecordField field { ids = accIds, tree = accTree } =
+    let
+        fieldNameNode = mkTextFromLocString field.field
+        fieldNameRec = SRT.insert fieldNameNode accTree
+        eqNode = mkText emptyPos "="
+        eqRec = SRT.insert eqNode fieldNameRec.tree
+    in
+    when insertExpression field.value eqRec.tree is
+        Err e -> Err e
+        Ok { ids = valueIds, tree = t1 } ->
+            let
+                allChildIds = [fieldNameRec.id, eqRec.id] ++ valueIds
+                container = SRT.insert AcrossThenIndent t1
+                t2 = SRT.setChildren container.id allChildIds container.tree
+            in
+                Ok { ids = accIds ++ [container.id], tree = t2 }
+
+folderInsertLetDef : Located Src.Def -> { ids: Array Int, tree: SingleRootTree LPBox }
+    -> Result String { ids : Array Int, tree : SingleRootTree LPBox }
+folderInsertLetDef locDef { ids = accIds, tree = accTree } =
+    when locDef.value is
+        Src.Define def ->
+            let
+                nameNode = mkTextFromLocString def.name
+                nameRec = SRT.insert nameNode accTree
+                eqNode = mkText emptyPos "="
+                eqRec = SRT.insert eqNode nameRec.tree
+            in
+            when resultFoldl folderInsertPattern { ids = [], tree = eqRec.tree } def.args is
+                Err e -> Err e
+                Ok { ids = argsIds, tree = t1 } ->
+                    when insertExpression def.body t1 is
+                        Err e -> Err e
+                        Ok { ids = bodyIds, tree = t2 } ->
+                            let
+                                allChildIds = [nameRec.id] ++ argsIds ++ [eqRec.id] ++ bodyIds
+                                container = SRT.insert AcrossThenIndent t2
+                                t3 = SRT.setChildren container.id allChildIds container.tree
+                            in
+                                Ok { ids = accIds ++ [container.id], tree = t3 }
+        Src.Destruct { pattern = pattern, body = body } ->
+            when insertPattern pattern accTree is
+                Err e -> Err e
+                Ok { ids = patIds, tree = t1 } ->
+                    let
+                        eqNode = mkText emptyPos "="
+                        eqRec = SRT.insert eqNode t1
+                    in
+                    when insertExpression body eqRec.tree is
+                        Err e -> Err e
+                        Ok { ids = bodyIds, tree = t2 } ->
+                            let
+                                allChildIds = patIds ++ [eqRec.id] ++ bodyIds
+                                container = SRT.insert AcrossThenIndent t2
+                                t3 = SRT.setChildren container.id allChildIds container.tree
+                            in
+                                Ok { ids = accIds ++ [container.id], tree = t3 }
+
+folderInsertElseIfBranch : Src.IfBranch -> { ids: Array Int, tree: SingleRootTree LPBox }
+    -> Result String { ids : Array Int, tree : SingleRootTree LPBox }
+folderInsertElseIfBranch branch { ids = accIds, tree = accTree } =
+    let
+        elseIfNode = mkText emptyPos "else if"
+        elseIfRec = SRT.insert elseIfNode accTree
+    in
+    when insertExpression branch.test elseIfRec.tree is
+        Err e -> Err e
+        Ok { ids = testIds, tree = t1 } ->
+            let
+                thenNode = mkText emptyPos "then"
+                thenRec = SRT.insert thenNode t1
+            in
+            when insertExpressionAsItem branch.body thenRec.tree is
+                Err e -> Err e
+                Ok { id = bodyId, tree = t2 } ->
+                    Ok { ids = accIds ++ [elseIfRec.id] ++ testIds ++ [thenRec.id, bodyId], tree = t2 }
+
+folderInsertWhenBranch : Src.WhenBranch -> { ids: Array Int, tree: SingleRootTree LPBox }
+    -> Result String { ids : Array Int, tree : SingleRootTree LPBox }
+folderInsertWhenBranch branch { ids = accIds, tree = accTree } =
+    when insertPattern branch.pattern accTree is
+        Err e -> Err e
+        Ok { ids = patIds, tree = t1 } ->
+            let
+                arrowNode = mkText emptyPos "->"
+                arrowRec = SRT.insert arrowNode t1
+            in
+            when insertExpressionAsItem branch.body arrowRec.tree is
+                Err e -> Err e
+                Ok { id = bodyId, tree = t2 } ->
+                    let
+                        allChildIds = patIds ++ [arrowRec.id, bodyId]
+                        container = SRT.insert AcrossThenIndent t2
+                        t3 = SRT.setChildren container.id allChildIds container.tree
+                    in
+                        Ok { ids = accIds ++ [container.id], tree = t3 }
+
+folderInsertPattern : Src.Pattern -> { ids: Array Int, tree: SingleRootTree LPBox }
+    -> Result String { ids : Array Int, tree : SingleRootTree LPBox }
+folderInsertPattern locPat { ids = accIds, tree = accTree } =
+    when insertPattern locPat accTree is
         Err s -> Err s
         Ok { ids = newIds, tree = newTree } ->
             Ok { ids = accIds ++ newIds, tree = newTree }
 
-insertValue : Src.Pattern -> SingleRootTree LPBox -> Result String { ids: Array Int, tree: SingleRootTree LPBox }
-insertValue locPat tree =
+insertPattern : Src.Pattern -> SingleRootTree LPBox -> Result String { ids: Array Int, tree: SingleRootTree LPBox }
+insertPattern locPat tree =
     when locPat.value is
         Src.PVar name ->
             let
-                nameNode = mkText locPat.start name
+                newNode = mkText locPat.start name
+                newRec = SRT.insert newNode tree
+            in
+                Ok { ids = [ newRec.id ], tree = newRec.tree }
+
+        Src.PAnything _ ->
+            let
+                newNode = mkText locPat.start "_"
+                newRec = SRT.insert newNode tree
+            in
+                Ok { ids = [ newRec.id ], tree = newRec.tree }
+
+        Src.PRecord fields ->
+            let
+                fieldNodes = Array.map (\f -> mkTextFromLocString f.field) fields
+                container = insertNodeWithChildren (AllAcrossOrAllVertical ListCurly) fieldNodes tree
+            in
+                Ok { ids = [container.id], tree = container.tree }
+
+        Src.PAlias { pattern = pat, name = name } ->
+            when insertPattern pat tree is
+                Err e -> Err e
+                Ok { ids = patIds, tree = t1 } ->
+                    let
+                        asNode = mkText emptyPos "as"
+                        asRec = SRT.insert asNode t1
+                        nameNode = mkTextFromLocString name
+                        nameRec = SRT.insert nameNode asRec.tree
+                    in
+                        Ok { ids = patIds ++ [asRec.id, nameRec.id], tree = nameRec.tree }
+
+        Src.PCtor { name = name, arg = arg } ->
+            let
+                nameNode = mkTextFromLocString name
                 nameRec = SRT.insert nameNode tree
             in
-                Ok { ids = [ nameRec.id ], tree = nameRec.tree }
+            when arg is
+                Nothing ->
+                    Ok { ids = [nameRec.id], tree = nameRec.tree }
+                Just argPat ->
+                    when insertPatternAsItem argPat nameRec.tree is
+                        Err e -> Err e
+                        Ok { id = argId, tree = t1 } ->
+                            Ok { ids = [nameRec.id, argId], tree = t1 }
 
-        _ ->
+        Src.PCtorQual { varRegion = varRegion, module_ = module_, name = name, arg = arg } ->
             let
-                _ = Debug.log "(unexpected) value.value"
+                ctorNode = mkText varRegion.start (module_ ++ "." ++ name)
+                ctorRec = SRT.insert ctorNode tree
             in
-                Err "Pattern type not handled in insertValue"
+            when arg is
+                Nothing ->
+                    Ok { ids = [ctorRec.id], tree = ctorRec.tree }
+                Just argPat ->
+                    when insertPatternAsItem argPat ctorRec.tree is
+                        Err e -> Err e
+                        Ok { id = argId, tree = t1 } ->
+                            Ok { ids = [ctorRec.id, argId], tree = t1 }
+
+        Src.PArray patterns ->
+            when resultFoldl folderInsertPatternAsItem { ids = [], tree = tree } patterns is
+                Err e -> Err e
+                Ok { ids = itemIds, tree = t1 } ->
+                    let
+                        container = SRT.insert (AllAcrossOrAllVertical ListSquare) t1
+                        t2 = SRT.setChildren container.id itemIds container.tree
+                    in
+                        Ok { ids = [container.id], tree = t2 }
+
+        Src.PChr c ->
+            let
+                newNode = mkText locPat.start (charLiteralString c)
+                newRec = SRT.insert newNode tree
+            in
+                Ok { ids = [ newRec.id ], tree = newRec.tree }
+
+        Src.PStr s ->
+            let
+                newNode = mkText locPat.start ("\"" ++ s ++ "\"")
+                newRec = SRT.insert newNode tree
+            in
+                Ok { ids = [ newRec.id ], tree = newRec.tree }
+
+        Src.PInt { value = value, isHex = isHex } ->
+            let
+                text = if isHex then "0x" ++ intToHex value else String.fromInt value
+                newNode = mkText locPat.start text
+                newRec = SRT.insert newNode tree
+            in
+                Ok { ids = [ newRec.id ], tree = newRec.tree }
+
+insertPatternAsItem : Src.Pattern -> SingleRootTree LPBox -> Result String { id: Int, tree: SingleRootTree LPBox }
+insertPatternAsItem locPat tree =
+    when insertPattern locPat tree is
+        Err e -> Err e
+        Ok { ids = ids, tree = t1 } ->
+            when Array.popFirst ids is
+                Nothing -> Err "insertPatternAsItem: empty pattern"
+                Just { first = onlyId, rest = rest } ->
+                    if Array.isEmpty rest then
+                        Ok { id = onlyId, tree = t1 }
+                    else
+                        let
+                            container = SRT.insert AcrossThenIndent t1
+                            t2 = SRT.setChildren container.id ids container.tree
+                        in
+                            Ok { id = container.id, tree = t2 }
+
+folderInsertPatternAsItem : Src.Pattern -> { ids: Array Int, tree: SingleRootTree LPBox }
+    -> Result String { ids : Array Int, tree : SingleRootTree LPBox }
+folderInsertPatternAsItem pat { ids = accIds, tree = accTree } =
+    when insertPatternAsItem pat accTree is
+        Err s -> Err s
+        Ok { id = newId, tree = newTree } ->
+            Ok { ids = accIds ++ [newId], tree = newTree }
+
+charLiteralString : Char -> String
+charLiteralString c =
+    let
+        code = Char.toCode c
+        inner =
+            when code is
+                9  -> "\\t"
+                10 -> "\\n"
+                13 -> "\\r"
+                39 -> "\\'"
+                92 -> "\\\\"
+                _  -> String.fromChar c
+    in
+    "'" ++ inner ++ "'"
+
+intToHex : Int -> String
+intToHex n =
+    let
+        hexDigit d =
+            when d is
+                0 -> "0"
+                1 -> "1"
+                2 -> "2"
+                3 -> "3"
+                4 -> "4"
+                5 -> "5"
+                6 -> "6"
+                7 -> "7"
+                8 -> "8"
+                9 -> "9"
+                10 -> "A"
+                11 -> "B"
+                12 -> "C"
+                13 -> "D"
+                14 -> "E"
+                _  -> "F"
+    in
+    if n < 16 then
+        hexDigit n
+    else
+        intToHex (n // 16) ++ hexDigit (Math.modBy 16 n)
 
 
 
@@ -549,7 +964,7 @@ processFunctionBody modVal tree =
         eqNode = mkText modVal.name.start "="
         eqRec = SRT.insert eqNode nameRec.tree
    in
-    when resultFoldl folderInsertValue { ids = [], tree = eqRec.tree } modVal.args is
+    when resultFoldl folderInsertPattern { ids = [], tree = eqRec.tree } modVal.args is
         Err e -> Err e
         Ok { ids = argsIds, tree = t1 } ->
             let

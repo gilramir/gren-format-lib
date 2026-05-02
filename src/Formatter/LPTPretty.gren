@@ -42,7 +42,8 @@ makePrettyLine id lpBox lpTree =
                 StSingleLineComment -> makeSingleLineComment id lpTree
                 StBlockComment -> makeBlockComment id lpTree
                 StDocComment -> makeDocComment id lpTree
-                _ -> Ok <| "stree node " ++ String.fromInt id
+                StFunctionSignature -> makeFlowIndentable id lpTree
+                StFunctionDeclaration -> makeFlowIndentable id lpTree
         EmptyLine ->
             Ok ""
         _ ->
@@ -231,19 +232,68 @@ makePDoc nid lpTree =
         AllAcrossOrAllVertical bracket ->
             makeAllAcrossOrAllVertical bracket nid.id lpTree
         SingleLineComment locs -> lineComment locs.value
+        AcrossThenIndent ->
+            let
+                childrenAndIds = SRT.childrenWithNodes nid.id lpTree
+            in
+                buildFlowDoc grenIndent childrenAndIds lpTree
         _ -> P.text "?"
 
+
+isCommentNode : { id: Int, node: LPBox } -> Bool
+isCommentNode nid =
+    when nid.node is
+        SingleLineComment _ -> True
+        _ -> False
 
 makeAllAcrossOrAllVertical : ListBrackets -> Int -> SingleRootTree LPBox -> P.Doc cost
 makeAllAcrossOrAllVertical brackets id lpTree =
     let
-        nodes = SRT.childrenNodes id lpTree
-        --nodesAndIds = SRT.childrenWithNodes id lpTree
-        --docs = Array.map (\nid -> makePDoc nid lpTree) nodesAndIds
+        nodesAndIds = SRT.childrenWithNodes id lpTree
+        bs = bracketStrings brackets
+        hasComment = Array.any isCommentNode nodesAndIds
     in
-        --indentIfNeeded grenIndent <| exposingListBoxes nodes
-        exposingListBoxes nodes
-        --P.nest grenIndent <| exposingListBoxes nodes
+    if hasComment && brackets == ListParen then
+        -- comment-aware rendering for paren lists (import/module exposing)
+        let nodes = SRT.childrenNodes id lpTree
+        in exposingListBoxes nodes
+    else
+        let itemDocs = Array.map (\nid -> makeListItemDoc nid lpTree) nodesAndIds
+        in exposingListWithBrackets bs.open bs.close bs.empty itemDocs
+
+bracketStrings : ListBrackets -> { open : String, close : String, empty : String }
+bracketStrings brackets =
+    when brackets is
+        ListParen  -> { open = "( ", close = ")", empty = "()" }
+        ListCurly  -> { open = "{ ", close = "}", empty = "{}" }
+        ListSquare -> { open = "[ ", close = "]", empty = "[]" }
+
+makeListItemDoc : { id: Int, node: LPBox } -> SingleRootTree LPBox -> P.Doc cost
+makeListItemDoc nid lpTree =
+    when nid.node is
+        UnbreakableText loc -> P.text loc.value
+        AcrossThenIndent ->
+            let childrenAndIds = SRT.childrenWithNodes nid.id lpTree
+            in buildFlowDoc 0 childrenAndIds lpTree
+        _ -> P.text "?"
+
+exposingListWithBrackets : String -> String -> String -> Array (P.Doc cost) -> P.Doc cost
+exposingListWithBrackets open close empty items =
+    when Array.popFirst items is
+        Nothing ->
+            P.text empty
+        Just { first, rest } ->
+            let
+                firstDoc = P.concat (P.text open) first
+                restDocs = Array.map (\d -> P.concat (P.text ", ") d) rest
+                allDocs  = [ firstDoc ] ++ restDocs
+                joined =
+                    P.foldDoc
+                        (\a b -> P.concat a (P.concat P.breakDoc b))
+                        allDocs
+            in
+            P.group
+                (P.concat joined (P.concat P.nl (P.text close)))
 
 
 {-
