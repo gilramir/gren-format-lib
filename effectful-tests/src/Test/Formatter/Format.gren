@@ -13,7 +13,7 @@ import Compiler.Parse.Context as Context
 import Formatter.PrettyPrinter as PPrint
 import String.Parser.Advanced as Parser
 
-import UnifiedDiff exposing (unifiedDiff)
+import UnifiedDiff exposing (unifiedDiffStrings)
 
 tests : FileSystem.Permission -> Effectful.Test
 tests fsPerm =
@@ -72,7 +72,7 @@ assertPretty fsPerm testDescription filenameBase =
         <| \expectedFormatting ->
             test testDescription <| \_ ->
                 (Expect.equal rendered expectedFormatting
-                        |> Expect.onFail (unifiedDiff expectedFormatting rendered) )
+                        |> Expect.onFail (unifiedDiffStrings expectedFormatting rendered) )
 
 
 importTests: FileSystem.Permission -> Effectful.Test

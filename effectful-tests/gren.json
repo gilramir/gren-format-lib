@@ -4,14 +4,14 @@
     "source-directories": [
         "src"
     ],
-    "gren-version": "0.6.4",
+    "gren-version": "0.6.5",
     "dependencies": {
         "direct": {
             "blaix/gren-effectful-tests": "6.0.0",
-            "gilramir/gren-diff": "local:../../../gren-diff",
+            "gilramir/gren-diff": "1.0.0",
             "gren-lang/compiler-node": "local:..",
             "gren-lang/core": "local:../../core",
-            "gren-lang/compiler-common": "local:../../gren-compiler-common",
+            "gren-lang/compiler-common": "local:../../compiler-common",
             "gren-lang/node": "6.1.0",
             "gren-lang/parser": "6.2.0",
             "gren-lang/test": "5.0.0",

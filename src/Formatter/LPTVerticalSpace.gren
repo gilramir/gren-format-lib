@@ -1,6 +1,6 @@
 module Formatter.LPTVerticalSpace exposing (..)
 
-import SourcePosition exposing (Located, Position, emptyPos, at)
+import Compiler.SourcePosition exposing (Located, Position, emptyPos, at)
 
 import Formatter.LogicalPrintingTree exposing (LPBox(..),
     ListBrackets(..), SyntaxType(..))

@@ -1,11 +1,12 @@
 module Formatter.LPTComments exposing (..)
 
+import Array.Builder as Builder
 import Dict
 import Math exposing (maxSafeInteger)
 
 import Compiler.Ast.Source as Src
 import Compiler.Parse.Context as Ctx
-import SourcePosition exposing (Located, Position, at)
+import Compiler.SourcePosition exposing (Located, Position, at)
 
 import Formatter.LogicalPrintingTree exposing (LPBox(..),
     ListBrackets(..), SyntaxType(..))
@@ -15,11 +16,6 @@ import Tree.SingleRootTree as SRT exposing (SingleRootTree)
 
 lptAddComments: Ctx.Context -> SingleRootTree LPBox -> Result String (SingleRootTree LPBox)
 lptAddComments ctx lpTree =
-    let
-        -- Each value is an Array Comment; We con't want an Array (Array
-        -- Comment); fold them all into a single Array Comment
-        comments = Array.foldl (\arrayC acc -> acc ++ arrayC ) [] (Dict.values ctx.comments)
-    in
     Array.foldl
         (\comment acc ->
             when acc is
@@ -30,26 +26,27 @@ lptAddComments ctx lpTree =
                     lptAddComment comment currentTree
         )
         (Ok lpTree)
-        comments
+        (Builder.toArray ctx.comments)
 
 
-lptAddComment: Ctx.Comment -> SingleRootTree LPBox -> Result String (SingleRootTree LPBox)
-lptAddComment comment lpTree =
+lptAddComment: (Located Ctx.Comment) -> SingleRootTree LPBox -> Result String (SingleRootTree LPBox)
+lptAddComment locComment lpTree =
     let
-        commentLpBox = mkCommentLpBox comment
-        stype = when comment.value is
+        commentLpBox = mkCommentLpBox locComment
+        stype = when locComment.value is
             Ctx.Line _ -> StSingleLineComment
             Ctx.Block _ -> StBlockComment
-        { id = origRowId, tree = t1 } = findOrCreateOriginalRow comment.row stype lpTree
-        { id = commentId , tree = t2 } = insertComment commentLpBox origRowId comment.row comment.col t1
+        { id = origRowId, tree = t1 } = findOrCreateOriginalRow locComment.start.row stype lpTree
+        { id = commentId , tree = t2 } = insertComment commentLpBox origRowId
+            locComment.start.row locComment.start.col t1
     in
         Ok t2
 
 
-mkCommentLpBox : Ctx.Comment -> LPBox
-mkCommentLpBox comment =
+mkCommentLpBox : (Located Ctx.Comment) -> LPBox
+mkCommentLpBox locComment =
     let
-        commentString = when comment.value is
+        commentString = when locComment.value is
             Ctx.Line string -> string
             Ctx.Block string -> string
 
@@ -57,12 +54,16 @@ mkCommentLpBox comment =
 
         -- We want to know the width of the last line, to compute the final
         -- column.
+        {-
         endCol = countCodepointsLastLine commentString
-        endRow = comment.row + numNewlines
-        start = { row = comment.row, col = comment.col }
-        end = { row = endRow, col = endCol }
+        endRow = locComment.row + numNewlines
+        start = { row = locComment.start.row, col = locComment.start.col }
+        end = { row = locComment, col = endCol }
+        -}
+        start = locComment.start
+        end = locComment.end
     in
-        when comment.value is
+        when locComment.value is
             Ctx.Line string -> SingleLineComment <| at start end string
             Ctx.Block string -> BlockComment <| at start end string
 

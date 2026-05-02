@@ -1,6 +1,6 @@
 module Formatter.LPTPretty exposing (..)
 
-import SourcePosition exposing (Located)
+import Compiler.SourcePosition exposing (Located)
 
 import Formatter.LogicalPrintingTree exposing (LPBox(..),
     ListBrackets(..), SyntaxType(..))
@@ -80,7 +80,7 @@ buildFlowDoc indent nodesAndIds lpTree =
                     when nid.node is
                         SingleLineComment loc ->
                             let
-                                commentText = P.text ("-- " ++ loc.value)
+                                commentText = P.text ("--" ++ loc.value)
                                 docWithComment =
                                     if acc.isEmpty then
                                         commentText
@@ -156,7 +156,7 @@ makeSingleLineComment id lpTree =
                 Just { first = first, rest = rest } ->
                     if Array.isEmpty rest then
                         when first is
-                            SingleLineComment locs -> Ok (P.text <| "-- " ++ locs.value)
+                            SingleLineComment locs -> Ok (P.text <| "--" ++ locs.value)
                             _ ->  Err "Unexpected node type in SingleLineComment"
                     else
                         Err "Too many nodes in SingleLineComment"
@@ -179,7 +179,7 @@ makeBlockComment id lpTree =
                     if Array.isEmpty rest then
                         when first is
                             --- XXX handle spce before -} but deal with newline
-                            BlockComment locs -> Ok (P.text <| "{- " ++ locs.value ++ " -}")
+                            BlockComment locs -> Ok (P.text <| "{-" ++ locs.value ++ "-}")
                             _ ->  Err "Unexpected node type in BlockComment"
                     else
                         -- XXX This is wrong; we might have more
@@ -204,7 +204,7 @@ makeDocComment id lpTree =
                     if Array.isEmpty rest then
                         when first is
                             --- XXX handle spce before -} but deal with newline
-                            DocComment locs -> Ok (P.text <| "{-| " ++ locs.value ++ "-}")
+                            DocComment locs -> Ok (P.text <| "{-|" ++ locs.value ++ "-}")
                             _ ->  Err "Unexpected node type in DocComment"
                     else
                         -- XXX Is this is wrong; can we have more
@@ -329,13 +329,13 @@ Use this when the comemnt is followed by more content (in the array of docs)
 -}
 lineComment : String -> P.Doc cost
 lineComment s =
-    P.concat (P.text ("-- " ++ s)) P.hardNl
+    P.concat (P.text ("--" ++ s)) P.hardNl
 
 -- Use this when the comment is the last item, or when the
 -- surrounding structure supplies its own newline after it.
 lineCommentText : String -> P.Doc cost
 lineCommentText s =
-    P.text ("-- " ++ s)
+    P.text ("--" ++ s)
 
 
 {-| Like `exposingList`, but handles interleaved single-line comments.
@@ -411,9 +411,9 @@ exposingListBoxes items =
                                         attached =
                                             when acc.pending is
                                                 Nothing ->
-                                                    { doc = P.text ("-- " ++ loc.value), isComment = True }
+                                                    { doc = P.text ("--" ++ loc.value), isComment = True }
                                                 Just e ->
-                                                    { doc = P.concat e.doc (P.text (" -- " ++ loc.value))
+                                                    { doc = P.concat e.doc (P.text (" --" ++ loc.value))
                                                     , isComment = False
                                                     }
                                     in
@@ -430,7 +430,7 @@ exposingListBoxes items =
                                                 Nothing  -> acc.lineDocs
                                                 Just e   -> acc.lineDocs ++ [ e ]
                                     in
-                                    { lineDocs = flushed ++ [ { doc = P.text ("-- " ++ loc.value), isComment = True } ]
+                                    { lineDocs = flushed ++ [ { doc = P.text ("--" ++ loc.value), isComment = True } ]
                                     , pending  = Nothing
                                     , prevRow  = loc.start.row
                                     }

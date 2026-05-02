@@ -4,7 +4,7 @@ import Dict
 
 import Compiler.Ast.Source as Src
 import Compiler.Parse.Context as Ctx
-import SourcePosition exposing (Located, Position, emptyPos, at)
+import Compiler.SourcePosition exposing (Located, Position, emptyPos, at)
 
 import Tree.SingleRootTree as SRT exposing (SingleRootTree)
 

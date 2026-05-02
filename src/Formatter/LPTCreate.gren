@@ -5,7 +5,7 @@ import Dict
 import Compiler.Ast.Source as Src
 import Compiler.Parse.Context as Ctx
 import Compiler.Parse.Number as PN
-import SourcePosition exposing (Located, Position, emptyPos, at)
+import Compiler.SourcePosition exposing (Located, Position, emptyPos, at)
 
 import Formatter.LogicalPrintingTree exposing (LPBox(..),
     ListBrackets(..), SyntaxType(..), lptToString)
@@ -26,34 +26,30 @@ nilPos =
 
 makeLogicalPrintingTree: Src.Module -> Ctx.Context -> Result String (SingleRootTree LPBox)
 makeLogicalPrintingTree ast ctx =
-    let
-        _ = Debug.log "(ast)" ast
-        _ = Debug.log "(ctx)" ctx
-    in
-        when lptFromAst ast is
-            Err errString ->
-                Err ("Failed to create intermediate representation for pretty printing: "
-                    ++  errString)
-            Ok lpt ->
-                when lptAddComments ctx lpt is
-                    Err wcReason ->
-                        let
-                            _ = Debug.log "(failed_lpt)" ("\n" ++ (lptToString lpt))
-                        in
-                            Err ("Failed while placing comments: " ++ wcReason)
-                    Ok lptWc ->
-                        let
-                            lptXl = insertEmptyLines lptWc
-                            _ = Debug.log "(ok_lpt)" ("\n" ++ (lptToString lptXl))
-                            -- Sanity check
-                            discoveredRoots = SRT.roots lptXl
-                        in
-                            if Array.length discoveredRoots == 1 then
-                                Ok lptXl
-                            else
-                                Err <| "Intermediate repr tree has " ++
-                                    (String.fromInt <| Array.length
-                                    discoveredRoots) ++ "roots"
+    when lptFromAst ast is
+        Err errString ->
+            Err ("Failed to create intermediate representation for pretty printing: "
+                ++  errString)
+        Ok lpt ->
+            when lptAddComments ctx lpt is
+                Err wcReason ->
+                    let
+                        _ = Debug.log "(failed_lpt)" ("\n" ++ (lptToString lpt))
+                    in
+                        Err ("Failed while placing comments: " ++ wcReason)
+                Ok lptWc ->
+                    let
+                        lptXl = insertEmptyLines lptWc
+                        _ = Debug.log "(ok_lpt)" ("\n" ++ (lptToString lptXl))
+                        -- Sanity check
+                        discoveredRoots = SRT.roots lptXl
+                    in
+                        if Array.length discoveredRoots == 1 then
+                            Ok lptXl
+                        else
+                            Err <| "Intermediate repr tree has " ++
+                                (String.fromInt <| Array.length
+                                discoveredRoots) ++ "roots"
 
 
 
@@ -594,12 +590,12 @@ processFunctionDoc maybeLocString lpTree =
 
 {-| Maybe or maybe not insert a FunctionSignature for this function
 -}
-processFunctionSignature : Located String ->  Maybe Src.Type -> SingleRootTree LPBox -> Result String (SingleRootTree LPBox)
+processFunctionSignature : Located String ->  Maybe { start: Position, type_ : Located Src.Type_ } -> SingleRootTree LPBox -> Result String (SingleRootTree LPBox)
 processFunctionSignature locName maybeType lpTree =
     when maybeType is
         Nothing ->
             Ok lpTree
-        Just locType ->
+        Just { start = start, type_ = locType } ->
             when makeSignatureBranch locType lpTree is
                 Err errstring -> Err errstring
                 Ok { ids = ids, tree = t1 } ->

@@ -7,7 +7,7 @@ import Formatter.LogicalPrintingTree exposing (lptToString)
 import Formatter.LPTCreate exposing (makeLogicalPrintingTree)
 import Formatter.LPTPretty exposing (makePrettyResult)
 
-import SourcePosition exposing (Located)
+import Compiler.SourcePosition exposing (Located)
 
 
 prettyPrint: Src.Module -> Ctx.Context -> Result String String

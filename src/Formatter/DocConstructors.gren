@@ -4,7 +4,7 @@ module Formatter.DocConstructors exposing
 
 import Compiler.Ast.Source as Src
 import PrettyExpressive as P
-import SourcePosition
+import Compiler.SourcePosition
 
 moduleLineDoc: String -> Src.Exposing -> P.Doc cost
 moduleLineDoc name exports =
