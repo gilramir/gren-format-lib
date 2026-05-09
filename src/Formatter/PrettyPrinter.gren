@@ -5,7 +5,7 @@ import Compiler.Parse.Context as Ctx
 
 import Formatter.LogicalPrintingTree exposing (lptToString)
 import Formatter.LPTCreate exposing (makeLogicalPrintingTree)
-import Formatter.LPTPretty exposing (makePrettyResult)
+import Formatter.MakePretty exposing (makePrettyResult)
 
 import Compiler.SourcePosition exposing (Located)
 

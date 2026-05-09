@@ -1,14 +1,12 @@
-module Formatter.LPTPretty exposing (..)
+module Formatter.MakePretty exposing (..)
 
+import Compiler.Ast.Source as Src
 import Compiler.SourcePosition exposing (Located)
 
 import Formatter.LogicalPrintingTree exposing (LPBox(..),
     ListBrackets(..), SyntaxType(..))
 import Tree.SingleRootTree as SRT exposing (SingleRootTree)
 
-import Formatter.DocConstructors exposing
-    ( moduleLineDoc
-    )
 import Formatter.Strings exposing
     ( joinResultStrings
     )
@@ -580,3 +578,56 @@ exposingListBoxes items =
                 result ++ [ P.text ")" ]
         in
         P.vcat prefixed
+
+
+moduleLineDoc: String -> Src.Exposing -> P.Doc cost
+moduleLineDoc name exports =
+    when exports is
+        Src.Open ->
+            -- Trivial case; a line that can never be split
+            P.text <| "module " ++ name ++ " exposing (..)"
+
+        Src.Explicit exposed ->
+            -- Exposes some symbols
+            let
+                -- TODO - are these sorted already?
+                exposedDocs = Array.map (\x -> exposedDoc x) exposed
+            in
+                P.text <| "module " ++ name ++ " exposing "
+
+
+exposedDoc : Src.Exposed -> P.Doc cost
+exposedDoc exposed =
+    when exposed is
+        Src.ExposedLower sp ->
+            P.text sp.value
+
+        -- TODO what is privacy?
+        Src.ExposedUpper { name = sp, privacy = privacy } ->
+            P.text sp.value
+
+        Src.ExposedOperator sp ->
+            P.text sp.value
+
+
+{- Useful for traditionally-formatted "exposing" statements
+for "module" and "import".
+-}
+listOnePerLine : Int -> Array String -> P.Doc cost
+listOnePerLine indent items =
+    when Array.popFirst items is
+        Nothing ->
+            -- This should never happen
+            P.failDoc
+            --P.concat P.lparen P.rparen
+
+        Just { first, rest } ->
+            let
+                firstDoc = P.text ("( " ++ first)
+                restDocs = Array.map (\s -> P.text (", " ++ s)) rest
+                itemDocs = [ firstDoc ] ++ restDocs ++ [ P.rparen ]
+            in
+            P.nest indent
+                (P.concat P.hardNl
+                    (P.vcat itemDocs)
+                )
