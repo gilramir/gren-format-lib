@@ -63,11 +63,11 @@ readTestFile fsPerm filename =
 assertPretty : FileSystem.Permission -> String -> String -> Effectful.Test
 assertPretty fsPerm testDescription filenameBase =
     let
-        originalFilename = filenameBase ++ ".gren"
+        dirtyFilename = filenameBase ++ ".dirty.gren"
         prettyFilename = filenameBase ++ ".formatted.gren"
     in
-    await ("pretty-printing original " ++ originalFilename)
-            (runPrettyPrinter fsPerm originalFilename)
+    await ("pretty-printing " ++ dirtyFilename)
+            (runPrettyPrinter fsPerm dirtyFilename)
         <| \rendered ->
             await ("reading expected " ++ prettyFilename) (readTestFile fsPerm prettyFilename)
         <| \expectedFormatting ->
