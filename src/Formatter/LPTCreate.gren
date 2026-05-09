@@ -182,6 +182,7 @@ getLastRow lpbox =
         AllAcrossOrAllVertical _ -> Nothing
         AllAcrossOrAllVerticalNoBrackets _ -> Nothing
         IndentedBlock -> Nothing
+        BodyBlock -> Nothing
         SingleLineComment _ -> Nothing
         -- XXX - isn't locString correct now? just use end.row?
         BlockComment locString -> Just (locString.end.row + (countNewlines locString.value))
@@ -609,10 +610,10 @@ insertExpression locExpr tree =
                         inNode = mkText emptyPos "in"
                         inRec = SRT.insert inNode t1
                     in
-                    when insertExpression body inRec.tree is
+                    when insertExpressionAsBodyBlock body inRec.tree is
                         Err e -> Err e
-                        Ok { ids = bodyIds, tree = t2 } ->
-                            Ok { ids = letIds ++ [inRec.id] ++ bodyIds, tree = t2 }
+                        Ok { id = bodyId, tree = t2 } ->
+                            Ok { ids = letIds ++ [inRec.id, bodyId], tree = t2 }
 
         Src.If { branches = branches, elseBranch = elseBranch } ->
             when Array.popFirst branches is
@@ -713,6 +714,20 @@ insertExpressionAsIndentedBlock locExpr tree =
                 in
                     Ok { id = container.id, tree = t2 }
 
+insertExpressionAsBodyBlock : Src.Expression -> SingleRootTree LPBox -> Result String { id: Int, tree: SingleRootTree LPBox }
+insertExpressionAsBodyBlock locExpr tree =
+    when insertExpression locExpr tree is
+        Err e -> Err e
+        Ok { ids = ids, tree = t1 } ->
+            if Array.isEmpty ids then
+                Err "insertExpressionAsBodyBlock: empty expression"
+            else
+                let
+                    container = SRT.insert BodyBlock t1
+                    t2 = SRT.setChildren container.id ids container.tree
+                in
+                    Ok { id = container.id, tree = t2 }
+
 folderInsertRecordField : Src.RecordField -> { ids: Array Int, tree: SingleRootTree LPBox }
     -> Result String { ids : Array Int, tree : SingleRootTree LPBox }
 folderInsertRecordField field { ids = accIds, tree = accTree } =
@@ -751,7 +766,7 @@ folderInsertLetDef locDef { ids = accIds, tree = accTree } =
                         Ok { ids = bodyIds, tree = t2 } ->
                             let
                                 allChildIds = [nameRec.id] ++ argsIds ++ [eqRec.id] ++ bodyIds
-                                container = SRT.insert AcrossThenIndent t2
+                                container = SRT.insert IndentedBlock t2
                                 t3 = SRT.setChildren container.id allChildIds container.tree
                             in
                                 Ok { ids = accIds ++ [container.id], tree = t3 }
@@ -768,7 +783,7 @@ folderInsertLetDef locDef { ids = accIds, tree = accTree } =
                         Ok { ids = bodyIds, tree = t2 } ->
                             let
                                 allChildIds = patIds ++ [eqRec.id] ++ bodyIds
-                                container = SRT.insert AcrossThenIndent t2
+                                container = SRT.insert IndentedBlock t2
                                 t3 = SRT.setChildren container.id allChildIds container.tree
                             in
                                 Ok { ids = accIds ++ [container.id], tree = t3 }
@@ -801,16 +816,33 @@ folderInsertWhenBranch branch { ids = accIds, tree = accTree } =
             let
                 arrowNode = mkText emptyPos "->"
                 arrowRec = SRT.insert arrowNode t1
+                isComplexBody =
+                    when branch.body.value is
+                        Src.If _ -> True
+                        Src.Let _ -> True
+                        Src.When _ -> True
+                        _ -> False
             in
-            when insertExpressionAsItem branch.body arrowRec.tree is
-                Err e -> Err e
-                Ok { id = bodyId, tree = t2 } ->
-                    let
-                        allChildIds = patIds ++ [arrowRec.id, bodyId]
-                        container = SRT.insert AcrossThenIndent t2
-                        t3 = SRT.setChildren container.id allChildIds container.tree
-                    in
-                        Ok { ids = accIds ++ [container.id], tree = t3 }
+            if isComplexBody then
+                when insertExpressionAsIndentedBlock branch.body arrowRec.tree is
+                    Err e -> Err e
+                    Ok { id = bodyId, tree = t2 } ->
+                        let
+                            allChildIds = patIds ++ [arrowRec.id, bodyId]
+                            container = SRT.insert IndentedBlock t2
+                            t3 = SRT.setChildren container.id allChildIds container.tree
+                        in
+                            Ok { ids = accIds ++ [container.id], tree = t3 }
+            else
+                when insertExpressionAsItem branch.body arrowRec.tree is
+                    Err e -> Err e
+                    Ok { id = bodyId, tree = t2 } ->
+                        let
+                            allChildIds = patIds ++ [arrowRec.id, bodyId]
+                            container = SRT.insert IndentedBlock t2
+                            t3 = SRT.setChildren container.id allChildIds container.tree
+                        in
+                            Ok { ids = accIds ++ [container.id], tree = t3 }
 
 folderInsertPattern : Src.Pattern -> { ids: Array Int, tree: SingleRootTree LPBox }
     -> Result String { ids : Array Int, tree : SingleRootTree LPBox }
@@ -1005,15 +1037,34 @@ processFunctionBody modVal tree =
                     { first = modVal.name.start.row, last = modVal.name.end.row, stype = StFunctionDeclaration})
                     t1
             in
-            when insertExpression modVal.body parent.tree is
-                Err err2 -> Err err2
-                Ok { ids = bodyIds, tree = t2 } ->
-                    let
-                        allIds = [nameRec.id] ++ argsIds ++ [eqRec.id] ++ bodyIds
-                        t3 = SRT.setChildren parent.id allIds t2
-                        t4  = SRT.appendRootChild parent.id t3
-                    in
-                        Ok t4
+            let
+                isComplexBody =
+                    when modVal.body.value is
+                        Src.If _ -> True
+                        Src.Let _ -> True
+                        Src.When _ -> True
+                        _ -> False
+            in
+            if isComplexBody then
+                when insertExpressionAsBodyBlock modVal.body parent.tree is
+                    Err err2 -> Err err2
+                    Ok { id = bodyId, tree = t2 } ->
+                        let
+                            allIds = [nameRec.id] ++ argsIds ++ [eqRec.id, bodyId]
+                            t3 = SRT.setChildren parent.id allIds t2
+                            t4 = SRT.appendRootChild parent.id t3
+                        in
+                            Ok t4
+            else
+                when insertExpression modVal.body parent.tree is
+                    Err err2 -> Err err2
+                    Ok { ids = bodyIds, tree = t2 } ->
+                        let
+                            allIds = [nameRec.id] ++ argsIds ++ [eqRec.id] ++ bodyIds
+                            t3 = SRT.setChildren parent.id allIds t2
+                            t4 = SRT.appendRootChild parent.id t3
+                        in
+                            Ok t4
 
 
 {-| Maybe or maybe not insert a DocComment for this function

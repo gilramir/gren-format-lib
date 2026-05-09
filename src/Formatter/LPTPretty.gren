@@ -129,8 +129,8 @@ buildFlowDoc indent nodesAndIds lpTree =
                         IndentedBlock ->
                             let
                                 childrenAndIds = SRT.childrenWithNodes nid.id lpTree
-                                childrenDoc = buildFlowDoc grenIndent childrenAndIds lpTree
-                                indentedDoc = P.concat P.hardNl (P.nest grenIndent childrenDoc)
+                                childrenDoc = buildFlowDoc 0 childrenAndIds lpTree
+                                indentedDoc = P.nest grenIndent (P.concat P.hardNl childrenDoc)
                                 newDoc =
                                     if acc.isEmpty then
                                         childrenDoc
@@ -141,6 +141,23 @@ buildFlowDoc indent nodesAndIds lpTree =
                             , prevRow = -1
                             , lineTerminated = False
                             , prevWasIndentedBlock = True
+                            , isEmpty = False
+                            }
+
+                        BodyBlock ->
+                            let
+                                childrenAndIds = SRT.childrenWithNodes nid.id lpTree
+                                childrenDoc = buildFlowDoc 0 childrenAndIds lpTree
+                                newDoc =
+                                    if acc.isEmpty then
+                                        childrenDoc
+                                    else
+                                        P.concat acc.doc (P.concat P.hardNl childrenDoc)
+                            in
+                            { doc = newDoc
+                            , prevRow = -1
+                            , lineTerminated = False
+                            , prevWasIndentedBlock = False
                             , isEmpty = False
                             }
 
@@ -268,7 +285,12 @@ makePDoc nid lpTree =
             let
                 childrenAndIds = SRT.childrenWithNodes nid.id lpTree
             in
-                buildFlowDoc grenIndent childrenAndIds lpTree
+                buildFlowDoc 0 childrenAndIds lpTree
+        BodyBlock ->
+            let
+                childrenAndIds = SRT.childrenWithNodes nid.id lpTree
+            in
+                buildFlowDoc 0 childrenAndIds lpTree
         _ -> P.text "?"
 
 

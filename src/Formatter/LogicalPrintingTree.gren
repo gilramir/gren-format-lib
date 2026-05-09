@@ -66,6 +66,10 @@ type LPBox
     -- Children always render on a new indented line (used for then/else bodies, etc.)
     | IndentedBlock
 
+    -- Function body block: forces a hard newline before children, no extra nesting
+    -- (the outer buildFlowDoc's P.nest 4 provides the 4-space indent)
+    | BodyBlock
+
 lpBoxToString : LPBox -> String
 lpBoxToString lpbox =
     let
@@ -83,6 +87,7 @@ lpBoxToString lpbox =
         AllAcrossOrAllVertical br -> "(allAcrossOrAllVertical)"
         AllAcrossOrAllVerticalNoBrackets sep -> "(allAcrossOrAllVerticalNoBrackets)"
         IndentedBlock -> "(indentedBlock)"
+        BodyBlock -> "(bodyBlock)"
         SingleLineComment s -> "line-comment " ++ pstr(s.start) ++ " -- " ++ s.value
         BlockComment s -> "block-comment " ++ pstr(s.start) ++ " {- " ++ s.value ++ "-}"
         DocComment s -> "doc-comment " ++ pstr(s.start) ++ " {-| " ++ s.value ++ "-}"
