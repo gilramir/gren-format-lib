@@ -212,16 +212,16 @@ computeRowRange node =
         selfRange =
             when lpnBox node is
                 UnbreakableText located ->
-                    if located.start.row > 0 then
-                        { minRow = located.start.row, maxRow = located.end.row }
-                    else
-                        init
+                    { minRow = located.start.row, maxRow = located.end.row }
 
                 SingleLineComment located ->
                     { minRow = located.start.row, maxRow = located.end.row }
 
                 BlockComment located ->
                     { minRow = located.start.row, maxRow = located.end.row }
+
+                SynthesizedText _ ->
+                    init
 
                 _ ->
                     init
@@ -293,13 +293,16 @@ lastRealPosition node =
         selfPos =
             when lpnBox node is
                 UnbreakableText located ->
-                    if located.start.row > 0 then Just located.end else Nothing
+                    Just located.end
 
                 SingleLineComment located ->
                     Just located.end
 
                 BlockComment located ->
                     Just located.end
+
+                SynthesizedText _ ->
+                    Nothing
 
                 _ ->
                     Nothing

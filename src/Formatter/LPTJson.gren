@@ -81,6 +81,11 @@ lpBoxFields lpbox =
         BodyBlock ->
             [ { key = "type", value = Json.string "BodyBlock" } ]
 
+        SynthesizedText s ->
+            [ { key = "type", value = Json.string "SynthesizedText" }
+            , { key = "value", value = Json.string s }
+            ]
+
 
 bracketsToString : ListBrackets -> String
 bracketsToString brackets =

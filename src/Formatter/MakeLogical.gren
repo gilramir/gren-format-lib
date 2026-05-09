@@ -7,19 +7,13 @@ import Math
 import Compiler.Ast.Source as Src
 import Compiler.Parse.Context as Ctx
 import Compiler.Parse.Number as PN
-import Compiler.SourcePosition exposing (Located, Position, emptyPos, at)
+import Compiler.SourcePosition exposing (Located, Position)
 
 import Formatter.LogicalPrintingTree exposing (LPBox(..),
     LPNode(..), ListBrackets(..), SyntaxType(..), lptToString,
     lpnBox, lpnChildren, lpnLeaf, lpnNode)
 import Formatter.Strings exposing (countNewlines)
 import Formatter.Comments exposing (lptAddComments)
-
-nilPos : Position
-nilPos =
-    { row = -1
-    , col = -1
-    }
 
 makeLogicalPrintingTree : Src.Module -> Ctx.Context -> Result String LPNode
 makeLogicalPrintingTree ast ctx =
@@ -146,6 +140,7 @@ getLastRow lpbox =
         BlockComment locString -> Just (locString.end.row + (countNewlines locString.value))
         DocComment locString -> Just locString.end.row
         EmptyLine -> Nothing
+        SynthesizedText _ -> Nothing
 
 
 addRootChild : LPNode -> LPNode -> LPNode
@@ -169,7 +164,7 @@ processModuleLine modAst root =
         n4 =
             when modAst.exports is
                 Src.Open ->
-                    lpnLeaf (mkText emptyPos "(..)")
+                    lpnLeaf (SynthesizedText "(..)")
                 -- XXX handle empty exposed, like in imports
                 Src.Explicit exposed ->
                     lpnNode (AllAcrossOrAllVertical ListParen)
@@ -231,8 +226,8 @@ processImport locImport root =
                 Nothing ->
                     []
                 Just name ->
-                    [ lpnLeaf (mkText nilPos "as")
-                    , lpnLeaf (mkText nilPos name)
+                    [ lpnLeaf (SynthesizedText "as")
+                    , lpnLeaf (SynthesizedText name)
                     ]
 
         exposeNodes =
@@ -246,7 +241,7 @@ processImport locImport root =
                             }
                     in
                     [ lpnLeaf (mkText exposingPos "exposing")
-                    , lpnLeaf (mkText nilPos "(..)")
+                    , lpnLeaf (SynthesizedText "(..)")
                     ]
                 Src.Explicit xlist ->
                     when Array.popFirst xlist is
@@ -367,7 +362,7 @@ insertExpression locExpr =
                                 Just updated ->
                                     Ok (Array.pushLast updated initialNodes)
                                 Nothing ->
-                                    Ok (Array.pushLast (lpnLeaf (mkText emptyPos ("." ++ accessor))) nodes)
+                                    Ok (Array.pushLast (lpnLeaf (SynthesizedText ("." ++ accessor))) nodes)
 
         Src.Parens expression ->
             when insertExpression expression is
@@ -436,7 +431,7 @@ insertExpression locExpr =
                                     when tryMapFirstLeaf (\loc -> mkText locExpr.start ("\\" ++ loc.value)) firstPat is
                                         Just updated -> Array.pushFirst updated restPats
                                         Nothing -> patNodes
-                        arrowNode = lpnLeaf (mkText nilPos "->")
+                        arrowNode = lpnLeaf (SynthesizedText "->")
                     in
                     when insertExpressionAsItem body is
                         Err e -> Err e
@@ -449,7 +444,7 @@ insertExpression locExpr =
             when resultFoldl folderInsertLetDef [] defs is
                 Err e -> Err e
                 Ok defNodes ->
-                    let inNode = lpnLeaf (mkText nilPos "in")
+                    let inNode = lpnLeaf (SynthesizedText "in")
                     in
                     when insertExpressionAsBodyBlock body is
                         Err e -> Err e
@@ -465,7 +460,7 @@ insertExpression locExpr =
                     when insertExpression firstBranch.test is
                         Err e -> Err e
                         Ok testNodes ->
-                            let thenNode = lpnLeaf (mkText nilPos "then")
+                            let thenNode = lpnLeaf (SynthesizedText "then")
                             in
                             when insertExpressionAsIndentedBlock firstBranch.body is
                                 Err e -> Err e
@@ -475,7 +470,7 @@ insertExpression locExpr =
                                     when resultFoldl folderInsertElseIfBranch firstNodes restBranches is
                                         Err e -> Err e
                                         Ok branchNodes ->
-                                            let elseNode = lpnLeaf (mkText nilPos "else")
+                                            let elseNode = lpnLeaf (SynthesizedText "else")
                                             in
                                             when insertExpressionAsIndentedBlock elseBranch is
                                                 Err e -> Err e
@@ -488,7 +483,7 @@ insertExpression locExpr =
             when insertExpression expression is
                 Err e -> Err e
                 Ok exprNodes ->
-                    let isNode = lpnLeaf (mkText nilPos "is")
+                    let isNode = lpnLeaf (SynthesizedText "is")
                     in
                     resultFoldl folderInsertWhenBranch ([whenNode] ++ exprNodes ++ [isNode]) branches
 
@@ -553,7 +548,7 @@ folderInsertRecordField : Src.RecordField -> Array LPNode -> Result String (Arra
 folderInsertRecordField field accNodes =
     let
         fieldNameNode = lpnLeaf (mkTextFromLocString field.field)
-        eqNode = lpnLeaf (mkText nilPos "=")
+        eqNode = lpnLeaf (SynthesizedText "=")
     in
     when insertExpression field.value is
         Err e -> Err e
@@ -571,7 +566,7 @@ folderInsertLetDef locDef accNodes =
         Src.Define def ->
             let
                 nameNode = lpnLeaf (mkTextFromLocString def.name)
-                eqNode = lpnLeaf (mkText nilPos "=")
+                eqNode = lpnLeaf (SynthesizedText "=")
             in
             when resultFoldl folderInsertPattern [] def.args is
                 Err e -> Err e
@@ -589,7 +584,7 @@ folderInsertLetDef locDef accNodes =
             when insertPattern pattern is
                 Err e -> Err e
                 Ok patNodes ->
-                    let eqNode = lpnLeaf (mkText nilPos "=")
+                    let eqNode = lpnLeaf (SynthesizedText "=")
                     in
                     when insertExpression body is
                         Err e -> Err e
@@ -603,12 +598,12 @@ folderInsertLetDef locDef accNodes =
 
 folderInsertElseIfBranch : Src.IfBranch -> Array LPNode -> Result String (Array LPNode)
 folderInsertElseIfBranch branch accNodes =
-    let elseIfNode = lpnLeaf (mkText nilPos "else if")
+    let elseIfNode = lpnLeaf (SynthesizedText "else if")
     in
     when insertExpression branch.test is
         Err e -> Err e
         Ok testNodes ->
-            let thenNode = lpnLeaf (mkText nilPos "then")
+            let thenNode = lpnLeaf (SynthesizedText "then")
             in
             when insertExpressionAsIndentedBlock branch.body is
                 Err e -> Err e
@@ -622,7 +617,7 @@ folderInsertWhenBranch branch accNodes =
         Err e -> Err e
         Ok patNodes ->
             let
-                arrowNode = lpnLeaf (mkText nilPos "->")
+                arrowNode = lpnLeaf (SynthesizedText "->")
                 isComplexBody =
                     when branch.body.value is
                         Src.If _ -> True
@@ -677,7 +672,7 @@ insertPattern locPat =
                 Err e -> Err e
                 Ok patNodes ->
                     let
-                        asNode = lpnLeaf (mkText emptyPos "as")
+                        asNode = lpnLeaf (SynthesizedText "as")
                         nameNode = lpnLeaf (mkTextFromLocString name)
                     in
                     Ok (patNodes ++ [asNode, nameNode])
@@ -797,7 +792,7 @@ processFunctionBody modVal root =
         nameNode = lpnLeaf (mkTextFromLocString modVal.name)
 
         -- XXX need a better pos
-        eqNode = lpnLeaf (mkText modVal.name.start "=")
+        eqNode = lpnLeaf (SynthesizedText "=")
 
         isComplexBody =
             when modVal.body.value is
@@ -940,7 +935,7 @@ fixupParensChildrenNodes : Array LPNode -> Result String (Array LPNode)
 fixupParensChildrenNodes nodes =
     when Array.popFirst nodes is
         Nothing ->
-            Ok [lpnLeaf (mkText emptyPos "()")]
+            Ok [lpnLeaf (SynthesizedText "()")]
         Just { first = firstNode, rest = rest } ->
             when Array.popLast rest is
                 Nothing ->
@@ -1045,7 +1040,7 @@ makeSignatureBranch locType =
                         Ok typeNodes ->
                             let
                                 nameNode = lpnLeaf (mkTextFromLocString field.field)
-                                colonNode = lpnLeaf (mkText emptyPos ":")
+                                colonNode = lpnLeaf (SynthesizedText ":")
                                 allChildren = [nameNode, colonNode] ++ typeNodes
                                 itemContainer = lpnNode AcrossThenIndent allChildren
                             in

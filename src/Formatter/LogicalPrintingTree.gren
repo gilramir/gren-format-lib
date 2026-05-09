@@ -41,6 +41,11 @@ type LPBox
     -- The location is the original source location, if we have it.
     | UnbreakableText (Located String)
 
+    -- Synthesized keyword or punctuation with no source position
+    -- (e.g. "=", "in", "then", "else", "->", "is", "(..)").
+    -- Excluded from all row-range computations.
+    | SynthesizedText String
+
     -- For when the line starts with and is only a single-line comment
     | SingleLineComment (Located String)
     | BlockComment (Located String)
@@ -96,6 +101,8 @@ lpBoxToString lpbox =
             (String.fromInt first) ++ " - " ++ (String.fromInt last) ++ ")"
         UnbreakableText s ->
             "\"" ++ s.value ++ "\" " ++ (pstr s.start)
+        SynthesizedText s ->
+            "\"" ++ s ++ "\" (synth)"
         AcrossThenIndent -> "(acrossThenIndent)"
         AllAcrossOrAllVertical _ -> "(allAcrossOrAllVertical)"
         IndentedBlock -> "(indentedBlock)"

@@ -251,6 +251,7 @@ makePDoc : LPBox -> Array LPNode -> P.Doc cost
 makePDoc box children =
     when box is
         UnbreakableText locs -> P.text locs.value
+        SynthesizedText s -> P.text s
         AllAcrossOrAllVertical bracket ->
             makeAllAcrossOrAllVertical bracket children
         SingleLineComment locs -> lineComment locs.value
