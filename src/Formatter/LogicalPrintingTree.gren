@@ -1,12 +1,6 @@
 module Formatter.LogicalPrintingTree exposing (..)
 
-import Dict
-
-import Compiler.Ast.Source as Src
-import Compiler.Parse.Context as Ctx
-import Compiler.SourcePosition exposing (Located, Position, emptyPos, at)
-
-import Tree.SingleRootTree as SRT exposing (SingleRootTree)
+import Compiler.SourcePosition exposing (Located, Position)
 
 type ListBrackets
     = ListParen
@@ -67,6 +61,28 @@ type LPBox
     -- (the outer buildFlowDoc's P.nest 4 provides the 4-space indent)
     | BodyBlock
 
+type LPNode
+    = LPNode { box : LPBox, children : Array LPNode }
+
+lpnBox : LPNode -> LPBox
+lpnBox node =
+    when node is
+        LPNode r -> r.box
+
+lpnChildren : LPNode -> Array LPNode
+lpnChildren node =
+    when node is
+        LPNode r -> r.children
+
+lpnLeaf : LPBox -> LPNode
+lpnLeaf box =
+    LPNode { box = box, children = [] }
+
+lpnNode : LPBox -> Array LPNode -> LPNode
+lpnNode box children =
+    LPNode { box = box, children = children }
+
+
 lpBoxToString : LPBox -> String
 lpBoxToString lpbox =
     let
@@ -81,7 +97,7 @@ lpBoxToString lpbox =
         UnbreakableText s ->
             "\"" ++ s.value ++ "\" " ++ (pstr s.start)
         AcrossThenIndent -> "(acrossThenIndent)"
-        AllAcrossOrAllVertical br -> "(allAcrossOrAllVertical)"
+        AllAcrossOrAllVertical _ -> "(allAcrossOrAllVertical)"
         IndentedBlock -> "(indentedBlock)"
         BodyBlock -> "(bodyBlock)"
         SingleLineComment s -> "line-comment " ++ pstr(s.start) ++ " -- " ++ s.value
@@ -89,9 +105,15 @@ lpBoxToString lpbox =
         DocComment s -> "doc-comment " ++ pstr(s.start) ++ " {-| " ++ s.value ++ "-}"
         EmptyLine -> "(nl)"
 
-lptToString : SingleRootTree LPBox -> String
-lptToString lpTree =
-    SRT.prettyPrint lpBoxToString lpTree
+lptToString : LPNode -> String
+lptToString root =
+    printNode 0 root
 
-
-
+printNode : Int -> LPNode -> String
+printNode depth node =
+    let
+        indent = String.repeat depth "  "
+        selfStr = indent ++ lpBoxToString (lpnBox node)
+        childStrs = Array.map (printNode (depth + 1)) (lpnChildren node)
+    in
+    String.join "\n" ([selfStr] ++ childStrs)

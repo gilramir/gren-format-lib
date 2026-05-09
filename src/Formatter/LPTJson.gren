@@ -3,31 +3,22 @@ module Formatter.LPTJson exposing (lptToJson)
 import Json.Encode as Json
 
 import Compiler.SourcePosition exposing (Located, Position)
-import Formatter.LogicalPrintingTree exposing (LPBox(..), ListBrackets(..), SyntaxType(..), stypeToString)
-import Tree.SingleRootTree as SRT exposing (SingleRootTree)
+import Formatter.LogicalPrintingTree exposing (LPBox(..), LPNode, ListBrackets(..), SyntaxType(..), stypeToString, lpnBox, lpnChildren)
 
 
-lptToJson : SingleRootTree LPBox -> String
-lptToJson tree =
+lptToJson : LPNode -> String
+lptToJson node =
+    Json.encode 2 (nodeToJson node)
+
+
+nodeToJson : LPNode -> Json.Value
+nodeToJson node =
     let
-        rootId = SRT.getRootId tree
+        childrenJson =
+            Json.array nodeToJson (lpnChildren node)
     in
-    Json.encode 2 (nodeToJson rootId tree)
-
-
-nodeToJson : Int -> SingleRootTree LPBox -> Json.Value
-nodeToJson nodeId tree =
-    when SRT.get nodeId tree is
-        Nothing ->
-            Json.null
-
-        Just { value = node, children = childIds } ->
-            let
-                childrenJson =
-                    Json.array (\cid -> nodeToJson cid tree) childIds
-            in
-            Json.object
-                (lpBoxFields node ++ [ { key = "children", value = childrenJson } ])
+    Json.object
+        (lpBoxFields (lpnBox node) ++ [ { key = "children", value = childrenJson } ])
 
 
 lpBoxFields : LPBox -> Array { key : String, value : Json.Value }

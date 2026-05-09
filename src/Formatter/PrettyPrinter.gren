@@ -3,11 +3,9 @@ module Formatter.PrettyPrinter exposing (prettyPrint)
 import Compiler.Ast.Source as Src
 import Compiler.Parse.Context as Ctx
 
-import Formatter.LogicalPrintingTree exposing (lptToString)
+import Formatter.LogicalPrintingTree exposing (LPNode, lptToString)
 import Formatter.MakeLogical exposing (makeLogicalPrintingTree)
 import Formatter.MakePretty exposing (makePrettyResult)
-
-import Compiler.SourcePosition exposing (Located)
 
 
 prettyPrint: Src.Module -> Ctx.Context -> Result String String

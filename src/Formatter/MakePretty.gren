@@ -3,8 +3,7 @@ module Formatter.MakePretty exposing (..)
 import Compiler.SourcePosition exposing (Located)
 
 import Formatter.LogicalPrintingTree exposing (LPBox(..),
-    ListBrackets(..), SyntaxType(..))
-import Tree.SingleRootTree as SRT exposing (SingleRootTree)
+    LPNode, ListBrackets(..), SyntaxType(..), lpnBox, lpnChildren)
 
 import Formatter.Strings exposing
     ( joinResultStrings
@@ -21,39 +20,40 @@ grenIndent : Int
 grenIndent =
     4
 
-makePrettyResult : SingleRootTree LPBox -> Result String String
-makePrettyResult lpTree =
+makePrettyResult : LPNode -> Result String String
+makePrettyResult root =
     let
-        topNodesAndIds = SRT.getRootChildrenWithNodes lpTree
-        prettyLines = Array.map (\r -> makePrettyLine r.id r.node lpTree) topNodesAndIds
+        prettyLines = Array.map makePrettyLine (lpnChildren root)
     in
-        joinResultStrings "\n" prettyLines
+    joinResultStrings "\n" prettyLines
 
-makePrettyLine : Int -> LPBox -> SingleRootTree LPBox -> Result String String
-makePrettyLine id lpBox lpTree =
-    when lpBox is
+makePrettyLine : LPNode -> Result String String
+makePrettyLine node =
+    let
+        children = lpnChildren node
+    in
+    when lpnBox node is
         OriginalRows { stype = stype } ->
             when stype is
-                StModule -> makeFlowIndentable id lpTree
-                StImport -> makeFlowIndentable id lpTree
-                StSingleLineComment -> makeSingleLineComment id lpTree
-                StBlockComment -> makeBlockComment id lpTree
-                StDocComment -> makeDocComment id lpTree
-                StFunctionSignature -> makeFlowIndentable id lpTree
-                StFunctionDeclaration -> makeFlowIndentable id lpTree
+                StModule -> makeFlowIndentable children
+                StImport -> makeFlowIndentable children
+                StSingleLineComment -> makeSingleLineComment children
+                StBlockComment -> makeBlockComment children
+                StDocComment -> makeDocComment children
+                StFunctionSignature -> makeFlowIndentable children
+                StFunctionDeclaration -> makeFlowIndentable children
         EmptyLine ->
             Ok ""
         _ ->
             Err "Unexpected item in LPTree root children"
 
 
-makeFlowIndentable : Int -> SingleRootTree LPBox -> Result String String
-makeFlowIndentable id lpTree =
+makeFlowIndentable : Array LPNode -> Result String String
+makeFlowIndentable children =
     let
-        nodesAndIds = SRT.childrenWithNodes id lpTree
-        finalDoc = buildFlowDoc grenIndent nodesAndIds lpTree
+        finalDoc = buildFlowDoc grenIndent children
     in
-        genericRenderResult <| P.prettyFormat costFactory finalDoc
+    genericRenderResult <| P.prettyFormat costFactory finalDoc
 
 
 {-| builds the flow, and handles SingleLineComment nodes correctly:
@@ -65,8 +65,8 @@ makeFlowIndentable id lpTree =
     on a fresh line — but because we track `lineTerminated`, we skip the
     normal nl separator after a comment, avoiding a double newline.
 -}
-buildFlowDoc : Int -> Array { id : Int, node : LPBox } -> SingleRootTree LPBox -> P.Doc cost
-buildFlowDoc indent nodesAndIds lpTree =
+buildFlowDoc : Int -> Array LPNode -> P.Doc cost
+buildFlowDoc indent nodes =
     let
         -- separator: either "same line with space" or "new line with indent"
         flowSep accDoc nextDoc =
@@ -74,8 +74,12 @@ buildFlowDoc indent nodesAndIds lpTree =
 
         foldResult =
             Array.foldl
-                (\nid acc ->
-                    when nid.node is
+                (\node acc ->
+                    let
+                        box = lpnBox node
+                        nodeChildren = lpnChildren node
+                    in
+                    when box is
                         SingleLineComment loc ->
                             let
                                 commentText = P.text ("--" ++ loc.value)
@@ -104,7 +108,7 @@ buildFlowDoc indent nodesAndIds lpTree =
 
                         AllAcrossOrAllVertical bracket ->
                             let
-                                itemDoc = makeAllAcrossOrAllVertical bracket nid.id lpTree
+                                itemDoc = makeAllAcrossOrAllVertical bracket nodeChildren
                                 newDoc =
                                     if acc.isEmpty then
                                         itemDoc
@@ -125,8 +129,7 @@ buildFlowDoc indent nodesAndIds lpTree =
 
                         IndentedBlock ->
                             let
-                                childrenAndIds = SRT.childrenWithNodes nid.id lpTree
-                                childrenDoc = buildFlowDoc 0 childrenAndIds lpTree
+                                childrenDoc = buildFlowDoc 0 nodeChildren
                                 indentedDoc = P.nest grenIndent (P.concat P.hardNl childrenDoc)
                                 newDoc =
                                     if acc.isEmpty then
@@ -143,8 +146,7 @@ buildFlowDoc indent nodesAndIds lpTree =
 
                         BodyBlock ->
                             let
-                                childrenAndIds = SRT.childrenWithNodes nid.id lpTree
-                                childrenDoc = buildFlowDoc 0 childrenAndIds lpTree
+                                childrenDoc = buildFlowDoc 0 nodeChildren
                                 newDoc =
                                     if acc.isEmpty then
                                         childrenDoc
@@ -160,9 +162,9 @@ buildFlowDoc indent nodesAndIds lpTree =
 
                         _ ->
                             let
-                                itemDoc = makePDoc nid lpTree
+                                itemDoc = makePDoc box nodeChildren
                                 prevRow =
-                                    when nid.node is
+                                    when box is
                                         UnbreakableText loc -> loc.start.row
                                         _ -> -1
                                 newDoc =
@@ -183,82 +185,61 @@ buildFlowDoc indent nodesAndIds lpTree =
                             }
                 )
                 { doc = P.empty, prevRow = -1, lineTerminated = False, prevWasIndentedBlock = False, isEmpty = True }
-                nodesAndIds
+                nodes
     in
     P.nest indent foldResult.doc
 
 
 
-makeSingleLineComment : Int -> SingleRootTree LPBox -> Result String String
-makeSingleLineComment id lpTree =
-    let
-        nodes = SRT.childrenNodes id lpTree
-        resDoc =
-            when Array.popFirst nodes is
-                Just { first = first, rest = rest } ->
-                    if Array.isEmpty rest then
-                        when first is
-                            SingleLineComment locs -> Ok (P.text <| "--" ++ locs.value)
-                            _ ->  Err "Unexpected node type in SingleLineComment"
-                    else
-                        Err "Too many nodes in SingleLineComment"
-                Nothing ->
-                    Err "No nodes in SingleLineComment"
-    in
-    when resDoc is
-        Ok doc ->
-            genericRenderResult <| P.prettyFormat costFactory doc
-        Err s ->
-            Err s
+makeSingleLineComment : Array LPNode -> Result String String
+makeSingleLineComment children =
+    when Array.popFirst children is
+        Just { first = first, rest = rest } ->
+            if Array.isEmpty rest then
+                when lpnBox first is
+                    SingleLineComment locs ->
+                        genericRenderResult <| P.prettyFormat costFactory (P.text <| "--" ++ locs.value)
+                    _ ->
+                        Err "Unexpected node type in SingleLineComment"
+            else
+                Err "Too many nodes in SingleLineComment"
+        Nothing ->
+            Err "No nodes in SingleLineComment"
 
-makeBlockComment : Int -> SingleRootTree LPBox -> Result String String
-makeBlockComment id lpTree =
-    let
-        nodes = SRT.childrenNodes id lpTree
-        resDoc =
-            when Array.popFirst nodes is
-                Just { first = first, rest = rest } ->
-                    if Array.isEmpty rest then
-                        when first is
-                            --- XXX handle spce before -} but deal with newline
-                            BlockComment locs -> Ok (P.text <| "{-" ++ locs.value ++ "-}")
-                            _ ->  Err "Unexpected node type in BlockComment"
-                    else
-                        -- XXX This is wrong; we might have more
-                        Err "Too many nodes in BlockComment"
-                Nothing ->
-                    Err "No nodes in BlockComment"
-    in
-    when resDoc is
-        Ok doc ->
-            genericRenderResult <| P.prettyFormat costFactory doc
-        Err s ->
-            Err s
+makeBlockComment : Array LPNode -> Result String String
+makeBlockComment children =
+    when Array.popFirst children is
+        Just { first = first, rest = rest } ->
+            if Array.isEmpty rest then
+                when lpnBox first is
+                    --- XXX handle space before -} but deal with newline
+                    BlockComment locs ->
+                        genericRenderResult <| P.prettyFormat costFactory (P.text <| "{-" ++ locs.value ++ "-}")
+                    _ ->
+                        Err "Unexpected node type in BlockComment"
+            else
+                -- XXX This is wrong; we might have more
+                Err "Too many nodes in BlockComment"
+        Nothing ->
+            Err "No nodes in BlockComment"
 
 -- XXX - maybe combine with makeBlockComment
-makeDocComment : Int -> SingleRootTree LPBox -> Result String String
-makeDocComment id lpTree =
-    let
-        nodes = SRT.childrenNodes id lpTree
-        resDoc =
-            when Array.popFirst nodes is
-                Just { first = first, rest = rest } ->
-                    if Array.isEmpty rest then
-                        when first is
-                            --- XXX handle spce before -} but deal with newline
-                            DocComment locs -> Ok (P.text <| "{-|" ++ locs.value ++ "-}")
-                            _ ->  Err "Unexpected node type in DocComment"
-                    else
-                        -- XXX Is this is wrong; can we have more
-                        Err "Too many nodes in DocComment"
-                Nothing ->
-                    Err "No nodes in DocComment"
-    in
-    when resDoc is
-        Ok doc ->
-            genericRenderResult <| P.prettyFormat costFactory doc
-        Err s ->
-            Err s
+makeDocComment : Array LPNode -> Result String String
+makeDocComment children =
+    when Array.popFirst children is
+        Just { first = first, rest = rest } ->
+            if Array.isEmpty rest then
+                when lpnBox first is
+                    --- XXX handle space before -} but deal with newline
+                    DocComment locs ->
+                        genericRenderResult <| P.prettyFormat costFactory (P.text <| "{-|" ++ locs.value ++ "-}")
+                    _ ->
+                        Err "Unexpected node type in DocComment"
+            else
+                -- XXX Is this wrong; can we have more
+                Err "Too many nodes in DocComment"
+        Nothing ->
+            Err "No nodes in DocComment"
 
 genericRenderResult : Maybe String -> Result String String
 genericRenderResult maybeFormatted =
@@ -266,50 +247,38 @@ genericRenderResult maybeFormatted =
         Just s -> Ok s
         Nothing -> Err "Failed to pretty-print"
 
-makePDoc : { id: Int, node : LPBox } -> SingleRootTree LPBox -> P.Doc cost
-makePDoc nid lpTree =
-    when nid.node is
+makePDoc : LPBox -> Array LPNode -> P.Doc cost
+makePDoc box children =
+    when box is
         UnbreakableText locs -> P.text locs.value
         AllAcrossOrAllVertical bracket ->
-            makeAllAcrossOrAllVertical bracket nid.id lpTree
+            makeAllAcrossOrAllVertical bracket children
         SingleLineComment locs -> lineComment locs.value
         AcrossThenIndent ->
-            let
-                childrenAndIds = SRT.childrenWithNodes nid.id lpTree
-            in
-                buildFlowDoc grenIndent childrenAndIds lpTree
+            buildFlowDoc grenIndent children
         IndentedBlock ->
-            let
-                childrenAndIds = SRT.childrenWithNodes nid.id lpTree
-            in
-                buildFlowDoc 0 childrenAndIds lpTree
+            buildFlowDoc 0 children
         BodyBlock ->
-            let
-                childrenAndIds = SRT.childrenWithNodes nid.id lpTree
-            in
-                buildFlowDoc 0 childrenAndIds lpTree
+            buildFlowDoc 0 children
         _ -> P.text "?"
 
 
-isCommentNode : { id: Int, node: LPBox } -> Bool
-isCommentNode nid =
-    when nid.node is
-        SingleLineComment _ -> True
-        _ -> False
-
-makeAllAcrossOrAllVertical : ListBrackets -> Int -> SingleRootTree LPBox -> P.Doc cost
-makeAllAcrossOrAllVertical brackets id lpTree =
+makeAllAcrossOrAllVertical : ListBrackets -> Array LPNode -> P.Doc cost
+makeAllAcrossOrAllVertical brackets children =
     let
-        nodesAndIds = SRT.childrenWithNodes id lpTree
         bs = bracketStrings brackets
-        hasComment = Array.any isCommentNode nodesAndIds
+        hasComment = Array.any
+            (\node ->
+                when lpnBox node is
+                    SingleLineComment _ -> True
+                    _ -> False
+            )
+            children
     in
     if hasComment && brackets == ListParen then
-        -- comment-aware rendering for paren lists (import/module exposing)
-        let nodes = SRT.childrenNodes id lpTree
-        in exposingListBoxes nodes
+        exposingListBoxes children
     else
-        let itemDocs = Array.map (\nid -> makeListItemDoc nid lpTree) nodesAndIds
+        let itemDocs = Array.map makeListItemDoc children
         in exposingListWithBrackets bs.open bs.close bs.empty itemDocs
 
 bracketStrings : ListBrackets -> { open : String, close : String, empty : String }
@@ -319,13 +288,12 @@ bracketStrings brackets =
         ListCurly  -> { open = "{ ", close = "}", empty = "{}" }
         ListSquare -> { open = "[ ", close = "]", empty = "[]" }
 
-makeListItemDoc : { id: Int, node: LPBox } -> SingleRootTree LPBox -> P.Doc cost
-makeListItemDoc nid lpTree =
-    when nid.node is
+makeListItemDoc : LPNode -> P.Doc cost
+makeListItemDoc node =
+    when lpnBox node is
         UnbreakableText loc -> P.text loc.value
         AcrossThenIndent ->
-            let childrenAndIds = SRT.childrenWithNodes nid.id lpTree
-            in buildFlowDoc 0 childrenAndIds lpTree
+            buildFlowDoc 0 (lpnChildren node)
         _ -> P.text "?"
 
 exposingListWithBrackets : String -> String -> String -> Array (P.Doc cost) -> P.Doc cost
@@ -385,24 +353,6 @@ exposingList items =
 
 
 {-
-indentIfNeeded : Int -> P.Doc cost -> P.Doc cost
-indentIfNeeded indent doc =
-    (P.nest indent
-        (P.concat P.nl doc)
-    )
--}
-
-{-
-P.concat
-    (P.text "module Foo exposing")
-    (P.nest 4
-        (P.concat P.nl
-            (exposingList [ P.text "Foo", P.text "Bar", P.text "Baz" ])
-        )
-    )
--}
-
-{-
 The hardNl at the end means:
 
 flatten (lineComment s) produces failDoc — the comment can never be
@@ -414,7 +364,7 @@ fail, so the group drops the flat branch entirely and uses the broken
 form.
 
 
-Use this when the comemnt is followed by more content (in the array of docs)
+Use this when the comment is followed by more content (in the array of docs)
 -}
 lineComment : String -> P.Doc cost
 lineComment s =
@@ -441,28 +391,28 @@ lineComment s =
     its own line.
 -}
 
-exposingListBoxes : Array LPBox -> P.Doc cost
-exposingListBoxes items =
+exposingListBoxes : Array LPNode -> P.Doc cost
+exposingListBoxes nodes =
     let
         hasComment =
             Array.any
-                (\item ->
-                    when item is
+                (\node ->
+                    when lpnBox node is
                         SingleLineComment _ -> True
                         _                  -> False
                 )
-                items
+                nodes
     in
     if not hasComment then
         let
             textDocs =
                 Array.mapAndKeepJust
-                    (\item ->
-                        when item is
+                    (\node ->
+                        when lpnBox node is
                             UnbreakableText loc -> Just (P.text loc.value)
                             _                  -> Nothing
                     )
-                    items
+                    nodes
         in
         exposingList textDocs
 
@@ -472,8 +422,8 @@ exposingListBoxes items =
             -- isComment = True means no comma prefix should be added.
             foldResult =
                 Array.foldl
-                    (\item acc ->
-                        when item is
+                    (\node acc ->
+                        when lpnBox node is
                             UnbreakableText loc ->
                                 let
                                     flushed =
@@ -524,7 +474,7 @@ exposingListBoxes items =
                                 }
                     )
                     { lineDocs = [], pending = Nothing, prevRow = -1 }
-                    items
+                    nodes
 
             allLineDocs =
                 when foldResult.pending is

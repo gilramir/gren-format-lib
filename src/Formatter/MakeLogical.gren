@@ -10,14 +10,10 @@ import Compiler.Parse.Number as PN
 import Compiler.SourcePosition exposing (Located, Position, emptyPos, at)
 
 import Formatter.LogicalPrintingTree exposing (LPBox(..),
-    ListBrackets(..), SyntaxType(..), lptToString)
+    LPNode(..), ListBrackets(..), SyntaxType(..), lptToString,
+    lpnBox, lpnChildren, lpnLeaf, lpnNode)
 import Formatter.Strings exposing (countNewlines)
 import Formatter.Comments exposing (lptAddComments)
-import Tree.SingleRootTree as SRT exposing (SingleRootTree)
-
-makeRootLPBox : LPBox
-makeRootLPBox =
-    RootBox
 
 nilPos : Position
 nilPos =
@@ -25,151 +21,115 @@ nilPos =
     , col = -1
     }
 
-makeLogicalPrintingTree: Src.Module -> Ctx.Context -> Result String (SingleRootTree LPBox)
+makeLogicalPrintingTree : Src.Module -> Ctx.Context -> Result String LPNode
 makeLogicalPrintingTree ast ctx =
     when lptFromAst ast is
         Err errString ->
             Err ("Failed to create intermediate representation for pretty printing: "
-                ++  errString)
+                ++ errString)
         Ok lpt ->
-            when lptAddComments ctx lpt is
-                Err wcReason ->
-                    Err ("Failed while placing comments: " ++ wcReason)
-                Ok lptWc ->
-                    let
-                        lptXl = insertEmptyLines lptWc
-                        -- Sanity check
-                        discoveredRoots = SRT.roots lptXl
-                    in
-                        if Array.length discoveredRoots == 1 then
-                            Ok lptXl
-                        else
-                            Err <| "Intermediate repr tree has " ++
-                                (String.fromInt <| Array.length
-                                discoveredRoots) ++ "roots"
+            let
+                lptWc = lptAddComments ctx lpt
+                lptXl = insertEmptyLines lptWc
+            in
+            Ok lptXl
 
 
-
-
-lptFromAst : Src.Module -> Result String (SingleRootTree LPBox)
+lptFromAst : Src.Module -> Result String LPNode
 lptFromAst modAst =
-    SRT.new makeRootLPBox
-        -- TODO: aliases
-        -- TODO: binops
-        -- TODO: docs
-        -- TODO: effects
-        -- TODO: unions
-        |> processModuleLine modAst
+    let root = lpnLeaf RootBox
+    in
+    -- TODO: aliases
+    -- TODO: binops
+    -- TODO: docs
+    -- TODO: effects
+    -- TODO: unions
+    processModuleLine modAst root
         |> Result.andThen (processImports modAst)
-        -- Values/Functions
         |> Result.andThen (processFunctions modAst)
-        -- ali
         |> Result.andThen finalizeOriginalRows
 
-{-| Compute the last row number for each OriginalRows,
-and sort the root children (all Origianl Rows) based on row number
--}
--- XXX ModuleDeclarations already have "last row"; can we preserve that and not
--- process it here?
-finalizeOriginalRows : SingleRootTree LPBox -> Result String (SingleRootTree LPBox)
-finalizeOriginalRows lpTree =
-    let
-        t1 = addLastRowToOriginalRows lpTree
-        rootChildren = SRT.getRootChildren t1
-        sortedChildren = sortOriginalRows rootChildren t1
-    in
-        Ok (SRT.setRootChildren sortedChildren t1)
 
-sortOriginalRows : Array Int -> SingleRootTree LPBox -> Array Int
-sortOriginalRows ids lpTree =
-    Array.sortWith
-        (\a b ->
-            let
-                anode = SRT.getNode a lpTree
-                bnode = SRT.getNode b lpTree
-            in
-                when anode is
-                    Just (OriginalRows { first = afirst, last = alast, stype = _}) ->
-                        when bnode is
-                            Just (OriginalRows { first = bfirst, last = blast, stype = _}) ->
-                                compare alast bfirst
-                            _ ->
-                                compare 0 1
-                    _ ->
-                        compare 0 1
-        ) ids
+{-| Compute the last row number for each OriginalRows,
+and sort the root children (all OriginalRows) based on row number.
+-}
+finalizeOriginalRows : LPNode -> Result String LPNode
+finalizeOriginalRows root =
+    let
+        t1 = addLastRowToOriginalRows root
+        t2 = sortOriginalRows t1
+    in
+    Ok t2
+
+
+sortOriginalRows : LPNode -> LPNode
+sortOriginalRows root =
+    let
+        sorted =
+            Array.sortWith
+                (\a b ->
+                    when { a = lpnBox a, b = lpnBox b } is
+                        { a = OriginalRows { last = alast }, b = OriginalRows { first = bfirst } } ->
+                            compare alast bfirst
+                        _ ->
+                            compare 0 1
+                )
+                (lpnChildren root)
+    in
+    LPNode { box = lpnBox root, children = sorted }
+
 
 {-| Look at all the nodes in an OriginalRows branch and find the last row
-number. Add it to the OriginalRows item
+number. Update the OriginalRows item's last field.
 -}
--- XXX double-check to see if this is still needed
-addLastRowToOriginalRows : SingleRootTree LPBox -> SingleRootTree LPBox
-addLastRowToOriginalRows lpTree =
+addLastRowToOriginalRows : LPNode -> LPNode
+addLastRowToOriginalRows root =
     let
-        originalChildren = SRT.getRootChildren lpTree
+        updatedChildren =
+            Array.map
+                (\child ->
+                    when lpnBox child is
+                        OriginalRows firstLast ->
+                            when lastRowInBranch child is
+                                Just lastRow ->
+                                    LPNode { box = OriginalRows { firstLast | last = lastRow }, children = lpnChildren child }
+                                Nothing ->
+                                    child
+                        _ ->
+                            child
+                )
+                (lpnChildren root)
     in
-    Array.foldl
-        (\id currentTree ->
-            when lastRowInBranch id currentTree is
-                Just lastRow ->
-                    changeOriginalLastRow id lastRow currentTree
-                Nothing ->
-                    -- Couldn't find a last row? Nothing to do
-                    currentTree
-        )
-        lpTree
-        originalChildren
-
-changeOriginalLastRow : Int -> Int -> SingleRootTree LPBox -> SingleRootTree LPBox
-changeOriginalLastRow id lastRow lpTree =
-    when SRT.getNode id lpTree is
-        Just node ->
-            when node is
-                OriginalRows firstLast ->
-                    let
-                        newNode = OriginalRows
-                                    { firstLast
-                                        | last = lastRow
-                                    }
-                    in
-                        SRT.replaceNode id newNode lpTree
-                _ ->
-                    lpTree
-        -- Impossible
-        Nothing ->
-            lpTree
+    LPNode { box = lpnBox root, children = updatedChildren }
 
 
+lastRowInBranch : LPNode -> Maybe Int
+lastRowInBranch node =
+    let
+        selfRow = getLastRow (lpnBox node)
+        childMax =
+            Array.foldl
+                (\child acc ->
+                    when lastRowInBranch child is
+                        Just row ->
+                            when acc is
+                                Nothing -> Just row
+                                Just current -> Just (max row current)
+                        Nothing ->
+                            acc
+                )
+                Nothing
+                (lpnChildren node)
+    in
+    when { self = selfRow, child = childMax } is
+        { self = Nothing, child = Nothing } -> Nothing
+        { self = Just s, child = Nothing } -> Just s
+        { self = Nothing, child = Just c } -> Just c
+        { self = Just s, child = Just c } -> Just (max s c)
 
-lastRowInBranch : Int -> SingleRootTree LPBox -> Maybe Int
-lastRowInBranch topId lpTree =
-    SRT.depthFirst topId lpTree
-        |> Array.map (\r ->
-            let
-                { depth = depth, id = id, value = node } = r
-            in
-                getLastRow node
-            )
-        |> Array.foldl
-            (\maybeVal acc ->
-                when acc is
-                    Nothing ->
-                        when maybeVal is
-                            Just val -> Just val
-                            Nothing -> Nothing
-
-                    Just current ->
-                        when maybeVal is
-                            Just val ->
-                                Just (max val current)
-                            Nothing ->
-                                Just current
-            )
-            Nothing
 
 {-| If the LPNode represents actual text in the source code, return the last
-row for it. LPNodes which are containers return Nothing; we're checking the
-actual text on the page
+row for it. Container nodes return Nothing.
 -}
 getLastRow : LPBox -> Maybe Int
 getLastRow lpbox =
@@ -185,40 +145,41 @@ getLastRow lpbox =
         -- XXX - isn't locString correct now? just use end.row?
         BlockComment locString -> Just (locString.end.row + (countNewlines locString.value))
         DocComment locString -> Just locString.end.row
-        EmptyLine  -> Nothing
+        EmptyLine -> Nothing
+
+
+addRootChild : LPNode -> LPNode -> LPNode
+addRootChild child root =
+    LPNode { box = lpnBox root, children = Array.pushLast child (lpnChildren root) }
 
 
 -- TODO: ports
-processModuleLine : Src.Module -> SingleRootTree LPBox -> Result String (SingleRootTree LPBox)
-processModuleLine modAst lpTree =
+processModuleLine : Src.Module -> LPNode -> Result String LPNode
+processModuleLine modAst root =
     let
-        r0 = SRT.insert (OriginalRows { first = modAst.name.start.row, last = -1, stype = StModule }) lpTree
-        r1 = SRT.insert (mkText { row = modAst.name.start.row, col = 1} "module") r0.tree
-        r2 = SRT.insert (mkTextFromLocString modAst.name) r1.tree
+        n1 = lpnLeaf (mkText { row = modAst.name.start.row, col = 1 } "module")
+        n2 = lpnLeaf (mkTextFromLocString modAst.name)
 
         exposingPos =
             { row = modAst.name.start.row
             , col = modAst.name.start.col + String.count modAst.name.value + 1
             }
-        r3 = SRT.insert (mkText exposingPos "exposing") r2.tree
-        r4 =
+        n3 = lpnLeaf (mkText exposingPos "exposing")
+
+        n4 =
             when modAst.exports is
                 Src.Open ->
-                    SRT.insert (mkText emptyPos "(..)") r3.tree
+                    lpnLeaf (mkText emptyPos "(..)")
                 -- XXX handle empty exposed, like in imports
                 Src.Explicit exposed ->
-                    insertNodeWithChildren (mkAllAcrossOrAllVertical ListParen)
-                        (Array.map (\x -> processExposed x) exposed) r3.tree
+                    lpnNode (AllAcrossOrAllVertical ListParen)
+                        (Array.map processExposed exposed)
 
-        -- Add the children to this row
-        t1 = r4.tree
-            |> SRT.setChildren r0.id (Array.map (\r -> r.id) [r1, r2, r3, r4])
-
-        -- Add this entire row to the root node
-        t2 = SRT.appendRootChild r0.id t1
-
+        origRow =
+            lpnNode (OriginalRows { first = modAst.name.start.row, last = -1, stype = StModule })
+                [n1, n2, n3, n4]
     in
-        Ok t2
+    Ok (addRootChild origRow root)
 
 
 mkText : Position -> String -> LPBox
@@ -229,9 +190,9 @@ mkText pos text =
                 | col = pos.col + String.count text
             }
     in
-        UnbreakableText
+    UnbreakableText
         { start = pos
-        , end =  end
+        , end = end
         , value = text
         }
 
@@ -240,75 +201,41 @@ mkTextFromLocString ltext =
     UnbreakableText ltext
 
 
-
-insertNodeWithChildren :
-    LPBox ->
-    Array (LPBox) ->
-    SingleRootTree LPBox -> { id : Int, tree : SingleRootTree LPBox }
-insertNodeWithChildren parent children tree =
-    let
-        { childIds, accTree } =
-            Array.foldl
-                (\child acc ->
-                    let
-                        result =
-                            SRT.insert child acc.accTree
-                    in
-                    { childIds = Array.pushLast result.id acc.childIds
-                    , accTree = result.tree
-                    }
-                )
-                { childIds = [], accTree = tree }
-                children
-
-        parentResult =
-            SRT.insert parent accTree
-    in
-    { id = parentResult.id
-    , tree = SRT.setChildren parentResult.id childIds parentResult.tree
-    }
-
-
-mkAllAcrossOrAllVertical : ListBrackets -> LPBox
-mkAllAcrossOrAllVertical brackets =
-    AllAcrossOrAllVertical brackets
-
-
-processExposed : Src.Exposed -> LPBox
+processExposed : Src.Exposed -> LPNode
 processExposed exposed =
     when exposed is
         Src.ExposedLower sp ->
-            UnbreakableText sp
+            lpnLeaf (UnbreakableText sp)
 
         -- TODO what is privacy?
-        Src.ExposedUpper { name = sp, privacy = privacy } ->
-            UnbreakableText sp
+        Src.ExposedUpper { name = sp, privacy = _ } ->
+            lpnLeaf (UnbreakableText sp)
 
         Src.ExposedOperator sp ->
-            UnbreakableText sp
+            lpnLeaf (UnbreakableText sp)
 
-processImports : Src.Module -> SingleRootTree LPBox -> Result String (SingleRootTree LPBox)
-processImports modAst lpTree =
-    Ok <| Array.foldl processImport lpTree modAst.imports
 
-processImport : Located Src.Import -> SingleRootTree LPBox -> SingleRootTree LPBox
-processImport locImport lpTree =
+processImports : Src.Module -> LPNode -> Result String LPNode
+processImports modAst root =
+    Ok <| Array.foldl processImport root modAst.imports
+
+
+processImport : Located Src.Import -> LPNode -> LPNode
+processImport locImport root =
     let
-        r0 = SRT.insert (OriginalRows { first = locImport.start.row, last = locImport.end.row, stype = StImport}) lpTree
-        r1 = SRT.insert (mkText { row = locImport.start.row, col = 1} "import") r0.tree
-        r2 = SRT.insert (mkTextFromLocString locImport.value.module_) r1.tree
-        { ids = ids3, tree = r3tree } =
+        n1 = lpnLeaf (mkText { row = locImport.start.row, col = 1 } "import")
+        n2 = lpnLeaf (mkTextFromLocString locImport.value.module_)
+
+        aliasNodes =
             when locImport.value.alias is
                 Nothing ->
-                    { ids = [], tree = r2.tree }
+                    []
                 Just name ->
-                    let
-                        a1 = SRT.insert (mkText nilPos "as") r2.tree
-                        a2 = SRT.insert (mkText nilPos name) a1.tree
-                    in
-                        { ids = [a1.id, a2.id], tree = a2.tree }
+                    [ lpnLeaf (mkText nilPos "as")
+                    , lpnLeaf (mkText nilPos name)
+                    ]
 
-        { ids = ids4, tree = r4tree } =
+        exposeNodes =
             when locImport.value.expose is
                 Src.Open ->
                     let
@@ -317,37 +244,33 @@ processImport locImport lpTree =
                             , col = locImport.value.module_.start.col +
                                 String.count locImport.value.module_.value + 1
                             }
-                        o1 = SRT.insert (mkText exposingPos "exposing") r3tree
-                        o2 = SRT.insert (mkText nilPos "(..)") o1.tree
                     in
-                        { ids = [o1.id, o2.id], tree = o2.tree }
+                    [ lpnLeaf (mkText exposingPos "exposing")
+                    , lpnLeaf (mkText nilPos "(..)")
+                    ]
                 Src.Explicit xlist ->
                     when Array.popFirst xlist is
-                        Just { first = first, rest = rest } ->
+                        Just _ ->
                             let
                                 exposingPos =
                                     { row = locImport.value.module_.start.row
                                     , col = locImport.value.module_.start.col +
                                         String.count locImport.value.module_.value + 1
                                     }
-                                o1 = SRT.insert (mkText exposingPos "exposing") r3tree
-                                xr = insertNodeWithChildren (mkAllAcrossOrAllVertical ListParen)
-                                    (Array.map (\x -> processExposed x) xlist) o1.tree
                             in
-                                { ids = [o1.id, xr.id], tree = xr.tree }
+                            [ lpnLeaf (mkText exposingPos "exposing")
+                            , lpnNode (AllAcrossOrAllVertical ListParen)
+                                (Array.map processExposed xlist)
+                            ]
                         Nothing ->
-                            { ids = [], tree = r3tree }
+                            []
 
-        children = [r1.id, r2.id] ++ ids3 ++ ids4
-
-        -- Add the children to this row
-        t1 = r4tree
-            |> SRT.setChildren r0.id children
-
-        -- Add this entire row to the root node
-        t2 = SRT.appendRootChild r0.id t1
+        allChildren = [n1, n2] ++ aliasNodes ++ exposeNodes
+        origRow =
+            lpnNode (OriginalRows { first = locImport.start.row, last = locImport.end.row, stype = StImport })
+                allChildren
     in
-        t2
+    addRootChild origRow root
 
 
 resultFoldl : (i -> a -> Result e a) -> a -> Array i -> Result e a
@@ -359,306 +282,215 @@ resultFoldl callback initialAcc items =
                 Err e -> Err e
                 Ok a -> callback thisItem a
     in
-        Array.foldl callbackWrapper (Ok initialAcc) items
+    Array.foldl callbackWrapper (Ok initialAcc) items
+
 
 {-| Process the functions
 -}
-processFunctions : Src.Module -> SingleRootTree LPBox -> Result String (SingleRootTree LPBox)
-processFunctions modAst lpTree =
-    -- Ok <| Array.foldl processModDecl lpTree modAst.values
-    resultFoldl processModDecl lpTree modAst.values
+processFunctions : Src.Module -> LPNode -> Result String LPNode
+processFunctions modAst root =
+    resultFoldl processModDecl root modAst.values
+
 
 {-| Process a function. This will create a StFunction line, maybe
 an StFunctionDeclarationLine, and maybe an StDocComment line.
 -}
-processModDecl : Src.ModuleDeclaration Src.Value -> SingleRootTree LPBox -> Result String (SingleRootTree LPBox)
-processModDecl modDecl lpTree =
+processModDecl : Src.ModuleDeclaration Src.Value -> LPNode -> Result String LPNode
+processModDecl modDecl root =
     let
-        t0 = processFunctionDoc modDecl.value.docs lpTree
-        res1 = processFunctionSignature modDecl.value.value.name modDecl.value.value.signature t0
+        t0 = processFunctionDoc modDecl.value.docs root
     in
-        when res1 is
-            Err err1 -> Err err1
-            Ok t1 ->
-                when processFunctionBody modDecl.value.value t1 is
-                    Err err2 -> Err err2
-                    Ok t2 -> Ok t2
+    when processFunctionSignature modDecl.value.value.name modDecl.value.value.signature t0 is
+        Err err1 -> Err err1
+        Ok t1 ->
+            processFunctionBody modDecl.value.value t1
 
 
--- Recursively insert expressions. The returned IDs are the IDs in the "main"
--- branch and don't include children IDs if a container node was created.
-insertExpression : Src.Expression -> SingleRootTree LPBox -> Result String { ids: Array Int, tree: SingleRootTree LPBox }
-insertExpression locExpr tree =
+-- Recursively insert expressions. Returns the top-level nodes for this expression.
+insertExpression : Src.Expression -> Result String (Array LPNode)
+insertExpression locExpr =
     when locExpr.value is
         Src.StringLiteral s ->
-            let
-                newNode = mkText locExpr.start ("\"" ++ s ++ "\"")
-                newRec = SRT.insert newNode tree
-            in
-                Ok { ids = [ newRec.id ], tree = newRec.tree }
+            Ok [lpnLeaf (mkText locExpr.start ("\"" ++ s ++ "\""))]
 
         Src.NumberLiteral outcome ->
             when outcome is
                 PN.Integer n ->
-                    let
-                        newNode = mkText locExpr.start (String.fromInt n)
-                        newRec = SRT.insert newNode tree
-                    in
-                        Ok { ids = [ newRec.id ], tree = newRec.tree }
+                    Ok [lpnLeaf (mkText locExpr.start (String.fromInt n))]
 
                 PN.FloatingPoint n ->
                     let
                         raw = String.fromFloat n
                         str = if String.any (\c -> c == '.') raw then raw else raw ++ ".0"
-                        newNode = mkText locExpr.start str
-                        newRec = SRT.insert newNode tree
                     in
-                        Ok { ids = [ newRec.id ], tree = newRec.tree }
+                    Ok [lpnLeaf (mkText locExpr.start str)]
 
                 PN.Hex n ->
-                    let
-                        newNode = mkText locExpr.start ("0x" ++ intToHex n)
-                        newRec = SRT.insert newNode tree
-                    in
-                        Ok { ids = [ newRec.id ], tree = newRec.tree }
+                    Ok [lpnLeaf (mkText locExpr.start ("0x" ++ intToHex n))]
 
         Src.CharLiteral c ->
-            let
-                newNode = mkText locExpr.start (charLiteralString c)
-                newRec = SRT.insert newNode tree
-            in
-                Ok { ids = [ newRec.id ], tree = newRec.tree }
+            Ok [lpnLeaf (mkText locExpr.start (charLiteralString c))]
 
         Src.Var { varType = _, name = name } ->
-            let
-                newNode = mkText locExpr.start name
-                newRec = SRT.insert newNode tree
-            in
-                Ok { ids = [ newRec.id ], tree = newRec.tree }
+            Ok [lpnLeaf (mkText locExpr.start name)]
 
         Src.VarQual { varType = _, qualifier = qualString, name = nameString } ->
-            let
-                newNode = mkText locExpr.start (qualString ++ "." ++ nameString)
-                newRec = SRT.insert newNode tree
-            in
-                Ok { ids = [ newRec.id ], tree = newRec.tree }
+            Ok [lpnLeaf (mkText locExpr.start (qualString ++ "." ++ nameString))]
 
         Src.Operator opString ->
-            let
-                newNode = mkText locExpr.start opString
-                newRec = SRT.insert newNode tree
-            in
-                Ok { ids = [ newRec.id ], tree = newRec.tree }
+            Ok [lpnLeaf (mkText locExpr.start opString)]
 
         Src.Negate expr ->
-            when insertExpression expr tree is
+            when insertExpression expr is
                 Err e -> Err e
-                Ok { ids = ids, tree = t1 } ->
-                    when Array.popFirst ids is
+                Ok nodes ->
+                    when Array.popFirst nodes is
                         Nothing -> Err "Negate: empty inner expression"
-                        Just { first = firstId, rest = _ } ->
-                            when SRT.getNode firstId t1 is
-                                Just (UnbreakableText loc) ->
-                                    let
-                                        newNode = mkText locExpr.start ("-" ++ loc.value)
-                                        t2 = SRT.replaceNode firstId newNode t1
-                                    in
-                                        Ok { ids = ids, tree = t2 }
-                                _ ->
-                                    let
-                                        negNode = mkText locExpr.start "-"
-                                        negRec = SRT.insert negNode t1
-                                    in
-                                        Ok { ids = [negRec.id] ++ ids, tree = negRec.tree }
+                        Just { first = firstNode, rest = restNodes } ->
+                            when tryMapFirstLeaf (\loc -> mkText locExpr.start ("-" ++ loc.value)) firstNode is
+                                Just updated ->
+                                    Ok (Array.pushFirst updated restNodes)
+                                Nothing ->
+                                    Ok (Array.pushFirst (lpnLeaf (mkText locExpr.start "-")) nodes)
 
         Src.Accessor string ->
-            let
-                newNode = mkText locExpr.start ("." ++ string)
-                newRec = SRT.insert newNode tree
-            in
-                Ok { ids = [ newRec.id ], tree = newRec.tree }
+            Ok [lpnLeaf (mkText locExpr.start ("." ++ string))]
 
         Src.Access { expression = expression, accessor = accessor } ->
-            when insertExpression expression tree is
+            when insertExpression expression is
                 Err e -> Err e
-                Ok { ids = ids, tree = t1 } ->
-                    when Array.popLast ids is
+                Ok nodes ->
+                    when Array.popLast nodes is
                         Nothing -> Err "Access: empty inner expression"
-                        Just { last = lastId, initial = _ } ->
-                            when SRT.getNode lastId t1 is
-                                Just (UnbreakableText loc) ->
-                                    let
-                                        newNode = mkText loc.start (loc.value ++ "." ++ accessor)
-                                        t2 = SRT.replaceNode lastId newNode t1
-                                    in
-                                        Ok { ids = ids, tree = t2 }
-                                _ ->
-                                    let
-                                        accNode = mkText emptyPos ("." ++ accessor)
-                                        accRec = SRT.insert accNode t1
-                                    in
-                                        Ok { ids = ids ++ [accRec.id], tree = accRec.tree }
+                        Just { last = lastNode, initial = initialNodes } ->
+                            when tryMapLastLeaf (\loc -> mkText loc.start (loc.value ++ "." ++ accessor)) lastNode is
+                                Just updated ->
+                                    Ok (Array.pushLast updated initialNodes)
+                                Nothing ->
+                                    Ok (Array.pushLast (lpnLeaf (mkText emptyPos ("." ++ accessor))) nodes)
 
         Src.Parens expression ->
-            when insertExpression expression tree is
+            when insertExpression expression is
                 Err e -> Err e
-                Ok { ids = ids, tree = t1 } ->
-                    fixupParensChildrenNodes ids t1
+                Ok nodes ->
+                    fixupParensChildrenNodes nodes
 
         Src.ArrayLiteral exprArray ->
-            when resultFoldl folderInsertExprAsItem { ids = [], tree = tree } exprArray is
+            when resultFoldl folderInsertExprAsItem [] exprArray is
                 Err e -> Err e
-                Ok { ids = itemIds, tree = t1 } ->
-                    let
-                        container = SRT.insert (AllAcrossOrAllVertical ListSquare) t1
-                        t2 = SRT.setChildren container.id itemIds container.tree
-                    in
-                        Ok { ids = [container.id], tree = t2 }
+                Ok itemNodes ->
+                    Ok [lpnNode (AllAcrossOrAllVertical ListSquare) itemNodes]
 
         Src.Record fieldArray ->
-            when resultFoldl folderInsertRecordField { ids = [], tree = tree } fieldArray is
+            when resultFoldl folderInsertRecordField [] fieldArray is
                 Err e -> Err e
-                Ok { ids = itemIds, tree = t1 } ->
-                    let
-                        container = SRT.insert (AllAcrossOrAllVertical ListCurly) t1
-                        t2 = SRT.setChildren container.id itemIds container.tree
-                    in
-                        Ok { ids = [container.id], tree = t2 }
+                Ok fieldNodes ->
+                    Ok [lpnNode (AllAcrossOrAllVertical ListCurly) fieldNodes]
 
         Src.Update { record = record, newValues = newValues } ->
             let
                 recText = simpleExprText record
             in
-            when resultFoldl folderInsertRecordField { ids = [], tree = tree } newValues is
+            when resultFoldl folderInsertRecordField [] newValues is
                 Err e -> Err e
-                Ok { ids = fieldIds, tree = t1 } ->
+                Ok fieldNodes ->
                     -- Prepend "recName | " to the first text in the first field
                     let
-                        t2 =
-                            when Array.popFirst fieldIds is
-                                Nothing -> t1
-                                Just { first = firstFieldId } ->
-                                    when findDeepFirstTextId firstFieldId t1 is
-                                        Nothing -> t1
-                                        Just deepId ->
-                                            when SRT.getNode deepId t1 is
-                                                Just (UnbreakableText loc) ->
-                                                    SRT.replaceNode deepId
-                                                        (mkText loc.start (recText ++ " | " ++ loc.value)) t1
-                                                _ -> t1
-                        container = SRT.insert (AllAcrossOrAllVertical ListCurly) t2
-                        t3 = SRT.setChildren container.id fieldIds container.tree
+                        updatedFields =
+                            when Array.popFirst fieldNodes is
+                                Nothing -> fieldNodes
+                                Just { first = firstField, rest = restFields } ->
+                                    when tryMapFirstLeaf (\loc -> mkText loc.start (recText ++ " | " ++ loc.value)) firstField is
+                                        Just updated -> Array.pushFirst updated restFields
+                                        Nothing -> fieldNodes
                     in
-                        Ok { ids = [container.id], tree = t3 }
+                    Ok [lpnNode (AllAcrossOrAllVertical ListCurly) updatedFields]
 
         Src.Binops { left = lhsExpr, operator = locStringOp, right = rhsExpr } ->
-            when insertExpression lhsExpr tree is
+            when insertExpression lhsExpr is
                 Err e -> Err e
-                Ok { ids = lhsIds, tree = t1 } ->
-                    let
-                        opNode = mkTextFromLocString locStringOp
-                        opRec = SRT.insert opNode t1
+                Ok lhsNodes ->
+                    let opNode = lpnLeaf (mkTextFromLocString locStringOp)
                     in
-                    when insertExpression rhsExpr opRec.tree is
+                    when insertExpression rhsExpr is
                         Err e -> Err e
-                        Ok { ids = rhsIds, tree = t2 } ->
-                            Ok { ids = lhsIds ++ [opRec.id] ++ rhsIds, tree = t2 }
+                        Ok rhsNodes ->
+                            Ok (lhsNodes ++ [opNode] ++ rhsNodes)
 
         Src.Call { fn = fnExpr, args = argsExprs } ->
-            when insertExpression fnExpr tree is
+            when insertExpression fnExpr is
                 Err e -> Err e
-                Ok fnResult ->
-                    resultFoldl folderInsertExprAsItem fnResult argsExprs
+                Ok fnNodes ->
+                    resultFoldl folderInsertExprAsItem fnNodes argsExprs
 
         Src.Lambda { patterns = patterns, body = body } ->
-            when resultFoldl folderInsertPattern { ids = [], tree = tree } patterns is
+            when resultFoldl folderInsertPattern [] patterns is
                 Err e -> Err e
-                Ok { ids = patIds, tree = t1 } ->
-                    -- Prepend \ to the deepest first text node of the first pattern
+                Ok patNodes ->
                     let
-                        t2 =
-                            when Array.popFirst patIds is
-                                Nothing -> t1
-                                Just { first = firstPatId } ->
-                                    when findDeepFirstTextId firstPatId t1 is
-                                        Nothing -> t1
-                                        Just deepId ->
-                                            when SRT.getNode deepId t1 is
-                                                Just (UnbreakableText loc) ->
-                                                    SRT.replaceNode deepId
-                                                        (mkText locExpr.start ("\\" ++ loc.value)) t1
-                                                _ -> t1
-                        arrowNode = mkText nilPos "->"
-                        arrowRec = SRT.insert arrowNode t2
+                        -- Prepend \ to the first text leaf of the first pattern
+                        updatedPatNodes =
+                            when Array.popFirst patNodes is
+                                Nothing -> patNodes
+                                Just { first = firstPat, rest = restPats } ->
+                                    when tryMapFirstLeaf (\loc -> mkText locExpr.start ("\\" ++ loc.value)) firstPat is
+                                        Just updated -> Array.pushFirst updated restPats
+                                        Nothing -> patNodes
+                        arrowNode = lpnLeaf (mkText nilPos "->")
                     in
-                    when insertExpressionAsItem body arrowRec.tree is
+                    when insertExpressionAsItem body is
                         Err e -> Err e
-                        Ok { id = bodyId, tree = t3 } ->
-                            Ok { ids = patIds ++ [arrowRec.id, bodyId], tree = t3 }
+                        Ok bodyNode ->
+                            Ok (updatedPatNodes ++ [arrowNode, bodyNode])
 
         Src.Let { defs = defs, body = body } ->
-            let
-                letNode = mkText locExpr.start "let"
-                letRec = SRT.insert letNode tree
+            let letNode = lpnLeaf (mkText locExpr.start "let")
             in
-            when resultFoldl folderInsertLetDef { ids = [letRec.id], tree = letRec.tree } defs is
+            when resultFoldl folderInsertLetDef [] defs is
                 Err e -> Err e
-                Ok { ids = letIds, tree = t1 } ->
-                    let
-                        inNode = mkText nilPos "in"
-                        inRec = SRT.insert inNode t1
+                Ok defNodes ->
+                    let inNode = lpnLeaf (mkText nilPos "in")
                     in
-                    when insertExpressionAsBodyBlock body inRec.tree is
+                    when insertExpressionAsBodyBlock body is
                         Err e -> Err e
-                        Ok { id = bodyId, tree = t2 } ->
-                            Ok { ids = letIds ++ [inRec.id, bodyId], tree = t2 }
+                        Ok bodyNode ->
+                            Ok ([letNode] ++ defNodes ++ [inNode, bodyNode])
 
         Src.If { branches = branches, elseBranch = elseBranch } ->
             when Array.popFirst branches is
                 Nothing -> Err "If: no branches"
                 Just { first = firstBranch, rest = restBranches } ->
-                    let
-                        ifNode = mkText locExpr.start "if"
-                        ifRec = SRT.insert ifNode tree
+                    let ifNode = lpnLeaf (mkText locExpr.start "if")
                     in
-                    when insertExpression firstBranch.test ifRec.tree is
+                    when insertExpression firstBranch.test is
                         Err e -> Err e
-                        Ok { ids = testIds, tree = t1 } ->
-                            let
-                                thenNode = mkText nilPos "then"
-                                thenRec = SRT.insert thenNode t1
+                        Ok testNodes ->
+                            let thenNode = lpnLeaf (mkText nilPos "then")
                             in
-                            when insertExpressionAsIndentedBlock firstBranch.body thenRec.tree is
+                            when insertExpressionAsIndentedBlock firstBranch.body is
                                 Err e -> Err e
-                                Ok { id = bodyId, tree = t2 } ->
-                                    let
-                                        firstIds = [ifRec.id] ++ testIds ++ [thenRec.id, bodyId]
+                                Ok bodyNode ->
+                                    let firstNodes = [ifNode] ++ testNodes ++ [thenNode, bodyNode]
                                     in
-                                    when resultFoldl folderInsertElseIfBranch { ids = firstIds, tree = t2 } restBranches is
+                                    when resultFoldl folderInsertElseIfBranch firstNodes restBranches is
                                         Err e -> Err e
-                                        Ok { ids = branchIds, tree = t3 } ->
-                                            let
-                                                elseNode = mkText nilPos "else"
-                                                elseRec = SRT.insert elseNode t3
+                                        Ok branchNodes ->
+                                            let elseNode = lpnLeaf (mkText nilPos "else")
                                             in
-                                            when insertExpressionAsIndentedBlock elseBranch elseRec.tree is
+                                            when insertExpressionAsIndentedBlock elseBranch is
                                                 Err e -> Err e
-                                                Ok { id = elseBodyId, tree = t4 } ->
-                                                    Ok { ids = branchIds ++ [elseRec.id, elseBodyId], tree = t4 }
+                                                Ok elseBodyNode ->
+                                                    Ok (branchNodes ++ [elseNode, elseBodyNode])
 
         Src.When { expression = expression, branches = branches } ->
-            let
-                whenNode = mkText locExpr.start "when"
-                whenRec = SRT.insert whenNode tree
+            let whenNode = lpnLeaf (mkText locExpr.start "when")
             in
-            when insertExpression expression whenRec.tree is
+            when insertExpression expression is
                 Err e -> Err e
-                Ok { ids = exprIds, tree = t1 } ->
-                    let
-                        isNode = mkText nilPos "is"
-                        isRec = SRT.insert isNode t1
+                Ok exprNodes ->
+                    let isNode = lpnLeaf (mkText nilPos "is")
                     in
-                    resultFoldl folderInsertWhenBranch { ids = [whenRec.id] ++ exprIds ++ [isRec.id], tree = isRec.tree } branches
+                    resultFoldl folderInsertWhenBranch ([whenNode] ++ exprNodes ++ [isNode]) branches
 
 
 -- Extract text from simple expressions (Var, VarQual, Access chain) without touching the tree.
@@ -670,150 +502,127 @@ simpleExprText locExpr =
         Src.Access { expression = expr, accessor = acc } -> simpleExprText expr ++ "." ++ acc
         _ -> ""
 
--- Wrap an expression as a single tree item.
--- If the expression produces multiple sibling ids, group them under AcrossThenIndent.
-insertExpressionAsItem : Src.Expression -> SingleRootTree LPBox -> Result String { id: Int, tree: SingleRootTree LPBox }
-insertExpressionAsItem locExpr tree =
-    when insertExpression locExpr tree is
+
+-- Wrap an expression as a single node.
+-- If the expression produces multiple sibling nodes, group them under AcrossThenIndent.
+insertExpressionAsItem : Src.Expression -> Result String LPNode
+insertExpressionAsItem locExpr =
+    when insertExpression locExpr is
         Err e -> Err e
-        Ok { ids = ids, tree = t1 } ->
-            when Array.popFirst ids is
+        Ok nodes ->
+            when Array.popFirst nodes is
                 Nothing -> Err "insertExpressionAsItem: empty expression"
-                Just { first = onlyId, rest = rest } ->
+                Just { first = onlyNode, rest = rest } ->
                     if Array.isEmpty rest then
-                        Ok { id = onlyId, tree = t1 }
+                        Ok onlyNode
                     else
-                        let
-                            container = SRT.insert AcrossThenIndent t1
-                            t2 = SRT.setChildren container.id ids container.tree
-                        in
-                            Ok { id = container.id, tree = t2 }
+                        Ok (lpnNode AcrossThenIndent nodes)
 
-folderInsertExprAsItem : Src.Expression -> { ids: Array Int, tree: SingleRootTree LPBox }
-    -> Result String { ids : Array Int, tree : SingleRootTree LPBox }
-folderInsertExprAsItem expr { ids = accIds, tree = accTree } =
-    when insertExpressionAsItem expr accTree is
+
+folderInsertExprAsItem : Src.Expression -> Array LPNode -> Result String (Array LPNode)
+folderInsertExprAsItem expr accNodes =
+    when insertExpressionAsItem expr is
         Err s -> Err s
-        Ok { id = newId, tree = newTree } ->
-            Ok { ids = accIds ++ [newId], tree = newTree }
+        Ok node ->
+            Ok (Array.pushLast node accNodes)
 
 
-insertExpressionAsIndentedBlock : Src.Expression -> SingleRootTree LPBox -> Result String { id: Int, tree: SingleRootTree LPBox }
-insertExpressionAsIndentedBlock locExpr tree =
-    when insertExpression locExpr tree is
+insertExpressionAsIndentedBlock : Src.Expression -> Result String LPNode
+insertExpressionAsIndentedBlock locExpr =
+    when insertExpression locExpr is
         Err e -> Err e
-        Ok { ids = ids, tree = t1 } ->
-            if Array.isEmpty ids then
+        Ok nodes ->
+            if Array.isEmpty nodes then
                 Err "insertExpressionAsIndentedBlock: empty expression"
             else
-                let
-                    container = SRT.insert IndentedBlock t1
-                    t2 = SRT.setChildren container.id ids container.tree
-                in
-                    Ok { id = container.id, tree = t2 }
+                Ok (lpnNode IndentedBlock nodes)
 
-insertExpressionAsBodyBlock : Src.Expression -> SingleRootTree LPBox -> Result String { id: Int, tree: SingleRootTree LPBox }
-insertExpressionAsBodyBlock locExpr tree =
-    when insertExpression locExpr tree is
+
+insertExpressionAsBodyBlock : Src.Expression -> Result String LPNode
+insertExpressionAsBodyBlock locExpr =
+    when insertExpression locExpr is
         Err e -> Err e
-        Ok { ids = ids, tree = t1 } ->
-            if Array.isEmpty ids then
+        Ok nodes ->
+            if Array.isEmpty nodes then
                 Err "insertExpressionAsBodyBlock: empty expression"
             else
-                let
-                    container = SRT.insert BodyBlock t1
-                    t2 = SRT.setChildren container.id ids container.tree
-                in
-                    Ok { id = container.id, tree = t2 }
+                Ok (lpnNode BodyBlock nodes)
 
-folderInsertRecordField : Src.RecordField -> { ids: Array Int, tree: SingleRootTree LPBox }
-    -> Result String { ids : Array Int, tree : SingleRootTree LPBox }
-folderInsertRecordField field { ids = accIds, tree = accTree } =
+
+folderInsertRecordField : Src.RecordField -> Array LPNode -> Result String (Array LPNode)
+folderInsertRecordField field accNodes =
     let
-        fieldNameNode = mkTextFromLocString field.field
-        fieldNameRec = SRT.insert fieldNameNode accTree
-        eqNode = mkText nilPos "="
-        eqRec = SRT.insert eqNode fieldNameRec.tree
+        fieldNameNode = lpnLeaf (mkTextFromLocString field.field)
+        eqNode = lpnLeaf (mkText nilPos "=")
     in
-    when insertExpression field.value eqRec.tree is
+    when insertExpression field.value is
         Err e -> Err e
-        Ok { ids = valueIds, tree = t1 } ->
+        Ok valueNodes ->
             let
-                allChildIds = [fieldNameRec.id, eqRec.id] ++ valueIds
-                container = SRT.insert AcrossThenIndent t1
-                t2 = SRT.setChildren container.id allChildIds container.tree
+                allChildren = [fieldNameNode, eqNode] ++ valueNodes
+                container = lpnNode AcrossThenIndent allChildren
             in
-                Ok { ids = accIds ++ [container.id], tree = t2 }
+            Ok (Array.pushLast container accNodes)
 
-folderInsertLetDef : Located Src.Def -> { ids: Array Int, tree: SingleRootTree LPBox }
-    -> Result String { ids : Array Int, tree : SingleRootTree LPBox }
-folderInsertLetDef locDef { ids = accIds, tree = accTree } =
+
+folderInsertLetDef : Located Src.Def -> Array LPNode -> Result String (Array LPNode)
+folderInsertLetDef locDef accNodes =
     when locDef.value is
         Src.Define def ->
             let
-                nameNode = mkTextFromLocString def.name
-                nameRec = SRT.insert nameNode accTree
-                eqNode = mkText nilPos "="
-                eqRec = SRT.insert eqNode nameRec.tree
+                nameNode = lpnLeaf (mkTextFromLocString def.name)
+                eqNode = lpnLeaf (mkText nilPos "=")
             in
-            when resultFoldl folderInsertPattern { ids = [], tree = eqRec.tree } def.args is
+            when resultFoldl folderInsertPattern [] def.args is
                 Err e -> Err e
-                Ok { ids = argsIds, tree = t1 } ->
-                    when insertExpression def.body t1 is
+                Ok argsNodes ->
+                    when insertExpression def.body is
                         Err e -> Err e
-                        Ok { ids = bodyIds, tree = t2 } ->
+                        Ok bodyNodes ->
                             let
-                                allChildIds = [nameRec.id] ++ argsIds ++ [eqRec.id] ++ bodyIds
-                                container = SRT.insert IndentedBlock t2
-                                t3 = SRT.setChildren container.id allChildIds container.tree
+                                allChildren = [nameNode] ++ argsNodes ++ [eqNode] ++ bodyNodes
+                                container = lpnNode IndentedBlock allChildren
                             in
-                                Ok { ids = accIds ++ [container.id], tree = t3 }
+                            Ok (Array.pushLast container accNodes)
+
         Src.Destruct { pattern = pattern, body = body } ->
-            when insertPattern pattern accTree is
+            when insertPattern pattern is
                 Err e -> Err e
-                Ok { ids = patIds, tree = t1 } ->
-                    let
-                        eqNode = mkText nilPos "="
-                        eqRec = SRT.insert eqNode t1
+                Ok patNodes ->
+                    let eqNode = lpnLeaf (mkText nilPos "=")
                     in
-                    when insertExpression body eqRec.tree is
+                    when insertExpression body is
                         Err e -> Err e
-                        Ok { ids = bodyIds, tree = t2 } ->
+                        Ok bodyNodes ->
                             let
-                                allChildIds = patIds ++ [eqRec.id] ++ bodyIds
-                                container = SRT.insert IndentedBlock t2
-                                t3 = SRT.setChildren container.id allChildIds container.tree
+                                allChildren = patNodes ++ [eqNode] ++ bodyNodes
+                                container = lpnNode IndentedBlock allChildren
                             in
-                                Ok { ids = accIds ++ [container.id], tree = t3 }
+                            Ok (Array.pushLast container accNodes)
 
-folderInsertElseIfBranch : Src.IfBranch -> { ids: Array Int, tree: SingleRootTree LPBox }
-    -> Result String { ids : Array Int, tree : SingleRootTree LPBox }
-folderInsertElseIfBranch branch { ids = accIds, tree = accTree } =
-    let
-        elseIfNode = mkText nilPos "else if"
-        elseIfRec = SRT.insert elseIfNode accTree
+
+folderInsertElseIfBranch : Src.IfBranch -> Array LPNode -> Result String (Array LPNode)
+folderInsertElseIfBranch branch accNodes =
+    let elseIfNode = lpnLeaf (mkText nilPos "else if")
     in
-    when insertExpression branch.test elseIfRec.tree is
+    when insertExpression branch.test is
         Err e -> Err e
-        Ok { ids = testIds, tree = t1 } ->
-            let
-                thenNode = mkText nilPos "then"
-                thenRec = SRT.insert thenNode t1
+        Ok testNodes ->
+            let thenNode = lpnLeaf (mkText nilPos "then")
             in
-            when insertExpressionAsIndentedBlock branch.body thenRec.tree is
+            when insertExpressionAsIndentedBlock branch.body is
                 Err e -> Err e
-                Ok { id = bodyId, tree = t2 } ->
-                    Ok { ids = accIds ++ [elseIfRec.id] ++ testIds ++ [thenRec.id, bodyId], tree = t2 }
+                Ok bodyNode ->
+                    Ok (accNodes ++ [elseIfNode] ++ testNodes ++ [thenNode, bodyNode])
 
-folderInsertWhenBranch : Src.WhenBranch -> { ids: Array Int, tree: SingleRootTree LPBox }
-    -> Result String { ids : Array Int, tree : SingleRootTree LPBox }
-folderInsertWhenBranch branch { ids = accIds, tree = accTree } =
-    when insertPattern branch.pattern accTree is
+
+folderInsertWhenBranch : Src.WhenBranch -> Array LPNode -> Result String (Array LPNode)
+folderInsertWhenBranch branch accNodes =
+    when insertPattern branch.pattern is
         Err e -> Err e
-        Ok { ids = patIds, tree = t1 } ->
+        Ok patNodes ->
             let
-                arrowNode = mkText nilPos "->"
-                arrowRec = SRT.insert arrowNode t1
+                arrowNode = lpnLeaf (mkText nilPos "->")
                 isComplexBody =
                     when branch.body.value is
                         Src.If _ -> True
@@ -822,154 +631,120 @@ folderInsertWhenBranch branch { ids = accIds, tree = accTree } =
                         _ -> False
             in
             if isComplexBody then
-                when insertExpressionAsIndentedBlock branch.body arrowRec.tree is
+                when insertExpressionAsIndentedBlock branch.body is
                     Err e -> Err e
-                    Ok { id = bodyId, tree = t2 } ->
+                    Ok bodyNode ->
                         let
-                            allChildIds = patIds ++ [arrowRec.id, bodyId]
-                            container = SRT.insert IndentedBlock t2
-                            t3 = SRT.setChildren container.id allChildIds container.tree
+                            allChildren = patNodes ++ [arrowNode, bodyNode]
+                            container = lpnNode IndentedBlock allChildren
                         in
-                            Ok { ids = accIds ++ [container.id], tree = t3 }
+                        Ok (Array.pushLast container accNodes)
             else
-                when insertExpressionAsItem branch.body arrowRec.tree is
+                when insertExpressionAsItem branch.body is
                     Err e -> Err e
-                    Ok { id = bodyId, tree = t2 } ->
+                    Ok bodyNode ->
                         let
-                            allChildIds = patIds ++ [arrowRec.id, bodyId]
-                            container = SRT.insert IndentedBlock t2
-                            t3 = SRT.setChildren container.id allChildIds container.tree
+                            allChildren = patNodes ++ [arrowNode, bodyNode]
+                            container = lpnNode IndentedBlock allChildren
                         in
-                            Ok { ids = accIds ++ [container.id], tree = t3 }
+                        Ok (Array.pushLast container accNodes)
 
-folderInsertPattern : Src.Pattern -> { ids: Array Int, tree: SingleRootTree LPBox }
-    -> Result String { ids : Array Int, tree : SingleRootTree LPBox }
-folderInsertPattern locPat { ids = accIds, tree = accTree } =
-    when insertPattern locPat accTree is
+
+folderInsertPattern : Src.Pattern -> Array LPNode -> Result String (Array LPNode)
+folderInsertPattern locPat accNodes =
+    when insertPattern locPat is
         Err s -> Err s
-        Ok { ids = newIds, tree = newTree } ->
-            Ok { ids = accIds ++ newIds, tree = newTree }
+        Ok newNodes ->
+            Ok (accNodes ++ newNodes)
 
-insertPattern : Src.Pattern -> SingleRootTree LPBox -> Result String { ids: Array Int, tree: SingleRootTree LPBox }
-insertPattern locPat tree =
+
+insertPattern : Src.Pattern -> Result String (Array LPNode)
+insertPattern locPat =
     when locPat.value is
         Src.PVar name ->
-            let
-                newNode = mkText locPat.start name
-                newRec = SRT.insert newNode tree
-            in
-                Ok { ids = [ newRec.id ], tree = newRec.tree }
+            Ok [lpnLeaf (mkText locPat.start name)]
 
         Src.PAnything _ ->
-            let
-                newNode = mkText locPat.start "_"
-                newRec = SRT.insert newNode tree
-            in
-                Ok { ids = [ newRec.id ], tree = newRec.tree }
+            Ok [lpnLeaf (mkText locPat.start "_")]
 
         Src.PRecord fields ->
-            let
-                fieldNodes = Array.map (\f -> mkTextFromLocString f.field) fields
-                container = insertNodeWithChildren (AllAcrossOrAllVertical ListCurly) fieldNodes tree
+            let fieldNodes = Array.map (\f -> lpnLeaf (mkTextFromLocString f.field)) fields
             in
-                Ok { ids = [container.id], tree = container.tree }
+            Ok [lpnNode (AllAcrossOrAllVertical ListCurly) fieldNodes]
 
         Src.PAlias { pattern = pat, name = name } ->
-            when insertPattern pat tree is
+            when insertPattern pat is
                 Err e -> Err e
-                Ok { ids = patIds, tree = t1 } ->
+                Ok patNodes ->
                     let
-                        asNode = mkText emptyPos "as"
-                        asRec = SRT.insert asNode t1
-                        nameNode = mkTextFromLocString name
-                        nameRec = SRT.insert nameNode asRec.tree
+                        asNode = lpnLeaf (mkText emptyPos "as")
+                        nameNode = lpnLeaf (mkTextFromLocString name)
                     in
-                        Ok { ids = patIds ++ [asRec.id, nameRec.id], tree = nameRec.tree }
+                    Ok (patNodes ++ [asNode, nameNode])
 
         Src.PCtor { name = name, arg = arg } ->
-            let
-                nameNode = mkTextFromLocString name
-                nameRec = SRT.insert nameNode tree
+            let nameNode = lpnLeaf (mkTextFromLocString name)
             in
             when arg is
                 Nothing ->
-                    Ok { ids = [nameRec.id], tree = nameRec.tree }
+                    Ok [nameNode]
                 Just argPat ->
-                    when insertPatternAsItem argPat nameRec.tree is
+                    when insertPatternAsItem argPat is
                         Err e -> Err e
-                        Ok { id = argId, tree = t1 } ->
-                            Ok { ids = [nameRec.id, argId], tree = t1 }
+                        Ok argNode ->
+                            Ok [nameNode, argNode]
 
         Src.PCtorQual { varRegion = varRegion, module_ = module_, name = name, arg = arg } ->
-            let
-                ctorNode = mkText varRegion.start (module_ ++ "." ++ name)
-                ctorRec = SRT.insert ctorNode tree
+            let ctorNode = lpnLeaf (mkText varRegion.start (module_ ++ "." ++ name))
             in
             when arg is
                 Nothing ->
-                    Ok { ids = [ctorRec.id], tree = ctorRec.tree }
+                    Ok [ctorNode]
                 Just argPat ->
-                    when insertPatternAsItem argPat ctorRec.tree is
+                    when insertPatternAsItem argPat is
                         Err e -> Err e
-                        Ok { id = argId, tree = t1 } ->
-                            Ok { ids = [ctorRec.id, argId], tree = t1 }
+                        Ok argNode ->
+                            Ok [ctorNode, argNode]
 
         Src.PArray patterns ->
-            when resultFoldl folderInsertPatternAsItem { ids = [], tree = tree } patterns is
+            when resultFoldl folderInsertPatternAsItem [] patterns is
                 Err e -> Err e
-                Ok { ids = itemIds, tree = t1 } ->
-                    let
-                        container = SRT.insert (AllAcrossOrAllVertical ListSquare) t1
-                        t2 = SRT.setChildren container.id itemIds container.tree
-                    in
-                        Ok { ids = [container.id], tree = t2 }
+                Ok itemNodes ->
+                    Ok [lpnNode (AllAcrossOrAllVertical ListSquare) itemNodes]
 
         Src.PChr c ->
-            let
-                newNode = mkText locPat.start (charLiteralString c)
-                newRec = SRT.insert newNode tree
-            in
-                Ok { ids = [ newRec.id ], tree = newRec.tree }
+            Ok [lpnLeaf (mkText locPat.start (charLiteralString c))]
 
         Src.PStr s ->
-            let
-                newNode = mkText locPat.start ("\"" ++ s ++ "\"")
-                newRec = SRT.insert newNode tree
-            in
-                Ok { ids = [ newRec.id ], tree = newRec.tree }
+            Ok [lpnLeaf (mkText locPat.start ("\"" ++ s ++ "\""))]
 
         Src.PInt { value = value, isHex = isHex } ->
-            let
-                text = if isHex then "0x" ++ intToHex value else String.fromInt value
-                newNode = mkText locPat.start text
-                newRec = SRT.insert newNode tree
+            let text = if isHex then "0x" ++ intToHex value else String.fromInt value
             in
-                Ok { ids = [ newRec.id ], tree = newRec.tree }
+            Ok [lpnLeaf (mkText locPat.start text)]
 
-insertPatternAsItem : Src.Pattern -> SingleRootTree LPBox -> Result String { id: Int, tree: SingleRootTree LPBox }
-insertPatternAsItem locPat tree =
-    when insertPattern locPat tree is
+
+insertPatternAsItem : Src.Pattern -> Result String LPNode
+insertPatternAsItem locPat =
+    when insertPattern locPat is
         Err e -> Err e
-        Ok { ids = ids, tree = t1 } ->
-            when Array.popFirst ids is
+        Ok nodes ->
+            when Array.popFirst nodes is
                 Nothing -> Err "insertPatternAsItem: empty pattern"
-                Just { first = onlyId, rest = rest } ->
+                Just { first = onlyNode, rest = rest } ->
                     if Array.isEmpty rest then
-                        Ok { id = onlyId, tree = t1 }
+                        Ok onlyNode
                     else
-                        let
-                            container = SRT.insert AcrossThenIndent t1
-                            t2 = SRT.setChildren container.id ids container.tree
-                        in
-                            Ok { id = container.id, tree = t2 }
+                        Ok (lpnNode AcrossThenIndent nodes)
 
-folderInsertPatternAsItem : Src.Pattern -> { ids: Array Int, tree: SingleRootTree LPBox }
-    -> Result String { ids : Array Int, tree : SingleRootTree LPBox }
-folderInsertPatternAsItem pat { ids = accIds, tree = accTree } =
-    when insertPatternAsItem pat accTree is
+
+folderInsertPatternAsItem : Src.Pattern -> Array LPNode -> Result String (Array LPNode)
+folderInsertPatternAsItem pat accNodes =
+    when insertPatternAsItem pat is
         Err s -> Err s
-        Ok { id = newId, tree = newTree } ->
-            Ok { ids = accIds ++ [newId], tree = newTree }
+        Ok node ->
+            Ok (Array.pushLast node accNodes)
+
 
 charLiteralString : Char -> String
 charLiteralString c =
@@ -985,6 +760,7 @@ charLiteralString c =
                 _  -> String.fromChar c
     in
     "'" ++ inner ++ "'"
+
 
 intToHex : Int -> String
 intToHex n =
@@ -1014,108 +790,103 @@ intToHex n =
         intToHex (n // 16) ++ hexDigit (Math.modBy 16 n)
 
 
-
-processFunctionBody : Src.Value -> SingleRootTree LPBox -> Result String (SingleRootTree LPBox)
-processFunctionBody modVal tree =
+processFunctionBody : Src.Value -> LPNode -> Result String LPNode
+processFunctionBody modVal root =
     let
         -- XXX problem is that the row is wrong if there is a funcSig
-        nameNode = mkTextFromLocString modVal.name
-        nameRec = SRT.insert nameNode tree
+        nameNode = lpnLeaf (mkTextFromLocString modVal.name)
 
         -- XXX need a better pos
-        eqNode = mkText modVal.name.start "="
-        eqRec = SRT.insert eqNode nameRec.tree
-   in
-    when resultFoldl folderInsertPattern { ids = [], tree = eqRec.tree } modVal.args is
+        eqNode = lpnLeaf (mkText modVal.name.start "=")
+
+        isComplexBody =
+            when modVal.body.value is
+                Src.If _ -> True
+                Src.Let _ -> True
+                Src.When _ -> True
+                _ -> False
+    in
+    when resultFoldl folderInsertPattern [] modVal.args is
         Err e -> Err e
-        Ok { ids = argsIds, tree = t1 } ->
-            let
-                parent = SRT.insert (OriginalRows
-                    { first = modVal.name.start.row, last = modVal.name.end.row, stype = StFunctionDeclaration})
-                    t1
-            in
-            let
-                isComplexBody =
-                    when modVal.body.value is
-                        Src.If _ -> True
-                        Src.Let _ -> True
-                        Src.When _ -> True
-                        _ -> False
-            in
+        Ok argsNodes ->
             if isComplexBody then
-                when insertExpressionAsBodyBlock modVal.body parent.tree is
+                when insertExpressionAsBodyBlock modVal.body is
                     Err err2 -> Err err2
-                    Ok { id = bodyId, tree = t2 } ->
+                    Ok bodyNode ->
                         let
-                            allIds = [nameRec.id] ++ argsIds ++ [eqRec.id, bodyId]
-                            t3 = SRT.setChildren parent.id allIds t2
-                            t4 = SRT.appendRootChild parent.id t3
+                            allChildren = [nameNode] ++ argsNodes ++ [eqNode, bodyNode]
+                            origRow =
+                                lpnNode (OriginalRows
+                                    { first = modVal.name.start.row
+                                    , last = modVal.name.end.row
+                                    , stype = StFunctionDeclaration
+                                    })
+                                    allChildren
                         in
-                            Ok t4
+                        Ok (addRootChild origRow root)
             else
-                when insertExpression modVal.body parent.tree is
+                when insertExpression modVal.body is
                     Err err2 -> Err err2
-                    Ok { ids = bodyIds, tree = t2 } ->
+                    Ok bodyNodes ->
                         let
-                            allIds = [nameRec.id] ++ argsIds ++ [eqRec.id] ++ bodyIds
-                            t3 = SRT.setChildren parent.id allIds t2
-                            t4 = SRT.appendRootChild parent.id t3
+                            allChildren = [nameNode] ++ argsNodes ++ [eqNode] ++ bodyNodes
+                            origRow =
+                                lpnNode (OriginalRows
+                                    { first = modVal.name.start.row
+                                    , last = modVal.name.end.row
+                                    , stype = StFunctionDeclaration
+                                    })
+                                    allChildren
                         in
-                            Ok t4
+                        Ok (addRootChild origRow root)
 
 
 {-| Maybe or maybe not insert a DocComment for this function
 -}
-processFunctionDoc : Maybe (Located String) -> SingleRootTree LPBox -> SingleRootTree LPBox
-processFunctionDoc maybeLocString lpTree =
+processFunctionDoc : Maybe (Located String) -> LPNode -> LPNode
+processFunctionDoc maybeLocString root =
     when maybeLocString is
         Just locString ->
             let
-                lpBox = DocComment locString
-                child = SRT.insert lpBox lpTree
-                parent = SRT.insert (OriginalRows
-                    { first = locString.start.row, last = locString.end.row, stype = StDocComment})
-                    child.tree
-                t1 = SRT.appendChild parent.id child.id parent.tree
+                docNode = lpnLeaf (DocComment locString)
+                origRow =
+                    lpnNode (OriginalRows
+                        { first = locString.start.row
+                        , last = locString.end.row
+                        , stype = StDocComment
+                        })
+                        [docNode]
             in
-                SRT.appendRootChild parent.id t1
+            addRootChild origRow root
         Nothing ->
-            lpTree
+            root
 
 
 {-| Maybe or maybe not insert a FunctionSignature for this function
 -}
-processFunctionSignature : Located String ->  Maybe { start: Position, type_ : Located Src.Type_ } -> SingleRootTree LPBox -> Result String (SingleRootTree LPBox)
-processFunctionSignature locName maybeType lpTree =
+processFunctionSignature : Located String -> Maybe { start : Position, type_ : Located Src.Type_ } -> LPNode -> Result String LPNode
+processFunctionSignature locName maybeType root =
     when maybeType is
         Nothing ->
-            Ok lpTree
-        Just { start = start, type_ = locType } ->
-            when makeSignatureBranch locType lpTree is
+            Ok root
+        Just { start = _, type_ = locType } ->
+            when makeSignatureBranch locType is
                 Err errstring -> Err errstring
-                Ok { ids = ids, tree = t1 } ->
+                Ok typeNodes ->
                     let
-                        -- XXX - need to compute lastRow
-                        parent = SRT.insert (OriginalRows
-                            { first = locType.start.row, last = locType.end.row, stype = StFunctionSignature}) t1
-
-                        nameNode = mkTextFromLocString locName
-                        nameRec = SRT.insert nameNode parent.tree
-
-                        colonNode = mkText (incCol 1 locName.end) ":"
-                        colonRec = SRT.insert colonNode nameRec.tree
-
-                        allIds = [ nameRec.id, colonRec.id ] ++ ids
-                        t2 = SRT.setChildren parent.id allIds colonRec.tree
-                        t3  = SRT.appendRootChild parent.id t2
+                        nameNode = lpnLeaf (mkTextFromLocString locName)
+                        colonNode = lpnLeaf (mkText (incCol 1 locName.end) ":")
+                        allChildren = [nameNode, colonNode] ++ typeNodes
+                        origRow =
+                            lpnNode (OriginalRows
+                                { first = locType.start.row
+                                , last = locType.end.row
+                                , stype = StFunctionSignature
+                                })
+                                allChildren
                     in
-                        Ok t3
-{-
-[ text(String) ]
+                    Ok (addRootChild origRow root)
 
-[ text(String) ,  preferNotBreak([ text(->) text(Int) ]) ]
-[ preferNotBreak([ text("("Array ),  text(->),  text(Int")")]) ]
--}
 
 incCol : Int -> Position -> Position
 incCol n pos =
@@ -1123,290 +894,197 @@ incCol n pos =
         | col = pos.col + n
     }
 
-{-| Walk a node's subtree to find the deepest first UnbreakableText id. -}
-findDeepFirstTextId : Int -> SingleRootTree LPBox -> Maybe Int
-findDeepFirstTextId id tree =
-    when SRT.getNode id tree is
-        Just (UnbreakableText _) -> Just id
-        _ ->
-            when Array.popFirst (SRT.childrenWithNodes id tree) is
-                Nothing -> Nothing
-                Just { first = child } -> findDeepFirstTextId child.id tree
 
-{-| Walk a node's subtree to find the deepest last UnbreakableText id. -}
-findDeepLastTextId : Int -> SingleRootTree LPBox -> Maybe Int
-findDeepLastTextId id tree =
-    when SRT.getNode id tree is
-        Just (UnbreakableText _) -> Just id
-        _ ->
-            when Array.popLast (SRT.childrenWithNodes id tree) is
-                Nothing -> Nothing
-                Just { last = child } -> findDeepLastTextId child.id tree
-
-{-| Wrap a list of expression ids in parentheses by modifying the deepest
-first and last UnbreakableText nodes in the tree (which may be nested inside
-AcrossThenIndent containers). Returns the (same or updated) id list and tree.
+{-| Walk to the deepest first UnbreakableText leaf and apply f to its LPBox.
+Returns Nothing if no UnbreakableText leaf is found.
 -}
-fixupParensChildrenNodes : Array Int -> SingleRootTree LPBox ->
-    Result String { ids : Array Int, tree : SingleRootTree LPBox }
-fixupParensChildrenNodes ids tree =
-    when Array.popFirst ids is
+tryMapFirstLeaf : (Located String -> LPBox) -> LPNode -> Maybe LPNode
+tryMapFirstLeaf f node =
+    when lpnBox node is
+        UnbreakableText loc ->
+            Just (LPNode { box = f loc, children = lpnChildren node })
+        _ ->
+            when Array.popFirst (lpnChildren node) is
+                Nothing ->
+                    Nothing
+                Just { first = firstChild, rest = restChildren } ->
+                    when tryMapFirstLeaf f firstChild is
+                        Nothing -> Nothing
+                        Just updated ->
+                            Just (LPNode { box = lpnBox node, children = Array.pushFirst updated restChildren })
+
+
+{-| Walk to the deepest last UnbreakableText leaf and apply f to its LPBox.
+Returns Nothing if no UnbreakableText leaf is found.
+-}
+tryMapLastLeaf : (Located String -> LPBox) -> LPNode -> Maybe LPNode
+tryMapLastLeaf f node =
+    when lpnBox node is
+        UnbreakableText loc ->
+            Just (LPNode { box = f loc, children = lpnChildren node })
+        _ ->
+            when Array.popLast (lpnChildren node) is
+                Nothing ->
+                    Nothing
+                Just { last = lastChild, initial = initialChildren } ->
+                    when tryMapLastLeaf f lastChild is
+                        Nothing -> Nothing
+                        Just updated ->
+                            Just (LPNode { box = lpnBox node, children = Array.pushLast updated initialChildren })
+
+
+{-| Wrap a list of expression nodes in parentheses by modifying the first
+and last UnbreakableText leaves.
+-}
+fixupParensChildrenNodes : Array LPNode -> Result String (Array LPNode)
+fixupParensChildrenNodes nodes =
+    when Array.popFirst nodes is
         Nothing ->
-            let
-                r0 = SRT.insert (mkText emptyPos "()") tree
-            in
-                Ok { ids = [r0.id], tree = r0.tree }
-
-        Just { first = firstId, rest = rest } ->
-            let
-                lastId =
-                    when Array.popLast rest is
-                        Nothing -> firstId
-                        Just { last = l } -> l
-                maybeDeepFirst = findDeepFirstTextId firstId tree
-                maybeDeepLast = findDeepLastTextId lastId tree
-            in
-            when { df = maybeDeepFirst, dl = maybeDeepLast } is
-                { df = Just deepFirstId, dl = Just deepLastId } ->
+            Ok [lpnLeaf (mkText emptyPos "()")]
+        Just { first = firstNode, rest = rest } ->
+            when Array.popLast rest is
+                Nothing ->
+                    -- Single top-level node: add "(" to first leaf and ")" to last leaf
                     let
-                        fl = when SRT.getNode deepFirstId tree is
-                            Just (UnbreakableText loc) -> loc
-                            _ -> { start = emptyPos, end = emptyPos, value = "" }
-                        ll = when SRT.getNode deepLastId tree is
-                            Just (UnbreakableText loc) -> loc
-                            _ -> { start = emptyPos, end = emptyPos, value = "" }
+                        modified =
+                            when tryMapFirstLeaf (\loc -> mkText loc.start ("(" ++ loc.value)) firstNode is
+                                Nothing -> Nothing
+                                Just step1 ->
+                                    tryMapLastLeaf (\loc -> mkText loc.start (loc.value ++ ")")) step1
                     in
-                    if deepFirstId == deepLastId then
-                        let
-                            t1 = SRT.replaceNode deepFirstId (mkText fl.start ("(" ++ fl.value ++ ")")) tree
-                        in
-                            Ok { ids = ids, tree = t1 }
-                    else
-                        let
-                            t1 = SRT.replaceNode deepFirstId (mkText fl.start ("(" ++ fl.value)) tree
-                            t2 = SRT.replaceNode deepLastId (mkText ll.start (ll.value ++ ")")) t1
-                        in
-                            Ok { ids = ids, tree = t2 }
-                _ ->
-                    Err "fixupParensChildrenNodes: could not find text nodes"
+                    when modified is
+                        Just updated -> Ok [updated]
+                        Nothing -> Err "fixupParensChildrenNodes: no text node found"
+                Just { initial = middleNodes, last = lastNode } ->
+                    -- Multiple top-level nodes: add "(" to first leaf, ")" to last leaf
+                    when { df = tryMapFirstLeaf (\loc -> mkText loc.start ("(" ++ loc.value)) firstNode
+                         , dl = tryMapLastLeaf (\loc -> mkText loc.start (loc.value ++ ")")) lastNode
+                         } is
+                        { df = Just updFirst, dl = Just updLast } ->
+                            Ok ([updFirst] ++ middleNodes ++ [updLast])
+                        _ ->
+                            Err "fixupParensChildrenNodes: could not find text nodes"
 
-{-
-Helper function to use makeSignatureBranch with resultFoldl
--}
-folderMakeSignatureBranch : Src.Type -> { ids: Array Int, tree: SingleRootTree LPBox }
-    -> Result String { ids : Array Int, tree : SingleRootTree LPBox }
-folderMakeSignatureBranch locType { ids = accIds, tree = accTree } =
-    when makeSignatureBranch locType accTree is
+
+folderMakeSignatureBranch : Src.Type -> Array LPNode -> Result String (Array LPNode)
+folderMakeSignatureBranch locType accNodes =
+    when makeSignatureBranch locType is
         Err s -> Err s
-        Ok { ids = newIds, tree = newTree } ->
-            Ok { ids = accIds ++ newIds, tree = newTree }
+        Ok newNodes ->
+            Ok (accNodes ++ newNodes)
 
 
-
--- Create a tree of LPBoxes, inserted into the Tree
-makeSignatureBranch : Src.Type -> SingleRootTree LPBox -> Result String { ids : Array Int, tree : SingleRootTree LPBox }
-makeSignatureBranch locType tree =
+makeSignatureBranch : Src.Type -> Result String (Array LPNode)
+makeSignatureBranch locType =
     when locType.value is
         -- e.g.:
         -- (Array String)
         Src.TParens inParenType ->
-            when makeSignatureBranch inParenType tree is
-                Err errstring -> Err errstring
-                Ok { ids = inParenIds, tree = t1 }  ->
-                    fixupParensChildrenNodes inParenIds t1
+            when makeSignatureBranch inParenType is
+                Err e -> Err e
+                Ok inParenNodes ->
+                    fixupParensChildrenNodes inParenNodes
 
         -- e.g.:
         -- String => name = String
-        -- Array String =>name = Array (args = [String])
-        Src.TType { name = locName , args = args } ->
-            let
-                firstNode = mkTextFromLocString locName
-                r0 = SRT.insert firstNode tree
+        -- Array String => name = Array (args = [String])
+        Src.TType { name = locName, args = args } ->
+            let firstNode = lpnLeaf (mkTextFromLocString locName)
             in
-                when Array.popFirst args is
-                    Nothing ->
-                        -- No args
-                        Ok { ids = [r0.id], tree = r0.tree }
-                    Just { first = firstArg, rest = afterArg0 } ->
-                        when Array.popFirst afterArg0 is
-                            Nothing ->
-                                -- Only 1 arg
-                                when makeSignatureBranch firstArg r0.tree is
-                                    Err err1 -> Err err1
-                                    Ok { ids = firstIds, tree = t1 } ->
-                                        Ok { ids = [r0.id] ++ firstIds, tree = t1 }
+            when Array.popFirst args is
+                Nothing ->
+                    -- No args
+                    Ok [firstNode]
+                Just { first = firstArg, rest = afterArg0 } ->
+                    when Array.popFirst afterArg0 is
+                        Nothing ->
+                            -- Only 1 arg: no parens needed
+                            when makeSignatureBranch firstArg is
+                                Err e -> Err e
+                                Ok firstArgNodes ->
+                                    Ok ([firstNode] ++ firstArgNodes)
 
-                            Just { first = _, rest = _ } ->
-                                -- More than one arg: wrap args in parens
-                                when resultFoldl folderMakeSignatureBranch { ids = [], tree = r0.tree } args is
-                                    Err s -> Err s
-                                    Ok { ids = childrenIds, tree = t1 } ->
-                                        when fixupParensChildrenNodes childrenIds t1 is
-                                            Err s -> Err s
-                                            Ok { ids = wrappedIds, tree = t2 } ->
-                                                let
-                                                    t3 = SRT.setChildren r0.id wrappedIds t2
-                                                in
-                                                    Ok { ids = [r0.id] ++ wrappedIds, tree = t3 }
+                        Just _ ->
+                            -- More than one arg: wrap args in parens
+                            when resultFoldl folderMakeSignatureBranch [] args is
+                                Err e -> Err e
+                                Ok childrenNodes ->
+                                    when fixupParensChildrenNodes childrenNodes is
+                                        Err e -> Err e
+                                        Ok wrappedNodes ->
+                                            let firstWithChildren = LPNode { box = lpnBox firstNode, children = wrappedNodes }
+                                            in
+                                            Ok ([firstWithChildren] ++ wrappedNodes)
 
-        Src.TLambda { from = from , to = to } ->
-            when makeSignatureBranch from tree is
-                Err err1 -> Err err1
-                Ok { ids = fromIds, tree = t1 }  ->
-                    when makeSignatureBranch to t1 is
-                        Err err1 -> Err err1
-                        Ok { ids = toIds, tree = t2 }  ->
+        Src.TLambda { from = from, to = to } ->
+            when makeSignatureBranch from is
+                Err e -> Err e
+                Ok fromNodes ->
+                    when makeSignatureBranch to is
+                        Err e -> Err e
+                        Ok toNodes ->
                             let
                                 arrowLoc = incCol 1 from.end
-                                arrowNode = mkText arrowLoc "->"
-                                arrowRec = SRT.insert arrowNode t2
-                                allIds = fromIds ++ [arrowRec.id] ++ toIds
+                                arrowNode = lpnLeaf (mkText arrowLoc "->")
                             in
-                                Ok { ids  = allIds, tree = arrowRec.tree }
+                            Ok (fromNodes ++ [arrowNode] ++ toNodes)
 
-
-        -- S.Char -> TTypeQaul "Char" with qualifier "S"
+        -- S.Char -> TTypeQual "Char" with qualifier "S"
         -- XXX what about args?
         Src.TTypeQual { args = _, name = name, qualifier = qual, varRegion = varRegion } ->
-            let
-                node = mkText varRegion.start (qual ++ "." ++ name)
-                r0 = SRT.insert node tree
-            in
-                Ok { ids = [r0.id], tree = r0.tree }
+            Ok [lpnLeaf (mkText varRegion.start (qual ++ "." ++ name))]
 
         Src.TVar name ->
-            let
-                node = mkText locType.start name
-                r0 = SRT.insert node tree
-            in
-                Ok { ids = [r0.id], tree = r0.tree }
+            Ok [lpnLeaf (mkText locType.start name)]
 
         Src.TRecord { fields = fields, extending = _ } ->
             let
-                folderField : Src.TRecordField
-                    -> { ids : Array Int, tree : SingleRootTree LPBox }
-                    -> Result String { ids : Array Int, tree : SingleRootTree LPBox }
-                folderField field acc =
-                    let
-                        nameNode = mkTextFromLocString field.field
-                        nameRec = SRT.insert nameNode acc.tree
-                        colonNode = mkText emptyPos ":"
-                        colonRec = SRT.insert colonNode nameRec.tree
-                    in
-                    when makeSignatureBranch field.signature colonRec.tree is
+                folderField field accNodes =
+                    when makeSignatureBranch field.signature is
                         Err e -> Err e
-                        Ok { ids = typeIds, tree = t1 } ->
+                        Ok typeNodes ->
                             let
-                                allChildIds = [nameRec.id, colonRec.id] ++ typeIds
-                                itemContainer = SRT.insert AcrossThenIndent t1
-                                t2 = SRT.setChildren itemContainer.id allChildIds itemContainer.tree
+                                nameNode = lpnLeaf (mkTextFromLocString field.field)
+                                colonNode = lpnLeaf (mkText emptyPos ":")
+                                allChildren = [nameNode, colonNode] ++ typeNodes
+                                itemContainer = lpnNode AcrossThenIndent allChildren
                             in
-                                Ok { ids = acc.ids ++ [itemContainer.id], tree = t2 }
+                            Ok (Array.pushLast itemContainer accNodes)
             in
-            when resultFoldl folderField { ids = [], tree = tree } fields is
+            when resultFoldl folderField [] fields is
                 Err e -> Err e
-                Ok { ids = fieldIds, tree = t1 } ->
-                    let
-                        container = SRT.insert (AllAcrossOrAllVertical ListCurly) t1
-                        t2 = SRT.setChildren container.id fieldIds container.tree
-                    in
-                        Ok { ids = [container.id], tree = t2 }
+                Ok fieldNodes ->
+                    Ok [lpnNode (AllAcrossOrAllVertical ListCurly) fieldNodes]
 
 
-{-
-Algorithm:
-
-Background:
-
-We have a SingleRootTree LPBox tree, and the children of the root node are all
-OriginalRows nodes at this point.
-For each OriginalRows we now the first row (integer), last
-row (integer), and syntax type.
-
-The first child of the root always has a StModule type. That can never change.
-
-Goal:
-
-We will insert LPBox EmptyLine nodes in the root's children, interspersed with
-the LPBox OriginalRows nodes.
-
-Rules:
-
-1. We operator solely on the children of the root nodes. Each node is an LPBox,
-    but if I abbreviate my instructions by naming a SyntaxTree type, then I am
-    referring to an OriginalRows LPBox. E.g., if I say "StModule node", I mean,
-    "An OriginalRows node where the stype is StModule".
-
-2. After the StModule node (which is always the 1st child), insert one
-EmptyRow.
-
-3. Between two StImport nodes whose last and first rows are back to back
-(meaning, one finishes on row N, and the next one starts on row N + 1), do
-nothing. However, if there is row difference between StImports is more than 1,
-then insert one EmptyRow node between them.
-
--}
-
-{-
-The function walks the root's children one at a time, tracking the
-previous node. At each step it checks two things:
-
-If the previous node was StModule, it inserts an EmptyLine before the
-current child regardless of what comes next.
-If both the previous and current are StImport and there's a row gap
-greater than 1, it inserts an EmptyLine between them. Back-to-back imports
-(gap of exactly 1) get nothing.
-
-Everything else passes through unchanged. At the end it replaces the
-root's children with the new array that includes the interspersed
-EmptyLine node ids.
--}
-
-insertEmptyLines : SingleRootTree LPBox -> SingleRootTree LPBox
-insertEmptyLines tree =
+insertEmptyLines : LPNode -> LPNode
+insertEmptyLines root =
     let
-        childIds =
-            SRT.getRootChildren tree
-
-        { newTree, newChildren } =
+        { newChildren } =
             Array.foldl
-                (\childId acc ->
-                    let
-                        node =
-                            SRT.getNode childId acc.newTree
+                (\child acc ->
+                    let childBox = lpnBox child
                     in
-                    when { prev = acc.prev, current = node } is
-                        { prev = Just (OriginalRows prevRows), current = Just (OriginalRows currentRows) } ->
+                    when { prev = acc.prev, current = childBox } is
+                        { prev = Just (OriginalRows prevRows), current = OriginalRows currentRows } ->
                             if currentRows.first > prevRows.last + 1 then
-                                let
-                                    result =
-                                        SRT.insert EmptyLine acc.newTree
-                                in
-                                { newTree = result.tree
-                                , newChildren =
-                                    acc.newChildren
-                                        |> Array.pushLast result.id
-                                        |> Array.pushLast childId
-                                , prev = node
+                                { newChildren = acc.newChildren
+                                    |> Array.pushLast (lpnLeaf EmptyLine)
+                                    |> Array.pushLast child
+                                , prev = Just childBox
                                 }
                             else
                                 { acc
-                                    | newChildren = Array.pushLast childId acc.newChildren
-                                    , prev = node
+                                    | newChildren = Array.pushLast child acc.newChildren
+                                    , prev = Just childBox
                                 }
-
                         _ ->
                             { acc
-                                | newChildren = Array.pushLast childId acc.newChildren
-                                , prev = node
+                                | newChildren = Array.pushLast child acc.newChildren
+                                , prev = Just childBox
                             }
                 )
-                { newTree = tree
-                , newChildren = []
-                , prev = Nothing
-                }
-                childIds
+                { newChildren = [], prev = Nothing }
+                (lpnChildren root)
     in
-    SRT.setRootChildren newChildren newTree
-
-
+    LPNode { box = lpnBox root, children = newChildren }

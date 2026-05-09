@@ -1,325 +1,246 @@
 module Formatter.Comments exposing (..)
 
 import Array.Builder as Builder
-import Dict
 import Math exposing (maxSafeInteger)
 
-import Compiler.Ast.Source as Src
 import Compiler.Parse.Context as Ctx
 import Compiler.SourcePosition exposing (Located, Position, at)
 
 import Formatter.LogicalPrintingTree exposing (LPBox(..),
-    ListBrackets(..), SyntaxType(..))
+    LPNode(..), ListBrackets(..), SyntaxType(..), lpnBox, lpnChildren, lpnLeaf, lpnNode)
 import Formatter.Strings exposing (countCodepointsLastLine, countNewlines)
 
-import Tree.SingleRootTree as SRT exposing (SingleRootTree)
 
-lptAddComments: Ctx.Context -> SingleRootTree LPBox -> Result String (SingleRootTree LPBox)
-lptAddComments ctx lpTree =
+lptAddComments : Ctx.Context -> LPNode -> LPNode
+lptAddComments ctx root =
     Array.foldl
-        (\comment acc ->
-            when acc is
-                Err err ->
-                    Err err
-
-                Ok currentTree ->
-                    lptAddComment comment currentTree
-        )
-        (Ok lpTree)
+        (\comment currentRoot -> lptAddComment comment currentRoot)
+        root
         (Builder.toArray ctx.comments)
 
 
-lptAddComment: (Located Ctx.Comment) -> SingleRootTree LPBox -> Result String (SingleRootTree LPBox)
-lptAddComment locComment lpTree =
+lptAddComment : Located Ctx.Comment -> LPNode -> LPNode
+lptAddComment locComment root =
     let
-        commentLpBox = mkCommentLpBox locComment
-        stype = when locComment.value is
-            Ctx.Line _ -> StSingleLineComment
-            Ctx.Block _ -> StBlockComment
-        { id = origRowId, tree = t1 } = findOrCreateOriginalRow locComment.start.row stype lpTree
-        { id = commentId , tree = t2 } = insertComment commentLpBox origRowId
-            locComment.start.row locComment.start.col t1
+        commentNode = lpnLeaf (mkCommentLpBox locComment)
+        row = locComment.start.row
+        col = locComment.start.col
+        stype =
+            when locComment.value is
+                Ctx.Line _ -> StSingleLineComment
+                Ctx.Block _ -> StBlockComment
+        rootChildren = lpnChildren root
+        { origRowNode, before, after } = findOrCreateOrigRow row stype rootChildren
+        updatedOrigRow = insertCommentIntoSubtree commentNode row col origRowNode
     in
-        Ok t2
+    LPNode { box = lpnBox root, children = before ++ [updatedOrigRow] ++ after }
 
 
-mkCommentLpBox : (Located Ctx.Comment) -> LPBox
+mkCommentLpBox : Located Ctx.Comment -> LPBox
 mkCommentLpBox locComment =
     let
-        commentString = when locComment.value is
-            Ctx.Line string -> string
-            Ctx.Block string -> string
-
-        numNewlines = countNewlines commentString
-
-        -- We want to know the width of the last line, to compute the final
-        -- column.
-        {-
-        endCol = countCodepointsLastLine commentString
-        endRow = locComment.row + numNewlines
-        start = { row = locComment.start.row, col = locComment.start.col }
-        end = { row = locComment, col = endCol }
-        -}
         start = locComment.start
         end = locComment.end
     in
-        when locComment.value is
-            Ctx.Line string -> SingleLineComment <| at start end string
-            Ctx.Block string -> BlockComment <| at start end string
-
+    when locComment.value is
+        Ctx.Line string -> SingleLineComment <| at start end string
+        Ctx.Block string -> BlockComment <| at start end string
 
 
 {-
-The function scans the root's children looking for an OriginalRows whose
-range includes row. If it finds one, it returns that id and the unchanged
-tree. If not, it inserts a new OriginalRows { first = row, last = row },
-then uses insertSorted to slot the new id into the right position among
-the existing children -- it walks the children until it finds one whose
-first is greater than row, and places the new id just before it. If row
-is larger than all existing entries, it ends up at the end.
+Scans root's children for an OriginalRows whose range includes row.
+Returns { origRowNode, before, after } where before ++ [origRowNode] ++ after
+reconstructs the children array with that node at its original position.
+If no match is found, creates a new OriginalRows node inserted in sorted position.
 -}
-findOrCreateOriginalRow : Int -> SyntaxType -> SingleRootTree LPBox -> { id : Int, tree : SingleRootTree LPBox }
-findOrCreateOriginalRow row stype tree =
+findOrCreateOrigRow :
+    Int
+    -> SyntaxType
+    -> Array LPNode
+    -> { origRowNode : LPNode, before : Array LPNode, after : Array LPNode }
+findOrCreateOrigRow row stype nodes =
     let
-        rootChildIds =
-            SRT.getRootChildren tree
-
-        found =
+        -- First: try to find an existing OriginalRows containing 'row'
+        searchResult =
             Array.foldl
-                (\childId acc ->
-                    when acc is
+                (\node acc ->
+                    when acc.found is
                         Just _ ->
-                            acc
+                            { acc | after = Array.pushLast node acc.after }
 
                         Nothing ->
-                            when SRT.getNode childId tree is
-                                Just (OriginalRows { first, last }) ->
+                            when lpnBox node is
+                                OriginalRows { first = first, last = last } ->
                                     if first <= row && row <= last then
-                                        Just childId
+                                        { acc | found = Just node }
                                     else
-                                        Nothing
+                                        { acc | before = Array.pushLast node acc.before }
 
                                 _ ->
-                                    Nothing
+                                    { acc | before = Array.pushLast node acc.before }
                 )
-                Nothing
-                rootChildIds
+                { before = [], after = [], found = Nothing }
+                nodes
     in
-    when found is
-        Just id ->
-            { id = id, tree = tree }
+    when searchResult.found is
+        Just existing ->
+            { origRowNode = existing
+            , before = searchResult.before
+            , after = searchResult.after
+            }
 
         Nothing ->
+            -- Create a new OriginalRows node inserted in sorted order
             let
-                result =
-                    SRT.insert (OriginalRows { first = row, last = row, stype = stype }) tree
+                newNode = lpnLeaf (OriginalRows { first = row, last = row, stype = stype })
+                insertResult =
+                    Array.foldl
+                        (\node acc ->
+                            if acc.done then
+                                { acc | after = Array.pushLast node acc.after }
+                            else
+                                when lpnBox node is
+                                    OriginalRows { first = first } ->
+                                        if row < first then
+                                            { acc | after = Array.pushLast node acc.after, done = True }
+                                        else
+                                            { acc | before = Array.pushLast node acc.before }
 
-                newChildren =
-                    insertSorted result.id row rootChildIds result.tree
+                                    _ ->
+                                        { acc | before = Array.pushLast node acc.before }
+                        )
+                        { before = [], after = [], done = False }
+                        nodes
             in
-            { id = result.id
-            , tree = SRT.setRootChildren newChildren result.tree
+            { origRowNode = newNode
+            , before = insertResult.before
+            , after = insertResult.after
             }
 
 
-insertSorted : Int -> Int -> Array Int -> SingleRootTree LPBox -> Array Int
-insertSorted newId row existing tree =
+{-
+Walk down the subtree to find the deepest node that contains the row,
+then insert the comment among that node's children.
+Mirrors the current findDeepestParent + insertAmongChildren logic.
+-}
+insertCommentIntoSubtree : LPNode -> Int -> Int -> LPNode -> LPNode
+insertCommentIntoSubtree commentNode row col node =
     let
-        { before, after } =
+        children = lpnChildren node
+        -- Try to find the first child that has its own children and contains the row
+        result =
             Array.foldl
-                (\childId acc ->
-                    if acc.inserted then
-                        { acc | after = Array.pushLast childId acc.after }
+                (\child acc ->
+                    if acc.done then
+                        { acc | children = Array.pushLast child acc.children }
                     else
-                        when SRT.getNode childId tree is
-                            Just (OriginalRows { first }) ->
-                                if row < first then
-                                    { acc
-                                        | after = Array.pushLast childId acc.after
-                                        , inserted = True
-                                    }
-                                else
-                                    { acc | before = Array.pushLast childId acc.before }
-
-                            _ ->
-                                { acc | before = Array.pushLast childId acc.before }
+                        let childChildren = lpnChildren child
+                        in
+                        if not (Array.isEmpty childChildren) && subtreeContainsRow child row then
+                            let updatedChild = insertCommentIntoSubtree commentNode row col child
+                            in
+                            { children = Array.pushLast updatedChild acc.children
+                            , done = True
+                            }
+                        else
+                            { acc | children = Array.pushLast child acc.children }
                 )
-                { before = [], after = [], inserted = False }
-                existing
+                { children = [], done = False }
+                children
     in
-    before
-        |> Array.pushLast newId
-        |> (\arr -> Array.foldl Array.pushLast arr after)
+    if result.done then
+        LPNode { box = lpnBox node, children = result.children }
+    else
+        -- No matching child found; insert at this level
+        LPNode { box = lpnBox node, children = insertAmongChildren commentNode row col children }
 
 
 {-
-The function inserts a SingleLineComment into the tree, then figures
-out where it belongs among the children of the originalRow node. It
-walks the existing children, counting how many UnbreakableText or
-SingleLineComment nodes have a start position that comes before (or
-at) the given row/col. That count becomes the insertion index. It then
-splits the children at that index, slots the new comment id in between,
-and sets the updated children array.
+Determines the insertion index by counting how many children end before
+(row, col), then applies the IndentedBlock heuristic: if the next sibling
+is an IndentedBlock, redirect the comment as its first child so it renders
+at IndentedBlock indentation.
 -}
-insertComment :
-    LPBox
-    -> Int
-    -> Int
-    -> Int
-    -> SingleRootTree LPBox
-    -> { id : Int, tree : SingleRootTree LPBox }
-insertComment commentLpBox originalRowId row col tree =
-    let
-        result =
-            SRT.insert commentLpBox tree
-
-        parentId =
-            findDeepestParent originalRowId row col result.tree
-    in
-    insertAmongChildren parentId result.id row col result.tree
-
-
-findDeepestParent : Int -> Int -> Int -> SingleRootTree LPBox -> Int
-findDeepestParent parentId row col tree =
-    let
-        childIds =
-            SRT.children parentId tree
-
-        candidate =
-            Array.foldl
-                (\childId acc ->
-                    when acc is
-                        Just _ ->
-                            acc
-
-                        Nothing ->
-                            let
-                                nodeChildren =
-                                    SRT.children childId tree
-                            in
-                            if Array.isEmpty nodeChildren then
-                                Nothing
-                            else if subtreeContainsRow childId row tree then
-                                Just childId
-                            else
-                                Nothing
-                )
-                Nothing
-                childIds
-    in
-    when candidate is
-        Nothing ->
-            parentId
-
-        Just childId ->
-            findDeepestParent childId row col tree
-
-
-subtreeContainsRow : Int -> Int -> SingleRootTree LPBox -> Bool
-subtreeContainsRow nodeId row tree =
-    let
-        range =
-            SRT.depthFirst nodeId tree
-                |> Array.foldl
-                    (\entry acc ->
-                        -- This when expression needs to look at any LPBox
-                        -- which has a Located value, to look at minRow/maxRow
-                        when entry.value is
-                            UnbreakableText located ->
-                                if located.start.row > 0 then
-                                    { minRow = min located.start.row acc.minRow
-                                    , maxRow = max located.end.row acc.maxRow
-                                    }
-                                else
-                                    acc
-
-                            SingleLineComment located ->
-                                { minRow = min located.start.row acc.minRow
-                                , maxRow = max located.end.row acc.maxRow
-                                }
-
-                            BlockComment located ->
-                                { minRow = min located.start.row acc.minRow
-                                , maxRow = max located.end.row acc.maxRow
-                                }
-
-                            _ ->
-                                acc
-                    )
-                    { minRow = maxSafeInteger, maxRow = -1 }
-    in
-    range.maxRow >= 0 && range.minRow <= row && row <= range.maxRow
-
-
-
-insertAmongChildren :
-    Int
-    -> Int
-    -> Int
-    -> Int
-    -> SingleRootTree LPBox
-    -> { id : Int, tree : SingleRootTree LPBox }
-insertAmongChildren parentId commentId row col tree =
-    let
-        childIds =
-            SRT.children parentId tree
-    in
-    if Array.isEmpty childIds then
-        { id = commentId
-        , tree = SRT.appendChild parentId commentId tree
-        }
+insertAmongChildren : LPNode -> Int -> Int -> Array LPNode -> Array LPNode
+insertAmongChildren commentNode row col children =
+    if Array.isEmpty children then
+        [commentNode]
     else
         let
             insertionIndex =
                 Array.foldl
-                    (\childId acc ->
-                        if subtreeEndsBefore childId row col tree then
+                    (\child acc ->
+                        if subtreeEndsBefore child row col then
                             acc + 1
                         else
                             acc
                     )
                     0
-                    childIds
+                    children
 
             { before, after } =
-                splitAt insertionIndex childIds
+                splitAt insertionIndex children
         in
-        -- If the next child is an IndentedBlock, insert the comment as its
-        -- first child so the comment renders at the IndentedBlock's indentation.
         when Array.popFirst after is
-            Just { first = nextId, rest = _ } ->
-                when SRT.getNode nextId tree is
-                    Just IndentedBlock ->
-                        let
-                            nextChildren = SRT.children nextId tree
-                            newNextChildren =
-                                Array.pushFirst commentId nextChildren
-                        in
-                        { id = commentId
-                        , tree = SRT.setChildren nextId newNextChildren tree
-                        }
+            Just { first = nextNode, rest = afterRest } ->
+                when lpnBox nextNode is
+                    IndentedBlock ->
+                        -- Redirect into the IndentedBlock as its first child
+                        let newNextNode = LPNode { box = IndentedBlock, children = Array.pushFirst commentNode (lpnChildren nextNode) }
+                        in before ++ [newNextNode] ++ afterRest
 
                     _ ->
-                        let
-                            newChildren =
-                                before
-                                    |> Array.pushLast commentId
-                                    |> (\arr -> Array.foldl Array.pushLast arr after)
-                        in
-                        { id = commentId
-                        , tree = SRT.setChildren parentId newChildren tree
-                        }
+                        before ++ [commentNode] ++ after
 
             Nothing ->
-                let
-                    newChildren =
-                        before
-                            |> Array.pushLast commentId
-                            |> (\arr -> Array.foldl Array.pushLast arr after)
-                in
-                { id = commentId
-                , tree = SRT.setChildren parentId newChildren tree
-                }
+                before ++ [commentNode]
+
+
+subtreeContainsRow : LPNode -> Int -> Bool
+subtreeContainsRow node row =
+    let
+        range = computeRowRange node
+    in
+    range.maxRow >= 0 && range.minRow <= row && row <= range.maxRow
+
+
+computeRowRange : LPNode -> { minRow : Int, maxRow : Int }
+computeRowRange node =
+    let
+        init = { minRow = maxSafeInteger, maxRow = -1 }
+
+        selfRange =
+            when lpnBox node is
+                UnbreakableText located ->
+                    if located.start.row > 0 then
+                        { minRow = located.start.row, maxRow = located.end.row }
+                    else
+                        init
+
+                SingleLineComment located ->
+                    { minRow = located.start.row, maxRow = located.end.row }
+
+                BlockComment located ->
+                    { minRow = located.start.row, maxRow = located.end.row }
+
+                _ ->
+                    init
+
+        childRange =
+            Array.foldl
+                (\child acc ->
+                    let cr = computeRowRange child
+                    in
+                    { minRow = min cr.minRow acc.minRow
+                    , maxRow = max cr.maxRow acc.maxRow
+                    }
+                )
+                init
+                (lpnChildren node)
+    in
+    { minRow = min selfRange.minRow childRange.minRow
+    , maxRow = max selfRange.maxRow childRange.maxRow
+    }
 
 
 {-
@@ -351,38 +272,50 @@ splitAt index arr =
         |> (\result -> { before = result.before, after = result.after })
 
 
-
-subtreeEndsBefore : Int -> Int -> Int -> SingleRootTree LPBox -> Bool
-subtreeEndsBefore nodeId row col tree =
-    SRT.depthFirst nodeId tree
-        |> Array.foldl
-            (\entry lastPos ->
-                -- This when expression needs to look at any LPBox
-                -- which has a Located value, to look at locatee.end.
-                -- Skip emptyPos nodes (row = 0) — they are synthesized tokens
-                -- with no real source position and confuse the placement logic.
-                when entry.value is
-                    UnbreakableText located ->
-                        if located.start.row > 0 then
-                            Just located.end
-                        else
-                            lastPos
-
-                    SingleLineComment located ->
-                        Just located.end
-
-                    BlockComment located ->
-                        Just located.end
-
-                    _ ->
-                        lastPos
-            )
-            Nothing
+subtreeEndsBefore : LPNode -> Int -> Int -> Bool
+subtreeEndsBefore node row col =
+    lastRealPosition node
         |> (\maybePos ->
-                when maybePos is
-                    Nothing ->
-                        False
+            when maybePos is
+                Nothing ->
+                    False
 
-                    Just pos ->
-                        positionBefore pos row col
+                Just pos ->
+                    positionBefore pos row col
            )
+
+
+-- Returns the last real source position in a depth-first traversal of the subtree.
+-- Synthesized tokens (row <= 0) are skipped.
+lastRealPosition : LPNode -> Maybe Position
+lastRealPosition node =
+    let
+        selfPos =
+            when lpnBox node is
+                UnbreakableText located ->
+                    if located.start.row > 0 then Just located.end else Nothing
+
+                SingleLineComment located ->
+                    Just located.end
+
+                BlockComment located ->
+                    Just located.end
+
+                _ ->
+                    Nothing
+
+        -- In depth-first order, we want the last positioned node.
+        -- Children come after self in pre-order, so children's last position wins.
+        childrenLast =
+            Array.foldl
+                (\child acc ->
+                    when lastRealPosition child is
+                        Just pos -> Just pos
+                        Nothing -> acc
+                )
+                Nothing
+                (lpnChildren node)
+    in
+    when childrenLast is
+        Just p -> Just p
+        Nothing -> selfPos

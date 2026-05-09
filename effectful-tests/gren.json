@@ -18,7 +18,6 @@
             "gren-lang/test-runner-node": "7.0.0"
         },
         "indirect": {
-            "gilramir/gren-collections": "1.0.0",
             "gilramir/gren-pretty-expressive": "1.1.0",
             "gren-lang/url": "6.0.0"
         }
