@@ -1,4 +1,4 @@
-module Formatter.LPTComments exposing (..)
+module Formatter.Comments exposing (..)
 
 import Array.Builder as Builder
 import Dict

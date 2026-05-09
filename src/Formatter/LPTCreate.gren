@@ -12,7 +12,7 @@ import Compiler.SourcePosition exposing (Located, Position, emptyPos, at)
 import Formatter.LogicalPrintingTree exposing (LPBox(..),
     ListBrackets(..), SyntaxType(..), lptToString)
 import Formatter.Strings exposing (countNewlines)
-import Formatter.LPTComments exposing (lptAddComments)
+import Formatter.Comments exposing (lptAddComments)
 import Tree.SingleRootTree as SRT exposing (SingleRootTree)
 
 makeRootLPBox : LPBox
