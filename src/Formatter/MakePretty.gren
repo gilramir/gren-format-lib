@@ -37,9 +37,9 @@ makePrettyLine node =
             when stype is
                 StModule -> makeFlowIndentable children
                 StImport -> makeFlowIndentable children
-                StSingleLineComment -> makeSingleLineComment children
-                StBlockComment -> makeBlockComment children
-                StDocComment -> makeDocComment children
+                StSingleLineComment -> makeCommentLine children
+                StBlockComment -> makeCommentLine children
+                StDocComment -> makeCommentLine children
                 StFunctionSignature -> makeFlowIndentable children
                 StFunctionDeclaration -> makeFlowIndentable children
         EmptyLine ->
@@ -191,55 +191,24 @@ buildFlowDoc indent nodes =
 
 
 
-makeSingleLineComment : Array LPNode -> Result String String
-makeSingleLineComment children =
+makeCommentLine : Array LPNode -> Result String String
+makeCommentLine children =
     when Array.popFirst children is
         Just { first = first, rest = rest } ->
             if Array.isEmpty rest then
                 when lpnBox first is
                     SingleLineComment locs ->
                         genericRenderResult <| P.prettyFormat costFactory (P.text <| "--" ++ locs.value)
-                    _ ->
-                        Err "Unexpected node type in SingleLineComment"
-            else
-                Err "Too many nodes in SingleLineComment"
-        Nothing ->
-            Err "No nodes in SingleLineComment"
-
-makeBlockComment : Array LPNode -> Result String String
-makeBlockComment children =
-    when Array.popFirst children is
-        Just { first = first, rest = rest } ->
-            if Array.isEmpty rest then
-                when lpnBox first is
-                    --- XXX handle space before -} but deal with newline
                     BlockComment locs ->
                         genericRenderResult <| P.prettyFormat costFactory (P.text <| "{-" ++ locs.value ++ "-}")
-                    _ ->
-                        Err "Unexpected node type in BlockComment"
-            else
-                -- XXX This is wrong; we might have more
-                Err "Too many nodes in BlockComment"
-        Nothing ->
-            Err "No nodes in BlockComment"
-
--- XXX - maybe combine with makeBlockComment
-makeDocComment : Array LPNode -> Result String String
-makeDocComment children =
-    when Array.popFirst children is
-        Just { first = first, rest = rest } ->
-            if Array.isEmpty rest then
-                when lpnBox first is
-                    --- XXX handle space before -} but deal with newline
                     DocComment locs ->
                         genericRenderResult <| P.prettyFormat costFactory (P.text <| "{-|" ++ locs.value ++ "-}")
                     _ ->
-                        Err "Unexpected node type in DocComment"
+                        Err "Unexpected node type in comment line"
             else
-                -- XXX Is this wrong; can we have more
-                Err "Too many nodes in DocComment"
+                Err "Too many nodes in comment line"
         Nothing ->
-            Err "No nodes in DocComment"
+            Err "No nodes in comment line"
 
 genericRenderResult : Maybe String -> Result String String
 genericRenderResult maybeFormatted =
