@@ -1,6 +1,8 @@
 module LetExpression exposing (circleArea, initials, labeledPair)
 
+
 {- Examples using let/in -}
+
 
 -- Area of a circle
 circleArea : Float -> Float
