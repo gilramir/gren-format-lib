@@ -315,13 +315,21 @@ insertExpression locExpr =
             when resultFoldl folderInsertExprAsItem [] exprArray is
                 Err e -> Err e
                 Ok itemNodes ->
-                    Ok [lpnNode (AllAcrossOrAllVertical ListSquare) itemNodes]
+                    when Array.popFirst itemNodes is
+                        Nothing ->
+                            Ok [lpnLeaf (mkText locExpr.start "[]")]
+                        Just _ ->
+                            Ok [lpnNode (AllAcrossOrAllVertical ListSquare) itemNodes]
 
         Src.Record fieldArray ->
             when resultFoldl folderInsertRecordField [] fieldArray is
                 Err e -> Err e
                 Ok fieldNodes ->
-                    Ok [lpnNode (AllAcrossOrAllVertical ListCurly) fieldNodes]
+                    when Array.popFirst fieldNodes is
+                        Nothing ->
+                            Ok [lpnLeaf (mkText locExpr.start "{}")]
+                        Just _ ->
+                            Ok [lpnNode (AllAcrossOrAllVertical ListCurly) fieldNodes]
 
         Src.Update { record = record, newValues = newValues } ->
             let
@@ -607,9 +615,13 @@ insertPattern locPat =
             Ok [lpnLeaf (mkText locPat.start "_")]
 
         Src.PRecord fields ->
-            let fieldNodes = Array.map (\f -> lpnLeaf (mkTextFromLocString f.field)) fields
-            in
-            Ok [lpnNode (AllAcrossOrAllVertical ListCurly) fieldNodes]
+            when Array.popFirst fields is
+                Nothing ->
+                    Ok [lpnLeaf (mkText locPat.start "{}")]
+                Just _ ->
+                    let fieldNodes = Array.map (\f -> lpnLeaf (mkTextFromLocString f.field)) fields
+                    in
+                    Ok [lpnNode (AllAcrossOrAllVertical ListCurly) fieldNodes]
 
         Src.PAlias { pattern = pat, name = name } ->
             when insertPattern pat is
@@ -649,7 +661,11 @@ insertPattern locPat =
             when resultFoldl folderInsertPatternAsItem [] patterns is
                 Err e -> Err e
                 Ok itemNodes ->
-                    Ok [lpnNode (AllAcrossOrAllVertical ListSquare) itemNodes]
+                    when Array.popFirst itemNodes is
+                        Nothing ->
+                            Ok [lpnLeaf (mkText locPat.start "[]")]
+                        Just _ ->
+                            Ok [lpnNode (AllAcrossOrAllVertical ListSquare) itemNodes]
 
         Src.PChr c ->
             Ok [lpnLeaf (mkText locPat.start (charLiteralString c))]
@@ -965,7 +981,11 @@ makeSignatureBranch locType =
             when resultFoldl folderField [] fields is
                 Err e -> Err e
                 Ok fieldNodes ->
-                    Ok [lpnNode (AllAcrossOrAllVertical ListCurly) fieldNodes]
+                    when Array.popFirst fieldNodes is
+                        Nothing ->
+                            Ok [lpnLeaf (mkText locType.start "{}")]
+                        Just _ ->
+                            Ok [lpnNode (AllAcrossOrAllVertical ListCurly) fieldNodes]
 
 
 insertEmptyLines : LPNode -> LPNode
