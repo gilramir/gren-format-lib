@@ -205,7 +205,7 @@ findDeepestParent parentId row col tree =
                                 Nothing
                 )
                 Nothing
-                (Array.reverse childIds)
+                childIds
     in
     when candidate is
         Nothing ->
@@ -226,9 +226,12 @@ subtreeContainsRow nodeId row tree =
                         -- which has a Located value, to look at minRow/maxRow
                         when entry.value is
                             UnbreakableText located ->
-                                { minRow = min located.start.row acc.minRow
-                                , maxRow = max located.end.row acc.maxRow
-                                }
+                                if located.start.row > 0 then
+                                    { minRow = min located.start.row acc.minRow
+                                    , maxRow = max located.end.row acc.maxRow
+                                    }
+                                else
+                                    acc
 
                             SingleLineComment located ->
                                 { minRow = min located.start.row acc.minRow
@@ -280,15 +283,43 @@ insertAmongChildren parentId commentId row col tree =
 
             { before, after } =
                 splitAt insertionIndex childIds
-
-            newChildren =
-                before
-                    |> Array.pushLast commentId
-                    |> (\arr -> Array.foldl Array.pushLast arr after)
         in
-        { id = commentId
-        , tree = SRT.setChildren parentId newChildren tree
-        }
+        -- If the next child is an IndentedBlock, insert the comment as its
+        -- first child so the comment renders at the IndentedBlock's indentation.
+        when Array.popFirst after is
+            Just { first = nextId, rest = _ } ->
+                when SRT.getNode nextId tree is
+                    Just IndentedBlock ->
+                        let
+                            nextChildren = SRT.children nextId tree
+                            newNextChildren =
+                                Array.pushFirst commentId nextChildren
+                        in
+                        { id = commentId
+                        , tree = SRT.setChildren nextId newNextChildren tree
+                        }
+
+                    _ ->
+                        let
+                            newChildren =
+                                before
+                                    |> Array.pushLast commentId
+                                    |> (\arr -> Array.foldl Array.pushLast arr after)
+                        in
+                        { id = commentId
+                        , tree = SRT.setChildren parentId newChildren tree
+                        }
+
+            Nothing ->
+                let
+                    newChildren =
+                        before
+                            |> Array.pushLast commentId
+                            |> (\arr -> Array.foldl Array.pushLast arr after)
+                in
+                { id = commentId
+                , tree = SRT.setChildren parentId newChildren tree
+                }
 
 
 {-
@@ -327,10 +358,15 @@ subtreeEndsBefore nodeId row col tree =
         |> Array.foldl
             (\entry lastPos ->
                 -- This when expression needs to look at any LPBox
-                -- which has a Located value, to look at locatee.end
+                -- which has a Located value, to look at locatee.end.
+                -- Skip emptyPos nodes (row = 0) — they are synthesized tokens
+                -- with no real source position and confuse the placement logic.
                 when entry.value is
                     UnbreakableText located ->
-                        Just located.end
+                        if located.start.row > 0 then
+                            Just located.end
+                        else
+                            lastPos
 
                     SingleLineComment located ->
                         Just located.end
@@ -345,7 +381,7 @@ subtreeEndsBefore nodeId row col tree =
         |> (\maybePos ->
                 when maybePos is
                     Nothing ->
-                        True
+                        False
 
                     Just pos ->
                         positionBefore pos row col

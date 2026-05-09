@@ -590,7 +590,7 @@ insertExpression locExpr tree =
                                                     SRT.replaceNode deepId
                                                         (mkText locExpr.start ("\\" ++ loc.value)) t1
                                                 _ -> t1
-                        arrowNode = mkText emptyPos "->"
+                        arrowNode = mkText nilPos "->"
                         arrowRec = SRT.insert arrowNode t2
                     in
                     when insertExpressionAsItem body arrowRec.tree is
@@ -607,7 +607,7 @@ insertExpression locExpr tree =
                 Err e -> Err e
                 Ok { ids = letIds, tree = t1 } ->
                     let
-                        inNode = mkText emptyPos "in"
+                        inNode = mkText nilPos "in"
                         inRec = SRT.insert inNode t1
                     in
                     when insertExpressionAsBodyBlock body inRec.tree is
@@ -627,7 +627,7 @@ insertExpression locExpr tree =
                         Err e -> Err e
                         Ok { ids = testIds, tree = t1 } ->
                             let
-                                thenNode = mkText emptyPos "then"
+                                thenNode = mkText nilPos "then"
                                 thenRec = SRT.insert thenNode t1
                             in
                             when insertExpressionAsIndentedBlock firstBranch.body thenRec.tree is
@@ -640,7 +640,7 @@ insertExpression locExpr tree =
                                         Err e -> Err e
                                         Ok { ids = branchIds, tree = t3 } ->
                                             let
-                                                elseNode = mkText emptyPos "else"
+                                                elseNode = mkText nilPos "else"
                                                 elseRec = SRT.insert elseNode t3
                                             in
                                             when insertExpressionAsIndentedBlock elseBranch elseRec.tree is
@@ -657,7 +657,7 @@ insertExpression locExpr tree =
                 Err e -> Err e
                 Ok { ids = exprIds, tree = t1 } ->
                     let
-                        isNode = mkText emptyPos "is"
+                        isNode = mkText nilPos "is"
                         isRec = SRT.insert isNode t1
                     in
                     resultFoldl folderInsertWhenBranch { ids = [whenRec.id] ++ exprIds ++ [isRec.id], tree = isRec.tree } branches
@@ -734,7 +734,7 @@ folderInsertRecordField field { ids = accIds, tree = accTree } =
     let
         fieldNameNode = mkTextFromLocString field.field
         fieldNameRec = SRT.insert fieldNameNode accTree
-        eqNode = mkText emptyPos "="
+        eqNode = mkText nilPos "="
         eqRec = SRT.insert eqNode fieldNameRec.tree
     in
     when insertExpression field.value eqRec.tree is
@@ -755,7 +755,7 @@ folderInsertLetDef locDef { ids = accIds, tree = accTree } =
             let
                 nameNode = mkTextFromLocString def.name
                 nameRec = SRT.insert nameNode accTree
-                eqNode = mkText emptyPos "="
+                eqNode = mkText nilPos "="
                 eqRec = SRT.insert eqNode nameRec.tree
             in
             when resultFoldl folderInsertPattern { ids = [], tree = eqRec.tree } def.args is
@@ -775,7 +775,7 @@ folderInsertLetDef locDef { ids = accIds, tree = accTree } =
                 Err e -> Err e
                 Ok { ids = patIds, tree = t1 } ->
                     let
-                        eqNode = mkText emptyPos "="
+                        eqNode = mkText nilPos "="
                         eqRec = SRT.insert eqNode t1
                     in
                     when insertExpression body eqRec.tree is
@@ -792,14 +792,14 @@ folderInsertElseIfBranch : Src.IfBranch -> { ids: Array Int, tree: SingleRootTre
     -> Result String { ids : Array Int, tree : SingleRootTree LPBox }
 folderInsertElseIfBranch branch { ids = accIds, tree = accTree } =
     let
-        elseIfNode = mkText emptyPos "else if"
+        elseIfNode = mkText nilPos "else if"
         elseIfRec = SRT.insert elseIfNode accTree
     in
     when insertExpression branch.test elseIfRec.tree is
         Err e -> Err e
         Ok { ids = testIds, tree = t1 } ->
             let
-                thenNode = mkText emptyPos "then"
+                thenNode = mkText nilPos "then"
                 thenRec = SRT.insert thenNode t1
             in
             when insertExpressionAsIndentedBlock branch.body thenRec.tree is
@@ -814,7 +814,7 @@ folderInsertWhenBranch branch { ids = accIds, tree = accTree } =
         Err e -> Err e
         Ok { ids = patIds, tree = t1 } ->
             let
-                arrowNode = mkText emptyPos "->"
+                arrowNode = mkText nilPos "->"
                 arrowRec = SRT.insert arrowNode t1
                 isComplexBody =
                     when branch.body.value is
@@ -1032,7 +1032,6 @@ processFunctionBody modVal tree =
         Err e -> Err e
         Ok { ids = argsIds, tree = t1 } ->
             let
-                -- XXX - need to compute lastRow
                 parent = SRT.insert (OriginalRows
                     { first = modVal.name.start.row, last = modVal.name.end.row, stype = StFunctionDeclaration})
                     t1
