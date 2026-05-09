@@ -179,7 +179,6 @@ getLastRow lpbox =
         UnbreakableText locString -> Just locString.end.row
         AcrossThenIndent -> Nothing
         AllAcrossOrAllVertical _ -> Nothing
-        AllAcrossOrAllVerticalNoBrackets _ -> Nothing
         IndentedBlock -> Nothing
         BodyBlock -> Nothing
         SingleLineComment _ -> Nothing

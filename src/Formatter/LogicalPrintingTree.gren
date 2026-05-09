@@ -60,9 +60,6 @@ type LPBox
     -- Lists with surrounding brackets (for "exposing")
     | AllAcrossOrAllVertical ListBrackets
 
-    -- Function Signature Parameters (x -> y -> z)
-    | AllAcrossOrAllVerticalNoBrackets String
-
     -- Children always render on a new indented line (used for then/else bodies, etc.)
     | IndentedBlock
 
@@ -85,7 +82,6 @@ lpBoxToString lpbox =
             "\"" ++ s.value ++ "\" " ++ (pstr s.start)
         AcrossThenIndent -> "(acrossThenIndent)"
         AllAcrossOrAllVertical br -> "(allAcrossOrAllVertical)"
-        AllAcrossOrAllVerticalNoBrackets sep -> "(allAcrossOrAllVerticalNoBrackets)"
         IndentedBlock -> "(indentedBlock)"
         BodyBlock -> "(bodyBlock)"
         SingleLineComment s -> "line-comment " ++ pstr(s.start) ++ " -- " ++ s.value

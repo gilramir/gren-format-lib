@@ -84,11 +84,6 @@ lpBoxFields lpbox =
             , { key = "brackets", value = Json.string (bracketsToString brackets) }
             ]
 
-        AllAcrossOrAllVerticalNoBrackets sep ->
-            [ { key = "type", value = Json.string "AllAcrossOrAllVerticalNoBrackets" }
-            , { key = "separator", value = Json.string sep }
-            ]
-
         IndentedBlock ->
             [ { key = "type", value = Json.string "IndentedBlock" } ]
 
