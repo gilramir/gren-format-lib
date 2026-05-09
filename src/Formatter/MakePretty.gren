@@ -56,14 +56,27 @@ makeFlowIndentable children =
     genericRenderResult <| P.prettyFormat costFactory finalDoc
 
 
+{-| What separator to place before the next item.
+
+  - `FirstItem` — nothing precedes; emit no separator.
+  - `FlowSep` — normal flow: space or newline (via `group nl`).
+  - `HardNl` — after an `IndentedBlock`: forced newline.
+  - `AlreadyTerminated` — after a comment's `hardNl`: no extra separator.
+-}
+type NextSeparator
+    = FirstItem
+    | FlowSep
+    | HardNl
+    | AlreadyTerminated
+
+
 {-| builds the flow, and handles SingleLineComment nodes correctly:
 
   - A comment on the same row as the preceding item is attached directly
     to it (no separator), producing e.g. "exposing -- comment".
   - A comment on a different row goes on its own line via a normal nl group.
   - Either way, the comment appends hardNl so the next item always starts
-    on a fresh line — but because we track `lineTerminated`, we skip the
-    normal nl separator after a comment, avoiding a double newline.
+    on a fresh line — indicated by `AlreadyTerminated` for the next item.
 -}
 buildFlowDoc : Int -> Array LPNode -> P.Doc cost
 buildFlowDoc indent nodes =
@@ -71,6 +84,13 @@ buildFlowDoc indent nodes =
         -- separator: either "same line with space" or "new line with indent"
         flowSep accDoc nextDoc =
             P.concat accDoc (P.group (P.concat P.nl nextDoc))
+
+        joinDoc sep accDoc itemDoc =
+            when sep is
+                FirstItem        -> itemDoc
+                FlowSep          -> flowSep accDoc itemDoc
+                HardNl           -> P.concat (P.concat accDoc P.hardNl) itemDoc
+                AlreadyTerminated -> P.concat accDoc itemDoc
 
         foldResult =
             Array.foldl
@@ -84,47 +104,24 @@ buildFlowDoc indent nodes =
                             let
                                 commentText = P.text ("--" ++ loc.value)
                                 docWithComment =
-                                    if acc.isEmpty then
-                                        commentText
-                                    else if loc.start.row == acc.prevRow then
+                                    if loc.start.row == acc.prevRow then
                                         -- Same row as preceding item: attach with a space, no separator
                                         P.concat acc.doc (P.concat (P.text " ") commentText)
-                                    else if acc.prevWasIndentedBlock then
-                                        P.concat (P.concat acc.doc P.hardNl) commentText
-                                    else if acc.lineTerminated then
-                                        -- Previous item already ended with hardNl: no extra separator
-                                        P.concat acc.doc commentText
                                     else
-                                        flowSep acc.doc commentText
+                                        joinDoc acc.separator acc.doc commentText
                             in
-                            -- hardNl forces the next item onto a new line.
-                            -- lineTerminated=True tells the next iteration to skip its separator.
                             { doc = P.concat docWithComment P.hardNl
                             , prevRow = loc.start.row
-                            , lineTerminated = True
-                            , prevWasIndentedBlock = False
-                            , isEmpty = False
+                            , separator = AlreadyTerminated
                             }
 
                         AllAcrossOrAllVertical bracket ->
                             let
                                 itemDoc = makeAllAcrossOrAllVertical bracket nodeChildren
-                                newDoc =
-                                    if acc.isEmpty then
-                                        itemDoc
-                                    else if acc.prevWasIndentedBlock then
-                                        P.concat (P.concat acc.doc P.hardNl) itemDoc
-                                    else if acc.lineTerminated then
-                                        -- hardNl already ended the previous line; no extra separator
-                                        P.concat acc.doc itemDoc
-                                    else
-                                        flowSep acc.doc itemDoc
                             in
-                            { doc = newDoc
+                            { doc = joinDoc acc.separator acc.doc itemDoc
                             , prevRow = -1
-                            , lineTerminated = False
-                            , prevWasIndentedBlock = False
-                            , isEmpty = False
+                            , separator = FlowSep
                             }
 
                         IndentedBlock ->
@@ -132,32 +129,26 @@ buildFlowDoc indent nodes =
                                 childrenDoc = buildFlowDoc 0 nodeChildren
                                 indentedDoc = P.nest grenIndent (P.concat P.hardNl childrenDoc)
                                 newDoc =
-                                    if acc.isEmpty then
-                                        childrenDoc
-                                    else
-                                        P.concat acc.doc indentedDoc
+                                    when acc.separator is
+                                        FirstItem -> childrenDoc
+                                        _         -> P.concat acc.doc indentedDoc
                             in
                             { doc = newDoc
                             , prevRow = -1
-                            , lineTerminated = False
-                            , prevWasIndentedBlock = True
-                            , isEmpty = False
+                            , separator = HardNl
                             }
 
                         BodyBlock ->
                             let
                                 childrenDoc = buildFlowDoc 0 nodeChildren
                                 newDoc =
-                                    if acc.isEmpty then
-                                        childrenDoc
-                                    else
-                                        P.concat acc.doc (P.concat P.hardNl childrenDoc)
+                                    when acc.separator is
+                                        FirstItem -> childrenDoc
+                                        _         -> P.concat acc.doc (P.concat P.hardNl childrenDoc)
                             in
                             { doc = newDoc
                             , prevRow = -1
-                            , lineTerminated = False
-                            , prevWasIndentedBlock = False
-                            , isEmpty = False
+                            , separator = FlowSep
                             }
 
                         _ ->
@@ -167,24 +158,13 @@ buildFlowDoc indent nodes =
                                     when box is
                                         UnbreakableText loc -> loc.start.row
                                         _ -> -1
-                                newDoc =
-                                    if acc.isEmpty then
-                                        itemDoc
-                                    else if acc.prevWasIndentedBlock then
-                                        P.concat (P.concat acc.doc P.hardNl) itemDoc
-                                    else if acc.lineTerminated then
-                                        P.concat acc.doc itemDoc
-                                    else
-                                        flowSep acc.doc itemDoc
                             in
-                            { doc = newDoc
+                            { doc = joinDoc acc.separator acc.doc itemDoc
                             , prevRow = prevRow
-                            , lineTerminated = False
-                            , prevWasIndentedBlock = False
-                            , isEmpty = False
+                            , separator = FlowSep
                             }
                 )
-                { doc = P.empty, prevRow = -1, lineTerminated = False, prevWasIndentedBlock = False, isEmpty = True }
+                { doc = P.empty, prevRow = -1, separator = FirstItem }
                 nodes
     in
     P.nest indent foldResult.doc
