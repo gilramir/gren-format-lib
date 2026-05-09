@@ -21,8 +21,10 @@ prettyPrint ast ctx =
         Ok lpTree ->
             let
                 res = makePrettyResult lpTree
+                {-
                 _ = when res is
                     Ok r -> Debug.log "(result)" ("\n"++r)
                     Err r -> Debug.log "(error)" r
+                -}
             in
             res

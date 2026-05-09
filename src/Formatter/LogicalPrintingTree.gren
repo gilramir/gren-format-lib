@@ -63,6 +63,9 @@ type LPBox
     -- Function Signature Parameters (x -> y -> z)
     | AllAcrossOrAllVerticalNoBrackets String
 
+    -- Children always render on a new indented line (used for then/else bodies, etc.)
+    | IndentedBlock
+
 lpBoxToString : LPBox -> String
 lpBoxToString lpbox =
     let
@@ -79,6 +82,7 @@ lpBoxToString lpbox =
         AcrossThenIndent -> "(acrossThenIndent)"
         AllAcrossOrAllVertical br -> "(allAcrossOrAllVertical)"
         AllAcrossOrAllVerticalNoBrackets sep -> "(allAcrossOrAllVerticalNoBrackets)"
+        IndentedBlock -> "(indentedBlock)"
         SingleLineComment s -> "line-comment " ++ pstr(s.start) ++ " -- " ++ s.value
         BlockComment s -> "block-comment " ++ pstr(s.start) ++ " {- " ++ s.value ++ "-}"
         DocComment s -> "doc-comment " ++ pstr(s.start) ++ " {-| " ++ s.value ++ "-}"

@@ -181,6 +181,7 @@ getLastRow lpbox =
         AcrossThenIndent -> Nothing
         AllAcrossOrAllVertical _ -> Nothing
         AllAcrossOrAllVerticalNoBrackets _ -> Nothing
+        IndentedBlock -> Nothing
         SingleLineComment _ -> Nothing
         -- XXX - isn't locString correct now? just use end.row?
         BlockComment locString -> Just (locString.end.row + (countNewlines locString.value))
@@ -628,7 +629,7 @@ insertExpression locExpr tree =
                                 thenNode = mkText emptyPos "then"
                                 thenRec = SRT.insert thenNode t1
                             in
-                            when insertExpressionAsItem firstBranch.body thenRec.tree is
+                            when insertExpressionAsIndentedBlock firstBranch.body thenRec.tree is
                                 Err e -> Err e
                                 Ok { id = bodyId, tree = t2 } ->
                                     let
@@ -641,7 +642,7 @@ insertExpression locExpr tree =
                                                 elseNode = mkText emptyPos "else"
                                                 elseRec = SRT.insert elseNode t3
                                             in
-                                            when insertExpressionAsItem elseBranch elseRec.tree is
+                                            when insertExpressionAsIndentedBlock elseBranch elseRec.tree is
                                                 Err e -> Err e
                                                 Ok { id = elseBodyId, tree = t4 } ->
                                                     Ok { ids = branchIds ++ [elseRec.id, elseBodyId], tree = t4 }
@@ -696,6 +697,21 @@ folderInsertExprAsItem expr { ids = accIds, tree = accTree } =
         Err s -> Err s
         Ok { id = newId, tree = newTree } ->
             Ok { ids = accIds ++ [newId], tree = newTree }
+
+
+insertExpressionAsIndentedBlock : Src.Expression -> SingleRootTree LPBox -> Result String { id: Int, tree: SingleRootTree LPBox }
+insertExpressionAsIndentedBlock locExpr tree =
+    when insertExpression locExpr tree is
+        Err e -> Err e
+        Ok { ids = ids, tree = t1 } ->
+            if Array.isEmpty ids then
+                Err "insertExpressionAsIndentedBlock: empty expression"
+            else
+                let
+                    container = SRT.insert IndentedBlock t1
+                    t2 = SRT.setChildren container.id ids container.tree
+                in
+                    Ok { id = container.id, tree = t2 }
 
 folderInsertRecordField : Src.RecordField -> { ids: Array Int, tree: SingleRootTree LPBox }
     -> Result String { ids : Array Int, tree : SingleRootTree LPBox }
@@ -771,7 +787,7 @@ folderInsertElseIfBranch branch { ids = accIds, tree = accTree } =
                 thenNode = mkText emptyPos "then"
                 thenRec = SRT.insert thenNode t1
             in
-            when insertExpressionAsItem branch.body thenRec.tree is
+            when insertExpressionAsIndentedBlock branch.body thenRec.tree is
                 Err e -> Err e
                 Ok { id = bodyId, tree = t2 } ->
                     Ok { ids = accIds ++ [elseIfRec.id] ++ testIds ++ [thenRec.id, bodyId], tree = t2 }

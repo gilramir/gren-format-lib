@@ -88,6 +88,8 @@ buildFlowDoc indent nodesAndIds lpTree =
                                     else if loc.start.row == acc.prevRow then
                                         -- Same row as preceding item: attach with a space, no separator
                                         P.concat acc.doc (P.concat (P.text " ") commentText)
+                                    else if acc.prevWasIndentedBlock then
+                                        P.concat (P.concat acc.doc P.hardNl) commentText
                                     else if acc.lineTerminated then
                                         -- Previous item already ended with hardNl: no extra separator
                                         P.concat acc.doc commentText
@@ -99,6 +101,7 @@ buildFlowDoc indent nodesAndIds lpTree =
                             { doc = P.concat docWithComment P.hardNl
                             , prevRow = loc.start.row
                             , lineTerminated = True
+                            , prevWasIndentedBlock = False
                             , isEmpty = False
                             }
 
@@ -108,6 +111,8 @@ buildFlowDoc indent nodesAndIds lpTree =
                                 newDoc =
                                     if acc.isEmpty then
                                         itemDoc
+                                    else if acc.prevWasIndentedBlock then
+                                        P.concat (P.concat acc.doc P.hardNl) itemDoc
                                     else if acc.lineTerminated then
                                         -- hardNl already ended the previous line; no extra separator
                                         P.concat acc.doc itemDoc
@@ -117,6 +122,25 @@ buildFlowDoc indent nodesAndIds lpTree =
                             { doc = newDoc
                             , prevRow = -1
                             , lineTerminated = False
+                            , prevWasIndentedBlock = False
+                            , isEmpty = False
+                            }
+
+                        IndentedBlock ->
+                            let
+                                childrenAndIds = SRT.childrenWithNodes nid.id lpTree
+                                childrenDoc = buildFlowDoc grenIndent childrenAndIds lpTree
+                                indentedDoc = P.concat P.hardNl (P.nest grenIndent childrenDoc)
+                                newDoc =
+                                    if acc.isEmpty then
+                                        childrenDoc
+                                    else
+                                        P.concat acc.doc indentedDoc
+                            in
+                            { doc = newDoc
+                            , prevRow = -1
+                            , lineTerminated = False
+                            , prevWasIndentedBlock = True
                             , isEmpty = False
                             }
 
@@ -130,6 +154,8 @@ buildFlowDoc indent nodesAndIds lpTree =
                                 newDoc =
                                     if acc.isEmpty then
                                         itemDoc
+                                    else if acc.prevWasIndentedBlock then
+                                        P.concat (P.concat acc.doc P.hardNl) itemDoc
                                     else if acc.lineTerminated then
                                         P.concat acc.doc itemDoc
                                     else
@@ -138,10 +164,11 @@ buildFlowDoc indent nodesAndIds lpTree =
                             { doc = newDoc
                             , prevRow = prevRow
                             , lineTerminated = False
+                            , prevWasIndentedBlock = False
                             , isEmpty = False
                             }
                 )
-                { doc = P.empty, prevRow = -1, lineTerminated = False, isEmpty = True }
+                { doc = P.empty, prevRow = -1, lineTerminated = False, prevWasIndentedBlock = False, isEmpty = True }
                 nodesAndIds
     in
     P.nest indent foldResult.doc
@@ -233,6 +260,11 @@ makePDoc nid lpTree =
             makeAllAcrossOrAllVertical bracket nid.id lpTree
         SingleLineComment locs -> lineComment locs.value
         AcrossThenIndent ->
+            let
+                childrenAndIds = SRT.childrenWithNodes nid.id lpTree
+            in
+                buildFlowDoc grenIndent childrenAndIds lpTree
+        IndentedBlock ->
             let
                 childrenAndIds = SRT.childrenWithNodes nid.id lpTree
             in

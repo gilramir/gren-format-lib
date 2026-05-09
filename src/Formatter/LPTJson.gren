@@ -89,6 +89,9 @@ lpBoxFields lpbox =
             , { key = "separator", value = Json.string sep }
             ]
 
+        IndentedBlock ->
+            [ { key = "type", value = Json.string "IndentedBlock" } ]
+
 
 bracketsToString : ListBrackets -> String
 bracketsToString brackets =
