@@ -1,4 +1,4 @@
-module Formatter.LPTCreate exposing (..)
+module Formatter.MakeLogical exposing (..)
 
 import Char
 import Dict
