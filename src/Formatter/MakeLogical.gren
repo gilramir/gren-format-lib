@@ -41,19 +41,7 @@ lptFromAst modAst =
     processModuleLine modAst root
         |> Result.andThen (processImports modAst)
         |> Result.andThen (processFunctions modAst)
-        |> Result.andThen finalizeOriginalRows
-
-
-{-| Compute the last row number for each OriginalRows,
-and sort the root children (all OriginalRows) based on row number.
--}
-finalizeOriginalRows : LPNode -> Result String LPNode
-finalizeOriginalRows root =
-    let
-        t1 = addLastRowToOriginalRows root
-        t2 = sortOriginalRows t1
-    in
-    Ok t2
+        |> Result.map sortOriginalRows
 
 
 sortOriginalRows : LPNode -> LPNode
@@ -73,74 +61,29 @@ sortOriginalRows root =
     LPNode { box = lpnBox root, children = sorted }
 
 
-{-| Look at all the nodes in an OriginalRows branch and find the last row
-number. Update the OriginalRows item's last field.
--}
-addLastRowToOriginalRows : LPNode -> LPNode
-addLastRowToOriginalRows root =
+lastRowInSubtree : LPNode -> Int
+lastRowInSubtree node =
     let
-        updatedChildren =
-            Array.map
-                (\child ->
-                    when lpnBox child is
-                        OriginalRows firstLast ->
-                            when lastRowInBranch child is
-                                Just lastRow ->
-                                    LPNode { box = OriginalRows { firstLast | last = lastRow }, children = lpnChildren child }
-                                Nothing ->
-                                    child
-                        _ ->
-                            child
-                )
-                (lpnChildren root)
+        selfRow =
+            when lpnBox node is
+                UnbreakableText locString -> locString.end.row
+                BlockComment locString -> locString.end.row + countNewlines locString.value
+                DocComment locString -> locString.end.row
+                SingleLineComment locString -> locString.end.row
+                _ -> -1
     in
-    LPNode { box = lpnBox root, children = updatedChildren }
+    Array.foldl
+        (\child acc -> max acc (lastRowInSubtree child))
+        selfRow
+        (lpnChildren node)
 
 
-lastRowInBranch : LPNode -> Maybe Int
-lastRowInBranch node =
+makeOrigRows : Int -> SyntaxType -> Array LPNode -> LPNode
+makeOrigRows firstRow stype children =
     let
-        selfRow = getLastRow (lpnBox node)
-        childMax =
-            Array.foldl
-                (\child acc ->
-                    when lastRowInBranch child is
-                        Just row ->
-                            when acc is
-                                Nothing -> Just row
-                                Just current -> Just (max row current)
-                        Nothing ->
-                            acc
-                )
-                Nothing
-                (lpnChildren node)
+        last = Array.foldl (\child acc -> max acc (lastRowInSubtree child)) -1 children
     in
-    when { self = selfRow, child = childMax } is
-        { self = Nothing, child = Nothing } -> Nothing
-        { self = Just s, child = Nothing } -> Just s
-        { self = Nothing, child = Just c } -> Just c
-        { self = Just s, child = Just c } -> Just (max s c)
-
-
-{-| If the LPNode represents actual text in the source code, return the last
-row for it. Container nodes return Nothing.
--}
-getLastRow : LPBox -> Maybe Int
-getLastRow lpbox =
-    when lpbox is
-        RootBox -> Nothing
-        OriginalRows { first = _, last = last, stype = _ } -> Just last
-        UnbreakableText locString -> Just locString.end.row
-        AcrossThenIndent -> Nothing
-        AllAcrossOrAllVertical _ -> Nothing
-        IndentedBlock -> Nothing
-        BodyBlock -> Nothing
-        SingleLineComment _ -> Nothing
-        -- XXX - isn't locString correct now? just use end.row?
-        BlockComment locString -> Just (locString.end.row + (countNewlines locString.value))
-        DocComment locString -> Just locString.end.row
-        EmptyLine -> Nothing
-        SynthesizedText _ -> Nothing
+    lpnNode (OriginalRows { first = firstRow, last = last, stype = stype }) children
 
 
 addRootChild : LPNode -> LPNode -> LPNode
@@ -171,8 +114,7 @@ processModuleLine modAst root =
                         (Array.map processExposed exposed)
 
         origRow =
-            lpnNode (OriginalRows { first = modAst.name.start.row, last = -1, stype = StModule })
-                [n1, n2, n3, n4]
+            makeOrigRows modAst.name.start.row StModule [n1, n2, n3, n4]
     in
     Ok (addRootChild origRow root)
 
@@ -262,8 +204,7 @@ processImport locImport root =
 
         allChildren = [n1, n2] ++ aliasNodes ++ exposeNodes
         origRow =
-            lpnNode (OriginalRows { first = locImport.start.row, last = locImport.end.row, stype = StImport })
-                allChildren
+            makeOrigRows locImport.start.row StImport allChildren
     in
     addRootChild origRow root
 
@@ -808,32 +749,14 @@ processFunctionBody modVal root =
                 when insertExpressionAsBodyBlock modVal.body is
                     Err err2 -> Err err2
                     Ok bodyNode ->
-                        let
-                            allChildren = [nameNode] ++ argsNodes ++ [eqNode, bodyNode]
-                            origRow =
-                                lpnNode (OriginalRows
-                                    { first = modVal.name.start.row
-                                    , last = modVal.name.end.row
-                                    , stype = StFunctionDeclaration
-                                    })
-                                    allChildren
-                        in
-                        Ok (addRootChild origRow root)
+                        let allChildren = [nameNode] ++ argsNodes ++ [eqNode, bodyNode]
+                        in Ok (addRootChild (makeOrigRows modVal.name.start.row StFunctionDeclaration allChildren) root)
             else
                 when insertExpression modVal.body is
                     Err err2 -> Err err2
                     Ok bodyNodes ->
-                        let
-                            allChildren = [nameNode] ++ argsNodes ++ [eqNode] ++ bodyNodes
-                            origRow =
-                                lpnNode (OriginalRows
-                                    { first = modVal.name.start.row
-                                    , last = modVal.name.end.row
-                                    , stype = StFunctionDeclaration
-                                    })
-                                    allChildren
-                        in
-                        Ok (addRootChild origRow root)
+                        let allChildren = [nameNode] ++ argsNodes ++ [eqNode] ++ bodyNodes
+                        in Ok (addRootChild (makeOrigRows modVal.name.start.row StFunctionDeclaration allChildren) root)
 
 
 {-| Maybe or maybe not insert a DocComment for this function
@@ -845,12 +768,7 @@ processFunctionDoc maybeLocString root =
             let
                 docNode = lpnLeaf (DocComment locString)
                 origRow =
-                    lpnNode (OriginalRows
-                        { first = locString.start.row
-                        , last = locString.end.row
-                        , stype = StDocComment
-                        })
-                        [docNode]
+                    makeOrigRows locString.start.row StDocComment [docNode]
             in
             addRootChild origRow root
         Nothing ->
@@ -873,12 +791,7 @@ processFunctionSignature locName maybeType root =
                         colonNode = lpnLeaf (mkText (incCol 1 locName.end) ":")
                         allChildren = [nameNode, colonNode] ++ typeNodes
                         origRow =
-                            lpnNode (OriginalRows
-                                { first = locType.start.row
-                                , last = locType.end.row
-                                , stype = StFunctionSignature
-                                })
-                                allChildren
+                            makeOrigRows locType.start.row StFunctionSignature allChildren
                     in
                     Ok (addRootChild origRow root)
 
