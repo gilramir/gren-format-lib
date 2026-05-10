@@ -225,8 +225,8 @@ makeAllAcrossOrAllVertical brackets children =
             )
             children
     in
-    if hasComment && brackets == ListParen then
-        exposingListBoxes children
+    if hasComment then
+        listBoxesWithBrackets bs.open bs.close children
     else
         let itemDocs = Array.map makeListItemDoc children
         in exposingListWithBrackets bs.open bs.close bs.empty itemDocs
@@ -320,6 +320,107 @@ lineComment : String -> P.Doc cost
 lineComment s =
     P.concat (P.text ("--" ++ s)) P.hardNl
 
+
+{-| General bracket-list renderer with interleaved comment support. Works like
+`exposingListBoxes` but accepts explicit `open`/`close` strings and also handles
+`AcrossThenIndent` items (e.g. record fields `{ field = value }`).
+
+When a `SingleLineComment` appears:
+  - On the same row as the preceding item: attached to that item's line with " --".
+  - On its own row: rendered as a standalone line without a comma prefix.
+-}
+listBoxesWithBrackets : String -> String -> Array LPNode -> P.Doc cost
+listBoxesWithBrackets open close nodes =
+    let
+        nodeItemDoc node =
+            when lpnBox node is
+                UnbreakableText loc -> Just { doc = P.text loc.value, row = loc.start.row }
+                AcrossThenIndent   -> Just { doc = buildFlowDoc 0 (lpnChildren node), row = -1 }
+                _                  -> Nothing
+
+        foldResult =
+            Array.foldl
+                (\node acc ->
+                    when lpnBox node is
+                        SingleLineComment loc ->
+                            if loc.start.row == acc.prevRow then
+                                let
+                                    attached =
+                                        when acc.pending is
+                                            Nothing ->
+                                                { doc = P.text ("--" ++ loc.value), isComment = True }
+                                            Just e ->
+                                                { doc = P.concat e.doc (P.text (" --" ++ loc.value))
+                                                , isComment = False
+                                                }
+                                in
+                                { acc
+                                    | lineDocs = acc.lineDocs ++ [ attached ]
+                                    , pending  = Nothing
+                                }
+
+                            else
+                                let
+                                    flushed =
+                                        when acc.pending is
+                                            Nothing -> acc.lineDocs
+                                            Just e  -> acc.lineDocs ++ [ e ]
+                                in
+                                { lineDocs = flushed ++ [ { doc = P.text ("--" ++ loc.value), isComment = True } ]
+                                , pending  = Nothing
+                                , prevRow  = loc.start.row
+                                }
+
+                        _ ->
+                            when nodeItemDoc node is
+                                Nothing -> acc
+                                Just { doc, row } ->
+                                    let
+                                        flushed =
+                                            when acc.pending is
+                                                Nothing -> acc.lineDocs
+                                                Just e  -> acc.lineDocs ++ [ e ]
+                                    in
+                                    { lineDocs = flushed
+                                    , pending  = Just { doc = doc, isComment = False }
+                                    , prevRow  = row
+                                    }
+                )
+                { lineDocs = [], pending = Nothing, prevRow = -1 }
+                nodes
+
+        allLineDocs =
+            when foldResult.pending is
+                Nothing -> foldResult.lineDocs
+                Just e  -> foldResult.lineDocs ++ [ e ]
+
+        prefixed =
+            let
+                { result } =
+                    Array.foldl
+                        (\{ doc, isComment } acc ->
+                            if isComment then
+                                { acc | result = acc.result ++ [ doc ] }
+                            else
+                                let
+                                    prefixedDoc =
+                                        if acc.seenText then
+                                            P.concat (P.text ", ") doc
+                                        else
+                                            P.concat (P.text open) doc
+                                in
+                                { result = acc.result ++ [ prefixedDoc ]
+                                , seenText = True
+                                }
+                        )
+                        { result = [], seenText = False }
+                        allLineDocs
+            in
+            result ++ [ P.text close ]
+    in
+    P.vcat prefixed
+
+
 {-| Like `exposingList`, but handles interleaved single-line comments.
 
   - If the array contains only `UnbreakableText` items, the result is
@@ -367,94 +468,4 @@ exposingListBoxes nodes =
         exposingList textDocs
 
     else
-        let
-            -- Each entry is { doc, isComment }.
-            -- isComment = True means no comma prefix should be added.
-            foldResult =
-                Array.foldl
-                    (\node acc ->
-                        when lpnBox node is
-                            UnbreakableText loc ->
-                                let
-                                    flushed =
-                                        when acc.pending is
-                                            Nothing  -> acc.lineDocs
-                                            Just e   -> acc.lineDocs ++ [ e ]
-                                in
-                                { lineDocs = flushed
-                                , pending  = Just { doc = P.text loc.value, isComment = False }
-                                , prevRow  = loc.start.row
-                                }
-
-                            SingleLineComment loc ->
-                                if loc.start.row == acc.prevRow then
-                                    -- Attach to pending text on the same row.
-                                    let
-                                        attached =
-                                            when acc.pending is
-                                                Nothing ->
-                                                    { doc = P.text ("--" ++ loc.value), isComment = True }
-                                                Just e ->
-                                                    { doc = P.concat e.doc (P.text (" --" ++ loc.value))
-                                                    , isComment = False
-                                                    }
-                                    in
-                                    { acc
-                                        | lineDocs = acc.lineDocs ++ [ attached ]
-                                        , pending  = Nothing
-                                    }
-
-                                else
-                                    -- Standalone comment on its own row.
-                                    let
-                                        flushed =
-                                            when acc.pending is
-                                                Nothing  -> acc.lineDocs
-                                                Just e   -> acc.lineDocs ++ [ e ]
-                                    in
-                                    { lineDocs = flushed ++ [ { doc = P.text ("--" ++ loc.value), isComment = True } ]
-                                    , pending  = Nothing
-                                    , prevRow  = loc.start.row
-                                    }
-                            _ ->
-                                -- Impossible
-                                { lineDocs = acc.lineDocs
-                                , pending  = Nothing
-                                , prevRow  = -1
-                                }
-                    )
-                    { lineDocs = [], pending = Nothing, prevRow = -1 }
-                    nodes
-
-            allLineDocs =
-                when foldResult.pending is
-                    Nothing  -> foldResult.lineDocs
-                    Just e   -> foldResult.lineDocs ++ [ e ]
-
-            -- Add "( " to the first non-comment item, ", " to subsequent
-            -- non-comment items, and no prefix to comment-only lines.
-            prefixed =
-                let
-                    { result } =
-                        Array.foldl
-                            (\{ doc, isComment } acc ->
-                                if isComment then
-                                    { acc | result = acc.result ++ [ doc ] }
-                                else
-                                    let
-                                        prefixedDoc =
-                                            if acc.seenText then
-                                                P.concat (P.text ", ") doc
-                                            else
-                                                P.concat (P.text "( ") doc
-                                    in
-                                    { result = acc.result ++ [ prefixedDoc ]
-                                    , seenText = True
-                                    }
-                            )
-                            { result = [], seenText = False }
-                            allLineDocs
-                in
-                result ++ [ P.text ")" ]
-        in
-        P.vcat prefixed
+        listBoxesWithBrackets "( " ")" nodes
