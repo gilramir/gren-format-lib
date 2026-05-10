@@ -20,6 +20,7 @@ tests fsPerm =
     describe "Format"
         [ importTests fsPerm
         , expressionTests fsPerm
+        , declarationTests fsPerm
         ]
 
 runPrettyPrinter : FileSystem.Permission -> String -> Task String String
@@ -91,5 +92,11 @@ expressionTests fsPerm =
         , assertPretty fsPerm "let expression" "LetExpression"
         , assertPretty fsPerm "records" "Records"
         , assertPretty fsPerm "lambdas and calls" "LambdasAndCalls"
+        ]
+
+declarationTests : FileSystem.Permission -> Effectful.Test
+declarationTests fsPerm =
+    describe "Declarations"
+        [ assertPretty fsPerm "type aliases" "TypeAlias"
         ]
 

@@ -33,7 +33,6 @@ lptFromAst : Src.Module -> Result String LPNode
 lptFromAst modAst =
     let root = lpnLeaf RootBox
     in
-    -- TODO: aliases
     -- TODO: binops
     -- TODO: docs
     -- TODO: effects
@@ -41,6 +40,7 @@ lptFromAst modAst =
     processModuleLine modAst root
         |> Result.andThen (processImports modAst)
         |> Result.andThen (processFunctions modAst)
+        |> Result.andThen (processAliases modAst)
         |> Result.map sortOriginalRows
 
 
@@ -226,6 +226,33 @@ resultFoldl callback initialAcc items =
 processFunctions : Src.Module -> LPNode -> Result String LPNode
 processFunctions modAst root =
     resultFoldl processModDecl root modAst.values
+
+
+{-| Process type aliases
+-}
+processAliases : Src.Module -> LPNode -> Result String LPNode
+processAliases modAst root =
+    resultFoldl processAliasDecl root modAst.aliases
+
+
+processAliasDecl : Src.ModuleDeclaration Src.Alias -> LPNode -> Result String LPNode
+processAliasDecl modDecl root =
+    let
+        alias_ = modDecl.value.value
+        typeAliasNode = lpnLeaf (mkText { row = modDecl.start.row, col = 1 } "type alias")
+        nameNode = lpnLeaf (mkTextFromLocString alias_.name)
+        varNodes = Array.map (\v -> lpnLeaf (mkTextFromLocString v)) alias_.vars
+        eqNode = lpnLeaf (SynthesizedText "=")
+        t0 = processFunctionDoc modDecl.value.docs root
+    in
+    when makeSignatureBranch alias_.type_ is
+        Err e -> Err e
+        Ok typeNodes ->
+            let
+                allChildren = [typeAliasNode, nameNode] ++ varNodes ++ [eqNode] ++ typeNodes
+                origRow = makeOrigRows modDecl.start.row StTypeAlias allChildren
+            in
+            Ok (addRootChild origRow t0)
 
 
 {-| Process a function. This will create a StFunction line, maybe

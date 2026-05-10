@@ -15,6 +15,7 @@ type SyntaxType
     | StDocComment
     | StFunctionSignature
     | StFunctionDeclaration
+    | StTypeAlias
 
 stypeToString : SyntaxType -> String
 stypeToString st =
@@ -26,6 +27,7 @@ stypeToString st =
         StDocComment -> "docComment"
         StFunctionSignature -> "funcSig"
         StFunctionDeclaration -> "funcDecl"
+        StTypeAlias -> "typeAlias"
 
 type LPBox
     -- This is needed just to use as a root node

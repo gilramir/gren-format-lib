@@ -136,7 +136,8 @@ insertCommentIntoSubtree commentNode row col node =
                     else
                         let childChildren = lpnChildren child
                         in
-                        if not (Array.isEmpty childChildren) && subtreeContainsRow child row then
+                        if not (Array.isEmpty childChildren) && subtreeContainsRow child row
+                            && not (isAcrossThenIndentNode child && subtreeEndsBefore child row col) then
                             let updatedChild = insertCommentIntoSubtree commentNode row col child
                             in
                             { children = Array.pushLast updatedChild acc.children
@@ -194,6 +195,13 @@ insertAmongChildren commentNode row col children =
 
             Nothing ->
                 before ++ [commentNode]
+
+
+isAcrossThenIndentNode : LPNode -> Bool
+isAcrossThenIndentNode node =
+    when lpnBox node is
+        AcrossThenIndent -> True
+        _ -> False
 
 
 subtreeContainsRow : LPNode -> Int -> Bool

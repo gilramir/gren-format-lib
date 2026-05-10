@@ -42,6 +42,7 @@ makePrettyLine node =
                 StDocComment -> makeCommentLine children
                 StFunctionSignature -> makeFlowIndentable children
                 StFunctionDeclaration -> makeFlowIndentable children
+                StTypeAlias -> makeFlowIndentable children
         EmptyLine ->
             Ok ""
         _ ->
@@ -329,13 +330,23 @@ When a `SingleLineComment` appears:
   - On the same row as the preceding item: attached to that item's line with " --".
   - On its own row: rendered as a standalone line without a comma prefix.
 -}
+nodeFirstRow : LPNode -> Int
+nodeFirstRow node =
+    when lpnBox node is
+        UnbreakableText loc -> loc.start.row
+        _ ->
+            when Array.popFirst (lpnChildren node) is
+                Just { first = firstChild } -> nodeFirstRow firstChild
+                Nothing -> -1
+
+
 listBoxesWithBrackets : String -> String -> Array LPNode -> P.Doc cost
 listBoxesWithBrackets open close nodes =
     let
         nodeItemDoc node =
             when lpnBox node is
                 UnbreakableText loc -> Just { doc = P.text loc.value, row = loc.start.row }
-                AcrossThenIndent   -> Just { doc = buildFlowDoc 0 (lpnChildren node), row = -1 }
+                AcrossThenIndent   -> Just { doc = buildFlowDoc 0 (lpnChildren node), row = nodeFirstRow node }
                 _                  -> Nothing
 
         foldResult =
