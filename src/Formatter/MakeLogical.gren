@@ -249,7 +249,8 @@ processAliasDecl modDecl root =
         Err e -> Err e
         Ok typeNodes ->
             let
-                allChildren = [typeAliasNode, nameNode] ++ varNodes ++ [eqNode] ++ typeNodes
+                typeBlock = lpnNode IndentedBlock typeNodes
+                allChildren = [typeAliasNode, nameNode] ++ varNodes ++ [eqNode, typeBlock]
                 origRow = makeOrigRows modDecl.start.row StTypeAlias allChildren
             in
             Ok (addRootChild origRow t0)

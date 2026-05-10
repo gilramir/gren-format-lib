@@ -42,7 +42,7 @@ makePrettyLine node =
                 StDocComment -> makeCommentLine children
                 StFunctionSignature -> makeFlowIndentable children
                 StFunctionDeclaration -> makeFlowIndentable children
-                StTypeAlias -> makeFlowIndentable children
+                StTypeAlias -> makeTypeAliasPretty children
         EmptyLine ->
             Ok ""
         _ ->
@@ -55,6 +55,69 @@ makeFlowIndentable children =
         finalDoc = buildFlowDoc grenIndent children
     in
     genericRenderResult <| P.prettyFormat costFactory finalDoc
+
+
+{-| Render a type alias always multi-line: header on one line, body indented
+on the next line and never collapsed to a single line.
+
+The last child of a StTypeAlias OriginalRows is always an IndentedBlock
+containing the type body nodes produced by makeSignatureBranch.
+-}
+makeTypeAliasPretty : Array LPNode -> Result String String
+makeTypeAliasPretty children =
+    when Array.popLast children is
+        Nothing ->
+            Err "type alias declaration is empty"
+        Just { initial = headerChildren, last = bodyBlock } ->
+            let
+                headerDoc = buildFlowDoc 0 headerChildren
+                bodyDoc = makeTypeBodyAlwaysVertical (lpnChildren bodyBlock)
+                finalDoc = P.concat headerDoc (P.nest grenIndent (P.concat P.hardNl bodyDoc))
+            in
+            genericRenderResult <| P.prettyFormat costFactory finalDoc
+
+
+makeTypeBodyAlwaysVertical : Array LPNode -> P.Doc cost
+makeTypeBodyAlwaysVertical typeNodes =
+    when Array.popFirst typeNodes is
+        Nothing ->
+            P.empty
+        Just { first = onlyNode, rest = rest } ->
+            if Array.isEmpty rest then
+                makePDocAlwaysVertical (lpnBox onlyNode) (lpnChildren onlyNode)
+            else
+                buildFlowDoc 0 typeNodes
+
+
+makePDocAlwaysVertical : LPBox -> Array LPNode -> P.Doc cost
+makePDocAlwaysVertical box children =
+    when box is
+        AllAcrossOrAllVertical bracket ->
+            let
+                bs = bracketStrings bracket
+                hasComment =
+                    Array.any
+                        (\node ->
+                            when lpnBox node is
+                                SingleLineComment _ -> True
+                                _ -> False
+                        )
+                        children
+            in
+            if hasComment then
+                listBoxesWithBrackets bs.open bs.close children
+            else
+                when Array.popFirst children is
+                    Nothing ->
+                        P.text bs.empty
+                    Just { first, rest } ->
+                        let
+                            firstDoc = P.concat (P.text bs.open) (makeListItemDoc first)
+                            restDocs = Array.map (\child -> P.concat (P.text ", ") (makeListItemDoc child)) rest
+                        in
+                        P.vcat ([firstDoc] ++ restDocs ++ [P.text bs.close])
+        _ ->
+            makePDoc box children
 
 
 {-| What separator to place before the next item.
