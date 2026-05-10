@@ -147,9 +147,12 @@ processExposed exposed =
         Src.ExposedLower sp ->
             lpnLeaf (UnbreakableText sp)
 
-        -- TODO what is privacy?
-        Src.ExposedUpper { name = sp, privacy = _ } ->
-            lpnLeaf (UnbreakableText sp)
+        Src.ExposedUpper { name = sp, privacy = privacy } ->
+            when privacy is
+                Src.Public ->
+                    lpnLeaf (UnbreakableText { sp | value = sp.value ++ "(..)" })
+                Src.Private ->
+                    lpnLeaf (UnbreakableText sp)
 
         Src.ExposedOperator sp ->
             lpnLeaf (UnbreakableText sp)
