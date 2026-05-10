@@ -1,8 +1,7 @@
 module NestedContainersInList exposing (..)
 
 -- Array items that are records (no comments): exercises makeListItemDoc
-plainRecords =
-    f [ { label = "a", value = 1 }, { label = "b", value = 2 } ]
+plainRecords = f [ { label = "a", value = 1 }, { label = "b", value = 2 } ]
 
 -- Array items that are records with interleaved comments:
 -- exercises listBoxesWithBrackets (the comment-aware path)
@@ -16,5 +15,4 @@ commentedRecords =
     ]
 
 -- Array items that are themselves arrays
-nestedArrays =
-    f [ [ 1, 2, 3 ], [ 4, 5, 6 ] ]
+nestedArrays = f [ [ 1, 2, 3 ], [ 4, 5, 6 ] ]

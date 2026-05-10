@@ -6,13 +6,8 @@ module ModuleLineVertical exposing
     , EpsilonLongValue
     )
 
-alphaLongTypeName =
-    1
-betaLongTypeName =
-    2
-gammaLongFunctionName =
-    3
-deltaLongFunctionName =
-    4
-epsilonLongValue =
-    5
+alphaLongTypeName = 1
+betaLongTypeName = 2
+gammaLongFunctionName = 3
+deltaLongFunctionName = 4
+epsilonLongValue = 5

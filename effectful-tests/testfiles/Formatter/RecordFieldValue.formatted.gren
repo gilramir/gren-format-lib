@@ -1,8 +1,7 @@
 module RecordFieldValue exposing (..)
 
 -- Field value fits inline: stays on one line
-compact =
-    { model = { model | x = 1 }, command = Cmd.none }
+compact = { model = { model | x = 1 }, command = Cmd.none }
 
 -- Field value too long to fit inline: wraps to next line, indented +4
 wrapsToNextLine =

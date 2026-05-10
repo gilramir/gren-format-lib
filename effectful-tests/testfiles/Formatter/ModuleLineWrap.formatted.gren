@@ -5,11 +5,7 @@ type AlphaType
     = AlphaType
 type BetaType
     = BetaType
-gammaFunction =
-    1
-deltaFunction =
-    2
-epsilonValue =
-    3
-zetaValue =
-    4
+gammaFunction = 1
+deltaFunction = 2
+epsilonValue = 3
+zetaValue = 4

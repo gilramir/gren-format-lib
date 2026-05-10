@@ -306,11 +306,15 @@ processFunctionBody modVal root =
     when resultFoldl folderInsertPattern [] modVal.args is
         Err e -> Err e
         Ok argsNodes ->
-            when insertExpressionAsBodyBlock modVal.body is
+            when insertExpression modVal.body is
                 Err err2 -> Err err2
-                Ok bodyNode ->
-                    let allChildren = [nameNode] ++ argsNodes ++ [eqNode, bodyNode]
-                    in Ok (addRootChild (makeOrigRows modVal.name.start.row StFunctionDeclaration allChildren) root)
+                Ok bodyNodes ->
+                    let
+                        header = lpnNode AcrossThenIndent ([nameNode] ++ argsNodes ++ [eqNode])
+                        bodyWrapper = lpnNode SoftBodyBlock bodyNodes
+                        allChildren = [header, bodyWrapper]
+                    in
+                    Ok (addRootChild (makeOrigRows modVal.name.start.row StFunctionDeclaration allChildren) root)
 
 
 {-| Maybe or maybe not insert a DocComment for this function

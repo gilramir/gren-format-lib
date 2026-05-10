@@ -88,6 +88,11 @@ type LPBox
     -- P.group so the optimizer can choose inline or indented-newline.
     | SoftIndentedBlock
 
+    -- Top-level function body: like SoftIndentedBlock but adds no extra
+    -- indentation — the enclosing buildFlowDoc grenIndent already provides
+    -- the 4-space indent, so P.nl here breaks at exactly that level.
+    | SoftBodyBlock
+
 type LPNode
     = LPNode { box : LPBox, children : Array LPNode }
 
@@ -132,6 +137,7 @@ lpBoxToString lpbox =
         BodyBlock -> "(bodyBlock)"
         ParenBlock -> "(parenBlock)"
         SoftIndentedBlock -> "(softIndentedBlock)"
+        SoftBodyBlock -> "(softBodyBlock)"
         SingleLineComment s -> "line-comment " ++ pstr(s.start) ++ " -- " ++ s.value
         BlockComment s -> "block-comment " ++ pstr(s.start) ++ " {- " ++ s.value ++ "-}"
         DocComment s -> "doc-comment " ++ pstr(s.start) ++ " {-| " ++ s.value ++ "-}"

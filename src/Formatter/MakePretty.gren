@@ -311,6 +311,19 @@ buildFlowDoc indent nodes =
                             , separator = FlowSep
                             }
 
+                        SoftBodyBlock ->
+                            let
+                                childrenDoc = buildFlowDoc 0 nodeChildren
+                                newDoc =
+                                    when acc.separator is
+                                        FirstItem -> childrenDoc
+                                        _ -> P.concat acc.doc (P.group (P.concat P.nl childrenDoc))
+                            in
+                            { doc = newDoc
+                            , prevRow = -1
+                            , separator = FlowSep
+                            }
+
                         _ ->
                             let
                                 itemDoc = makePDoc box nodeChildren
@@ -373,6 +386,8 @@ makePDoc box children =
         BodyBlock ->
             buildFlowDoc 0 children
         SoftIndentedBlock ->
+            buildFlowDoc 0 children
+        SoftBodyBlock ->
             buildFlowDoc 0 children
         ParenBlock ->
             let innerDoc = buildFlowDoc 0 children

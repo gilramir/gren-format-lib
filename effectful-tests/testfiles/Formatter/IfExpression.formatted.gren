@@ -22,5 +22,4 @@ clamp lo hi n =
 
 -- Check whether n is strictly between lo and hi
 between : Int -> Int -> Int -> Bool
-between lo hi n =
-    n > lo && n < hi
+between lo hi n = n > lo && n < hi
