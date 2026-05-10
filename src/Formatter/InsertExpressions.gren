@@ -449,8 +449,10 @@ folderInsertWhenBranch branch accNodes =
                     Err e -> Err e
                     Ok bodyNode ->
                         let
-                            allChildren = patNodes ++ [arrowNode, bodyNode]
-                            container = lpnNode BodyBlock allChildren
+                            -- AcrossThenIndent ensures the body is indented by 4 when
+                            -- it cannot fit inline with the pattern and arrow.
+                            branchContent = lpnNode AcrossThenIndent (patNodes ++ [arrowNode, bodyNode])
+                            container = lpnNode BodyBlock [branchContent]
                         in
                         Ok (Array.pushLast container accNodes)
 
