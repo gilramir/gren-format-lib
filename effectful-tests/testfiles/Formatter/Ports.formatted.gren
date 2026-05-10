@@ -1,0 +1,9 @@
+port module Ports exposing ( outgoing, incoming )
+
+import Json.Decode as Decode
+
+-- Send a message out
+port outgoing : String -> Cmd msg
+
+-- Receive a message
+port incoming : (String -> msg) -> Sub msg

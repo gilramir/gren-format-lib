@@ -35,12 +35,12 @@ lptFromAst modAst =
     in
     -- TODO: binops
     -- TODO: docs
-    -- TODO: effects
     processModuleLine modAst root
         |> Result.andThen (processImports modAst)
         |> Result.andThen (processFunctions modAst)
         |> Result.andThen (processAliases modAst)
         |> Result.andThen (processUnions modAst)
+        |> Result.andThen (processPorts modAst)
         |> Result.map sortOriginalRows
 
 
@@ -91,11 +91,14 @@ addRootChild child root =
     LPNode { box = lpnBox root, children = Array.pushLast child (lpnChildren root) }
 
 
--- TODO: ports
 processModuleLine : Src.Module -> LPNode -> Result String LPNode
 processModuleLine modAst root =
     let
-        n1 = lpnLeaf (mkText { row = modAst.name.start.row, col = 1 } "module")
+        keyword =
+            when modAst.effects is
+                Src.Ports _ -> "port module"
+                _ -> "module"
+        n1 = lpnLeaf (mkText { row = modAst.name.start.row, col = 1 } keyword)
         n2 = lpnLeaf (mkTextFromLocString modAst.name)
 
         exposingPos =
@@ -238,6 +241,33 @@ processAliases modAst root =
 processUnions : Src.Module -> LPNode -> Result String LPNode
 processUnions modAst root =
     resultFoldl processUnionDecl root modAst.unions
+
+
+processPorts : Src.Module -> LPNode -> Result String LPNode
+processPorts modAst root =
+    when modAst.effects is
+        Src.NoEffects -> Ok root
+        Src.Ports ports -> resultFoldl processPortDecl root ports
+        Src.Manager _ -> Ok root
+
+
+processPortDecl : Src.ModuleDeclaration Src.Port -> LPNode -> Result String LPNode
+processPortDecl modDecl root =
+    let
+        port_ = modDecl.value.value
+        portNode = lpnLeaf (mkText { row = modDecl.start.row, col = 1 } "port")
+        nameNode = lpnLeaf (mkTextFromLocString port_.name)
+        colonNode = lpnLeaf (mkText (incCol 1 port_.name.end) ":")
+        t0 = processFunctionDoc modDecl.value.docs root
+    in
+    when makeSignatureBranch port_.signature is
+        Err e -> Err e
+        Ok typeNodes ->
+            let
+                allChildren = [portNode, nameNode, colonNode] ++ typeNodes
+                origRow = makeOrigRows modDecl.start.row StPort allChildren
+            in
+            Ok (addRootChild origRow t0)
 
 
 processUnionDecl : Src.ModuleDeclaration Src.Union -> LPNode -> Result String LPNode

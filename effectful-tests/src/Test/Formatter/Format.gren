@@ -99,5 +99,6 @@ declarationTests fsPerm =
     describe "Declarations"
         [ assertPretty fsPerm "type aliases" "TypeAlias"
         , assertPretty fsPerm "union types" "TypeUnion"
+        , assertPretty fsPerm "ports" "Ports"
         ]
 

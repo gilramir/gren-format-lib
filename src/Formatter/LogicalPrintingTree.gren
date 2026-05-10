@@ -17,6 +17,7 @@ type SyntaxType
     | StFunctionDeclaration
     | StTypeAlias
     | StTypeUnion
+    | StPort
 
 stypeToString : SyntaxType -> String
 stypeToString st =
@@ -30,6 +31,7 @@ stypeToString st =
         StFunctionDeclaration -> "funcDecl"
         StTypeAlias -> "typeAlias"
         StTypeUnion -> "typeUnion"
+        StPort -> "port"
 
 type LPBox
     -- This is needed just to use as a root node

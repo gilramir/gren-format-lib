@@ -44,6 +44,7 @@ makePrettyLine node =
                 StFunctionDeclaration -> makeFlowIndentable children
                 StTypeAlias -> makeTypeAliasPretty children
                 StTypeUnion -> makeTypeUnionPretty children
+                StPort -> makeFlowIndentable children
         EmptyLine ->
             Ok ""
         _ ->
