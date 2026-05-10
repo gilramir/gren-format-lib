@@ -181,20 +181,39 @@ insertAmongChildren commentNode row col children =
 
             { before, after } =
                 splitAt insertionIndex children
+
+            -- Advance past any synthesized (position-less) nodes at the boundary.
+            -- This prevents comments from being inserted between a pattern and its
+            -- synthesized -> arrow, or between other synthesized tokens that logically
+            -- belong with the preceding real token.
+            { before = finalBefore, after = finalAfter } =
+                let
+                    helper b a =
+                        when Array.popFirst a is
+                            Nothing ->
+                                { before = b, after = a }
+                            Just { first = nextNode, rest = restOfAfter } ->
+                                when lastRealPosition nextNode is
+                                    Nothing ->
+                                        helper (Array.pushLast nextNode b) restOfAfter
+                                    Just _ ->
+                                        { before = b, after = a }
+                in
+                helper before after
         in
-        when Array.popFirst after is
+        when Array.popFirst finalAfter is
             Just { first = nextNode, rest = afterRest } ->
                 when lpnBox nextNode is
                     IndentedBlock ->
                         -- Redirect into the IndentedBlock as its first child
                         let newNextNode = LPNode { box = IndentedBlock, children = Array.pushFirst commentNode (lpnChildren nextNode) }
-                        in before ++ [newNextNode] ++ afterRest
+                        in finalBefore ++ [newNextNode] ++ afterRest
 
                     _ ->
-                        before ++ [commentNode] ++ after
+                        finalBefore ++ [commentNode] ++ finalAfter
 
             Nothing ->
-                before ++ [commentNode]
+                finalBefore ++ [commentNode]
 
 
 isAcrossThenIndentNode : LPNode -> Bool
