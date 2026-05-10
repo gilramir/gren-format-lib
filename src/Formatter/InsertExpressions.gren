@@ -385,8 +385,9 @@ folderInsertLetDef locDef accNodes =
                         Err e -> Err e
                         Ok bodyNodes ->
                             let
-                                allChildren = [nameNode] ++ argsNodes ++ [eqNode] ++ bodyNodes
-                                container = lpnNode IndentedBlock allChildren
+                                header = lpnNode AcrossThenIndent ([nameNode] ++ argsNodes ++ [eqNode])
+                                bodyWrapper = lpnNode SoftIndentedBlock bodyNodes
+                                container = lpnNode IndentedBlock [header, bodyWrapper]
                             in
                             Ok (Array.pushLast container accNodes)
 
@@ -400,8 +401,9 @@ folderInsertLetDef locDef accNodes =
                         Err e -> Err e
                         Ok bodyNodes ->
                             let
-                                allChildren = patNodes ++ [eqNode] ++ bodyNodes
-                                container = lpnNode IndentedBlock allChildren
+                                header = lpnNode AcrossThenIndent (patNodes ++ [eqNode])
+                                bodyWrapper = lpnNode SoftIndentedBlock bodyNodes
+                                container = lpnNode IndentedBlock [header, bodyWrapper]
                             in
                             Ok (Array.pushLast container accNodes)
 
@@ -457,6 +459,22 @@ folderInsertWhenBranch branch accNodes =
                         Ok (Array.pushLast container accNodes)
 
 
+folderInsertPRecordField : Src.PRecordField -> Array LPNode -> Result String (Array LPNode)
+folderInsertPRecordField field accNodes =
+    let fieldNode = lpnLeaf (mkTextFromLocString field.field)
+    in
+    when field.pattern is
+        Nothing ->
+            Ok (Array.pushLast fieldNode accNodes)
+        Just aliasPat ->
+            when insertPatternAsItem aliasPat is
+                Err e -> Err e
+                Ok aliasNode ->
+                    let eqNode = lpnLeaf (SynthesizedText "=")
+                    in
+                    Ok (Array.pushLast (lpnNode AcrossThenIndent [fieldNode, eqNode, aliasNode]) accNodes)
+
+
 folderInsertPattern : Src.Pattern -> Array LPNode -> Result String (Array LPNode)
 folderInsertPattern locPat accNodes =
     when insertPattern locPat is
@@ -479,9 +497,9 @@ insertPattern locPat =
                 Nothing ->
                     Ok [lpnLeaf (mkText locPat.start "{}")]
                 Just _ ->
-                    let fieldNodes = Array.map (\f -> lpnLeaf (mkTextFromLocString f.field)) fields
-                    in
-                    Ok [lpnNode (AllAcrossOrAllVertical ListCurly) fieldNodes]
+                    when resultFoldl folderInsertPRecordField [] fields is
+                        Err e -> Err e
+                        Ok fieldNodes -> Ok [lpnNode (AllAcrossOrAllVertical ListCurly) fieldNodes]
 
         Src.PAlias { pattern = pat, name = name } ->
             when insertPattern pat is

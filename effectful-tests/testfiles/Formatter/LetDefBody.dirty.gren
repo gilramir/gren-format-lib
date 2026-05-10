@@ -1,0 +1,37 @@
+module LetDefBody exposing (..)
+
+-- Simple body fits inline: stays on one line
+simple =
+    let
+        x = 1
+        y = "hello"
+    in
+    x
+
+-- Function application body that must wrap: body goes to name_col + 4
+wrapsToNextLine =
+    let
+        newDropdownState = AutoDropdown.mouseEnter idx model.suggestions model.suggestionDropdownState
+    in
+    newDropdownState
+
+-- Complex body (if/let/when): always on a new indented line
+complexBody =
+    let
+        command = if condition then doThis else doThat
+    in
+    command
+
+-- Record destructuring with field aliases: { field = alias }
+fieldAliases =
+    let
+        { cache = newCache, value = maybeResults } = LRUCache.get text cache
+    in
+    maybeResults
+
+-- Record destructuring shorthand (no alias): { field }
+fieldShorthand =
+    let
+        { model, command } = update msg model
+    in
+    model

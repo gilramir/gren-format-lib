@@ -82,6 +82,12 @@ type LPBox
     -- correctly: ([...] ++ x) not [( ... ] ++ x).
     | ParenBlock
 
+    -- Let-def body: tries to keep children inline after `=`, but when it must
+    -- break, places the body at +4 from the binding name's column.
+    -- Unlike IndentedBlock (which always forces P.hardNl), this uses
+    -- P.group so the optimizer can choose inline or indented-newline.
+    | SoftIndentedBlock
+
 type LPNode
     = LPNode { box : LPBox, children : Array LPNode }
 
@@ -125,6 +131,7 @@ lpBoxToString lpbox =
         PipelineStep -> "(pipelineStep)"
         BodyBlock -> "(bodyBlock)"
         ParenBlock -> "(parenBlock)"
+        SoftIndentedBlock -> "(softIndentedBlock)"
         SingleLineComment s -> "line-comment " ++ pstr(s.start) ++ " -- " ++ s.value
         BlockComment s -> "block-comment " ++ pstr(s.start) ++ " {- " ++ s.value ++ "-}"
         DocComment s -> "doc-comment " ++ pstr(s.start) ++ " {-| " ++ s.value ++ "-}"
