@@ -23,6 +23,7 @@ tests fsPerm =
         [ importTests fsPerm
         , expressionTests fsPerm
         , declarationTests fsPerm
+        , commentsTests fsPerm
         ]
 
 runPrettyPrinter : FileSystem.Permission -> String -> Task String { ast : Src.Module, rendered : String }
@@ -118,5 +119,11 @@ declarationTests fsPerm =
         [ assertPretty fsPerm "type aliases" "TypeAlias"
         , assertPretty fsPerm "union types" "TypeUnion"
         , assertPretty fsPerm "ports" "Ports"
+        ]
+
+commentsTests : FileSystem.Permission -> Effectful.Test
+commentsTests fsPerm =
+    describe "Comments"
+        [ assertPretty fsPerm "comments in pipeliens" "CommentsPipeline"
         ]
 

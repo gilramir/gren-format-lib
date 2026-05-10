@@ -254,6 +254,37 @@ buildFlowDoc indent nodes =
                             , separator = HardNl
                             }
 
+                        PipelineStep ->
+                            let
+                                childrenDoc = buildFlowDoc 0 nodeChildren
+                                firstChildIsComment =
+                                    when Array.popFirst nodeChildren is
+                                        Just { first = firstNode, rest = _ } ->
+                                            when lpnBox firstNode is
+                                                SingleLineComment _ -> True
+                                                _ -> False
+                                        Nothing -> False
+                                -- Only add a blank line before a commented step if it
+                                -- follows another PipelineStep (separator = HardNl).
+                                -- The first step after the seed uses FlowSep and
+                                -- should not get a blank line.
+                                blankLinePrefix =
+                                    when acc.separator is
+                                        HardNl ->
+                                            if firstChildIsComment then P.text "\n" else P.empty
+                                        _ ->
+                                            P.empty
+                                indentedDoc = P.concat blankLinePrefix (P.nest grenIndent (P.concat P.hardNl childrenDoc))
+                                newDoc =
+                                    when acc.separator is
+                                        FirstItem -> childrenDoc
+                                        _         -> P.concat acc.doc indentedDoc
+                            in
+                            { doc = newDoc
+                            , prevRow = -1
+                            , separator = HardNl
+                            }
+
                         BodyBlock ->
                             let
                                 childrenDoc = buildFlowDoc 0 nodeChildren
@@ -323,6 +354,8 @@ makePDoc box children =
         AcrossThenIndent ->
             buildFlowDoc grenIndent children
         IndentedBlock ->
+            buildFlowDoc 0 children
+        PipelineStep ->
             buildFlowDoc 0 children
         BodyBlock ->
             buildFlowDoc 0 children

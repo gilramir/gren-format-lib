@@ -209,6 +209,11 @@ insertAmongChildren commentNode row col children =
                         let newNextNode = LPNode { box = IndentedBlock, children = Array.pushFirst commentNode (lpnChildren nextNode) }
                         in finalBefore ++ [newNextNode] ++ afterRest
 
+                    PipelineStep ->
+                        -- Redirect into the PipelineStep as its first child
+                        let newNextNode = LPNode { box = PipelineStep, children = Array.pushFirst commentNode (lpnChildren nextNode) }
+                        in finalBefore ++ [newNextNode] ++ afterRest
+
                     _ ->
                         finalBefore ++ [commentNode] ++ finalAfter
 

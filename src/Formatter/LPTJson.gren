@@ -78,6 +78,9 @@ lpBoxFields lpbox =
         IndentedBlock ->
             [ { key = "type", value = Json.string "IndentedBlock" } ]
 
+        PipelineStep ->
+            [ { key = "type", value = Json.string "PipelineStep" } ]
+
         BodyBlock ->
             [ { key = "type", value = Json.string "BodyBlock" } ]
 

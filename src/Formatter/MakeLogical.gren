@@ -345,6 +345,38 @@ processModDecl modDecl root =
             processFunctionBody modDecl.value.value t1
 
 
+-- Flatten a |> chain into (seed, [(op, step), ...]).
+-- In Gren, |> is right-associative: `a |> b |> c` parses as `a |> (b |> c)`.
+-- We walk the right spine of the |> chain to collect all steps in order.
+flattenPipeline : Src.Expression -> { seed : Src.Expression, steps : Array { op : Located String, body : Src.Expression } }
+flattenPipeline locExpr =
+    when locExpr.value is
+        Src.Binops { left = lhsExpr, operator = op, right = rhsExpr } ->
+            if op.value == "|>" then
+                { seed = lhsExpr, steps = collectPipelineSteps op rhsExpr [] }
+            else
+                { seed = locExpr, steps = [] }
+        _ ->
+            { seed = locExpr, steps = [] }
+
+
+-- Walk the right spine of a |> chain, collecting (op, body) pairs in order.
+collectPipelineSteps :
+    Located String
+    -> Src.Expression
+    -> Array { op : Located String, body : Src.Expression }
+    -> Array { op : Located String, body : Src.Expression }
+collectPipelineSteps op body steps =
+    when body.value is
+        Src.Binops { left = innerLeft, operator = innerOp, right = innerRight } ->
+            if innerOp.value == "|>" then
+                collectPipelineSteps innerOp innerRight (Array.pushLast { op = op, body = innerLeft } steps)
+            else
+                Array.pushLast { op = op, body = body } steps
+        _ ->
+            Array.pushLast { op = op, body = body } steps
+
+
 -- Recursively insert expressions. Returns the top-level nodes for this expression.
 insertExpression : Src.Expression -> Result String (Array LPNode)
 insertExpression locExpr =
@@ -454,15 +486,34 @@ insertExpression locExpr =
                     Ok [lpnNode (AllAcrossOrAllVertical ListCurly) updatedFields]
 
         Src.Binops { left = lhsExpr, operator = locStringOp, right = rhsExpr } ->
-            when insertExpression lhsExpr is
-                Err e -> Err e
-                Ok lhsNodes ->
-                    let opNode = lpnLeaf (mkTextFromLocString locStringOp)
-                    in
-                    when insertExpression rhsExpr is
-                        Err e -> Err e
-                        Ok rhsNodes ->
-                            Ok (lhsNodes ++ [opNode] ++ rhsNodes)
+            if locStringOp.value == "|>" then
+                let
+                    flattened = flattenPipeline locExpr
+                in
+                when insertExpression flattened.seed is
+                    Err e -> Err e
+                    Ok seedNodes ->
+                        resultFoldl
+                            (\step accNodes ->
+                                let opNode = lpnLeaf (mkTextFromLocString step.op)
+                                in
+                                when insertExpression step.body is
+                                    Err e -> Err e
+                                    Ok bodyNodes ->
+                                        Ok (Array.pushLast (lpnNode PipelineStep ([opNode] ++ bodyNodes)) accNodes)
+                            )
+                            seedNodes
+                            flattened.steps
+            else
+                when insertExpression lhsExpr is
+                    Err e -> Err e
+                    Ok lhsNodes ->
+                        let opNode = lpnLeaf (mkTextFromLocString locStringOp)
+                        in
+                        when insertExpression rhsExpr is
+                            Err e -> Err e
+                            Ok rhsNodes ->
+                                Ok (lhsNodes ++ [opNode] ++ rhsNodes)
 
         Src.Call { fn = fnExpr, args = argsExprs } ->
             when insertExpression fnExpr is
