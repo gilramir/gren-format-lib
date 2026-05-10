@@ -84,6 +84,9 @@ lpBoxFields lpbox =
         BodyBlock ->
             [ { key = "type", value = Json.string "BodyBlock" } ]
 
+        ParenBlock ->
+            [ { key = "type", value = Json.string "ParenBlock" } ]
+
         SynthesizedText s ->
             [ { key = "type", value = Json.string "SynthesizedText" }
             , { key = "value", value = Json.string s }

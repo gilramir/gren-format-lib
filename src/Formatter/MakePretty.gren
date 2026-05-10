@@ -359,6 +359,9 @@ makePDoc box children =
             buildFlowDoc 0 children
         BodyBlock ->
             buildFlowDoc 0 children
+        ParenBlock ->
+            let innerDoc = buildFlowDoc 0 children
+            in P.concat (P.text "(") (P.concat innerDoc (P.text ")"))
         _ -> P.text "?"
 
 
@@ -393,6 +396,8 @@ makeListItemDoc node =
         UnbreakableText loc -> P.text loc.value
         AcrossThenIndent ->
             buildFlowDoc 0 (lpnChildren node)
+        ParenBlock ->
+            makePDoc ParenBlock (lpnChildren node)
         _ -> P.text "?"
 
 exposingListWithBrackets : String -> String -> String -> Array (P.Doc cost) -> P.Doc cost

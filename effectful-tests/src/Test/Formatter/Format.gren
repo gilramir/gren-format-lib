@@ -111,6 +111,7 @@ expressionTests fsPerm =
         , assertPretty fsPerm "let expression" "LetExpression"
         , assertPretty fsPerm "records" "Records"
         , assertPretty fsPerm "lambdas and calls" "LambdasAndCalls"
+        , assertPretty fsPerm "parenthesized expressions" "ParenWrapped"
         ]
 
 declarationTests : FileSystem.Permission -> Effectful.Test

@@ -641,37 +641,19 @@ tryMapLastLeaf f node =
                             Just (LPNode { box = lpnBox node, children = Array.pushLast updated initialChildren })
 
 
-{-| Wrap a list of expression nodes in parentheses by modifying the first
-and last UnbreakableText leaves.
+{-| Wrap a list of expression nodes in a ParenBlock, which MakePretty renders
+with ( immediately before and ) immediately after the children (no space).
+Using P.concat in MakePretty keeps ( adjacent to whatever bracket the first
+child renders (e.g. [ for arrays, { for records), fixing the bug where
+text-modification would produce "[ (attr" instead of "([attr".
 -}
 fixupParensChildrenNodes : Array LPNode -> Result String (Array LPNode)
 fixupParensChildrenNodes nodes =
     when Array.popFirst nodes is
         Nothing ->
             Ok [lpnLeaf (SynthesizedText "()")]
-        Just { first = firstNode, rest = rest } ->
-            when Array.popLast rest is
-                Nothing ->
-                    -- Single top-level node: add "(" to first leaf and ")" to last leaf
-                    let
-                        modified =
-                            when tryMapFirstLeaf (\loc -> mkText loc.start ("(" ++ loc.value)) firstNode is
-                                Nothing -> Nothing
-                                Just step1 ->
-                                    tryMapLastLeaf (\loc -> mkText loc.start (loc.value ++ ")")) step1
-                    in
-                    when modified is
-                        Just updated -> Ok [updated]
-                        Nothing -> Err "fixupParensChildrenNodes: no text node found"
-                Just { initial = middleNodes, last = lastNode } ->
-                    -- Multiple top-level nodes: add "(" to first leaf, ")" to last leaf
-                    when { df = tryMapFirstLeaf (\loc -> mkText loc.start ("(" ++ loc.value)) firstNode
-                         , dl = tryMapLastLeaf (\loc -> mkText loc.start (loc.value ++ ")")) lastNode
-                         } is
-                        { df = Just updFirst, dl = Just updLast } ->
-                            Ok ([updFirst] ++ middleNodes ++ [updLast])
-                        _ ->
-                            Err "fixupParensChildrenNodes: could not find text nodes"
+        Just _ ->
+            Ok [lpnNode ParenBlock nodes]
 
 
 folderMakeSignatureBranch : Src.Type -> Array LPNode -> Result String (Array LPNode)
@@ -713,16 +695,13 @@ makeSignatureBranch locType =
                                     Ok ([firstNode] ++ firstArgNodes)
 
                         Just _ ->
-                            -- More than one arg: wrap args in parens
+                            -- Multiple args: emit each arg's nodes consecutively.
+                            -- Any parens around individual complex args are already
+                            -- in the AST as TParens nodes, handled by the TParens case.
                             when resultFoldl folderMakeSignatureBranch [] args is
                                 Err e -> Err e
                                 Ok childrenNodes ->
-                                    when fixupParensChildrenNodes childrenNodes is
-                                        Err e -> Err e
-                                        Ok wrappedNodes ->
-                                            let firstWithChildren = LPNode { box = lpnBox firstNode, children = wrappedNodes }
-                                            in
-                                            Ok ([firstWithChildren] ++ wrappedNodes)
+                                    Ok ([firstNode] ++ childrenNodes)
 
         Src.TLambda { from = from, to = to } ->
             when makeSignatureBranch from is
@@ -737,10 +716,25 @@ makeSignatureBranch locType =
                             in
                             Ok (fromNodes ++ [arrowNode] ++ toNodes)
 
-        -- S.Char -> TTypeQual "Char" with qualifier "S"
-        -- XXX what about args?
-        Src.TTypeQual { args = _, name = name, qualifier = qual, varRegion = varRegion } ->
-            Ok [lpnLeaf (mkText varRegion.start (qual ++ "." ++ name))]
+        -- e.g. Svg.Svg msg, Dict.Dict k v
+        Src.TTypeQual { args = args, name = name, qualifier = qual, varRegion = varRegion } ->
+            let firstNode = lpnLeaf (mkText varRegion.start (qual ++ "." ++ name))
+            in
+            when Array.popFirst args is
+                Nothing ->
+                    Ok [firstNode]
+                Just { first = firstArg, rest = afterArg0 } ->
+                    when Array.popFirst afterArg0 is
+                        Nothing ->
+                            when makeSignatureBranch firstArg is
+                                Err e -> Err e
+                                Ok firstArgNodes ->
+                                    Ok ([firstNode] ++ firstArgNodes)
+                        Just _ ->
+                            when resultFoldl folderMakeSignatureBranch [] args is
+                                Err e -> Err e
+                                Ok childrenNodes ->
+                                    Ok ([firstNode] ++ childrenNodes)
 
         Src.TVar name ->
             Ok [lpnLeaf (mkText locType.start name)]

@@ -76,6 +76,12 @@ type LPBox
     -- (the outer buildFlowDoc's P.nest 4 provides the 4-space indent)
     | BodyBlock
 
+    -- Parenthesized expression: renders children with ( prefix and ) suffix
+    -- using P.concat (immediate adjacency, no space). Used instead of
+    -- text-modification so that bracket-rendered containers (like arrays) render
+    -- correctly: ([...] ++ x) not [( ... ] ++ x).
+    | ParenBlock
+
 type LPNode
     = LPNode { box : LPBox, children : Array LPNode }
 
@@ -118,6 +124,7 @@ lpBoxToString lpbox =
         IndentedBlock -> "(indentedBlock)"
         PipelineStep -> "(pipelineStep)"
         BodyBlock -> "(bodyBlock)"
+        ParenBlock -> "(parenBlock)"
         SingleLineComment s -> "line-comment " ++ pstr(s.start) ++ " -- " ++ s.value
         BlockComment s -> "block-comment " ++ pstr(s.start) ++ " {- " ++ s.value ++ "-}"
         DocComment s -> "doc-comment " ++ pstr(s.start) ++ " {-| " ++ s.value ++ "-}"
