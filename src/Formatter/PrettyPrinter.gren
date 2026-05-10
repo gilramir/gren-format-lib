@@ -12,17 +12,6 @@ prettyPrint: Src.Module -> Ctx.Context -> Result String String
 prettyPrint ast ctx =
     when makeLogicalPrintingTree ast ctx is
         Err errString ->
-            let
-                _ = Debug.log "(reporting error)" errString
-            in
             Err errString
         Ok lpTree ->
-            let
-                res = makePrettyResult lpTree
-                {-
-                _ = when res is
-                    Ok r -> Debug.log "(result)" ("\n"++r)
-                    Err r -> Debug.log "(error)" r
-                -}
-            in
-            res
+             makePrettyResult lpTree
