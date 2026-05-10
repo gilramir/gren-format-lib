@@ -115,6 +115,7 @@ expressionTests fsPerm =
         , assertPretty fsPerm "parenthesized expressions" "ParenWrapped"
         , assertPretty fsPerm "nested containers in list" "NestedContainersInList"
         , assertPretty fsPerm "when branch body indentation" "WhenBranchBody"
+        , assertPretty fsPerm "record field value indentation" "RecordFieldValue"
         ]
 
 declarationTests : FileSystem.Permission -> Effectful.Test

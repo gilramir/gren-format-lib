@@ -395,7 +395,7 @@ makeListItemDoc node =
     when lpnBox node is
         UnbreakableText loc -> P.text loc.value
         AcrossThenIndent ->
-            buildFlowDoc 0 (lpnChildren node)
+            buildFlowDoc grenIndent (lpnChildren node)
         ParenBlock ->
             makePDoc ParenBlock (lpnChildren node)
         AllAcrossOrAllVertical bracket ->
@@ -502,7 +502,7 @@ listBoxesWithBrackets open close nodes =
         nodeItemDoc node =
             when lpnBox node is
                 UnbreakableText loc -> Just { doc = P.text loc.value, row = loc.start.row }
-                AcrossThenIndent   -> Just { doc = buildFlowDoc 0 (lpnChildren node), row = nodeFirstRow node }
+                AcrossThenIndent   -> Just { doc = buildFlowDoc grenIndent (lpnChildren node), row = nodeFirstRow node }
                 AllAcrossOrAllVertical _ -> Just { doc = makePDoc (lpnBox node) (lpnChildren node), row = nodeFirstRow node }
                 _                  -> Nothing
 
