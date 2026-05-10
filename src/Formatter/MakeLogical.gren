@@ -116,7 +116,7 @@ processExposed exposed =
                     lpnLeaf (UnbreakableText sp)
 
         Src.ExposedOperator sp ->
-            lpnLeaf (UnbreakableText sp)
+            lpnLeaf (UnbreakableText { sp | value = "(" ++ sp.value ++ ")" })
 
 
 processImports : Src.Module -> LPNode -> Result String LPNode
