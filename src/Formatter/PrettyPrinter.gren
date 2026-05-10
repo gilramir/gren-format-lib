@@ -8,42 +8,6 @@ import Formatter.MakeLogical exposing (makeLogicalPrintingTree)
 import Formatter.MakePretty exposing (makePrettyResult)
 
 
-{-
-
-# Formatting rules
-
-## Comments
-
-The parser collects all comments separately from the AST. After the AST is
-converted to a Logical Printing Tree (LPT), each comment is re-inserted into
-the tree based on its source row and column.
-
-Three comment types are supported:
-
-  - Single-line comments (-- ...): inserted as SingleLineComment nodes.
-  - Block comments ({- ... -}): inserted as BlockComment nodes.
-  - Doc comments ({-| ... -}): doc comments that precede a function
-    declaration are placed in their own OriginalRows node directly under the
-    root, as a sibling of the declaration they document.
-
-For placement, each comment is matched to the OriginalRows node whose source
-row range contains the comment's row. If no existing node covers that row, a
-new OriginalRows node is created and inserted in sorted order. Within that
-node, the comment is inserted at the deepest subtree that spans its row, then
-placed among siblings according to column order.
-
-There is one structural exception: if the comment's column position would place
-it immediately before an IndentedBlock sibling, the comment is redirected into
-that IndentedBlock as its first child, so it renders at the indented level
-rather than outdented next to the keyword that introduces the block.
-
-When rendering, a single-line comment on the same source row as the immediately
-preceding token is attached to that token's line with a space (e.g.
-"value -- note"). A comment on a different row is placed on its own line using
-the normal flow separator. Either way, the comment always ends the line via a
-hard newline, so the next token always starts fresh.
-
--}
 prettyPrint: Src.Module -> Ctx.Context -> Result String String
 prettyPrint ast ctx =
     when makeLogicalPrintingTree ast ctx is
