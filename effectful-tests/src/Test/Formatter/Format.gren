@@ -101,6 +101,8 @@ importTests fsPerm =
     describe "Import Statements"
         [ assertPretty fsPerm "import with comments" "ImportWithComments"
         , assertPretty fsPerm "exposed operators wrapped in parens" "ExposedOperator"
+        , assertPretty fsPerm "module line wraps exposing list to one indented line" "ModuleLineWrap"
+        , assertPretty fsPerm "module line wraps exposing list to one item per line" "ModuleLineVertical"
         ]
 
 expressionTests : FileSystem.Permission -> Effectful.Test
