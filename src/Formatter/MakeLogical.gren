@@ -36,11 +36,11 @@ lptFromAst modAst =
     -- TODO: binops
     -- TODO: docs
     -- TODO: effects
-    -- TODO: unions
     processModuleLine modAst root
         |> Result.andThen (processImports modAst)
         |> Result.andThen (processFunctions modAst)
         |> Result.andThen (processAliases modAst)
+        |> Result.andThen (processUnions modAst)
         |> Result.map sortOriginalRows
 
 
@@ -233,6 +233,48 @@ processFunctions modAst root =
 processAliases : Src.Module -> LPNode -> Result String LPNode
 processAliases modAst root =
     resultFoldl processAliasDecl root modAst.aliases
+
+
+processUnions : Src.Module -> LPNode -> Result String LPNode
+processUnions modAst root =
+    resultFoldl processUnionDecl root modAst.unions
+
+
+processUnionDecl : Src.ModuleDeclaration Src.Union -> LPNode -> Result String LPNode
+processUnionDecl modDecl root =
+    let
+        union_ = modDecl.value.value
+        typeNode = lpnLeaf (mkText { row = modDecl.start.row, col = 1 } "type")
+        nameNode = lpnLeaf (mkTextFromLocString union_.name)
+        varNodes = Array.map (\v -> lpnLeaf (mkTextFromLocString v)) union_.vars
+        t0 = processFunctionDoc modDecl.value.docs root
+    in
+    when resultFoldl processVariantNode [] union_.variants is
+        Err e -> Err e
+        Ok variantNodes ->
+            let
+                variantsBlock = lpnNode IndentedBlock variantNodes
+                allChildren = [typeNode, nameNode] ++ varNodes ++ [variantsBlock]
+                origRow = makeOrigRows modDecl.start.row StTypeUnion allChildren
+            in
+            Ok (addRootChild origRow t0)
+
+
+processVariantNode : Located Src.UnionVariant -> Array LPNode -> Result String (Array LPNode)
+processVariantNode locVariant accNodes =
+    let
+        isFirst = Array.isEmpty accNodes
+        prefixNode = lpnLeaf (SynthesizedText (if isFirst then "=" else "|"))
+        nameNode = lpnLeaf (mkTextFromLocString locVariant.value.name)
+    in
+    when locVariant.value.payload is
+        Nothing ->
+            Ok (Array.pushLast (lpnNode AcrossThenIndent [prefixNode, nameNode]) accNodes)
+        Just payloadType ->
+            when makeSignatureBranch payloadType is
+                Err e -> Err e
+                Ok payloadNodes ->
+                    Ok (Array.pushLast (lpnNode AcrossThenIndent ([prefixNode, nameNode] ++ payloadNodes)) accNodes)
 
 
 processAliasDecl : Src.ModuleDeclaration Src.Alias -> LPNode -> Result String LPNode

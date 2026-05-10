@@ -43,6 +43,7 @@ makePrettyLine node =
                 StFunctionSignature -> makeFlowIndentable children
                 StFunctionDeclaration -> makeFlowIndentable children
                 StTypeAlias -> makeTypeAliasPretty children
+                StTypeUnion -> makeTypeUnionPretty children
         EmptyLine ->
             Ok ""
         _ ->
@@ -75,6 +76,56 @@ makeTypeAliasPretty children =
                 finalDoc = P.concat headerDoc (P.nest grenIndent (P.concat P.hardNl bodyDoc))
             in
             genericRenderResult <| P.prettyFormat costFactory finalDoc
+
+
+{-| Render a custom type always multi-line: `type Name vars` on the first
+line, then each variant on its own indented line with = / | prefix.
+-}
+makeTypeUnionPretty : Array LPNode -> Result String String
+makeTypeUnionPretty children =
+    when Array.popLast children is
+        Nothing ->
+            Err "type declaration is empty"
+        Just { initial = headerChildren, last = variantsBlock } ->
+            let
+                headerDoc = buildFlowDoc 0 headerChildren
+                bodyDoc = makeUnionBodyDoc (lpnChildren variantsBlock)
+                finalDoc = P.concat headerDoc (P.nest grenIndent (P.concat P.hardNl bodyDoc))
+            in
+            genericRenderResult <| P.prettyFormat costFactory finalDoc
+
+
+makeUnionBodyDoc : Array LPNode -> P.Doc cost
+makeUnionBodyDoc nodes =
+    let
+        result =
+            Array.foldl
+                (\node acc ->
+                    when lpnBox node is
+                        SingleLineComment loc ->
+                            when Array.popLast acc.docs is
+                                Nothing ->
+                                    { docs = [P.text ("--" ++ loc.value)]
+                                    , prevRow = loc.start.row
+                                    }
+                                Just { last = lastDoc, initial = initDocs } ->
+                                    if loc.start.row == acc.prevRow then
+                                        { docs = Array.pushLast (P.concat lastDoc (P.text (" --" ++ loc.value))) initDocs
+                                        , prevRow = loc.start.row
+                                        }
+                                    else
+                                        { docs = Array.pushLast (P.text ("--" ++ loc.value)) acc.docs
+                                        , prevRow = loc.start.row
+                                        }
+                        _ ->
+                            { docs = Array.pushLast (buildFlowDoc 0 (lpnChildren node)) acc.docs
+                            , prevRow = nodeFirstRow node
+                            }
+                )
+                { docs = [], prevRow = -1 }
+                nodes
+    in
+    P.vcat result.docs
 
 
 makeTypeBodyAlwaysVertical : Array LPNode -> P.Doc cost
@@ -398,9 +449,10 @@ nodeFirstRow node =
     when lpnBox node is
         UnbreakableText loc -> loc.start.row
         _ ->
-            when Array.popFirst (lpnChildren node) is
-                Just { first = firstChild } -> nodeFirstRow firstChild
-                Nothing -> -1
+            Array.foldl
+                (\child acc -> if acc >= 0 then acc else nodeFirstRow child)
+                -1
+                (lpnChildren node)
 
 
 listBoxesWithBrackets : String -> String -> Array LPNode -> P.Doc cost

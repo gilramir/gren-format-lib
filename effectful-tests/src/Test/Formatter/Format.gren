@@ -98,5 +98,6 @@ declarationTests : FileSystem.Permission -> Effectful.Test
 declarationTests fsPerm =
     describe "Declarations"
         [ assertPretty fsPerm "type aliases" "TypeAlias"
+        , assertPretty fsPerm "union types" "TypeUnion"
         ]
 

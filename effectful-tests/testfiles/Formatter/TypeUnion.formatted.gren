@@ -1,0 +1,14 @@
+module TypeUnion exposing ( Color, Maybe, Shape )
+
+type Color
+    = Red
+    | Green
+    | Blue
+
+type Maybe a
+    = Nothing
+    | Just a
+
+type Shape
+    = Circle Int
+    | Rectangle Int Int

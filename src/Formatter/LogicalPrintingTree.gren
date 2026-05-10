@@ -16,6 +16,7 @@ type SyntaxType
     | StFunctionSignature
     | StFunctionDeclaration
     | StTypeAlias
+    | StTypeUnion
 
 stypeToString : SyntaxType -> String
 stypeToString st =
@@ -28,6 +29,7 @@ stypeToString st =
         StFunctionSignature -> "funcSig"
         StFunctionDeclaration -> "funcDecl"
         StTypeAlias -> "typeAlias"
+        StTypeUnion -> "typeUnion"
 
 type LPBox
     -- This is needed just to use as a root node
