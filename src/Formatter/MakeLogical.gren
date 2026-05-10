@@ -823,29 +823,15 @@ processFunctionBody modVal root =
 
         -- XXX need a better pos
         eqNode = lpnLeaf (SynthesizedText "=")
-
-        isComplexBody =
-            when modVal.body.value is
-                Src.If _ -> True
-                Src.Let _ -> True
-                Src.When _ -> True
-                _ -> False
     in
     when resultFoldl folderInsertPattern [] modVal.args is
         Err e -> Err e
         Ok argsNodes ->
-            if isComplexBody then
-                when insertExpressionAsBodyBlock modVal.body is
-                    Err err2 -> Err err2
-                    Ok bodyNode ->
-                        let allChildren = [nameNode] ++ argsNodes ++ [eqNode, bodyNode]
-                        in Ok (addRootChild (makeOrigRows modVal.name.start.row StFunctionDeclaration allChildren) root)
-            else
-                when insertExpression modVal.body is
-                    Err err2 -> Err err2
-                    Ok bodyNodes ->
-                        let allChildren = [nameNode] ++ argsNodes ++ [eqNode] ++ bodyNodes
-                        in Ok (addRootChild (makeOrigRows modVal.name.start.row StFunctionDeclaration allChildren) root)
+            when insertExpressionAsBodyBlock modVal.body is
+                Err err2 -> Err err2
+                Ok bodyNode ->
+                    let allChildren = [nameNode] ++ argsNodes ++ [eqNode, bodyNode]
+                    in Ok (addRootChild (makeOrigRows modVal.name.start.row StFunctionDeclaration allChildren) root)
 
 
 {-| Maybe or maybe not insert a DocComment for this function
