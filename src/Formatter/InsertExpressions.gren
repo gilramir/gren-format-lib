@@ -1,0 +1,769 @@
+module Formatter.InsertExpressions exposing (..)
+
+import Char
+import Math
+
+import Compiler.Ast.Source as Src
+import Compiler.Parse.Number as PN
+import Compiler.SourcePosition exposing (Located, Position)
+
+import Formatter.LogicalPrintingTree exposing (LPBox(..),
+    LPNode(..), ListBrackets(..), SyntaxType(..), lpnBox, lpnChildren, lpnLeaf, lpnNode)
+
+
+mkText : Position -> String -> LPBox
+mkText pos text =
+    let
+        end =
+            { pos
+                | col = pos.col + String.count text
+            }
+    in
+    UnbreakableText
+        { start = pos
+        , end = end
+        , value = text
+        }
+
+mkTextFromLocString : Located String -> LPBox
+mkTextFromLocString ltext =
+    UnbreakableText ltext
+
+
+resultFoldl : (i -> a -> Result e a) -> a -> Array i -> Result e a
+resultFoldl callback initialAcc items =
+    let
+        callbackWrapper : i -> (Result e a) -> (Result e a)
+        callbackWrapper thisItem thisAccumResult =
+            when thisAccumResult is
+                Err e -> Err e
+                Ok a -> callback thisItem a
+    in
+    Array.foldl callbackWrapper (Ok initialAcc) items
+
+
+incCol : Int -> Position -> Position
+incCol n pos =
+    { pos
+        | col = pos.col + n
+    }
+
+
+-- Flatten a |> chain into (seed, [(op, step), ...]).
+-- In Gren, |> is right-associative: `a |> b |> c` parses as `a |> (b |> c)`.
+-- We walk the right spine of the |> chain to collect all steps in order.
+flattenPipeline : Src.Expression -> { seed : Src.Expression, steps : Array { op : Located String, body : Src.Expression } }
+flattenPipeline locExpr =
+    when locExpr.value is
+        Src.Binops { left = lhsExpr, operator = op, right = rhsExpr } ->
+            if op.value == "|>" then
+                { seed = lhsExpr, steps = collectPipelineSteps op rhsExpr [] }
+            else
+                { seed = locExpr, steps = [] }
+        _ ->
+            { seed = locExpr, steps = [] }
+
+
+-- Walk the right spine of a |> chain, collecting (op, body) pairs in order.
+collectPipelineSteps :
+    Located String
+    -> Src.Expression
+    -> Array { op : Located String, body : Src.Expression }
+    -> Array { op : Located String, body : Src.Expression }
+collectPipelineSteps op body steps =
+    when body.value is
+        Src.Binops { left = innerLeft, operator = innerOp, right = innerRight } ->
+            if innerOp.value == "|>" then
+                collectPipelineSteps innerOp innerRight (Array.pushLast { op = op, body = innerLeft } steps)
+            else
+                Array.pushLast { op = op, body = body } steps
+        _ ->
+            Array.pushLast { op = op, body = body } steps
+
+
+-- Recursively insert expressions. Returns the top-level nodes for this expression.
+insertExpression : Src.Expression -> Result String (Array LPNode)
+insertExpression locExpr =
+    when locExpr.value is
+        Src.StringLiteral s ->
+            Ok [lpnLeaf (mkText locExpr.start ("\"" ++ s ++ "\""))]
+
+        Src.NumberLiteral outcome ->
+            when outcome is
+                PN.Integer n ->
+                    Ok [lpnLeaf (mkText locExpr.start (String.fromInt n))]
+
+                PN.FloatingPoint n ->
+                    let
+                        raw = String.fromFloat n
+                        str = if String.any (\c -> c == '.') raw then raw else raw ++ ".0"
+                    in
+                    Ok [lpnLeaf (mkText locExpr.start str)]
+
+                PN.Hex n ->
+                    Ok [lpnLeaf (mkText locExpr.start ("0x" ++ intToHex n))]
+
+        Src.CharLiteral c ->
+            Ok [lpnLeaf (mkText locExpr.start (charLiteralString c))]
+
+        Src.Var { varType = _, name = name } ->
+            Ok [lpnLeaf (mkText locExpr.start name)]
+
+        Src.VarQual { varType = _, qualifier = qualString, name = nameString } ->
+            Ok [lpnLeaf (mkText locExpr.start (qualString ++ "." ++ nameString))]
+
+        Src.Operator opString ->
+            Ok [lpnLeaf (mkText locExpr.start opString)]
+
+        Src.Negate expr ->
+            when insertExpression expr is
+                Err e -> Err e
+                Ok nodes ->
+                    when Array.popFirst nodes is
+                        Nothing -> Err "Negate: empty inner expression"
+                        Just { first = firstNode, rest = restNodes } ->
+                            when tryMapFirstLeaf (\loc -> mkText locExpr.start ("-" ++ loc.value)) firstNode is
+                                Just updated ->
+                                    Ok (Array.pushFirst updated restNodes)
+                                Nothing ->
+                                    Ok (Array.pushFirst (lpnLeaf (mkText locExpr.start "-")) nodes)
+
+        Src.Accessor string ->
+            Ok [lpnLeaf (mkText locExpr.start ("." ++ string))]
+
+        Src.Access { expression = expression, accessor = accessor } ->
+            when insertExpression expression is
+                Err e -> Err e
+                Ok nodes ->
+                    when Array.popLast nodes is
+                        Nothing -> Err "Access: empty inner expression"
+                        Just { last = lastNode, initial = initialNodes } ->
+                            when tryMapLastLeaf (\loc -> mkText loc.start (loc.value ++ "." ++ accessor)) lastNode is
+                                Just updated ->
+                                    Ok (Array.pushLast updated initialNodes)
+                                Nothing ->
+                                    Ok (Array.pushLast (lpnLeaf (SynthesizedText ("." ++ accessor))) nodes)
+
+        Src.Parens expression ->
+            when insertExpression expression is
+                Err e -> Err e
+                Ok nodes ->
+                    fixupParensChildrenNodes nodes
+
+        Src.ArrayLiteral exprArray ->
+            when resultFoldl folderInsertExprAsItem [] exprArray is
+                Err e -> Err e
+                Ok itemNodes ->
+                    when Array.popFirst itemNodes is
+                        Nothing ->
+                            Ok [lpnLeaf (mkText locExpr.start "[]")]
+                        Just _ ->
+                            Ok [lpnNode (AllAcrossOrAllVertical ListSquare) itemNodes]
+
+        Src.Record fieldArray ->
+            when resultFoldl folderInsertRecordField [] fieldArray is
+                Err e -> Err e
+                Ok fieldNodes ->
+                    when Array.popFirst fieldNodes is
+                        Nothing ->
+                            Ok [lpnLeaf (mkText locExpr.start "{}")]
+                        Just _ ->
+                            Ok [lpnNode (AllAcrossOrAllVertical ListCurly) fieldNodes]
+
+        Src.Update { record = record, newValues = newValues } ->
+            let
+                recText = simpleExprText record
+            in
+            when resultFoldl folderInsertRecordField [] newValues is
+                Err e -> Err e
+                Ok fieldNodes ->
+                    -- Prepend "recName | " to the first text in the first field
+                    let
+                        updatedFields =
+                            when Array.popFirst fieldNodes is
+                                Nothing -> fieldNodes
+                                Just { first = firstField, rest = restFields } ->
+                                    when tryMapFirstLeaf (\loc -> mkText loc.start (recText ++ " | " ++ loc.value)) firstField is
+                                        Just updated -> Array.pushFirst updated restFields
+                                        Nothing -> fieldNodes
+                    in
+                    Ok [lpnNode (AllAcrossOrAllVertical ListCurly) updatedFields]
+
+        Src.Binops { left = lhsExpr, operator = locStringOp, right = rhsExpr } ->
+            if locStringOp.value == "|>" then
+                let
+                    flattened = flattenPipeline locExpr
+                in
+                when insertExpression flattened.seed is
+                    Err e -> Err e
+                    Ok seedNodes ->
+                        resultFoldl
+                            (\step accNodes ->
+                                let opNode = lpnLeaf (mkTextFromLocString step.op)
+                                in
+                                when insertExpression step.body is
+                                    Err e -> Err e
+                                    Ok bodyNodes ->
+                                        Ok (Array.pushLast (lpnNode PipelineStep ([opNode] ++ bodyNodes)) accNodes)
+                            )
+                            seedNodes
+                            flattened.steps
+            else
+                when insertExpression lhsExpr is
+                    Err e -> Err e
+                    Ok lhsNodes ->
+                        let opNode = lpnLeaf (mkTextFromLocString locStringOp)
+                        in
+                        when insertExpression rhsExpr is
+                            Err e -> Err e
+                            Ok rhsNodes ->
+                                Ok (lhsNodes ++ [opNode] ++ rhsNodes)
+
+        Src.Call { fn = fnExpr, args = argsExprs } ->
+            when insertExpression fnExpr is
+                Err e -> Err e
+                Ok fnNodes ->
+                    resultFoldl folderInsertExprAsItem fnNodes argsExprs
+
+        Src.Lambda { patterns = patterns, body = body } ->
+            when resultFoldl folderInsertPattern [] patterns is
+                Err e -> Err e
+                Ok patNodes ->
+                    let
+                        -- Prepend \ to the first text leaf of the first pattern
+                        updatedPatNodes =
+                            when Array.popFirst patNodes is
+                                Nothing -> patNodes
+                                Just { first = firstPat, rest = restPats } ->
+                                    when tryMapFirstLeaf (\loc -> mkText locExpr.start ("\\" ++ loc.value)) firstPat is
+                                        Just updated -> Array.pushFirst updated restPats
+                                        Nothing -> patNodes
+                        arrowNode = lpnLeaf (SynthesizedText "->")
+                    in
+                    when insertExpressionAsItem body is
+                        Err e -> Err e
+                        Ok bodyNode ->
+                            Ok (updatedPatNodes ++ [arrowNode, bodyNode])
+
+        Src.Let { defs = defs, body = body } ->
+            let letNode = lpnLeaf (mkText locExpr.start "let")
+            in
+            when resultFoldl folderInsertLetDef [] defs is
+                Err e -> Err e
+                Ok defNodes ->
+                    let inNode = lpnLeaf (SynthesizedText "in")
+                    in
+                    when insertExpressionAsBodyBlock body is
+                        Err e -> Err e
+                        Ok bodyNode ->
+                            Ok ([letNode] ++ defNodes ++ [inNode, bodyNode])
+
+        Src.If { branches = branches, elseBranch = elseBranch } ->
+            when Array.popFirst branches is
+                Nothing -> Err "If: no branches"
+                Just { first = firstBranch, rest = restBranches } ->
+                    let ifNode = lpnLeaf (mkText locExpr.start "if")
+                    in
+                    when insertExpression firstBranch.test is
+                        Err e -> Err e
+                        Ok testNodes ->
+                            let thenNode = lpnLeaf (SynthesizedText "then")
+                            in
+                            when insertExpressionAsIndentedBlock firstBranch.body is
+                                Err e -> Err e
+                                Ok bodyNode ->
+                                    let firstNodes = [ifNode] ++ testNodes ++ [thenNode, bodyNode]
+                                    in
+                                    when resultFoldl folderInsertElseIfBranch firstNodes restBranches is
+                                        Err e -> Err e
+                                        Ok branchNodes ->
+                                            let elseNode = lpnLeaf (SynthesizedText "else")
+                                            in
+                                            when insertExpressionAsIndentedBlock elseBranch is
+                                                Err e -> Err e
+                                                Ok elseBodyNode ->
+                                                    Ok (branchNodes ++ [elseNode, elseBodyNode])
+
+        Src.When { expression = expression, branches = branches } ->
+            let whenNode = lpnLeaf (mkText locExpr.start "when")
+            in
+            when insertExpression expression is
+                Err e -> Err e
+                Ok exprNodes ->
+                    let isNode = lpnLeaf (SynthesizedText "is")
+                    in
+                    when resultFoldl folderInsertWhenBranch [] branches is
+                        Err e -> Err e
+                        Ok branchNodes ->
+                            Ok ([whenNode] ++ exprNodes ++ [isNode, lpnNode IndentedBlock branchNodes])
+
+
+-- Extract text from simple expressions (Var, VarQual, Access chain) without touching the tree.
+simpleExprText : Src.Expression -> String
+simpleExprText locExpr =
+    when locExpr.value is
+        Src.Var { name = name } -> name
+        Src.VarQual { qualifier = q, name = n } -> q ++ "." ++ n
+        Src.Access { expression = expr, accessor = acc } -> simpleExprText expr ++ "." ++ acc
+        _ -> ""
+
+
+-- Wrap an expression as a single node.
+-- If the expression produces multiple sibling nodes, group them under AcrossThenIndent.
+insertExpressionAsItem : Src.Expression -> Result String LPNode
+insertExpressionAsItem locExpr =
+    when insertExpression locExpr is
+        Err e -> Err e
+        Ok nodes ->
+            when Array.popFirst nodes is
+                Nothing -> Err "insertExpressionAsItem: empty expression"
+                Just { first = onlyNode, rest = rest } ->
+                    if Array.isEmpty rest then
+                        Ok onlyNode
+                    else
+                        Ok (lpnNode AcrossThenIndent nodes)
+
+
+folderInsertExprAsItem : Src.Expression -> Array LPNode -> Result String (Array LPNode)
+folderInsertExprAsItem expr accNodes =
+    when insertExpressionAsItem expr is
+        Err s -> Err s
+        Ok node ->
+            Ok (Array.pushLast node accNodes)
+
+
+insertExpressionAsIndentedBlock : Src.Expression -> Result String LPNode
+insertExpressionAsIndentedBlock locExpr =
+    when insertExpression locExpr is
+        Err e -> Err e
+        Ok nodes ->
+            if Array.isEmpty nodes then
+                Err "insertExpressionAsIndentedBlock: empty expression"
+            else
+                Ok (lpnNode IndentedBlock nodes)
+
+
+insertExpressionAsBodyBlock : Src.Expression -> Result String LPNode
+insertExpressionAsBodyBlock locExpr =
+    when insertExpression locExpr is
+        Err e -> Err e
+        Ok nodes ->
+            if Array.isEmpty nodes then
+                Err "insertExpressionAsBodyBlock: empty expression"
+            else
+                Ok (lpnNode BodyBlock nodes)
+
+
+folderInsertRecordField : Src.RecordField -> Array LPNode -> Result String (Array LPNode)
+folderInsertRecordField field accNodes =
+    let
+        fieldNameNode = lpnLeaf (mkTextFromLocString field.field)
+        eqNode = lpnLeaf (SynthesizedText "=")
+    in
+    when insertExpression field.value is
+        Err e -> Err e
+        Ok valueNodes ->
+            let
+                allChildren = [fieldNameNode, eqNode] ++ valueNodes
+                container = lpnNode AcrossThenIndent allChildren
+            in
+            Ok (Array.pushLast container accNodes)
+
+
+folderInsertLetDef : Located Src.Def -> Array LPNode -> Result String (Array LPNode)
+folderInsertLetDef locDef accNodes =
+    when locDef.value is
+        Src.Define def ->
+            let
+                nameNode = lpnLeaf (mkTextFromLocString def.name)
+                eqNode = lpnLeaf (SynthesizedText "=")
+            in
+            when resultFoldl folderInsertPattern [] def.args is
+                Err e -> Err e
+                Ok argsNodes ->
+                    when insertExpression def.body is
+                        Err e -> Err e
+                        Ok bodyNodes ->
+                            let
+                                allChildren = [nameNode] ++ argsNodes ++ [eqNode] ++ bodyNodes
+                                container = lpnNode IndentedBlock allChildren
+                            in
+                            Ok (Array.pushLast container accNodes)
+
+        Src.Destruct { pattern = pattern, body = body } ->
+            when insertPattern pattern is
+                Err e -> Err e
+                Ok patNodes ->
+                    let eqNode = lpnLeaf (SynthesizedText "=")
+                    in
+                    when insertExpression body is
+                        Err e -> Err e
+                        Ok bodyNodes ->
+                            let
+                                allChildren = patNodes ++ [eqNode] ++ bodyNodes
+                                container = lpnNode IndentedBlock allChildren
+                            in
+                            Ok (Array.pushLast container accNodes)
+
+
+folderInsertElseIfBranch : Src.IfBranch -> Array LPNode -> Result String (Array LPNode)
+folderInsertElseIfBranch branch accNodes =
+    let elseIfNode = lpnLeaf (SynthesizedText "else if")
+    in
+    when insertExpression branch.test is
+        Err e -> Err e
+        Ok testNodes ->
+            let thenNode = lpnLeaf (SynthesizedText "then")
+            in
+            when insertExpressionAsIndentedBlock branch.body is
+                Err e -> Err e
+                Ok bodyNode ->
+                    Ok (accNodes ++ [elseIfNode] ++ testNodes ++ [thenNode, bodyNode])
+
+
+folderInsertWhenBranch : Src.WhenBranch -> Array LPNode -> Result String (Array LPNode)
+folderInsertWhenBranch branch accNodes =
+    when insertPattern branch.pattern is
+        Err e -> Err e
+        Ok patNodes ->
+            let
+                arrowNode = lpnLeaf (SynthesizedText "->")
+                isComplexBody =
+                    when branch.body.value is
+                        Src.If _ -> True
+                        Src.Let _ -> True
+                        Src.When _ -> True
+                        _ -> False
+            in
+            if isComplexBody then
+                when insertExpressionAsIndentedBlock branch.body is
+                    Err e -> Err e
+                    Ok bodyNode ->
+                        let
+                            allChildren = patNodes ++ [arrowNode, bodyNode]
+                            container = lpnNode BodyBlock allChildren
+                        in
+                        Ok (Array.pushLast container accNodes)
+            else
+                when insertExpressionAsItem branch.body is
+                    Err e -> Err e
+                    Ok bodyNode ->
+                        let
+                            allChildren = patNodes ++ [arrowNode, bodyNode]
+                            container = lpnNode BodyBlock allChildren
+                        in
+                        Ok (Array.pushLast container accNodes)
+
+
+folderInsertPattern : Src.Pattern -> Array LPNode -> Result String (Array LPNode)
+folderInsertPattern locPat accNodes =
+    when insertPattern locPat is
+        Err s -> Err s
+        Ok newNodes ->
+            Ok (accNodes ++ newNodes)
+
+
+insertPattern : Src.Pattern -> Result String (Array LPNode)
+insertPattern locPat =
+    when locPat.value is
+        Src.PVar name ->
+            Ok [lpnLeaf (mkText locPat.start name)]
+
+        Src.PAnything _ ->
+            Ok [lpnLeaf (mkText locPat.start "_")]
+
+        Src.PRecord fields ->
+            when Array.popFirst fields is
+                Nothing ->
+                    Ok [lpnLeaf (mkText locPat.start "{}")]
+                Just _ ->
+                    let fieldNodes = Array.map (\f -> lpnLeaf (mkTextFromLocString f.field)) fields
+                    in
+                    Ok [lpnNode (AllAcrossOrAllVertical ListCurly) fieldNodes]
+
+        Src.PAlias { pattern = pat, name = name } ->
+            when insertPattern pat is
+                Err e -> Err e
+                Ok patNodes ->
+                    let
+                        asNode = lpnLeaf (SynthesizedText "as")
+                        nameNode = lpnLeaf (mkTextFromLocString name)
+                    in
+                    Ok (patNodes ++ [asNode, nameNode])
+
+        Src.PCtor { name = name, arg = arg } ->
+            let nameNode = lpnLeaf (mkTextFromLocString name)
+            in
+            when arg is
+                Nothing ->
+                    Ok [nameNode]
+                Just argPat ->
+                    when insertPatternAsItem argPat is
+                        Err e -> Err e
+                        Ok argNode ->
+                            Ok [nameNode, argNode]
+
+        Src.PCtorQual { varRegion = varRegion, module_ = module_, name = name, arg = arg } ->
+            let ctorNode = lpnLeaf (mkText varRegion.start (module_ ++ "." ++ name))
+            in
+            when arg is
+                Nothing ->
+                    Ok [ctorNode]
+                Just argPat ->
+                    when insertPatternAsItem argPat is
+                        Err e -> Err e
+                        Ok argNode ->
+                            Ok [ctorNode, argNode]
+
+        Src.PArray patterns ->
+            when resultFoldl folderInsertPatternAsItem [] patterns is
+                Err e -> Err e
+                Ok itemNodes ->
+                    when Array.popFirst itemNodes is
+                        Nothing ->
+                            Ok [lpnLeaf (mkText locPat.start "[]")]
+                        Just _ ->
+                            Ok [lpnNode (AllAcrossOrAllVertical ListSquare) itemNodes]
+
+        Src.PChr c ->
+            Ok [lpnLeaf (mkText locPat.start (charLiteralString c))]
+
+        Src.PStr s ->
+            Ok [lpnLeaf (mkText locPat.start ("\"" ++ s ++ "\""))]
+
+        Src.PInt { value = value, isHex = isHex } ->
+            let text = if isHex then "0x" ++ intToHex value else String.fromInt value
+            in
+            Ok [lpnLeaf (mkText locPat.start text)]
+
+
+insertPatternAsItem : Src.Pattern -> Result String LPNode
+insertPatternAsItem locPat =
+    when insertPattern locPat is
+        Err e -> Err e
+        Ok nodes ->
+            when Array.popFirst nodes is
+                Nothing -> Err "insertPatternAsItem: empty pattern"
+                Just { first = onlyNode, rest = rest } ->
+                    if Array.isEmpty rest then
+                        Ok onlyNode
+                    else
+                        Ok (lpnNode AcrossThenIndent nodes)
+
+
+folderInsertPatternAsItem : Src.Pattern -> Array LPNode -> Result String (Array LPNode)
+folderInsertPatternAsItem pat accNodes =
+    when insertPatternAsItem pat is
+        Err s -> Err s
+        Ok node ->
+            Ok (Array.pushLast node accNodes)
+
+
+charLiteralString : Char -> String
+charLiteralString c =
+    let
+        code = Char.toCode c
+        inner =
+            when code is
+                9  -> "\\t"
+                10 -> "\\n"
+                13 -> "\\r"
+                39 -> "\\'"
+                92 -> "\\\\"
+                _  -> String.fromChar c
+    in
+    "'" ++ inner ++ "'"
+
+
+intToHex : Int -> String
+intToHex n =
+    let
+        hexDigit d =
+            when d is
+                0 -> "0"
+                1 -> "1"
+                2 -> "2"
+                3 -> "3"
+                4 -> "4"
+                5 -> "5"
+                6 -> "6"
+                7 -> "7"
+                8 -> "8"
+                9 -> "9"
+                10 -> "A"
+                11 -> "B"
+                12 -> "C"
+                13 -> "D"
+                14 -> "E"
+                _  -> "F"
+    in
+    if n < 16 then
+        hexDigit n
+    else
+        intToHex (n // 16) ++ hexDigit (Math.modBy 16 n)
+
+
+{-| Walk to the deepest first UnbreakableText leaf and apply f to its LPBox.
+Returns Nothing if no UnbreakableText leaf is found.
+-}
+tryMapFirstLeaf : (Located String -> LPBox) -> LPNode -> Maybe LPNode
+tryMapFirstLeaf f node =
+    when lpnBox node is
+        UnbreakableText loc ->
+            Just (LPNode { box = f loc, children = lpnChildren node })
+        _ ->
+            when Array.popFirst (lpnChildren node) is
+                Nothing ->
+                    Nothing
+                Just { first = firstChild, rest = restChildren } ->
+                    when tryMapFirstLeaf f firstChild is
+                        Nothing -> Nothing
+                        Just updated ->
+                            Just (LPNode { box = lpnBox node, children = Array.pushFirst updated restChildren })
+
+
+{-| Walk to the deepest last UnbreakableText leaf and apply f to its LPBox.
+Returns Nothing if no UnbreakableText leaf is found.
+-}
+tryMapLastLeaf : (Located String -> LPBox) -> LPNode -> Maybe LPNode
+tryMapLastLeaf f node =
+    when lpnBox node is
+        UnbreakableText loc ->
+            Just (LPNode { box = f loc, children = lpnChildren node })
+        _ ->
+            when Array.popLast (lpnChildren node) is
+                Nothing ->
+                    Nothing
+                Just { last = lastChild, initial = initialChildren } ->
+                    when tryMapLastLeaf f lastChild is
+                        Nothing -> Nothing
+                        Just updated ->
+                            Just (LPNode { box = lpnBox node, children = Array.pushLast updated initialChildren })
+
+
+{-| Wrap a list of expression nodes in parentheses by modifying the first
+and last UnbreakableText leaves.
+-}
+fixupParensChildrenNodes : Array LPNode -> Result String (Array LPNode)
+fixupParensChildrenNodes nodes =
+    when Array.popFirst nodes is
+        Nothing ->
+            Ok [lpnLeaf (SynthesizedText "()")]
+        Just { first = firstNode, rest = rest } ->
+            when Array.popLast rest is
+                Nothing ->
+                    -- Single top-level node: add "(" to first leaf and ")" to last leaf
+                    let
+                        modified =
+                            when tryMapFirstLeaf (\loc -> mkText loc.start ("(" ++ loc.value)) firstNode is
+                                Nothing -> Nothing
+                                Just step1 ->
+                                    tryMapLastLeaf (\loc -> mkText loc.start (loc.value ++ ")")) step1
+                    in
+                    when modified is
+                        Just updated -> Ok [updated]
+                        Nothing -> Err "fixupParensChildrenNodes: no text node found"
+                Just { initial = middleNodes, last = lastNode } ->
+                    -- Multiple top-level nodes: add "(" to first leaf, ")" to last leaf
+                    when { df = tryMapFirstLeaf (\loc -> mkText loc.start ("(" ++ loc.value)) firstNode
+                         , dl = tryMapLastLeaf (\loc -> mkText loc.start (loc.value ++ ")")) lastNode
+                         } is
+                        { df = Just updFirst, dl = Just updLast } ->
+                            Ok ([updFirst] ++ middleNodes ++ [updLast])
+                        _ ->
+                            Err "fixupParensChildrenNodes: could not find text nodes"
+
+
+folderMakeSignatureBranch : Src.Type -> Array LPNode -> Result String (Array LPNode)
+folderMakeSignatureBranch locType accNodes =
+    when makeSignatureBranch locType is
+        Err s -> Err s
+        Ok newNodes ->
+            Ok (accNodes ++ newNodes)
+
+
+makeSignatureBranch : Src.Type -> Result String (Array LPNode)
+makeSignatureBranch locType =
+    when locType.value is
+        -- e.g.:
+        -- (Array String)
+        Src.TParens inParenType ->
+            when makeSignatureBranch inParenType is
+                Err e -> Err e
+                Ok inParenNodes ->
+                    fixupParensChildrenNodes inParenNodes
+
+        -- e.g.:
+        -- String => name = String
+        -- Array String => name = Array (args = [String])
+        Src.TType { name = locName, args = args } ->
+            let firstNode = lpnLeaf (mkTextFromLocString locName)
+            in
+            when Array.popFirst args is
+                Nothing ->
+                    -- No args
+                    Ok [firstNode]
+                Just { first = firstArg, rest = afterArg0 } ->
+                    when Array.popFirst afterArg0 is
+                        Nothing ->
+                            -- Only 1 arg: no parens needed
+                            when makeSignatureBranch firstArg is
+                                Err e -> Err e
+                                Ok firstArgNodes ->
+                                    Ok ([firstNode] ++ firstArgNodes)
+
+                        Just _ ->
+                            -- More than one arg: wrap args in parens
+                            when resultFoldl folderMakeSignatureBranch [] args is
+                                Err e -> Err e
+                                Ok childrenNodes ->
+                                    when fixupParensChildrenNodes childrenNodes is
+                                        Err e -> Err e
+                                        Ok wrappedNodes ->
+                                            let firstWithChildren = LPNode { box = lpnBox firstNode, children = wrappedNodes }
+                                            in
+                                            Ok ([firstWithChildren] ++ wrappedNodes)
+
+        Src.TLambda { from = from, to = to } ->
+            when makeSignatureBranch from is
+                Err e -> Err e
+                Ok fromNodes ->
+                    when makeSignatureBranch to is
+                        Err e -> Err e
+                        Ok toNodes ->
+                            let
+                                arrowLoc = incCol 1 from.end
+                                arrowNode = lpnLeaf (mkText arrowLoc "->")
+                            in
+                            Ok (fromNodes ++ [arrowNode] ++ toNodes)
+
+        -- S.Char -> TTypeQual "Char" with qualifier "S"
+        -- XXX what about args?
+        Src.TTypeQual { args = _, name = name, qualifier = qual, varRegion = varRegion } ->
+            Ok [lpnLeaf (mkText varRegion.start (qual ++ "." ++ name))]
+
+        Src.TVar name ->
+            Ok [lpnLeaf (mkText locType.start name)]
+
+        Src.TRecord { fields = fields, extending = _ } ->
+            let
+                folderField field accNodes =
+                    when makeSignatureBranch field.signature is
+                        Err e -> Err e
+                        Ok typeNodes ->
+                            let
+                                nameNode = lpnLeaf (mkTextFromLocString field.field)
+                                colonNode = lpnLeaf (SynthesizedText ":")
+                                allChildren = [nameNode, colonNode] ++ typeNodes
+                                itemContainer = lpnNode AcrossThenIndent allChildren
+                            in
+                            Ok (Array.pushLast itemContainer accNodes)
+            in
+            when resultFoldl folderField [] fields is
+                Err e -> Err e
+                Ok fieldNodes ->
+                    when Array.popFirst fieldNodes is
+                        Nothing ->
+                            Ok [lpnLeaf (mkText locType.start "{}")]
+                        Just _ ->
+                            Ok [lpnNode (AllAcrossOrAllVertical ListCurly) fieldNodes]

@@ -1,0 +1,55 @@
+module Formatter.VerticalSpace exposing (..)
+
+import Formatter.LogicalPrintingTree exposing (LPBox(..),
+    LPNode(..), lpnBox, lpnChildren, lpnLeaf)
+import Formatter.Strings exposing (countNewlines)
+
+
+lastRowInSubtree : LPNode -> Int
+lastRowInSubtree node =
+    let
+        selfRow =
+            when lpnBox node is
+                UnbreakableText locString -> locString.end.row
+                BlockComment locString -> locString.end.row + countNewlines locString.value
+                DocComment locString -> locString.end.row
+                SingleLineComment locString -> locString.end.row
+                _ -> -1
+    in
+    Array.foldl
+        (\child acc -> max acc (lastRowInSubtree child))
+        selfRow
+        (lpnChildren node)
+
+
+insertEmptyLines : LPNode -> LPNode
+insertEmptyLines root =
+    let
+        { newChildren } =
+            Array.foldl
+                (\child acc ->
+                    let childBox = lpnBox child
+                    in
+                    when { prev = acc.prev, current = childBox } is
+                        { prev = Just (OriginalRows prevRows), current = OriginalRows currentRows } ->
+                            if currentRows.first > prevRows.last + 1 then
+                                { newChildren = acc.newChildren
+                                    |> Array.pushLast (lpnLeaf EmptyLine)
+                                    |> Array.pushLast child
+                                , prev = Just childBox
+                                }
+                            else
+                                { acc
+                                    | newChildren = Array.pushLast child acc.newChildren
+                                    , prev = Just childBox
+                                }
+                        _ ->
+                            { acc
+                                | newChildren = Array.pushLast child acc.newChildren
+                                , prev = Just childBox
+                            }
+                )
+                { newChildren = [], prev = Nothing }
+                (lpnChildren root)
+    in
+    LPNode { box = lpnBox root, children = newChildren }
