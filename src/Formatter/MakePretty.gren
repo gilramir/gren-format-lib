@@ -398,6 +398,8 @@ makeListItemDoc node =
             buildFlowDoc 0 (lpnChildren node)
         ParenBlock ->
             makePDoc ParenBlock (lpnChildren node)
+        AllAcrossOrAllVertical bracket ->
+            makeAllAcrossOrAllVertical bracket (lpnChildren node)
         _ -> P.text "?"
 
 exposingListWithBrackets : String -> String -> String -> Array (P.Doc cost) -> P.Doc cost
@@ -501,6 +503,7 @@ listBoxesWithBrackets open close nodes =
             when lpnBox node is
                 UnbreakableText loc -> Just { doc = P.text loc.value, row = loc.start.row }
                 AcrossThenIndent   -> Just { doc = buildFlowDoc 0 (lpnChildren node), row = nodeFirstRow node }
+                AllAcrossOrAllVertical _ -> Just { doc = makePDoc (lpnBox node) (lpnChildren node), row = nodeFirstRow node }
                 _                  -> Nothing
 
         foldResult =

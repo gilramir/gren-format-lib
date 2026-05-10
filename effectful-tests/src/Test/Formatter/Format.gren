@@ -113,6 +113,7 @@ expressionTests fsPerm =
         , assertPretty fsPerm "records" "Records"
         , assertPretty fsPerm "lambdas and calls" "LambdasAndCalls"
         , assertPretty fsPerm "parenthesized expressions" "ParenWrapped"
+        , assertPretty fsPerm "nested containers in list" "NestedContainersInList"
         ]
 
 declarationTests : FileSystem.Permission -> Effectful.Test
