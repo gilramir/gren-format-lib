@@ -72,3 +72,68 @@ circleArea radius =
     in
     pi * radius * radius
 ```
+
+---
+
+## Comments
+
+The formatter never modifies the text of a comment — only its placement relative to code.
+
+### Single-line comments (`--`)
+
+A comment on the same line as code stays attached to that line:
+
+```gren
+import Dict exposing
+    ( Dict
+    , empty -- a comment on the same line as empty
+    )
+```
+
+A comment on its own line stays on its own line, indented to match the surrounding code:
+
+```gren
+foo2 a =
+    -- before the first line of the function body
+    a * 100
+```
+
+### Block comments (`{- ... -}`)
+
+A block comment inside an expression stays inline:
+
+```gren
+foo1 a = a * {- multiline inside an expression -} 100
+```
+
+A standalone block comment at the top level is treated like any other top-level item (see blank lines below).
+
+### Doc comments (`{-| ... -}`)
+
+A doc comment is placed immediately before the declaration it documents, with no blank line between them. The module doc comment appears immediately after the module line. Multi-line content is preserved exactly:
+
+```gren
+module MyApp exposing ( foo )
+
+{-|
+This is the module doc comment.
+-}
+
+{-| Doc comment for foo.
+-}
+foo : Int -> Int
+foo n = n
+```
+
+### Blank lines around comments
+
+Whether a blank line appears between a comment and an adjacent declaration mirrors the source: if there was no blank line in the original, none is inserted; if there was one, one is kept.
+
+```gren
+{- This block comment is immediately before foo1, no blank line -}
+foo1 = 1
+
+-- This line comment has a blank line after it
+
+foo2 = 2
+```
