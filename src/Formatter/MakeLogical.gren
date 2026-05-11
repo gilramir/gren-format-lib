@@ -5,7 +5,7 @@ import Compiler.Parse.Context as Ctx
 import Compiler.SourcePosition exposing (Located, Position)
 
 import Formatter.LogicalPrintingTree exposing (LPBox(..),
-    LPNode(..), ListBrackets(..), SyntaxType(..), lptToString,
+    LPNode(..), ListBrackets(..), SyntaxType(..),
     lpnBox, lpnChildren, lpnLeaf, lpnNode)
 import Formatter.Comments exposing (lptAddComments)
 import Formatter.InsertExpressions exposing (..)

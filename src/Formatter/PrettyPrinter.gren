@@ -3,7 +3,6 @@ module Formatter.PrettyPrinter exposing (prettyPrint)
 import Compiler.Ast.Source as Src
 import Compiler.Parse.Context as Ctx
 
-import Formatter.LogicalPrintingTree exposing (LPNode, lptToString)
 import Formatter.MakeLogical exposing (makeLogicalPrintingTree)
 import Formatter.MakePretty exposing (makePrettyResult)
 

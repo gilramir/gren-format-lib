@@ -142,16 +142,3 @@ lpBoxToString lpbox =
         BlockComment s -> "block-comment " ++ pstr(s.start) ++ " {- " ++ s.value ++ "-}"
         DocComment s -> "doc-comment " ++ pstr(s.start) ++ " {-| " ++ s.value ++ "-}"
         EmptyLine -> "(nl)"
-
-lptToString : LPNode -> String
-lptToString root =
-    printNode 0 root
-
-printNode : Int -> LPNode -> String
-printNode depth node =
-    let
-        indent = String.repeat depth "  "
-        selfStr = indent ++ lpBoxToString (lpnBox node)
-        childStrs = Array.map (printNode (depth + 1)) (lpnChildren node)
-    in
-    String.join "\n" ([selfStr] ++ childStrs)
