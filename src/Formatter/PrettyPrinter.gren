@@ -1,5 +1,37 @@
 module Formatter.PrettyPrinter exposing (prettyPrint)
 
+{-|
+The Formatter package takes a parsed Gren source file and produces a
+canonically formatted string.
+
+Input: a syntax tree (Src.Module) and a comment table (Ctx.Context) produced
+by the Gren parser.
+
+Output: a formatted source string.
+
+The work happens in three stages:
+
+1. Build a Logical Printing Tree (MakeLogical, InsertExpressions, Comments,
+   VerticalSpace). The syntax tree is walked and converted into an intermediate
+   tree of layout boxes — nodes that say things like "these pieces go across
+   one line, or each on its own line" or "this block is indented under its
+   header." Comments are woven in from the comment table, and blank lines are
+   inserted between top-level declarations according to the spacing rules.
+
+2. Render to a pretty-printer document (MakePretty). The layout box tree is
+   translated into a document in the Wadler/Lindig style: a choice-laden
+   structure where the pretty-printer algorithm picks the layout that fits
+   within the 100-character page width.
+
+3. Serialize to a string. The pretty-printer resolves all layout choices and
+   produces the final text.
+
+The key design principle is that layout decisions (where line breaks go, how
+much indentation) are separated from content (the actual tokens and comments).
+Stage 1 captures the logical structure; stage 2 expresses the choices; stage 3
+commits to one.
+-}
+
 import Compiler.Ast.Source as Src
 import Compiler.Parse.Context as Ctx
 
