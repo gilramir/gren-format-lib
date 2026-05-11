@@ -3,7 +3,7 @@ module Formatter.MakePretty exposing (..)
 import Compiler.SourcePosition exposing (Located)
 
 import Formatter.LogicalPrintingTree exposing (LPBox(..),
-    LPNode, ListBrackets(..), SyntaxType(..), lpnBox, lpnChildren)
+    LPNode, ListBrackets(..), SyntaxType(..), lpBoxToString, lpnBox, lpnChildren)
 
 import Formatter.Strings exposing
     ( joinResultStrings
@@ -53,10 +53,10 @@ makePrettyLine node =
 
 makeFlowIndentable : Array LPNode -> Result String String
 makeFlowIndentable children =
-    let
-        finalDoc = buildFlowDoc grenIndent children
-    in
-    genericRenderResult <| P.prettyFormat costFactory finalDoc
+    when buildFlowDoc grenIndent children is
+        Err e -> Err e
+        Ok finalDoc ->
+            genericRenderResult <| P.prettyFormat costFactory finalDoc
 
 
 {-| Render a type alias always multi-line: header on one line, body indented
@@ -71,12 +71,16 @@ makeTypeAliasPretty children =
         Nothing ->
             Err "type alias declaration is empty"
         Just { initial = headerChildren, last = bodyBlock } ->
-            let
-                headerDoc = buildFlowDoc 0 headerChildren
-                bodyDoc = makeTypeBodyAlwaysVertical (lpnChildren bodyBlock)
-                finalDoc = P.concat headerDoc (P.nest grenIndent (P.concat P.hardNl bodyDoc))
-            in
-            genericRenderResult <| P.prettyFormat costFactory finalDoc
+            when buildFlowDoc 0 headerChildren is
+                Err e -> Err e
+                Ok headerDoc ->
+                    when makeTypeBodyAlwaysVertical (lpnChildren bodyBlock) is
+                        Err e -> Err e
+                        Ok bodyDoc ->
+                            let
+                                finalDoc = P.concat headerDoc (P.nest grenIndent (P.concat P.hardNl bodyDoc))
+                            in
+                            genericRenderResult <| P.prettyFormat costFactory finalDoc
 
 
 {-| Render a custom type always multi-line: `type Name vars` on the first
@@ -88,52 +92,64 @@ makeTypeUnionPretty children =
         Nothing ->
             Err "type declaration is empty"
         Just { initial = headerChildren, last = variantsBlock } ->
-            let
-                headerDoc = buildFlowDoc 0 headerChildren
-                bodyDoc = makeUnionBodyDoc (lpnChildren variantsBlock)
-                finalDoc = P.concat headerDoc (P.nest grenIndent (P.concat P.hardNl bodyDoc))
-            in
-            genericRenderResult <| P.prettyFormat costFactory finalDoc
+            when buildFlowDoc 0 headerChildren is
+                Err e -> Err e
+                Ok headerDoc ->
+                    when makeUnionBodyDoc (lpnChildren variantsBlock) is
+                        Err e -> Err e
+                        Ok bodyDoc ->
+                            let
+                                finalDoc = P.concat headerDoc (P.nest grenIndent (P.concat P.hardNl bodyDoc))
+                            in
+                            genericRenderResult <| P.prettyFormat costFactory finalDoc
 
 
-makeUnionBodyDoc : Array LPNode -> P.Doc cost
+makeUnionBodyDoc : Array LPNode -> Result String (P.Doc cost)
 makeUnionBodyDoc nodes =
     let
         result =
             Array.foldl
-                (\node acc ->
-                    when lpnBox node is
-                        SingleLineComment loc ->
-                            when Array.popLast acc.docs is
-                                Nothing ->
-                                    { docs = [P.text ("--" ++ loc.value)]
-                                    , prevRow = loc.start.row
-                                    }
-                                Just { last = lastDoc, initial = initDocs } ->
-                                    if loc.start.row == acc.prevRow then
-                                        { docs = Array.pushLast (P.concat lastDoc (P.text (" --" ++ loc.value))) initDocs
-                                        , prevRow = loc.start.row
-                                        }
-                                    else
-                                        { docs = Array.pushLast (P.text ("--" ++ loc.value)) acc.docs
-                                        , prevRow = loc.start.row
-                                        }
-                        _ ->
-                            { docs = Array.pushLast (buildFlowDoc 0 (lpnChildren node)) acc.docs
-                            , prevRow = nodeFirstRow node
-                            }
+                (\node accResult ->
+                    when accResult is
+                        Err e -> Err e
+                        Ok acc ->
+                            when lpnBox node is
+                                SingleLineComment loc ->
+                                    when Array.popLast acc.docs is
+                                        Nothing ->
+                                            Ok { docs = [P.text ("--" ++ loc.value)]
+                                               , prevRow = loc.start.row
+                                               }
+                                        Just { last = lastDoc, initial = initDocs } ->
+                                            if loc.start.row == acc.prevRow then
+                                                Ok { docs = Array.pushLast (P.concat lastDoc (P.text (" --" ++ loc.value))) initDocs
+                                                   , prevRow = loc.start.row
+                                                   }
+                                            else
+                                                Ok { docs = Array.pushLast (P.text ("--" ++ loc.value)) acc.docs
+                                                   , prevRow = loc.start.row
+                                                   }
+                                _ ->
+                                    when buildFlowDoc 0 (lpnChildren node) is
+                                        Err e -> Err e
+                                        Ok childDoc ->
+                                            Ok { docs = Array.pushLast childDoc acc.docs
+                                               , prevRow = nodeFirstRow node
+                                               }
                 )
-                { docs = [], prevRow = -1 }
+                (Ok { docs = [], prevRow = -1 })
                 nodes
     in
-    P.vcat result.docs
+    when result is
+        Err e -> Err e
+        Ok state -> Ok (P.vcat state.docs)
 
 
-makeTypeBodyAlwaysVertical : Array LPNode -> P.Doc cost
+makeTypeBodyAlwaysVertical : Array LPNode -> Result String (P.Doc cost)
 makeTypeBodyAlwaysVertical typeNodes =
     when Array.popFirst typeNodes is
         Nothing ->
-            P.empty
+            Ok P.empty
         Just { first = onlyNode, rest = rest } ->
             if Array.isEmpty rest then
                 makePDocAlwaysVertical (lpnBox onlyNode) (lpnChildren onlyNode)
@@ -141,7 +157,7 @@ makeTypeBodyAlwaysVertical typeNodes =
                 buildFlowDoc 0 typeNodes
 
 
-makePDocAlwaysVertical : LPBox -> Array LPNode -> P.Doc cost
+makePDocAlwaysVertical : LPBox -> Array LPNode -> Result String (P.Doc cost)
 makePDocAlwaysVertical box children =
     when box is
         AllAcrossOrAllVertical bracket ->
@@ -161,13 +177,31 @@ makePDocAlwaysVertical box children =
             else
                 when Array.popFirst children is
                     Nothing ->
-                        P.text bs.empty
+                        Ok (P.text bs.empty)
                     Just { first, rest } ->
-                        let
-                            firstDoc = P.concat (P.text bs.open) (makeListItemDoc first)
-                            restDocs = Array.map (\child -> P.concat (P.text ", ") (makeListItemDoc child)) rest
-                        in
-                        P.vcat ([firstDoc] ++ restDocs ++ [P.text bs.close])
+                        when makeListItemDoc first is
+                            Err e -> Err e
+                            Ok firstDoc ->
+                                let
+                                    firstD = P.concat (P.text bs.open) firstDoc
+                                    restResult =
+                                        Array.foldl
+                                            (\child accResult ->
+                                                when accResult is
+                                                    Err e -> Err e
+                                                    Ok docs ->
+                                                        when makeListItemDoc child is
+                                                            Err e -> Err e
+                                                            Ok childDoc ->
+                                                                Ok (Array.pushLast (P.concat (P.text ", ") childDoc) docs)
+                                            )
+                                            (Ok [firstD])
+                                            rest
+                                in
+                                when restResult is
+                                    Err e -> Err e
+                                    Ok allDocs ->
+                                        Ok (P.vcat (allDocs ++ [P.text bs.close]))
         _ ->
             makePDoc box children
 
@@ -190,11 +224,11 @@ type NextSeparator
 
   - A comment on the same row as the preceding item is attached directly
     to it (no separator), producing e.g. "exposing -- comment".
-  - A comment on a different row goes on its own line via a normal nl group.
+  - A comment on a different row goes on its own line via a forced hardNl.
   - Either way, the comment appends hardNl so the next item always starts
     on a fresh line — indicated by `AlreadyTerminated` for the next item.
 -}
-buildFlowDoc : Int -> Array LPNode -> P.Doc cost
+buildFlowDoc : Int -> Array LPNode -> Result String (P.Doc cost)
 buildFlowDoc indent nodes =
     let
         -- separator: either "same line with space" or "new line with indent"
@@ -210,143 +244,160 @@ buildFlowDoc indent nodes =
 
         foldResult =
             Array.foldl
-                (\node acc ->
-                    let
-                        box = lpnBox node
-                        nodeChildren = lpnChildren node
-                    in
-                    when box is
-                        SingleLineComment loc ->
+                (\node accResult ->
+                    when accResult is
+                        Err e -> Err e
+                        Ok acc ->
                             let
-                                commentText = P.text ("--" ++ loc.value)
-                                docWithComment =
-                                    when acc.separator is
-                                        FirstItem ->
-                                            commentText
-                                        _ ->
-                                            if loc.start.row == acc.prevRow then
-                                                -- Same row as preceding item: attach with a space
-                                                P.concat acc.doc (P.concat (P.text " ") commentText)
-                                            else
-                                                -- Different row: force a line break before the comment
-                                                P.concat acc.doc (P.concat P.hardNl commentText)
+                                box = lpnBox node
+                                nodeChildren = lpnChildren node
                             in
-                            { doc = P.concat docWithComment P.hardNl
-                            , prevRow = loc.start.row
-                            , separator = AlreadyTerminated
-                            }
+                            when box is
+                                SingleLineComment loc ->
+                                    let
+                                        commentText = P.text ("--" ++ loc.value)
+                                        docWithComment =
+                                            when acc.separator is
+                                                FirstItem ->
+                                                    commentText
+                                                _ ->
+                                                    if loc.start.row == acc.prevRow then
+                                                        -- Same row as preceding item: attach with a space
+                                                        P.concat acc.doc (P.concat (P.text " ") commentText)
+                                                    else
+                                                        -- Different row: force a line break before the comment
+                                                        P.concat acc.doc (P.concat P.hardNl commentText)
+                                    in
+                                    Ok { doc = P.concat docWithComment P.hardNl
+                                       , prevRow = loc.start.row
+                                       , separator = AlreadyTerminated
+                                       }
 
-                        AllAcrossOrAllVertical bracket ->
-                            let
-                                itemDoc = makeAllAcrossOrAllVertical bracket nodeChildren
-                            in
-                            { doc = joinDoc acc.separator acc.doc itemDoc
-                            , prevRow = -1
-                            , separator = FlowSep
-                            }
+                                AllAcrossOrAllVertical bracket ->
+                                    when makeAllAcrossOrAllVertical bracket nodeChildren is
+                                        Err e -> Err e
+                                        Ok itemDoc ->
+                                            Ok { doc = joinDoc acc.separator acc.doc itemDoc
+                                               , prevRow = -1
+                                               , separator = FlowSep
+                                               }
 
-                        IndentedBlock ->
-                            let
-                                childrenDoc = buildFlowDoc 0 nodeChildren
-                                indentedDoc = P.nest grenIndent (P.concat P.hardNl childrenDoc)
-                                newDoc =
-                                    when acc.separator is
-                                        FirstItem -> childrenDoc
-                                        _         -> P.concat acc.doc indentedDoc
-                            in
-                            { doc = newDoc
-                            , prevRow = -1
-                            , separator = HardNl
-                            }
+                                IndentedBlock ->
+                                    when buildFlowDoc 0 nodeChildren is
+                                        Err e -> Err e
+                                        Ok childrenDoc ->
+                                            let
+                                                indentedDoc = P.nest grenIndent (P.concat P.hardNl childrenDoc)
+                                                newDoc =
+                                                    when acc.separator is
+                                                        FirstItem -> childrenDoc
+                                                        _         -> P.concat acc.doc indentedDoc
+                                            in
+                                            Ok { doc = newDoc
+                                               , prevRow = -1
+                                               , separator = HardNl
+                                               }
 
-                        PipelineStep ->
-                            let
-                                childrenDoc = buildFlowDoc 0 nodeChildren
-                                firstChildIsComment =
-                                    when Array.popFirst nodeChildren is
-                                        Just { first = firstNode, rest = _ } ->
-                                            when lpnBox firstNode is
-                                                SingleLineComment _ -> True
-                                                _ -> False
-                                        Nothing -> False
-                                -- Only add a blank line before a commented step if it
-                                -- follows another PipelineStep (separator = HardNl).
-                                -- The first step after the seed uses FlowSep and
-                                -- should not get a blank line.
-                                blankLinePrefix =
-                                    when acc.separator is
-                                        HardNl ->
-                                            if firstChildIsComment then P.text "\n" else P.empty
-                                        _ ->
-                                            P.empty
-                                indentedDoc = P.concat blankLinePrefix (P.nest grenIndent (P.concat P.hardNl childrenDoc))
-                                newDoc =
-                                    when acc.separator is
-                                        FirstItem -> childrenDoc
-                                        _         -> P.concat acc.doc indentedDoc
-                            in
-                            { doc = newDoc
-                            , prevRow = -1
-                            , separator = HardNl
-                            }
+                                PipelineStep ->
+                                    when buildFlowDoc 0 nodeChildren is
+                                        Err e -> Err e
+                                        Ok childrenDoc ->
+                                            let
+                                                firstChildIsComment =
+                                                    when Array.popFirst nodeChildren is
+                                                        Just { first = firstNode, rest = _ } ->
+                                                            when lpnBox firstNode is
+                                                                SingleLineComment _ -> True
+                                                                _ -> False
+                                                        Nothing -> False
+                                                -- Only add a blank line before a commented step if it
+                                                -- follows another PipelineStep (separator = HardNl).
+                                                -- The first step after the seed uses FlowSep and
+                                                -- should not get a blank line.
+                                                blankLinePrefix =
+                                                    when acc.separator is
+                                                        HardNl ->
+                                                            if firstChildIsComment then P.text "\n" else P.empty
+                                                        _ ->
+                                                            P.empty
+                                                indentedDoc = P.concat blankLinePrefix (P.nest grenIndent (P.concat P.hardNl childrenDoc))
+                                                newDoc =
+                                                    when acc.separator is
+                                                        FirstItem -> childrenDoc
+                                                        _         -> P.concat acc.doc indentedDoc
+                                            in
+                                            Ok { doc = newDoc
+                                               , prevRow = -1
+                                               , separator = HardNl
+                                               }
 
-                        BodyBlock ->
-                            let
-                                childrenDoc = buildFlowDoc 0 nodeChildren
-                                newDoc =
-                                    when acc.separator is
-                                        FirstItem -> childrenDoc
-                                        _         -> P.concat acc.doc (P.concat P.hardNl childrenDoc)
-                            in
-                            { doc = newDoc
-                            , prevRow = -1
-                            , separator = FlowSep
-                            }
+                                BodyBlock ->
+                                    when buildFlowDoc 0 nodeChildren is
+                                        Err e -> Err e
+                                        Ok childrenDoc ->
+                                            let
+                                                newDoc =
+                                                    when acc.separator is
+                                                        FirstItem -> childrenDoc
+                                                        _         -> P.concat acc.doc (P.concat P.hardNl childrenDoc)
+                                            in
+                                            Ok { doc = newDoc
+                                               , prevRow = -1
+                                               , separator = FlowSep
+                                               }
 
-                        SoftIndentedBlock ->
-                            let
-                                childrenDoc = buildFlowDoc 0 nodeChildren
-                                newDoc =
-                                    when acc.separator is
-                                        FirstItem -> childrenDoc
-                                        _ -> P.concat acc.doc (P.group (P.nest grenIndent (P.concat P.nl childrenDoc)))
-                            in
-                            { doc = newDoc
-                            , prevRow = -1
-                            , separator = FlowSep
-                            }
+                                SoftIndentedBlock ->
+                                    when buildFlowDoc 0 nodeChildren is
+                                        Err e -> Err e
+                                        Ok childrenDoc ->
+                                            let
+                                                newDoc =
+                                                    when acc.separator is
+                                                        FirstItem -> childrenDoc
+                                                        _ -> P.concat acc.doc (P.group (P.nest grenIndent (P.concat P.nl childrenDoc)))
+                                            in
+                                            Ok { doc = newDoc
+                                               , prevRow = -1
+                                               , separator = FlowSep
+                                               }
 
-                        SoftBodyBlock ->
-                            let
-                                childrenDoc = buildFlowDoc 0 nodeChildren
-                                newDoc =
-                                    when acc.separator is
-                                        FirstItem -> childrenDoc
-                                        AlreadyTerminated -> P.concat acc.doc childrenDoc
-                                        _ -> P.concat acc.doc (P.group (P.concat P.nl childrenDoc))
-                            in
-                            { doc = newDoc
-                            , prevRow = -1
-                            , separator = FlowSep
-                            }
+                                SoftBodyBlock ->
+                                    when buildFlowDoc 0 nodeChildren is
+                                        Err e -> Err e
+                                        Ok childrenDoc ->
+                                            let
+                                                newDoc =
+                                                    when acc.separator is
+                                                        FirstItem -> childrenDoc
+                                                        AlreadyTerminated -> P.concat acc.doc childrenDoc
+                                                        _ -> P.concat acc.doc (P.group (P.concat P.nl childrenDoc))
+                                            in
+                                            Ok { doc = newDoc
+                                               , prevRow = -1
+                                               , separator = FlowSep
+                                               }
 
-                        _ ->
-                            let
-                                itemDoc = makePDoc box nodeChildren
-                                prevRow =
-                                    when box is
-                                        UnbreakableText loc -> loc.start.row
-                                        _ -> -1
-                            in
-                            { doc = joinDoc acc.separator acc.doc itemDoc
-                            , prevRow = prevRow
-                            , separator = FlowSep
-                            }
+                                _ ->
+                                    when makePDoc box nodeChildren is
+                                        Err e -> Err e
+                                        Ok itemDoc ->
+                                            let
+                                                prevRow =
+                                                    when box is
+                                                        UnbreakableText loc -> loc.start.row
+                                                        _ -> -1
+                                            in
+                                            Ok { doc = joinDoc acc.separator acc.doc itemDoc
+                                               , prevRow = prevRow
+                                               , separator = FlowSep
+                                               }
                 )
-                { doc = P.empty, prevRow = -1, separator = FirstItem }
+                (Ok { doc = P.empty, prevRow = -1, separator = FirstItem })
                 nodes
     in
-    P.nest indent foldResult.doc
+    when foldResult is
+        Err e -> Err e
+        Ok state -> Ok (P.nest indent state.doc)
 
 
 
@@ -375,15 +426,15 @@ genericRenderResult maybeFormatted =
         Just s -> Ok s
         Nothing -> Err "Failed to pretty-print"
 
-makePDoc : LPBox -> Array LPNode -> P.Doc cost
+makePDoc : LPBox -> Array LPNode -> Result String (P.Doc cost)
 makePDoc box children =
     when box is
-        UnbreakableText locs -> P.text locs.value
-        SynthesizedText s -> P.text s
+        UnbreakableText locs -> Ok (P.text locs.value)
+        SynthesizedText s -> Ok (P.text s)
         AllAcrossOrAllVertical bracket ->
             makeAllAcrossOrAllVertical bracket children
-        SingleLineComment locs -> lineComment locs.value
-        BlockComment locs -> P.text ("{-" ++ locs.value ++ "-}")
+        SingleLineComment locs -> Ok (lineComment locs.value)
+        BlockComment locs -> Ok (P.text ("{-" ++ locs.value ++ "-}"))
         AcrossThenIndent ->
             buildFlowDoc grenIndent children
         IndentedBlock ->
@@ -397,12 +448,13 @@ makePDoc box children =
         SoftBodyBlock ->
             buildFlowDoc 0 children
         ParenBlock ->
-            let innerDoc = buildFlowDoc 0 children
-            in P.concat (P.text "(") (P.concat innerDoc (P.text ")"))
-        _ -> P.text "?"
+            when buildFlowDoc 0 children is
+                Err e -> Err e
+                Ok innerDoc -> Ok (P.concat (P.text "(") (P.concat innerDoc (P.text ")")))
+        unexpected -> Err ("makePDoc: unexpected box type: " ++ lpBoxToString unexpected)
 
 
-makeAllAcrossOrAllVertical : ListBrackets -> Array LPNode -> P.Doc cost
+makeAllAcrossOrAllVertical : ListBrackets -> Array LPNode -> Result String (P.Doc cost)
 makeAllAcrossOrAllVertical brackets children =
     let
         bs = bracketStrings brackets
@@ -417,8 +469,24 @@ makeAllAcrossOrAllVertical brackets children =
     if hasComment then
         listBoxesWithBrackets bs.open bs.close children
     else
-        let itemDocs = Array.map makeListItemDoc children
-        in exposingListWithBrackets bs.open bs.close bs.empty itemDocs
+        let
+            itemResults =
+                Array.foldl
+                    (\child accResult ->
+                        when accResult is
+                            Err e -> Err e
+                            Ok docs ->
+                                when makeListItemDoc child is
+                                    Err e -> Err e
+                                    Ok d -> Ok (Array.pushLast d docs)
+                    )
+                    (Ok [])
+                    children
+        in
+        when itemResults is
+            Err e -> Err e
+            Ok itemDocs ->
+                Ok (exposingListWithBrackets bs.open bs.close bs.empty itemDocs)
 
 bracketStrings : ListBrackets -> { open : String, close : String, empty : String }
 bracketStrings brackets =
@@ -427,17 +495,17 @@ bracketStrings brackets =
         ListCurly  -> { open = "{ ", close = "}", empty = "{}" }
         ListSquare -> { open = "[ ", close = "]", empty = "[]" }
 
-makeListItemDoc : LPNode -> P.Doc cost
+makeListItemDoc : LPNode -> Result String (P.Doc cost)
 makeListItemDoc node =
     when lpnBox node is
-        UnbreakableText loc -> P.text loc.value
+        UnbreakableText loc -> Ok (P.text loc.value)
         AcrossThenIndent ->
             buildFlowDoc grenIndent (lpnChildren node)
         ParenBlock ->
             makePDoc ParenBlock (lpnChildren node)
         AllAcrossOrAllVertical bracket ->
             makeAllAcrossOrAllVertical bracket (lpnChildren node)
-        _ -> P.text "?"
+        unexpected -> Err ("makeListItemDoc: unexpected box type: " ++ lpBoxToString unexpected)
 
 exposingListWithBrackets : String -> String -> String -> Array (P.Doc cost) -> P.Doc cost
 exposingListWithBrackets open close empty items =
@@ -533,97 +601,113 @@ nodeFirstRow node =
                 (lpnChildren node)
 
 
-listBoxesWithBrackets : String -> String -> Array LPNode -> P.Doc cost
+listBoxesWithBrackets : String -> String -> Array LPNode -> Result String (P.Doc cost)
 listBoxesWithBrackets open close nodes =
     let
         nodeItemDoc node =
             when lpnBox node is
-                UnbreakableText loc -> Just { doc = P.text loc.value, row = loc.start.row }
-                AcrossThenIndent   -> Just { doc = buildFlowDoc grenIndent (lpnChildren node), row = nodeFirstRow node }
-                AllAcrossOrAllVertical _ -> Just { doc = makePDoc (lpnBox node) (lpnChildren node), row = nodeFirstRow node }
-                _                  -> Nothing
+                UnbreakableText loc ->
+                    Ok (Just { doc = P.text loc.value, row = loc.start.row })
+                AcrossThenIndent ->
+                    when buildFlowDoc grenIndent (lpnChildren node) is
+                        Err e -> Err e
+                        Ok d -> Ok (Just { doc = d, row = nodeFirstRow node })
+                AllAcrossOrAllVertical _ ->
+                    when makePDoc (lpnBox node) (lpnChildren node) is
+                        Err e -> Err e
+                        Ok d -> Ok (Just { doc = d, row = nodeFirstRow node })
+                _ ->
+                    Ok Nothing
 
         foldResult =
             Array.foldl
-                (\node acc ->
-                    when lpnBox node is
-                        SingleLineComment loc ->
-                            if loc.start.row == acc.prevRow then
-                                let
-                                    attached =
-                                        when acc.pending is
-                                            Nothing ->
-                                                { doc = P.text ("--" ++ loc.value), isComment = True }
-                                            Just e ->
-                                                { doc = P.concat e.doc (P.text (" --" ++ loc.value))
-                                                , isComment = False
-                                                }
-                                in
-                                { acc
-                                    | lineDocs = acc.lineDocs ++ [ attached ]
-                                    , pending  = Nothing
-                                }
+                (\node accResult ->
+                    when accResult is
+                        Err e -> Err e
+                        Ok acc ->
+                            when lpnBox node is
+                                SingleLineComment loc ->
+                                    if loc.start.row == acc.prevRow then
+                                        let
+                                            attached =
+                                                when acc.pending is
+                                                    Nothing ->
+                                                        { doc = P.text ("--" ++ loc.value), isComment = True }
+                                                    Just e ->
+                                                        { doc = P.concat e.doc (P.text (" --" ++ loc.value))
+                                                        , isComment = False
+                                                        }
+                                        in
+                                        Ok { acc
+                                            | lineDocs = acc.lineDocs ++ [ attached ]
+                                            , pending  = Nothing
+                                            }
 
-                            else
-                                let
-                                    flushed =
-                                        when acc.pending is
-                                            Nothing -> acc.lineDocs
-                                            Just e  -> acc.lineDocs ++ [ e ]
-                                in
-                                { lineDocs = flushed ++ [ { doc = P.text ("--" ++ loc.value), isComment = True } ]
-                                , pending  = Nothing
-                                , prevRow  = loc.start.row
-                                }
+                                    else
+                                        let
+                                            flushed =
+                                                when acc.pending is
+                                                    Nothing -> acc.lineDocs
+                                                    Just e  -> acc.lineDocs ++ [ e ]
+                                        in
+                                        Ok { lineDocs = flushed ++ [ { doc = P.text ("--" ++ loc.value), isComment = True } ]
+                                           , pending  = Nothing
+                                           , prevRow  = loc.start.row
+                                           }
 
-                        _ ->
-                            when nodeItemDoc node is
-                                Nothing -> acc
-                                Just { doc, row } ->
-                                    let
-                                        flushed =
-                                            when acc.pending is
-                                                Nothing -> acc.lineDocs
-                                                Just e  -> acc.lineDocs ++ [ e ]
-                                    in
-                                    { lineDocs = flushed
-                                    , pending  = Just { doc = doc, isComment = False }
-                                    , prevRow  = row
-                                    }
+                                _ ->
+                                    when nodeItemDoc node is
+                                        Err e -> Err e
+                                        Ok Nothing -> Ok acc
+                                        Ok (Just { doc, row }) ->
+                                            let
+                                                flushed =
+                                                    when acc.pending is
+                                                        Nothing -> acc.lineDocs
+                                                        Just e  -> acc.lineDocs ++ [ e ]
+                                            in
+                                            Ok { lineDocs = flushed
+                                               , pending  = Just { doc = doc, isComment = False }
+                                               , prevRow  = row
+                                               }
                 )
-                { lineDocs = [], pending = Nothing, prevRow = -1 }
+                (Ok { lineDocs = [], pending = Nothing, prevRow = -1 })
                 nodes
-
-        allLineDocs =
-            when foldResult.pending is
-                Nothing -> foldResult.lineDocs
-                Just e  -> foldResult.lineDocs ++ [ e ]
-
-        prefixed =
-            let
-                { result } =
-                    Array.foldl
-                        (\{ doc, isComment } acc ->
-                            if isComment then
-                                { acc | result = acc.result ++ [ doc ] }
-                            else
-                                let
-                                    prefixedDoc =
-                                        if acc.seenText then
-                                            P.concat (P.text ", ") doc
-                                        else
-                                            P.concat (P.text open) doc
-                                in
-                                { result = acc.result ++ [ prefixedDoc ]
-                                , seenText = True
-                                }
-                        )
-                        { result = [], seenText = False }
-                        allLineDocs
-            in
-            result ++ [ P.text close ]
     in
-    P.vcat prefixed
+    when foldResult is
+        Err e -> Err e
+        Ok state ->
+            let
+                allLineDocs =
+                    when state.pending is
+                        Nothing -> state.lineDocs
+                        Just e  -> state.lineDocs ++ [ e ]
+
+                prefixed =
+                    let
+                        { result } =
+                            Array.foldl
+                                (\{ doc, isComment } acc ->
+                                    if isComment then
+                                        { acc | result = acc.result ++ [ doc ] }
+                                    else
+                                        let
+                                            prefixedDoc =
+                                                if acc.seenText then
+                                                    P.concat (P.text ", ") doc
+                                                else
+                                                    P.concat (P.text open) doc
+                                        in
+                                        { result = acc.result ++ [ prefixedDoc ]
+                                        , seenText = True
+                                        }
+                                )
+                                { result = [], seenText = False }
+                                allLineDocs
+                    in
+                    result ++ [ P.text close ]
+            in
+            Ok (P.vcat prefixed)
 
 
 {-| Like `exposingList`, but handles interleaved single-line comments.
@@ -647,7 +731,7 @@ listBoxesWithBrackets open close nodes =
     its own line.
 -}
 
-exposingListBoxes : Array LPNode -> P.Doc cost
+exposingListBoxes : Array LPNode -> Result String (P.Doc cost)
 exposingListBoxes nodes =
     let
         hasComment =
@@ -670,7 +754,7 @@ exposingListBoxes nodes =
                     )
                     nodes
         in
-        exposingList textDocs
+        Ok (exposingList textDocs)
 
     else
         listBoxesWithBrackets "( " ")" nodes
