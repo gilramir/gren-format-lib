@@ -31,8 +31,8 @@ lptFromAst modAst =
     let root = lpnLeaf RootBox
     in
     -- TODO: binops
-    -- TODO: docs
     processModuleLine modAst root
+        |> Result.map (processFunctionDoc modAst.docs)
         |> Result.andThen (processImports modAst)
         |> Result.andThen (processFunctions modAst)
         |> Result.andThen (processAliases modAst)

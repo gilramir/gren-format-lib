@@ -1,0 +1,35 @@
+module CommentsEverywhere exposing (foo)
+
+{-|
+This is a top-level doc comment
+
+And this is last line of it
+-}
+
+
+
+-- A floating comment, not attached to a function
+
+
+
+-- A second floating comment, not attached to a function
+
+
+
+
+{- A multiline comment
+just before a function -}
+foo1: Int -> Int
+foo1 a =
+    a * {- multiline inside an expression -}
+        100
+
+-- A single line comment before a function
+foo2: Int -> Int
+foo2 a =
+    -- before the first line of the function
+    a * 100
+
+
+
+-- File ends with a floating comment

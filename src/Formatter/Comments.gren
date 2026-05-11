@@ -32,8 +32,23 @@ lptAddComment locComment root =
         rootChildren = lpnChildren root
         { origRowNode, before, after } = findOrCreateOrigRow row stype rootChildren
         updatedOrigRow = insertCommentIntoSubtree commentNode row col origRowNode
+        endRow =
+            when locComment.value is
+                Ctx.Line _ -> row
+                Ctx.Block content -> row + countNewlines content
+        correctedOrigRow =
+            when lpnBox updatedOrigRow is
+                OriginalRows rowInfo ->
+                    if endRow > rowInfo.last then
+                        LPNode
+                            { box = OriginalRows { rowInfo | last = endRow }
+                            , children = lpnChildren updatedOrigRow
+                            }
+                    else
+                        updatedOrigRow
+                _ -> updatedOrigRow
     in
-    LPNode { box = lpnBox root, children = before ++ [updatedOrigRow] ++ after }
+    LPNode { box = lpnBox root, children = before ++ [correctedOrigRow] ++ after }
 
 
 mkCommentLpBox : Located Ctx.Comment -> LPBox

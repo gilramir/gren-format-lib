@@ -133,5 +133,6 @@ commentsTests : FileSystem.Permission -> Effectful.Test
 commentsTests fsPerm =
     describe "Comments"
         [ assertPretty fsPerm "comments in pipeliens" "CommentsPipeline"
+        , assertPretty fsPerm "comments everywhere" "CommentsEverywhere"
         ]
 

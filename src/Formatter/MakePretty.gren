@@ -220,11 +220,16 @@ buildFlowDoc indent nodes =
                             let
                                 commentText = P.text ("--" ++ loc.value)
                                 docWithComment =
-                                    if loc.start.row == acc.prevRow then
-                                        -- Same row as preceding item: attach with a space, no separator
-                                        P.concat acc.doc (P.concat (P.text " ") commentText)
-                                    else
-                                        joinDoc acc.separator acc.doc commentText
+                                    when acc.separator is
+                                        FirstItem ->
+                                            commentText
+                                        _ ->
+                                            if loc.start.row == acc.prevRow then
+                                                -- Same row as preceding item: attach with a space
+                                                P.concat acc.doc (P.concat (P.text " ") commentText)
+                                            else
+                                                -- Different row: force a line break before the comment
+                                                P.concat acc.doc (P.concat P.hardNl commentText)
                             in
                             { doc = P.concat docWithComment P.hardNl
                             , prevRow = loc.start.row
@@ -317,6 +322,7 @@ buildFlowDoc indent nodes =
                                 newDoc =
                                     when acc.separator is
                                         FirstItem -> childrenDoc
+                                        AlreadyTerminated -> P.concat acc.doc childrenDoc
                                         _ -> P.concat acc.doc (P.group (P.concat P.nl childrenDoc))
                             in
                             { doc = newDoc
@@ -377,6 +383,7 @@ makePDoc box children =
         AllAcrossOrAllVertical bracket ->
             makeAllAcrossOrAllVertical bracket children
         SingleLineComment locs -> lineComment locs.value
+        BlockComment locs -> P.text ("{-" ++ locs.value ++ "-}")
         AcrossThenIndent ->
             buildFlowDoc grenIndent children
         IndentedBlock ->
