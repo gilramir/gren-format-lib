@@ -2,6 +2,7 @@ module WhenExpression exposing ( dayName, sign, describeList )
 
 {- Pattern matching with when/is -}
 
+
 -- Name of the day of the week (1 = Monday)
 dayName : Int -> String
 dayName n =
@@ -15,6 +16,7 @@ dayName n =
         7 -> "Sunday"
         _ -> "Unknown"
 
+
 -- Sign of a number
 sign : Int -> Int
 sign n =
@@ -25,6 +27,7 @@ sign n =
                 1
             else
                 -1
+
 
 -- Describe an array based on its contents
 describeList : Array a -> String

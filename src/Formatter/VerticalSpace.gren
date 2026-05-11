@@ -1,6 +1,6 @@
 module Formatter.VerticalSpace exposing (..)
 
-import Formatter.LogicalPrintingTree exposing (LPBox(..),
+import Formatter.LogicalPrintingTree exposing (LPBox(..), SyntaxType(..),
     LPNode(..), lpnBox, lpnChildren, lpnLeaf)
 import Formatter.Strings exposing (countNewlines)
 
@@ -22,34 +22,93 @@ lastRowInSubtree node =
         (lpnChildren node)
 
 
+isCommentStype : SyntaxType -> Bool
+isCommentStype stype =
+    when stype is
+        StSingleLineComment -> True
+        StBlockComment -> True
+        StDocComment -> True
+        _ -> False
+
+
+-- Tag each root-level child as the start of a function group.
+-- A function group starts at StFunctionSignature, or at a comment
+-- that is immediately adjacent (no source gap) to a group start.
+-- We scan right-to-left so adjacency can propagate backwards.
+tagGroupStarts : Array LPNode -> Array { node : LPNode, isGroupStart : Bool }
+tagGroupStarts nodes =
+    let
+        { items } =
+            Array.foldl
+                (\node acc ->
+                    let
+                        isGroupStart =
+                            when lpnBox node is
+                                OriginalRows rowInfo ->
+                                    when rowInfo.stype is
+                                        StFunctionSignature -> True
+                                        _ ->
+                                            if isCommentStype rowInfo.stype then
+                                                when acc.nextGroupStartFirst is
+                                                    Nothing -> False
+                                                    Just nextFirst -> nextFirst == rowInfo.last + 1
+                                            else
+                                                False
+                                _ -> False
+                        nextGroupStartFirst_ =
+                            if isGroupStart then
+                                when lpnBox node is
+                                    OriginalRows rowInfo -> Just rowInfo.first
+                                    _ -> Nothing
+                            else
+                                Nothing
+                    in
+                    { items = Array.pushLast { node = node, isGroupStart = isGroupStart } acc.items
+                    , nextGroupStartFirst = nextGroupStartFirst_
+                    }
+                )
+                { items = [], nextGroupStartFirst = Nothing }
+                (Array.reverse nodes)
+    in
+    Array.reverse items
+
+
 insertEmptyLines : LPNode -> LPNode
 insertEmptyLines root =
     let
+        tagged = tagGroupStarts (lpnChildren root)
         { newChildren } =
             Array.foldl
-                (\child acc ->
-                    let childBox = lpnBox child
+                (\{ node, isGroupStart } acc ->
+                    let childBox = lpnBox node
                     in
                     when { prev = acc.prev, current = childBox } is
                         { prev = Just (OriginalRows prevRows), current = OriginalRows currentRows } ->
                             if currentRows.first > prevRows.last + 1 then
-                                { newChildren = acc.newChildren
-                                    |> Array.pushLast (lpnLeaf EmptyLine)
-                                    |> Array.pushLast child
+                                let
+                                    withBlanks =
+                                        if isGroupStart then
+                                            acc.newChildren
+                                                |> Array.pushLast (lpnLeaf EmptyLine)
+                                                |> Array.pushLast (lpnLeaf EmptyLine)
+                                        else
+                                            Array.pushLast (lpnLeaf EmptyLine) acc.newChildren
+                                in
+                                { newChildren = Array.pushLast node withBlanks
                                 , prev = Just childBox
                                 }
                             else
                                 { acc
-                                    | newChildren = Array.pushLast child acc.newChildren
+                                    | newChildren = Array.pushLast node acc.newChildren
                                     , prev = Just childBox
                                 }
                         _ ->
                             { acc
-                                | newChildren = Array.pushLast child acc.newChildren
+                                | newChildren = Array.pushLast node acc.newChildren
                                 , prev = Just childBox
                             }
                 )
                 { newChildren = [], prev = Nothing }
-                (lpnChildren root)
+                tagged
     in
     LPNode { box = lpnBox root, children = newChildren }

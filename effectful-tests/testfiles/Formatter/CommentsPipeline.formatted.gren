@@ -1,5 +1,6 @@
 module CommentsPipeline exposing ( foo )
 
+
 -- Comments between pipeline lines should have a single space
 -- before them to make them easier to read
 findPreferredLanguage : Array String -> Maybe String

@@ -1,5 +1,6 @@
 module IfExpression exposing ( classify, clamp, between )
 
+
 -- Classify an integer as negative, zero, or positive
 classify : Int -> String
 classify n =
@@ -10,6 +11,7 @@ classify n =
     else
         "positive"
 
+
 {- Clamp a value to a range -}
 clamp : Int -> Int -> Int -> Int
 clamp lo hi n =
@@ -19,6 +21,7 @@ clamp lo hi n =
         hi
     else
         n
+
 
 -- Check whether n is strictly between lo and hi
 between : Int -> Int -> Int -> Bool
