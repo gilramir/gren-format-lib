@@ -21,4 +21,11 @@ foo2 a =
     -- before the first line of the function
     a * 100
 
+{-|
+A doc comment before
+a function
+-}
+foo3 : Int -> Int
+foo3 a = a * 100
+
 -- File ends with a floating comment
