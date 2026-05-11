@@ -91,7 +91,6 @@ processModuleLine modAst root =
             when modAst.exports is
                 Src.Open ->
                     lpnLeaf (SynthesizedText "(..)")
-                -- XXX handle empty exposed, like in imports
                 Src.Explicit exposed ->
                     lpnNode (AllAcrossOrAllVertical ListParen)
                         (Array.map processExposed exposed)
@@ -297,10 +296,7 @@ processModDecl modDecl root =
 processFunctionBody : Src.Value -> LPNode -> Result String LPNode
 processFunctionBody modVal root =
     let
-        -- XXX problem is that the row is wrong if there is a funcSig
         nameNode = lpnLeaf (mkTextFromLocString modVal.name)
-
-        -- XXX need a better pos
         eqNode = lpnLeaf (SynthesizedText "=")
     in
     when resultFoldl folderInsertPattern [] modVal.args is
