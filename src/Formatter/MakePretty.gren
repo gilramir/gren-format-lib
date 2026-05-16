@@ -374,13 +374,13 @@ buildFlowDoc indent nodes =
                                                , prevBranchMultiLine = False
                                                }
 
-                                WhenBranch { isMultiLine = branchMultiLine, isWildcard = branchWildcard } ->
+                                WhenBranch { isMultiLine = branchMultiLine } ->
                                     when buildFlowDoc 0 nodeChildren is
                                         Err e -> Err e
                                         Ok childrenDoc ->
                                             let
                                                 insertBlankLine =
-                                                    not branchWildcard && (acc.prevBranchMultiLine || branchMultiLine)
+                                                    acc.prevBranchMultiLine || branchMultiLine
                                                 blankOrNewline =
                                                     if insertBlankLine then
                                                         P.concat (P.text "\n") P.hardNl

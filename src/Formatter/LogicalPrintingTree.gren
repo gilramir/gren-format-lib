@@ -84,8 +84,7 @@ type LPBox
 
     -- One branch in a when/is expression.
     -- isMultiLine: True if the body is always multi-line (record, if/let/when, etc.)
-    -- isWildcard: True if the pattern is a bare wildcard (_)
-    | WhenBranch { isMultiLine : Bool, isWildcard : Bool }
+    | WhenBranch { isMultiLine : Bool }
 
     -- Parenthesized expression: renders children with ( prefix and ) suffix
     -- using P.concat (immediate adjacency, no space). Used instead of
@@ -148,8 +147,8 @@ lpBoxToString lpbox =
         IndentedBlock -> "(indentedBlock)"
         PipelineStep -> "(pipelineStep)"
         BodyBlock -> "(bodyBlock)"
-        WhenBranch { isMultiLine = ml, isWildcard = wc } ->
-            "(whenBranch ml=" ++ (if ml then "T" else "F") ++ " wc=" ++ (if wc then "T" else "F") ++ ")"
+        WhenBranch { isMultiLine = ml } ->
+            "(whenBranch ml=" ++ (if ml then "T" else "F") ++ ")"
         ParenBlock -> "(parenBlock)"
         SoftIndentedBlock -> "(softIndentedBlock)"
         SoftBodyBlock -> "(softBodyBlock)"

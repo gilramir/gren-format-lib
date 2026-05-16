@@ -22,6 +22,7 @@ sign : Int -> Int
 sign n =
     when n is
         0 -> 0
+
         _ ->
             if n > 0 then
                 1

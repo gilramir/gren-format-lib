@@ -189,6 +189,52 @@ Record types in signatures are not affected by these rules — they follow the s
 
 ---
 
+## When expressions
+
+Each branch pattern and its body are placed on the same line when they fit:
+
+```gren
+when n is
+    1 -> "one"
+    _ -> "other"
+```
+
+When the body is too long to fit on the same line, it moves to the next line indented by 4 spaces relative to the pattern:
+
+```gren
+when msg is
+    ChangeLanguage lang ->
+        { model = { model | lang = lang }
+        , command = Cmd.none
+        }
+```
+
+A blank line is inserted between two branches whenever either branch occupies more than one line:
+
+```gren
+when msg is
+    ChangeLanguage lang ->
+        { model = { model | lang = lang }
+        , command = Cmd.none
+        }
+
+    NoOp ->
+        { model = model
+        , command = Cmd.none
+        }
+```
+
+When all branches fit on a single line each, no blank lines are inserted:
+
+```gren
+when n is
+    1 -> "Monday"
+    2 -> "Tuesday"
+    _ -> "Unknown"
+```
+
+---
+
 ## Pipelines
 
 A pipeline that fits on one line stays on one line:

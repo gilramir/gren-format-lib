@@ -495,10 +495,6 @@ folderInsertWhenBranch branch accNodes =
         Ok patNodes ->
             let
                 arrowNode = lpnLeaf (SynthesizedText "->")
-                isWildcard =
-                    when branch.pattern.value is
-                        Src.PAnything _ -> True
-                        _ -> False
                 isComplexBody =
                     when branch.body.value is
                         Src.If _ -> True
@@ -512,7 +508,7 @@ folderInsertWhenBranch branch accNodes =
                     Ok bodyNode ->
                         let
                             allChildren = patNodes ++ [arrowNode, bodyNode]
-                            container = lpnNode (WhenBranch { isMultiLine = True, isWildcard = isWildcard }) allChildren
+                            container = lpnNode (WhenBranch { isMultiLine = True }) allChildren
                         in
                         Ok (Array.pushLast container accNodes)
             else
@@ -529,7 +525,7 @@ folderInsertWhenBranch branch accNodes =
                             -- AcrossThenIndent ensures the body is indented by 4 when
                             -- it cannot fit inline with the pattern and arrow.
                             branchContent = lpnNode AcrossThenIndent (patNodes ++ [arrowNode, bodyNode])
-                            container = lpnNode (WhenBranch { isMultiLine = isBodyMultiLine, isWildcard = isWildcard }) [branchContent]
+                            container = lpnNode (WhenBranch { isMultiLine = isBodyMultiLine }) [branchContent]
                         in
                         Ok (Array.pushLast container accNodes)
 
