@@ -189,6 +189,47 @@ Record types in signatures are not affected by these rules — they follow the s
 
 ---
 
+## Pipelines
+
+A pipeline that fits on one line stays on one line:
+
+```gren
+result = list |> Array.map double |> Array.first
+```
+
+When the pipeline is too long to fit on one line, each `|>` step starts on its own line, indented by 4 spaces relative to the pipeline seed:
+
+```gren
+result =
+    list
+        |> Array.map double
+        |> Array.keepIf isValid
+        |> Array.first
+```
+
+When a pipeline step's function call is too long to fit on one line with the `|>`, its continuation arguments wrap to the **next line indented by 4 spaces relative to the `|>`**:
+
+```gren
+result =
+    nodes
+        |> Dict.set newItemKey newValue
+        |> Dict.set firstExistingKey
+            (buildUpdatedLinkNodeFromOriginal originalFirstLinkEntry newItemKey)
+```
+
+A comment immediately before a pipeline step is treated as part of that step and is placed at the same indentation level as the `|>`:
+
+```gren
+result =
+    list
+        -- Step 1: filter
+        |> Array.keepIf isValid
+        -- Step 2: transform
+        |> Array.map double
+```
+
+---
+
 ## Comments
 
 The formatter never modifies the text of a comment — only its placement relative to code.

@@ -1,0 +1,10 @@
+module PipelineArgIndent exposing (..)
+
+-- Pipeline step args that don't fit on one line should be indented
+-- +4 from the |> column, not placed at the same column as |>.
+
+foo nodes newItemKey newValue firstExistingKey originalFirstLinkEntry =
+    nodes
+        |> Dict.set newItemKey newValue
+        |> Dict.set firstExistingKey
+        (buildUpdatedLinkNodeFromOriginal originalFirstLinkEntry newItemKey)

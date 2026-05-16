@@ -304,31 +304,49 @@ buildFlowDoc indent nodes =
                                                }
 
                                 PipelineStep ->
-                                    when buildFlowDoc 0 nodeChildren is
+                                    -- Extract a leading SingleLineComment (if any) so we can
+                                    -- render it at the step's own nesting level rather than
+                                    -- inside the extra P.nest grenIndent applied to the args.
+                                    -- This ensures the comment and |> are at the same column,
+                                    -- while continuation args are indented +4 from |>.
+                                    let
+                                        { commentDoc, stepChildren, hasComment } =
+                                            when Array.popFirst nodeChildren is
+                                                Just { first = firstNode, rest = rest } ->
+                                                    when lpnBox firstNode is
+                                                        SingleLineComment loc ->
+                                                            { commentDoc = P.concat (P.text ("--" ++ loc.value)) P.hardNl
+                                                            , stepChildren = rest
+                                                            , hasComment = True
+                                                            }
+                                                        _ ->
+                                                            { commentDoc = P.empty, stepChildren = nodeChildren, hasComment = False }
+                                                Nothing ->
+                                                    { commentDoc = P.empty, stepChildren = [], hasComment = False }
+                                    in
+                                    when buildFlowDoc grenIndent stepChildren is
                                         Err e -> Err e
                                         Ok childrenDoc ->
                                             let
-                                                firstChildIsComment =
-                                                    when Array.popFirst nodeChildren is
-                                                        Just { first = firstNode, rest = _ } ->
-                                                            when lpnBox firstNode is
-                                                                SingleLineComment _ -> True
-                                                                _ -> False
-                                                        Nothing -> False
                                                 -- Only add a blank line before a commented step if it
                                                 -- follows another PipelineStep (separator = HardNl).
-                                                -- The first step after the seed uses FlowSep and
-                                                -- should not get a blank line.
                                                 blankLinePrefix =
                                                     when acc.separator is
                                                         HardNl ->
-                                                            if firstChildIsComment then P.text "\n" else P.empty
+                                                            if hasComment then P.text "\n" else P.empty
                                                         _ ->
                                                             P.empty
-                                                indentedDoc = P.concat blankLinePrefix (P.nest grenIndent (P.concat P.hardNl childrenDoc))
+                                                -- commentDoc (if any) fires at step level; childrenDoc
+                                                -- (|> and args) is wrapped in P.nest grenIndent so
+                                                -- continuation args break at |>-column + 4.
+                                                indentedDoc =
+                                                    P.concat blankLinePrefix
+                                                        (P.nest grenIndent
+                                                            (P.concat P.hardNl
+                                                                (P.concat commentDoc childrenDoc)))
                                                 newDoc =
                                                     when acc.separator is
-                                                        FirstItem -> childrenDoc
+                                                        FirstItem -> P.concat commentDoc childrenDoc
                                                         _         -> P.concat acc.doc indentedDoc
                                             in
                                             Ok { doc = newDoc
