@@ -260,6 +260,11 @@ buildFlowDoc indent nodes =
                                             when acc.separator is
                                                 FirstItem ->
                                                     commentText
+                                                AlreadyTerminated ->
+                                                    -- Previous comment already ended its line with hardNl;
+                                                    -- concatenate directly to avoid a blank line between
+                                                    -- consecutive comments.
+                                                    P.concat acc.doc commentText
                                                 _ ->
                                                     if loc.start.row == acc.prevRow then
                                                         -- Same row as preceding item: attach with a space

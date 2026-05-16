@@ -184,15 +184,19 @@ insertAmongChildren commentNode row col children =
     else
         let
             insertionIndex =
-                Array.foldl
-                    (\child acc ->
-                        if subtreeEndsBefore child row col then
-                            acc + 1
-                        else
-                            acc
-                    )
-                    0
-                    children
+                let
+                    result =
+                        Array.foldl
+                            (\child acc ->
+                                if subtreeEndsBefore child row col then
+                                    { arrayIndex = acc.arrayIndex + 1, insertAt = acc.arrayIndex + 1 }
+                                else
+                                    { acc | arrayIndex = acc.arrayIndex + 1 }
+                            )
+                            { arrayIndex = 0, insertAt = 0 }
+                            children
+                in
+                result.insertAt
 
             { before, after } =
                 splitAt insertionIndex children

@@ -1,0 +1,13 @@
+module ConsecutiveCommentsInBranch exposing (..)
+
+-- Two consecutive comments before a when-branch body.
+-- The synthesized '->' arrow between the pattern and comments caused
+-- the insertion index to be off-by-one, reversing the comment order.
+
+foo maybeThing =
+    when maybeThing is
+        Nothing ->
+            -- first comment
+            -- second comment
+            defaultValue
+        Just x -> x

@@ -134,5 +134,6 @@ commentsTests fsPerm =
     describe "Comments"
         [ assertPretty fsPerm "comments in pipeliens" "CommentsPipeline"
         , assertPretty fsPerm "comments everywhere" "CommentsEverywhere"
+        , assertPretty fsPerm "consecutive comments in when branch" "ConsecutiveCommentsInBranch"
         ]
 
