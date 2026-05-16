@@ -512,6 +512,10 @@ makePDoc box children =
             when buildFlowDoc 0 children is
                 Err e -> Err e
                 Ok innerDoc -> Ok (P.concat (P.text "(") (P.concat innerDoc (P.text ")")))
+        LambdaSlash ->
+            when buildFlowDoc 0 children is
+                Err e -> Err e
+                Ok innerDoc -> Ok (P.concat (P.text "\\") innerDoc)
         unexpected -> Err ("makePDoc: unexpected box type: " ++ lpBoxToString unexpected)
 
 

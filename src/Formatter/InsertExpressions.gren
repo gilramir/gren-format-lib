@@ -240,14 +240,16 @@ insertExpression locExpr =
                 Err e -> Err e
                 Ok patNodes ->
                     let
-                        -- Prepend \ to the first text leaf of the first pattern
+                        -- Wrap first pattern in LambdaSlash so MakePretty can
+                        -- emit \ immediately before the pattern (no space). This
+                        -- works for all pattern shapes including record ({ x, y })
+                        -- and array ([ x, y ]) whose opening bracket is synthesised
+                        -- during rendering and would be skipped by tryMapFirstLeaf.
                         updatedPatNodes =
                             when Array.popFirst patNodes is
                                 Nothing -> patNodes
                                 Just { first = firstPat, rest = restPats } ->
-                                    when tryMapFirstLeaf (\loc -> mkText locExpr.start ("\\" ++ loc.value)) firstPat is
-                                        Just updated -> Array.pushFirst updated restPats
-                                        Nothing -> patNodes
+                                    Array.pushFirst (lpnNode LambdaSlash [firstPat]) restPats
                         arrowNode = lpnLeaf (SynthesizedText "->")
                     in
                     when insertExpressionAsItem body is

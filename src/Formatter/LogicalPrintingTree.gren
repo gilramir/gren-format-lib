@@ -92,6 +92,11 @@ type LPBox
     -- correctly: ([...] ++ x) not [( ... ] ++ x).
     | ParenBlock
 
+    -- Lambda \ prefix: renders children with \ immediately before (no space).
+    -- Used instead of text-modification so that bracket-rendered containers
+    -- (records, arrays) render correctly: \{ x, y } not { \x, y }.
+    | LambdaSlash
+
     -- Let-def body: tries to keep children inline after `=`, but when it must
     -- break, places the body at +4 from the binding name's column.
     -- Unlike IndentedBlock (which always forces P.hardNl), this uses
@@ -150,6 +155,7 @@ lpBoxToString lpbox =
         WhenBranch { isMultiLine = ml } ->
             "(whenBranch ml=" ++ (if ml then "T" else "F") ++ ")"
         ParenBlock -> "(parenBlock)"
+        LambdaSlash -> "(lambdaSlash)"
         SoftIndentedBlock -> "(softIndentedBlock)"
         SoftBodyBlock -> "(softBodyBlock)"
         SingleLineComment s -> "line-comment " ++ pstr(s.start) ++ " -- " ++ s.value
