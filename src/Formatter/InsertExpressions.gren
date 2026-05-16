@@ -167,8 +167,13 @@ insertExpression locExpr =
                     when Array.popFirst fieldNodes is
                         Nothing ->
                             Ok [lpnLeaf (mkText locExpr.start "{}")]
-                        Just _ ->
-                            Ok [lpnNode (AllAcrossOrAllVertical ListCurly) fieldNodes]
+                        Just { first = _, rest = rest } ->
+                            if Array.isEmpty rest then
+                                -- Single field: stay inline
+                                Ok [lpnNode (AllAcrossOrAllVertical ListCurly) fieldNodes]
+                            else
+                                -- 2+ fields: always vertical
+                                Ok [lpnNode (AlwaysVertical ListCurly) fieldNodes]
 
         Src.Update { record = record, newValues = newValues } ->
             let
@@ -177,17 +182,22 @@ insertExpression locExpr =
             when resultFoldl folderInsertRecordField [] newValues is
                 Err e -> Err e
                 Ok fieldNodes ->
-                    -- Prepend "recName | " to the first text in the first field
-                    let
-                        updatedFields =
-                            when Array.popFirst fieldNodes is
-                                Nothing -> fieldNodes
-                                Just { first = firstField, rest = restFields } ->
-                                    when tryMapFirstLeaf (\loc -> mkText loc.start (recText ++ " | " ++ loc.value)) firstField is
-                                        Just updated -> Array.pushFirst updated restFields
-                                        Nothing -> fieldNodes
-                    in
-                    Ok [lpnNode (AllAcrossOrAllVertical ListCurly) updatedFields]
+                    when Array.popFirst fieldNodes is
+                        Nothing ->
+                            Ok [lpnLeaf (mkText locExpr.start "{}")]
+                        Just { first = firstField, rest = restFields } ->
+                            if Array.isEmpty restFields then
+                                -- Single field update: inline, prepend "recName | " to first field text
+                                let
+                                    updatedField =
+                                        when tryMapFirstLeaf (\loc -> mkText loc.start (recText ++ " | " ++ loc.value)) firstField is
+                                            Just updated -> updated
+                                            Nothing -> firstField
+                                in
+                                Ok [lpnNode (AllAcrossOrAllVertical ListCurly) [updatedField]]
+                            else
+                                -- 2+ field update: always vertical with RecordUpdate
+                                Ok [lpnNode (RecordUpdate recText) fieldNodes]
 
         Src.Binops { left = lhsExpr, operator = locStringOp, right = rhsExpr } ->
             if locStringOp.value == "|>" then
@@ -223,7 +233,7 @@ insertExpression locExpr =
             when insertExpression fnExpr is
                 Err e -> Err e
                 Ok fnNodes ->
-                    resultFoldl folderInsertExprAsItem fnNodes argsExprs
+                    resultFoldl folderInsertExprAsArgItem fnNodes argsExprs
 
         Src.Lambda { patterns = patterns, body = body } ->
             when resultFoldl folderInsertPattern [] patterns is
@@ -330,6 +340,38 @@ folderInsertExprAsItem expr accNodes =
         Err s -> Err s
         Ok node ->
             Ok (Array.pushLast node accNodes)
+
+
+-- Like folderInsertExprAsItem but for function-call arguments: converts
+-- AlwaysVertical and RecordUpdate top-level nodes to AllAcrossOrAllVertical
+-- so that records used as arguments can remain inline when they fit.
+folderInsertExprAsArgItem : Src.Expression -> Array LPNode -> Result String (Array LPNode)
+folderInsertExprAsArgItem expr accNodes =
+    when insertExpressionAsItem expr is
+        Err s -> Err s
+        Ok node ->
+            let
+                converted =
+                    when lpnBox node is
+                        AlwaysVertical bracket ->
+                            lpnNode (AllAcrossOrAllVertical bracket) (lpnChildren node)
+                        RecordUpdate baseName ->
+                            -- Prepend "baseName | " to first field's first text so the inline
+                            -- form renders correctly: { pt | x = 1, y = 2 }
+                            let
+                                children = lpnChildren node
+                                updatedChildren =
+                                    when Array.popFirst children is
+                                        Nothing -> children
+                                        Just { first = firstField, rest = restFields } ->
+                                            when tryMapFirstLeaf (\loc -> mkText loc.start (baseName ++ " | " ++ loc.value)) firstField is
+                                                Just updatedFirst -> Array.pushFirst updatedFirst restFields
+                                                Nothing -> children
+                            in
+                            lpnNode (AllAcrossOrAllVertical ListCurly) updatedChildren
+                        _ -> node
+            in
+            Ok (Array.pushLast converted accNodes)
 
 
 insertExpressionAsIndentedBlock : Src.Expression -> Result String LPNode

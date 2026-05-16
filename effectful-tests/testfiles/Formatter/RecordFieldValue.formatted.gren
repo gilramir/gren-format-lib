@@ -1,14 +1,18 @@
 module RecordFieldValue exposing (..)
 
 -- Field value fits inline: stays on one line
-compact = { model = { model | x = 1 }, command = Cmd.none }
+compact =
+    { model = { model | x = 1 }
+    , command = Cmd.none
+    }
 
 -- Field value too long to fit inline: wraps to next line, indented +4
 wrapsToNextLine =
     { model =
-        { model | searchLang = lang
-        , searchText = ""
-        , suggestionDropdownState = AutoDropdown.initialState
+        { model
+            | searchLang = lang
+            , searchText = ""
+            , suggestionDropdownState = AutoDropdown.initialState
         }
     , command = Cmd.none
     }
@@ -16,8 +20,9 @@ wrapsToNextLine =
 -- Nested record update with even longer field value
 deeplyNested =
     { model =
-        { newCacheModel | suggestions = results.results
-        , suggestionDropdownState = { model.suggestionDropdownState | isOpen = hasSuggestions }
+        { newCacheModel
+            | suggestions = results.results
+            , suggestionDropdownState = { model.suggestionDropdownState | isOpen = hasSuggestions }
         }
     , command = Cmd.none
     }

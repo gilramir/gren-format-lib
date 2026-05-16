@@ -114,6 +114,81 @@ This rule applies to chains of comments: each consecutive comment line (or block
 
 ---
 
+## Records
+
+### Record literals
+
+An empty record stays on one line: `{}`.
+
+A record with a single field stays on one line:
+
+```gren
+singleton x = { x = x }
+```
+
+A record with two or more fields is always written across multiple lines, with `{` and the first field on the first line, `, ` before each subsequent field, and `}` on its own line:
+
+```gren
+makePoint x y =
+    { x = x
+    , y = y
+    }
+```
+
+Records passed as function arguments follow the same rules — a single-field record stays on one line even when used as an argument:
+
+```gren
+firstX = distSq { x = 0, y = 0 } { x = 1, y = 0 }
+```
+
+### Record updates
+
+An empty record update and a single-field update stay on one line:
+
+```gren
+withDefault r = { r | x = 0 }
+```
+
+A record update with two or more fields is always written across multiple lines. The base record name goes on the first line after `{`, the first field is on the next line prefixed with `| ` (indented by 4), and each subsequent field is on its own line prefixed with `, ` at the same indentation. The closing `}` goes on its own line aligned with `{`:
+
+```gren
+movePoint dx dy pt =
+    { pt
+        | x = pt.x + dx
+        , y = pt.y + dy
+    }
+```
+
+### Record field values
+
+When a field's value is short enough to fit on the same line as the field name, it stays there:
+
+```gren
+compact =
+    { model = { model | x = 1 }
+    , command = Cmd.none
+    }
+```
+
+When a field's value is too long to fit on the same line, it wraps to the next line indented by 4 spaces relative to the field name:
+
+```gren
+wrapsToNextLine =
+    { model =
+        { model
+            | searchLang = lang
+            , searchText = ""
+        }
+    , command = Cmd.none
+    }
+```
+
+### Records in type signatures
+
+Record types in signatures are not affected by these rules — they follow the same flow-layout rules as other types and may be inline or wrapped depending on line length.
+
+---
+
 ## Comments
 
 The formatter never modifies the text of a comment — only its placement relative to code.

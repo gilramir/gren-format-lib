@@ -65,6 +65,12 @@ type LPBox
     -- Lists with surrounding brackets (for "exposing")
     | AllAcrossOrAllVertical ListBrackets
 
+    -- Always-vertical list (for 2+ field record literals)
+    | AlwaysVertical ListBrackets
+
+    -- Multi-field record update: base name on first line, fields indented +4
+    | RecordUpdate String
+
     -- Children always render on a new indented line (used for then/else bodies, etc.)
     | IndentedBlock
 
@@ -132,6 +138,8 @@ lpBoxToString lpbox =
             "\"" ++ s ++ "\" (synth)"
         AcrossThenIndent -> "(acrossThenIndent)"
         AllAcrossOrAllVertical _ -> "(allAcrossOrAllVertical)"
+        AlwaysVertical _ -> "(alwaysVertical)"
+        RecordUpdate baseName -> "(recordUpdate " ++ baseName ++ ")"
         IndentedBlock -> "(indentedBlock)"
         PipelineStep -> "(pipelineStep)"
         BodyBlock -> "(bodyBlock)"

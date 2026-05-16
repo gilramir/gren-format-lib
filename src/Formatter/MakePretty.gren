@@ -433,6 +433,11 @@ makePDoc box children =
         SynthesizedText s -> Ok (P.text s)
         AllAcrossOrAllVertical bracket ->
             makeAllAcrossOrAllVertical bracket children
+        AlwaysVertical bracket ->
+            let bs = bracketStrings bracket
+            in listBoxesWithBrackets bs.open bs.close children
+        RecordUpdate baseName ->
+            makeRecordUpdateDoc baseName children
         SingleLineComment locs -> Ok (lineComment locs.value)
         BlockComment locs -> Ok (P.text ("{-" ++ locs.value ++ "-}"))
         AcrossThenIndent ->
@@ -505,6 +510,11 @@ makeListItemDoc node =
             makePDoc ParenBlock (lpnChildren node)
         AllAcrossOrAllVertical bracket ->
             makeAllAcrossOrAllVertical bracket (lpnChildren node)
+        AlwaysVertical bracket ->
+            let bs = bracketStrings bracket
+            in listBoxesWithBrackets bs.open bs.close (lpnChildren node)
+        RecordUpdate baseName ->
+            makeRecordUpdateDoc baseName (lpnChildren node)
         unexpected -> Err ("makeListItemDoc: unexpected box type: " ++ lpBoxToString unexpected)
 
 exposingListWithBrackets : String -> String -> String -> Array (P.Doc cost) -> P.Doc cost
@@ -590,6 +600,36 @@ When a `SingleLineComment` appears:
   - On the same row as the preceding item: attached to that item's line with " --".
   - On its own row: rendered as a standalone line without a comma prefix.
 -}
+makeRecordUpdateDoc : String -> Array LPNode -> Result String (P.Doc cost)
+makeRecordUpdateDoc baseName children =
+    when Array.popFirst children is
+        Nothing ->
+            Ok (P.text ("{ " ++ baseName ++ " }"))
+        Just { first = firstField, rest = restFields } ->
+            when buildFlowDoc grenIndent (lpnChildren firstField) is
+                Err e -> Err e
+                Ok firstFieldDoc ->
+                    let
+                        restResult =
+                            Array.foldl
+                                (\field accResult ->
+                                    when accResult is
+                                        Err e -> Err e
+                                        Ok docs ->
+                                            when buildFlowDoc grenIndent (lpnChildren field) is
+                                                Err e -> Err e
+                                                Ok d ->
+                                                    Ok (Array.pushLast (P.concat (P.text "    , ") d) docs)
+                                )
+                                (Ok [P.concat (P.text "    | ") firstFieldDoc])
+                                restFields
+                    in
+                    when restResult is
+                        Err e -> Err e
+                        Ok fieldLines ->
+                            Ok (P.vcat ([P.text ("{ " ++ baseName)] ++ fieldLines ++ [P.text "}"]))
+
+
 nodeFirstRow : LPNode -> Int
 nodeFirstRow node =
     when lpnBox node is
@@ -614,6 +654,16 @@ listBoxesWithBrackets open close nodes =
                         Ok d -> Ok (Just { doc = d, row = nodeFirstRow node })
                 AllAcrossOrAllVertical _ ->
                     when makePDoc (lpnBox node) (lpnChildren node) is
+                        Err e -> Err e
+                        Ok d -> Ok (Just { doc = d, row = nodeFirstRow node })
+                AlwaysVertical bracket ->
+                    let bs = bracketStrings bracket
+                    in
+                    when listBoxesWithBrackets bs.open bs.close (lpnChildren node) is
+                        Err e -> Err e
+                        Ok d -> Ok (Just { doc = d, row = nodeFirstRow node })
+                RecordUpdate baseName ->
+                    when makeRecordUpdateDoc baseName (lpnChildren node) is
                         Err e -> Err e
                         Ok d -> Ok (Just { doc = d, row = nodeFirstRow node })
                 _ ->
