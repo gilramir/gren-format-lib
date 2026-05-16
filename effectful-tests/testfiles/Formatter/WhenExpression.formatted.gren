@@ -34,6 +34,7 @@ describeList : Array a -> String
 describeList xs =
     when Array.popFirst xs is
         Nothing -> "empty"
+
         Just { first, rest } ->
             when Array.popFirst rest is
                 Nothing -> "one item"

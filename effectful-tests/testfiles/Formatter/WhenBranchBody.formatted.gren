@@ -18,6 +18,7 @@ withRecord msg model =
                 }
             , command = Cmd.none
             }
+
         NoOp ->
             { model = model
             , command = Cmd.none
@@ -28,4 +29,5 @@ withArray msg =
     when msg is
         LoadItems ->
             [ firstItem, secondItem, thirdItem, fourthItem, fifthItem, sixthItem, seventhItem ]
+
         ClearItems -> []

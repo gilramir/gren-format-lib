@@ -276,6 +276,7 @@ buildFlowDoc indent nodes =
                                     Ok { doc = P.concat docWithComment P.hardNl
                                        , prevRow = loc.start.row
                                        , separator = AlreadyTerminated
+                                       , prevBranchMultiLine = False
                                        }
 
                                 AllAcrossOrAllVertical bracket ->
@@ -285,6 +286,7 @@ buildFlowDoc indent nodes =
                                             Ok { doc = joinDoc acc.separator acc.doc itemDoc
                                                , prevRow = -1
                                                , separator = FlowSep
+                                               , prevBranchMultiLine = False
                                                }
 
                                 IndentedBlock ->
@@ -301,6 +303,7 @@ buildFlowDoc indent nodes =
                                             Ok { doc = newDoc
                                                , prevRow = -1
                                                , separator = HardNl
+                                               , prevBranchMultiLine = False
                                                }
 
                                 PipelineStep ->
@@ -352,6 +355,7 @@ buildFlowDoc indent nodes =
                                             Ok { doc = newDoc
                                                , prevRow = -1
                                                , separator = HardNl
+                                               , prevBranchMultiLine = False
                                                }
 
                                 BodyBlock ->
@@ -367,6 +371,30 @@ buildFlowDoc indent nodes =
                                             Ok { doc = newDoc
                                                , prevRow = -1
                                                , separator = FlowSep
+                                               , prevBranchMultiLine = False
+                                               }
+
+                                WhenBranch { isMultiLine = branchMultiLine, isWildcard = branchWildcard } ->
+                                    when buildFlowDoc 0 nodeChildren is
+                                        Err e -> Err e
+                                        Ok childrenDoc ->
+                                            let
+                                                insertBlankLine =
+                                                    not branchWildcard && (acc.prevBranchMultiLine || branchMultiLine)
+                                                blankOrNewline =
+                                                    if insertBlankLine then
+                                                        P.concat (P.text "\n") P.hardNl
+                                                    else
+                                                        P.hardNl
+                                                newDoc =
+                                                    when acc.separator is
+                                                        FirstItem -> childrenDoc
+                                                        _         -> P.concat acc.doc (P.concat blankOrNewline childrenDoc)
+                                            in
+                                            Ok { doc = newDoc
+                                               , prevRow = -1
+                                               , separator = FlowSep
+                                               , prevBranchMultiLine = branchMultiLine
                                                }
 
                                 SoftIndentedBlock ->
@@ -382,6 +410,7 @@ buildFlowDoc indent nodes =
                                             Ok { doc = newDoc
                                                , prevRow = -1
                                                , separator = FlowSep
+                                               , prevBranchMultiLine = False
                                                }
 
                                 SoftBodyBlock ->
@@ -398,6 +427,7 @@ buildFlowDoc indent nodes =
                                             Ok { doc = newDoc
                                                , prevRow = -1
                                                , separator = FlowSep
+                                               , prevBranchMultiLine = False
                                                }
 
                                 _ ->
@@ -413,9 +443,10 @@ buildFlowDoc indent nodes =
                                             Ok { doc = joinDoc acc.separator acc.doc itemDoc
                                                , prevRow = prevRow
                                                , separator = FlowSep
+                                               , prevBranchMultiLine = False
                                                }
                 )
-                (Ok { doc = P.empty, prevRow = -1, separator = FirstItem })
+                (Ok { doc = P.empty, prevRow = -1, separator = FirstItem, prevBranchMultiLine = False })
                 nodes
     in
     when foldResult is
@@ -470,6 +501,8 @@ makePDoc box children =
         PipelineStep ->
             buildFlowDoc 0 children
         BodyBlock ->
+            buildFlowDoc 0 children
+        WhenBranch _ ->
             buildFlowDoc 0 children
         SoftIndentedBlock ->
             buildFlowDoc 0 children
