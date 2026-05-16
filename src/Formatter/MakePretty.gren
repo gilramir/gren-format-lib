@@ -366,7 +366,8 @@ buildFlowDoc indent nodes =
                                                 newDoc =
                                                     when acc.separator is
                                                         FirstItem -> childrenDoc
-                                                        _         -> P.concat acc.doc (P.concat P.hardNl childrenDoc)
+                                                        AlreadyTerminated -> P.concat acc.doc childrenDoc
+                                                        _ -> P.concat acc.doc (P.concat P.hardNl childrenDoc)
                                             in
                                             Ok { doc = newDoc
                                                , prevRow = -1

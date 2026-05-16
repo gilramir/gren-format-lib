@@ -38,7 +38,23 @@ The wildcard form `(..)` is left as-is. The same rules apply to `import … expo
 
 ## Function body
 
-A function body stays on the same line as its name and parameters if the whole definition fits within the page width:
+When a function is preceded by a type signature, the body always starts on the next line, indented by 4 spaces — even if it would fit on one line:
+
+```gren
+double : Int -> Int
+double n =
+    n * 2
+
+version : String
+version =
+    "1.0.0"
+
+makePoint : Int -> Int -> { x : Int, y : Int }
+makePoint x y =
+    { x = x, y = y }
+```
+
+When there is no type signature, a function body stays on the same line as its name and parameters if the whole definition fits within the page width:
 
 ```gren
 double n = n * 2
@@ -48,7 +64,7 @@ version = "1.0.0"
 makePoint x y = { x = x, y = y }
 ```
 
-When the body is too long to fit, it moves to the next line indented by 4 spaces:
+When the body is too long to fit on one line (with or without a type signature), it moves to the next line indented by 4 spaces:
 
 ```gren
 findPreferredLanguage languages =

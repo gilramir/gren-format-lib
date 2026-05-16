@@ -286,15 +286,19 @@ processModDecl : Src.ModuleDeclaration Src.Value -> LPNode -> Result String LPNo
 processModDecl modDecl root =
     let
         t0 = processFunctionDoc modDecl.value.docs root
+        hasSignature =
+            when modDecl.value.value.signature is
+                Just _ -> True
+                Nothing -> False
     in
     when processFunctionSignature modDecl.value.value.name modDecl.value.value.signature t0 is
         Err err1 -> Err err1
         Ok t1 ->
-            processFunctionBody modDecl.value.value t1
+            processFunctionBody modDecl.value.value hasSignature t1
 
 
-processFunctionBody : Src.Value -> LPNode -> Result String LPNode
-processFunctionBody modVal root =
+processFunctionBody : Src.Value -> Bool -> LPNode -> Result String LPNode
+processFunctionBody modVal hasSignature root =
     let
         nameNode = lpnLeaf (mkTextFromLocString modVal.name)
         eqNode = lpnLeaf (SynthesizedText "=")
@@ -307,7 +311,11 @@ processFunctionBody modVal root =
                 Ok bodyNodes ->
                     let
                         header = lpnNode AcrossThenIndent ([nameNode] ++ argsNodes ++ [eqNode])
-                        bodyWrapper = lpnNode SoftBodyBlock bodyNodes
+                        bodyWrapper =
+                            if hasSignature then
+                                lpnNode BodyBlock bodyNodes
+                            else
+                                lpnNode SoftBodyBlock bodyNodes
                         allChildren = [header, bodyWrapper]
                     in
                     Ok (addRootChild (makeOrigRows modVal.name.start.row StFunctionDeclaration allChildren) root)

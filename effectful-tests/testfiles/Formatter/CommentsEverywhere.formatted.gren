@@ -14,7 +14,8 @@ And this is last line of it
 {- A multiline comment
 just before a function -}
 foo1 : Int -> Int
-foo1 a = a * {- multiline inside an expression -} 100
+foo1 a =
+    a * {- multiline inside an expression -} 100
 
 
 -- A single line comment before a function
@@ -29,6 +30,7 @@ A doc comment before
 a function
 -}
 foo3 : Int -> Int
-foo3 a = a * 100
+foo3 a =
+    a * 100
 
 -- File ends with a floating comment
