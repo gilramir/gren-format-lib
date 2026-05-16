@@ -97,23 +97,27 @@ Two blank lines appear before every function signature (the line with the type a
 
 ```gren
 double : Int -> Int
-double n = n * 2
+double n =
+    n * 2
 
 
 square : Int -> Int
-square n = n * n
+square n =
+    n * n
 ```
 
 If a comment immediately precedes a function signature with no blank line between them, it is treated as belonging to that function. The two blank lines are placed before the comment, not between the comment and the signature:
 
 ```gren
 circleArea : Float -> Float
-circleArea radius = ...
+circleArea radius =
+    ...
 
 
 -- Area of a square
 squareArea : Int -> Int
-squareArea side = side * side
+squareArea side =
+    side * side
 ```
 
 A comment that is separated from a function by a blank line is treated as floating (not attached to any function) and gets only one blank line before it:
@@ -123,7 +127,8 @@ A comment that is separated from a function by a blank line is treated as floati
 
 -- This comment is attached to foo
 foo : Int -> Int
-foo n = n
+foo n =
+    n
 ```
 
 This rule applies to chains of comments: each consecutive comment line (or block) that is adjacent to the next with no blank lines is part of the same group.
@@ -339,7 +344,8 @@ This is the module doc comment.
 {-| Doc comment for foo.
 -}
 foo : Int -> Int
-foo n = n
+foo n =
+    n
 ```
 
 ### Blank lines around comments
