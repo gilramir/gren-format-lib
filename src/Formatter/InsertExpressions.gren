@@ -151,7 +151,7 @@ insertExpression locExpr =
                     fixupParensChildrenNodes nodes
 
         Src.ArrayLiteral exprArray ->
-            when resultFoldl folderInsertExprAsItem [] exprArray is
+            when resultFoldl folderInsertExprAsArgItem [] exprArray is
                 Err e -> Err e
                 Ok itemNodes ->
                     when Array.popFirst itemNodes is
@@ -369,9 +369,32 @@ folderInsertExprAsArgItem expr accNodes =
                                                 Nothing -> children
                             in
                             lpnNode (AllAcrossOrAllVertical ListCurly) updatedChildren
+                        ParenBlock ->
+                            -- Recursively convert AlwaysVertical/RecordUpdate inside parens
+                            lpnNode ParenBlock (Array.map convertForArg (lpnChildren node))
                         _ -> node
             in
             Ok (Array.pushLast converted accNodes)
+
+
+convertForArg : LPNode -> LPNode
+convertForArg node =
+    when lpnBox node is
+        AlwaysVertical bracket ->
+            lpnNode (AllAcrossOrAllVertical bracket) (lpnChildren node)
+        RecordUpdate baseName ->
+            let
+                children = lpnChildren node
+                updatedChildren =
+                    when Array.popFirst children is
+                        Nothing -> children
+                        Just { first = firstField, rest = restFields } ->
+                            when tryMapFirstLeaf (\loc -> mkText loc.start (baseName ++ " | " ++ loc.value)) firstField is
+                                Just updatedFirst -> Array.pushFirst updatedFirst restFields
+                                Nothing -> children
+            in
+            lpnNode (AllAcrossOrAllVertical ListCurly) updatedChildren
+        _ -> node
 
 
 insertExpressionAsIndentedBlock : Src.Expression -> Result String LPNode

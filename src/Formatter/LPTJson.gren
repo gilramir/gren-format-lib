@@ -75,6 +75,16 @@ lpBoxFields lpbox =
             , { key = "brackets", value = Json.string (bracketsToString brackets) }
             ]
 
+        AlwaysVertical brackets ->
+            [ { key = "type", value = Json.string "AlwaysVertical" }
+            , { key = "brackets", value = Json.string (bracketsToString brackets) }
+            ]
+
+        RecordUpdate baseName ->
+            [ { key = "type", value = Json.string "RecordUpdate" }
+            , { key = "baseName", value = Json.string baseName }
+            ]
+
         IndentedBlock ->
             [ { key = "type", value = Json.string "IndentedBlock" } ]
 

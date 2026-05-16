@@ -31,7 +31,7 @@ distSq a b =
     dx * dx + dy * dy
 
 
--- Single-field record stays inline
+-- Single-field record
 singleton : Int -> { x : Int }
 singleton x = { x = x }
 
