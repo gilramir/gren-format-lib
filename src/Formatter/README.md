@@ -256,6 +256,72 @@ when n is
 
 ---
 
+## Let expressions
+
+A `let` expression introduces local bindings. The `let` and `in` keywords sit at the same indentation level, bindings are indented 4 spaces under `let`, and the result expression starts on the next line after `in` at the same level as `let` and `in`:
+
+```gren
+circleArea radius =
+    let
+        pi = 3.14159
+        rSquared = radius * radius
+    in
+    pi * rSquared
+```
+
+When a binding's value fits on the same line as the name and `=`, it stays there. When it is too long to fit, it moves to the next line indented 4 more spaces relative to the binding name:
+
+```gren
+wrapsToNextLine =
+    let
+        newDropdownState =
+            AutoDropdown.mouseEnter idx model.suggestions model.suggestionDropdownState
+    in
+    newDropdownState
+```
+
+Bindings whose value is inherently multi-line (`if`, `let`, `when`, or a multi-field record) always start on the next line:
+
+```gren
+complexBody =
+    let
+        command =
+            if condition then
+                doThis
+            else
+                doThat
+    in
+    command
+```
+
+Destructuring patterns on the left-hand side of a binding use the same record-pattern syntax as elsewhere. Both the full `{ field = alias }` form and the shorthand `{ field }` form are supported:
+
+```gren
+let
+    { cache = newCache, value = maybeResults } = LRUCache.get text cache
+in
+maybeResults
+```
+
+```gren
+let
+    { model, command } = update msg model
+in
+model
+```
+
+Comments may appear before a binding inside a `let` block and are placed at the same indentation level as the bindings:
+
+```gren
+let
+    -- Convert the value to a string
+    valueStr = String.fromInt value
+in
+label ++ ": " ++ valueStr
+```
+
+---
+
 ## Pipelines
 
 A pipeline that fits on one line stays on one line:
