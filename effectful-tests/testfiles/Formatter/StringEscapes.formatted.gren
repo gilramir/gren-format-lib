@@ -1,0 +1,16 @@
+module StringEscapes exposing (..)
+
+-- String literals with escape sequences must survive a format round-trip.
+newlineStr = "\n"
+
+tabStr = "\t"
+
+carriageReturnStr = "\r"
+
+backslashStr = "\\"
+
+doubleQuoteStr = "\""
+
+mixedStr = "hello\nworld\t!\\"
+
+concatStr = "\n" ++ "\t" ++ "\\"

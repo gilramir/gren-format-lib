@@ -86,7 +86,7 @@ insertExpression : Src.Expression -> Result String (Array LPNode)
 insertExpression locExpr =
     when locExpr.value is
         Src.StringLiteral s ->
-            Ok [lpnLeaf (mkText locExpr.start ("\"" ++ s ++ "\""))]
+            Ok [lpnLeaf (mkText locExpr.start ("\"" ++ escapeStringContent s ++ "\""))]
 
         Src.NumberLiteral outcome ->
             when outcome is
@@ -648,6 +648,16 @@ folderInsertPatternAsItem pat accNodes =
         Err s -> Err s
         Ok node ->
             Ok (Array.pushLast node accNodes)
+
+
+escapeStringContent : String -> String
+escapeStringContent s =
+    s
+        |> String.replace "\\" "\\\\"
+        |> String.replace "\"" "\\\""
+        |> String.replace "\n" "\\n"
+        |> String.replace "\r" "\\r"
+        |> String.replace "\t" "\\t"
 
 
 charLiteralString : Char -> String

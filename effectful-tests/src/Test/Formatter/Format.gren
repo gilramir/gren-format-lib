@@ -120,6 +120,7 @@ expressionTests fsPerm =
         , assertPretty fsPerm "record field value indentation" "RecordFieldValue"
         , assertPretty fsPerm "let def body indentation" "LetDefBody"
         , assertPretty fsPerm "pipeline step argument indentation" "PipelineArgIndent"
+        , assertPretty fsPerm "string escape sequences preserved" "StringEscapes"
         ]
 
 declarationTests : FileSystem.Permission -> Effectful.Test
