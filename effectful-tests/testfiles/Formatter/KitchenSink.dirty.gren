@@ -1,0 +1,316 @@
+module KitchenSink exposing
+    ( Tree(..), Result, Container, Configuration
+    , initialContainer, processConfiguration
+    , transform, fold, traverseDeeply
+    , port_out_message, port_in_message
+    )
+
+{-| A kitchen-sink module that exercises every Gren construct the formatter
+    should know about. This module is intentionally over-stuffed and silly —
+    the goal is to give the pretty-printer something to chew on, not to be
+    real code.
+
+# Types
+@docs Tree, Result, Container, Configuration
+
+# Constructors
+@docs initialContainer, processConfiguration
+
+# Transformations
+@docs transform, fold, traverseDeeply
+
+# Ports
+@docs port_out_message, port_in_message
+-}
+
+import   Array        exposing  (Array)
+import Dict
+import Json.Decode    as     Decode  exposing  (Decoder, decodeString, field, int, string)
+import Json.Encode  as Encode
+import   Math
+import Result.Extra as ResultExtra
+import   String   exposing ( fromInt, toInt, toUpper, toLower, trim, words )
+import Task exposing(Task)
+
+-- A simple line comment introducing the next section.
+{- A multi-line block comment that should be preserved as-is even though
+   it contains things that look almost like   code:
+       let x = 1
+           y = 2
+       in x + y
+-}
+
+
+port port_out_message : String -> Cmd msg
+
+
+port port_in_message : (String -> msg) -> Sub msg
+
+
+{-| A tree where each node carries a label, an array of attribute pairs, and an array of child trees. The Empty case represents a missing branch. -}
+type Tree a
+    = Empty
+    | Leaf a
+    | Branch { label : String, attributes : Array { attrName : String, attrValueAsString : String }, children : Array (Tree a) }
+    | Cons { headValue : a, leftSubtree : Tree a, rightSubtree : Tree a }
+
+
+{-| Generic result-style type using qualified names everywhere. -}
+type alias Result errorType successType =
+    { ok : Maybe successType
+    , err : Maybe errorType
+    , annotations : Array { source : String, severity : Int, message : String }
+    }
+
+
+{-| An extensible record alias used as the basis for many other records. -}
+type alias HasIdentifier r =
+    { r | identifier : String, generatedAtMillis : Int }
+
+
+type alias Container =
+    HasIdentifier
+        { payload : String
+        , flags : { isReady : Bool, isVerified : Bool, isPersisted : Bool, isShadowBanned : Bool, isQuarantined : Bool }
+        , nestedConfiguration : { retryCount : Int, exponentialBackoffMillis : Int, jitterMillis : Int, maxAttempts : Int }
+        , recentMessages : Array { author : String, timestampMillis : Int, body : String, replyToIdentifier : Maybe String }
+        }
+
+
+{-| A configuration record with deeply nested option groups. -}
+type alias Configuration =
+    { tracing :
+        { isEnabled : Bool
+        , sinks : Array { kind : String, endpoint : String, headers : Array { headerName : String, headerValue : String } }
+        }
+    , scheduler :
+        { defaultTickMillis : Int
+        , overrides : Array { lane : String, tickMillis : Int, priority : Int }
+        }
+    , featureFlags : Array { flagName : String, isOn : Bool, rolloutPercent : Int }
+    }
+
+
+-- A short single-line value definition (no type signature).
+piApprox = 3.141592653589793
+
+
+-- A hex literal, character literal, and a multiline string literal.
+magicByteSequenceAsHex : Int
+magicByteSequenceAsHex = 0xDEADBEEF
+
+
+sentinelCharacterValue : Char
+sentinelCharacterValue = '\u{2603}'
+
+
+multiLineLicenseBanner : String
+multiLineLicenseBanner =
+    """
+    Copyright (c) Some Author <author@example.invalid>
+    All rights reserved. Redistribution and use in source and binary forms,
+    with or without modification, are permitted provided that the
+    conditions hold.
+    """
+
+
+{-| Construct an initial container with a long, mostly-static record literal. -}
+initialContainer : String -> Int -> Container
+initialContainer identifierArgument generatedAtMillisArgument =
+    { identifier = identifierArgument, generatedAtMillis = generatedAtMillisArgument, payload = "", flags = { isReady = False, isVerified = False, isPersisted = False, isShadowBanned = False, isQuarantined = False }, nestedConfiguration = { retryCount = 0, exponentialBackoffMillis = 100, jitterMillis = 25, maxAttempts = 5 }, recentMessages = [] }
+
+
+{-| Demonstrates a heavily-nested let / when / if, with record destructuring,
+    record update, pipelines, function composition, and lambdas. -}
+processConfiguration : Configuration -> Container -> Result String Container
+processConfiguration { tracing = tracingSection, scheduler = schedulerSection, featureFlags = featureFlagDefinitions } ({ identifier, flags, nestedConfiguration } as incomingContainer) =
+    let
+        tracingDecision =
+            if tracingSection.isEnabled && Array.length tracingSection.sinks > 0 then
+                let
+                    chosenSink =
+                        tracingSection.sinks
+                            |> Array.keepIf (\{ kind, endpoint } -> not (String.isEmpty endpoint) && kind /= "noop")
+                            |> Array.map (\sinkConfig -> { sinkConfig | endpoint = String.trim sinkConfig.endpoint })
+                            |> Array.first
+                in
+                when chosenSink is
+                    Just { kind = sinkKind, endpoint = sinkEndpoint, headers = sinkHeaders } ->
+                        if String.startsWith "https://" sinkEndpoint then
+                            Ok { kind = sinkKind, endpoint = sinkEndpoint, header_count = Array.length sinkHeaders }
+                        else if String.startsWith "http://" sinkEndpoint then
+                            Err ("refusing to use plaintext sink: " ++ sinkEndpoint)
+                        else
+                            Err ("unknown scheme in tracing sink endpoint: " ++ sinkEndpoint)
+
+                    Nothing ->
+                        Err "tracing enabled but no usable sinks configured"
+            else
+                Ok { kind = "disabled", endpoint = "", header_count = 0 }
+
+        schedulerDecision =
+            when schedulerSection.overrides is
+                [] ->
+                    schedulerSection.defaultTickMillis
+
+                [ singleOverride ] ->
+                    Math.max schedulerSection.defaultTickMillis singleOverride.tickMillis
+
+                _ ->
+                    schedulerSection.overrides
+                        |> Array.map .tickMillis
+                        |> Array.foldl Math.max schedulerSection.defaultTickMillis
+
+        rolloutDecision flagName =
+            featureFlagDefinitions
+                |> Array.findFirst (\{ flagName = candidateFlagName } -> candidateFlagName == flagName)
+                |> Maybe.map (\{ isOn, rolloutPercent } -> isOn && rolloutPercent >= 50)
+                |> Maybe.withDefault False
+
+        updateFlagsForConfigDecision currentFlags =
+            { currentFlags
+                | isReady = currentFlags.isReady || rolloutDecision "auto-ready"
+                , isVerified = currentFlags.isVerified && not (rolloutDecision "always-unverified")
+                , isPersisted = rolloutDecision "persist-on-config"
+                , isShadowBanned = currentFlags.isShadowBanned || (rolloutDecision "shadow-everyone" && not (rolloutDecision "shadow-bypass"))
+                , isQuarantined = currentFlags.isQuarantined
+            }
+    in
+    when tracingDecision is
+        Ok tracingSummary ->
+            let
+                updatedContainer =
+                    { incomingContainer
+                        | flags = updateFlagsForConfigDecision flags
+                        , nestedConfiguration =
+                            { nestedConfiguration
+                                | exponentialBackoffMillis = Math.max nestedConfiguration.exponentialBackoffMillis schedulerDecision
+                                , jitterMillis = nestedConfiguration.jitterMillis + (schedulerDecision // 10)
+                                , maxAttempts = if rolloutDecision "aggressive-retry" then nestedConfiguration.maxAttempts * 2 else nestedConfiguration.maxAttempts
+                            }
+                        , payload = String.join " | " [ identifier, tracingSummary.kind, String.fromInt schedulerDecision, String.fromInt tracingSummary.header_count ]
+                    }
+            in
+            { ok = Just updatedContainer, err = Nothing, annotations = [ { source = "processConfiguration", severity = 0, message = "ok" } ] }
+                |> Ok
+
+        Err errorMessageForTracing ->
+            Err errorMessageForTracing
+
+
+{-| Pipelines (both directions), function composition (both directions),
+    operator references, negation, and a Math.pow tower. -}
+transform : Array Int -> Int
+transform inputValues =
+    let
+        addOne = (+) 1
+        doubleThenIncrement = ((*) 2) >> addOne
+        decrementThenHalve = addOne << negate << (\n -> n // 2)
+    in
+    inputValues
+        |> Array.map (doubleThenIncrement >> decrementThenHalve)
+        |> Array.keepIf (\n -> n > -10 && n < 10000)
+        |> Array.map (\n -> if Math.modBy 2 n == 0 then n * n else -n)
+        |> Array.foldl (+) 0
+        |> (\result -> if result < 0 then -result else result)
+        |> identity <| 0
+
+
+{-| A right-folding traversal that nests when/if/let to show the formatter how
+    aggressively it can collapse them. Uses long argument names to push lines
+    near the 100-char threshold; the body intentionally has lines over 150
+    chars before formatting. -}
+fold : (a -> accumulatorValue -> accumulatorValue) -> accumulatorValue -> Tree a -> accumulatorValue
+fold reducerFunction initialAccumulatorValue currentTreeNode =
+    when currentTreeNode is
+        Empty -> initialAccumulatorValue
+
+        Leaf solitaryLeafValue -> reducerFunction solitaryLeafValue initialAccumulatorValue
+
+        Branch { label = branchLabelString, attributes = branchAttributesArray, children = branchChildrenArray } ->
+            let
+                accumulatorAfterAttributes = Array.foldl (\{ attrName = nameOfAttribute, attrValueAsString = valueOfAttributeAsString } accumulatedSoFar -> reducerFunction (Debug.todo "fold attribute" :: nameOfAttribute :: valueOfAttributeAsString :: []) accumulatedSoFar) initialAccumulatorValue branchAttributesArray
+            in
+            Array.foldl (\childTreeNode innerAccumulator -> fold reducerFunction innerAccumulator childTreeNode) accumulatorAfterAttributes branchChildrenArray
+
+        Cons { headValue, leftSubtree, rightSubtree } ->
+            let
+                accumulatorAfterLeft = fold reducerFunction initialAccumulatorValue leftSubtree
+                accumulatorAfterCurrentValue = reducerFunction headValue accumulatorAfterLeft
+            in
+            fold reducerFunction accumulatorAfterCurrentValue rightSubtree
+
+
+{-| Demonstrates lambdas with destructuring patterns, as-patterns, qualified
+    constructors, negation, parens, and a backward-pipeline chain. -}
+traverseDeeply : Tree { firstNameString : String, lastNameString : String, ageInYears : Int } -> Array String
+traverseDeeply rootTree =
+    let
+        formatPersonRecord =
+            \({ firstNameString, lastNameString, ageInYears } as personRecord) ->
+                if ageInYears < 0 then
+                    "invalid:" ++ firstNameString
+                else if ageInYears == 0 then
+                    String.toUpper <| String.append firstNameString <| String.append " " <| lastNameString
+                else
+                    String.join " " [ firstNameString, lastNameString, "(" ++ String.fromInt ageInYears ++ ")" ]
+
+        gatherNames currentTree =
+            when currentTree is
+                Empty -> []
+
+                Leaf personRecord -> [ formatPersonRecord personRecord ]
+
+                Branch { children = childrenArray } ->
+                    childrenArray |> Array.flatMap gatherNames
+
+                Cons { headValue = headPersonRecord, leftSubtree = leftSubtreeOfNames, rightSubtree = rightSubtreeOfNames } ->
+                    let
+                        leftCollected = gatherNames leftSubtreeOfNames
+                        rightCollected = gatherNames rightSubtreeOfNames
+                    in
+                    [ formatPersonRecord headPersonRecord ] ++ leftCollected ++ rightCollected
+    in
+    gatherNames rootTree
+        |> Array.map String.trim
+        |> Array.keepIf (\nameLine -> not (String.isEmpty nameLine))
+        |> Array.map (\formattedNameLine -> "- " ++ formattedNameLine)
+
+
+-- A function that uses `as` aliases in patterns, qualified constructors in
+-- when, and an exhaustive when over a union with payload destructuring.
+classifyTree : Tree a -> String
+classifyTree tree =
+    when tree is
+        Empty -> "empty"
+
+        (Leaf _) as wholeLeafNode ->
+            String.append "leaf:" (Debug.toString wholeLeafNode)
+
+        Branch { label } ->
+            String.append "branch:" label
+
+        Cons { leftSubtree = Empty, rightSubtree = Empty } -> "single-cons"
+
+        Cons _ -> "wide-cons"
+
+
+-- Operator section / partial application of binops, used inside a pipeline.
+sumOfSquaredOddIntegersUpTo : Int -> Int
+sumOfSquaredOddIntegersUpTo upperBoundInclusive =
+    Array.range 1 upperBoundInclusive
+        |> Array.keepIf (\candidateInt -> Math.modBy 2 candidateInt /= 0)
+        |> Array.map (\candidateInt -> candidateInt * candidateInt)
+        |> Array.foldl (+) 0
+
+
+-- Infix usage with mixed precedence, deliberately overflowing 150 columns
+-- before formatting:
+overflowingMathExpression : Int -> Int -> Int -> Int -> Int
+overflowingMathExpression alphaCoefficient betaCoefficient gammaCoefficient deltaCoefficient = alphaCoefficient * betaCoefficient + gammaCoefficient * deltaCoefficient - (alphaCoefficient + betaCoefficient + gammaCoefficient + deltaCoefficient) * 2 + 0xCAFEBABE
+
+
+-- An if/else-if/else chain that should each break to its own line.
+classifyTemperatureReading : Float -> String
+classifyTemperatureReading temperatureInCelsius =
+    if temperatureInCelsius < -40.0 then "deadly cold" else if temperatureInCelsius < 0.0 then "freezing" else if temperatureInCelsius < 10.0 then "cold" else if temperatureInCelsius < 25.0 then "comfortable" else if temperatureInCelsius < 40.0 then "hot" else "deadly hot"
