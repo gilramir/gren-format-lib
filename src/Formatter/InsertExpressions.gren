@@ -18,6 +18,7 @@ import Formatter.LPTHelpers exposing
     )
 import Formatter.LiteralFormat exposing (charLiteralString, escapeStringContent, intToHex)
 import Formatter.InsertPatterns exposing (folderInsertPattern, insertPattern)
+import Formatter.InsertTypes exposing (makeSignatureBranch)
 
 
 -- A pipeline operator is `|>` (forward) or `<|` (backward). Both are
@@ -459,17 +460,38 @@ folderInsertLetDef locDef accNodes =
             let
                 nameNode = lpnLeaf (mkTextFromLocString def.name)
                 eqNode = lpnLeaf (SynthesizedText "=")
+
+                -- If the let-binding has a type signature, emit a sibling
+                -- IndentedBlock for `name : Type` before the value definition.
+                -- (Top-level signatures get their own OriginalRows; let-level
+                -- ones share the let's IndentedBlock.)
+                accNodesWithSig =
+                    when def.typeSignature is
+                        Nothing -> Ok accNodes
+                        Just sigType ->
+                            makeSignatureBranch sigType
+                                |> Result.map (\sigTypeNodes ->
+                                    let
+                                        colonNode = lpnLeaf (SynthesizedText ":")
+                                        sigChildren = [nameNode, colonNode] ++ sigTypeNodes
+                                        sigContainer = lpnNode IndentedBlock [lpnNode AcrossThenIndent sigChildren]
+                                    in
+                                    Array.pushLast sigContainer accNodes
+                                )
             in
-            resultFoldl folderInsertPattern [] def.args
-                |> Result.andThen (\argsNodes ->
-                    insertExpression def.body
-                        |> Result.map (\bodyNodes ->
-                            let
-                                header = lpnNode AcrossThenIndent ([nameNode] ++ argsNodes ++ [eqNode])
-                                bodyWrapper = lpnNode SoftIndentedBlock bodyNodes
-                                container = lpnNode IndentedBlock [header, bodyWrapper]
-                            in
-                            Array.pushLast container accNodes
+            accNodesWithSig
+                |> Result.andThen (\acc ->
+                    resultFoldl folderInsertPattern [] def.args
+                        |> Result.andThen (\argsNodes ->
+                            insertExpression def.body
+                                |> Result.map (\bodyNodes ->
+                                    let
+                                        header = lpnNode AcrossThenIndent ([nameNode] ++ argsNodes ++ [eqNode])
+                                        bodyWrapper = lpnNode SoftIndentedBlock bodyNodes
+                                        container = lpnNode IndentedBlock [header, bodyWrapper]
+                                    in
+                                    Array.pushLast container acc
+                                )
                         )
                 )
 

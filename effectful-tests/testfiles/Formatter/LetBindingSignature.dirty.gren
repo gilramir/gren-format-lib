@@ -1,0 +1,20 @@
+module LetBindingSignature exposing (..)
+
+-- A let-binding can carry its own type signature on the line above. The
+-- formatter must preserve it; dropping the signature changes the AST.
+process : Int -> Int
+process n =
+    let
+        doubled : Int -> Int
+        doubled m =
+            m * 2
+
+        -- A binding without a signature should be unaffected.
+        plain x =
+            x + 1
+
+        labelFor : Int -> String
+        labelFor v =
+            "n=" ++ String.fromInt v
+    in
+    doubled (plain n)
