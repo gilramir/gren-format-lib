@@ -142,27 +142,59 @@ insertCommentIntoSubtree : LPNode -> Int -> Int -> LPNode -> LPNode
 insertCommentIntoSubtree commentNode row col node =
     let
         children = lpnChildren node
+
+        -- A child only "owns" the comment if no LATER sibling has its
+        -- first positioned leaf at or before the comment's position. If a
+        -- later sibling does, this child's apparent row-range overlap is a
+        -- false positive (e.g. two record types straddling a `->`: the
+        -- comment between them appears to be on the same row as the first
+        -- record's content, but really belongs between the two records).
+        anyLaterSiblingStartsAtOrBefore startIndex =
+            Array.foldl
+                (\sib acc ->
+                    if acc.index >= startIndex then
+                        if acc.found then
+                            { acc | index = acc.index + 1 }
+                        else
+                            when firstRealPosition sib is
+                                Nothing -> { acc | index = acc.index + 1 }
+                                Just pos ->
+                                    if pos.row < row || (pos.row == row && pos.col <= col) then
+                                        { found = True, index = acc.index + 1 }
+                                    else
+                                        { acc | index = acc.index + 1 }
+                    else
+                        { acc | index = acc.index + 1 }
+                )
+                { found = False, index = 0 }
+                children
+                |> .found
+
         -- Try to find the first child that has its own children and contains the row
         result =
             Array.foldl
                 (\child acc ->
                     if acc.done then
-                        { acc | children = Array.pushLast child acc.children }
+                        { acc | children = Array.pushLast child acc.children, index = acc.index + 1 }
                     else
-                        let childChildren = lpnChildren child
+                        let
+                            childChildren = lpnChildren child
+                            laterSiblingClaims = anyLaterSiblingStartsAtOrBefore (acc.index + 1)
                         in
                         if not (Array.isEmpty childChildren) && subtreeContainsRow child row
                             && not (subtreeStartsAfter child row col)
+                            && not laterSiblingClaims
                             && not (isAcrossThenIndentNode child && subtreeEndsBefore child row col) then
                             let updatedChild = insertCommentIntoSubtree commentNode row col child
                             in
                             { children = Array.pushLast updatedChild acc.children
                             , done = True
+                            , index = acc.index + 1
                             }
                         else
-                            { acc | children = Array.pushLast child acc.children }
+                            { acc | children = Array.pushLast child acc.children, index = acc.index + 1 }
                 )
-                { children = [], done = False }
+                { children = [], done = False, index = 0 }
                 children
     in
     if result.done then

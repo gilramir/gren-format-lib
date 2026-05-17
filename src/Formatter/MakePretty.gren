@@ -50,10 +50,49 @@ makePrettyLine node =
 
 makeFlowIndentable : Array LPNode -> Result String String
 makeFlowIndentable children =
-    when buildFlowDoc grenIndent children is
+    -- Peel off any leading line/block comments that appear before the
+    -- declaration's first token. Top-level declarations must start at
+    -- column 1, so emitting `{- c -} foo : MultilineType` keeps `foo`
+    -- past the column where the parser expects the declaration to start.
+    -- Render any leading comments on their own lines first, then the
+    -- actual declaration flow.
+    let
+        { leadingComments, rest } = splitLeadingDeclComments children
+    in
+    when buildFlowDoc grenIndent rest is
         Err e -> Err e
-        Ok finalDoc ->
+        Ok flowDoc ->
+            let
+                commentDocs = Array.map commentLineDoc leadingComments
+                finalDoc =
+                    if Array.isEmpty commentDocs then
+                        flowDoc
+                    else
+                        P.concat (P.vcat commentDocs) (P.concat P.hardNl flowDoc)
+            in
             genericRenderResult <| P.prettyFormat costFactory finalDoc
+
+
+splitLeadingDeclComments : Array LPNode -> { leadingComments : Array LPNode, rest : Array LPNode }
+splitLeadingDeclComments nodes =
+    let
+        step item acc =
+            if acc.done then
+                { acc | rest = Array.pushLast item acc.rest }
+            else
+                when lpnBox item is
+                    SingleLineComment _ ->
+                        { acc | leadingComments = Array.pushLast item acc.leadingComments }
+                    BlockComment _ ->
+                        { acc | leadingComments = Array.pushLast item acc.leadingComments }
+                    _ ->
+                        { leadingComments = acc.leadingComments
+                        , rest = [item]
+                        , done = True
+                        }
+    in
+    Array.foldl step { leadingComments = [], rest = [], done = False } nodes
+        |> (\r -> { leadingComments = r.leadingComments, rest = r.rest })
 
 
 {-| Render a header followed by an always-multi-line indented body.
@@ -647,9 +686,20 @@ lineComment s =
 
 makeRecordUpdateDoc : String -> Array LPNode -> Result String (P.Doc cost)
 makeRecordUpdateDoc baseName children =
-    when Array.popFirst children is
+    -- Skip any leading comment children so we can find the actual first field
+    -- (the comment-bearing children get rendered as their own lines below).
+    let
+        { commentsBefore, fields } = splitLeadingComments children
+    in
+    when Array.popFirst fields is
         Nothing ->
-            Ok (P.text ("{ " ++ baseName ++ " }"))
+            when Array.popFirst commentsBefore is
+                Nothing -> Ok (P.text ("{ " ++ baseName ++ " }"))
+                Just _ ->
+                    Ok (P.vcat
+                        ([P.text ("{ " ++ baseName)]
+                        ++ Array.map (\c -> P.concat (P.text "    ") (commentLineDoc c)) commentsBefore
+                        ++ [P.text "}"]))
         Just { first = firstField, rest = restFields } ->
             -- Wrap each field's flow with P.align so that when the field value
             -- itself spans multiple lines (e.g. a nested record update), the
@@ -661,29 +711,73 @@ makeRecordUpdateDoc baseName children =
                 fieldDoc field =
                     buildFlowDoc grenIndent (lpnChildren field)
                         |> Result.map P.align
+
+                leadingCommentLines =
+                    Array.map (\c -> P.concat (P.text "    ") (commentLineDoc c)) commentsBefore
             in
             when fieldDoc firstField is
                 Err e -> Err e
                 Ok firstFieldDoc ->
                     let
+                        firstLine = P.concat (P.text "    | ") firstFieldDoc
                         restResult =
                             Array.foldl
                                 (\field accResult ->
                                     when accResult is
                                         Err e -> Err e
                                         Ok docs ->
-                                            when fieldDoc field is
-                                                Err e -> Err e
-                                                Ok d ->
-                                                    Ok (Array.pushLast (P.concat (P.text "    , ") d) docs)
+                                            when lpnBox field is
+                                                SingleLineComment loc ->
+                                                    Ok (Array.pushLast (P.concat (P.text "    ") (lineComment loc.value)) docs)
+                                                BlockComment loc ->
+                                                    Ok (Array.pushLast (P.concat (P.text "    ") (P.text ("{-" ++ loc.value ++ "-}"))) docs)
+                                                _ ->
+                                                    when fieldDoc field is
+                                                        Err e -> Err e
+                                                        Ok d ->
+                                                            Ok (Array.pushLast (P.concat (P.text "    , ") d) docs)
                                 )
-                                (Ok [P.concat (P.text "    | ") firstFieldDoc])
+                                (Ok (leadingCommentLines ++ [firstLine]))
                                 restFields
                     in
                     when restResult is
                         Err e -> Err e
                         Ok fieldLines ->
                             Ok (P.vcat ([P.text ("{ " ++ baseName)] ++ fieldLines ++ [P.text "}"]))
+
+
+-- Split leading comment children off from the rest. Used by makeRecordUpdateDoc
+-- so a comment that lands before the first field renders on its own line
+-- rather than being treated as a field.
+splitLeadingComments : Array LPNode -> { commentsBefore : Array LPNode, fields : Array LPNode }
+splitLeadingComments nodes =
+    let
+        step item acc =
+            if acc.doneCollectingComments then
+                { acc | fields = Array.pushLast item acc.fields }
+            else
+                when lpnBox item is
+                    SingleLineComment _ ->
+                        { acc | commentsBefore = Array.pushLast item acc.commentsBefore }
+                    BlockComment _ ->
+                        { acc | commentsBefore = Array.pushLast item acc.commentsBefore }
+                    _ ->
+                        { commentsBefore = acc.commentsBefore
+                        , fields = [item]
+                        , doneCollectingComments = True
+                        }
+    in
+    Array.foldl step { commentsBefore = [], fields = [], doneCollectingComments = False } nodes
+        |> (\r -> { commentsBefore = r.commentsBefore, fields = r.fields })
+
+
+-- Render a single LPNode comment as a one-line doc.
+commentLineDoc : LPNode -> P.Doc cost
+commentLineDoc node =
+    when lpnBox node is
+        SingleLineComment loc -> lineComment loc.value
+        BlockComment loc -> P.text ("{-" ++ loc.value ++ "-}")
+        _ -> P.empty
 
 
 listBoxesWithBrackets : String -> String -> Array LPNode -> Result String (P.Doc cost)
