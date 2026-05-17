@@ -24,6 +24,7 @@ tests fsPerm =
         , expressionTests fsPerm
         , declarationTests fsPerm
         , commentsTests fsPerm
+        , kitchenSinkTests fsPerm
         ]
 
 runPrettyPrinter : FileSystem.Permission -> String -> Task String { ast : Src.Module, rendered : String }
@@ -150,5 +151,12 @@ commentsTests fsPerm =
         [ assertPretty fsPerm "comments in pipeliens" "CommentsPipeline"
         , assertPretty fsPerm "comments everywhere" "CommentsEverywhere"
         , assertPretty fsPerm "consecutive comments in when branch" "ConsecutiveCommentsInBranch"
+        ]
+
+
+kitchenSinkTests : FileSystem.Permission -> Effectful.Test
+kitchenSinkTests fsPerm =
+    describe "Kitchen sink"
+        [ assertPretty fsPerm "every AST construct in one file" "KitchenSink"
         ]
 
