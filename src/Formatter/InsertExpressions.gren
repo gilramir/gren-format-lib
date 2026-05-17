@@ -32,14 +32,10 @@ mkTextFromLocString ltext =
 
 resultFoldl : (i -> a -> Result e a) -> a -> Array i -> Result e a
 resultFoldl callback initialAcc items =
-    let
-        callbackWrapper : i -> (Result e a) -> (Result e a)
-        callbackWrapper thisItem thisAccumResult =
-            when thisAccumResult is
-                Err e -> Err e
-                Ok a -> callback thisItem a
-    in
-    Array.foldl callbackWrapper (Ok initialAcc) items
+    Array.foldl
+        (\item acc -> acc |> Result.andThen (callback item))
+        (Ok initialAcc)
+        items
 
 
 incCol : Int -> Position -> Position
@@ -119,9 +115,8 @@ insertExpression locExpr =
             Ok [lpnLeaf (mkText locExpr.start opString)]
 
         Src.Negate expr ->
-            when insertExpression expr is
-                Err e -> Err e
-                Ok nodes ->
+            insertExpression expr
+                |> Result.andThen (\nodes ->
                     when Array.popFirst nodes is
                         Nothing -> Err "Negate: empty inner expression"
                         Just { first = firstNode, rest = restNodes } ->
@@ -130,14 +125,14 @@ insertExpression locExpr =
                                     Ok (Array.pushFirst updated restNodes)
                                 Nothing ->
                                     Ok (Array.pushFirst (lpnLeaf (mkText locExpr.start "-")) nodes)
+                )
 
         Src.Accessor string ->
             Ok [lpnLeaf (mkText locExpr.start ("." ++ string))]
 
         Src.Access { expression = expression, accessor = accessor } ->
-            when insertExpression expression is
-                Err e -> Err e
-                Ok nodes ->
+            insertExpression expression
+                |> Result.andThen (\nodes ->
                     when Array.popLast nodes is
                         Nothing -> Err "Access: empty inner expression"
                         Just { last = lastNode, initial = initialNodes } ->
@@ -146,48 +141,46 @@ insertExpression locExpr =
                                     Ok (Array.pushLast updated initialNodes)
                                 Nothing ->
                                     Ok (Array.pushLast (lpnLeaf (SynthesizedText ("." ++ accessor))) nodes)
+                )
 
         Src.Parens expression ->
-            when insertExpression expression is
-                Err e -> Err e
-                Ok nodes ->
-                    fixupParensChildrenNodes nodes
+            insertExpression expression
+                |> Result.andThen fixupParensChildrenNodes
 
         Src.ArrayLiteral exprArray ->
-            when resultFoldl folderInsertExprAsArgItem [] exprArray is
-                Err e -> Err e
-                Ok itemNodes ->
+            resultFoldl folderInsertExprAsArgItem [] exprArray
+                |> Result.map (\itemNodes ->
                     when Array.popFirst itemNodes is
                         Nothing ->
-                            Ok [lpnLeaf (mkText locExpr.start "[]")]
+                            [lpnLeaf (mkText locExpr.start "[]")]
                         Just _ ->
-                            Ok [lpnNode (AllAcrossOrAllVertical ListSquare) itemNodes]
+                            [lpnNode (AllAcrossOrAllVertical ListSquare) itemNodes]
+                )
 
         Src.Record fieldArray ->
-            when resultFoldl folderInsertRecordField [] fieldArray is
-                Err e -> Err e
-                Ok fieldNodes ->
+            resultFoldl folderInsertRecordField [] fieldArray
+                |> Result.map (\fieldNodes ->
                     when Array.popFirst fieldNodes is
                         Nothing ->
-                            Ok [lpnLeaf (mkText locExpr.start "{}")]
+                            [lpnLeaf (mkText locExpr.start "{}")]
                         Just { first = _, rest = rest } ->
                             if Array.isEmpty rest then
                                 -- Single field: stay inline
-                                Ok [lpnNode (AllAcrossOrAllVertical ListCurly) fieldNodes]
+                                [lpnNode (AllAcrossOrAllVertical ListCurly) fieldNodes]
                             else
                                 -- 2+ fields: always vertical
-                                Ok [lpnNode (AlwaysVertical ListCurly) fieldNodes]
+                                [lpnNode (AlwaysVertical ListCurly) fieldNodes]
+                )
 
         Src.Update { record = record, newValues = newValues } ->
             let
                 recText = simpleExprText record
             in
-            when resultFoldl folderInsertRecordField [] newValues is
-                Err e -> Err e
-                Ok fieldNodes ->
+            resultFoldl folderInsertRecordField [] newValues
+                |> Result.map (\fieldNodes ->
                     when Array.popFirst fieldNodes is
                         Nothing ->
-                            Ok [lpnLeaf (mkText locExpr.start "{}")]
+                            [lpnLeaf (mkText locExpr.start "{}")]
                         Just { first = firstField, rest = restFields } ->
                             if Array.isEmpty restFields then
                                 -- Single field update: inline, prepend "recName | " to first field text
@@ -197,26 +190,25 @@ insertExpression locExpr =
                                             Just updated -> updated
                                             Nothing -> firstField
                                 in
-                                Ok [lpnNode (AllAcrossOrAllVertical ListCurly) [updatedField]]
+                                [lpnNode (AllAcrossOrAllVertical ListCurly) [updatedField]]
                             else
                                 -- 2+ field update: always vertical with RecordUpdate
-                                Ok [lpnNode (RecordUpdate recText) fieldNodes]
+                                [lpnNode (RecordUpdate recText) fieldNodes]
+                )
 
         Src.Binops { left = lhsExpr, operator = locStringOp, right = rhsExpr } ->
             if locStringOp.value == "|>" then
                 let
                     flattened = flattenPipeline locExpr
                 in
-                when insertExpression flattened.seed is
-                    Err e -> Err e
-                    Ok seedNodes ->
+                insertExpression flattened.seed
+                    |> Result.andThen (\seedNodes ->
                         resultFoldl
                             (\step accNodes ->
                                 let opNode = lpnLeaf (mkTextFromLocString step.op)
                                 in
-                                when insertExpression step.body is
-                                    Err e -> Err e
-                                    Ok bodyNodes ->
+                                insertExpression step.body
+                                    |> Result.map (\bodyNodes ->
                                         -- PipelineStep's buildFlowDoc grenIndent already provides
                                         -- +4 continuation, so unwrap a lone AcrossThenIndent (from
                                         -- a function call) to keep the flat token flow the optimizer
@@ -229,35 +221,33 @@ insertExpression locExpr =
                                                             _ -> bodyNodes
                                                     _ -> bodyNodes
                                         in
-                                        Ok (Array.pushLast (lpnNode PipelineStep ([opNode] ++ flatBodyNodes)) accNodes)
+                                        Array.pushLast (lpnNode PipelineStep ([opNode] ++ flatBodyNodes)) accNodes
+                                    )
                             )
                             seedNodes
                             flattened.steps
+                    )
             else
-                when insertExpression lhsExpr is
-                    Err e -> Err e
-                    Ok lhsNodes ->
+                insertExpression lhsExpr
+                    |> Result.andThen (\lhsNodes ->
                         let opNode = lpnLeaf (mkTextFromLocString locStringOp)
                         in
-                        when insertExpression rhsExpr is
-                            Err e -> Err e
-                            Ok rhsNodes ->
-                                Ok (lhsNodes ++ [opNode] ++ rhsNodes)
+                        insertExpression rhsExpr
+                            |> Result.map (\rhsNodes -> lhsNodes ++ [opNode] ++ rhsNodes)
+                    )
 
         Src.Call { fn = fnExpr, args = argsExprs } ->
-            when insertExpression fnExpr is
-                Err e -> Err e
-                Ok fnNodes ->
-                    when resultFoldl folderInsertExprAsArgItem fnNodes argsExprs is
-                        Err e -> Err e
+            insertExpression fnExpr
+                |> Result.andThen (\fnNodes ->
+                    resultFoldl folderInsertExprAsArgItem fnNodes argsExprs
                         -- AcrossThenIndent: overflow arguments indent +4 from the function name,
                         -- keeping them visually distinct from the surrounding context.
-                        Ok allNodes -> Ok [lpnNode AcrossThenIndent allNodes]
+                        |> Result.map (\allNodes -> [lpnNode AcrossThenIndent allNodes])
+                )
 
         Src.Lambda { patterns = patterns, body = body } ->
-            when resultFoldl folderInsertPattern [] patterns is
-                Err e -> Err e
-                Ok patNodes ->
+            resultFoldl folderInsertPattern [] patterns
+                |> Result.andThen (\patNodes ->
                     let
                         -- Wrap first pattern in LambdaSlash so MakePretty can
                         -- emit \ immediately before the pattern (no space). This
@@ -271,63 +261,58 @@ insertExpression locExpr =
                                     Array.pushFirst (lpnNode LambdaSlash [firstPat]) restPats
                         arrowNode = lpnLeaf (SynthesizedText "->")
                     in
-                    when insertExpressionAsItem body is
-                        Err e -> Err e
-                        Ok bodyNode ->
-                            Ok (updatedPatNodes ++ [arrowNode, bodyNode])
+                    insertExpressionAsItem body
+                        |> Result.map (\bodyNode -> updatedPatNodes ++ [arrowNode, bodyNode])
+                )
 
         Src.Let { defs = defs, body = body } ->
-            let letNode = lpnLeaf (mkText locExpr.start "let")
+            let
+                letNode = lpnLeaf (mkText locExpr.start "let")
+                inNode = lpnLeaf (SynthesizedText "in")
             in
-            when resultFoldl folderInsertLetDef [] defs is
-                Err e -> Err e
-                Ok defNodes ->
-                    let inNode = lpnLeaf (SynthesizedText "in")
-                    in
-                    when insertExpressionAsBodyBlock body is
-                        Err e -> Err e
-                        Ok bodyNode ->
-                            Ok ([letNode] ++ defNodes ++ [inNode, bodyNode])
+            resultFoldl folderInsertLetDef [] defs
+                |> Result.andThen (\defNodes ->
+                    insertExpressionAsBodyBlock body
+                        |> Result.map (\bodyNode -> [letNode] ++ defNodes ++ [inNode, bodyNode])
+                )
 
         Src.If { branches = branches, elseBranch = elseBranch } ->
             when Array.popFirst branches is
                 Nothing -> Err "If: no branches"
                 Just { first = firstBranch, rest = restBranches } ->
-                    when insertExpression firstBranch.test is
-                        Err e -> Err e
-                        Ok testNodes ->
-                            let
-                                ifNode = lpnLeaf (mkText locExpr.start "if")
-                                thenNode = lpnLeaf (SynthesizedText "then")
-                                condNode = lpnNode IfCondition ([ifNode] ++ testNodes ++ [thenNode])
+                    let
+                        ifNode = lpnLeaf (mkText locExpr.start "if")
+                        thenNode = lpnLeaf (SynthesizedText "then")
+                        elseNode = lpnLeaf (SynthesizedText "else")
+                    in
+                    insertExpression firstBranch.test
+                        |> Result.andThen (\testNodes ->
+                            let condNode = lpnNode IfCondition ([ifNode] ++ testNodes ++ [thenNode])
                             in
-                            when insertExpressionAsIndentedBlock firstBranch.body is
-                                Err e -> Err e
-                                Ok bodyNode ->
-                                    let firstNodes = [condNode, bodyNode]
-                                    in
-                                    when resultFoldl folderInsertElseIfBranch firstNodes restBranches is
-                                        Err e -> Err e
-                                        Ok branchNodes ->
-                                            let elseNode = lpnLeaf (SynthesizedText "else")
-                                            in
-                                            when insertExpressionAsIndentedBlock elseBranch is
-                                                Err e -> Err e
-                                                Ok elseBodyNode ->
-                                                    Ok (branchNodes ++ [elseNode, elseBodyNode])
+                            insertExpressionAsIndentedBlock firstBranch.body
+                                |> Result.andThen (\bodyNode ->
+                                    resultFoldl folderInsertElseIfBranch [condNode, bodyNode] restBranches
+                                        |> Result.andThen (\branchNodes ->
+                                            insertExpressionAsIndentedBlock elseBranch
+                                                |> Result.map (\elseBodyNode ->
+                                                    branchNodes ++ [elseNode, elseBodyNode]
+                                                )
+                                        )
+                                )
+                        )
 
         Src.When { expression = expression, branches = branches } ->
-            let whenNode = lpnLeaf (mkText locExpr.start "when")
+            let
+                whenNode = lpnLeaf (mkText locExpr.start "when")
+                isNode = lpnLeaf (SynthesizedText "is")
             in
-            when insertExpression expression is
-                Err e -> Err e
-                Ok exprNodes ->
-                    let isNode = lpnLeaf (SynthesizedText "is")
-                    in
-                    when resultFoldl folderInsertWhenBranch [] branches is
-                        Err e -> Err e
-                        Ok branchNodes ->
-                            Ok ([whenNode] ++ exprNodes ++ [isNode, lpnNode IndentedBlock branchNodes])
+            insertExpression expression
+                |> Result.andThen (\exprNodes ->
+                    resultFoldl folderInsertWhenBranch [] branches
+                        |> Result.map (\branchNodes ->
+                            [whenNode] ++ exprNodes ++ [isNode, lpnNode IndentedBlock branchNodes]
+                        )
+                )
 
 
 -- Extract text from simple expressions (Var, VarQual, Access chain) without touching the tree.
@@ -344,9 +329,8 @@ simpleExprText locExpr =
 -- If the expression produces multiple sibling nodes, group them under AcrossThenIndent.
 insertExpressionAsItem : Src.Expression -> Result String LPNode
 insertExpressionAsItem locExpr =
-    when insertExpression locExpr is
-        Err e -> Err e
-        Ok nodes ->
+    insertExpression locExpr
+        |> Result.andThen (\nodes ->
             when Array.popFirst nodes is
                 Nothing -> Err "insertExpressionAsItem: empty expression"
                 Just { first = onlyNode, rest = rest } ->
@@ -354,14 +338,13 @@ insertExpressionAsItem locExpr =
                         Ok onlyNode
                     else
                         Ok (lpnNode AcrossThenIndent nodes)
+        )
 
 
 folderInsertExprAsItem : Src.Expression -> Array LPNode -> Result String (Array LPNode)
 folderInsertExprAsItem expr accNodes =
-    when insertExpressionAsItem expr is
-        Err s -> Err s
-        Ok node ->
-            Ok (Array.pushLast node accNodes)
+    insertExpressionAsItem expr
+        |> Result.map (\node -> Array.pushLast node accNodes)
 
 
 -- Like folderInsertExprAsItem but for function-call arguments: converts
@@ -369,9 +352,8 @@ folderInsertExprAsItem expr accNodes =
 -- so that records used as arguments can remain inline when they fit.
 folderInsertExprAsArgItem : Src.Expression -> Array LPNode -> Result String (Array LPNode)
 folderInsertExprAsArgItem expr accNodes =
-    when insertExpressionAsItem expr is
-        Err s -> Err s
-        Ok node ->
+    insertExpressionAsItem expr
+        |> Result.map (\node ->
             let
                 converted =
                     when lpnBox node is
@@ -396,7 +378,8 @@ folderInsertExprAsArgItem expr accNodes =
                             lpnNode ParenBlock (Array.map convertForArg (lpnChildren node))
                         _ -> node
             in
-            Ok (Array.pushLast converted accNodes)
+            Array.pushLast converted accNodes
+        )
 
 
 convertForArg : LPNode -> LPNode
@@ -421,24 +404,24 @@ convertForArg node =
 
 insertExpressionAsIndentedBlock : Src.Expression -> Result String LPNode
 insertExpressionAsIndentedBlock locExpr =
-    when insertExpression locExpr is
-        Err e -> Err e
-        Ok nodes ->
+    insertExpression locExpr
+        |> Result.andThen (\nodes ->
             if Array.isEmpty nodes then
                 Err "insertExpressionAsIndentedBlock: empty expression"
             else
                 Ok (lpnNode IndentedBlock nodes)
+        )
 
 
 insertExpressionAsBodyBlock : Src.Expression -> Result String LPNode
 insertExpressionAsBodyBlock locExpr =
-    when insertExpression locExpr is
-        Err e -> Err e
-        Ok nodes ->
+    insertExpression locExpr
+        |> Result.andThen (\nodes ->
             if Array.isEmpty nodes then
                 Err "insertExpressionAsBodyBlock: empty expression"
             else
                 Ok (lpnNode BodyBlock nodes)
+        )
 
 
 folderInsertRecordField : Src.RecordField -> Array LPNode -> Result String (Array LPNode)
@@ -447,14 +430,14 @@ folderInsertRecordField field accNodes =
         fieldNameNode = lpnLeaf (mkTextFromLocString field.field)
         eqNode = lpnLeaf (SynthesizedText "=")
     in
-    when insertExpression field.value is
-        Err e -> Err e
-        Ok valueNodes ->
+    insertExpression field.value
+        |> Result.map (\valueNodes ->
             let
                 allChildren = [fieldNameNode, eqNode] ++ valueNodes
                 container = lpnNode AcrossThenIndent allChildren
             in
-            Ok (Array.pushLast container accNodes)
+            Array.pushLast container accNodes
+        )
 
 
 folderInsertLetDef : Located Src.Def -> Array LPNode -> Result String (Array LPNode)
@@ -465,78 +448,75 @@ folderInsertLetDef locDef accNodes =
                 nameNode = lpnLeaf (mkTextFromLocString def.name)
                 eqNode = lpnLeaf (SynthesizedText "=")
             in
-            when resultFoldl folderInsertPattern [] def.args is
-                Err e -> Err e
-                Ok argsNodes ->
-                    when insertExpression def.body is
-                        Err e -> Err e
-                        Ok bodyNodes ->
+            resultFoldl folderInsertPattern [] def.args
+                |> Result.andThen (\argsNodes ->
+                    insertExpression def.body
+                        |> Result.map (\bodyNodes ->
                             let
                                 header = lpnNode AcrossThenIndent ([nameNode] ++ argsNodes ++ [eqNode])
                                 bodyWrapper = lpnNode SoftIndentedBlock bodyNodes
                                 container = lpnNode IndentedBlock [header, bodyWrapper]
                             in
-                            Ok (Array.pushLast container accNodes)
+                            Array.pushLast container accNodes
+                        )
+                )
 
         Src.Destruct { pattern = pattern, body = body } ->
-            when insertPattern pattern is
-                Err e -> Err e
-                Ok patNodes ->
+            insertPattern pattern
+                |> Result.andThen (\patNodes ->
                     let eqNode = lpnLeaf (SynthesizedText "=")
                     in
-                    when insertExpression body is
-                        Err e -> Err e
-                        Ok bodyNodes ->
+                    insertExpression body
+                        |> Result.map (\bodyNodes ->
                             let
                                 bodyWrapper = lpnNode SoftIndentedBlock bodyNodes
                                 container = lpnNode IndentedBlock (patNodes ++ [eqNode, bodyWrapper])
                             in
-                            Ok (Array.pushLast container accNodes)
+                            Array.pushLast container accNodes
+                        )
+                )
 
 
 folderInsertElseIfBranch : Src.IfBranch -> Array LPNode -> Result String (Array LPNode)
 folderInsertElseIfBranch branch accNodes =
-    when insertExpression branch.test is
-        Err e -> Err e
-        Ok testNodes ->
-            let
-                elseIfNode = lpnLeaf (SynthesizedText "else if")
-                thenNode = lpnLeaf (SynthesizedText "then")
-                condNode = lpnNode IfCondition ([elseIfNode] ++ testNodes ++ [thenNode])
+    let
+        elseIfNode = lpnLeaf (SynthesizedText "else if")
+        thenNode = lpnLeaf (SynthesizedText "then")
+    in
+    insertExpression branch.test
+        |> Result.andThen (\testNodes ->
+            let condNode = lpnNode IfCondition ([elseIfNode] ++ testNodes ++ [thenNode])
             in
-            when insertExpressionAsIndentedBlock branch.body is
-                Err e -> Err e
-                Ok bodyNode ->
-                    Ok (accNodes ++ [condNode, bodyNode])
+            insertExpressionAsIndentedBlock branch.body
+                |> Result.map (\bodyNode -> accNodes ++ [condNode, bodyNode])
+        )
 
 
 folderInsertWhenBranch : Src.WhenBranch -> Array LPNode -> Result String (Array LPNode)
 folderInsertWhenBranch branch accNodes =
-    when insertPattern branch.pattern is
-        Err e -> Err e
-        Ok patNodes ->
-            let
-                arrowNode = lpnLeaf (SynthesizedText "->")
-                isComplexBody =
-                    when branch.body.value is
-                        Src.If _ -> True
-                        Src.Let _ -> True
-                        Src.When _ -> True
-                        _ -> False
-            in
+    let
+        arrowNode = lpnLeaf (SynthesizedText "->")
+        isComplexBody =
+            when branch.body.value is
+                Src.If _ -> True
+                Src.Let _ -> True
+                Src.When _ -> True
+                _ -> False
+    in
+    insertPattern branch.pattern
+        |> Result.andThen (\patNodes ->
             if isComplexBody then
-                when insertExpressionAsIndentedBlock branch.body is
-                    Err e -> Err e
-                    Ok bodyNode ->
+                insertExpressionAsIndentedBlock branch.body
+                    |> Result.map (\bodyNode ->
                         let
                             allChildren = patNodes ++ [arrowNode, bodyNode]
                             container = lpnNode (WhenBranch { isMultiLine = True }) allChildren
                         in
-                        Ok (Array.pushLast container accNodes)
+                        Array.pushLast container accNodes
+                    )
             else
-                when insertExpressionAsItem branch.body is
-                    Err e -> Err e
-                    Ok bodyNode ->
+                insertExpressionAsItem branch.body
+                    |> Result.map (\bodyNode ->
                         let
                             isBodyMultiLine =
                                 when lpnBox bodyNode is
@@ -549,7 +529,9 @@ folderInsertWhenBranch branch accNodes =
                             branchContent = lpnNode AcrossThenIndent (patNodes ++ [arrowNode, bodyNode])
                             container = lpnNode (WhenBranch { isMultiLine = isBodyMultiLine }) [branchContent]
                         in
-                        Ok (Array.pushLast container accNodes)
+                        Array.pushLast container accNodes
+                    )
+        )
 
 
 folderInsertPRecordField : Src.PRecordField -> Array LPNode -> Result String (Array LPNode)
@@ -560,20 +542,18 @@ folderInsertPRecordField field accNodes =
         Nothing ->
             Ok (Array.pushLast fieldNode accNodes)
         Just aliasPat ->
-            when insertPatternAsItem aliasPat is
-                Err e -> Err e
-                Ok aliasNode ->
+            insertPatternAsItem aliasPat
+                |> Result.map (\aliasNode ->
                     let eqNode = lpnLeaf (SynthesizedText "=")
                     in
-                    Ok (Array.pushLast (lpnNode AcrossThenIndent [fieldNode, eqNode, aliasNode]) accNodes)
+                    Array.pushLast (lpnNode AcrossThenIndent [fieldNode, eqNode, aliasNode]) accNodes
+                )
 
 
 folderInsertPattern : Src.Pattern -> Array LPNode -> Result String (Array LPNode)
 folderInsertPattern locPat accNodes =
-    when insertPattern locPat is
-        Err s -> Err s
-        Ok newNodes ->
-            Ok (accNodes ++ newNodes)
+    insertPattern locPat
+        |> Result.map (\newNodes -> accNodes ++ newNodes)
 
 
 insertPattern : Src.Pattern -> Result String (Array LPNode)
@@ -595,14 +575,14 @@ insertPattern locPat =
                         Ok fieldNodes -> Ok [lpnNode (AllAcrossOrAllVertical ListCurly) fieldNodes]
 
         Src.PAlias { pattern = pat, name = name } ->
-            when insertPattern pat is
-                Err e -> Err e
-                Ok patNodes ->
+            insertPattern pat
+                |> Result.map (\patNodes ->
                     let
                         asNode = lpnLeaf (SynthesizedText "as")
                         nameNode = lpnLeaf (mkTextFromLocString name)
                     in
-                    Ok (patNodes ++ [asNode, nameNode])
+                    patNodes ++ [asNode, nameNode]
+                )
 
         Src.PCtor { name = name, arg = arg } ->
             let nameNode = lpnLeaf (mkTextFromLocString name)
@@ -611,10 +591,8 @@ insertPattern locPat =
                 Nothing ->
                     Ok [nameNode]
                 Just argPat ->
-                    when insertPatternAsItem argPat is
-                        Err e -> Err e
-                        Ok argNode ->
-                            Ok [nameNode, argNode]
+                    insertPatternAsItem argPat
+                        |> Result.map (\argNode -> [nameNode, argNode])
 
         Src.PCtorQual { varRegion = varRegion, module_ = module_, name = name, arg = arg } ->
             let ctorNode = lpnLeaf (mkText varRegion.start (module_ ++ "." ++ name))
@@ -623,20 +601,18 @@ insertPattern locPat =
                 Nothing ->
                     Ok [ctorNode]
                 Just argPat ->
-                    when insertPatternAsItem argPat is
-                        Err e -> Err e
-                        Ok argNode ->
-                            Ok [ctorNode, argNode]
+                    insertPatternAsItem argPat
+                        |> Result.map (\argNode -> [ctorNode, argNode])
 
         Src.PArray patterns ->
-            when resultFoldl folderInsertPatternAsItem [] patterns is
-                Err e -> Err e
-                Ok itemNodes ->
+            resultFoldl folderInsertPatternAsItem [] patterns
+                |> Result.map (\itemNodes ->
                     when Array.popFirst itemNodes is
                         Nothing ->
-                            Ok [lpnLeaf (mkText locPat.start "[]")]
+                            [lpnLeaf (mkText locPat.start "[]")]
                         Just _ ->
-                            Ok [lpnNode (AllAcrossOrAllVertical ListSquare) itemNodes]
+                            [lpnNode (AllAcrossOrAllVertical ListSquare) itemNodes]
+                )
 
         Src.PChr c ->
             Ok [lpnLeaf (mkText locPat.start (charLiteralString c))]
@@ -652,9 +628,8 @@ insertPattern locPat =
 
 insertPatternAsItem : Src.Pattern -> Result String LPNode
 insertPatternAsItem locPat =
-    when insertPattern locPat is
-        Err e -> Err e
-        Ok nodes ->
+    insertPattern locPat
+        |> Result.andThen (\nodes ->
             when Array.popFirst nodes is
                 Nothing -> Err "insertPatternAsItem: empty pattern"
                 Just { first = onlyNode, rest = rest } ->
@@ -662,14 +637,13 @@ insertPatternAsItem locPat =
                         Ok onlyNode
                     else
                         Ok (lpnNode AcrossThenIndent nodes)
+        )
 
 
 folderInsertPatternAsItem : Src.Pattern -> Array LPNode -> Result String (Array LPNode)
 folderInsertPatternAsItem pat accNodes =
-    when insertPatternAsItem pat is
-        Err s -> Err s
-        Ok node ->
-            Ok (Array.pushLast node accNodes)
+    insertPatternAsItem pat
+        |> Result.map (\node -> Array.pushLast node accNodes)
 
 
 escapeStringContent : String -> String
@@ -781,10 +755,8 @@ fixupParensChildrenNodes nodes =
 
 folderMakeSignatureBranch : Src.Type -> Array LPNode -> Result String (Array LPNode)
 folderMakeSignatureBranch locType accNodes =
-    when makeSignatureBranch locType is
-        Err s -> Err s
-        Ok newNodes ->
-            Ok (accNodes ++ newNodes)
+    makeSignatureBranch locType
+        |> Result.map (\newNodes -> accNodes ++ newNodes)
 
 
 makeSignatureBranch : Src.Type -> Result String (Array LPNode)
@@ -793,10 +765,8 @@ makeSignatureBranch locType =
         -- e.g.:
         -- (Array String)
         Src.TParens inParenType ->
-            when makeSignatureBranch inParenType is
-                Err e -> Err e
-                Ok inParenNodes ->
-                    fixupParensChildrenNodes inParenNodes
+            makeSignatureBranch inParenType
+                |> Result.andThen fixupParensChildrenNodes
 
         -- e.g.:
         -- String => name = String
@@ -812,32 +782,28 @@ makeSignatureBranch locType =
                     when Array.popFirst afterArg0 is
                         Nothing ->
                             -- Only 1 arg: no parens needed
-                            when makeSignatureBranch firstArg is
-                                Err e -> Err e
-                                Ok firstArgNodes ->
-                                    Ok ([firstNode] ++ firstArgNodes)
+                            makeSignatureBranch firstArg
+                                |> Result.map (\firstArgNodes -> [firstNode] ++ firstArgNodes)
 
                         Just _ ->
                             -- Multiple args: emit each arg's nodes consecutively.
                             -- Any parens around individual complex args are already
                             -- in the AST as TParens nodes, handled by the TParens case.
-                            when resultFoldl folderMakeSignatureBranch [] args is
-                                Err e -> Err e
-                                Ok childrenNodes ->
-                                    Ok ([firstNode] ++ childrenNodes)
+                            resultFoldl folderMakeSignatureBranch [] args
+                                |> Result.map (\childrenNodes -> [firstNode] ++ childrenNodes)
 
         Src.TLambda { from = from, to = to } ->
-            when makeSignatureBranch from is
-                Err e -> Err e
-                Ok fromNodes ->
-                    when makeSignatureBranch to is
-                        Err e -> Err e
-                        Ok toNodes ->
+            makeSignatureBranch from
+                |> Result.andThen (\fromNodes ->
+                    makeSignatureBranch to
+                        |> Result.map (\toNodes ->
                             let
                                 arrowLoc = incCol 1 from.end
                                 arrowNode = lpnLeaf (mkText arrowLoc "->")
                             in
-                            Ok (fromNodes ++ [arrowNode] ++ toNodes)
+                            fromNodes ++ [arrowNode] ++ toNodes
+                        )
+                )
 
         -- e.g. Svg.Svg msg, Dict.Dict k v
         Src.TTypeQual { args = args, name = name, qualifier = qual, varRegion = varRegion } ->
@@ -849,15 +815,11 @@ makeSignatureBranch locType =
                 Just { first = firstArg, rest = afterArg0 } ->
                     when Array.popFirst afterArg0 is
                         Nothing ->
-                            when makeSignatureBranch firstArg is
-                                Err e -> Err e
-                                Ok firstArgNodes ->
-                                    Ok ([firstNode] ++ firstArgNodes)
+                            makeSignatureBranch firstArg
+                                |> Result.map (\firstArgNodes -> [firstNode] ++ firstArgNodes)
                         Just _ ->
-                            when resultFoldl folderMakeSignatureBranch [] args is
-                                Err e -> Err e
-                                Ok childrenNodes ->
-                                    Ok ([firstNode] ++ childrenNodes)
+                            resultFoldl folderMakeSignatureBranch [] args
+                                |> Result.map (\childrenNodes -> [firstNode] ++ childrenNodes)
 
         Src.TVar name ->
             Ok [lpnLeaf (mkText locType.start name)]
@@ -865,23 +827,22 @@ makeSignatureBranch locType =
         Src.TRecord { fields = fields, extending = extending } ->
             let
                 folderField field accNodes =
-                    when makeSignatureBranch field.signature is
-                        Err e -> Err e
-                        Ok typeNodes ->
+                    makeSignatureBranch field.signature
+                        |> Result.map (\typeNodes ->
                             let
                                 nameNode = lpnLeaf (mkTextFromLocString field.field)
                                 colonNode = lpnLeaf (SynthesizedText ":")
                                 allChildren = [nameNode, colonNode] ++ typeNodes
                                 itemContainer = lpnNode AcrossThenIndent allChildren
                             in
-                            Ok (Array.pushLast itemContainer accNodes)
+                            Array.pushLast itemContainer accNodes
+                        )
             in
-            when resultFoldl folderField [] fields is
-                Err e -> Err e
-                Ok fieldNodes ->
+            resultFoldl folderField [] fields
+                |> Result.map (\fieldNodes ->
                     when Array.popFirst fieldNodes is
                         Nothing ->
-                            Ok [lpnLeaf (mkText locType.start "{}")]
+                            [lpnLeaf (mkText locType.start "{}")]
                         Just { first = firstField, rest = restFields } ->
                             let
                                 -- For extensible records { r | field : Type }, prepend the
@@ -901,4 +862,5 @@ makeSignatureBranch locType =
                                             in
                                             [firstWithExt] ++ restFields
                             in
-                            Ok [lpnNode (AllAcrossOrAllVertical ListCurly) allFieldNodes]
+                            [lpnNode (AllAcrossOrAllVertical ListCurly) allFieldNodes]
+                )

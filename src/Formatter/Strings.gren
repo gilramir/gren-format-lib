@@ -67,17 +67,9 @@ joinResultStrings : String -> Array (Result String String) -> Result String Stri
 joinResultStrings sep array =
     Array.foldl
         (\item acc ->
-            when acc is
-                Err err ->
-                    Err err
-
-                Ok strings ->
-                    when item is
-                        Err err ->
-                            Err err
-
-                        Ok str ->
-                            Ok (Array.pushLast str strings)
+            acc |> Result.andThen (\strings ->
+                item |> Result.map (\str -> Array.pushLast str strings)
+            )
         )
         (Ok [])
         array
