@@ -150,47 +150,7 @@ makePDocAlwaysVertical : LPBox -> Array LPNode -> Result String (P.Doc cost)
 makePDocAlwaysVertical box children =
     when box is
         AllAcrossOrAllVertical bracket ->
-            let
-                bs = bracketStrings bracket
-                hasComment =
-                    Array.any
-                        (\node ->
-                            when lpnBox node is
-                                SingleLineComment _ -> True
-                                _ -> False
-                        )
-                        children
-            in
-            if hasComment then
-                listBoxesWithBrackets bs.open bs.close children
-            else
-                when Array.popFirst children is
-                    Nothing ->
-                        Ok (P.text bs.empty)
-                    Just { first, rest } ->
-                        when makeListItemDoc first is
-                            Err e -> Err e
-                            Ok firstDoc ->
-                                let
-                                    firstD = P.concat (P.text bs.open) firstDoc
-                                    restResult =
-                                        Array.foldl
-                                            (\child accResult ->
-                                                when accResult is
-                                                    Err e -> Err e
-                                                    Ok docs ->
-                                                        when makeListItemDoc child is
-                                                            Err e -> Err e
-                                                            Ok childDoc ->
-                                                                Ok (Array.pushLast (P.concat (P.text ", ") childDoc) docs)
-                                            )
-                                            (Ok [firstD])
-                                            rest
-                                in
-                                when restResult is
-                                    Err e -> Err e
-                                    Ok allDocs ->
-                                        Ok (P.vcat (allDocs ++ [P.text bs.close]))
+            renderBracketList LayoutVertical bracket children
         _ ->
             makePDoc box children
 
@@ -523,6 +483,25 @@ makePDoc box children =
 
 makeAllAcrossOrAllVertical : ListBrackets -> Array LPNode -> Result String (P.Doc cost)
 makeAllAcrossOrAllVertical brackets children =
+    renderBracketList LayoutFlatOrVertical brackets children
+
+
+type ListLayout
+    = LayoutFlatOrVertical
+    | LayoutVertical
+
+
+-- Render a bracketed, comma-separated list of LPNode items.
+--
+-- If any child is a SingleLineComment, delegates to listBoxesWithBrackets,
+-- which always produces a multi-line layout (a line comment cannot live
+-- inside a flat group).
+--
+-- Otherwise renders each child via makeListItemDoc. With LayoutVertical the
+-- result is always multi-line (P.vcat); with LayoutFlatOrVertical the
+-- pretty-printer chooses flat or per-line via P.group.
+renderBracketList : ListLayout -> ListBrackets -> Array LPNode -> Result String (P.Doc cost)
+renderBracketList layout brackets children =
     let
         bs = bracketStrings brackets
         hasComment = Array.any
@@ -536,24 +515,43 @@ makeAllAcrossOrAllVertical brackets children =
     if hasComment then
         listBoxesWithBrackets bs.open bs.close children
     else
-        let
-            itemResults =
-                Array.foldl
-                    (\child accResult ->
-                        when accResult is
-                            Err e -> Err e
-                            Ok docs ->
-                                when makeListItemDoc child is
-                                    Err e -> Err e
-                                    Ok d -> Ok (Array.pushLast d docs)
-                    )
-                    (Ok [])
-                    children
-        in
-        when itemResults is
-            Err e -> Err e
-            Ok itemDocs ->
-                Ok (exposingListWithBrackets bs.open bs.close bs.empty itemDocs)
+        mapNodesToDocs makeListItemDoc children
+            |> Result.map (\itemDocs ->
+                when layout is
+                    LayoutFlatOrVertical ->
+                        exposingListWithBrackets bs.open bs.close bs.empty itemDocs
+                    LayoutVertical ->
+                        verticalBracketList bs.open bs.close bs.empty itemDocs
+            )
+
+
+-- Run an item-doc builder over each child, collecting docs into an array.
+-- Short-circuits on the first error.
+mapNodesToDocs : (LPNode -> Result String (P.Doc cost)) -> Array LPNode -> Result String (Array (P.Doc cost))
+mapNodesToDocs build nodes =
+    Array.foldl
+        (\node acc ->
+            acc |> Result.andThen (\docs ->
+                build node |> Result.map (\d -> Array.pushLast d docs)
+            )
+        )
+        (Ok [])
+        nodes
+
+
+-- Always-multi-line bracketed list: open + first on first line, ", " + item
+-- on each subsequent line, close on its own line.
+verticalBracketList : String -> String -> String -> Array (P.Doc cost) -> P.Doc cost
+verticalBracketList open close empty items =
+    when Array.popFirst items is
+        Nothing ->
+            P.text empty
+        Just { first, rest } ->
+            let
+                firstD = P.concat (P.text open) first
+                restD = Array.map (\d -> P.concat (P.text ", ") d) rest
+            in
+            P.vcat ([firstD] ++ restD ++ [P.text close])
 
 bracketStrings : ListBrackets -> { open : String, close : String, empty : String }
 bracketStrings brackets =
