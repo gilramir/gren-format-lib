@@ -99,16 +99,16 @@ processItems : Array String -> Dict String Int -> (String -> Bool) -> Array Stri
 
 ## Function application
 
-Arguments are placed on the same line as the function name. When they don't all fit, the overflow continues on the next line at the same indentation as the function name — there is no "one argument per line" layout:
+Arguments are placed on the same line as the function name. When they don't all fit, the overflow continues on the next line indented +4 from the function name — there is no "one argument per line" layout:
 
 ```gren
 -- fits on one line
 result = foo a b c
 
--- overflows: continuation at same column as function name
+-- overflows: continuation indented +4 from the function name
 result =
     someFunction firstLongArgument secondLongArgument thirdLongArgument fourthLongArgument
-    fifthLongArgument
+        fifthLongArgument
 ```
 
 The same rule applies inside `let` bindings when the value wraps:
@@ -117,7 +117,7 @@ The same rule applies inside `let` bindings when the value wraps:
 let
     x =
         someFunction firstLongArgument secondLongArgument thirdLongArgument fourthLongArgument
-        extraLongArg
+            extraLongArg
 in
 x
 ```

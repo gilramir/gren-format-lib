@@ -3,17 +3,17 @@ module FunctionCalls exposing (..)
 -- Short call stays on one line
 short = foo a b c
 
--- Long call: args continue at the same column as the function name
+-- Long call: overflow args indented +4 from function name
 long =
     someFunction firstLongArgument secondLongArgument thirdLongArgument fourthLongArgument
-    fifthLongArgument
+        fifthLongArgument
 
--- Call inside let binding: args continue at same column as function name
+-- Call inside let binding: overflow args indented +4 from function name
 inLet =
     let
         x =
             someFunction firstLongArgument secondLongArgument thirdLongArgument fourthLongArgument
-            extraLongArg
+                extraLongArg
     in
     x
 

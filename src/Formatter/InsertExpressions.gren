@@ -217,7 +217,19 @@ insertExpression locExpr =
                                 when insertExpression step.body is
                                     Err e -> Err e
                                     Ok bodyNodes ->
-                                        Ok (Array.pushLast (lpnNode PipelineStep ([opNode] ++ bodyNodes)) accNodes)
+                                        -- PipelineStep's buildFlowDoc grenIndent already provides
+                                        -- +4 continuation, so unwrap a lone AcrossThenIndent (from
+                                        -- a function call) to keep the flat token flow the optimizer
+                                        -- needs to split across the |> line naturally.
+                                        let flatBodyNodes =
+                                                when Array.popFirst bodyNodes is
+                                                    Just { first = onlyNode, rest = [] } ->
+                                                        when lpnBox onlyNode is
+                                                            AcrossThenIndent -> lpnChildren onlyNode
+                                                            _ -> bodyNodes
+                                                    _ -> bodyNodes
+                                        in
+                                        Ok (Array.pushLast (lpnNode PipelineStep ([opNode] ++ flatBodyNodes)) accNodes)
                             )
                             seedNodes
                             flattened.steps
@@ -236,7 +248,9 @@ insertExpression locExpr =
             when insertExpression fnExpr is
                 Err e -> Err e
                 Ok fnNodes ->
-                    resultFoldl folderInsertExprAsArgItem fnNodes argsExprs
+                    when resultFoldl folderInsertExprAsArgItem fnNodes argsExprs is
+                        Err e -> Err e
+                        Ok allNodes -> Ok [lpnNode AcrossThenIndent allNodes]
 
         Src.Lambda { patterns = patterns, body = body } ->
             when resultFoldl folderInsertPattern [] patterns is

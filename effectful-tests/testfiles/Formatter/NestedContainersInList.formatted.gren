@@ -8,11 +8,11 @@ plainRecords = f [ { label = "a", value = 1 }, { label = "b", value = 2 } ]
 -- This was the bug: AllAcrossOrAllVertical items were silently dropped.
 commentedRecords =
     fromTree
-    [ { label = "first", item = string "one" }
-    -- a comment between items
-    , { label = "second", item = string "two" }
-    , { label = "third", item = string "three" }
-    ]
+        [ { label = "first", item = string "one" }
+        -- a comment between items
+        , { label = "second", item = string "two" }
+        , { label = "third", item = string "three" }
+        ]
 
 -- Array items that are themselves arrays
 nestedArrays = f [ [ 1, 2, 3 ], [ 4, 5, 6 ] ]
