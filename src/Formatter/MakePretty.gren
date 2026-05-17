@@ -61,49 +61,36 @@ makeFlowIndentable children =
             genericRenderResult <| P.prettyFormat costFactory finalDoc
 
 
-{-| Render a type alias always multi-line: header on one line, body indented
-on the next line and never collapsed to a single line.
-
-The last child of a StTypeAlias OriginalRows is always an IndentedBlock
-containing the type body nodes produced by makeSignatureBranch.
+{-| Render a header followed by an always-multi-line indented body.
+Used for `type alias` (body from makeTypeBodyAlwaysVertical) and `type`
+(body from makeUnionBodyDoc).
 -}
-makeTypeAliasPretty : Array LPNode -> Result String String
-makeTypeAliasPretty children =
+renderHeaderIndentedBody : String -> (Array LPNode -> Result String (P.Doc P.DefaultCostTuple)) -> Array LPNode -> Result String String
+renderHeaderIndentedBody emptyError buildBody children =
     when Array.popLast children is
         Nothing ->
-            Err "type alias declaration is empty"
+            Err emptyError
         Just { initial = headerChildren, last = bodyBlock } ->
-            when buildFlowDoc 0 headerChildren is
-                Err e -> Err e
-                Ok headerDoc ->
-                    when makeTypeBodyAlwaysVertical (lpnChildren bodyBlock) is
-                        Err e -> Err e
-                        Ok bodyDoc ->
+            buildFlowDoc 0 headerChildren
+                |> Result.andThen (\headerDoc ->
+                    buildBody (lpnChildren bodyBlock)
+                        |> Result.andThen (\bodyDoc ->
                             let
                                 finalDoc = P.concat headerDoc (P.nest grenIndent (P.concat P.hardNl bodyDoc))
                             in
                             genericRenderResult <| P.prettyFormat costFactory finalDoc
+                        )
+                )
 
 
-{-| Render a custom type always multi-line: `type Name vars` on the first
-line, then each variant on its own indented line with = / | prefix.
--}
+makeTypeAliasPretty : Array LPNode -> Result String String
+makeTypeAliasPretty =
+    renderHeaderIndentedBody "type alias declaration is empty" makeTypeBodyAlwaysVertical
+
+
 makeTypeUnionPretty : Array LPNode -> Result String String
-makeTypeUnionPretty children =
-    when Array.popLast children is
-        Nothing ->
-            Err "type declaration is empty"
-        Just { initial = headerChildren, last = variantsBlock } ->
-            when buildFlowDoc 0 headerChildren is
-                Err e -> Err e
-                Ok headerDoc ->
-                    when makeUnionBodyDoc (lpnChildren variantsBlock) is
-                        Err e -> Err e
-                        Ok bodyDoc ->
-                            let
-                                finalDoc = P.concat headerDoc (P.nest grenIndent (P.concat P.hardNl bodyDoc))
-                            in
-                            genericRenderResult <| P.prettyFormat costFactory finalDoc
+makeTypeUnionPretty =
+    renderHeaderIndentedBody "type declaration is empty" makeUnionBodyDoc
 
 
 makeUnionBodyDoc : Array LPNode -> Result String (P.Doc cost)
