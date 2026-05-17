@@ -103,6 +103,7 @@ importTests fsPerm =
         , assertPretty fsPerm "exposed operators wrapped in parens" "ExposedOperator"
         , assertPretty fsPerm "module line wraps exposing list to one indented line" "ModuleLineWrap"
         , assertPretty fsPerm "module line wraps exposing list to one item per line" "ModuleLineVertical"
+        , assertPretty fsPerm "import forms: plain, alias, exposing, combined" "Imports"
         ]
 
 expressionTests : FileSystem.Permission -> Effectful.Test
@@ -114,10 +115,12 @@ expressionTests fsPerm =
         , assertPretty fsPerm "let expression" "LetExpression"
         , assertPretty fsPerm "records" "Records"
         , assertPretty fsPerm "lambdas and calls" "LambdasAndCalls"
+        , assertPretty fsPerm "function calls including wrapping" "FunctionCalls"
         , assertPretty fsPerm "parenthesized expressions" "ParenWrapped"
         , assertPretty fsPerm "nested containers in list" "NestedContainersInList"
         , assertPretty fsPerm "array items that are too long to fit inline" "ArrayLongRecordItems"
         , assertPretty fsPerm "when branch body indentation" "WhenBranchBody"
+        , assertPretty fsPerm "when branch patterns" "WhenPatterns"
         , assertPretty fsPerm "record field value indentation" "RecordFieldValue"
         , assertPretty fsPerm "let def body indentation" "LetDefBody"
         , assertPretty fsPerm "let destructure pattern too long to fit on one line" "LetDestructLong"
@@ -133,6 +136,7 @@ declarationTests fsPerm =
     describe "Declarations"
         [ assertPretty fsPerm "type aliases" "TypeAlias"
         , assertPretty fsPerm "union types" "TypeUnion"
+        , assertPretty fsPerm "type signatures" "TypeSignature"
         , assertPretty fsPerm "ports" "Ports"
         ]
 

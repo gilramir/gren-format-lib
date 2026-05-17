@@ -32,7 +32,95 @@ module MyApp exposing
     )
 ```
 
-The wildcard form `(..)` is left as-is. The same rules apply to `import … exposing` lists.
+The wildcard form `(..)` is left as-is.
+
+---
+
+## Import statements
+
+A plain import stays on one line:
+
+```gren
+import Array
+```
+
+An alias is written with `as`:
+
+```gren
+import Dict as D
+```
+
+An exposing list follows the same three-level layout as the module declaration. When the list fits on the same line it stays there (with spaces inside the parentheses); when too long it wraps to one indented line; when still too long each item gets its own line:
+
+```gren
+-- fits on one line
+import String exposing ( fromInt, toInt )
+
+-- alias and exposing can be combined
+import Array.Extra as AE exposing ( filterMap, unique )
+
+-- too long for one line: moves to indented line
+import MyModule exposing
+    ( AlphaType, BetaType, gammaFunction, deltaFunction, epsilonValue )
+
+-- still too long: one item per line
+import MyOtherModule exposing
+    ( AlphaLongTypeName
+    , BetaLongTypeName
+    , GammaLongFunctionName
+    , DeltaLongFunctionName
+    )
+```
+
+The wildcard form `exposing (..)` is left as-is.
+
+---
+
+## Type signatures
+
+A type signature (`name : Type`) is kept on one line when it fits:
+
+```gren
+add : Int -> Int -> Int
+
+applyTwice : (a -> a) -> a -> a
+```
+
+Function types used as arguments are wrapped in parentheses in the signature.
+
+When a signature is too long to fit on one line, it continues on the next line indented 4 spaces. The `->` stays at the end of the preceding line:
+
+```gren
+processItems : Array String -> Dict String Int -> (String -> Bool) -> Array String -> Result String
+    (Array String)
+```
+
+---
+
+## Function application
+
+Arguments are placed on the same line as the function name. When they don't all fit, the overflow continues on the next line at the same indentation as the function name — there is no "one argument per line" layout:
+
+```gren
+-- fits on one line
+result = foo a b c
+
+-- overflows: continuation at same column as function name
+result =
+    someFunction firstLongArgument secondLongArgument thirdLongArgument fourthLongArgument
+    fifthLongArgument
+```
+
+The same rule applies inside `let` bindings when the value wraps:
+
+```gren
+let
+    x =
+        someFunction firstLongArgument secondLongArgument thirdLongArgument fourthLongArgument
+        extraLongArg
+in
+x
+```
 
 ---
 
@@ -211,6 +299,20 @@ type Shape
     = Circle Int
     | Rectangle Int Int
 ```
+
+---
+
+## Port declarations
+
+A port declaration is written on a single line with the `port` keyword, the port name, `:`, and the type:
+
+```gren
+port outgoing : String -> Cmd msg
+
+port incoming : (String -> msg) -> Sub msg
+```
+
+Long port type signatures follow the same wrapping rule as function type signatures — the continuation indents 4 spaces and the `->` stays at the end of the preceding line.
 
 ---
 
@@ -489,6 +591,32 @@ when n is
     2 -> "Tuesday"
     _ -> "Unknown"
 ```
+
+---
+
+## Patterns
+
+Patterns appear in `when` branches, lambda parameters, and `let` destructuring bindings. All pattern forms are supported:
+
+| Pattern | Example |
+|---------|---------|
+| Variable | `n` |
+| Wildcard | `_` |
+| Integer literal | `0`, `1` |
+| String literal | `"hello"` |
+| Char literal | `'a'` |
+| Constructor (no payload) | `Nothing` |
+| Constructor (with payload) | `Just n` |
+| Nested constructors | `Just Just n` |
+| Qualified constructor | `Maybe.Just n` |
+| Alias | `Just n as whole` |
+| Record (shorthand) | `{ name, value }` |
+| Record (with alias) | `{ field = alias }` |
+| Array | `[]`, `[ a ]`, `[ a, b ]` |
+
+Constructor payloads appear on the same line as the constructor name, space-separated. Parentheses around nested constructors are dropped when unambiguous — `Just (Just n)` is formatted as `Just Just n`.
+
+Multiple patterns in a `when` branch are not supported in Gren; each branch has exactly one pattern.
 
 ---
 
