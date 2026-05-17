@@ -33,9 +33,9 @@ lptFromAst modAst =
     processModuleLine modAst root
         |> Result.map (processFunctionDoc modAst.docs)
         |> Result.andThen (processImports modAst)
-        |> Result.andThen (processFunctions modAst)
-        |> Result.andThen (processAliases modAst)
-        |> Result.andThen (processUnions modAst)
+        |> Result.andThen (\r -> resultFoldl processModDecl r modAst.values)
+        |> Result.andThen (\r -> resultFoldl processAliasDecl r modAst.aliases)
+        |> Result.andThen (\r -> resultFoldl processUnionDecl r modAst.unions)
         |> Result.andThen (processPorts modAst)
         |> Result.andThen (processInfixDecls modAst)
         |> Result.map sortOriginalRows
@@ -206,25 +206,6 @@ processImport locImport root =
             makeOrigRows locImport.start.row StImport allChildren
     in
     addRootChild origRow root
-
-
-{-| Process the functions
--}
-processFunctions : Src.Module -> LPNode -> Result String LPNode
-processFunctions modAst root =
-    resultFoldl processModDecl root modAst.values
-
-
-{-| Process type aliases
--}
-processAliases : Src.Module -> LPNode -> Result String LPNode
-processAliases modAst root =
-    resultFoldl processAliasDecl root modAst.aliases
-
-
-processUnions : Src.Module -> LPNode -> Result String LPNode
-processUnions modAst root =
-    resultFoldl processUnionDecl root modAst.unions
 
 
 processPorts : Src.Module -> LPNode -> Result String LPNode
