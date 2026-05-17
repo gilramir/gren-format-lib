@@ -3,7 +3,8 @@ module Formatter.MakePretty exposing (..)
 import Compiler.SourcePosition exposing (Located)
 
 import Formatter.LogicalPrintingTree exposing (LPBox(..),
-    LPNode, ListBrackets(..), SyntaxType(..), lpBoxToString, lpnBox, lpnChildren)
+    LPNode, ListBrackets(..), SyntaxType(..),
+    lpBoxToString, lpnBox, lpnChildren, firstRowInSubtree)
 
 import Formatter.Strings exposing
     ( joinResultStrings
@@ -135,7 +136,7 @@ makeUnionBodyDoc nodes =
                                         Err e -> Err e
                                         Ok childDoc ->
                                             Ok { docs = Array.pushLast childDoc acc.docs
-                                               , prevRow = nodeFirstRow node
+                                               , prevRow = firstRowInSubtree node
                                                }
                 )
                 (Ok { docs = [], prevRow = -1 })
@@ -706,17 +707,6 @@ makeRecordUpdateDoc baseName children =
                             Ok (P.vcat ([P.text ("{ " ++ baseName)] ++ fieldLines ++ [P.text "}"]))
 
 
-nodeFirstRow : LPNode -> Int
-nodeFirstRow node =
-    when lpnBox node is
-        UnbreakableText loc -> loc.start.row
-        _ ->
-            Array.foldl
-                (\child acc -> if acc >= 0 then acc else nodeFirstRow child)
-                -1
-                (lpnChildren node)
-
-
 listBoxesWithBrackets : String -> String -> Array LPNode -> Result String (P.Doc cost)
 listBoxesWithBrackets open close nodes =
     let
@@ -727,21 +717,21 @@ listBoxesWithBrackets open close nodes =
                 AcrossThenIndent ->
                     when buildFlowDoc grenIndent (lpnChildren node) is
                         Err e -> Err e
-                        Ok d -> Ok (Just { doc = d, row = nodeFirstRow node })
+                        Ok d -> Ok (Just { doc = d, row = firstRowInSubtree node })
                 AllAcrossOrAllVertical _ ->
                     when makePDoc (lpnBox node) (lpnChildren node) is
                         Err e -> Err e
-                        Ok d -> Ok (Just { doc = d, row = nodeFirstRow node })
+                        Ok d -> Ok (Just { doc = d, row = firstRowInSubtree node })
                 AlwaysVertical bracket ->
                     let bs = bracketStrings bracket
                     in
                     when listBoxesWithBrackets bs.open bs.close (lpnChildren node) is
                         Err e -> Err e
-                        Ok d -> Ok (Just { doc = d, row = nodeFirstRow node })
+                        Ok d -> Ok (Just { doc = d, row = firstRowInSubtree node })
                 RecordUpdate baseName ->
                     when makeRecordUpdateDoc baseName (lpnChildren node) is
                         Err e -> Err e
-                        Ok d -> Ok (Just { doc = d, row = nodeFirstRow node })
+                        Ok d -> Ok (Just { doc = d, row = firstRowInSubtree node })
                 _ ->
                     Ok Nothing
 

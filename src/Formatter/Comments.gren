@@ -1,14 +1,14 @@
 module Formatter.Comments exposing (..)
 
 import Array.Builder as Builder
-import Math exposing (maxSafeInteger)
 
 import Compiler.Parse.Context as Ctx
 import Compiler.SourcePosition exposing (Located, Position, at)
 
 import Formatter.LogicalPrintingTree exposing (LPBox(..),
-    LPNode(..), ListBrackets(..), SyntaxType(..), lpnBox, lpnChildren, lpnLeaf, lpnNode)
-import Formatter.Strings exposing (countCodepointsLastLine, countNewlines)
+    LPNode(..), ListBrackets(..), SyntaxType(..),
+    lpnBox, lpnChildren, lpnLeaf, lpnNode, subtreeRowRange)
+import Formatter.Strings exposing (countNewlines)
 
 
 lptAddComments : Ctx.Context -> LPNode -> LPNode
@@ -250,48 +250,9 @@ isAcrossThenIndentNode node =
 subtreeContainsRow : LPNode -> Int -> Bool
 subtreeContainsRow node row =
     let
-        range = computeRowRange node
+        range = subtreeRowRange node
     in
     range.maxRow >= 0 && range.minRow <= row && row <= range.maxRow
-
-
-computeRowRange : LPNode -> { minRow : Int, maxRow : Int }
-computeRowRange node =
-    let
-        init = { minRow = maxSafeInteger, maxRow = -1 }
-
-        selfRange =
-            when lpnBox node is
-                UnbreakableText located ->
-                    { minRow = located.start.row, maxRow = located.end.row }
-
-                SingleLineComment located ->
-                    { minRow = located.start.row, maxRow = located.end.row }
-
-                BlockComment located ->
-                    { minRow = located.start.row, maxRow = located.end.row }
-
-                SynthesizedText _ ->
-                    init
-
-                _ ->
-                    init
-
-        childRange =
-            Array.foldl
-                (\child acc ->
-                    let cr = computeRowRange child
-                    in
-                    { minRow = min cr.minRow acc.minRow
-                    , maxRow = max cr.maxRow acc.maxRow
-                    }
-                )
-                init
-                (lpnChildren node)
-    in
-    { minRow = min selfRange.minRow childRange.minRow
-    , maxRow = max selfRange.maxRow childRange.maxRow
-    }
 
 
 {-

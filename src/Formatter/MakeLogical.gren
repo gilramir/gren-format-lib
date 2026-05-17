@@ -6,7 +6,7 @@ import Compiler.SourcePosition exposing (Located, Position)
 
 import Formatter.LogicalPrintingTree exposing (LPBox(..),
     LPNode(..), ListBrackets(..), SyntaxType(..),
-    lpnBox, lpnChildren, lpnLeaf, lpnNode)
+    lpnBox, lpnChildren, lpnLeaf, lpnNode, lastRowInSubtree)
 import Formatter.Comments exposing (lptAddComments)
 import Formatter.InsertExpressions exposing (..)
 import Formatter.VerticalSpace exposing (..)

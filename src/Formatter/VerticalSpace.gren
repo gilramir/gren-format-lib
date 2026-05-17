@@ -2,24 +2,6 @@ module Formatter.VerticalSpace exposing (..)
 
 import Formatter.LogicalPrintingTree exposing (LPBox(..), SyntaxType(..),
     LPNode(..), lpnBox, lpnChildren, lpnLeaf)
-import Formatter.Strings exposing (countNewlines)
-
-
-lastRowInSubtree : LPNode -> Int
-lastRowInSubtree node =
-    let
-        selfRow =
-            when lpnBox node is
-                UnbreakableText locString -> locString.end.row
-                BlockComment locString -> locString.end.row + countNewlines locString.value
-                DocComment locString -> locString.end.row
-                SingleLineComment locString -> locString.end.row
-                _ -> -1
-    in
-    Array.foldl
-        (\child acc -> max acc (lastRowInSubtree child))
-        selfRow
-        (lpnChildren node)
 
 
 isCommentStype : SyntaxType -> Bool

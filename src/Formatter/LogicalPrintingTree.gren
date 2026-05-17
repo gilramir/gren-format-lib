@@ -1,6 +1,9 @@
 module Formatter.LogicalPrintingTree exposing (..)
 
+import Math exposing (maxSafeInteger)
+
 import Compiler.SourcePosition exposing (Located, Position)
+import Formatter.Strings exposing (countNewlines)
 
 type ListBrackets
     = ListParen
@@ -140,6 +143,55 @@ lpnLeaf box =
 lpnNode : LPBox -> Array LPNode -> LPNode
 lpnNode box children =
     LPNode { box = box, children = children }
+
+
+-- Source-row range covered by a subtree's positioned leaves.
+-- An empty range (minRow = maxSafeInteger, maxRow = -1) means the subtree
+-- has no positioned leaves (only synthesized tokens, EmptyLine, etc.).
+-- BlockComment's maxRow is bumped by the number of newlines in its content
+-- because the parser reports its end row at the opening-delimiter line.
+subtreeRowRange : LPNode -> { minRow : Int, maxRow : Int }
+subtreeRowRange node =
+    let
+        selfRange =
+            when lpnBox node is
+                UnbreakableText loc ->
+                    { minRow = loc.start.row, maxRow = loc.end.row }
+                SingleLineComment loc ->
+                    { minRow = loc.start.row, maxRow = loc.end.row }
+                BlockComment loc ->
+                    { minRow = loc.start.row, maxRow = loc.end.row + countNewlines loc.value }
+                DocComment loc ->
+                    { minRow = loc.start.row, maxRow = loc.end.row }
+                _ ->
+                    { minRow = maxSafeInteger, maxRow = -1 }
+    in
+    Array.foldl
+        (\child acc ->
+            let cr = subtreeRowRange child
+            in
+            { minRow = min cr.minRow acc.minRow
+            , maxRow = max cr.maxRow acc.maxRow
+            }
+        )
+        selfRange
+        (lpnChildren node)
+
+
+-- First (smallest) positioned row in a subtree, or -1 if no positioned
+-- leaves exist.
+firstRowInSubtree : LPNode -> Int
+firstRowInSubtree node =
+    let r = subtreeRowRange node
+    in
+    if r.minRow == maxSafeInteger then -1 else r.minRow
+
+
+-- Last (largest) positioned row in a subtree, or -1 if no positioned
+-- leaves exist.
+lastRowInSubtree : LPNode -> Int
+lastRowInSubtree node =
+    (subtreeRowRange node).maxRow
 
 
 lpBoxToString : LPBox -> String
