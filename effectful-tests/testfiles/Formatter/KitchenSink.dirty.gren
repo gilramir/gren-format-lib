@@ -287,12 +287,57 @@ classifyTree tree =
         (Leaf _) as wholeLeafNode ->
             String.append "leaf:" (Debug.toString wholeLeafNode)
 
-        Branch { label } ->
-            String.append "branch:" label
+        Branch ({ label } as wholeBranchPayload) ->
+            String.append "branch:" label ++ "/" ++ Debug.toString wholeBranchPayload
 
         Cons { leftSubtree = Empty, rightSubtree = Empty } -> "single-cons"
 
         Cons _ -> "wide-cons"
+
+
+-- Exercises literal patterns (Int / Char / String), qualified-constructor
+-- patterns, multi-element array patterns, let-destructure bindings, and
+-- qualified types in signatures.
+interpretMicroCommand : Decode.Decoder Int -> String -> Array Char -> Maybe Int -> { handled : Bool, replyCode : Int }
+interpretMicroCommand decoderForPayload commandText commandCharacters optionalRetryHint =
+    let
+        -- let-destructure (Destruct binding) splits a static record into two
+        -- locally-bound names without going through a fresh name first.
+        { defaultReplyCode, fallbackReplyCode } = { defaultReplyCode = 0, fallbackReplyCode = -1 }
+
+        codeFromCharacterArray =
+            when commandCharacters is
+                -- single-char array pattern with literal Char pattern
+                [ 'q' ] -> 1
+
+                -- 3-element array pattern with literal Char and two PVars
+                [ '#', firstDigitCharacter, secondDigitCharacter ] -> 2
+
+                -- 4-element array pattern (all PVars)
+                [ firstChar, secondChar, thirdChar, fourthChar ] -> 3
+
+                _ -> defaultReplyCode
+
+        codeFromCommandText =
+            when commandText is
+                "skip" -> 100
+                "halt" -> 200
+                _ ->
+                    when String.length commandText is
+                        0 -> 0
+                        1 -> 1
+                        _ -> fallbackReplyCode
+
+        codeFromRetryHint =
+            when optionalRetryHint is
+                Maybe.Just retryAttemptNumber -> retryAttemptNumber
+
+                Maybe.Nothing ->
+                    when String.uncons commandText is
+                        Just { first = '?', rest = _ } -> 42
+                        _ -> fallbackReplyCode
+    in
+    { handled = codeFromCharacterArray > 0, replyCode = codeFromCharacterArray + codeFromCommandText + codeFromRetryHint }
 
 
 -- Operator section / partial application of binops, used inside a pipeline.
