@@ -337,7 +337,16 @@ insertExpression locExpr =
                 |> Result.andThen (\exprNodes ->
                     resultFoldl folderInsertWhenBranch [] branches
                         |> Result.map (\branchNodes ->
-                            [whenNode] ++ exprNodes ++ [isNode, lpnNode IndentedBlock branchNodes]
+                            -- Wrap the whole `when ... is + branches` in
+                            -- AlignedFlow so the branches indent relative to
+                            -- the actual column of `when` (not the abstract
+                            -- nesting level of the surrounding flow). This
+                            -- matters when preceding inline comments push
+                            -- `when` to a higher column than the surrounding
+                            -- nest would suggest.
+                            [lpnNode AlignedFlow
+                                ([whenNode] ++ exprNodes ++ [isNode, lpnNode IndentedBlock branchNodes])
+                            ]
                         )
                 )
 

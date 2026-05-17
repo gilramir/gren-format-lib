@@ -540,6 +540,10 @@ makePDoc box children =
                                 Ok rhsDoc -> Ok (P.concat (P.text (opStr ++ " ")) rhsDoc)
                         _ -> Err "OpAndRhs: first child must be a text operator"
                 Nothing -> Err "OpAndRhs: empty children"
+        AlignedFlow ->
+            when buildFlowDoc 0 children is
+                Err e -> Err e
+                Ok innerDoc -> Ok (P.align innerDoc)
         LambdaSlash ->
             when buildFlowDoc 0 children is
                 Err e -> Err e

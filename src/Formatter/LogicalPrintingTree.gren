@@ -109,6 +109,13 @@ type LPBox
     -- new line instead of dangling at the end of the previous one.
     | OpAndRhs
 
+    -- A flow whose internal newlines are aligned to the column where the
+    -- flow starts (via P.align). Used to wrap indentation-sensitive
+    -- constructs (when/is, if/then/else, let/in) so their bodies indent
+    -- relative to the keyword's actual column, even when comments have
+    -- shifted that keyword to the right.
+    | AlignedFlow
+
     -- Lambda \ prefix: renders children with \ immediately before (no space).
     -- Used instead of text-modification so that bracket-rendered containers
     -- (records, arrays) render correctly: \{ x, y } not { \x, y }.
@@ -228,6 +235,7 @@ lpBoxToString lpbox =
             "(whenBranch ml=" ++ (if ml then "T" else "F") ++ ")"
         ParenBlock -> "(parenBlock)"
         OpAndRhs -> "(opAndRhs)"
+        AlignedFlow -> "(alignedFlow)"
         LambdaSlash -> "(lambdaSlash)"
         SoftIndentedBlock -> "(softIndentedBlock)"
         SoftBodyBlock -> "(softBodyBlock)"

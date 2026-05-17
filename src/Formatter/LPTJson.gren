@@ -108,6 +108,9 @@ lpBoxFields lpbox =
         OpAndRhs ->
             [ { key = "type", value = Json.string "OpAndRhs" } ]
 
+        AlignedFlow ->
+            [ { key = "type", value = Json.string "AlignedFlow" } ]
+
         LambdaSlash ->
             [ { key = "type", value = Json.string "LambdaSlash" } ]
 
