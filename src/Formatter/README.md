@@ -135,6 +135,85 @@ This rule applies to chains of comments: each consecutive comment line (or block
 
 ---
 
+## Type aliases
+
+A `type alias` declaration always has two lines: the header on the first line and the aliased type on the next line indented 4 spaces — even if the whole thing would fit on one line:
+
+```gren
+type alias Name =
+    String
+
+type alias Callback =
+    Int -> String
+```
+
+Type variables appear after the name on the header line:
+
+```gren
+type alias Pair a b =
+    { first : a
+    , second : b
+    }
+```
+
+When the aliased type is a record, each field always gets its own line — the record is never collapsed to a single line even when it would fit:
+
+```gren
+type alias Point =
+    { x : Int
+    , y : Int
+    }
+
+type alias Config a =
+    { name : String
+    , value : a
+    }
+```
+
+Non-record aliased types (simple names, applied types, function types) appear on a single indented line:
+
+```gren
+type alias Id =
+    Int
+
+type alias Lookup a =
+    Dict String a
+
+type alias Transform a =
+    a -> a
+```
+
+---
+
+## Custom types
+
+A `type` declaration has the `type` keyword, the type name, and any type variables on the first line. Each variant always gets its own line indented 4 spaces. The first variant is preceded by `=` and each subsequent one by `|`:
+
+```gren
+type Color
+    = Red
+    | Green
+    | Blue
+```
+
+Type variables appear after the name on the header line:
+
+```gren
+type Maybe a
+    = Nothing
+    | Just a
+```
+
+Variant payloads appear on the same line as the variant name, space-separated. Payload types follow the same rules as type signatures:
+
+```gren
+type Shape
+    = Circle Int
+    | Rectangle Int Int
+```
+
+---
+
 ## Records
 
 ### Record literals
