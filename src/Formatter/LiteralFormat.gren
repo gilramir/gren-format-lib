@@ -19,6 +19,25 @@ escapeStringContent s =
         |> String.replace "\t" "\\t"
 
 
+-- Escape content for embedding in a triple-quoted `"""..."""` literal.
+-- These strings still process `\` as an escape introducer, so literal
+-- backslashes must be doubled or the parser will misinterpret the next
+-- character (e.g. `\.` is rejected as "invalid escape sequence"). But
+-- newlines, carriage returns, and tabs are preserved as themselves — the
+-- whole point of `"""` is that real newlines stand for newlines.
+--
+-- Double quotes need escaping when they'd form a 3-run (which would
+-- terminate the literal early) or sit adjacent to the closing `"""`.
+-- Simplest always-correct rule: escape every `"`. This matches how
+-- source code typically embeds `"""` inside a `"""` string (via
+-- `\"\"\"`), so it also round-trips cleanly.
+escapeMultilineContent : String -> String
+escapeMultilineContent s =
+    s
+        |> String.replace "\\" "\\\\"
+        |> String.replace "\"" "\\\""
+
+
 charLiteralString : Char -> String
 charLiteralString c =
     let

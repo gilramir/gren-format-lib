@@ -1,0 +1,24 @@
+module MultilineStringContent exposing (..)
+
+-- Triple-quoted strings still process backslash escapes. The AST stores
+-- the *decoded* string value, so the formatter must re-escape `\` and `"`
+-- on the way out — otherwise the rendered file fails to re-parse.
+withBackslashes : String
+withBackslashes =
+    """
+    Regex example: /\\./g
+    """
+
+
+withEmbeddedTripleQuotes : String
+withEmbeddedTripleQuotes =
+    """
+    \"\"\"Triple double quotes\"\"\"
+    """
+
+
+mixed : String
+mixed =
+    """
+    A \"line\" and a \\path.
+    """

@@ -140,6 +140,7 @@ expressionTests fsPerm =
         , assertPretty fsPerm "as-pattern inside record-field destructure keeps its parens" "RecordFieldAsPattern"
         , assertPretty fsPerm "doc comment body with non-BMP code points round-trips" "DocCommentWithEmoji"
         , assertPretty fsPerm "record update base can be a parenthesized call" "RecordUpdateComplexBase"
+        , assertPretty fsPerm "multi-line string content escapes backslashes and embedded triple quotes" "MultilineStringContent"
         ]
 
 declarationTests : FileSystem.Permission -> Effectful.Test

@@ -16,7 +16,7 @@ import Formatter.LPTHelpers exposing
     ( mkText, mkTextFromLocString, resultFoldl
     , tryMapFirstLeaf, tryMapLastLeaf, fixupParensChildrenNodes
     )
-import Formatter.LiteralFormat exposing (charLiteralString, escapeStringContent, intToHex, renderFloat)
+import Formatter.LiteralFormat exposing (charLiteralString, escapeStringContent, escapeMultilineContent, intToHex, renderFloat)
 import Formatter.InsertPatterns exposing (folderInsertPattern, insertPattern)
 import Formatter.InsertTypes exposing (makeSignatureBranch)
 
@@ -95,7 +95,11 @@ insertExpression locExpr =
     when locExpr.value is
         Src.StringLiteral s ->
             if locExpr.start.row /= locExpr.end.row then
-                Ok [lpnLeaf (MultilineString (String.split "\n" s))]
+                -- Triple-quoted strings still process `\` as an escape
+                -- introducer (e.g. `\n`, `\u{1F4A9}`). The AST stores the
+                -- *decoded* string, so we must re-escape backslashes
+                -- before splitting on real newlines for emission.
+                Ok [lpnLeaf (MultilineString (String.split "\n" (escapeMultilineContent s)))]
             else
                 Ok [lpnLeaf (mkText locExpr.start ("\"" ++ escapeStringContent s ++ "\""))]
 
