@@ -139,6 +139,7 @@ expressionTests fsPerm =
         , assertPretty fsPerm "small/large floats render as decimal, not scientific notation" "FloatLiterals"
         , assertPretty fsPerm "as-pattern inside record-field destructure keeps its parens" "RecordFieldAsPattern"
         , assertPretty fsPerm "doc comment body with non-BMP code points round-trips" "DocCommentWithEmoji"
+        , assertPretty fsPerm "record update base can be a parenthesized call" "RecordUpdateComplexBase"
         ]
 
 declarationTests : FileSystem.Permission -> Effectful.Test

@@ -348,13 +348,26 @@ insertExpression locExpr =
                 )
 
 
--- Extract text from simple expressions (Var, VarQual, Access chain) without touching the tree.
+-- Extract text from a small subset of simple expression shapes — the ones
+-- commonly used as the base of a record update (`{ base | field = ... }`).
+-- Returns "" for shapes that can't be expressed as a single inline token.
 simpleExprText : Src.Expression -> String
 simpleExprText locExpr =
     when locExpr.value is
         Src.Var { name = name } -> name
         Src.VarQual { qualifier = q, name = n } -> q ++ "." ++ n
         Src.Access { expression = expr, accessor = acc } -> simpleExprText expr ++ "." ++ acc
+        Src.Parens inner ->
+            let t = simpleExprText inner
+            in if String.isEmpty t then "" else "(" ++ t ++ ")"
+        Src.Call { fn = fnExpr, args = argsExprs } ->
+            let
+                fnText = simpleExprText fnExpr
+                argTexts = Array.map simpleExprText argsExprs
+                anyEmpty = String.isEmpty fnText || Array.any String.isEmpty argTexts
+            in
+            if anyEmpty then ""
+            else String.join " " ([fnText] ++ argTexts)
         _ -> ""
 
 

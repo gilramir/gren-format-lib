@@ -1,0 +1,26 @@
+module RecordUpdateComplexBase exposing (..)
+
+-- A record-update base can be a parenthesized function call, not just
+-- a Var/VarQual/Access. Without handling that, the formatter emits
+-- `{  | field = value }` (empty base) which fails to re-parse.
+type alias Options =
+    { shell : String
+    , verbose : Bool
+    }
+
+
+defaults : Options
+defaults =
+    { shell = "bash"
+    , verbose = False
+    }
+
+
+makeNoShell : Options -> Options
+makeNoShell base =
+    { (someTransform base) | shell = "none" }
+
+
+someTransform : Options -> Options
+someTransform o =
+    o
