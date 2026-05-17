@@ -2,25 +2,34 @@ module ExtensibleRecords exposing (..)
 
 
 -- Extensible record type in a type signature
-getName : { r | name : String } -> String
+getName :
+    { r
+        | name : String
+    } -> String
 getName record =
     record.name
 
 
 -- Extensible record with multiple fields
-getInfo : { r | name : String, age : Int } -> String
+getInfo :
+    { r
+        | name : String
+        , age : Int
+    } -> String
 getInfo record =
     record.name
 
 -- Extensible record type alias
 type alias Named r =
-    { r | name : String
+    { r
+        | name : String
     }
 
 -- Extensible record with multiple fields as alias
 type alias Positioned r =
-    { r | x : Float
-    , y : Float
+    { r
+        | x : Float
+        , y : Float
     }
 
 -- Non-extensible record (ensure no regression)

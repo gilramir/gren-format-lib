@@ -105,24 +105,13 @@ makeSignatureBranch locType =
                     when Array.popFirst fieldNodes is
                         Nothing ->
                             [lpnLeaf (mkText locType.start "{}")]
-                        Just { first = firstField, rest = restFields } ->
-                            let
-                                -- For extensible records { r | field : Type }, prepend the
-                                -- base variable and | into the first field's AcrossThenIndent
-                                -- so the r | flows with the first field after the opening {.
-                                allFieldNodes =
-                                    when extending is
-                                        Nothing ->
-                                            fieldNodes
-                                        Just locVar ->
-                                            let
-                                                extPrefix =
-                                                    [ lpnLeaf (SynthesizedText locVar.value)
-                                                    , lpnLeaf (SynthesizedText "|")
-                                                    ]
-                                                firstWithExt = lpnNode AcrossThenIndent (extPrefix ++ lpnChildren firstField)
-                                            in
-                                            [firstWithExt] ++ restFields
-                            in
-                            [lpnNode (AllAcrossOrAllVertical ListCurly) allFieldNodes]
+                        Just _ ->
+                            when extending is
+                                Nothing ->
+                                    [lpnNode (AllAcrossOrAllVertical ListCurly) fieldNodes]
+                                Just locVar ->
+                                    -- Extensible record type: render with the
+                                    -- same vertical layout as a record update,
+                                    -- so `|` and `,` align under the base name.
+                                    [lpnNode (RecordUpdate locVar.value) fieldNodes]
                 )
