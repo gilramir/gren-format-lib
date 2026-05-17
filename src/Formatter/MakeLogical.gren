@@ -271,7 +271,13 @@ processVariantNode locVariant accNodes =
         Just payloadType ->
             makeSignatureBranch payloadType
                 |> Result.map (\payloadNodes ->
-                    Array.pushLast (lpnNode AcrossThenIndent ([prefixNode, nameNode] ++ payloadNodes)) accNodes
+                    -- Wrap the payload in SoftIndentedBlock so that when the
+                    -- variant doesn't fit on one line, the payload moves to a
+                    -- new line indented +4 from the `|` (instead of landing at
+                    -- the same column as the `|`).
+                    let payloadBlock = lpnNode SoftIndentedBlock payloadNodes
+                    in
+                    Array.pushLast (lpnNode AcrossThenIndent [prefixNode, nameNode, payloadBlock]) accNodes
                 )
 
 
