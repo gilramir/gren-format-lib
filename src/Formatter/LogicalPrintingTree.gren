@@ -84,8 +84,9 @@ type LPBox
     -- Children always render on a new indented line (used for then/else bodies, etc.)
     | IndentedBlock
 
-    -- One step in a |> pipeline: renders like IndentedBlock but always hard-breaks
-    -- before the |> operator. Adds a blank line before if the step starts with a comment.
+    -- One step in a |> or <| pipeline: renders like IndentedBlock but always
+    -- hard-breaks before the pipe operator. Adds a blank line before if the
+    -- step starts with a comment.
     | PipelineStep
 
     -- Function body block: forces a hard newline before children, no extra nesting

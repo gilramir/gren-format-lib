@@ -1,0 +1,13 @@
+module BackwardPipeline exposing (..)
+
+-- A backward pipeline that overflows wraps with each <| step on its own
+-- line, indented +4 from the seed (same shape as |>).
+shout : String -> String
+shout name =
+    String.toUpper <| String.append "Hello, " <| String.append name "!"
+
+
+-- A short backward pipeline still breaks the same way the forward
+-- pipeline does when used as a function body.
+five : Int
+five = identity <| 5

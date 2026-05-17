@@ -20,32 +20,43 @@ import Formatter.LiteralFormat exposing (charLiteralString, escapeStringContent,
 import Formatter.InsertPatterns exposing (folderInsertPattern, insertPattern)
 
 
--- Flatten a |> chain into (seed, [(op, step), ...]).
--- In Gren, |> is right-associative: `a |> b |> c` parses as `a |> (b |> c)`.
--- We walk the right spine of the |> chain to collect all steps in order.
+-- A pipeline operator is `|>` (forward) or `<|` (backward). Both are
+-- right-associative in Gren, so `a OP b OP c` parses as `a OP (b OP c)`.
+-- We only flatten contiguous runs of the *same* operator to avoid mixing
+-- forward and backward pipes in one chain.
+isPipelineOp : String -> Bool
+isPipelineOp s =
+    s == "|>" || s == "<|"
+
+
+-- Flatten a pipeline chain into (seed, [(op, step), ...]).
+-- We walk the right spine of the chain to collect all steps in order.
 flattenPipeline : Src.Expression -> { seed : Src.Expression, steps : Array { op : Located String, body : Src.Expression } }
 flattenPipeline locExpr =
     when locExpr.value is
         Src.Binops { left = lhsExpr, operator = op, right = rhsExpr } ->
-            if op.value == "|>" then
-                { seed = lhsExpr, steps = collectPipelineSteps op rhsExpr [] }
+            if isPipelineOp op.value then
+                { seed = lhsExpr, steps = collectPipelineSteps op.value op rhsExpr [] }
             else
                 { seed = locExpr, steps = [] }
         _ ->
             { seed = locExpr, steps = [] }
 
 
--- Walk the right spine of a |> chain, collecting (op, body) pairs in order.
+-- Walk the right spine of a pipeline chain, collecting (op, body) pairs in
+-- order. Only continues collecting while the inner operator matches the
+-- outer one (so `a |> b <| c` does not collapse into a single chain).
 collectPipelineSteps :
-    Located String
+    String
+    -> Located String
     -> Src.Expression
     -> Array { op : Located String, body : Src.Expression }
     -> Array { op : Located String, body : Src.Expression }
-collectPipelineSteps op body steps =
+collectPipelineSteps opStr op body steps =
     when body.value is
         Src.Binops { left = innerLeft, operator = innerOp, right = innerRight } ->
-            if innerOp.value == "|>" then
-                collectPipelineSteps innerOp innerRight (Array.pushLast { op = op, body = innerLeft } steps)
+            if innerOp.value == opStr then
+                collectPipelineSteps opStr innerOp innerRight (Array.pushLast { op = op, body = innerLeft } steps)
             else
                 Array.pushLast { op = op, body = body } steps
         _ ->
@@ -172,7 +183,7 @@ insertExpression locExpr =
                 )
 
         Src.Binops { left = lhsExpr, operator = locStringOp, right = rhsExpr } ->
-            if locStringOp.value == "|>" then
+            if isPipelineOp locStringOp.value then
                 let
                     flattened = flattenPipeline locExpr
                 in
