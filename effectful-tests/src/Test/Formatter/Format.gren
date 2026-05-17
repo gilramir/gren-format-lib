@@ -129,6 +129,8 @@ expressionTests fsPerm =
         , assertPretty fsPerm "string and char escape sequences in when patterns" "StringAndCharPatterns"
         , assertPretty fsPerm "multiline (triple-quoted) strings preserved" "MultilineString"
         , assertPretty fsPerm "lambda with record and array destructure patterns" "LambdaPatterns"
+        , assertPretty fsPerm "binary operators, negation, hex literals" "BinaryOps"
+        , assertPretty fsPerm "extensible record types in signatures and aliases" "ExtensibleRecords"
         ]
 
 declarationTests : FileSystem.Permission -> Effectful.Test

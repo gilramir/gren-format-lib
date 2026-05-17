@@ -45,6 +45,7 @@ makePrettyLine node =
                 StTypeAlias -> makeTypeAliasPretty children
                 StTypeUnion -> makeTypeUnionPretty children
                 StPort -> makeFlowIndentable children
+                StInfixDecl -> makeFlowIndentable children
         EmptyLine ->
             Ok ""
         _ ->

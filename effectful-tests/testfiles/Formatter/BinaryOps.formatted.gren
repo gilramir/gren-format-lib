@@ -1,0 +1,35 @@
+module BinaryOps exposing (..)
+
+-- Arithmetic operators
+addition = 1 + 2
+subtraction = 10 - 3
+multiplication = 4 * 5
+division = 10 / 2
+intDivision = 10 // 3
+
+-- Comparison operators
+equals = x == y
+notEquals = x /= y
+lessThan = x < y
+greaterThan = x > y
+lessOrEq = x <= y
+greaterOrEq = x >= y
+
+-- Boolean operators
+andOp = True && False
+orOp = True || False
+
+-- Negation
+negNum = -42
+negVar = -x
+
+-- Hex literals
+hexVal = 0xFF
+hexLarge = 0x1A2B
+
+-- Combined expressions (operator precedence preserved)
+combined = 1 + 2 * 3
+
+-- Long binary expression that wraps
+longExpr =
+    someLongVariableName + anotherLongVariableName + yetAnotherLongVariableName + stillMoreLong

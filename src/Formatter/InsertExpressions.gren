@@ -862,7 +862,7 @@ makeSignatureBranch locType =
         Src.TVar name ->
             Ok [lpnLeaf (mkText locType.start name)]
 
-        Src.TRecord { fields = fields, extending = _ } ->
+        Src.TRecord { fields = fields, extending = extending } ->
             let
                 folderField field accNodes =
                     when makeSignatureBranch field.signature is
@@ -882,5 +882,23 @@ makeSignatureBranch locType =
                     when Array.popFirst fieldNodes is
                         Nothing ->
                             Ok [lpnLeaf (mkText locType.start "{}")]
-                        Just _ ->
-                            Ok [lpnNode (AllAcrossOrAllVertical ListCurly) fieldNodes]
+                        Just { first = firstField, rest = restFields } ->
+                            let
+                                -- For extensible records { r | field : Type }, prepend the
+                                -- base variable and | into the first field's AcrossThenIndent
+                                -- so the r | flows with the first field after the opening {.
+                                allFieldNodes =
+                                    when extending is
+                                        Nothing ->
+                                            fieldNodes
+                                        Just locVar ->
+                                            let
+                                                extPrefix =
+                                                    [ lpnLeaf (SynthesizedText locVar.value)
+                                                    , lpnLeaf (SynthesizedText "|")
+                                                    ]
+                                                firstWithExt = lpnNode AcrossThenIndent (extPrefix ++ lpnChildren firstField)
+                                            in
+                                            [firstWithExt] ++ restFields
+                            in
+                            Ok [lpnNode (AllAcrossOrAllVertical ListCurly) allFieldNodes]

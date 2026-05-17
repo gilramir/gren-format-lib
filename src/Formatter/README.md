@@ -316,6 +316,22 @@ Long port type signatures follow the same wrapping rule as function type signatu
 
 ---
 
+## Infix operator declarations
+
+Infix declarations use the keyword `infix` followed by the associativity (`left`, `right`, or `non`), the precedence, the operator symbol in parentheses, `=`, and the implementing function name — all on one line:
+
+```gren
+infix left  6 (+) = add
+infix left  6 (-) = sub
+infix left  7 (*) = mul
+infix non   4 (==) = eq
+infix right 5 (<|) = apL
+```
+
+> **Note:** Infix declarations are only valid in kernel/core packages. This rule is implemented but not covered by the formatter's effectful test suite.
+
+---
+
 ## Records
 
 ### Record literals
@@ -387,7 +403,19 @@ wrapsToNextLine =
 
 ### Records in type signatures
 
-Record types in signatures are not affected by these rules — they follow the same flow-layout rules as other types and may be inline or wrapped depending on line length.
+Record types in signatures follow the same flow-layout rules as other types and may be inline or wrapped depending on line length.
+
+### Extensible record types
+
+An extensible record type `{ r | field : Type }` places the base variable and `|` at the start of the first field item. When the fields fit on one line the whole thing stays inline; when they don't, the first field (with its `r |` prefix) starts on the first line and remaining fields use `, ` alignment:
+
+```gren
+-- fits on one line
+getName : { r | name : String } -> String
+
+-- first field carries the base variable; rest align with ,
+getInfo : { r | firstName : String, lastName : String, age : Int } -> String
+```
 
 ---
 

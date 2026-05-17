@@ -30,7 +30,6 @@ lptFromAst : Src.Module -> Result String LPNode
 lptFromAst modAst =
     let root = lpnLeaf RootBox
     in
-    -- TODO: binops
     processModuleLine modAst root
         |> Result.map (processFunctionDoc modAst.docs)
         |> Result.andThen (processImports modAst)
@@ -38,6 +37,7 @@ lptFromAst modAst =
         |> Result.andThen (processAliases modAst)
         |> Result.andThen (processUnions modAst)
         |> Result.andThen (processPorts modAst)
+        |> Result.andThen (processInfixDecls modAst)
         |> Result.map sortOriginalRows
 
 
@@ -77,9 +77,42 @@ processModuleLine modAst root =
         keyword =
             when modAst.effects is
                 Src.Ports _ -> "port module"
-                _ -> "module"
+                Src.Manager _ -> "effect module"
+                Src.NoEffects -> "module"
         n1 = lpnLeaf (mkText { row = modAst.name.start.row, col = 1 } keyword)
         n2 = lpnLeaf (mkTextFromLocString modAst.name)
+
+        whereNodes =
+            when modAst.effects is
+                Src.Manager manager ->
+                    let
+                        fields =
+                            when manager is
+                                Src.Cmd locName ->
+                                    [ lpnLeaf (SynthesizedText "command")
+                                    , lpnLeaf (SynthesizedText "=")
+                                    , lpnLeaf (SynthesizedText locName.value)
+                                    ]
+                                Src.Sub locName ->
+                                    [ lpnLeaf (SynthesizedText "subscription")
+                                    , lpnLeaf (SynthesizedText "=")
+                                    , lpnLeaf (SynthesizedText locName.value)
+                                    ]
+                                Src.Fx { cmd = cmd, sub = sub } ->
+                                    [ lpnLeaf (SynthesizedText "command")
+                                    , lpnLeaf (SynthesizedText "=")
+                                    , lpnLeaf (SynthesizedText cmd.value)
+                                    , lpnLeaf (SynthesizedText ",")
+                                    , lpnLeaf (SynthesizedText "subscription")
+                                    , lpnLeaf (SynthesizedText "=")
+                                    , lpnLeaf (SynthesizedText sub.value)
+                                    ]
+                    in
+                    [ lpnLeaf (SynthesizedText "where")
+                    , lpnNode (AllAcrossOrAllVertical ListCurly) fields
+                    ]
+                _ ->
+                    []
 
         exposingPos =
             { row = modAst.name.start.row
@@ -96,7 +129,7 @@ processModuleLine modAst root =
                         (Array.map processExposed exposed)
 
         origRow =
-            makeOrigRows modAst.name.start.row StModule [n1, n2, n3, n4]
+            makeOrigRows modAst.name.start.row StModule ([n1, n2] ++ whereNodes ++ [n3, n4])
     in
     Ok (addRootChild origRow root)
 
@@ -356,3 +389,29 @@ processFunctionSignature locName maybeType root =
                             makeOrigRows locType.start.row StFunctionSignature allChildren
                     in
                     Ok (addRootChild origRow root)
+
+
+processInfixDecls : Src.Module -> LPNode -> Result String LPNode
+processInfixDecls modAst root =
+    Ok <| Array.foldl processInfixDecl root modAst.binops
+
+
+processInfixDecl : Located Src.Infix -> LPNode -> LPNode
+processInfixDecl locInfix root =
+    let
+        infix_ = locInfix.value
+        assocStr =
+            when infix_.associativity is
+                Src.OpALeft -> "left"
+                Src.OpARight -> "right"
+                Src.OpANone -> "non"
+        keywordNode = lpnLeaf (mkText { row = locInfix.start.row, col = 1 } "infix")
+        assocNode = lpnLeaf (SynthesizedText assocStr)
+        precNode = lpnLeaf (SynthesizedText (String.fromInt infix_.precedence))
+        opNode = lpnLeaf (SynthesizedText ("(" ++ infix_.symbol ++ ")"))
+        eqNode = lpnLeaf (SynthesizedText "=")
+        fnNode = lpnLeaf (SynthesizedText infix_.fn)
+        allChildren = [keywordNode, assocNode, precNode, opNode, eqNode, fnNode]
+        origRow = makeOrigRows locInfix.start.row StInfixDecl allChildren
+    in
+    addRootChild origRow root
