@@ -917,6 +917,22 @@ listBoxesWithBrackets open close nodes =
                     when makeRecordUpdateDoc baseName (lpnChildren node) is
                         Err e -> Err e
                         Ok d -> Ok (Just { doc = d, row = firstRowInSubtree node })
+                AlignedFlow ->
+                    when makePDoc AlignedFlow (lpnChildren node) is
+                        Err e -> Err e
+                        Ok d -> Ok (Just { doc = d, row = firstRowInSubtree node })
+                NegatedExpr ->
+                    when makePDoc NegatedExpr (lpnChildren node) is
+                        Err e -> Err e
+                        Ok d -> Ok (Just { doc = d, row = firstRowInSubtree node })
+                ParenBlock ->
+                    when makePDoc ParenBlock (lpnChildren node) is
+                        Err e -> Err e
+                        Ok d -> Ok (Just { doc = d, row = firstRowInSubtree node })
+                SynthesizedText _ ->
+                    when makePDoc (lpnBox node) (lpnChildren node) is
+                        Err e -> Err e
+                        Ok d -> Ok (Just { doc = d, row = firstRowInSubtree node })
                 _ ->
                     Ok Nothing
 
