@@ -210,6 +210,48 @@ Record types in signatures are not affected by these rules — they follow the s
 
 ---
 
+## Array literals
+
+An empty array is always written as `[]`.
+
+A non-empty array uses an all-or-nothing layout: either every item fits on one line or every item gets its own line. There is no partial wrapping.
+
+The flat form has a space after `[` and before `]`:
+
+```gren
+[ 1, 2, 3 ]
+```
+
+When the array is too long to fit on one line, it breaks to the vertical form. The opening `[` and first item are on the first line, each subsequent item is prefixed with `, ` on its own line, and the closing `]` is on a line by itself:
+
+```gren
+[ "first"
+, "second"
+, "third"
+]
+```
+
+Multi-field record items stay inline even in the vertical form, as long as each record fits on its own line:
+
+```gren
+[ { label = "first", value = 1 }
+, { label = "second", value = 2 }
+, { label = "third", value = 3 }
+]
+```
+
+A comment between items forces the vertical layout, and the comment appears between the items at the same indentation:
+
+```gren
+[ firstItem
+-- a comment between items
+, secondItem
+, thirdItem
+]
+```
+
+---
+
 ## If expressions
 
 The body of every branch always starts on the next line, indented 4 spaces. There is no inline form — even a one-word body goes on its own line:
