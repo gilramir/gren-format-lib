@@ -310,6 +310,18 @@ in
 model
 ```
 
+When a destructuring pattern is too long to fit on one line, the fields wrap to subsequent lines with `, ` aligned with the opening `{`, and the closing `}` and `=` stay together on the last line of the pattern:
+
+```gren
+let
+    { veryLongFieldNameAlpha = aliasAlpha
+    , veryLongFieldNameBeta = aliasBeta
+    , veryLongFieldNameGamma = aliasGamma
+    } = someFunction arg1 arg2
+in
+aliasAlpha + aliasBeta + aliasGamma
+```
+
 Comments may appear before a binding inside a `let` block and are placed at the same indentation level as the bindings:
 
 ```gren

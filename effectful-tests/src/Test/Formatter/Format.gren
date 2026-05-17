@@ -119,6 +119,7 @@ expressionTests fsPerm =
         , assertPretty fsPerm "when branch body indentation" "WhenBranchBody"
         , assertPretty fsPerm "record field value indentation" "RecordFieldValue"
         , assertPretty fsPerm "let def body indentation" "LetDefBody"
+        , assertPretty fsPerm "let destructure pattern too long to fit on one line" "LetDestructLong"
         , assertPretty fsPerm "pipeline step argument indentation" "PipelineArgIndent"
         , assertPretty fsPerm "string escape sequences preserved" "StringEscapes"
         , assertPretty fsPerm "lambda with record and array destructure patterns" "LambdaPatterns"

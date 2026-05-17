@@ -468,9 +468,8 @@ folderInsertLetDef locDef accNodes =
                         Err e -> Err e
                         Ok bodyNodes ->
                             let
-                                header = lpnNode AcrossThenIndent (patNodes ++ [eqNode])
                                 bodyWrapper = lpnNode SoftIndentedBlock bodyNodes
-                                container = lpnNode IndentedBlock [header, bodyWrapper]
+                                container = lpnNode IndentedBlock (patNodes ++ [eqNode, bodyWrapper])
                             in
                             Ok (Array.pushLast container accNodes)
 
