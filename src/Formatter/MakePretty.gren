@@ -164,6 +164,84 @@ type NextSeparator
     | AlreadyTerminated
 
 
+-- Layout rule for a block-style child (IndentedBlock, BodyBlock, etc.):
+--   `wrap` decorates the child doc (indenting, hardNl-prefixing, grouping…).
+--   `bypassAlreadyTerminated = True` means the wrap is skipped when the
+--     previous item ended its own line (no extra separator needed).
+--   `nextSep` is the separator state to set after rendering this block.
+type alias BlockRule cost =
+    { wrap : P.Doc cost -> P.Doc cost
+    , bypassAlreadyTerminated : Bool
+    , nextSep : NextSeparator
+    }
+
+
+indentedBlockRule : BlockRule cost
+indentedBlockRule =
+    { wrap = \c -> P.nest grenIndent (P.concat P.hardNl c)
+    , bypassAlreadyTerminated = False
+    , nextSep = HardNl
+    }
+
+
+bodyBlockRule : BlockRule cost
+bodyBlockRule =
+    { wrap = \c -> P.concat P.hardNl c
+    , bypassAlreadyTerminated = True
+    , nextSep = FlowSep
+    }
+
+
+softIndentedBlockRule : BlockRule cost
+softIndentedBlockRule =
+    { wrap = \c -> P.group (P.nest grenIndent (P.concat P.nl c))
+    , bypassAlreadyTerminated = False
+    , nextSep = FlowSep
+    }
+
+
+softBodyBlockRule : BlockRule cost
+softBodyBlockRule =
+    { wrap = \c -> P.group (P.concat P.nl c)
+    , bypassAlreadyTerminated = True
+    , nextSep = FlowSep
+    }
+
+
+-- Join a block's child doc onto the accumulator, honoring the rule's
+-- FirstItem / AlreadyTerminated bypasses.
+joinBlock : BlockRule cost -> NextSeparator -> P.Doc cost -> P.Doc cost -> P.Doc cost
+joinBlock rule sep accDoc childDoc =
+    when sep is
+        FirstItem ->
+            childDoc
+        AlreadyTerminated ->
+            if rule.bypassAlreadyTerminated then
+                P.concat accDoc childDoc
+            else
+                P.concat accDoc (rule.wrap childDoc)
+        _ ->
+            P.concat accDoc (rule.wrap childDoc)
+
+
+-- Render a block-style child node inside buildFlowDoc's fold: recurse
+-- into the children, then join via joinBlock and produce the next acc.
+renderBlockNode :
+    BlockRule cost
+    -> { doc : P.Doc cost, prevRow : Int, separator : NextSeparator, prevBranchMultiLine : Bool }
+    -> Array LPNode
+    -> Result String { doc : P.Doc cost, prevRow : Int, separator : NextSeparator, prevBranchMultiLine : Bool }
+renderBlockNode rule acc nodeChildren =
+    buildFlowDoc 0 nodeChildren
+        |> Result.map (\childrenDoc ->
+            { doc = joinBlock rule acc.separator acc.doc childrenDoc
+            , prevRow = -1
+            , separator = rule.nextSep
+            , prevBranchMultiLine = False
+            }
+        )
+
+
 {-| builds the flow, and handles SingleLineComment nodes correctly:
 
   - A comment on the same row as the preceding item is attached directly
@@ -234,21 +312,7 @@ buildFlowDoc indent nodes =
                                                }
 
                                 IndentedBlock ->
-                                    when buildFlowDoc 0 nodeChildren is
-                                        Err e -> Err e
-                                        Ok childrenDoc ->
-                                            let
-                                                indentedDoc = P.nest grenIndent (P.concat P.hardNl childrenDoc)
-                                                newDoc =
-                                                    when acc.separator is
-                                                        FirstItem -> childrenDoc
-                                                        _         -> P.concat acc.doc indentedDoc
-                                            in
-                                            Ok { doc = newDoc
-                                               , prevRow = -1
-                                               , separator = HardNl
-                                               , prevBranchMultiLine = False
-                                               }
+                                    renderBlockNode indentedBlockRule acc nodeChildren
 
                                 PipelineStep ->
                                     -- Extract a leading SingleLineComment (if any) so we can
@@ -303,21 +367,7 @@ buildFlowDoc indent nodes =
                                                }
 
                                 BodyBlock ->
-                                    when buildFlowDoc 0 nodeChildren is
-                                        Err e -> Err e
-                                        Ok childrenDoc ->
-                                            let
-                                                newDoc =
-                                                    when acc.separator is
-                                                        FirstItem -> childrenDoc
-                                                        AlreadyTerminated -> P.concat acc.doc childrenDoc
-                                                        _ -> P.concat acc.doc (P.concat P.hardNl childrenDoc)
-                                            in
-                                            Ok { doc = newDoc
-                                               , prevRow = -1
-                                               , separator = FlowSep
-                                               , prevBranchMultiLine = False
-                                               }
+                                    renderBlockNode bodyBlockRule acc nodeChildren
 
                                 WhenBranch { isMultiLine = branchMultiLine } ->
                                     when buildFlowDoc 0 nodeChildren is
@@ -343,37 +393,10 @@ buildFlowDoc indent nodes =
                                                }
 
                                 SoftIndentedBlock ->
-                                    when buildFlowDoc 0 nodeChildren is
-                                        Err e -> Err e
-                                        Ok childrenDoc ->
-                                            let
-                                                newDoc =
-                                                    when acc.separator is
-                                                        FirstItem -> childrenDoc
-                                                        _ -> P.concat acc.doc (P.group (P.nest grenIndent (P.concat P.nl childrenDoc)))
-                                            in
-                                            Ok { doc = newDoc
-                                               , prevRow = -1
-                                               , separator = FlowSep
-                                               , prevBranchMultiLine = False
-                                               }
+                                    renderBlockNode softIndentedBlockRule acc nodeChildren
 
                                 SoftBodyBlock ->
-                                    when buildFlowDoc 0 nodeChildren is
-                                        Err e -> Err e
-                                        Ok childrenDoc ->
-                                            let
-                                                newDoc =
-                                                    when acc.separator is
-                                                        FirstItem -> childrenDoc
-                                                        AlreadyTerminated -> P.concat acc.doc childrenDoc
-                                                        _ -> P.concat acc.doc (P.group (P.concat P.nl childrenDoc))
-                                            in
-                                            Ok { doc = newDoc
-                                               , prevRow = -1
-                                               , separator = FlowSep
-                                               , prevBranchMultiLine = False
-                                               }
+                                    renderBlockNode softBodyBlockRule acc nodeChildren
 
                                 _ ->
                                     when makePDoc box nodeChildren is
