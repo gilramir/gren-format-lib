@@ -103,6 +103,12 @@ type LPBox
     -- correctly: ([...] ++ x) not [( ... ] ++ x).
     | ParenBlock
 
+    -- One step of a non-pipeline binop chain: children are [op, ...rhsNodes].
+    -- Renders the operator immediately adjacent (with a single space) to the
+    -- rhs flow, so when the surrounding chain breaks, the operator starts the
+    -- new line instead of dangling at the end of the previous one.
+    | OpAndRhs
+
     -- Lambda \ prefix: renders children with \ immediately before (no space).
     -- Used instead of text-modification so that bracket-rendered containers
     -- (records, arrays) render correctly: \{ x, y } not { \x, y }.
@@ -221,6 +227,7 @@ lpBoxToString lpbox =
         WhenBranch { isMultiLine = ml } ->
             "(whenBranch ml=" ++ (if ml then "T" else "F") ++ ")"
         ParenBlock -> "(parenBlock)"
+        OpAndRhs -> "(opAndRhs)"
         LambdaSlash -> "(lambdaSlash)"
         SoftIndentedBlock -> "(softIndentedBlock)"
         SoftBodyBlock -> "(softBodyBlock)"

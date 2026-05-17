@@ -487,6 +487,20 @@ makePDoc box children =
             when buildFlowDoc 0 children is
                 Err e -> Err e
                 Ok innerDoc -> Ok (P.concat (P.text "(") (P.concat innerDoc (P.text ")")))
+        OpAndRhs ->
+            when Array.popFirst children is
+                Just { first = opNode, rest = rhsNodes } ->
+                    when lpnBox opNode is
+                        UnbreakableText opLoc ->
+                            when buildFlowDoc 0 rhsNodes is
+                                Err e -> Err e
+                                Ok rhsDoc -> Ok (P.concat (P.text (opLoc.value ++ " ")) rhsDoc)
+                        SynthesizedText opStr ->
+                            when buildFlowDoc 0 rhsNodes is
+                                Err e -> Err e
+                                Ok rhsDoc -> Ok (P.concat (P.text (opStr ++ " ")) rhsDoc)
+                        _ -> Err "OpAndRhs: first child must be a text operator"
+                Nothing -> Err "OpAndRhs: empty children"
         LambdaSlash ->
             when buildFlowDoc 0 children is
                 Err e -> Err e

@@ -105,6 +105,9 @@ lpBoxFields lpbox =
         ParenBlock ->
             [ { key = "type", value = Json.string "ParenBlock" } ]
 
+        OpAndRhs ->
+            [ { key = "type", value = Json.string "OpAndRhs" } ]
+
         LambdaSlash ->
             [ { key = "type", value = Json.string "LambdaSlash" } ]
 
