@@ -220,6 +220,21 @@ greeting = "Hello, World!"
 withEscapes = "line one\nline two\t!\\"
 ```
 
+### Char literals
+
+A char literal is written with single quotes. The five special characters are always emitted as escape sequences; everything else is emitted as the literal character:
+
+```gren
+tab            = '\t'
+newline        = '\n'
+carriageReturn = '\r'
+singleQuote    = '\''
+backslash      = '\\'
+letter         = 'a'
+```
+
+---
+
 ### Multiline strings
 
 A triple-quoted (`"""`) string always remains in triple-quoted form. The opening `"""` goes at the end of the previous line (or on a new indented line when the body wraps), the content lines appear at the same indentation as the `"""` delimiters, and the closing `"""` goes on its own line at that same indentation:
@@ -473,6 +488,47 @@ let
 in
 label ++ ": " ++ valueStr
 ```
+
+---
+
+## Lambdas
+
+A lambda is written with `\` immediately before the first pattern (no space), followed by any additional patterns, then `->`, then the body:
+
+```gren
+double = \n -> n * 2
+
+add = \a b -> a + b
+```
+
+When passed as an argument, a lambda is wrapped in parentheses:
+
+```gren
+doubleAll = Array.map (\n -> n * 2) nums
+```
+
+Pattern types follow the same rules as elsewhere — simple variables, record destructures, and array destructures are all valid:
+
+```gren
+-- Record destructure: \ is placed directly before {
+Array.map (\{ start, end } -> end - start) ranges
+
+-- Array destructure: \ is placed directly before [
+Array.map (\[ first, second ] -> first + second) pairs
+
+-- Multiple parameters, first is a record destructure
+Array.foldl (\{ value } acc -> acc + value) 0 items
+```
+
+When the lambda does not fit on one line, the body wraps to the next line indented 4 spaces from the `\`:
+
+```gren
+transform =
+    \veryLongParameterName ->
+        veryLongParameterName * 2 + someOtherValue + anotherValue
+```
+
+The `->` always stays at the end of the parameter line; it never moves to the body line.
 
 ---
 
