@@ -598,70 +598,15 @@ exposingListWithBrackets open close empty items =
                 (P.concat joined (P.concat P.nl (P.text close)))
 
 
-{-
-
-The two renderings:
-
--- flat (fits on one line):
-( first, second, last )
-
--- broken (doesn't fit):
-( first
-, second
-, last
-)
--}
-exposingList : Array (P.Doc cost) -> P.Doc cost
-exposingList items =
-    when Array.popFirst items is
-        Nothing ->
-            P.text "()"
-
-        Just { first, rest } ->
-            let
-                firstDoc = P.concat (P.text "( ") first
-                restDocs = Array.map (\d -> P.concat (P.text ", ") d) rest
-                allDocs  = [ firstDoc ] ++ restDocs
-
-                -- breakDoc: flat→"" (comma already in text), broken→newline
-                joined =
-                    P.foldDoc
-                        (\a b -> P.concat a (P.concat P.breakDoc b))
-                        allDocs
-
-                -- nl before ")": flat→" ", broken→newline
-            in
-            P.group
-                (P.concat joined (P.concat P.nl (P.text ")")))
-
-
-{-
-The hardNl at the end means:
-
-flatten (lineComment s) produces failDoc — the comment can never be
-part of a flat layout, which is correct since -- ... consumes the rest
-of the line.
-Any doc concatenated after a lineComment is always on a fresh line.
-If a lineComment appears inside a group, the hardNl causes flatten to
-fail, so the group drops the flat branch entirely and uses the broken
-form.
-
-
-Use this when the comment is followed by more content (in the array of docs)
--}
+-- hardNl makes the comment unflatten-able: a single-line comment consumes
+-- the rest of its line, so any P.group containing one is forced into the
+-- broken layout. Use this whenever the comment may be followed by more
+-- content in the surrounding doc array.
 lineComment : String -> P.Doc cost
 lineComment s =
     P.concat (P.text ("--" ++ s)) P.hardNl
 
 
-{-| General bracket-list renderer with interleaved comment support. Works like
-`exposingListBoxes` but accepts explicit `open`/`close` strings and also handles
-`AcrossThenIndent` items (e.g. record fields `{ field = value }`).
-
-When a `SingleLineComment` appears:
-  - On the same row as the preceding item: attached to that item's line with " --".
-  - On its own row: rendered as a standalone line without a comma prefix.
--}
 makeRecordUpdateDoc : String -> Array LPNode -> Result String (P.Doc cost)
 makeRecordUpdateDoc baseName children =
     when Array.popFirst children is
@@ -811,51 +756,3 @@ listBoxesWithBrackets open close nodes =
             Ok (P.vcat prefixed)
 
 
-{-| Like `exposingList`, but handles interleaved single-line comments.
-
-  - If the array contains only `UnbreakableText` items, the result is
-    all-or-nothing: flat on one line, or one item per line.
-
-  - If any `SingleLineComment` is present, the result is always multi-line
-    (a comment consumes the rest of its line via `hardNl`, so flat layout
-    is impossible).
-
-  - A `SingleLineComment` on the same row as the immediately preceding
-    `UnbreakableText` is attached to that item's line with a space, and no
-    comma is inserted between them:
-
-        ( Dict
-        , empty -- a comment on the same row as "empty"
-        )
-
-  - A `SingleLineComment` on a different row from the preceding item gets
-    its own line.
--}
-
-exposingListBoxes : Array LPNode -> Result String (P.Doc cost)
-exposingListBoxes nodes =
-    let
-        hasComment =
-            Array.any
-                (\node ->
-                    when lpnBox node is
-                        SingleLineComment _ -> True
-                        _                  -> False
-                )
-                nodes
-    in
-    if not hasComment then
-        let
-            textDocs =
-                Array.mapAndKeepJust
-                    (\node ->
-                        when lpnBox node is
-                            UnbreakableText loc -> Just (P.text loc.value)
-                            _                  -> Nothing
-                    )
-                    nodes
-        in
-        Ok (exposingList textDocs)
-
-    else
-        listBoxesWithBrackets "( " ")" nodes

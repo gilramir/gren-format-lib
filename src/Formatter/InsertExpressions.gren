@@ -341,14 +341,8 @@ insertExpressionAsItem locExpr =
         )
 
 
-folderInsertExprAsItem : Src.Expression -> Array LPNode -> Result String (Array LPNode)
-folderInsertExprAsItem expr accNodes =
-    insertExpressionAsItem expr
-        |> Result.map (\node -> Array.pushLast node accNodes)
-
-
--- Like folderInsertExprAsItem but for function-call arguments: converts
--- AlwaysVertical and RecordUpdate top-level nodes to AllAcrossOrAllVertical
+-- Folder for function-call arguments: produces an LPNode per expression and
+-- converts AlwaysVertical/RecordUpdate top-level nodes to AllAcrossOrAllVertical
 -- so that records used as arguments can remain inline when they fit.
 folderInsertExprAsArgItem : Src.Expression -> Array LPNode -> Result String (Array LPNode)
 folderInsertExprAsArgItem expr accNodes =

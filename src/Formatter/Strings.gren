@@ -1,7 +1,5 @@
 module Formatter.Strings exposing
-    ( countCodepointsLastLine
-    , countNewlines
-    , joinMaybeStrings
+    ( countNewlines
     , joinResultStrings
     )
 
@@ -17,45 +15,6 @@ countNewlines string =
             count
         ) 0 string
 
-{-|
-Counts the number of codepoints
-on the last line of the string (split by newlines). If the
-string has only one line (no new lines), it counts the number
-of codepoints in that string.
--}
-countCodepointsLastLine : String -> Int
-countCodepointsLastLine string =
-    when String.lastIndexOf "\n" string is
-        Nothing -> String.count string
-        Just pos -> (String.count string) - pos - 1
-
-
-joinMaybeStrings : String -> Array (Maybe String) -> Maybe String
-joinMaybeStrings sep array =
-    array
-        |> combineMaybes
-        |> Maybe.map (String.join "\n")
-
-
-combineMaybes : Array (Maybe String) -> Maybe (Array String)
-combineMaybes list =
-    when Array.popFirst list is
-        Nothing ->
-            -- Empty list
-            Just []
-        Just { first = first, rest = rest } ->
-            when first is
-                Nothing ->
-                    -- First item is already Nothing
-                    Nothing
-
-                Just firstString ->
-                    -- Try the tail
-                    when combineMaybes rest is
-                        Just tail ->
-                            Just ([firstString] ++ tail)
-                        Nothing ->
-                            Nothing
 
 {-
 The fold accumulates an Ok (Array String) as long as everything
