@@ -124,6 +124,12 @@ sentinelCharacterValue =
     '\u{2603}'
 
 
+-- Non-ASCII characters inside a string literal must round-trip unchanged.
+thankYouInKorean : String
+thankYouInKorean =
+    "감사함니다"
+
+
 multiLineLicenseBanner : String
 multiLineLicenseBanner =
     """
