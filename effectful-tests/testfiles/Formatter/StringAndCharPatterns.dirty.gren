@@ -1,0 +1,21 @@
+module StringAndCharPatterns exposing (..)
+
+classifyStr s =
+    when s is
+        "\n" -> "newline"
+        "\t" -> "tab"
+        "\r" -> "carriage return"
+        "\\" -> "backslash"
+        "\"" -> "double quote"
+        "hello" -> "greeting"
+        _ -> "other"
+
+classifyChar c =
+    when c is
+        '\n' -> "newline"
+        '\t' -> "tab"
+        '\r' -> "carriage return"
+        '\\' -> "backslash"
+        '\'' -> "single quote"
+        'a' -> "ay"
+        _ -> "other"

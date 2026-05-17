@@ -623,7 +623,7 @@ insertPattern locPat =
             Ok [lpnLeaf (mkText locPat.start (charLiteralString c))]
 
         Src.PStr s ->
-            Ok [lpnLeaf (mkText locPat.start ("\"" ++ s ++ "\""))]
+            Ok [lpnLeaf (mkText locPat.start ("\"" ++ escapeStringContent s ++ "\""))]
 
         Src.PInt { value = value, isHex = isHex } ->
             let text = if isHex then "0x" ++ intToHex value else String.fromInt value
