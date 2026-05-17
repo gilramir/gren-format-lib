@@ -131,7 +131,7 @@ processConfiguration { tracing = tracingSection, scheduler = schedulerSection, f
                     chosenSink =
                         tracingSection.sinks
                             |> Array.keepIf (\{ kind, endpoint } -> not (String.isEmpty endpoint) && kind /= "noop")
-                            |> Array.map (\sinkConfig -> { sinkConfig | endpoint = String.trim sinkConfig.endpoint })
+                            |> Array.map (\sinkConfig -> { sinkConfig | endpoint = String.trim sinkConfig.endpoint, kind = String.toLower sinkConfig.kind, headers = Array.map (\headerEntry -> { headerEntry | headerName = String.toLower headerEntry.headerName }) sinkConfig.headers })
                             |> Array.first
                 in
                 when chosenSink is
@@ -196,6 +196,67 @@ processConfiguration { tracing = tracingSection, scheduler = schedulerSection, f
 
         Err errorMessageForTracing ->
             Err errorMessageForTracing
+
+
+{-| Stress-tests record-update formatting at multiple nesting levels:
+    single-field updates, multi-field updates, and updates whose field
+    values are themselves record updates — all appearing inside lambdas,
+    let bindings, if/then/else branches, and when branches. -}
+applyOverlays : Int -> Bool -> Container -> Container
+applyOverlays leadingOverridePriority tracingIsEnabled ({ flags, nestedConfiguration } as startingContainer) =
+    let
+        -- Single-field update bound to a name in let.
+        containerWithBumpedTimestamp = { startingContainer | generatedAtMillis = startingContainer.generatedAtMillis + 1 }
+
+        -- Single-field update inside a let that uses an if/then/else for the new field value.
+        containerWithConditionallyTrimmedPayload =
+            { containerWithBumpedTimestamp | payload = if String.length startingContainer.payload > 80 then String.left 80 startingContainer.payload ++ "…" else startingContainer.payload }
+
+        -- A lambda whose body is a multi-field update; one of the field
+        -- values is itself a multi-field record update inline.
+        applyTracingDecision = \receivedContainer ->
+            if tracingIsEnabled then
+                { receivedContainer | identifier = receivedContainer.identifier ++ "+tracing", payload = "tracing=on", flags = { flags | isReady = True, isVerified = True, isShadowBanned = False } }
+            else
+                { receivedContainer | identifier = receivedContainer.identifier ++ "-tracing", flags = { flags | isReady = False, isVerified = False } }
+
+        -- When-branch arms produce updates of different shapes. The wildcard
+        -- arm contains updates that are deeply nested: a multi-field update
+        -- whose field values include TWO inline multi-field record updates
+        -- (one of which itself contains an inline if/then/else for one of
+        -- its field values).
+        adjustForLeadingOverridePriority =
+            when leadingOverridePriority is
+                0 ->
+                    -- Single-field update whose value is itself a single-field update.
+                    { containerWithConditionallyTrimmedPayload | flags = { flags | isQuarantined = True } }
+
+                1 ->
+                    -- Multi-field update with two simple scalar values.
+                    { containerWithConditionallyTrimmedPayload | identifier = startingContainer.identifier ++ "/p1", payload = "priority=1" }
+
+                _ ->
+                    { containerWithConditionallyTrimmedPayload
+                        | nestedConfiguration =
+                            { nestedConfiguration
+                                | retryCount = leadingOverridePriority
+                                , exponentialBackoffMillis = nestedConfiguration.exponentialBackoffMillis * 2
+                                , jitterMillis = if leadingOverridePriority > 10 then nestedConfiguration.jitterMillis * 3 else nestedConfiguration.jitterMillis + 1
+                                , maxAttempts = Math.max nestedConfiguration.maxAttempts leadingOverridePriority
+                            }
+                        , flags =
+                            { flags
+                                | isPersisted = leadingOverridePriority > 5
+                                , isQuarantined = leadingOverridePriority < 0
+                                , isShadowBanned = leadingOverridePriority > 100
+                            }
+                        , payload = "priority=" ++ String.fromInt leadingOverridePriority
+                    }
+    in
+    -- A pipeline whose intermediate steps each thread through an update lambda.
+    adjustForLeadingOverridePriority
+        |> applyTracingDecision
+        |> (\penultimateContainer -> { penultimateContainer | generatedAtMillis = penultimateContainer.generatedAtMillis + leadingOverridePriority })
 
 
 {-| Pipelines (both directions), function composition (both directions),
