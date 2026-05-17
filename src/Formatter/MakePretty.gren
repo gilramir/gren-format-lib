@@ -1,5 +1,6 @@
 module Formatter.MakePretty exposing (..)
 
+import Char
 import Compiler.SourcePosition exposing (Located)
 
 import Formatter.LogicalPrintingTree exposing (LPBox(..),
@@ -712,11 +713,43 @@ exposingListWithBrackets open close empty items =
 -- pass a comment box.
 commentBoxDoc : LPBox -> P.Doc cost
 commentBoxDoc box =
+    -- Strip a trailing `-}` from block and doc comment values. The
+    -- parser's strip path uses `String.dropLast 2`, which is a no-op when
+    -- the body contains 2+ non-BMP code points (a kernel bug in
+    -- String.slice; see slice.md). Without this workaround we'd emit
+    -- `{- ... -}-}` and the output would fail to re-parse.
     when box is
         SingleLineComment loc -> P.text ("--" ++ loc.value)
-        BlockComment loc -> P.text ("{-" ++ loc.value ++ "-}")
-        DocComment loc -> P.text ("{-|" ++ loc.value ++ "-}")
+        BlockComment loc -> P.text ("{-" ++ stripTrailingDocClose loc.value ++ "-}")
+        DocComment loc -> P.text ("{-|" ++ stripTrailingDocClose loc.value ++ "-}")
         _ -> P.empty
+
+
+stripTrailingDocClose : String -> String
+stripTrailingDocClose s =
+    -- Count non-BMP code points in the comment value. The parser tried to
+    -- strip the closing `-}` via `String.dropLast 2`, but that kernel slice
+    -- is off by one per non-BMP code point in the string. So with 0
+    -- non-BMP chars the strip is correct; with 1 non-BMP char one
+    -- delimiter char survives (`-`); with 2+ non-BMP chars the whole `-}`
+    -- survives. Reverse the bug here so we emit only the body, not the
+    -- leftover delimiter bits.
+    --
+    -- Use `String.takeFirst` (slice with positive `end`, not affected by
+    -- the bug) rather than `String.dropLast` (also affected).
+    let
+        nonBmpCount =
+            String.foldl
+                (\c acc -> if Char.toCode c > 0xFFFF then acc + 1 else acc)
+                0
+                s
+        leftover = min 2 nonBmpCount
+        n = String.count s
+    in
+    if leftover == 0 then
+        s
+    else
+        String.takeFirst (n - leftover) s
 
 
 -- LPNode-form of commentBoxDoc.

@@ -1,0 +1,18 @@
+module DocCommentWithEmoji exposing (..)
+
+
+{-| A doc comment whose body contains non-BMP code points (emoji like
+    🙈 and 🔥). The parser strips the closing delimiter via
+    `String.dropLast 2`, but that kernel slice is off by one per
+    non-BMP code point. Without a workaround in the formatter the
+    leftover delimiter chars would survive into the value, and the
+    re-emission would fail to re-parse.
+
+    Examples:
+        '🙈'
+
+        '🔥'
+
+-}
+type Sigil
+    = Sigil
