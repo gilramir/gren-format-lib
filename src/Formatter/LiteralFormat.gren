@@ -30,7 +30,14 @@ charLiteralString c =
                 13 -> "\\r"
                 39 -> "\\'"
                 92 -> "\\\\"
-                _  -> String.fromChar c
+                _  ->
+                    -- Keep non-ASCII characters as `\u{HEX}` escapes rather
+                    -- than emitting the raw byte. Printable ASCII (space
+                    -- through tilde) is emitted as-is.
+                    if code >= 32 && code <= 126 then
+                        String.fromChar c
+                    else
+                        "\\u{" ++ intToHex code ++ "}"
     in
     "'" ++ inner ++ "'"
 
