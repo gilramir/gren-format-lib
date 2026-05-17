@@ -808,14 +808,14 @@ result =
             (buildUpdatedLinkNodeFromOriginal originalFirstLinkEntry newItemKey)
 ```
 
-A comment immediately before a pipeline step is treated as part of that step and is placed at the same indentation level as the operator:
+A comment immediately before a pipeline step is treated as part of that step and is placed at the same indentation level as the operator. This applies to both `--` and `{- -}` comments:
 
 ```gren
 result =
     list
         -- Step 1: filter
         |> Array.keepIf isValid
-        -- Step 2: transform
+        {- Step 2: transform -}
         |> Array.map double
 ```
 
