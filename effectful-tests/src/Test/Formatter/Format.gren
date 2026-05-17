@@ -134,6 +134,7 @@ expressionTests fsPerm =
         , assertPretty fsPerm "binary operators, negation, hex literals" "BinaryOps"
         , assertPretty fsPerm "extensible record types in signatures and aliases" "ExtensibleRecords"
         , assertPretty fsPerm "constructor argument that is an as-alias keeps its parens" "CtorAsPattern"
+        , assertPretty fsPerm "multi-line string opened mid-line aligns content to opening column" "MultilineStringInline"
         ]
 
 declarationTests : FileSystem.Permission -> Effectful.Test

@@ -1,0 +1,12 @@
+module MultilineStringInline exposing (..)
+
+-- A multi-line string that opens after preceding tokens on the same line.
+-- Content lines and the closing `"""` must align with the opening `"""`,
+-- not with the surrounding nest level — otherwise Gren's parser rejects
+-- the output with "Multi-line string lines are not indented equally".
+explain : String -> String
+explain errorMessage =
+    "prefix " ++ errorMessage ++ """
+                                 line one of the body
+                                 line two of the body
+                                 """

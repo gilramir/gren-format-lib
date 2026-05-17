@@ -574,7 +574,14 @@ makePDoc box children =
                         tripleQuote
                         lines
             in
-            Ok (P.concat contentDoc (P.concat P.hardNl tripleQuote))
+            -- Wrap the whole doc in P.align so internal hardNls land at the
+            -- column where the opening `"""` is printed, rather than at the
+            -- surrounding nest level. Gren's parser requires every content
+            -- line AND the closing `"""` to be at the same column as the
+            -- opening — without align, an opening that lands past the nest
+            -- (because preceding tokens consumed columns) produces output
+            -- that fails to re-parse.
+            Ok (P.align (P.concat contentDoc (P.concat P.hardNl tripleQuote)))
         unexpected -> Err ("makePDoc: unexpected box type: " ++ lpBoxToString unexpected)
 
 
