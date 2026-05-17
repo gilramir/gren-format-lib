@@ -89,26 +89,26 @@ processModuleLine modAst root =
             when modAst.effects is
                 Src.Manager manager ->
                     let
+                        -- Each "field" of the `where { ... }` block is one
+                        -- list item (an AcrossThenIndent containing the
+                        -- `name = Ctor` tokens) so the surrounding list
+                        -- joins items with commas, not the inner tokens.
+                        binding label name =
+                            lpnNode AcrossThenIndent
+                                [ lpnLeaf (SynthesizedText label)
+                                , lpnLeaf (SynthesizedText "=")
+                                , lpnLeaf (SynthesizedText name)
+                                ]
+
                         fields =
                             when manager is
                                 Src.Cmd locName ->
-                                    [ lpnLeaf (SynthesizedText "command")
-                                    , lpnLeaf (SynthesizedText "=")
-                                    , lpnLeaf (SynthesizedText locName.value)
-                                    ]
+                                    [ binding "command" locName.value ]
                                 Src.Sub locName ->
-                                    [ lpnLeaf (SynthesizedText "subscription")
-                                    , lpnLeaf (SynthesizedText "=")
-                                    , lpnLeaf (SynthesizedText locName.value)
-                                    ]
+                                    [ binding "subscription" locName.value ]
                                 Src.Fx { cmd = cmd, sub = sub } ->
-                                    [ lpnLeaf (SynthesizedText "command")
-                                    , lpnLeaf (SynthesizedText "=")
-                                    , lpnLeaf (SynthesizedText cmd.value)
-                                    , lpnLeaf (SynthesizedText ",")
-                                    , lpnLeaf (SynthesizedText "subscription")
-                                    , lpnLeaf (SynthesizedText "=")
-                                    , lpnLeaf (SynthesizedText sub.value)
+                                    [ binding "command" cmd.value
+                                    , binding "subscription" sub.value
                                     ]
                     in
                     [ lpnLeaf (SynthesizedText "where")

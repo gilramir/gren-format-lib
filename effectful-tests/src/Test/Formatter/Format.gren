@@ -145,6 +145,7 @@ declarationTests fsPerm =
         , assertPretty fsPerm "union types" "TypeUnion"
         , assertPretty fsPerm "type signatures" "TypeSignature"
         , assertPretty fsPerm "ports" "Ports"
+        , assertPretty fsPerm "effect module where { command = ... } renders each binding as one field" "EffectModuleWhere"
         ]
 
 commentsTests : FileSystem.Permission -> Effectful.Test
