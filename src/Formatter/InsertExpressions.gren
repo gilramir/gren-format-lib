@@ -353,41 +353,21 @@ folderInsertExprAsItem expr accNodes =
 folderInsertExprAsArgItem : Src.Expression -> Array LPNode -> Result String (Array LPNode)
 folderInsertExprAsArgItem expr accNodes =
     insertExpressionAsItem expr
-        |> Result.map (\node ->
-            let
-                converted =
-                    when lpnBox node is
-                        AlwaysVertical bracket ->
-                            lpnNode (AllAcrossOrAllVertical bracket) (lpnChildren node)
-                        RecordUpdate baseName ->
-                            -- Prepend "baseName | " to first field's first text so the inline
-                            -- form renders correctly: { pt | x = 1, y = 2 }
-                            let
-                                children = lpnChildren node
-                                updatedChildren =
-                                    when Array.popFirst children is
-                                        Nothing -> children
-                                        Just { first = firstField, rest = restFields } ->
-                                            when tryMapFirstLeaf (\loc -> mkText loc.start (baseName ++ " | " ++ loc.value)) firstField is
-                                                Just updatedFirst -> Array.pushFirst updatedFirst restFields
-                                                Nothing -> children
-                            in
-                            lpnNode (AllAcrossOrAllVertical ListCurly) updatedChildren
-                        ParenBlock ->
-                            -- Recursively convert AlwaysVertical/RecordUpdate inside parens
-                            lpnNode ParenBlock (Array.map convertForArg (lpnChildren node))
-                        _ -> node
-            in
-            Array.pushLast converted accNodes
-        )
+        |> Result.map (\node -> Array.pushLast (convertForArg node) accNodes)
 
 
+-- Converts a top-level AlwaysVertical/RecordUpdate node into its inline-friendly
+-- AllAcrossOrAllVertical equivalent so it can fit on one line when used as a
+-- function argument. ParenBlock is recursed into so the rule still fires for
+-- the parenthesized form `( recordUpdate )`.
 convertForArg : LPNode -> LPNode
 convertForArg node =
     when lpnBox node is
         AlwaysVertical bracket ->
             lpnNode (AllAcrossOrAllVertical bracket) (lpnChildren node)
         RecordUpdate baseName ->
+            -- Prepend "baseName | " to first field's first text so the inline
+            -- form renders correctly: { pt | x = 1, y = 2 }
             let
                 children = lpnChildren node
                 updatedChildren =
@@ -399,6 +379,8 @@ convertForArg node =
                                 Nothing -> children
             in
             lpnNode (AllAcrossOrAllVertical ListCurly) updatedChildren
+        ParenBlock ->
+            lpnNode ParenBlock (Array.map convertForArg (lpnChildren node))
         _ -> node
 
 
