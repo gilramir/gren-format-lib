@@ -117,7 +117,17 @@ parenIfAlias argPat argNode =
 folderInsertPattern : Src.Pattern -> Array LPNode -> Result String (Array LPNode)
 folderInsertPattern locPat accNodes =
     insertPattern locPat
-        |> Result.map (\newNodes -> accNodes ++ newNodes)
+        |> Result.map (\newNodes ->
+            -- Function arguments are space-separated patterns. An `as`-alias
+            -- argument must keep its parens, otherwise the rendered
+            -- `arg1 { ... } as name = body` re-parses with `as` binding to
+            -- the whole arg list rather than just the inner record pattern.
+            when locPat.value is
+                Src.PAlias _ ->
+                    Array.pushLast (lpnNode ParenBlock newNodes) accNodes
+                _ ->
+                    accNodes ++ newNodes
+        )
 
 
 folderInsertPatternAsItem : Src.Pattern -> Array LPNode -> Result String (Array LPNode)
