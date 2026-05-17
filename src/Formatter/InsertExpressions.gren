@@ -248,7 +248,17 @@ insertExpression locExpr =
                         arrowNode = lpnLeaf (SynthesizedText "->")
                     in
                     insertExpressionAsItem body
-                        |> Result.map (\bodyNode -> updatedPatNodes ++ [arrowNode, bodyNode])
+                        |> Result.map (\bodyNode ->
+                            -- Bundle the `->` with the patterns so the body is
+                            -- the only thing that can break to a new line; then
+                            -- wrap the body in SoftIndentedBlock so when it
+                            -- breaks it lands at +4 from the `\`.
+                            let
+                                patsWithArrow = lpnNode AcrossThenIndent (updatedPatNodes ++ [arrowNode])
+                                bodyBlock = lpnNode SoftIndentedBlock [bodyNode]
+                            in
+                            [patsWithArrow, bodyBlock]
+                        )
                 )
 
         Src.Let { defs = defs, body = body } ->
