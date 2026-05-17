@@ -152,6 +152,7 @@ insertCommentIntoSubtree commentNode row col node =
                         let childChildren = lpnChildren child
                         in
                         if not (Array.isEmpty childChildren) && subtreeContainsRow child row
+                            && not (subtreeStartsAfter child row col)
                             && not (isAcrossThenIndentNode child && subtreeEndsBefore child row col) then
                             let updatedChild = insertCommentIntoSubtree commentNode row col child
                             in
@@ -295,6 +296,47 @@ subtreeEndsBefore node row col =
                 Just pos ->
                     positionBefore pos row col
            )
+
+
+-- Returns the first real source position in a depth-first traversal of the subtree.
+-- Synthesized tokens are skipped. Used to detect when a child subtree starts
+-- after a comment we're trying to place, so we don't incorrectly descend into it.
+firstRealPosition : LPNode -> Maybe Position
+firstRealPosition node =
+    let
+        selfPos =
+            when lpnBox node is
+                UnbreakableText located ->
+                    Just located.start
+
+                SingleLineComment located ->
+                    Just located.start
+
+                BlockComment located ->
+                    Just located.start
+
+                _ ->
+                    Nothing
+    in
+    when selfPos is
+        Just p -> Just p
+        Nothing ->
+            Array.foldl
+                (\child acc ->
+                    when acc is
+                        Just _ -> acc
+                        Nothing -> firstRealPosition child
+                )
+                Nothing
+                (lpnChildren node)
+
+
+-- True if the subtree's first positioned leaf is at or after the given (row, col).
+subtreeStartsAfter : LPNode -> Int -> Int -> Bool
+subtreeStartsAfter node row col =
+    when firstRealPosition node is
+        Nothing -> False
+        Just pos -> pos.row > row || (pos.row == row && pos.col > col)
 
 
 -- Returns the last real source position in a depth-first traversal of the subtree.
