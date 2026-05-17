@@ -1,0 +1,19 @@
+module Formatter.PExJson exposing (lptToPexJson)
+
+import Formatter.LogicalPrintingTree exposing (LPNode, lpnChildren)
+import Formatter.MakePretty exposing (makePrettyLineDoc)
+import PrettyExpressive.Json as PexJson
+
+
+lptToPexJson : LPNode -> Result String String
+lptToPexJson root =
+    Array.foldl
+        (\node acc ->
+            acc |> Result.andThen (\items ->
+                makePrettyLineDoc node
+                    |> Result.map (\doc -> Array.pushLast (PexJson.docToJson doc) items)
+            )
+        )
+        (Ok [])
+        (lpnChildren root)
+        |> Result.map (\items -> "[" ++ String.join "," items ++ "]")

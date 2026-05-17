@@ -815,6 +815,83 @@ commentLineDoc node =
         _ -> commentNodeDoc node
 
 
+makePrettyLineDoc : LPNode -> Result String (P.Doc P.DefaultCostTuple)
+makePrettyLineDoc node =
+    let
+        children = lpnChildren node
+    in
+    when lpnBox node is
+        OriginalRows { stype = stype } ->
+            when stype is
+                StTypeAlias -> makeTypeAliasPrettyDoc children
+                StTypeUnion -> makeTypeUnionPrettyDoc children
+                StSingleLineComment -> makeCommentLineDoc_ children
+                StBlockComment -> makeCommentLineDoc_ children
+                StDocComment -> makeCommentLineDoc_ children
+                _ -> makeFlowIndentableDoc children
+        EmptyLine ->
+            Ok P.empty
+        _ ->
+            Err "Unexpected item in LPTree root children"
+
+
+makeFlowIndentableDoc : Array LPNode -> Result String (P.Doc P.DefaultCostTuple)
+makeFlowIndentableDoc children =
+    let
+        { leading, rest } = splitLeadingComments children
+    in
+    buildFlowDoc grenIndent rest
+        |> Result.map (\flowDoc ->
+            let
+                commentDocs = Array.map commentLineDoc leading
+            in
+            if Array.isEmpty commentDocs then
+                flowDoc
+            else
+                P.concat (P.vcat commentDocs) (P.concat P.hardNl flowDoc)
+        )
+
+
+makeTypeAliasPrettyDoc : Array LPNode -> Result String (P.Doc P.DefaultCostTuple)
+makeTypeAliasPrettyDoc =
+    renderHeaderIndentedBodyDoc "type alias declaration is empty" makeTypeBodyAlwaysVertical
+
+
+makeTypeUnionPrettyDoc : Array LPNode -> Result String (P.Doc P.DefaultCostTuple)
+makeTypeUnionPrettyDoc =
+    renderHeaderIndentedBodyDoc "type declaration is empty" makeUnionBodyDoc
+
+
+renderHeaderIndentedBodyDoc : String -> (Array LPNode -> Result String (P.Doc P.DefaultCostTuple)) -> Array LPNode -> Result String (P.Doc P.DefaultCostTuple)
+renderHeaderIndentedBodyDoc emptyError buildBody children =
+    when Array.popLast children is
+        Nothing ->
+            Err emptyError
+        Just { initial = headerChildren, last = bodyBlock } ->
+            buildFlowDoc 0 headerChildren
+                |> Result.andThen (\headerDoc ->
+                    buildBody (lpnChildren bodyBlock)
+                        |> Result.map (\bodyDoc ->
+                            P.concat headerDoc (P.nest grenIndent (P.concat P.hardNl bodyDoc))
+                        )
+                )
+
+
+makeCommentLineDoc_ : Array LPNode -> Result String (P.Doc P.DefaultCostTuple)
+makeCommentLineDoc_ children =
+    when Array.popFirst children is
+        Just { first = first, rest = rest } ->
+            if Array.isEmpty rest then
+                if nodeIsComment first || isDocCommentNode first then
+                    Ok (commentNodeDoc first)
+                else
+                    Err "Unexpected node type in comment line"
+            else
+                Err "Too many nodes in comment line"
+        Nothing ->
+            Err "No nodes in comment line"
+
+
 listBoxesWithBrackets : String -> String -> Array LPNode -> Result String (P.Doc cost)
 listBoxesWithBrackets open close nodes =
     let
