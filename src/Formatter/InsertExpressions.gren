@@ -250,6 +250,8 @@ insertExpression locExpr =
                 Ok fnNodes ->
                     when resultFoldl folderInsertExprAsArgItem fnNodes argsExprs is
                         Err e -> Err e
+                        -- AcrossThenIndent: overflow arguments indent +4 from the function name,
+                        -- keeping them visually distinct from the surrounding context.
                         Ok allNodes -> Ok [lpnNode AcrossThenIndent allNodes]
 
         Src.Lambda { patterns = patterns, body = body } ->
