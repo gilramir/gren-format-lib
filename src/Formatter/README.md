@@ -240,6 +240,34 @@ Multi-field record items stay inline even in the vertical form, as long as each 
 ]
 ```
 
+When a record item is too long to fit on one line, it breaks across multiple lines. To keep the record fields visually distinct from the array's own `, ` separators, the record's fields and closing `}` are indented 2 extra spaces — aligning them with the `{` rather than with the array's `, `:
+
+```gren
+[ { veryLongFieldNameAlpha = valueAlpha
+  , veryLongFieldNameBeta = valueBeta
+  , veryLongFieldNameGamma = valueGamma
+  }
+, { veryLongFieldNameAlpha = valueAlpha2
+  , veryLongFieldNameBeta = valueBeta2
+  , veryLongFieldNameGamma = valueGamma2
+  }
+]
+```
+
+The same 2-space offset applies to nested arrays whose inner items must break:
+
+```gren
+[ [ "alphaLonger"
+  , "betaLonger"
+  , "gammaLonger"
+  ]
+, [ "deltaLonger"
+  , "epsilonLonger"
+  , "zetaLonger"
+  ]
+]
+```
+
 A comment between items forces the vertical layout, and the comment appears between the items at the same indentation:
 
 ```gren

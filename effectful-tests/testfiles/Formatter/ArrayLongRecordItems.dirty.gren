@@ -1,0 +1,7 @@
+module ArrayLongRecordItems exposing (..)
+
+-- Multi-field records that are individually too long to fit inline
+longRecords = [ { veryLongFieldNameAlpha = valueAlpha, veryLongFieldNameBeta = valueBeta, veryLongFieldNameGamma = valueGamma }, { veryLongFieldNameAlpha = valueAlpha2, veryLongFieldNameBeta = valueBeta2, veryLongFieldNameGamma = valueGamma2 } ]
+
+-- Nested arrays whose items must break
+nestedBreaking = [ [ "alphaLonger", "betaLonger", "gammaLonger", "deltaLonger", "epsilonLonger", "zetaLonger", "etaLonger" ], [ "thetaLonger", "iotaLonger", "kappaLonger", "lambdaLonger", "muLonger", "nuLonger", "xiLonger" ] ]

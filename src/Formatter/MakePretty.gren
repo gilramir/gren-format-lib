@@ -572,7 +572,9 @@ makeListItemDoc node =
         ParenBlock ->
             makePDoc ParenBlock (lpnChildren node)
         AllAcrossOrAllVertical bracket ->
-            makeAllAcrossOrAllVertical bracket (lpnChildren node)
+            when makeAllAcrossOrAllVertical bracket (lpnChildren node) is
+                Err e -> Err e
+                Ok doc -> Ok (P.nest 2 doc)
         AlwaysVertical bracket ->
             let bs = bracketStrings bracket
             in listBoxesWithBrackets bs.open bs.close (lpnChildren node)

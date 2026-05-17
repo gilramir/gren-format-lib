@@ -116,6 +116,7 @@ expressionTests fsPerm =
         , assertPretty fsPerm "lambdas and calls" "LambdasAndCalls"
         , assertPretty fsPerm "parenthesized expressions" "ParenWrapped"
         , assertPretty fsPerm "nested containers in list" "NestedContainersInList"
+        , assertPretty fsPerm "array items that are too long to fit inline" "ArrayLongRecordItems"
         , assertPretty fsPerm "when branch body indentation" "WhenBranchBody"
         , assertPretty fsPerm "record field value indentation" "RecordFieldValue"
         , assertPretty fsPerm "let def body indentation" "LetDefBody"
