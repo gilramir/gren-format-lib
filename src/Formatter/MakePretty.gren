@@ -631,7 +631,18 @@ makeRecordUpdateDoc baseName children =
         Nothing ->
             Ok (P.text ("{ " ++ baseName ++ " }"))
         Just { first = firstField, rest = restFields } ->
-            when buildFlowDoc grenIndent (lpnChildren firstField) is
+            -- Wrap each field's flow with P.align so that when the field value
+            -- itself spans multiple lines (e.g. a nested record update), the
+            -- continuation lines start at the column where the field content
+            -- begins (just after the "    | " / "    , " prefix), giving a
+            -- visual indent under the field name instead of leaking back out
+            -- to the surrounding record's column.
+            let
+                fieldDoc field =
+                    buildFlowDoc grenIndent (lpnChildren field)
+                        |> Result.map P.align
+            in
+            when fieldDoc firstField is
                 Err e -> Err e
                 Ok firstFieldDoc ->
                     let
@@ -641,7 +652,7 @@ makeRecordUpdateDoc baseName children =
                                     when accResult is
                                         Err e -> Err e
                                         Ok docs ->
-                                            when buildFlowDoc grenIndent (lpnChildren field) is
+                                            when fieldDoc field is
                                                 Err e -> Err e
                                                 Ok d ->
                                                     Ok (Array.pushLast (P.concat (P.text "    , ") d) docs)
