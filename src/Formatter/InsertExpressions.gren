@@ -16,7 +16,7 @@ import Formatter.LPTHelpers exposing
     ( mkText, mkTextFromLocString, resultFoldl
     , tryMapFirstLeaf, tryMapLastLeaf, fixupParensChildrenNodes
     )
-import Formatter.LiteralFormat exposing (charLiteralString, escapeStringContent, intToHex)
+import Formatter.LiteralFormat exposing (charLiteralString, escapeStringContent, intToHex, renderFloat)
 import Formatter.InsertPatterns exposing (folderInsertPattern, insertPattern)
 import Formatter.InsertTypes exposing (makeSignatureBranch)
 
@@ -105,11 +105,7 @@ insertExpression locExpr =
                     Ok [lpnLeaf (mkText locExpr.start (String.fromInt n))]
 
                 PN.FloatingPoint n ->
-                    let
-                        raw = String.fromFloat n
-                        str = if String.any (\c -> c == '.') raw then raw else raw ++ ".0"
-                    in
-                    Ok [lpnLeaf (mkText locExpr.start str)]
+                    Ok [lpnLeaf (mkText locExpr.start (renderFloat n))]
 
                 PN.Hex n ->
                     Ok [lpnLeaf (mkText locExpr.start ("0x" ++ intToHex n))]

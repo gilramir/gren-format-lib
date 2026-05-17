@@ -42,6 +42,109 @@ charLiteralString c =
     "'" ++ inner ++ "'"
 
 
+-- Render a Float as a Gren-parser-acceptable literal. Gren's parser only
+-- accepts `digits . digits` (no scientific notation), but
+-- `String.fromFloat` falls back to scientific (`1e-10`) for very
+-- small/large numbers. Expand scientific notation back to decimal form,
+-- and ensure values that look integer-shaped get a `.0` suffix.
+renderFloat : Float -> String
+renderFloat n =
+    let
+        raw = String.fromFloat n
+    in
+    if String.any (\c -> c == 'e' || c == 'E') raw then
+        expandScientific raw
+    else if String.any (\c -> c == '.') raw then
+        raw
+    else
+        raw ++ ".0"
+
+
+expandScientific : String -> String
+expandScientific s =
+    let
+        { sign, rest } =
+            when String.popFirst s is
+                Just { first = '-', rest = remaining } ->
+                    { sign = "-", rest = remaining }
+                _ ->
+                    { sign = "", rest = s }
+        normalized = String.replace "E" "e" rest
+    in
+    when String.split "e" normalized is
+        [ mantissa, expStr ] ->
+            when String.toInt expStr is
+                Just exp ->
+                    sign ++ shiftDecimal mantissa exp
+                Nothing ->
+                    s
+        _ ->
+            s
+
+
+-- Shift the decimal point of `mantissa` (a non-negative `intPart.fracPart`
+-- or `intPart` string) by `exp` positions and return the resulting
+-- decimal-form float literal (always containing exactly one `.`).
+shiftDecimal : String -> Int -> String
+shiftDecimal mantissa exp =
+    let
+        { intPart, fracPart } =
+            when String.split "." mantissa is
+                [ p ] -> { intPart = p, fracPart = "" }
+                [ p, q ] -> { intPart = p, fracPart = q }
+                _ -> { intPart = mantissa, fracPart = "" }
+
+        allDigits = intPart ++ fracPart
+        origPos = String.count intPart
+        newPos = origPos + exp
+    in
+    if newPos <= 0 then
+        "0." ++ String.repeat (negate newPos) "0" ++ trimTrailingZeros allDigits
+
+    else if newPos >= String.count allDigits then
+        allDigits ++ String.repeat (newPos - String.count allDigits) "0" ++ ".0"
+
+    else
+        let
+            beforeDot = String.takeFirst newPos allDigits
+            afterDot = String.dropFirst newPos allDigits
+        in
+        beforeDot ++ "." ++ trimTrailingZeros afterDot
+
+
+-- Trim trailing zeros from a fractional part, but keep at least one digit
+-- so the result is never empty (Gren requires `.X` not `.`).
+trimTrailingZeros : String -> String
+trimTrailingZeros s =
+    let
+        trimmed = trimZerosHelper s
+    in
+    if String.isEmpty trimmed then "0" else trimmed
+
+
+trimZerosHelper : String -> String
+trimZerosHelper s =
+    -- Count trailing zeros via foldr + dropLast. Don't use String.popLast
+    -- here: as of core 7.x its kernel has two bugs — it throws
+    -- `RangeError: Invalid code point NaN` on length-1 strings, and its
+    -- `rest` field returns the suffix instead of the prefix.
+    let
+        trailingZeros =
+            String.foldr
+                (\c acc ->
+                    if acc.stopped then
+                        acc
+                    else if c == '0' then
+                        { count = acc.count + 1, stopped = False }
+                    else
+                        { count = acc.count, stopped = True }
+                )
+                { count = 0, stopped = False }
+                s
+    in
+    String.dropLast trailingZeros.count s
+
+
 intToHex : Int -> String
 intToHex n =
     let

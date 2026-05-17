@@ -136,6 +136,7 @@ expressionTests fsPerm =
         , assertPretty fsPerm "constructor argument that is an as-alias keeps its parens" "CtorAsPattern"
         , assertPretty fsPerm "multi-line string opened mid-line aligns content to opening column" "MultilineStringInline"
         , assertPretty fsPerm "let-binding type signature is preserved" "LetBindingSignature"
+        , assertPretty fsPerm "small/large floats render as decimal, not scientific notation" "FloatLiterals"
         ]
 
 declarationTests : FileSystem.Permission -> Effectful.Test

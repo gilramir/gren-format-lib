@@ -1,0 +1,40 @@
+module FloatLiterals exposing (..)
+
+
+-- Gren's parser accepts only decimal float literals (digits.digits), never
+-- scientific notation. But JS's `String.fromFloat` falls back to scientific
+-- (`1e-10`) for very small/large values, so the formatter must convert
+-- those back to decimal form before emitting.
+tiny : Float
+tiny =
+    0.0000000001
+
+
+smaller : Float
+smaller =
+    0.00000001
+
+
+small : Float
+small =
+    0.00001
+
+
+regular : Float
+regular =
+    3.14
+
+
+big : Float
+big =
+    100000.5
+
+
+verySmall : Float
+verySmall =
+    0.0000000000000001
+
+
+negativeTiny : Float
+negativeTiny =
+    -0.0000000001
