@@ -141,6 +141,7 @@ expressionTests fsPerm =
         , assertPretty fsPerm "doc comment body with non-BMP code points round-trips" "DocCommentWithEmoji"
         , assertPretty fsPerm "record update base can be a parenthesized call" "RecordUpdateComplexBase"
         , assertPretty fsPerm "multi-line string content escapes backslashes and embedded triple quotes" "MultilineStringContent"
+        , assertPretty fsPerm "negation of parenthesized expression keeps `-` outside the parens" "NegateParens"
         ]
 
 declarationTests : FileSystem.Permission -> Effectful.Test

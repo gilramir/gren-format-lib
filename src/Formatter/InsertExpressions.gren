@@ -127,17 +127,13 @@ insertExpression locExpr =
             Ok [lpnLeaf (mkText locExpr.start opString)]
 
         Src.Negate expr ->
+            -- Wrap the rendered inner in NegatedExpr so the `-` lands
+            -- immediately adjacent to whatever the inner renders to.
+            -- The old approach of descending via tryMapFirstLeaf put the
+            -- `-` *inside* a wrapping ParenBlock — e.g. `-(n - 1)`
+            -- emitted as `(-n - 1)`, which has a different AST shape.
             insertExpression expr
-                |> Result.andThen (\nodes ->
-                    when Array.popFirst nodes is
-                        Nothing -> Err "Negate: empty inner expression"
-                        Just { first = firstNode, rest = restNodes } ->
-                            when tryMapFirstLeaf (\loc -> mkText locExpr.start ("-" ++ loc.value)) firstNode is
-                                Just updated ->
-                                    Ok (Array.pushFirst updated restNodes)
-                                Nothing ->
-                                    Ok (Array.pushFirst (lpnLeaf (mkText locExpr.start "-")) nodes)
-                )
+                |> Result.map (\nodes -> [lpnNode NegatedExpr nodes])
 
         Src.Accessor string ->
             Ok [lpnLeaf (mkText locExpr.start ("." ++ string))]

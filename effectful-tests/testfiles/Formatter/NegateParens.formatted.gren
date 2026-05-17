@@ -1,0 +1,21 @@
+module NegateParens exposing (..)
+
+
+-- Negation of a parenthesized expression must keep the `-` outside the
+-- parens. Without that, `-(n - 1)` (= 1 - n) would render as `(-n - 1)`
+-- (= -n - 1), a totally different value.
+intersperseLength : Int -> Int
+intersperseLength n =
+    min -(n - 1) 0
+
+
+-- Negation of a simple value still works as before.
+negativeOne : Int
+negativeOne =
+    -1
+
+
+-- Negation of a longer call result.
+negCall : Int -> Int
+negCall n =
+    -(modBy 10 n)

@@ -116,6 +116,12 @@ type LPBox
     -- shifted that keyword to the right.
     | AlignedFlow
 
+    -- Prefix `-` glued (no space) to the rendered children. Used for
+    -- prefix-negation `Src.Negate`: the prior approach of mapping `-`
+    -- onto the first text leaf descends into nested ParenBlock children
+    -- and corrupts the AST (e.g. `-(n - 1)` rendering as `(-n - 1)`).
+    | NegatedExpr
+
     -- Lambda \ prefix: renders children with \ immediately before (no space).
     -- Used instead of text-modification so that bracket-rendered containers
     -- (records, arrays) render correctly: \{ x, y } not { \x, y }.
@@ -236,6 +242,7 @@ lpBoxToString lpbox =
         ParenBlock -> "(parenBlock)"
         OpAndRhs -> "(opAndRhs)"
         AlignedFlow -> "(alignedFlow)"
+        NegatedExpr -> "(negatedExpr)"
         LambdaSlash -> "(lambdaSlash)"
         SoftIndentedBlock -> "(softIndentedBlock)"
         SoftBodyBlock -> "(softBodyBlock)"
