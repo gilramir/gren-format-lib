@@ -497,6 +497,8 @@ makePDoc box children =
         BlockComment locs -> Ok (P.text ("{-" ++ locs.value ++ "-}"))
         AcrossThenIndent ->
             buildFlowDoc grenIndent children
+        IfCondition ->
+            buildFlowDoc (2 * grenIndent) children
         IndentedBlock ->
             buildFlowDoc 0 children
         PipelineStep ->

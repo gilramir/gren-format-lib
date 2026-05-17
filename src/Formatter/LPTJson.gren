@@ -70,6 +70,9 @@ lpBoxFields lpbox =
         AcrossThenIndent ->
             [ { key = "type", value = Json.string "AcrossThenIndent" } ]
 
+        IfCondition ->
+            [ { key = "type", value = Json.string "IfCondition" } ]
+
         AllAcrossOrAllVertical brackets ->
             [ { key = "type", value = Json.string "AllAcrossOrAllVertical" }
             , { key = "brackets", value = Json.string (bracketsToString brackets) }

@@ -274,17 +274,18 @@ insertExpression locExpr =
             when Array.popFirst branches is
                 Nothing -> Err "If: no branches"
                 Just { first = firstBranch, rest = restBranches } ->
-                    let ifNode = lpnLeaf (mkText locExpr.start "if")
-                    in
                     when insertExpression firstBranch.test is
                         Err e -> Err e
                         Ok testNodes ->
-                            let thenNode = lpnLeaf (SynthesizedText "then")
+                            let
+                                ifNode = lpnLeaf (mkText locExpr.start "if")
+                                thenNode = lpnLeaf (SynthesizedText "then")
+                                condNode = lpnNode IfCondition ([ifNode] ++ testNodes ++ [thenNode])
                             in
                             when insertExpressionAsIndentedBlock firstBranch.body is
                                 Err e -> Err e
                                 Ok bodyNode ->
-                                    let firstNodes = [ifNode] ++ testNodes ++ [thenNode, bodyNode]
+                                    let firstNodes = [condNode, bodyNode]
                                     in
                                     when resultFoldl folderInsertElseIfBranch firstNodes restBranches is
                                         Err e -> Err e
@@ -476,17 +477,18 @@ folderInsertLetDef locDef accNodes =
 
 folderInsertElseIfBranch : Src.IfBranch -> Array LPNode -> Result String (Array LPNode)
 folderInsertElseIfBranch branch accNodes =
-    let elseIfNode = lpnLeaf (SynthesizedText "else if")
-    in
     when insertExpression branch.test is
         Err e -> Err e
         Ok testNodes ->
-            let thenNode = lpnLeaf (SynthesizedText "then")
+            let
+                elseIfNode = lpnLeaf (SynthesizedText "else if")
+                thenNode = lpnLeaf (SynthesizedText "then")
+                condNode = lpnNode IfCondition ([elseIfNode] ++ testNodes ++ [thenNode])
             in
             when insertExpressionAsIndentedBlock branch.body is
                 Err e -> Err e
                 Ok bodyNode ->
-                    Ok (accNodes ++ [elseIfNode] ++ testNodes ++ [thenNode, bodyNode])
+                    Ok (accNodes ++ [condNode, bodyNode])
 
 
 folderInsertWhenBranch : Src.WhenBranch -> Array LPNode -> Result String (Array LPNode)

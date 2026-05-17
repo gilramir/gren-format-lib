@@ -234,11 +234,11 @@ else
     "positive"
 ```
 
-When the condition is too long to fit on one line, it wraps to the next line at the **same indentation as `if`** — no extra indent for the continuation. `then` stays on the last line of the condition:
+When the condition is too long to fit on one line, it wraps to the next line indented **8 spaces** (twice the normal indent). This keeps the continuation visually distinct from the branch body, which is only 4 spaces in. `then` stays on the last line of the condition:
 
 ```gren
 if model.isAuthenticated && model.hasPermission && model.featureEnabled &&
-model.subscriptionActive then
+        model.subscriptionActive then
     showDashboard model
 else
     showLoginPage model
