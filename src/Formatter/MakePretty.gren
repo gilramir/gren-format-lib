@@ -145,18 +145,20 @@ makeUnionBodyDoc nodes =
                         Ok acc ->
                             when lpnBox node is
                                 SingleLineComment loc ->
+                                    let commentDoc = commentBoxDoc (lpnBox node)
+                                    in
                                     when Array.popLast acc.docs is
                                         Nothing ->
-                                            Ok { docs = [P.text ("--" ++ loc.value)]
+                                            Ok { docs = [commentDoc]
                                                , prevRow = loc.start.row
                                                }
                                         Just { last = lastDoc, initial = initDocs } ->
                                             if loc.start.row == acc.prevRow then
-                                                Ok { docs = Array.pushLast (P.concat lastDoc (P.text (" --" ++ loc.value))) initDocs
+                                                Ok { docs = Array.pushLast (P.concat lastDoc (P.concat (P.text " ") commentDoc)) initDocs
                                                    , prevRow = loc.start.row
                                                    }
                                             else
-                                                Ok { docs = Array.pushLast (P.text ("--" ++ loc.value)) acc.docs
+                                                Ok { docs = Array.pushLast commentDoc acc.docs
                                                    , prevRow = loc.start.row
                                                    }
                                 _ ->
@@ -323,7 +325,7 @@ buildFlowDoc indent nodes =
                             when box is
                                 SingleLineComment loc ->
                                     let
-                                        commentText = P.text ("--" ++ loc.value)
+                                        commentText = commentBoxDoc box
                                         docWithComment =
                                             when acc.separator is
                                                 FirstItem ->
@@ -381,8 +383,8 @@ buildFlowDoc indent nodes =
                                                             , stepChildren = restNodes
                                                             , hasComment = True
                                                             }
-                                                        BlockComment loc ->
-                                                            { commentDoc = P.concat (P.text ("{-" ++ loc.value ++ "-}")) P.hardNl
+                                                        BlockComment _ ->
+                                                            { commentDoc = P.concat (commentBoxDoc (lpnBox firstNode)) P.hardNl
                                                             , stepChildren = restNodes
                                                             , hasComment = True
                                                             }
@@ -489,19 +491,24 @@ makeCommentLine children =
     when Array.popFirst children is
         Just { first = first, rest = rest } ->
             if Array.isEmpty rest then
-                when lpnBox first is
-                    SingleLineComment locs ->
-                        genericRenderResult <| P.prettyFormat costFactory (P.text <| "--" ++ locs.value)
-                    BlockComment locs ->
-                        genericRenderResult <| P.prettyFormat costFactory (P.text <| "{-" ++ locs.value ++ "-}")
-                    DocComment locs ->
-                        genericRenderResult <| P.prettyFormat costFactory (P.text <| "{-|" ++ locs.value ++ "-}")
-                    _ ->
-                        Err "Unexpected node type in comment line"
+                if nodeIsCommentBox (lpnBox first) || isDocCommentBox (lpnBox first) then
+                    genericRenderResult <| P.prettyFormat costFactory (commentNodeDoc first)
+                else
+                    Err "Unexpected node type in comment line"
             else
                 Err "Too many nodes in comment line"
         Nothing ->
             Err "No nodes in comment line"
+
+
+-- True if the box is a DocComment (kept separate from nodeIsCommentBox so
+-- that line/block comments which appear in mid-flow positions don't accept
+-- doc-comments by accident).
+isDocCommentBox : LPBox -> Bool
+isDocCommentBox box =
+    when box is
+        DocComment _ -> True
+        _ -> False
 
 genericRenderResult : Maybe String -> Result String String
 genericRenderResult maybeFormatted =
@@ -522,7 +529,7 @@ makePDoc box children =
         RecordUpdate baseName ->
             makeRecordUpdateDoc baseName children
         SingleLineComment locs -> Ok (lineComment locs.value)
-        BlockComment locs -> Ok (P.text ("{-" ++ locs.value ++ "-}"))
+        BlockComment _ -> Ok (commentBoxDoc box)
         AcrossThenIndent ->
             buildFlowDoc grenIndent children
         IfCondition ->
@@ -696,10 +703,29 @@ exposingListWithBrackets open close empty items =
                 (P.concat joined (P.concat P.nl (P.text close)))
 
 
--- hardNl makes the comment unflatten-able: a single-line comment consumes
--- the rest of its line, so any P.group containing one is forced into the
--- broken layout. Use this whenever the comment may be followed by more
--- content in the surrounding doc array.
+-- Render a comment box as just the source text it would produce: `--xxx`
+-- for a SingleLineComment, `{-xxx-}` for a BlockComment, `{-|xxx-}` for a
+-- DocComment. Returns P.empty for non-comment boxes; callers should only
+-- pass a comment box.
+commentBoxDoc : LPBox -> P.Doc cost
+commentBoxDoc box =
+    when box is
+        SingleLineComment loc -> P.text ("--" ++ loc.value)
+        BlockComment loc -> P.text ("{-" ++ loc.value ++ "-}")
+        DocComment loc -> P.text ("{-|" ++ loc.value ++ "-}")
+        _ -> P.empty
+
+
+-- LPNode-form of commentBoxDoc.
+commentNodeDoc : LPNode -> P.Doc cost
+commentNodeDoc node = commentBoxDoc (lpnBox node)
+
+
+-- Render a SingleLineComment's source text followed by a hardNl. The hardNl
+-- makes the comment unflatten-able: a `--` consumes the rest of its line, so
+-- any P.group containing one is forced into the broken layout. Use this
+-- whenever the comment may be followed by more content in the surrounding
+-- doc array.
 lineComment : String -> P.Doc cost
 lineComment s =
     P.concat (P.text ("--" ++ s)) P.hardNl
@@ -747,16 +773,13 @@ makeRecordUpdateDoc baseName children =
                                     when accResult is
                                         Err e -> Err e
                                         Ok docs ->
-                                            when lpnBox field is
-                                                SingleLineComment loc ->
-                                                    Ok (Array.pushLast (P.concat (P.text "    ") (lineComment loc.value)) docs)
-                                                BlockComment loc ->
-                                                    Ok (Array.pushLast (P.concat (P.text "    ") (P.text ("{-" ++ loc.value ++ "-}"))) docs)
-                                                _ ->
-                                                    when fieldDoc field is
-                                                        Err e -> Err e
-                                                        Ok d ->
-                                                            Ok (Array.pushLast (P.concat (P.text "    , ") d) docs)
+                                            if nodeIsCommentBox (lpnBox field) then
+                                                Ok (Array.pushLast (P.concat (P.text "    ") (commentLineDoc field)) docs)
+                                            else
+                                                when fieldDoc field is
+                                                    Err e -> Err e
+                                                    Ok d ->
+                                                        Ok (Array.pushLast (P.concat (P.text "    , ") d) docs)
                                 )
                                 (Ok (leadingCommentLines ++ [firstLine]))
                                 restFields
@@ -771,12 +794,14 @@ makeRecordUpdateDoc baseName children =
 -- so a comment that lands before the first field renders on its own line
 -- rather than being treated as a field.
 -- Render a single LPNode comment as a one-line doc.
+-- Like commentNodeDoc, but appends a hardNl for SingleLineComment (which
+-- must terminate its line). Used when emitting comment children as
+-- successive lines via P.vcat or P.concat.
 commentLineDoc : LPNode -> P.Doc cost
 commentLineDoc node =
     when lpnBox node is
         SingleLineComment loc -> lineComment loc.value
-        BlockComment loc -> P.text ("{-" ++ loc.value ++ "-}")
-        _ -> P.empty
+        _ -> commentNodeDoc node
 
 
 listBoxesWithBrackets : String -> String -> Array LPNode -> Result String (P.Doc cost)
@@ -813,41 +838,12 @@ listBoxesWithBrackets open close nodes =
                     when accResult is
                         Err e -> Err e
                         Ok acc ->
-                            when lpnBox node is
-                                SingleLineComment loc ->
-                                    if loc.start.row == acc.prevRow then
-                                        let
-                                            attached =
-                                                when acc.pending is
-                                                    Nothing ->
-                                                        { doc = P.text ("--" ++ loc.value), isComment = True }
-                                                    Just e ->
-                                                        { doc = P.concat e.doc (P.text (" --" ++ loc.value))
-                                                        , isComment = False
-                                                        }
-                                        in
-                                        Ok { acc
-                                            | lineDocs = acc.lineDocs ++ [ attached ]
-                                            , pending  = Nothing
-                                            }
-
-                                    else
-                                        let
-                                            flushed =
-                                                when acc.pending is
-                                                    Nothing -> acc.lineDocs
-                                                    Just e  -> acc.lineDocs ++ [ e ]
-                                        in
-                                        Ok { lineDocs = flushed ++ [ { doc = P.text ("--" ++ loc.value), isComment = True } ]
-                                           , pending  = Nothing
-                                           , prevRow  = loc.start.row
-                                           }
-
-                                BlockComment loc ->
+                            let
+                                handleCommentNode commentRow =
                                     let
-                                        commentDoc = P.text ("{-" ++ loc.value ++ "-}")
+                                        commentDoc = commentBoxDoc (lpnBox node)
                                     in
-                                    if loc.start.row == acc.prevRow then
+                                    if commentRow == acc.prevRow then
                                         -- Same row as the preceding item: attach with a space.
                                         let
                                             attached =
@@ -873,8 +869,15 @@ listBoxesWithBrackets open close nodes =
                                         in
                                         Ok { lineDocs = flushed ++ [ { doc = commentDoc, isComment = True } ]
                                            , pending  = Nothing
-                                           , prevRow  = loc.start.row
+                                           , prevRow  = commentRow
                                            }
+                            in
+                            when lpnBox node is
+                                SingleLineComment loc ->
+                                    handleCommentNode loc.start.row
+
+                                BlockComment loc ->
+                                    handleCommentNode loc.start.row
 
                                 _ ->
                                     when nodeItemDoc node is
