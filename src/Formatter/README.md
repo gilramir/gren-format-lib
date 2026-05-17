@@ -210,6 +210,42 @@ Record types in signatures are not affected by these rules — they follow the s
 
 ---
 
+## If expressions
+
+The body of every branch always starts on the next line, indented 4 spaces. There is no inline form — even a one-word body goes on its own line:
+
+```gren
+if n > 0 then
+    "positive"
+else
+    "non-positive"
+```
+
+The `else` keyword appears at the same indentation level as `if`, on its own line immediately after the previous branch body.
+
+When there are multiple conditions, `else if` is written as a single unit on one line with its condition. Each additional branch body is indented 4 spaces from the `else if`:
+
+```gren
+if n < 0 then
+    "negative"
+else if n == 0 then
+    "zero"
+else
+    "positive"
+```
+
+When the condition is too long to fit on one line, it wraps to the next line at the **same indentation as `if`** — no extra indent for the continuation. `then` stays on the last line of the condition:
+
+```gren
+if model.isAuthenticated && model.hasPermission && model.featureEnabled &&
+model.subscriptionActive then
+    showDashboard model
+else
+    showLoginPage model
+```
+
+---
+
 ## When expressions
 
 Each branch pattern and its body are placed on the same line when they fit:
