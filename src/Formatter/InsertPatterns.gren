@@ -146,7 +146,18 @@ folderInsertPRecordField field accNodes =
         Just aliasPat ->
             insertPatternAsItem aliasPat
                 |> Result.map (\aliasNode ->
-                    let eqNode = lpnLeaf (SynthesizedText "=")
+                    let
+                        eqNode = lpnLeaf (SynthesizedText "=")
+                        -- A record-destructure field value parses without
+                        -- consuming `as`, so `{ field = pat as name }` re-parses
+                        -- with `as` outside the record. Wrap a PAlias value in
+                        -- parens to keep the alias attached to the inner pattern.
+                        wrappedAliasNode =
+                            when aliasPat.value is
+                                Src.PAlias _ ->
+                                    lpnNode ParenBlock [aliasNode]
+                                _ ->
+                                    aliasNode
                     in
-                    Array.pushLast (lpnNode AcrossThenIndent [fieldNode, eqNode, aliasNode]) accNodes
+                    Array.pushLast (lpnNode AcrossThenIndent [fieldNode, eqNode, wrappedAliasNode]) accNodes
                 )

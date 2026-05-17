@@ -1,0 +1,15 @@
+module RecordFieldAsPattern exposing (..)
+
+-- A record-destructure field value can carry an `as`-alias when wrapped
+-- in parens. The formatter must keep the outer parens — without them the
+-- output re-parses with `as` binding outside the record entirely.
+type Tree
+    = Leaf
+    | Node { left : Tree, right : Tree }
+
+
+getLeft : Tree -> Tree
+getLeft tree =
+    when tree is
+        Node { left = (Node _ as inner) } -> inner
+        _ -> tree

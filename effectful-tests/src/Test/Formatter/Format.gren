@@ -137,6 +137,7 @@ expressionTests fsPerm =
         , assertPretty fsPerm "multi-line string opened mid-line aligns content to opening column" "MultilineStringInline"
         , assertPretty fsPerm "let-binding type signature is preserved" "LetBindingSignature"
         , assertPretty fsPerm "small/large floats render as decimal, not scientific notation" "FloatLiterals"
+        , assertPretty fsPerm "as-pattern inside record-field destructure keeps its parens" "RecordFieldAsPattern"
         ]
 
 declarationTests : FileSystem.Permission -> Effectful.Test
