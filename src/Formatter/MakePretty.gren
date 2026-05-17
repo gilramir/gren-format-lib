@@ -36,17 +36,12 @@ makePrettyLine node =
     when lpnBox node is
         OriginalRows { stype = stype } ->
             when stype is
-                StModule -> makeFlowIndentable children
-                StImport -> makeFlowIndentable children
+                StTypeAlias -> makeTypeAliasPretty children
+                StTypeUnion -> makeTypeUnionPretty children
                 StSingleLineComment -> makeCommentLine children
                 StBlockComment -> makeCommentLine children
                 StDocComment -> makeCommentLine children
-                StFunctionSignature -> makeFlowIndentable children
-                StFunctionDeclaration -> makeFlowIndentable children
-                StTypeAlias -> makeTypeAliasPretty children
-                StTypeUnion -> makeTypeUnionPretty children
-                StPort -> makeFlowIndentable children
-                StInfixDecl -> makeFlowIndentable children
+                _ -> makeFlowIndentable children
         EmptyLine ->
             Ok ""
         _ ->
