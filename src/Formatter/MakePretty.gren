@@ -354,11 +354,13 @@ buildFlowDoc indent nodes =
                                     renderBlockNode indentedBlockRule acc nodeChildren
 
                                 PipelineStep ->
-                                    -- Extract a leading SingleLineComment (if any) so we can
-                                    -- render it at the step's own nesting level rather than
-                                    -- inside the extra P.nest grenIndent applied to the args.
-                                    -- This ensures the comment and |> are at the same column,
-                                    -- while continuation args are indented +4 from |>.
+                                    -- Extract a leading SingleLineComment or
+                                    -- BlockComment (if any) so we can render it at
+                                    -- the step's own nesting level rather than
+                                    -- inside the extra P.nest grenIndent applied to
+                                    -- the args. This ensures the comment and `|>`
+                                    -- are at the same column, while continuation
+                                    -- args are indented +4 from `|>`.
                                     let
                                         { commentDoc, stepChildren, hasComment } =
                                             when Array.popFirst nodeChildren is
@@ -366,6 +368,11 @@ buildFlowDoc indent nodes =
                                                     when lpnBox firstNode is
                                                         SingleLineComment loc ->
                                                             { commentDoc = P.concat (P.text ("--" ++ loc.value)) P.hardNl
+                                                            , stepChildren = rest
+                                                            , hasComment = True
+                                                            }
+                                                        BlockComment loc ->
+                                                            { commentDoc = P.concat (P.text ("{-" ++ loc.value ++ "-}")) P.hardNl
                                                             , stepChildren = rest
                                                             , hasComment = True
                                                             }
