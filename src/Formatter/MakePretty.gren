@@ -73,11 +73,11 @@ makeFlowIndentable children =
             genericRenderResult <| P.prettyFormat costFactory finalDoc
 
 
--- True if the box is a SingleLineComment or BlockComment. (Doc comments are
--- their own top-level OriginalRows so they don't appear in mid-flow positions.)
-nodeIsCommentBox : LPBox -> Bool
-nodeIsCommentBox box =
-    when box is
+-- True if the node is a line or block comment. (Doc comments are their own
+-- top-level OriginalRows so they don't appear in mid-flow positions.)
+nodeIsComment : LPNode -> Bool
+nodeIsComment node =
+    when lpnBox node is
         SingleLineComment _ -> True
         BlockComment _ -> True
         _ -> False
@@ -93,7 +93,7 @@ splitLeadingComments nodes =
         step item acc =
             if acc.done then
                 { acc | rest = Array.pushLast item acc.rest }
-            else if nodeIsCommentBox (lpnBox item) then
+            else if nodeIsComment item then
                 { acc | leading = Array.pushLast item acc.leading }
             else
                 { leading = acc.leading, rest = [item], done = True }
@@ -376,20 +376,13 @@ buildFlowDoc indent nodes =
                                         { commentDoc, stepChildren, hasComment } =
                                             when Array.popFirst nodeChildren is
                                                 Just { first = firstNode, rest = restNodes } ->
-                                                    when lpnBox firstNode is
-                                                        SingleLineComment loc ->
-                                                            -- lineComment already appends hardNl, so don't add another.
-                                                            { commentDoc = lineComment loc.value
-                                                            , stepChildren = restNodes
-                                                            , hasComment = True
-                                                            }
-                                                        BlockComment _ ->
-                                                            { commentDoc = P.concat (commentBoxDoc (lpnBox firstNode)) P.hardNl
-                                                            , stepChildren = restNodes
-                                                            , hasComment = True
-                                                            }
-                                                        _ ->
-                                                            { commentDoc = P.empty, stepChildren = nodeChildren, hasComment = False }
+                                                    if nodeIsComment firstNode then
+                                                        { commentDoc = P.concat (commentBoxDoc (lpnBox firstNode)) P.hardNl
+                                                        , stepChildren = restNodes
+                                                        , hasComment = True
+                                                        }
+                                                    else
+                                                        { commentDoc = P.empty, stepChildren = nodeChildren, hasComment = False }
                                                 Nothing ->
                                                     { commentDoc = P.empty, stepChildren = [], hasComment = False }
                                     in
@@ -491,7 +484,7 @@ makeCommentLine children =
     when Array.popFirst children is
         Just { first = first, rest = rest } ->
             if Array.isEmpty rest then
-                if nodeIsCommentBox (lpnBox first) || isDocCommentBox (lpnBox first) then
+                if nodeIsComment first || isDocCommentNode first then
                     genericRenderResult <| P.prettyFormat costFactory (commentNodeDoc first)
                 else
                     Err "Unexpected node type in comment line"
@@ -501,12 +494,12 @@ makeCommentLine children =
             Err "No nodes in comment line"
 
 
--- True if the box is a DocComment (kept separate from nodeIsCommentBox so
+-- True if the node is a DocComment (kept separate from nodeIsComment so
 -- that line/block comments which appear in mid-flow positions don't accept
 -- doc-comments by accident).
-isDocCommentBox : LPBox -> Bool
-isDocCommentBox box =
-    when box is
+isDocCommentNode : LPNode -> Bool
+isDocCommentNode node =
+    when lpnBox node is
         DocComment _ -> True
         _ -> False
 
@@ -608,14 +601,7 @@ renderBracketList : ListLayout -> ListBrackets -> Array LPNode -> Result String 
 renderBracketList layout brackets children =
     let
         bs = bracketStrings brackets
-        hasComment = Array.any
-            (\node ->
-                when lpnBox node is
-                    SingleLineComment _ -> True
-                    BlockComment _ -> True
-                    _ -> False
-            )
-            children
+        hasComment = Array.any nodeIsComment children
     in
     if hasComment then
         listBoxesWithBrackets bs.open bs.close children
@@ -773,7 +759,7 @@ makeRecordUpdateDoc baseName children =
                                     when accResult is
                                         Err e -> Err e
                                         Ok docs ->
-                                            if nodeIsCommentBox (lpnBox field) then
+                                            if nodeIsComment field then
                                                 Ok (Array.pushLast (P.concat (P.text "    ") (commentLineDoc field)) docs)
                                             else
                                                 when fieldDoc field is
