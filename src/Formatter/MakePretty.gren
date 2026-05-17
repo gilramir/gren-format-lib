@@ -384,6 +384,11 @@ buildFlowDoc indent nodes =
                                                 newDoc =
                                                     when acc.separator is
                                                         FirstItem -> childrenDoc
+                                                        -- A preceding comment has already ended its
+                                                        -- line with hardNl, so attach the branch
+                                                        -- directly to avoid inserting an extra blank
+                                                        -- line between the comment and its pattern.
+                                                        AlreadyTerminated -> P.concat acc.doc childrenDoc
                                                         _         -> P.concat acc.doc (P.concat blankOrNewline childrenDoc)
                                             in
                                             Ok { doc = newDoc
