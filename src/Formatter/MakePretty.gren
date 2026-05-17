@@ -57,13 +57,13 @@ makeFlowIndentable children =
     -- Render any leading comments on their own lines first, then the
     -- actual declaration flow.
     let
-        { leadingComments, rest } = splitLeadingDeclComments children
+        { leading, rest } = splitLeadingComments children
     in
     when buildFlowDoc grenIndent rest is
         Err e -> Err e
         Ok flowDoc ->
             let
-                commentDocs = Array.map commentLineDoc leadingComments
+                commentDocs = Array.map commentLineDoc leading
                 finalDoc =
                     if Array.isEmpty commentDocs then
                         flowDoc
@@ -73,26 +73,33 @@ makeFlowIndentable children =
             genericRenderResult <| P.prettyFormat costFactory finalDoc
 
 
-splitLeadingDeclComments : Array LPNode -> { leadingComments : Array LPNode, rest : Array LPNode }
-splitLeadingDeclComments nodes =
+-- True if the box is a SingleLineComment or BlockComment. (Doc comments are
+-- their own top-level OriginalRows so they don't appear in mid-flow positions.)
+nodeIsCommentBox : LPBox -> Bool
+nodeIsCommentBox box =
+    when box is
+        SingleLineComment _ -> True
+        BlockComment _ -> True
+        _ -> False
+
+
+-- Take a prefix of comment nodes off `nodes`, returning the comments and
+-- the remainder. Used wherever a container (top-level decl, record update,
+-- pipeline step, ...) wants to render leading comments on their own lines
+-- before the rest of its children.
+splitLeadingComments : Array LPNode -> { leading : Array LPNode, rest : Array LPNode }
+splitLeadingComments nodes =
     let
         step item acc =
             if acc.done then
                 { acc | rest = Array.pushLast item acc.rest }
+            else if nodeIsCommentBox (lpnBox item) then
+                { acc | leading = Array.pushLast item acc.leading }
             else
-                when lpnBox item is
-                    SingleLineComment _ ->
-                        { acc | leadingComments = Array.pushLast item acc.leadingComments }
-                    BlockComment _ ->
-                        { acc | leadingComments = Array.pushLast item acc.leadingComments }
-                    _ ->
-                        { leadingComments = acc.leadingComments
-                        , rest = [item]
-                        , done = True
-                        }
+                { leading = acc.leading, rest = [item], done = True }
     in
-    Array.foldl step { leadingComments = [], rest = [], done = False } nodes
-        |> (\r -> { leadingComments = r.leadingComments, rest = r.rest })
+    Array.foldl step { leading = [], rest = [], done = False } nodes
+        |> (\r -> { leading = r.leading, rest = r.rest })
 
 
 {-| Render a header followed by an always-multi-line indented body.
@@ -354,26 +361,29 @@ buildFlowDoc indent nodes =
                                     renderBlockNode indentedBlockRule acc nodeChildren
 
                                 PipelineStep ->
-                                    -- Extract a leading SingleLineComment or
-                                    -- BlockComment (if any) so we can render it at
-                                    -- the step's own nesting level rather than
-                                    -- inside the extra P.nest grenIndent applied to
-                                    -- the args. This ensures the comment and `|>`
-                                    -- are at the same column, while continuation
-                                    -- args are indented +4 from `|>`.
+                                    -- Peel a single leading line/block comment
+                                    -- off the step so it renders at the step's
+                                    -- own nesting level rather than inside the
+                                    -- extra P.nest grenIndent applied to the
+                                    -- args. This keeps the comment and `|>` at
+                                    -- the same column, while continuation args
+                                    -- are indented +4 from `|>`. Always force a
+                                    -- hardNl after the comment so `|>` starts
+                                    -- on the next line.
                                     let
                                         { commentDoc, stepChildren, hasComment } =
                                             when Array.popFirst nodeChildren is
-                                                Just { first = firstNode, rest = rest } ->
+                                                Just { first = firstNode, rest = restNodes } ->
                                                     when lpnBox firstNode is
                                                         SingleLineComment loc ->
-                                                            { commentDoc = P.concat (P.text ("--" ++ loc.value)) P.hardNl
-                                                            , stepChildren = rest
+                                                            -- lineComment already appends hardNl, so don't add another.
+                                                            { commentDoc = lineComment loc.value
+                                                            , stepChildren = restNodes
                                                             , hasComment = True
                                                             }
                                                         BlockComment loc ->
                                                             { commentDoc = P.concat (P.text ("{-" ++ loc.value ++ "-}")) P.hardNl
-                                                            , stepChildren = rest
+                                                            , stepChildren = restNodes
                                                             , hasComment = True
                                                             }
                                                         _ ->
@@ -700,7 +710,7 @@ makeRecordUpdateDoc baseName children =
     -- Skip any leading comment children so we can find the actual first field
     -- (the comment-bearing children get rendered as their own lines below).
     let
-        { commentsBefore, fields } = splitLeadingComments children
+        { leading = commentsBefore, rest = fields } = splitLeadingComments children
     in
     when Array.popFirst fields is
         Nothing ->
@@ -760,28 +770,6 @@ makeRecordUpdateDoc baseName children =
 -- Split leading comment children off from the rest. Used by makeRecordUpdateDoc
 -- so a comment that lands before the first field renders on its own line
 -- rather than being treated as a field.
-splitLeadingComments : Array LPNode -> { commentsBefore : Array LPNode, fields : Array LPNode }
-splitLeadingComments nodes =
-    let
-        step item acc =
-            if acc.doneCollectingComments then
-                { acc | fields = Array.pushLast item acc.fields }
-            else
-                when lpnBox item is
-                    SingleLineComment _ ->
-                        { acc | commentsBefore = Array.pushLast item acc.commentsBefore }
-                    BlockComment _ ->
-                        { acc | commentsBefore = Array.pushLast item acc.commentsBefore }
-                    _ ->
-                        { commentsBefore = acc.commentsBefore
-                        , fields = [item]
-                        , doneCollectingComments = True
-                        }
-    in
-    Array.foldl step { commentsBefore = [], fields = [], doneCollectingComments = False } nodes
-        |> (\r -> { commentsBefore = r.commentsBefore, fields = r.fields })
-
-
 -- Render a single LPNode comment as a one-line doc.
 commentLineDoc : LPNode -> P.Doc cost
 commentLineDoc node =
