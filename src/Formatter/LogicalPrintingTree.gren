@@ -113,6 +113,11 @@ type LPBox
     -- the 4-space indent, so P.nl here breaks at exactly that level.
     | SoftBodyBlock
 
+    -- A triple-quoted (""") multiline string literal.
+    -- Each element is one line of content (leading whitespace already stripped by the parser).
+    -- Rendered as """ followed by a hard-newline-separated list of lines and a closing """.
+    | MultilineString (Array String)
+
 type LPNode
     = LPNode { box : LPBox, children : Array LPNode }
 
@@ -168,3 +173,5 @@ lpBoxToString lpbox =
         BlockComment s -> "block-comment " ++ pstr(s.start) ++ " {- " ++ s.value ++ "-}"
         DocComment s -> "doc-comment " ++ pstr(s.start) ++ " {-| " ++ s.value ++ "-}"
         EmptyLine -> "(nl)"
+        MultilineString lines ->
+            "(multilineString " ++ String.fromInt (Array.length lines) ++ " lines)"

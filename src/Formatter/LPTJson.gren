@@ -119,6 +119,11 @@ lpBoxFields lpbox =
             , { key = "value", value = Json.string s }
             ]
 
+        MultilineString lines ->
+            [ { key = "type", value = Json.string "MultilineString" }
+            , { key = "lines", value = Json.array Json.string lines }
+            ]
+
 
 bracketsToString : ListBrackets -> String
 bracketsToString brackets =

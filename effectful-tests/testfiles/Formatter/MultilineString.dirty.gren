@@ -1,0 +1,13 @@
+module MultilineString exposing (..)
+
+simpleMultiline =
+    """
+    Hello, World!
+    """
+
+multilineWithLines =
+    """
+    line one
+    line two
+    line three
+    """

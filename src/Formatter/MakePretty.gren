@@ -519,6 +519,16 @@ makePDoc box children =
             when buildFlowDoc 0 children is
                 Err e -> Err e
                 Ok innerDoc -> Ok (P.concat (P.text "\\") innerDoc)
+        MultilineString lines ->
+            let
+                tripleQuote = P.text "\"\"\""
+                contentDoc =
+                    Array.foldl
+                        (\line acc -> P.concat acc (P.concat P.hardNl (P.text line)))
+                        tripleQuote
+                        lines
+            in
+            Ok (P.concat contentDoc (P.concat P.hardNl tripleQuote))
         unexpected -> Err ("makePDoc: unexpected box type: " ++ lpBoxToString unexpected)
 
 

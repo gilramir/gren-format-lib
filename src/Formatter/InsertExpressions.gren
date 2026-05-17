@@ -86,7 +86,10 @@ insertExpression : Src.Expression -> Result String (Array LPNode)
 insertExpression locExpr =
     when locExpr.value is
         Src.StringLiteral s ->
-            Ok [lpnLeaf (mkText locExpr.start ("\"" ++ escapeStringContent s ++ "\""))]
+            if locExpr.start.row /= locExpr.end.row then
+                Ok [lpnLeaf (MultilineString (String.split "\n" s))]
+            else
+                Ok [lpnLeaf (mkText locExpr.start ("\"" ++ escapeStringContent s ++ "\""))]
 
         Src.NumberLiteral outcome ->
             when outcome is

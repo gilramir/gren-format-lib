@@ -210,6 +210,42 @@ Record types in signatures are not affected by these rules — they follow the s
 
 ---
 
+## String literals
+
+Regular single-line strings are left as-is, with escape sequences preserved:
+
+```gren
+greeting = "Hello, World!"
+
+withEscapes = "line one\nline two\t!\\"
+```
+
+### Multiline strings
+
+A triple-quoted (`"""`) string always remains in triple-quoted form. The opening `"""` goes at the end of the previous line (or on a new indented line when the body wraps), the content lines appear at the same indentation as the `"""` delimiters, and the closing `"""` goes on its own line at that same indentation:
+
+```gren
+message =
+    """
+    Hello, World!
+    """
+```
+
+Multi-line content is preserved line by line:
+
+```gren
+poem =
+    """
+    line one
+    line two
+    line three
+    """
+```
+
+The indentation of the content lines in the output always matches the indentation of the `"""` delimiters, regardless of how much leading whitespace the original source had.
+
+---
+
 ## Array literals
 
 An empty array is always written as `[]`.
