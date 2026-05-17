@@ -132,6 +132,7 @@ expressionTests fsPerm =
         , assertPretty fsPerm "lambda with record and array destructure patterns" "LambdaPatterns"
         , assertPretty fsPerm "binary operators, negation, hex literals" "BinaryOps"
         , assertPretty fsPerm "extensible record types in signatures and aliases" "ExtensibleRecords"
+        , assertPretty fsPerm "constructor argument that is an as-alias keeps its parens" "CtorAsPattern"
         ]
 
 declarationTests : FileSystem.Permission -> Effectful.Test

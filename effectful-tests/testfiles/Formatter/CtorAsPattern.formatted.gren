@@ -1,0 +1,23 @@
+module CtorAsPattern exposing (..)
+
+-- A constructor pattern whose argument is an `as`-alias needs to retain
+-- its parentheses. Without them, the `as` would bind to the outer
+-- constructor pattern instead of the inner one, changing the AST.
+
+type Wrapped a
+    = Wrapped a
+
+
+describe : Wrapped { tagString : String, payloadInt : Int } -> String
+describe wrappedValue =
+    when wrappedValue is
+        Wrapped ({ tagString, payloadInt } as wholeRecord) ->
+            tagString ++ ":" ++ String.fromInt payloadInt ++ "/" ++ Debug.toString wholeRecord
+
+
+classify : Wrapped (Maybe Int) -> String
+classify wrappedValue =
+    when wrappedValue is
+        Wrapped (Just intValue as innerJust) ->
+            "just:" ++ String.fromInt intValue ++ "/" ++ Debug.toString innerJust
+        Wrapped Nothing -> "nothing"

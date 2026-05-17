@@ -53,7 +53,7 @@ insertPattern locPat =
                     Ok [nameNode]
                 Just argPat ->
                     insertPatternAsItem argPat
-                        |> Result.map (\argNode -> [nameNode, argNode])
+                        |> Result.map (\argNode -> [nameNode, parenIfAlias argPat argNode])
 
         Src.PCtorQual { varRegion = varRegion, module_ = module_, name = name, arg = arg } ->
             let ctorNode = lpnLeaf (mkText varRegion.start (module_ ++ "." ++ name))
@@ -63,7 +63,7 @@ insertPattern locPat =
                     Ok [ctorNode]
                 Just argPat ->
                     insertPatternAsItem argPat
-                        |> Result.map (\argNode -> [ctorNode, argNode])
+                        |> Result.map (\argNode -> [ctorNode, parenIfAlias argPat argNode])
 
         Src.PArray patterns ->
             resultFoldl folderInsertPatternAsItem [] patterns
@@ -99,6 +99,19 @@ insertPatternAsItem locPat =
                     else
                         Ok (lpnNode AcrossThenIndent nodes)
         )
+
+
+-- Constructor arguments are parsed with `parserNoAlias`, which does NOT
+-- consume `as`. If the argument is itself a `PAlias`, the surface form
+-- `Ctor pat as name` would re-parse as `(Ctor pat) as name` — a different
+-- AST. Wrap the alias in parens so the `as` stays bound to the inner pattern.
+parenIfAlias : Src.Pattern -> LPNode -> LPNode
+parenIfAlias argPat argNode =
+    when argPat.value is
+        Src.PAlias _ ->
+            lpnNode ParenBlock [argNode]
+        _ ->
+            argNode
 
 
 folderInsertPattern : Src.Pattern -> Array LPNode -> Result String (Array LPNode)
