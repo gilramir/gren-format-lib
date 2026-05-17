@@ -8,7 +8,10 @@ import Formatter.LogicalPrintingTree exposing (LPBox(..),
     LPNode(..), ListBrackets(..), SyntaxType(..),
     lpnBox, lpnChildren, lpnLeaf, lpnNode, lastRowInSubtree)
 import Formatter.Comments exposing (lptAddComments)
-import Formatter.InsertExpressions exposing (..)
+import Formatter.LPTHelpers exposing (mkText, mkTextFromLocString, incCol, resultFoldl)
+import Formatter.InsertExpressions exposing (insertExpression)
+import Formatter.InsertPatterns exposing (folderInsertPattern)
+import Formatter.InsertTypes exposing (makeSignatureBranch)
 import Formatter.VerticalSpace exposing (..)
 
 

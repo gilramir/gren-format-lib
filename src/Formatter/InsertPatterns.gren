@@ -1,0 +1,129 @@
+module Formatter.InsertPatterns exposing (..)
+
+{-|
+Pattern → LPT conversion. Patterns appear in let-destructures, lambda
+arguments, when-branch matches, and function arguments. They have their
+own grammar, distinct from expressions but using the same LPT layout
+boxes.
+-}
+
+import Compiler.Ast.Source as Src
+import Compiler.SourcePosition exposing (Located, Position)
+
+import Formatter.LogicalPrintingTree exposing (LPBox(..),
+    LPNode(..), ListBrackets(..), lpnBox, lpnChildren, lpnLeaf, lpnNode)
+import Formatter.LPTHelpers exposing (mkText, mkTextFromLocString, resultFoldl)
+import Formatter.LiteralFormat exposing (charLiteralString, escapeStringContent, intToHex)
+
+
+insertPattern : Src.Pattern -> Result String (Array LPNode)
+insertPattern locPat =
+    when locPat.value is
+        Src.PVar name ->
+            Ok [lpnLeaf (mkText locPat.start name)]
+
+        Src.PAnything _ ->
+            Ok [lpnLeaf (mkText locPat.start "_")]
+
+        Src.PRecord fields ->
+            when Array.popFirst fields is
+                Nothing ->
+                    Ok [lpnLeaf (mkText locPat.start "{}")]
+                Just _ ->
+                    resultFoldl folderInsertPRecordField [] fields
+                        |> Result.map (\fieldNodes ->
+                            [lpnNode (AllAcrossOrAllVertical ListCurly) fieldNodes]
+                        )
+
+        Src.PAlias { pattern = pat, name = name } ->
+            insertPattern pat
+                |> Result.map (\patNodes ->
+                    let
+                        asNode = lpnLeaf (SynthesizedText "as")
+                        nameNode = lpnLeaf (mkTextFromLocString name)
+                    in
+                    patNodes ++ [asNode, nameNode]
+                )
+
+        Src.PCtor { name = name, arg = arg } ->
+            let nameNode = lpnLeaf (mkTextFromLocString name)
+            in
+            when arg is
+                Nothing ->
+                    Ok [nameNode]
+                Just argPat ->
+                    insertPatternAsItem argPat
+                        |> Result.map (\argNode -> [nameNode, argNode])
+
+        Src.PCtorQual { varRegion = varRegion, module_ = module_, name = name, arg = arg } ->
+            let ctorNode = lpnLeaf (mkText varRegion.start (module_ ++ "." ++ name))
+            in
+            when arg is
+                Nothing ->
+                    Ok [ctorNode]
+                Just argPat ->
+                    insertPatternAsItem argPat
+                        |> Result.map (\argNode -> [ctorNode, argNode])
+
+        Src.PArray patterns ->
+            resultFoldl folderInsertPatternAsItem [] patterns
+                |> Result.map (\itemNodes ->
+                    when Array.popFirst itemNodes is
+                        Nothing ->
+                            [lpnLeaf (mkText locPat.start "[]")]
+                        Just _ ->
+                            [lpnNode (AllAcrossOrAllVertical ListSquare) itemNodes]
+                )
+
+        Src.PChr c ->
+            Ok [lpnLeaf (mkText locPat.start (charLiteralString c))]
+
+        Src.PStr s ->
+            Ok [lpnLeaf (mkText locPat.start ("\"" ++ escapeStringContent s ++ "\""))]
+
+        Src.PInt { value = value, isHex = isHex } ->
+            let text = if isHex then "0x" ++ intToHex value else String.fromInt value
+            in
+            Ok [lpnLeaf (mkText locPat.start text)]
+
+
+insertPatternAsItem : Src.Pattern -> Result String LPNode
+insertPatternAsItem locPat =
+    insertPattern locPat
+        |> Result.andThen (\nodes ->
+            when Array.popFirst nodes is
+                Nothing -> Err "insertPatternAsItem: empty pattern"
+                Just { first = onlyNode, rest = rest } ->
+                    if Array.isEmpty rest then
+                        Ok onlyNode
+                    else
+                        Ok (lpnNode AcrossThenIndent nodes)
+        )
+
+
+folderInsertPattern : Src.Pattern -> Array LPNode -> Result String (Array LPNode)
+folderInsertPattern locPat accNodes =
+    insertPattern locPat
+        |> Result.map (\newNodes -> accNodes ++ newNodes)
+
+
+folderInsertPatternAsItem : Src.Pattern -> Array LPNode -> Result String (Array LPNode)
+folderInsertPatternAsItem pat accNodes =
+    insertPatternAsItem pat
+        |> Result.map (\node -> Array.pushLast node accNodes)
+
+
+folderInsertPRecordField : Src.PRecordField -> Array LPNode -> Result String (Array LPNode)
+folderInsertPRecordField field accNodes =
+    let fieldNode = lpnLeaf (mkTextFromLocString field.field)
+    in
+    when field.pattern is
+        Nothing ->
+            Ok (Array.pushLast fieldNode accNodes)
+        Just aliasPat ->
+            insertPatternAsItem aliasPat
+                |> Result.map (\aliasNode ->
+                    let eqNode = lpnLeaf (SynthesizedText "=")
+                    in
+                    Array.pushLast (lpnNode AcrossThenIndent [fieldNode, eqNode, aliasNode]) accNodes
+                )

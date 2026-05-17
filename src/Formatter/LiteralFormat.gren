@@ -1,0 +1,63 @@
+module Formatter.LiteralFormat exposing (..)
+
+{-|
+Source-text formatting of primitive literals: strings, chars, and hex
+integers. Pure string-to-string conversions; no LPT awareness.
+-}
+
+import Char
+import Math
+
+
+escapeStringContent : String -> String
+escapeStringContent s =
+    s
+        |> String.replace "\\" "\\\\"
+        |> String.replace "\"" "\\\""
+        |> String.replace "\n" "\\n"
+        |> String.replace "\r" "\\r"
+        |> String.replace "\t" "\\t"
+
+
+charLiteralString : Char -> String
+charLiteralString c =
+    let
+        code = Char.toCode c
+        inner =
+            when code is
+                9  -> "\\t"
+                10 -> "\\n"
+                13 -> "\\r"
+                39 -> "\\'"
+                92 -> "\\\\"
+                _  -> String.fromChar c
+    in
+    "'" ++ inner ++ "'"
+
+
+intToHex : Int -> String
+intToHex n =
+    let
+        hexDigit d =
+            when d is
+                0 -> "0"
+                1 -> "1"
+                2 -> "2"
+                3 -> "3"
+                4 -> "4"
+                5 -> "5"
+                6 -> "6"
+                7 -> "7"
+                8 -> "8"
+                9 -> "9"
+                10 -> "A"
+                11 -> "B"
+                12 -> "C"
+                13 -> "D"
+                14 -> "E"
+                _  -> "F"
+    in
+    if n < 16 then
+        hexDigit n
+    else
+        intToHex (n // 16) ++ hexDigit (Math.modBy 16 n)

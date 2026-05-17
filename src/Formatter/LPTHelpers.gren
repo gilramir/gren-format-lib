@@ -1,0 +1,98 @@
+module Formatter.LPTHelpers exposing (..)
+
+{-|
+LPT construction helpers shared by every Insert* module: leaf-building,
+position arithmetic, Result-aware folding, and leaf-walking utilities
+used to rewrite the text on the deepest leaf of a subtree.
+-}
+
+import Compiler.SourcePosition exposing (Located, Position)
+
+import Formatter.LogicalPrintingTree exposing (LPBox(..),
+    LPNode(..), lpnBox, lpnChildren, lpnLeaf, lpnNode)
+
+
+mkText : Position -> String -> LPBox
+mkText pos text =
+    let
+        end =
+            { pos
+                | col = pos.col + String.count text
+            }
+    in
+    UnbreakableText
+        { start = pos
+        , end = end
+        , value = text
+        }
+
+
+mkTextFromLocString : Located String -> LPBox
+mkTextFromLocString ltext =
+    UnbreakableText ltext
+
+
+incCol : Int -> Position -> Position
+incCol n pos =
+    { pos
+        | col = pos.col + n
+    }
+
+
+-- Left-fold that threads a Result through the accumulator, short-circuiting
+-- on the first Err. Equivalent to Array.foldl + Result.andThen.
+resultFoldl : (i -> a -> Result e a) -> a -> Array i -> Result e a
+resultFoldl callback initialAcc items =
+    Array.foldl
+        (\item acc -> acc |> Result.andThen (callback item))
+        (Ok initialAcc)
+        items
+
+
+-- Walk to the deepest first UnbreakableText leaf and apply f to it.
+-- Returns Nothing if no UnbreakableText leaf is found.
+tryMapFirstLeaf : (Located String -> LPBox) -> LPNode -> Maybe LPNode
+tryMapFirstLeaf f node =
+    when lpnBox node is
+        UnbreakableText loc ->
+            Just (LPNode { box = f loc, children = lpnChildren node })
+        _ ->
+            when Array.popFirst (lpnChildren node) is
+                Nothing ->
+                    Nothing
+                Just { first = firstChild, rest = restChildren } ->
+                    when tryMapFirstLeaf f firstChild is
+                        Nothing -> Nothing
+                        Just updated ->
+                            Just (LPNode { box = lpnBox node, children = Array.pushFirst updated restChildren })
+
+
+-- Walk to the deepest last UnbreakableText leaf and apply f to it.
+-- Returns Nothing if no UnbreakableText leaf is found.
+tryMapLastLeaf : (Located String -> LPBox) -> LPNode -> Maybe LPNode
+tryMapLastLeaf f node =
+    when lpnBox node is
+        UnbreakableText loc ->
+            Just (LPNode { box = f loc, children = lpnChildren node })
+        _ ->
+            when Array.popLast (lpnChildren node) is
+                Nothing ->
+                    Nothing
+                Just { last = lastChild, initial = initialChildren } ->
+                    when tryMapLastLeaf f lastChild is
+                        Nothing -> Nothing
+                        Just updated ->
+                            Just (LPNode { box = lpnBox node, children = Array.pushLast updated initialChildren })
+
+
+-- Wrap a non-empty list of nodes in ParenBlock; emit "()" if empty.
+-- ParenBlock renders ( and ) immediately adjacent to the children (no space),
+-- which is essential when the first/last child is a bracket-rendered
+-- container like an array literal.
+fixupParensChildrenNodes : Array LPNode -> Result String (Array LPNode)
+fixupParensChildrenNodes nodes =
+    when Array.popFirst nodes is
+        Nothing ->
+            Ok [lpnLeaf (SynthesizedText "()")]
+        Just _ ->
+            Ok [lpnNode ParenBlock nodes]
