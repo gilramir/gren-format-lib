@@ -545,6 +545,7 @@ renderBracketList layout brackets children =
             (\node ->
                 when lpnBox node is
                     SingleLineComment _ -> True
+                    BlockComment _ -> True
                     _ -> False
             )
             children
@@ -745,6 +746,39 @@ listBoxesWithBrackets open close nodes =
                                                     Just e  -> acc.lineDocs ++ [ e ]
                                         in
                                         Ok { lineDocs = flushed ++ [ { doc = P.text ("--" ++ loc.value), isComment = True } ]
+                                           , pending  = Nothing
+                                           , prevRow  = loc.start.row
+                                           }
+
+                                BlockComment loc ->
+                                    let
+                                        commentDoc = P.text ("{-" ++ loc.value ++ "-}")
+                                    in
+                                    if loc.start.row == acc.prevRow then
+                                        -- Same row as the preceding item: attach with a space.
+                                        let
+                                            attached =
+                                                when acc.pending is
+                                                    Nothing ->
+                                                        { doc = commentDoc, isComment = True }
+                                                    Just e ->
+                                                        { doc = P.concat e.doc (P.concat (P.text " ") commentDoc)
+                                                        , isComment = False
+                                                        }
+                                        in
+                                        Ok { acc
+                                            | lineDocs = acc.lineDocs ++ [ attached ]
+                                            , pending  = Nothing
+                                            }
+
+                                    else
+                                        let
+                                            flushed =
+                                                when acc.pending is
+                                                    Nothing -> acc.lineDocs
+                                                    Just e  -> acc.lineDocs ++ [ e ]
+                                        in
+                                        Ok { lineDocs = flushed ++ [ { doc = commentDoc, isComment = True } ]
                                            , pending  = Nothing
                                            , prevRow  = loc.start.row
                                            }
