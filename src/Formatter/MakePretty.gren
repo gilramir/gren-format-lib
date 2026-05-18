@@ -19,33 +19,63 @@ costFactory =
     P.defaultCostFactory { pageWidth = 100, computationWidth = Just 120 }
 
 
-{-| Walk a Doc tree and wrap shared sub-documents in `P.share`.
+{-| Walk a Doc tree and wrap post-newline sub-documents in `P.share`.
 
-The optimisation target: every `DocChoice` whose unflattened ("broken") branch
-has the shape `nl ++ item` — i.e. the structural signature produced by
-`buildFlowDoc`'s flowSep separator `P.group (P.concat P.nl item)`. In that
-shape, the renderer's `processConcat` iterates over the Pareto-optimal measures
-of the prefix accumulator and resolves the broken branch once per measure.
-The broken branch always resolves `item` at column `i` (after the soft
-newline), so every iteration after the first repeats the same item-resolution.
-Wrapping `item` in `P.share` makes those repeat resolutions hit the renderer's
-memo cache.
+The optimisation target: every `DocConcat { a = newline, b = item }` —
+i.e. anywhere a (soft or hard) newline is immediately followed by some
+sub-document. Both newline variants reset the resolver's column to `i`
+(hardNl always; soft `nl` does too in its broken branch), so the inner
+`item` is evaluated at `(i, i)` regardless of the incoming column.
 
-`P.share` requires a fresh id per invocation, threaded through `B.Builder`.
-The walker uses `B.map` / `B.andThen` to plumb the id counter through the
-recursive descent. Leaves and internal nodes (DocText, DocNewline, DocFail,
-DocContext, DocBlank, DocEvaled) return unchanged via `B.return`.
+Why this matters: `processConcat` iterates over every Pareto-optimal
+measure of the prefix accumulator and re-resolves the right-hand operand
+at each measure's `.last`. When the right-hand operand starts with a
+newline, the post-newline `item`'s evaluation position is
+column-invariant — every prefix measure resolves `item` at the *same*
+`(i, i)`. Wrapping `item` in `P.share` makes the first such resolution
+populate the renderer's memo cache and every subsequent resolution
+short-circuit to a cache hit. Without sharing, the renderer re-walks
+`item` once per prefix measure.
 
-The flat branch is recursed into normally but not specially shared: its
-inner item resolves at column `m.last + 1`, which varies across left
-measures, so the memo key `(sid, c, i)` would not repeat and the share would
-cost without payoff.
+Patterns this catches:
+
+  - `buildFlowDoc`'s flowSep `group(nl item)` (the choice's broken
+    branch is `concat nl item`, recursively reached via DocChoice).
+  - `indentedBlockRule.wrap = nest n (concat hardNl content)`.
+  - `bodyBlockRule.wrap = concat hardNl content`.
+  - `softIndentedBlockRule.wrap = group (nest n (concat nl content))`.
+  - `softBodyBlockRule.wrap = group (concat nl content)`.
+
+`P.share` requires a fresh id per invocation, threaded through
+`B.Builder`. The walker uses `B.map` / `B.andThen` to plumb the id
+counter through the recursive descent. Leaves and renderer-internal
+nodes (DocText, DocNewline, DocFail, DocContext, DocBlank, DocEvaled)
+return unchanged via `B.return`.
+
+The flat branch of a DocChoice is recursed into normally but its inner
+post-newline items are not specially shared by the choice case itself —
+the generic `DocConcat { a = newline, b = item }` arm below still fires
+for them, but only when the renderer reaches them through a column
+that lines up across prefix measures (rare for flat branches, since
+their item resolves at `m.last + 1`).
 -}
 insertShares : P.Doc cost -> B.Builder (P.Doc cost)
 insertShares d =
     when d is
+        DocConcat { a = DocNewline maybeFlat, b = item } ->
+            -- The most common shape we want to share. Recurse into `item`
+            -- first so any nested concat-newline patterns inside `item`
+            -- also get their items shared, then wrap the whole item in
+            -- `P.share` and reattach the original newline.
+            insertShares item
+                |> B.andThen P.share
+                |> B.map (\sharedItem -> P.concat (DocNewline maybeFlat) sharedItem)
+
         DocChoice { a = brokenBranch, b = flatBranch } ->
-            shareFlowSepBranch brokenBranch
+            -- Recurse into both branches. If `brokenBranch` is a
+            -- `DocConcat { newline, item }`, the arm above will fire on
+            -- recursion and share its item.
+            insertShares brokenBranch
                 |> B.andThen (\newBroken ->
                     insertShares flatBranch
                         |> B.map (\newFlat -> P.choice newBroken newFlat)
@@ -79,27 +109,6 @@ insertShares d =
             -- nodes (DocContext, DocBlank, DocEvaled, DocTwoColumns): no
             -- child docs to walk into, nothing to share.
             B.return d
-
-
-{-| If `branch` is the broken side of a flowSep group — i.e. matches
-`DocConcat { a = DocNewline _, b = item }` — recurse into `item` to apply
-nested shares, then wrap the whole item in `P.share` and reattach the
-newline. Otherwise just recurse normally.
-
-We rely on the fact that the `concat` smart constructor never fuses a
-`DocNewline` with adjacent text or floats it out, so the `nl ++ item`
-shape is preserved verbatim by the time the walker sees it.
--}
-shareFlowSepBranch : P.Doc cost -> B.Builder (P.Doc cost)
-shareFlowSepBranch branch =
-    when branch is
-        DocConcat { a = DocNewline maybeFlat, b = item } ->
-            insertShares item
-                |> B.andThen P.share
-                |> B.map (\sharedItem -> P.concat (DocNewline maybeFlat) sharedItem)
-
-        _ ->
-            insertShares branch
 
 -- How many spaces we indent
 grenIndent : Int
