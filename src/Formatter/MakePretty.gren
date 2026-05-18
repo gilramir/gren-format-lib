@@ -11,11 +11,95 @@ import Formatter.Strings exposing
     )
 
 import PrettyExpressive as P
+import PrettyExpressive exposing (Doc(..))
 import PrettyExpressive.Builder as B
 
 costFactory : P.CostFactory P.DefaultCostTuple
 costFactory =
     P.defaultCostFactory { pageWidth = 100, computationWidth = Just 120 }
+
+
+{-| Walk a Doc tree and wrap shared sub-documents in `P.share`.
+
+The optimisation target: every `DocChoice` whose unflattened ("broken") branch
+has the shape `nl ++ item` — i.e. the structural signature produced by
+`buildFlowDoc`'s flowSep separator `P.group (P.concat P.nl item)`. In that
+shape, the renderer's `processConcat` iterates over the Pareto-optimal measures
+of the prefix accumulator and resolves the broken branch once per measure.
+The broken branch always resolves `item` at column `i` (after the soft
+newline), so every iteration after the first repeats the same item-resolution.
+Wrapping `item` in `P.share` makes those repeat resolutions hit the renderer's
+memo cache.
+
+`P.share` requires a fresh id per invocation, threaded through `B.Builder`.
+The walker uses `B.map` / `B.andThen` to plumb the id counter through the
+recursive descent. Leaves and internal nodes (DocText, DocNewline, DocFail,
+DocContext, DocBlank, DocEvaled) return unchanged via `B.return`.
+
+The flat branch is recursed into normally but not specially shared: its
+inner item resolves at column `m.last + 1`, which varies across left
+measures, so the memo key `(sid, c, i)` would not repeat and the share would
+cost without payoff.
+-}
+insertShares : P.Doc cost -> B.Builder (P.Doc cost)
+insertShares d =
+    when d is
+        DocChoice { a = brokenBranch, b = flatBranch } ->
+            shareFlowSepBranch brokenBranch
+                |> B.andThen (\newBroken ->
+                    insertShares flatBranch
+                        |> B.map (\newFlat -> P.choice newBroken newFlat)
+                )
+
+        DocConcat { a = a, b = b } ->
+            insertShares a
+                |> B.andThen (\newA ->
+                    insertShares b
+                        |> B.map (\newB -> P.concat newA newB)
+                )
+
+        DocNest { indent = indent, doc = inner } ->
+            insertShares inner |> B.map (P.nest indent)
+
+        DocAlign inner ->
+            insertShares inner |> B.map P.align
+
+        DocReset inner ->
+            insertShares inner |> B.map P.reset
+
+        DocAddCost { cost = c, doc = inner } ->
+            insertShares inner |> B.map (P.addCost c)
+
+        DocShared _ ->
+            -- Already shared; pass through to avoid double-sharing.
+            B.return d
+
+        _ ->
+            -- Leaves (DocText, DocNewline, DocFail) and renderer-internal
+            -- nodes (DocContext, DocBlank, DocEvaled, DocTwoColumns): no
+            -- child docs to walk into, nothing to share.
+            B.return d
+
+
+{-| If `branch` is the broken side of a flowSep group — i.e. matches
+`DocConcat { a = DocNewline _, b = item }` — recurse into `item` to apply
+nested shares, then wrap the whole item in `P.share` and reattach the
+newline. Otherwise just recurse normally.
+
+We rely on the fact that the `concat` smart constructor never fuses a
+`DocNewline` with adjacent text or floats it out, so the `nl ++ item`
+shape is preserved verbatim by the time the walker sees it.
+-}
+shareFlowSepBranch : P.Doc cost -> B.Builder (P.Doc cost)
+shareFlowSepBranch branch =
+    when branch is
+        DocConcat { a = DocNewline maybeFlat, b = item } ->
+            insertShares item
+                |> B.andThen P.share
+                |> B.map (\sharedItem -> P.concat (DocNewline maybeFlat) sharedItem)
+
+        _ ->
+            insertShares branch
 
 -- How many spaces we indent
 grenIndent : Int
@@ -71,7 +155,7 @@ makeFlowIndentable children =
                     else
                         P.concat (P.vcat commentDocs) (P.concat P.hardNl flowDoc)
             in
-            genericRenderResult <| P.prettyFormat costFactory (B.return finalDoc)
+            genericRenderResult <| P.prettyFormat costFactory (insertShares finalDoc)
 
 
 -- True if the node is a line or block comment. (Doc comments are their own
@@ -120,7 +204,7 @@ renderHeaderIndentedBody emptyError buildBody children =
                             let
                                 finalDoc = P.concat headerDoc (P.nest grenIndent (P.concat P.hardNl bodyDoc))
                             in
-                            genericRenderResult <| P.prettyFormat costFactory (B.return finalDoc)
+                            genericRenderResult <| P.prettyFormat costFactory (insertShares finalDoc)
                         )
                 )
 
