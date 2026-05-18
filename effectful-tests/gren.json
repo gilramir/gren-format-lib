@@ -9,6 +9,7 @@
         "direct": {
             "blaix/gren-effectful-tests": "6.0.0",
             "gilramir/gren-diff": "1.0.0",
+            "gilramir/gren-pretty-expressive": "local:../../gren-pretty-expressive",
             "gren-lang/compiler-node": "local:..",
             "gren-lang/core": "7.4.0",
             "gren-lang/compiler-common": "local:../../compiler-common",
@@ -18,7 +19,6 @@
             "gren-lang/test-runner-node": "7.0.0"
         },
         "indirect": {
-            "gilramir/gren-pretty-expressive": "1.2.0",
             "gren-lang/url": "6.0.0"
         }
     }
