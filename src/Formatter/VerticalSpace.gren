@@ -1,4 +1,4 @@
-module Formatter.VerticalSpace exposing (..)
+module Formatter.VerticalSpace exposing (insertEmptyLines)
 
 import Formatter.LogicalPrintingTree exposing (LPBox(..), SyntaxType(..),
     LPNode(..), lpnBox, lpnChildren, lpnLeaf)

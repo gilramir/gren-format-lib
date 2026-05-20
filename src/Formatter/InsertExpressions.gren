@@ -1,4 +1,4 @@
-module Formatter.InsertExpressions exposing (..)
+module Formatter.InsertExpressions exposing (insertExpression)
 
 {-|
 Expression → LPT conversion. Recurses through Src.Expression producing the
@@ -21,17 +21,23 @@ import Formatter.InsertPatterns exposing (folderInsertPattern, insertPattern)
 import Formatter.InsertTypes exposing (makeSignatureBranch)
 
 
--- A pipeline operator is `|>` (forward) or `<|` (backward). Both are
--- right-associative in Gren, so `a OP b OP c` parses as `a OP (b OP c)`.
--- We only flatten contiguous runs of the *same* operator to avoid mixing
--- forward and backward pipes in one chain.
+{-| Returns True for the pipeline operators `|>` and `<|`.
+
+Both are right-associative in Gren, so `a OP b OP c` parses as `a OP (b OP c)`.
+We only flatten contiguous runs of the *same* operator to avoid mixing
+forward and backward pipes in one chain.
+-}
 isPipelineOp : String -> Bool
 isPipelineOp s =
     s == "|>" || s == "<|"
 
 
--- Flatten a pipeline chain into (seed, [(op, step), ...]).
--- We walk the right spine of the chain to collect all steps in order.
+{-| Flatten a pipeline chain into `{ seed, steps }`.
+
+Walks the right spine of the chain to collect all `(op, body)` pairs in
+order. If the top-level expression is not a pipeline, returns the
+expression itself as the seed with an empty step list.
+-}
 flattenPipeline : Src.Expression -> { seed : Src.Expression, steps : Array { op : Located String, body : Src.Expression } }
 flattenPipeline locExpr =
     when locExpr.value is
@@ -44,9 +50,12 @@ flattenPipeline locExpr =
             { seed = locExpr, steps = [] }
 
 
--- Walk the right spine of a pipeline chain, collecting (op, body) pairs in
--- order. Only continues collecting while the inner operator matches the
--- outer one (so `a |> b <| c` does not collapse into a single chain).
+{-| Walk the right spine of a pipeline chain, collecting `(op, body)` pairs
+in order.
+
+Only continues collecting while the inner operator matches the outer one,
+so `a |> b <| c` does not collapse into a single chain.
+-}
 collectPipelineSteps :
     String
     -> Located String
@@ -64,13 +73,18 @@ collectPipelineSteps opStr op body steps =
             Array.pushLast { op = op, body = body } steps
 
 
--- Render the body of a pipeline step. If the body itself is a pipeline `Binops`
--- whose operator differs from the enclosing pipeline's (e.g. `<|` appearing as
--- the body of a `|>` step), render it as a flat left/op/right rather than
--- letting `insertExpression` flatten it into its own multi-line pipeline. This
--- keeps `x |> identity <| 0` rendering as
---     ... |> identity <| 0
--- rather than splitting `<| 0` onto a fresh sub-pipeline line.
+{-| Render the body of a pipeline step.
+
+If the body itself is a pipeline `Binops` whose operator differs from the
+enclosing pipeline's (e.g. `<|` appearing as the body of a `|>` step),
+render it as a flat left/op/right rather than letting `insertExpression`
+flatten it into its own multi-line pipeline. This keeps
+`x |> identity <| 0` rendering as
+
+    ... |> identity <| 0
+
+rather than splitting `<| 0` onto a fresh sub-pipeline line.
+-}
 insertStepBody : String -> Src.Expression -> Result String (Array LPNode)
 insertStepBody outerOpStr body =
     when body.value is
@@ -89,7 +103,12 @@ insertStepBody outerOpStr body =
             insertExpression body
 
 
--- Recursively insert expressions. Returns the top-level nodes for this expression.
+{-| Recursively convert a Gren expression into LPT nodes.
+
+Returns the top-level nodes for this expression. The caller is responsible
+for wrapping the result in a container box (e.g. `AcrossThenIndent`,
+`IndentedBlock`) appropriate to its surrounding context.
+-}
 insertExpression : Src.Expression -> Result String (Array LPNode)
 insertExpression locExpr =
     when locExpr.value is
@@ -348,9 +367,11 @@ insertExpression locExpr =
                 )
 
 
--- Extract text from a small subset of simple expression shapes — the ones
--- commonly used as the base of a record update (`{ base | field = ... }`).
--- Returns "" for shapes that can't be expressed as a single inline token.
+{-| Extract text from a small subset of simple expression shapes — the ones
+commonly used as the base of a record update (`{ base | field = ... }`).
+
+Returns `""` for shapes that can't be expressed as a single inline token.
+-}
 simpleExprText : Src.Expression -> String
 simpleExprText locExpr =
     when locExpr.value is
@@ -371,8 +392,11 @@ simpleExprText locExpr =
         _ -> ""
 
 
--- Wrap an expression as a single node.
--- If the expression produces multiple sibling nodes, group them under AcrossThenIndent.
+{-| Wrap an expression as a single node.
+
+If the expression produces multiple sibling nodes, group them under
+`AcrossThenIndent` so callers receive exactly one `LPNode`.
+-}
 insertExpressionAsItem : Src.Expression -> Result String LPNode
 insertExpressionAsItem locExpr =
     insertExpression locExpr
@@ -387,19 +411,25 @@ insertExpressionAsItem locExpr =
         )
 
 
--- Folder for function-call arguments: produces an LPNode per expression and
--- converts AlwaysVertical/RecordUpdate top-level nodes to AllAcrossOrAllVertical
--- so that records used as arguments can remain inline when they fit.
+{-| Folder for function-call arguments.
+
+Produces an `LPNode` per expression and converts `AlwaysVertical` /
+`RecordUpdate` top-level nodes to `AllAcrossOrAllVertical` so that records
+used as arguments can remain inline when they fit.
+-}
 folderInsertExprAsArgItem : Src.Expression -> Array LPNode -> Result String (Array LPNode)
 folderInsertExprAsArgItem expr accNodes =
     insertExpressionAsItem expr
         |> Result.map (\node -> Array.pushLast (convertForArg node) accNodes)
 
 
--- Converts a top-level AlwaysVertical/RecordUpdate node into its inline-friendly
--- AllAcrossOrAllVertical equivalent so it can fit on one line when used as a
--- function argument. ParenBlock is recursed into so the rule still fires for
--- the parenthesized form `( recordUpdate )`.
+{-| Convert a top-level `AlwaysVertical` / `RecordUpdate` node into its
+inline-friendly `AllAcrossOrAllVertical` equivalent so it can fit on one
+line when used as a function argument.
+
+`ParenBlock` is recursed into so the rule still fires for the parenthesized
+form `( recordUpdate )`.
+-}
 convertForArg : LPNode -> LPNode
 convertForArg node =
     when lpnBox node is
@@ -424,6 +454,12 @@ convertForArg node =
         _ -> node
 
 
+{-| Wrap an expression as a single `IndentedBlock` node.
+
+The body is rendered with a hard newline and `+4` indentation, used for
+branch bodies and other constructs whose body must drop onto its own line.
+Errors when the expression produces no nodes.
+-}
 insertExpressionAsIndentedBlock : Src.Expression -> Result String LPNode
 insertExpressionAsIndentedBlock locExpr =
     insertExpression locExpr
@@ -435,6 +471,13 @@ insertExpressionAsIndentedBlock locExpr =
         )
 
 
+{-| Wrap an expression as a single `BodyBlock` node.
+
+`BodyBlock` joins its content with a hard newline at the *current* indent
+(no extra `+4`). Used for the `in` body of a `let`, where the body should
+align with the `let` keyword rather than indent further.
+Errors when the expression produces no nodes.
+-}
 insertExpressionAsBodyBlock : Src.Expression -> Result String LPNode
 insertExpressionAsBodyBlock locExpr =
     insertExpression locExpr
@@ -446,6 +489,11 @@ insertExpressionAsBodyBlock locExpr =
         )
 
 
+{-| Folder for fields of a record literal or record update.
+
+Produces one `AcrossThenIndent` node per field, holding the field name, an
+`=` separator, and the converted value nodes.
+-}
 folderInsertRecordField : Src.RecordField -> Array LPNode -> Result String (Array LPNode)
 folderInsertRecordField field accNodes =
     let
@@ -462,6 +510,14 @@ folderInsertRecordField field accNodes =
         )
 
 
+{-| Folder for `let` definitions.
+
+Handles both `Src.Define` (named bindings, optionally with an inline type
+signature) and `Src.Destruct` (pattern-destructuring bindings). Each
+binding becomes one `IndentedBlock` node containing a header and a soft
+body block. A let-level type signature is emitted as a sibling
+`IndentedBlock` before its definition.
+-}
 folderInsertLetDef : Located Src.Def -> Array LPNode -> Result String (Array LPNode)
 folderInsertLetDef locDef accNodes =
     when locDef.value is
@@ -520,6 +576,11 @@ folderInsertLetDef locDef accNodes =
                 )
 
 
+{-| Folder for `else if` branches of an `If` expression.
+
+Emits two sibling nodes per branch: an `IfCondition` containing
+`else if <test> then`, followed by an `IndentedBlock` for the branch body.
+-}
 folderInsertElseIfBranch : Src.IfBranch -> Array LPNode -> Result String (Array LPNode)
 folderInsertElseIfBranch branch accNodes =
     let
@@ -535,6 +596,14 @@ folderInsertElseIfBranch branch accNodes =
         )
 
 
+{-| Folder for branches of a `when ... is` expression.
+
+Produces one `WhenBranch` node per branch. If the body is itself a control
+construct (`if`, `let`, `when`), the body is wrapped in an `IndentedBlock`
+and the branch is tagged multi-line; otherwise the pattern, `->`, and body
+flow under `AcrossThenIndent` and the branch is multi-line only when the
+body's container type forces it (e.g. a record literal).
+-}
 folderInsertWhenBranch : Src.WhenBranch -> Array LPNode -> Result String (Array LPNode)
 folderInsertWhenBranch branch accNodes =
     let

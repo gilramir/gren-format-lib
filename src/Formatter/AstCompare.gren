@@ -12,6 +12,11 @@ import Compiler.Parse.Number as Number
 import Compiler.SourcePosition as SP
 
 
+{-| Compare two parsed modules for semantic equivalence. Returns `Ok {}` when
+the modules agree on name, exports, imports, declarations, and effects
+(ignoring source positions and parse-context comments), or `Err` with a
+description of the first difference encountered.
+-}
 compareModules : Src.Module -> Src.Module -> Result String {}
 compareModules a b =
     chainAll

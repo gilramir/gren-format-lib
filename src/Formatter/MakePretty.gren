@@ -1,4 +1,7 @@
-module Formatter.MakePretty exposing (..)
+module Formatter.MakePretty exposing
+    ( makePrettyResult
+    , makePrettyLineDoc
+    )
 
 import Compiler.SourcePosition exposing (Located)
 
