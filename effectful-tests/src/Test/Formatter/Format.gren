@@ -136,7 +136,7 @@ expressionTests fsPerm =
         , assertPretty fsPerm "constructor argument that is an as-alias keeps its parens" "CtorAsPattern"
         , assertPretty fsPerm "multi-line string opened mid-line aligns content to opening column" "MultilineStringInline"
         , assertPretty fsPerm "let-binding type signature is preserved" "LetBindingSignature"
-        , assertPretty fsPerm "small/large floats render as decimal, not scientific notation" "FloatLiterals"
+        , assertPretty fsPerm "float literals round-trip (decimal stays decimal, scientific stays scientific)" "FloatLiterals"
         , assertPretty fsPerm "as-pattern inside record-field destructure keeps its parens" "RecordFieldAsPattern"
         , assertPretty fsPerm "doc comment body with non-BMP code points round-trips" "DocCommentWithEmoji"
         , assertPretty fsPerm "record update base can be a parenthesized call" "RecordUpdateComplexBase"
