@@ -555,10 +555,14 @@ compareNumber ctx a b =
             else
                 Err (ctx ++ ": " ++ String.fromInt ia ++ " vs " ++ String.fromInt ib)
         { fst = Number.FloatingPoint fa, snd = Number.FloatingPoint fb } ->
-            if fa == fb then
+            -- Compare both the parsed value and the original source text:
+            -- the formatter preserves the author's representation (e.g. `1e5`
+            -- vs `100000.0`), so AST equivalence should catch drift in either
+            -- the numeric value or the visual form.
+            if fa.val == fb.val && fa.text == fb.text then
                 Ok {}
             else
-                Err (ctx ++ ": " ++ String.fromFloat fa ++ " vs " ++ String.fromFloat fb)
+                Err (ctx ++ ": " ++ fa.text ++ " vs " ++ fb.text)
         { fst = Number.Hex ha, snd = Number.Hex hb } ->
             if ha == hb then
                 Ok {}

@@ -109,7 +109,7 @@ insertExpression locExpr =
                     Ok [lpnLeaf (mkText locExpr.start (String.fromInt n))]
 
                 PN.FloatingPoint n ->
-                    Ok [lpnLeaf (mkText locExpr.start (renderFloat n))]
+                    Ok [lpnLeaf (mkText locExpr.start (renderFloat n.val))]
 
                 PN.Hex n ->
                     Ok [lpnLeaf (mkText locExpr.start ("0x" ++ intToHex n))]
