@@ -64,37 +64,72 @@ type LPBox
 
     -- Flows across as far as possible. When it goes
     -- to the first new line, it indents one over and continues.
-    -- Subsequent lines stay at that indentation
+    -- Subsequent lines stay at that indentation.
+    --
+    --     foo bar baz
+    --         qux quux         -- continuation indented +4
     | AcrossThenIndent
 
     -- Like AcrossThenIndent but with 2× the indent on continuation lines.
     -- Used for if/else if conditions so their continuations are more indented
     -- than the branch body (+8 vs +4), making them visually distinct.
+    --
+    --     if longCondition
+    --             && more then   -- condition wraps at +8
+    --         body               -- body at +4
     | IfCondition
 
-    -- Lists with surrounding brackets (for "exposing")
+    -- Lists with surrounding brackets — fits on one line if it can,
+    -- otherwise breaks every item to its own line.
+    --
+    --     [ a, b, c ]            or       [ a
+    --                                     , b
+    --                                     , c
+    --                                     ]
     | AllAcrossOrAllVertical ListBrackets
 
-    -- Always-vertical list (for 2+ field record literals)
+    -- Always-vertical list (for 2+ field record literals).
+    --
+    --     { x = 1
+    --     , y = 2
+    --     }
     | AlwaysVertical ListBrackets
 
-    -- Multi-field record update: base name on first line, fields indented +4
+    -- Multi-field record update: base name on first line, fields indented +4.
+    --
+    --     { pt
+    --         | x = pt.x + dx
+    --         , y = pt.y + dy
+    --     }
     | RecordUpdate String
 
-    -- Children always render on a new indented line (used for then/else bodies, etc.)
+    -- Children always render on a new indented line (used for then/else bodies, etc.).
+    --
+    --     parent
+    --         child
     | IndentedBlock
 
     -- One step in a |> or <| pipeline: renders like IndentedBlock but always
     -- hard-breaks before the pipe operator. Adds a blank line before if the
     -- step starts with a comment.
+    --
+    --     seed
+    --         |> step1
+    --         |> step2
     | PipelineStep
 
     -- Function body block: forces a hard newline before children, no extra nesting
-    -- (the outer buildFlowDoc's P.nest 4 provides the 4-space indent)
+    -- (the outer buildFlowDoc's P.nest 4 provides the 4-space indent).
+    --
+    --     foo =
+    --         body
     | BodyBlock
 
     -- One branch in a when/is expression.
-    -- isMultiLine: True if the body is always multi-line (record, if/let/when, etc.)
+    -- isMultiLine: True if the body is always multi-line (record, if/let/when, etc.).
+    --
+    --     Pattern ->
+    --         body
     | WhenBranch { isMultiLine : Bool }
 
     -- Parenthesized expression: renders children with ( prefix and ) suffix
@@ -131,6 +166,9 @@ type LPBox
     -- break, places the body at +4 from the binding name's column.
     -- Unlike IndentedBlock (which always forces P.hardNl), this uses
     -- P.group so the optimizer can choose inline or indented-newline.
+    --
+    --     name = body                or       name =
+    --                                             body
     | SoftIndentedBlock
 
     -- Top-level function body: like SoftIndentedBlock but adds no extra
@@ -141,6 +179,11 @@ type LPBox
     -- A triple-quoted (""") multiline string literal.
     -- Each element is one line of content (leading whitespace already stripped by the parser).
     -- Rendered as """ followed by a hard-newline-separated list of lines and a closing """.
+    --
+    --     """
+    --     line 1
+    --     line 2
+    --     """
     | MultilineString (Array String)
 
 type LPNode
