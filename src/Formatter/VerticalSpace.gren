@@ -4,11 +4,7 @@ module Formatter.VerticalSpace exposing (insertEmptyLines)
 Printing Tree to preserve and normalise vertical spacing between top-level
 declarations.
 
-Runs after `Formatter.MakeLogical` has built the tree and
-`Formatter.Comments` has attached comments. The rule is two blank lines
-before the start of each function group (a `StFunctionSignature`, or a
-comment immediately adjacent to one) and one blank line between any other
-two declarations that had a source gap.
+@docs insertEmptyLines
 -}
 
 import Formatter.LogicalPrintingTree exposing (LPBox(..), SyntaxType(..),
@@ -66,6 +62,16 @@ tagGroupStarts nodes =
     Array.reverse items
 
 
+{-| Insert blank-line `EmptyLine` siblings into the root of the Logical
+Printing Tree to preserve and normalise vertical spacing between top-level
+declarations.
+
+Runs after `Formatter.MakeLogical` has built the tree and
+`Formatter.Comments` has attached comments. The rule is two blank lines
+before the start of each function group (a `StFunctionSignature`, or a
+comment immediately adjacent to one) and one blank line between any other
+two declarations that had a source gap.
+-}
 insertEmptyLines : LPNode -> LPNode
 insertEmptyLines root =
     let

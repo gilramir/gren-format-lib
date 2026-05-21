@@ -8,6 +8,8 @@ each node carries its box constructor (`type`, plus box-specific fields like
 and a `children` array. The format is intended for human inspection of the
 intermediate representation produced by `Formatter.MakeLogical`, not for any
 machine consumer.
+
+@docs lptToJson
 -}
 
 import Json.Encode as Json
@@ -16,6 +18,8 @@ import Compiler.SourcePosition exposing (Located, Position)
 import Formatter.LogicalPrintingTree exposing (LPBox(..), LPNode, ListBrackets(..), SyntaxType(..), stypeToString, lpnBox, lpnChildren)
 
 
+{-| Serialise the Logical Printing Tree to JSON for debugging.
+-}
 lptToJson : LPNode -> String
 lptToJson node =
     Json.encode 2 (nodeToJson node)

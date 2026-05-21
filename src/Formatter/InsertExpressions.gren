@@ -4,6 +4,8 @@ module Formatter.InsertExpressions exposing (insertExpression)
 Expression → LPT conversion. Recurses through Src.Expression producing the
 top-level LPNodes for each constructor. Patterns, types, primitive literal
 formatting, and shared LPT helpers live in sibling modules.
+
+@docs insertExpression
 -}
 
 import Compiler.Ast.Source as Src

@@ -1,4 +1,4 @@
-module Formatter.MakeLogical exposing (..)
+module Formatter.MakeLogical exposing (makeLogicalPrintingTree)
 
 import Compiler.Ast.Source as Src
 import Compiler.Parse.Context as Ctx
@@ -15,6 +15,20 @@ import Formatter.InsertTypes exposing (makeSignatureBranch)
 import Formatter.VerticalSpace exposing (..)
 
 
+{-| Build the Logical Printing Tree for a parsed module.
+
+The pipeline runs in three stages:
+
+1. `lptFromAst` walks the `Src.Module` and emits one `OriginalRows` child
+   per top-level declaration, in source order.
+2. `Formatter.Comments.lptAddComments` weaves in comment nodes from the
+   parse `Ctx.Context`, as siblings of the declarations they belong to.
+3. `Formatter.VerticalSpace.insertEmptyLines` inserts `EmptyLine` siblings
+   to normalise blank-line spacing between declarations.
+
+Returns `Err` (with the original error prefixed for context) if any stage
+fails. The resulting `LPNode` is the input to `Formatter.MakePretty`.
+-}
 makeLogicalPrintingTree : Src.Module -> Ctx.Context -> Result String LPNode
 makeLogicalPrintingTree ast ctx =
     when lptFromAst ast is

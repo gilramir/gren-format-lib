@@ -2,9 +2,7 @@ module Formatter.AstCompare exposing (compareModules)
 
 {-| Position-independent AST comparison for two parsed Gren modules.
 
-Returns Ok {} if the modules are semantically equivalent (ignoring all source
-positions and comments from the parse context), or Err with a description of
-the first difference found.
+@docs compareModules
 -}
 
 import Compiler.Ast.Source as Src

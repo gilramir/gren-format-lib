@@ -13,6 +13,9 @@ and the resulting `Doc` is resolved against a 100-column page width with a
 
 Unhandled box types surface as `Err` rather than silently falling back, so
 every supported construct must have an explicit case in `makePDoc`.
+
+@docs makePrettyLineDoc
+@docs makePrettyResult
 -}
 
 import Compiler.SourcePosition exposing (Located)
@@ -130,6 +133,14 @@ grenIndent : Int
 grenIndent =
     4
 
+{-| Render a complete Logical Printing Tree to its formatted source string.
+
+Renders each root child independently via `makePrettyLine` and joins the
+results with a single newline. The caller is expected to pass the root
+`LPNode` produced by `Formatter.MakeLogical`; `EmptyLine` children
+contribute blank separators here. Returns `Err` if any child contains an
+unhandled box construct.
+-}
 makePrettyResult : LPNode -> Result String String
 makePrettyResult root =
     let
@@ -924,6 +935,18 @@ commentLineDoc node =
         _ -> commentNodeDoc node
 
 
+{-| Build the `PrettyExpressive` `Doc` for a single root-child node without
+resolving it to a string.
+
+Dispatches on the node's `OriginalRows` `SyntaxType` (type aliases, type
+unions, and the comment variants take dedicated builders; everything else
+flows through `makeFlowIndentableDoc`). `EmptyLine` nodes produce
+`P.empty`. Any other top-level box is an `Err` — only root children are
+valid input.
+
+Exposed for `Formatter.PExJson`, which serialises the per-declaration `Doc`
+tree to JSON for the `--pex` debug flag.
+-}
 makePrettyLineDoc : LPNode -> Result String (P.Doc P.DefaultCostTuple)
 makePrettyLineDoc node =
     let
