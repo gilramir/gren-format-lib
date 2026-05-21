@@ -151,47 +151,10 @@ makePrettyResult root =
 
 makePrettyLine : LPNode -> Result String String
 makePrettyLine node =
-    let
-        children = lpnChildren node
-    in
-    when lpnBox node is
-        OriginalRows { stype = stype } ->
-            when stype is
-                StTypeAlias -> makeTypeAliasPretty children
-                StTypeUnion -> makeTypeUnionPretty children
-                StSingleLineComment -> makeCommentLine children
-                StBlockComment -> makeCommentLine children
-                StDocComment -> makeCommentLine children
-                _ -> makeFlowIndentable children
-        EmptyLine ->
-            Ok ""
-        _ ->
-            Err "Unexpected item in LPTree root children"
-
-
-makeFlowIndentable : Array LPNode -> Result String String
-makeFlowIndentable children =
-    -- Peel off any leading line/block comments that appear before the
-    -- declaration's first token. Top-level declarations must start at
-    -- column 1, so emitting `{- c -} foo : MultilineType` keeps `foo`
-    -- past the column where the parser expects the declaration to start.
-    -- Render any leading comments on their own lines first, then the
-    -- actual declaration flow.
-    let
-        { leading, rest } = splitLeadingComments children
-    in
-    when buildFlowDoc grenIndent rest is
-        Err e -> Err e
-        Ok flowDoc ->
-            let
-                commentDocs = Array.map commentLineDoc leading
-                finalDoc =
-                    if Array.isEmpty commentDocs then
-                        flowDoc
-                    else
-                        P.concat (P.vcat commentDocs) (P.concat P.hardNl flowDoc)
-            in
-            genericRenderResult <| P.prettyFormat costFactory (insertShares finalDoc)
+    makePrettyLineDoc node
+        |> Result.andThen (\doc ->
+            genericRenderResult (P.prettyFormat costFactory (insertShares doc))
+        )
 
 
 -- True if the node is a line or block comment. (Doc comments are their own
@@ -221,38 +184,6 @@ splitLeadingComments nodes =
     in
     Array.foldl step { leading = [], rest = [], done = False } nodes
         |> (\r -> { leading = r.leading, rest = r.rest })
-
-
-{-| Render a header followed by an always-multi-line indented body.
-Used for `type alias` (body from makeTypeBodyAlwaysVertical) and `type`
-(body from makeUnionBodyDoc).
--}
-renderHeaderIndentedBody : String -> (Array LPNode -> Result String (P.Doc P.DefaultCostTuple)) -> Array LPNode -> Result String String
-renderHeaderIndentedBody emptyError buildBody children =
-    when Array.popLast children is
-        Nothing ->
-            Err emptyError
-        Just { initial = headerChildren, last = bodyBlock } ->
-            buildFlowDoc 0 headerChildren
-                |> Result.andThen (\headerDoc ->
-                    buildBody (lpnChildren bodyBlock)
-                        |> Result.andThen (\bodyDoc ->
-                            let
-                                finalDoc = P.concat headerDoc (P.nest grenIndent (P.concat P.hardNl bodyDoc))
-                            in
-                            genericRenderResult <| P.prettyFormat costFactory (insertShares finalDoc)
-                        )
-                )
-
-
-makeTypeAliasPretty : Array LPNode -> Result String String
-makeTypeAliasPretty =
-    renderHeaderIndentedBody "type alias declaration is empty" makeTypeBodyAlwaysVertical
-
-
-makeTypeUnionPretty : Array LPNode -> Result String String
-makeTypeUnionPretty =
-    renderHeaderIndentedBody "type declaration is empty" makeUnionBodyDoc
 
 
 makeUnionBodyDoc : Array LPNode -> Result String (P.Doc cost)
@@ -598,21 +529,6 @@ buildFlowDoc indent nodes =
         Err e -> Err e
         Ok state -> Ok (P.nest indent state.doc)
 
-
-
-makeCommentLine : Array LPNode -> Result String String
-makeCommentLine children =
-    when Array.popFirst children is
-        Just { first = first, rest = rest } ->
-            if Array.isEmpty rest then
-                if nodeIsComment first || isDocCommentNode first then
-                    genericRenderResult <| P.prettyFormat costFactory (B.return (commentNodeDoc first))
-                else
-                    Err "Unexpected node type in comment line"
-            else
-                Err "Too many nodes in comment line"
-        Nothing ->
-            Err "No nodes in comment line"
 
 
 -- True if the node is a DocComment (kept separate from nodeIsComment so
