@@ -22,7 +22,8 @@ import Compiler.SourcePosition exposing (Located)
 
 import Formatter.LogicalPrintingTree exposing (LPBox(..),
     LPNode, ListBrackets(..), SyntaxType(..),
-    lpBoxToString, lpnBox, lpnChildren, firstRowInSubtree)
+    lpnBox, lpnChildren, lpnNode, firstRowInSubtree)
+import Formatter.LPTJson exposing (lptToJson)
 
 import Formatter.Strings exposing
     ( joinResultStrings
@@ -702,7 +703,7 @@ makePDoc box children =
             -- (because preceding tokens consumed columns) produces output
             -- that fails to re-parse.
             Ok (P.align (P.concat contentDoc (P.concat P.hardNl tripleQuote)))
-        unexpected -> Err ("makePDoc: unexpected box type: " ++ lpBoxToString unexpected)
+        unexpected -> Err ("makePDoc: unexpected box type:\n" ++ lptToJson (lpnNode unexpected children))
 
 
 makeAllAcrossOrAllVertical : ListBrackets -> Array LPNode -> Result String (P.Doc cost)
@@ -810,7 +811,7 @@ makeListItemDoc node =
             -- when, e.g., a `where { command = Cmd }` block's body is
             -- placed in a list-rendered container.
             makePDoc (lpnBox node) (lpnChildren node)
-        unexpected -> Err ("makeListItemDoc: unexpected box type: " ++ lpBoxToString unexpected)
+        _ -> Err ("makeListItemDoc: unexpected box type:\n" ++ lptToJson node)
 
 exposingListWithBrackets : String -> String -> String -> Array (P.Doc cost) -> P.Doc cost
 exposingListWithBrackets open close empty items =
