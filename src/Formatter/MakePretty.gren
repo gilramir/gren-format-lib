@@ -3,6 +3,18 @@ module Formatter.MakePretty exposing
     , makePrettyLineDoc
     )
 
+{-| Render a Logical Printing Tree to its final formatted source string.
+
+Each `LPBox` constructor maps to a `PrettyExpressive` `Doc` via `makePDoc`,
+and the resulting `Doc` is resolved against a 100-column page width with a
+4-space indent. `makePrettyResult` is the main entry point used by the
+`gren format` CLI; `makePrettyLineDoc` exposes the unresolved per-root-child
+`Doc` for the `--pex` debug flag.
+
+Unhandled box types surface as `Err` rather than silently falling back, so
+every supported construct must have an explicit case in `makePDoc`.
+-}
+
 import Compiler.SourcePosition exposing (Located)
 
 import Formatter.LogicalPrintingTree exposing (LPBox(..),
