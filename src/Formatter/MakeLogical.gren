@@ -48,6 +48,14 @@ makeLogicalPrintingTree ast ctx =
             Ok lptXl
 
 
+{-| Walk the AST and produce a root `LPNode` whose children are one
+`OriginalRows` per top-level declaration.
+
+Each `process*` step appends to the running root. Declarations are added
+in declaration-kind order (values, aliases, unions, ports, infix) rather
+than source order; the final `sortOriginalRows` pass restores source
+order using the row ranges recorded on each `OriginalRows` box.
+-}
 lptFromAst : Src.Module -> Result String LPNode
 lptFromAst modAst =
     let root = lpnLeaf RootBox
@@ -63,6 +71,10 @@ lptFromAst modAst =
         |> Result.map sortOriginalRows
 
 
+{-| Sort the root's children by their source-row range so declarations
+appear in source order regardless of the order in which `lptFromAst`
+appended them.
+-}
 sortOriginalRows : LPNode -> LPNode
 sortOriginalRows root =
     let
@@ -80,6 +92,9 @@ sortOriginalRows root =
     LPNode { box = lpnBox root, children = sorted }
 
 
+{-| Build an `OriginalRows` node spanning `firstRow` through the largest
+positioned row found anywhere in `children`.
+-}
 makeOrigRows : Int -> SyntaxType -> Array LPNode -> LPNode
 makeOrigRows firstRow stype children =
     let
@@ -88,11 +103,20 @@ makeOrigRows firstRow stype children =
     lpnNode (OriginalRows { first = firstRow, last = last, stype = stype }) children
 
 
+{-| Append `child` to `root`'s children, returning the updated root.
+-}
 addRootChild : LPNode -> LPNode -> LPNode
 addRootChild child root =
     LPNode { box = lpnBox root, children = Array.pushLast child (lpnChildren root) }
 
 
+{-| Emit the `module ... exposing (...)` line as a single `StModule`
+`OriginalRows` child of the root. Handles all three module kinds:
+
+    module Foo exposing (a, b)
+    port module Foo exposing (..)
+    effect module Foo where { command = MyCmd, subscription = MySub } exposing (..)
+-}
 processModuleLine : Src.Module -> LPNode -> Result String LPNode
 processModuleLine modAst root =
     let
@@ -104,6 +128,11 @@ processModuleLine modAst root =
         n1 = lpnLeaf (mkText { row = modAst.name.start.row, col = 1 } keyword)
         n2 = lpnLeaf (mkTextFromLocString modAst.name)
 
+        -- For effect modules, emit a `where { ... }` block between the
+        -- module name and `exposing`. The block lists which constructors
+        -- handle `command` and/or `subscription` effects; Cmd/Sub/Fx
+        -- below correspond to "only commands", "only subscriptions", and
+        -- "both" respectively.
         whereNodes =
             when modAst.effects is
                 Src.Manager manager ->
@@ -156,6 +185,13 @@ processModuleLine modAst root =
     Ok (addRootChild origRow root)
 
 
+{-| Render a single item in an `exposing (...)` list.
+
+    foo               -- ExposedLower
+    Maybe(..)         -- ExposedUpper Public
+    Maybe             -- ExposedUpper Private
+    (+)               -- ExposedOperator
+-}
 processExposed : Src.Exposed -> LPNode
 processExposed exposed =
     when exposed is
@@ -178,6 +214,13 @@ processImports modAst root =
     Ok <| Array.foldl processImport root modAst.imports
 
 
+{-| Emit one `import ...` line as an `StImport` `OriginalRows`.
+
+    import Foo
+    import Foo as F
+    import Foo exposing (a, b)
+    import Foo as F exposing (..)
+-}
 processImport : Located Src.Import -> LPNode -> LPNode
 processImport locImport root =
     let
@@ -193,6 +236,9 @@ processImport locImport root =
                     , lpnLeaf (SynthesizedText name)
                     ]
 
+        -- Emit `exposing (...)` after the module name. `Open` is the
+        -- wildcard `(..)` form; `Explicit` is a list of items (an empty
+        -- list means no `exposing` clause at all and is skipped).
         exposeNodes =
             when locImport.value.expose is
                 Src.Open ->
@@ -238,6 +284,11 @@ processPorts modAst root =
         Src.Manager _ -> Ok root
 
 
+{-| Emit one `port name : Signature` declaration as an `StPort`
+`OriginalRows`, preceded by its doc comment if any.
+
+    port someCmd : (String -> msg) -> Sub msg
+-}
 processPortDecl : Src.ModuleDeclaration Src.Port -> LPNode -> Result String LPNode
 processPortDecl modDecl root =
     let
@@ -257,6 +308,13 @@ processPortDecl modDecl root =
         )
 
 
+{-| Emit one `type ... = Variants` declaration as an `StTypeUnion`
+`OriginalRows`, preceded by its doc comment if any.
+
+    type Maybe a
+        = Nothing
+        | Just a
+-}
 processUnionDecl : Src.ModuleDeclaration Src.Union -> LPNode -> Result String LPNode
 processUnionDecl modDecl root =
     let
@@ -277,6 +335,15 @@ processUnionDecl modDecl root =
         )
 
 
+{-| Fold one union variant into the running array of variant nodes.
+
+The first variant gets `=`, subsequent ones get `|`. Any payload is
+wrapped in `SoftIndentedBlock` so it can drop to its own line when the
+variant overflows.
+
+    = Nothing
+    | Just a
+-}
 processVariantNode : Located Src.UnionVariant -> Array LPNode -> Result String (Array LPNode)
 processVariantNode locVariant accNodes =
     let
@@ -300,6 +367,12 @@ processVariantNode locVariant accNodes =
                 )
 
 
+{-| Emit one `type alias` declaration as an `StTypeAlias`
+`OriginalRows`, preceded by its doc comment if any.
+
+    type alias Point =
+        { x : Int, y : Int }
+-}
 processAliasDecl : Src.ModuleDeclaration Src.Alias -> LPNode -> Result String LPNode
 processAliasDecl modDecl root =
     let
@@ -321,8 +394,15 @@ processAliasDecl modDecl root =
         )
 
 
-{-| Process a function. This will create a StFunction line, maybe
-an StFunctionDeclarationLine, and maybe an StDocComment line.
+{-| Emit one top-level value declaration as up to three sibling
+`OriginalRows` — a `StDocComment` for the doc (if any), a
+`StFunctionSignature` for the type signature (if any), and a
+`StFunctionDeclaration` for the body.
+
+    {-| optional doc -}
+    foo : Int -> Int
+    foo x =
+        x + 1
 -}
 processModDecl : Src.ModuleDeclaration Src.Value -> LPNode -> Result String LPNode
 processModDecl modDecl root =
@@ -337,6 +417,17 @@ processModDecl modDecl root =
         |> Result.andThen (processFunctionBody modDecl.value.value hasSignature)
 
 
+{-| Emit the value declaration's body row.
+
+Uses `BodyBlock` when a signature row precedes it (forces a hard newline
+before the body) and `SoftBodyBlock` otherwise (the body can stay inline
+with `name args =` when it fits).
+
+    foo x =           -- BodyBlock when a signature row sits above
+        x + 1
+
+    bar = 42          -- SoftBodyBlock when no signature; can stay inline
+-}
 processFunctionBody : Src.Value -> Bool -> LPNode -> Result String LPNode
 processFunctionBody modVal hasSignature root =
     let
@@ -403,6 +494,10 @@ processInfixDecls modAst root =
     Ok <| Array.foldl processInfixDecl root modAst.binops
 
 
+{-| Emit one `infix` declaration as an `StInfixDecl` `OriginalRows`.
+
+    infix left 6 (+) = add
+-}
 processInfixDecl : Located Src.Infix -> LPNode -> LPNode
 processInfixDecl locInfix root =
     let
