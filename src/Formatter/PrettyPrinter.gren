@@ -4,6 +4,16 @@ module Formatter.PrettyPrinter exposing (prettyPrint)
 The Formatter package takes a parsed Gren source file and produces a
 canonically formatted string.
 
+@docs prettyPrint
+-}
+
+import Compiler.Ast.Source as Src
+import Compiler.Parse.Context as Ctx
+
+import Formatter.MakeLogical exposing (makeLogicalPrintingTree)
+import Formatter.MakePretty exposing (makePrettyResult)
+
+{-|
 Input: a syntax tree (Src.Module) and a comment table (Ctx.Context) produced
 by the Gren parser.
 
@@ -31,14 +41,6 @@ much indentation) are separated from content (the actual tokens and comments).
 Stage 1 captures the logical structure; stage 2 expresses the choices; stage 3
 commits to one.
 -}
-
-import Compiler.Ast.Source as Src
-import Compiler.Parse.Context as Ctx
-
-import Formatter.MakeLogical exposing (makeLogicalPrintingTree)
-import Formatter.MakePretty exposing (makePrettyResult)
-
-
 prettyPrint: Src.Module -> Ctx.Context -> Result String String
 prettyPrint ast ctx =
     when makeLogicalPrintingTree ast ctx is

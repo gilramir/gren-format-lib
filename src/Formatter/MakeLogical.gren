@@ -1,5 +1,10 @@
 module Formatter.MakeLogical exposing (makeLogicalPrintingTree)
 
+{-| Convert the Abstract Syntax Tree into a Logical Printing Tree
+
+@docs makeLogicalPrintingTree
+-}
+
 import Compiler.Ast.Source as Src
 import Compiler.Parse.Context as Ctx
 import Compiler.SourcePosition exposing (Located, Position)

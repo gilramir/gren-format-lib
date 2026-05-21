@@ -1,10 +1,18 @@
 module Formatter.PExJson exposing (lptToPexJson)
 
+{-| Routine for creating JSON
+
+@docs lptToPexJson
+-}
+
 import Formatter.LogicalPrintingTree exposing (LPNode, lpnChildren)
 import Formatter.MakePretty exposing (makePrettyLineDoc)
 import PrettyExpressive.Json as PexJson
 
 
+{-| Create the JSON representation of the Pretty Expressiv Doc
+for this Logical Printing Tree
+-}
 lptToPexJson : LPNode -> Result String String
 lptToPexJson root =
     Array.foldl
