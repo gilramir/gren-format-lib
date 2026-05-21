@@ -125,11 +125,10 @@ lpBoxFields lpbox =
         AlignedFlow ->
             [ { key = "type", value = Json.string "AlignedFlow" } ]
 
-        NegatedExpr ->
-            [ { key = "type", value = Json.string "NegatedExpr" } ]
-
-        LambdaSlash ->
-            [ { key = "type", value = Json.string "LambdaSlash" } ]
+        PrefixGlue prefix ->
+            [ { key = "type", value = Json.string "PrefixGlue" }
+            , { key = "prefix", value = Json.string prefix }
+            ]
 
         SoftIndentedBlock ->
             [ { key = "type", value = Json.string "SoftIndentedBlock" } ]

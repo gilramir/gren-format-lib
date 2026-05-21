@@ -151,16 +151,13 @@ type LPBox
     -- shifted that keyword to the right.
     | AlignedFlow
 
-    -- Prefix `-` glued (no space) to the rendered children. Used for
-    -- prefix-negation `Src.Negate`: the prior approach of mapping `-`
-    -- onto the first text leaf descends into nested ParenBlock children
-    -- and corrupts the AST (e.g. `-(n - 1)` rendering as `(-n - 1)`).
-    | NegatedExpr
-
-    -- Lambda \ prefix: renders children with \ immediately before (no space).
-    -- Used instead of text-modification so that bracket-rendered containers
-    -- (records, arrays) render correctly: \{ x, y } not { \x, y }.
-    | LambdaSlash
+    -- Prefix glued (no space) to the rendered children. Used for
+    -- prefix-negation `-expr` (PrefixGlue "-") and lambdas `\pat -> body`
+    -- (PrefixGlue "\\"). Mapping the prefix onto the first text leaf
+    -- descends into nested containers and corrupts the AST (e.g.
+    -- `-(n - 1)` would render as `(-n - 1)`); a record/array pattern
+    -- would similarly land the prefix *inside* the brackets.
+    | PrefixGlue String
 
     -- Let-def body: tries to keep children inline after `=`, but when it must
     -- break, places the body at +4 from the binding name's column.
@@ -285,8 +282,7 @@ lpBoxToString lpbox =
         ParenBlock -> "(parenBlock)"
         OpAndRhs -> "(opAndRhs)"
         AlignedFlow -> "(alignedFlow)"
-        NegatedExpr -> "(negatedExpr)"
-        LambdaSlash -> "(lambdaSlash)"
+        PrefixGlue prefix -> "(prefixGlue \"" ++ prefix ++ "\")"
         SoftIndentedBlock -> "(softIndentedBlock)"
         SoftBodyBlock -> "(softBodyBlock)"
         SingleLineComment s -> "line-comment " ++ pstr(s.start) ++ " -- " ++ s.value

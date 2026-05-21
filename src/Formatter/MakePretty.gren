@@ -681,14 +681,10 @@ makePDoc box children =
             when buildFlowDoc 0 children is
                 Err e -> Err e
                 Ok innerDoc -> Ok (P.align innerDoc)
-        NegatedExpr ->
+        PrefixGlue prefix ->
             when buildFlowDoc 0 children is
                 Err e -> Err e
-                Ok innerDoc -> Ok (P.concat (P.text "-") innerDoc)
-        LambdaSlash ->
-            when buildFlowDoc 0 children is
-                Err e -> Err e
-                Ok innerDoc -> Ok (P.concat (P.text "\\") innerDoc)
+                Ok innerDoc -> Ok (P.concat (P.text prefix) innerDoc)
         MultilineString lines ->
             let
                 tripleQuote = P.text "\"\"\""
@@ -804,10 +800,11 @@ makeListItemDoc node =
             -- inline `when ... is` expression). Render it inline; the
             -- enclosing list's break-or-flat decision still applies.
             makePDoc AlignedFlow (lpnChildren node)
-        NegatedExpr ->
-            -- A list item that is a negated expression (e.g. `-1` as an
-            -- array element). Render inline as `-` glued to the children.
-            makePDoc NegatedExpr (lpnChildren node)
+        PrefixGlue _ ->
+            -- A list item that is a prefix-glued expression (e.g. `-1` as
+            -- an array element). Render inline as the prefix glued to the
+            -- children.
+            makePDoc (lpnBox node) (lpnChildren node)
         SynthesizedText _ ->
             -- A synthesised keyword/punctuation can appear as a list item
             -- when, e.g., a `where { command = Cmd }` block's body is
@@ -1053,8 +1050,8 @@ listBoxesWithBrackets open close nodes =
                     when makePDoc AlignedFlow (lpnChildren node) is
                         Err e -> Err e
                         Ok d -> Ok (Just { doc = d, row = firstRowInSubtree node })
-                NegatedExpr ->
-                    when makePDoc NegatedExpr (lpnChildren node) is
+                PrefixGlue _ ->
+                    when makePDoc (lpnBox node) (lpnChildren node) is
                         Err e -> Err e
                         Ok d -> Ok (Just { doc = d, row = firstRowInSubtree node })
                 ParenBlock ->

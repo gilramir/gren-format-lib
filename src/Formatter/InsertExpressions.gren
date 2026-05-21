@@ -148,13 +148,13 @@ insertExpression locExpr =
             Ok [lpnLeaf (mkText locExpr.start opString)]
 
         Src.Negate expr ->
-            -- Wrap the rendered inner in NegatedExpr so the `-` lands
+            -- Wrap the rendered inner in PrefixGlue "-" so the `-` lands
             -- immediately adjacent to whatever the inner renders to.
             -- The old approach of descending via tryMapFirstLeaf put the
             -- `-` *inside* a wrapping ParenBlock — e.g. `-(n - 1)`
             -- emitted as `(-n - 1)`, which has a different AST shape.
             insertExpression expr
-                |> Result.map (\nodes -> [lpnNode NegatedExpr nodes])
+                |> Result.map (\nodes -> [lpnNode (PrefixGlue "-") nodes])
 
         Src.Accessor string ->
             Ok [lpnLeaf (mkText locExpr.start ("." ++ string))]
@@ -284,8 +284,8 @@ insertExpression locExpr =
             resultFoldl folderInsertPattern [] patterns
                 |> Result.andThen (\patNodes ->
                     let
-                        -- Wrap first pattern in LambdaSlash so MakePretty can
-                        -- emit \ immediately before the pattern (no space). This
+                        -- Wrap first pattern in PrefixGlue "\\" so MakePretty
+                        -- emits \ immediately before the pattern (no space). This
                         -- works for all pattern shapes including record ({ x, y })
                         -- and array ([ x, y ]) whose opening bracket is synthesised
                         -- during rendering and would be skipped by tryMapFirstLeaf.
@@ -293,7 +293,7 @@ insertExpression locExpr =
                             when Array.popFirst patNodes is
                                 Nothing -> patNodes
                                 Just { first = firstPat, rest = restPats } ->
-                                    Array.pushFirst (lpnNode LambdaSlash [firstPat]) restPats
+                                    Array.pushFirst (lpnNode (PrefixGlue "\\") [firstPat]) restPats
                         arrowNode = lpnLeaf (SynthesizedText "->")
                     in
                     insertExpressionAsItem body
