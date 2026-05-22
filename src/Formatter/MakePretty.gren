@@ -237,6 +237,20 @@ splitLeadingComments nodes =
 makeUnionBodyDoc : Array LPNode -> Result String (P.Doc cost)
 makeUnionBodyDoc nodes =
     let
+        placeComment row commentDoc acc =
+            when Array.popLast acc.docs is
+                Nothing ->
+                    Ok { docs = [commentDoc], prevRow = row }
+                Just { last = lastDoc, initial = initDocs } ->
+                    if row == acc.prevRow then
+                        Ok { docs = Array.pushLast (P.concat lastDoc (P.concat (P.text " ") commentDoc)) initDocs
+                           , prevRow = row
+                           }
+                    else
+                        Ok { docs = Array.pushLast commentDoc acc.docs
+                           , prevRow = row
+                           }
+
         result =
             Array.foldl
                 (\node accResult ->
@@ -245,22 +259,11 @@ makeUnionBodyDoc nodes =
                         Ok acc ->
                             when lpnBox node is
                                 SingleLineComment loc ->
-                                    let commentDoc = commentBoxDoc (lpnBox node)
-                                    in
-                                    when Array.popLast acc.docs is
-                                        Nothing ->
-                                            Ok { docs = [commentDoc]
-                                               , prevRow = loc.start.row
-                                               }
-                                        Just { last = lastDoc, initial = initDocs } ->
-                                            if loc.start.row == acc.prevRow then
-                                                Ok { docs = Array.pushLast (P.concat lastDoc (P.concat (P.text " ") commentDoc)) initDocs
-                                                   , prevRow = loc.start.row
-                                                   }
-                                            else
-                                                Ok { docs = Array.pushLast commentDoc acc.docs
-                                                   , prevRow = loc.start.row
-                                                   }
+                                    placeComment loc.start.row (commentBoxDoc (lpnBox node)) acc
+
+                                BlockComment loc ->
+                                    placeComment loc.start.row (commentBoxDoc (lpnBox node)) acc
+
                                 _ ->
                                     when buildFlowDoc 0 (lpnChildren node) is
                                         Err e -> Err e

@@ -168,6 +168,7 @@ commentsTests fsPerm =
         , assertPretty fsPerm "array patterns, ctor patterns, and when-branch pattern comments" "PatternComments"
         , assertPretty fsPerm "backward pipeline and operator-rhs gap comments" "PipelineAndGlueComments"
         , assertPretty fsPerm "doc/line/block adjacency and inter-declaration comments" "EdgeCaseComments"
+        , assertPretty fsPerm "previously-mishandled comment placements (bugs A–K)" "TrickyComments"
         ]
 
 

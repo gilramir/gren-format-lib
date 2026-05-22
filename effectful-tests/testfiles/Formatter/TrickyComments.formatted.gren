@@ -1,0 +1,9 @@
+module TrickyComments exposing (..)
+
+-- Bug A — block comment between two union variants was previously
+-- dropped entirely; now it renders on its own line in place.
+type Shape
+    = Circle Float
+    | Rectangle Float Float
+    {- block comment between two union variants -}
+    | Empty
