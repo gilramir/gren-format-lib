@@ -42,6 +42,19 @@ lambdaPrefix =
     \ {- between backslash and first pattern -} x -> x
 
 
+-- Bug G — a line comment immediately before a triple-quoted multi-line
+-- string used to be moved AFTER the string (because the MultilineString
+-- LPT node had no source position, so the surrounding OriginalRows'
+-- row range didn't cover the string and the comment fell to the wrong
+-- top-level slot). MultilineString now carries a Located so the comment
+-- stays in place above the string.
+multilineAdjacent =
+    -- single-line comment immediately before a multi-line string
+    """
+    multi-line content
+    """
+
+
 type TrickyCmd msg
     = TrickyCmd (Task.Task Never msg)
 

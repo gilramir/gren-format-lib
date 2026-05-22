@@ -185,7 +185,11 @@ type LPBox
     --     line 1
     --     line 2
     --     """
-    | MultilineString (Array String)
+    -- Triple-quoted string content. Carries the source positions of
+    -- the opening/closing `"""` delimiters so the row range of any
+    -- enclosing OriginalRows extends over the whole literal and
+    -- adjacent comments can be anchored to it.
+    | MultilineString (Located (Array String))
 
 type LPNode
     = LPNode { box : LPBox, children : Array LPNode }
@@ -226,6 +230,8 @@ subtreeRowRange node =
                 BlockComment loc ->
                     { minRow = loc.start.row, maxRow = loc.end.row + countNewlines loc.value }
                 DocComment loc ->
+                    { minRow = loc.start.row, maxRow = loc.end.row }
+                MultilineString loc ->
                     { minRow = loc.start.row, maxRow = loc.end.row }
                 _ ->
                     { minRow = maxSafeInteger, maxRow = -1 }

@@ -413,6 +413,9 @@ firstRealPosition node =
                 PrefixGlue located ->
                     Just located.start
 
+                MultilineString located ->
+                    Just located.start
+
                 _ ->
                     Nothing
     in
@@ -451,6 +454,9 @@ lastRealPosition node =
                     Just located.end
 
                 BlockComment located ->
+                    Just located.end
+
+                MultilineString located ->
                     Just located.end
 
                 SynthesizedText _ ->

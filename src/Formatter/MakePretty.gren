@@ -653,14 +653,14 @@ makePDoc box children =
             when buildFlowDoc 0 children is
                 Err e -> Err e
                 Ok innerDoc -> Ok (P.concat (P.text prefix.value) innerDoc)
-        MultilineString lines ->
+        MultilineString located ->
             let
                 tripleQuote = P.text "\"\"\""
                 contentDoc =
                     Array.foldl
                         (\line acc -> P.concat acc (P.concat P.hardNl (P.text line)))
                         tripleQuote
-                        lines
+                        located.value
             in
             -- Wrap the whole doc in P.align so internal hardNls land at the
             -- column where the opening `"""` is printed, rather than at the

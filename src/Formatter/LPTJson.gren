@@ -145,9 +145,13 @@ lpBoxFields lpbox =
             , { key = "value", value = Json.string s }
             ]
 
-        MultilineString lines ->
+        MultilineString located ->
             [ { key = "type", value = Json.string "MultilineString" }
-            , { key = "lines", value = Json.array Json.string lines }
+            , { key = "lines", value = Json.array Json.string located.value }
+            , { key = "startRow", value = Json.int located.start.row }
+            , { key = "startCol", value = Json.int located.start.col }
+            , { key = "endRow", value = Json.int located.end.row }
+            , { key = "endCol", value = Json.int located.end.col }
             ]
 
 

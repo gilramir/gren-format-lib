@@ -120,7 +120,14 @@ insertExpression locExpr =
                 -- introducer (e.g. `\n`, `\u{1F4A9}`). The AST stores the
                 -- *decoded* string, so we must re-escape backslashes
                 -- before splitting on real newlines for emission.
-                Ok [lpnLeaf (MultilineString (String.split "\n" (escapeMultilineContent s)))]
+                let
+                    mlsLoc =
+                        { start = locExpr.start
+                        , end = locExpr.end
+                        , value = String.split "\n" (escapeMultilineContent s)
+                        }
+                in
+                Ok [lpnLeaf (MultilineString mlsLoc)]
             else
                 Ok [lpnLeaf (mkText locExpr.start ("\"" ++ escapeStringContent s ++ "\""))]
 
