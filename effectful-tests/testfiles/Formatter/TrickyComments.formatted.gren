@@ -50,6 +50,20 @@ multilineAdjacent =
     multi-line content
     """
 
+
+-- Bug H — a backward pipeline whose intermediate step ended with a
+-- trailing `--` comment used to emit a stray blank line (with stale
+-- continuation-arg indent) before the next step. PipelineStep now
+-- peels the trailing comment off the step children and renders it
+-- glued to the last arg, leaving the next step's leading hardNl to
+-- terminate the line at the correct outer indent.
+backwardPipe : String -> String
+backwardPipe x =
+    String.append "!"
+        -- comment between two backward-pipe steps
+        <| String.append x -- another comment between steps
+        <| "?"
+
 type TrickyCmd msg
     = TrickyCmd (Task.Task Never msg)
 

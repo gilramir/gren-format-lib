@@ -475,19 +475,52 @@ buildFlowDoc indent nodes =
                                     -- are indented +4 from `|>`. Always force a
                                     -- hardNl after the comment so `|>` starts
                                     -- on the next line.
+                                    --
+                                    -- Also peel a single trailing line/block
+                                    -- comment off the END of the step. Letting
+                                    -- buildFlowDoc emit it would put the
+                                    -- terminating hardNl at the +grenIndent
+                                    -- continuation-arg level (= base + 2 *
+                                    -- grenIndent), which leaves the next step's
+                                    -- leading hardNl producing a blank line at
+                                    -- that over-indented level. Render the
+                                    -- trailing comment ourselves, glued to the
+                                    -- last arg with a space, and let the next
+                                    -- step's leading hardNl handle line
+                                    -- termination at the correct outer indent.
                                     let
-                                        { commentDoc, stepChildren, hasComment } =
+                                        { commentDoc, withoutLeading, hasComment } =
                                             when Array.popFirst nodeChildren is
                                                 Just { first = firstNode, rest = restNodes } ->
                                                     if nodeIsComment firstNode then
                                                         { commentDoc = P.concat (commentBoxDoc (lpnBox firstNode)) P.hardNl
-                                                        , stepChildren = restNodes
+                                                        , withoutLeading = restNodes
                                                         , hasComment = True
                                                         }
                                                     else
-                                                        { commentDoc = P.empty, stepChildren = nodeChildren, hasComment = False }
+                                                        { commentDoc = P.empty, withoutLeading = nodeChildren, hasComment = False }
                                                 Nothing ->
-                                                    { commentDoc = P.empty, stepChildren = [], hasComment = False }
+                                                    { commentDoc = P.empty, withoutLeading = [], hasComment = False }
+
+                                        { stepChildren, trailingCommentDoc, hasTrailing } =
+                                            when Array.popLast withoutLeading is
+                                                Just { last = lastChild, initial = initChildren } ->
+                                                    if nodeIsComment lastChild then
+                                                        { stepChildren = initChildren
+                                                        , trailingCommentDoc =
+                                                            P.concat (P.text " ") (commentBoxDoc (lpnBox lastChild))
+                                                        , hasTrailing = True
+                                                        }
+                                                    else
+                                                        { stepChildren = withoutLeading
+                                                        , trailingCommentDoc = P.empty
+                                                        , hasTrailing = False
+                                                        }
+                                                Nothing ->
+                                                    { stepChildren = withoutLeading
+                                                    , trailingCommentDoc = P.empty
+                                                    , hasTrailing = False
+                                                    }
                                     in
                                     when buildFlowDoc grenIndent stepChildren is
                                         Err e -> Err e
@@ -503,15 +536,21 @@ buildFlowDoc indent nodes =
                                                             P.empty
                                                 -- commentDoc (if any) fires at step level; childrenDoc
                                                 -- (|> and args) is wrapped in P.nest grenIndent so
-                                                -- continuation args break at |>-column + 4.
+                                                -- continuation args break at |>-column + 4. The
+                                                -- trailingCommentDoc (if any) is glued onto the end of
+                                                -- the children with a leading space — it lives inside
+                                                -- the same inner nest, but with NO trailing hardNl,
+                                                -- so the next step's leading hardNl is the one that
+                                                -- ends the line and re-establishes the outer indent.
                                                 indentedDoc =
                                                     P.concat blankLinePrefix
                                                         (P.nest grenIndent
                                                             (P.concat P.hardNl
-                                                                (P.concat commentDoc childrenDoc)))
+                                                                (P.concat commentDoc
+                                                                    (P.concat childrenDoc trailingCommentDoc))))
                                                 newDoc =
                                                     when acc.separator is
-                                                        FirstItem -> P.concat commentDoc childrenDoc
+                                                        FirstItem -> P.concat commentDoc (P.concat childrenDoc trailingCommentDoc)
                                                         _         -> P.concat acc.doc indentedDoc
                                             in
                                             Ok { doc = newDoc
