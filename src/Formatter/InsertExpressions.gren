@@ -195,7 +195,7 @@ insertExpression locExpr =
                 |> Result.map (\itemNodes ->
                     when Array.popFirst itemNodes is
                         Nothing ->
-                            [lpnLeaf (mkText locExpr.start "[]")]
+                            [lpnLeaf (EmptyBracketed { start = locExpr.start, end = locExpr.end, value = ListSquare })]
                         Just _ ->
                             [lpnNode (AllAcrossOrAllVertical ListSquare) itemNodes]
                 )
@@ -205,7 +205,7 @@ insertExpression locExpr =
                 |> Result.map (\fieldNodes ->
                     when Array.popFirst fieldNodes is
                         Nothing ->
-                            [lpnLeaf (mkText locExpr.start "{}")]
+                            [lpnLeaf (EmptyBracketed { start = locExpr.start, end = locExpr.end, value = ListCurly })]
                         Just { first = _, rest = rest } ->
                             if Array.isEmpty rest then
                                 -- Single field: stay inline

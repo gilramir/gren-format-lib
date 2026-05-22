@@ -108,6 +108,13 @@ type LPBox
     -- appearing before the whole RecordUpdate.
     | RecordUpdate (Located String)
 
+    -- An empty bracketed literal (`{}` / `[]` / `()`). Carries the full
+    -- source span so a comment that sits between the opening and
+    -- closing bracket (`{ {- c -} }`) can be placed as a child of this
+    -- node during comment insertion, instead of falling out to a
+    -- sibling slot of the literal.
+    | EmptyBracketed (Located ListBrackets)
+
     -- Children always render on a new indented line (used for then/else bodies, etc.).
     --
     --     parent
@@ -239,6 +246,8 @@ subtreeRowRange node =
                 MultilineString loc ->
                     { minRow = loc.start.row, maxRow = loc.end.row }
                 RecordUpdate loc ->
+                    { minRow = loc.start.row, maxRow = loc.end.row }
+                EmptyBracketed loc ->
                     { minRow = loc.start.row, maxRow = loc.end.row }
                 _ ->
                     { minRow = maxSafeInteger, maxRow = -1 }

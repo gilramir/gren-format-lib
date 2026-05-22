@@ -94,6 +94,19 @@ extensibleSig _ =
     0
 
 
+-- Bug I — a comment that was the only content of an empty record or
+-- array literal used to be evicted to a sibling slot after the bare
+-- `{}` / `[]`. An `EmptyBracketed (Located ListBrackets)` LPT node
+-- now carries the full source span of the literal so the comment can
+-- descend into it and render inside the brackets.
+emptyRecord =
+    { {- only content of an empty record literal -} }
+
+
+emptyArray =
+    [ {- only content of an empty array literal -} ]
+
+
 type TrickyCmd msg
     = TrickyCmd (Task.Task Never msg)
 

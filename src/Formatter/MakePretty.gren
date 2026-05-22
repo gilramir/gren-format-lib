@@ -648,6 +648,30 @@ makePDoc box children =
             in listBoxesWithBrackets bs.open bs.close children
         RecordUpdate baseName ->
             makeRecordUpdateDoc baseName.value children
+        EmptyBracketed loc ->
+            -- An empty literal whose source spans more than the bare
+            -- `{}` / `[]` / `()` only acquires children if a comment
+            -- ended up placed inside it. Without children, render the
+            -- bare literal; with comment children, render as
+            -- `{ comment1 comment2 ... }` inline so the comments stay
+            -- inside the brackets.
+            let bs = bracketStrings loc.value
+            in
+            if Array.isEmpty children then
+                Ok (P.text bs.empty)
+            else
+                let
+                    commentDocs = Array.map (\node -> commentBoxDoc (lpnBox node)) children
+                    body =
+                        Array.foldl
+                            (\d acc ->
+                                if acc == P.empty then d
+                                else P.concat acc (P.concat (P.text " ") d)
+                            )
+                            P.empty
+                            commentDocs
+                in
+                Ok (P.concat (P.text bs.open) (P.concat body (P.concat (P.text " ") (P.text bs.close))))
         SingleLineComment locs -> Ok (lineComment locs.value)
         BlockComment _ -> Ok (commentBoxDoc box)
         AcrossThenIndent ->

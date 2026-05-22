@@ -106,6 +106,15 @@ lpBoxFields lpbox =
             , { key = "endCol", value = Json.int baseName.end.col }
             ]
 
+        EmptyBracketed loc ->
+            [ { key = "type", value = Json.string "EmptyBracketed" }
+            , { key = "brackets", value = Json.string (bracketsToString loc.value) }
+            , { key = "startRow", value = Json.int loc.start.row }
+            , { key = "startCol", value = Json.int loc.start.col }
+            , { key = "endRow", value = Json.int loc.end.row }
+            , { key = "endCol", value = Json.int loc.end.col }
+            ]
+
         IndentedBlock ->
             [ { key = "type", value = Json.string "IndentedBlock" } ]
 

@@ -239,7 +239,8 @@ insertCommentIntoSubtree commentNode row col node =
                             childChildren = lpnChildren child
                             laterSiblingClaims = anyLaterSiblingStartsAtOrBefore (acc.index + 1)
                         in
-                        if not (Array.isEmpty childChildren) && subtreeContainsRow child row
+                        if (not (Array.isEmpty childChildren) || isEmptyBracketedNode child)
+                            && subtreeContainsRow child row
                             && not (subtreeStartsAfter child row col)
                             && not laterSiblingClaims
                             && not (isAcrossThenIndentNode child && subtreeEndsBefore child row col) then
@@ -338,6 +339,18 @@ isAcrossThenIndentNode node =
         _ -> False
 
 
+-- True if the node is an EmptyBracketed literal. An empty literal has
+-- no LPT children by construction, but we want to ALLOW descent into
+-- it so a comment whose source position falls inside the brackets can
+-- become its first (and usually only) child — letting the renderer
+-- emit `{ {- c -} }` rather than `{} {- c -}`.
+isEmptyBracketedNode : LPNode -> Bool
+isEmptyBracketedNode node =
+    when lpnBox node is
+        EmptyBracketed _ -> True
+        _ -> False
+
+
 subtreeContainsRow : LPNode -> Int -> Bool
 subtreeContainsRow node row =
     let
@@ -417,6 +430,9 @@ firstRealPosition node =
                     Just located.start
 
                 RecordUpdate located ->
+                    Just located.start
+
+                EmptyBracketed located ->
                     Just located.start
 
                 _ ->
