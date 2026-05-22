@@ -11,7 +11,7 @@ import Test.Runner.Effectful as Effectful exposing (run, describe, test, await)
 import Compiler.Ast.Source as Src
 import Compiler.Parse.Module as PM
 import Compiler.Parse.Context as Context
-import Formatter.AstCompare as AstCompare
+import Compiler.Ast.Compare as AstCompare
 import Formatter.PrettyPrinter as PPrint
 import String.Parser.Advanced as Parser
 
