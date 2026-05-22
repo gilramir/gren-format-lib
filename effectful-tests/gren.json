@@ -8,7 +8,7 @@
     "dependencies": {
         "direct": {
             "blaix/gren-effectful-tests": "6.0.0",
-            "gilramir/gren-diff": "1.0.0",
+            "gilramir/gren-diff": "1.0.1",
             "gilramir/gren-pretty-expressive": "2.0.1",
             "gren-lang/compiler-node": "local:..",
             "gren-lang/core": "7.4.0",
