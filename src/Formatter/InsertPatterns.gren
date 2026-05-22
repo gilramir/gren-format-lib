@@ -39,7 +39,16 @@ insertPattern locPat =
             insertPattern pat
                 |> Result.map (\patNodes ->
                     let
-                        asNode = lpnLeaf (SynthesizedText "as")
+                        -- `as` isn't a separate AST token, but it sits right
+                        -- before `name` with single-space separation:
+                        --   ( inner-pattern ) as <name>
+                        -- Compute its position from `name.start.col - 3`
+                        -- (one space + "as" = 3 chars) so the
+                        -- comment-placement synth-skip can't push a comment
+                        -- between the inner pattern and `as` past `as`.
+                        asStart = { row = name.start.row, col = name.start.col - 3 }
+                        asEnd = { row = name.start.row, col = name.start.col - 1 }
+                        asNode = lpnLeaf (UnbreakableText { start = asStart, end = asEnd, value = "as" })
                         nameNode = lpnLeaf (mkTextFromLocString name)
                     in
                     patNodes ++ [asNode, nameNode]

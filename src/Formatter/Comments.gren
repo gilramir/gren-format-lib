@@ -65,7 +65,8 @@ import Compiler.SourcePosition exposing (Located, Position, at)
 
 import Formatter.LogicalPrintingTree exposing (LPBox(..),
     LPNode(..), ListBrackets(..), SyntaxType(..),
-    lpnBox, lpnChildren, lpnLeaf, lpnNode, subtreeRowRange)
+    lpnBox, lpnChildren, lpnLeaf, lpnNode, subtreeRowRange,
+    lpnFirstPos, lpnLastPos, lpnLastBracketEnd)
 import Formatter.Strings exposing (countNewlines)
 
 
@@ -98,15 +99,14 @@ lptAddComment locComment root =
             when lpnBox updatedOrigRow is
                 OriginalRows rowInfo ->
                     if endRow > rowInfo.last then
-                        LPNode
-                            { box = OriginalRows { rowInfo | last = endRow }
-                            , children = lpnChildren updatedOrigRow
-                            }
+                        lpnNode
+                            (OriginalRows { rowInfo | last = endRow })
+                            (lpnChildren updatedOrigRow)
                     else
                         updatedOrigRow
                 _ -> updatedOrigRow
     in
-    LPNode { box = lpnBox root, children = before ++ [correctedOrigRow] ++ after }
+    lpnNode (lpnBox root) (before ++ [correctedOrigRow] ++ after)
 
 
 mkCommentLpBox : Located Ctx.Comment -> LPBox
@@ -243,7 +243,11 @@ insertCommentIntoSubtree commentNode row col node =
                             && subtreeContainsRow child row
                             && not (subtreeStartsAfter child row col)
                             && not laterSiblingClaims
-                            && not (isAcrossThenIndentNode child && subtreeEndsBefore child row col) then
+                            && not
+                                ((isAcrossThenIndentNode child || isItemBracketListNode child)
+                                    && subtreeEndsBefore child row col
+                                    && not (commentInsideTrailingBracket child row col)
+                                ) then
                             let updatedChild = insertCommentIntoSubtree commentNode row col child
                             in
                             { children = Array.pushLast updatedChild acc.children
@@ -257,10 +261,10 @@ insertCommentIntoSubtree commentNode row col node =
                 children
     in
     if result.done then
-        LPNode { box = lpnBox node, children = result.children }
+        lpnNode (lpnBox node) result.children
     else
         -- No matching child found; insert at this level
-        LPNode { box = lpnBox node, children = insertAmongChildren commentNode row col children }
+        lpnNode (lpnBox node) (insertAmongChildren commentNode row col children)
 
 
 {-
@@ -317,12 +321,12 @@ insertAmongChildren commentNode row col children =
                 when lpnBox nextNode is
                     IndentedBlock ->
                         -- Redirect into the IndentedBlock as its first child
-                        let newNextNode = LPNode { box = IndentedBlock, children = Array.pushFirst commentNode (lpnChildren nextNode) }
+                        let newNextNode = lpnNode IndentedBlock (Array.pushFirst commentNode (lpnChildren nextNode))
                         in finalBefore ++ [newNextNode] ++ afterRest
 
                     PipelineStep ->
                         -- Redirect into the PipelineStep as its first child
-                        let newNextNode = LPNode { box = PipelineStep, children = Array.pushFirst commentNode (lpnChildren nextNode) }
+                        let newNextNode = lpnNode PipelineStep (Array.pushFirst commentNode (lpnChildren nextNode))
                         in finalBefore ++ [newNextNode] ++ afterRest
 
                     _ ->
@@ -349,6 +353,48 @@ isEmptyBracketedNode node =
     when lpnBox node is
         EmptyBracketed _ -> True
         _ -> False
+
+
+-- True if the node is a non-empty bracket-list LPBox whose children
+-- are the items between the brackets (`{ a, b }`, `[ x, y ]`,
+-- exposing lists). The descent guard refuses descent into one of
+-- these when the comment is past its last item AND not column-close
+-- to it — i.e. the user wrote the comment after the closing bracket
+-- (`{ a, b } {- comment -}`), and the comment should land as a
+-- sibling of the bracket-list, not inside it.
+--
+-- `RecordUpdate` is intentionally excluded: it has structure inside
+-- the brackets (base name + `|` + fields), and comments between the
+-- base and `|` legitimately descend; the bracket-end-proximity check
+-- doesn't generalise cleanly to it.
+isItemBracketListNode : LPNode -> Bool
+isItemBracketListNode node =
+    when lpnBox node is
+        AllAcrossOrAllVertical _ -> True
+        AlwaysVertical _ -> True
+        _ -> False
+
+
+{-| True if the comment is sitting just past the closing bracket of
+the rightmost bracket-list inside `node`'s subtree — i.e. the user
+plausibly wrote it between the bracket's last item and the closing
+bracket character. Allows the descent guard for `AcrossThenIndent`
+to admit comments like `\[a, b, c {- trailing -}] -> body`, where the
+AcrossThenIndent's last positioned token (`c`) is before the
+comment but the bracket genuinely owns it.
+
+The column-proximity threshold (`+2`) accounts for one whitespace
+plus the closing bracket character (`]` / `}` / `)`) that we don't
+track explicitly in the LPT.
+-}
+commentInsideTrailingBracket : LPNode -> Int -> Int -> Bool
+commentInsideTrailingBracket node row col =
+    when lpnLastBracketEnd node is
+        Nothing ->
+            False
+
+        Just bracketEnd ->
+            bracketEnd.row == row && col <= bracketEnd.col + 2
 
 
 subtreeContainsRow : LPNode -> Int -> Bool
@@ -404,51 +450,10 @@ subtreeEndsBefore node row col =
 -- Returns the first real source position in a depth-first traversal of the subtree.
 -- Synthesized tokens are skipped. Used to detect when a child subtree starts
 -- after a comment we're trying to place, so we don't incorrectly descend into it.
+-- O(1) — reads the cached value populated by `lpnNode`.
 firstRealPosition : LPNode -> Maybe Position
 firstRealPosition node =
-    let
-        selfPos =
-            when lpnBox node is
-                UnbreakableText located ->
-                    Just located.start
-
-                SingleLineComment located ->
-                    Just located.start
-
-                BlockComment located ->
-                    Just located.start
-
-                -- The prefix character (`\` for a lambda, `-` for a
-                -- negation) has its own source position; use it so a
-                -- comment between the prefix and its content can find
-                -- the PrefixGlue subtree during placement instead of
-                -- being treated as appearing before it.
-                PrefixGlue located ->
-                    Just located.start
-
-                MultilineString located ->
-                    Just located.start
-
-                RecordUpdate located ->
-                    Just located.start
-
-                EmptyBracketed located ->
-                    Just located.start
-
-                _ ->
-                    Nothing
-    in
-    when selfPos is
-        Just p -> Just p
-        Nothing ->
-            Array.foldl
-                (\child acc ->
-                    when acc is
-                        Just _ -> acc
-                        Nothing -> firstRealPosition child
-                )
-                Nothing
-                (lpnChildren node)
+    lpnFirstPos node
 
 
 -- True if the subtree's first positioned leaf is at or after the given (row, col).
@@ -461,41 +466,7 @@ subtreeStartsAfter node row col =
 
 -- Returns the last real source position in a depth-first traversal of the subtree.
 -- Synthesized tokens (row <= 0) are skipped.
+-- O(1) — reads the cached value populated by `lpnNode`.
 lastRealPosition : LPNode -> Maybe Position
 lastRealPosition node =
-    let
-        selfPos =
-            when lpnBox node is
-                UnbreakableText located ->
-                    Just located.end
-
-                SingleLineComment located ->
-                    Just located.end
-
-                BlockComment located ->
-                    Just located.end
-
-                MultilineString located ->
-                    Just located.end
-
-                SynthesizedText _ ->
-                    Nothing
-
-                _ ->
-                    Nothing
-
-        -- In depth-first order, we want the last positioned node.
-        -- Children come after self in pre-order, so children's last position wins.
-        childrenLast =
-            Array.foldl
-                (\child acc ->
-                    when lastRealPosition child is
-                        Just pos -> Just pos
-                        Nothing -> acc
-                )
-                Nothing
-                (lpnChildren node)
-    in
-    when childrenLast is
-        Just p -> Just p
-        Nothing -> selfPos
+    lpnLastPos node

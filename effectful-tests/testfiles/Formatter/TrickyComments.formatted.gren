@@ -104,6 +104,31 @@ emptyRecord = { {- only content of an empty record literal -} }
 
 emptyArray = [ {- only content of an empty array literal -} ]
 
+-- Bug D — a trailing block comment after the last item of an array
+-- pattern used to escape the brackets ([ a, b, c ] -> {- c -} body).
+-- The AcrossThenIndent descent guard now consults the cached
+-- `lastBracketEnd` position: when the comment is column-close to a
+-- bracket-list's last item (same row, within ~2 cols), the guard
+-- admits the comment past the AcrossThenIndent so it can descend
+-- into the bracket-list and land as its last child.
+arrayPatTrailing =
+    \[ a
+        , b
+        , c {- trailing comment after last array-pattern item -}
+        ] -> a
+
+-- Bug E — a block comment between a record pattern and `as` in an
+-- as-pattern used to be sucked into the record pattern (between the
+-- last field and the closing `}`). Two changes fix it:
+--   * The descent guard refuses descent into a bracket-list
+--     (AllAcrossOrAllVertical / AlwaysVertical) when the comment is
+--     past the last item AND not column-close to it (same heuristic
+--     as the AcrossThenIndent guard).
+--   * The synthesized `as` in PAlias now carries a computed source
+--     position (name.start.col - 3), so the synth-text skip can't
+--     push the comment past `as`.
+recordPatternAs = \({ a, b } {- between record pattern and `as` -} as wholeR) -> a
+
 type TrickyCmd msg
     = TrickyCmd (Task.Task Never msg)
 

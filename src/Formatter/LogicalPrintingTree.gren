@@ -203,8 +203,40 @@ type LPBox
     -- adjacent comments can be anchored to it.
     | MultilineString (Located (Array String))
 
+{-| The logical-printing-tree node.
+
+The record carries a `box` (the rendering shape) and `children`, plus
+six fields that *cache* subtree bounds so the comment-placement
+heuristic in `Formatter.Comments` can answer "what's the first/last
+positioned token in this subtree?", "what's its row range?", and
+"where does the last bracketed sublist end?" in O(1) instead of by
+recursive descent. The cache is populated bottom-up by `lpnNode` at
+construction time. ALL LPT construction must go through `lpnNode`
+(or `lpnLeaf`) — building an `LPNode` by direct record syntax would
+skip the cache and produce wrong answers from the accessors.
+
+`lastBracketEnd` is the source position of the last positioned
+descendant of the rightmost bracket-list (`AllAcrossOrAllVertical`,
+`AlwaysVertical`, or `EmptyBracketed`) in this subtree, or
+`Nothing` if the subtree contains no such bracket. The
+comment-placement descent guard uses it to allow descent into an
+`AcrossThenIndent` whose last positioned token is before the comment
+*when* the comment is on the same row and column-close to the
+bracket's closing position — i.e. the user almost certainly wrote
+the comment between the bracket's last item and the closing
+bracket character.
+-}
 type LPNode
-    = LPNode { box : LPBox, children : Array LPNode }
+    = LPNode
+        { box : LPBox
+        , children : Array LPNode
+        , firstPos : Maybe Position
+        , lastPos : Maybe Position
+        , minRow : Int
+        , maxRow : Int
+        , lastBracketEnd : Maybe Position
+        }
+
 
 lpnBox : LPNode -> LPBox
 lpnBox node =
@@ -216,56 +248,246 @@ lpnChildren node =
     when node is
         LPNode r -> r.children
 
+
+{-| First positioned token of the subtree in depth-first pre-order.
+For `PrefixGlue`/`RecordUpdate`/`EmptyBracketed`, the box's own
+position takes precedence over the children (the prefix `\`, the
+base name, or the opening bracket itself is the earliest position).
+-}
+lpnFirstPos : LPNode -> Maybe Position
+lpnFirstPos node =
+    when node is
+        LPNode r -> r.firstPos
+
+
+{-| Last positioned token of the subtree in depth-first post-order.
+Children take precedence over the box's own position when both
+contribute, mirroring the existing `lastRealPosition` semantics.
+-}
+lpnLastPos : LPNode -> Maybe Position
+lpnLastPos node =
+    when node is
+        LPNode r -> r.lastPos
+
+
+{-| Smallest source row covered by any positioned descendant, or
+`maxSafeInteger` if the subtree has no positioned leaves.
+-}
+lpnMinRow : LPNode -> Int
+lpnMinRow node =
+    when node is
+        LPNode r -> r.minRow
+
+
+{-| Largest source row covered by any positioned descendant
+(BlockComments' end row is widened by the number of newlines in
+their content), or `-1` if the subtree has no positioned leaves.
+-}
+lpnMaxRow : LPNode -> Int
+lpnMaxRow node =
+    when node is
+        LPNode r -> r.maxRow
+
+
+{-| Source position of the last positioned descendant of the
+rightmost bracket-list in this subtree, or `Nothing` if no
+bracket-list exists. The descent guard pairs this with a column
+proximity check to decide whether a same-row trailing comment is
+*inside* the bracketed sublist (between its last item and the
+closing bracket character) or *outside* (e.g. after `}` and an
+`as wholeRecord`, where the closing bracket has long since
+appeared in the source).
+-}
+lpnLastBracketEnd : LPNode -> Maybe Position
+lpnLastBracketEnd node =
+    when node is
+        LPNode r -> r.lastBracketEnd
+
+
 lpnLeaf : LPBox -> LPNode
 lpnLeaf box =
-    LPNode { box = box, children = [] }
+    lpnNode box []
 
+
+{-| Smart constructor that fills in the cached subtree bounds. The
+self-bounds come from `selfBoxBounds`; children's cached bounds are
+combined via min/max. -}
 lpnNode : LPBox -> Array LPNode -> LPNode
 lpnNode box children =
-    LPNode { box = box, children = children }
+    let
+        self = selfBoxBounds box
+
+        -- Combine children's cached bounds with self's contribution.
+        merged =
+            Array.foldl
+                (\child acc ->
+                    let cfp = lpnFirstPos child
+                        clp = lpnLastPos child
+                        cbe = lpnLastBracketEnd child
+                    in
+                    { firstPos =
+                        when acc.firstPos is
+                            Just _ -> acc.firstPos
+                            Nothing -> cfp
+                    , lastPos =
+                        when clp is
+                            Just _ -> clp
+                            Nothing -> acc.lastPos
+                    , minRow = min (lpnMinRow child) acc.minRow
+                    , maxRow = max (lpnMaxRow child) acc.maxRow
+                    -- Bracket-end propagates from the LAST child whose
+                    -- own subtree contains a bracket. Walking
+                    -- left-to-right and replacing on every `Just`
+                    -- keeps the rightmost bracket-list's end.
+                    , lastBracketEnd =
+                        when cbe is
+                            Just _ -> cbe
+                            Nothing -> acc.lastBracketEnd
+                    }
+                )
+                { firstPos = self.firstPos
+                , lastPos = self.lastPos
+                , minRow = self.minRow
+                , maxRow = self.maxRow
+                , lastBracketEnd = Nothing
+                }
+                children
+
+        -- If THIS node is itself a bracket-list, its own bracket-end
+        -- is the lastPos of the contents (= the last positioned
+        -- child's end, since bracket-list boxes don't contribute a
+        -- selfLastPos). This shadows any deeper bracket's end —
+        -- a comment near the outer closing bracket should be
+        -- classified relative to THIS bracket, not an inner one.
+        bracketEnd =
+            if self.isBracket then
+                merged.lastPos
+            else
+                merged.lastBracketEnd
+    in
+    LPNode
+        { box = box
+        , children = children
+        , firstPos = merged.firstPos
+        , lastPos = merged.lastPos
+        , minRow = merged.minRow
+        , maxRow = merged.maxRow
+        , lastBracketEnd = bracketEnd
+        }
+
+
+{-| The bounds a box contributes by itself (independent of children).
+
+Inclusion rules match the legacy recursive helpers:
+
+  - `firstPos`: contributes from `UnbreakableText`, `SingleLineComment`,
+    `BlockComment`, `PrefixGlue`, `MultilineString`, `RecordUpdate`,
+    `EmptyBracketed` (= the union of cases previously listed by
+    `firstRealPosition` in `Formatter.Comments`).
+  - `lastPos`: contributes from `UnbreakableText`, `SingleLineComment`,
+    `BlockComment`, `MultilineString` only — for `PrefixGlue`,
+    `RecordUpdate`, and `EmptyBracketed`, children's positions take
+    precedence (matching the legacy `lastRealPosition`).
+  - `minRow` / `maxRow`: contribute from `UnbreakableText`,
+    `SingleLineComment`, `BlockComment` (widened by content newlines),
+    `DocComment`, `MultilineString`, `RecordUpdate`, `EmptyBracketed`,
+    and `PrefixGlue` (newly included here — its row was previously
+    invisible to `subtreeRowRange`, but including it is safe since
+    it equals the row of the immediately-following child).
+  - `isBracket`: `AllAcrossOrAllVertical`, `AlwaysVertical`, or
+    `EmptyBracketed` (the bracket-list boxes the descent guard cares
+    about).
+-}
+selfBoxBounds
+    : LPBox
+    -> { firstPos : Maybe Position
+       , lastPos : Maybe Position
+       , minRow : Int
+       , maxRow : Int
+       , isBracket : Bool
+       }
+selfBoxBounds box =
+    let
+        empty =
+            { firstPos = Nothing
+            , lastPos = Nothing
+            , minRow = maxSafeInteger
+            , maxRow = -1
+            , isBracket = False
+            }
+    in
+    when box is
+        UnbreakableText loc ->
+            { empty
+                | firstPos = Just loc.start
+                , lastPos = Just loc.end
+                , minRow = loc.start.row
+                , maxRow = loc.end.row
+            }
+        SingleLineComment loc ->
+            { empty
+                | firstPos = Just loc.start
+                , lastPos = Just loc.end
+                , minRow = loc.start.row
+                , maxRow = loc.end.row
+            }
+        BlockComment loc ->
+            { empty
+                | firstPos = Just loc.start
+                , lastPos = Just loc.end
+                , minRow = loc.start.row
+                , maxRow = loc.end.row + countNewlines loc.value
+            }
+        DocComment loc ->
+            { empty
+                | minRow = loc.start.row
+                , maxRow = loc.end.row
+            }
+        PrefixGlue loc ->
+            { empty
+                | firstPos = Just loc.start
+                , minRow = loc.start.row
+                , maxRow = loc.end.row
+            }
+        MultilineString loc ->
+            { empty
+                | firstPos = Just loc.start
+                , lastPos = Just loc.end
+                , minRow = loc.start.row
+                , maxRow = loc.end.row
+            }
+        RecordUpdate loc ->
+            { empty
+                | firstPos = Just loc.start
+                , minRow = loc.start.row
+                , maxRow = loc.end.row
+            }
+        EmptyBracketed loc ->
+            { empty
+                | firstPos = Just loc.start
+                , minRow = loc.start.row
+                , maxRow = loc.end.row
+                , isBracket = True
+            }
+        AllAcrossOrAllVertical _ ->
+            { empty | isBracket = True }
+        AlwaysVertical _ ->
+            { empty | isBracket = True }
+        _ ->
+            empty
 
 
 -- Source-row range covered by a subtree's positioned leaves.
 -- An empty range (minRow = maxSafeInteger, maxRow = -1) means the subtree
 -- has no positioned leaves (only synthesized tokens, EmptyLine, etc.).
--- BlockComment's maxRow is bumped by the number of newlines in its content
--- because the parser reports its end row at the opening-delimiter line.
+-- Reads the cached bounds populated by `lpnNode` — O(1).
 subtreeRowRange : LPNode -> { minRow : Int, maxRow : Int }
 subtreeRowRange node =
-    let
-        selfRange =
-            when lpnBox node is
-                UnbreakableText loc ->
-                    { minRow = loc.start.row, maxRow = loc.end.row }
-                SingleLineComment loc ->
-                    { minRow = loc.start.row, maxRow = loc.end.row }
-                BlockComment loc ->
-                    { minRow = loc.start.row, maxRow = loc.end.row + countNewlines loc.value }
-                DocComment loc ->
-                    { minRow = loc.start.row, maxRow = loc.end.row }
-                MultilineString loc ->
-                    { minRow = loc.start.row, maxRow = loc.end.row }
-                RecordUpdate loc ->
-                    { minRow = loc.start.row, maxRow = loc.end.row }
-                EmptyBracketed loc ->
-                    { minRow = loc.start.row, maxRow = loc.end.row }
-                _ ->
-                    { minRow = maxSafeInteger, maxRow = -1 }
-    in
-    Array.foldl
-        (\child acc ->
-            let cr = subtreeRowRange child
-            in
-            { minRow = min cr.minRow acc.minRow
-            , maxRow = max cr.maxRow acc.maxRow
-            }
-        )
-        selfRange
-        (lpnChildren node)
+    { minRow = lpnMinRow node, maxRow = lpnMaxRow node }
 
 
 -- First (smallest) positioned row in a subtree, or -1 if no positioned
--- leaves exist.
+-- leaves exist. O(1).
 firstRowInSubtree : LPNode -> Int
 firstRowInSubtree node =
     let r = subtreeRowRange node
@@ -274,7 +496,7 @@ firstRowInSubtree node =
 
 
 -- Last (largest) positioned row in a subtree, or -1 if no positioned
--- leaves exist.
+-- leaves exist. O(1).
 lastRowInSubtree : LPNode -> Int
 lastRowInSubtree node =
     (subtreeRowRange node).maxRow

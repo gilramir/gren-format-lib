@@ -89,7 +89,7 @@ sortOriginalRows root =
                 )
                 (lpnChildren root)
     in
-    LPNode { box = lpnBox root, children = sorted }
+    lpnNode (lpnBox root) sorted
 
 
 {-| Build an `OriginalRows` node spanning `firstRow` through the largest
@@ -107,7 +107,7 @@ makeOrigRows firstRow stype children =
 -}
 addRootChild : LPNode -> LPNode -> LPNode
 addRootChild child root =
-    LPNode { box = lpnBox root, children = Array.pushLast child (lpnChildren root) }
+    lpnNode (lpnBox root) (Array.pushLast child (lpnChildren root))
 
 
 {-| Emit the `module ... exposing (...)` line as a single `StModule`

@@ -55,7 +55,7 @@ tryMapFirstLeaf : (Located String -> LPBox) -> LPNode -> Maybe LPNode
 tryMapFirstLeaf f node =
     when lpnBox node is
         UnbreakableText loc ->
-            Just (LPNode { box = f loc, children = lpnChildren node })
+            Just (lpnNode (f loc) (lpnChildren node))
         _ ->
             when Array.popFirst (lpnChildren node) is
                 Nothing ->
@@ -64,7 +64,7 @@ tryMapFirstLeaf f node =
                     when tryMapFirstLeaf f firstChild is
                         Nothing -> Nothing
                         Just updated ->
-                            Just (LPNode { box = lpnBox node, children = Array.pushFirst updated restChildren })
+                            Just (lpnNode (lpnBox node) (Array.pushFirst updated restChildren))
 
 
 -- Walk to the deepest last UnbreakableText leaf and apply f to it.
@@ -73,7 +73,7 @@ tryMapLastLeaf : (Located String -> LPBox) -> LPNode -> Maybe LPNode
 tryMapLastLeaf f node =
     when lpnBox node is
         UnbreakableText loc ->
-            Just (LPNode { box = f loc, children = lpnChildren node })
+            Just (lpnNode (f loc) (lpnChildren node))
         _ ->
             when Array.popLast (lpnChildren node) is
                 Nothing ->
@@ -82,7 +82,7 @@ tryMapLastLeaf f node =
                     when tryMapLastLeaf f lastChild is
                         Nothing -> Nothing
                         Just updated ->
-                            Just (LPNode { box = lpnBox node, children = Array.pushLast updated initialChildren })
+                            Just (lpnNode (lpnBox node) (Array.pushLast updated initialChildren))
 
 
 -- Wrap a non-empty list of nodes in ParenBlock; emit "()" if empty.

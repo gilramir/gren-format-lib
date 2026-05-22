@@ -7,7 +7,7 @@ declarations.
 @docs insertEmptyLines
 -}
 
-import Formatter.LogicalPrintingTree exposing (LPBox(..), SyntaxType(..),
+import Formatter.LogicalPrintingTree exposing (LPBox(..), SyntaxType(..), lpnNode,
     LPNode(..), lpnBox, lpnChildren, lpnLeaf)
 
 
@@ -110,4 +110,4 @@ insertEmptyLines root =
                 { newChildren = [], prev = Nothing }
                 tagged
     in
-    LPNode { box = lpnBox root, children = newChildren }
+    lpnNode (lpnBox root) newChildren
