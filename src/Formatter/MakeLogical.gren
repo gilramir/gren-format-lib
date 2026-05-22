@@ -260,14 +260,44 @@ processImport locImport root =
         n1 = lpnLeaf (mkText { row = locImport.start.row, col = 1 } "import")
         n2 = lpnLeaf (mkTextFromLocString locImport.value.module_)
 
+        -- Compute positions for the keywords/identifiers that appear
+        -- after the module name. The AST only stores the module name's
+        -- location and the alias as a bare String, so we synthesize
+        -- positions assuming single-space separation:
+        --   import Foo as Alias exposing (...)
+        --                ↑       ↑
+        --   These computed columns are an approximation, but they give
+        --   Formatter.Comments enough structure to anchor inter-token
+        --   comments correctly. Without them, the synthesized-text
+        --   boundary-skip in Comments.gren pushes any comment between
+        --   the module name and `as` (or between the alias and
+        --   `exposing`) all the way past `as`/`exposing`.
+        modEnd = locImport.value.module_.end
+
         aliasNodes =
             when locImport.value.alias is
                 Nothing ->
                     []
                 Just name ->
-                    [ lpnLeaf (SynthesizedText "as")
-                    , lpnLeaf (SynthesizedText name)
+                    let
+                        asStart = { row = modEnd.row, col = modEnd.col + 1 }
+                        asEnd = { row = modEnd.row, col = modEnd.col + 3 }
+                        aliasStart = { row = modEnd.row, col = modEnd.col + 4 }
+                        aliasEnd = { row = modEnd.row, col = modEnd.col + 4 + String.count name }
+                    in
+                    [ lpnLeaf (UnbreakableText { start = asStart, end = asEnd, value = "as" })
+                    , lpnLeaf (UnbreakableText { start = aliasStart, end = aliasEnd, value = name })
                     ]
+
+        exposingStart =
+            when locImport.value.alias is
+                Nothing ->
+                    { row = modEnd.row, col = modEnd.col + 1 }
+                Just name ->
+                    { row = modEnd.row, col = modEnd.col + 5 + String.count name }
+
+        exposingEnd =
+            { row = exposingStart.row, col = exposingStart.col + 8 }
 
         -- Emit `exposing (...)` after the module name. `Open` is the
         -- wildcard `(..)` form; `Explicit` is a list of items (an empty
@@ -275,27 +305,13 @@ processImport locImport root =
         exposeNodes =
             when locImport.value.expose is
                 Src.Open ->
-                    let
-                        exposingPos =
-                            { row = locImport.value.module_.start.row
-                            , col = locImport.value.module_.start.col +
-                                String.count locImport.value.module_.value + 1
-                            }
-                    in
-                    [ lpnLeaf (mkText exposingPos "exposing")
+                    [ lpnLeaf (UnbreakableText { start = exposingStart, end = exposingEnd, value = "exposing" })
                     , lpnLeaf (SynthesizedText "(..)")
                     ]
                 Src.Explicit xlist ->
                     when Array.popFirst xlist is
                         Just _ ->
-                            let
-                                exposingPos =
-                                    { row = locImport.value.module_.start.row
-                                    , col = locImport.value.module_.start.col +
-                                        String.count locImport.value.module_.value + 1
-                                    }
-                            in
-                            [ lpnLeaf (mkText exposingPos "exposing")
+                            [ lpnLeaf (UnbreakableText { start = exposingStart, end = exposingEnd, value = "exposing" })
                             , lpnNode (AllAcrossOrAllVertical ListParen)
                                 (Array.map processExposed xlist)
                             ]

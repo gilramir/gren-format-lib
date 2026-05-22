@@ -15,6 +15,15 @@ c3 stays inside the second binding.
 
 import Task
 
+-- Bug C — a comment in an import-with-`as`-alias line used to shift
+-- one slot to the right (past `as`, or past `exposing`). With computed
+-- positions for `as`/alias/`exposing`, a single comment stays in its
+-- original slot. (A multi-comment-per-line variant remains partly off
+-- because computed positions can't reflect the columns the earlier
+-- comments push everything to.)
+import Array {- between module and `as` -} as A
+import Dict as D {- between alias and `exposing` -} exposing ( Dict )
+
 -- Bug A — block comment between two union variants was previously
 -- dropped entirely; now it renders on its own line in place.
 type Shape
