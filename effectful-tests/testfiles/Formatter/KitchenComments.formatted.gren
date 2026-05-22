@@ -189,15 +189,17 @@ reprice rawMultiplier ({ items, flags } as inboundCart) =
                 rawMultiplier
     in
     -- the actual record update happens here
-    -- comment before the first updated field
     { inboundCart
+        -- comment before the first updated field
+    
         | items = items
                   |> Array.map
                       (\itemRecord ->
                       -- comment leading into a nested record update inside a pipeline step
-                      -- comment before the first updated field of a NESTED record update
                       
                           { itemRecord
+                              -- comment before the first updated field of a NESTED record update
+                          
                               | unitPriceCents =
                                     round (toFloat itemRecord.unitPriceCents * clampedMultiplier)
                               -- comment between two updated fields of a nested update
@@ -208,8 +210,9 @@ reprice rawMultiplier ({ items, flags } as inboundCart) =
     
         , flags =
               -- comment before another nested record update
-              -- comment before an updated boolean
               { flags
+                  -- comment before an updated boolean
+              
                   | isPriority = flags.isPriority || clampedMultiplier > 1.5
                   {- block comment inside a record update -}
                   , isGift = flags.isGift
@@ -285,8 +288,10 @@ extremelyCommented {-c22-} {-c23-} {-c24-}
         {-c49-} |> {-c50-} {-c51-}
             (\{-c52-} r -> {-c53-} {-c54-} {-c55-}
                 if {-c56-} bumpedScore {-c57-} > {-c58-} 0 {-c59-} {-c60-} then
-                        {-c61-} {-c62-} {-c63-} {-c64-}
+                        {-c61-} {-c62-}
                         { r
+                            {-c63-}
+                            {-c64-}
                             | score = {-c65-} {-c66-} bumpedScore
                             {-c67-}
                             {-c68-}

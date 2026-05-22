@@ -99,7 +99,11 @@ lpBoxFields lpbox =
 
         RecordUpdate baseName ->
             [ { key = "type", value = Json.string "RecordUpdate" }
-            , { key = "baseName", value = Json.string baseName }
+            , { key = "baseName", value = Json.string baseName.value }
+            , { key = "startRow", value = Json.int baseName.start.row }
+            , { key = "startCol", value = Json.int baseName.start.col }
+            , { key = "endRow", value = Json.int baseName.end.row }
+            , { key = "endCol", value = Json.int baseName.end.col }
             ]
 
         IndentedBlock ->

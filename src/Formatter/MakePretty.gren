@@ -647,7 +647,7 @@ makePDoc box children =
             let bs = bracketStrings bracket
             in listBoxesWithBrackets bs.open bs.close children
         RecordUpdate baseName ->
-            makeRecordUpdateDoc baseName children
+            makeRecordUpdateDoc baseName.value children
         SingleLineComment locs -> Ok (lineComment locs.value)
         BlockComment _ -> Ok (commentBoxDoc box)
         AcrossThenIndent ->
@@ -801,7 +801,7 @@ makeListItemDoc node =
             let bs = bracketStrings bracket
             in listBoxesWithBrackets bs.open bs.close (lpnChildren node)
         RecordUpdate baseName ->
-            makeRecordUpdateDoc baseName (lpnChildren node)
+            makeRecordUpdateDoc baseName.value (lpnChildren node)
         AlignedFlow ->
             -- A list item that wraps an AlignedFlow construct (e.g. an
             -- inline `when ... is` expression). Render it inline; the
@@ -1050,7 +1050,7 @@ listBoxesWithBrackets open close nodes =
                         Err e -> Err e
                         Ok d -> Ok (Just { doc = d, row = firstRowInSubtree node })
                 RecordUpdate baseName ->
-                    when makeRecordUpdateDoc baseName (lpnChildren node) is
+                    when makeRecordUpdateDoc baseName.value (lpnChildren node) is
                         Err e -> Err e
                         Ok d -> Ok (Just { doc = d, row = firstRowInSubtree node })
                 AlignedFlow ->

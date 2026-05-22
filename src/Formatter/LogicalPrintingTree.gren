@@ -101,7 +101,12 @@ type LPBox
     --         | x = pt.x + dx
     --         , y = pt.y + dy
     --     }
-    | RecordUpdate String
+    -- The base name carries its own source position so the
+    -- comment-placement logic can use the extension variable's column
+    -- as the RecordUpdate subtree's "start" — keeping a comment that
+    -- sits between the base name and `|` from being treated as
+    -- appearing before the whole RecordUpdate.
+    | RecordUpdate (Located String)
 
     -- Children always render on a new indented line (used for then/else bodies, etc.).
     --
@@ -232,6 +237,8 @@ subtreeRowRange node =
                 DocComment loc ->
                     { minRow = loc.start.row, maxRow = loc.end.row }
                 MultilineString loc ->
+                    { minRow = loc.start.row, maxRow = loc.end.row }
+                RecordUpdate loc ->
                     { minRow = loc.start.row, maxRow = loc.end.row }
                 _ ->
                     { minRow = maxSafeInteger, maxRow = -1 }

@@ -218,6 +218,16 @@ insertExpression locExpr =
         Src.Update { record = record, newValues = newValues } ->
             let
                 recText = simpleExprText record
+                -- The base record expression's source range. Used both as
+                -- the inline-update text and as the source-position anchor
+                -- for the RecordUpdate LPT node, so a comment between the
+                -- base and `|` (or between `|` and the first field) can
+                -- still locate the RecordUpdate subtree during placement.
+                recLoc =
+                    { start = record.start
+                    , end = { row = record.start.row, col = record.start.col + String.count recText }
+                    , value = recText
+                    }
             in
             resultFoldl folderInsertRecordField [] newValues
                 |> Result.map (\fieldNodes ->
@@ -236,7 +246,7 @@ insertExpression locExpr =
                                 [lpnNode (AllAcrossOrAllVertical ListCurly) [updatedField]]
                             else
                                 -- 2+ field update: always vertical with RecordUpdate
-                                [lpnNode (RecordUpdate recText) fieldNodes]
+                                [lpnNode (RecordUpdate recLoc) fieldNodes]
                 )
 
         Src.Binops { left = lhsExpr, operator = locStringOp, right = rhsExpr } ->
@@ -465,7 +475,7 @@ convertForArg node =
                     when Array.popFirst children is
                         Nothing -> children
                         Just { first = firstField, rest = restFields } ->
-                            when tryMapFirstLeaf (\loc -> mkText loc.start (baseName ++ " | " ++ loc.value)) firstField is
+                            when tryMapFirstLeaf (\loc -> mkText loc.start (baseName.value ++ " | " ++ loc.value)) firstField is
                                 Just updatedFirst -> Array.pushFirst updatedFirst restFields
                                 Nothing -> children
             in

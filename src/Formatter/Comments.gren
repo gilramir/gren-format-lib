@@ -416,6 +416,9 @@ firstRealPosition node =
                 MultilineString located ->
                     Just located.start
 
+                RecordUpdate located ->
+                    Just located.start
+
                 _ ->
                     Nothing
     in

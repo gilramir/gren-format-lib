@@ -83,6 +83,17 @@ sigToDef x =
     x
 
 
+-- Bug K — a block comment inside an extensible record type (between
+-- the extension variable and `|`) used to be hoisted above the whole
+-- signature declaration. `RecordUpdate` now carries the extension
+-- variable as a `Located String`, so its subtree's first position
+-- starts at the variable's column and the comment can descend into
+-- the RecordUpdate and land between the base and the first field.
+extensibleSig : { a {- between extension var and pipe -} | foo : Int, bar : String } -> Int
+extensibleSig _ =
+    0
+
+
 type TrickyCmd msg
     = TrickyCmd (Task.Task Never msg)
 

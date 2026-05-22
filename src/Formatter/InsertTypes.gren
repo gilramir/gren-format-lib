@@ -113,5 +113,5 @@ makeSignatureBranch locType =
                                     -- Extensible record type: render with the
                                     -- same vertical layout as a record update,
                                     -- so `|` and `,` align under the base name.
-                                    [lpnNode (RecordUpdate locVar.value) fieldNodes]
+                                    [lpnNode (RecordUpdate locVar) fieldNodes]
                 )
