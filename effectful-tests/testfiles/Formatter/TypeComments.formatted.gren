@@ -1,0 +1,22 @@
+module TypeComments exposing (..)
+
+{-| Doc comment on a type union. -}
+type Shape
+    -- comment between `=` and first variant
+    = Circle Float
+    -- comment between two variants
+    | Rectangle Float {- block comment between two payload args -} Float
+    | Triangle {- comment between variant name and first payload -} Float Float Float
+    -- single-line comment between variants
+    | Empty
+
+
+nestedTypeAppSig : Result {- comment between a type and its first arg -} Int
+    {- comment between two type args -} (Array String) -> Int
+nestedTypeAppSig _ =
+    0
+
+
+arrowInSig : Int {- comment around the arrow in a function signature -} -> String
+arrowInSig _ =
+    ""

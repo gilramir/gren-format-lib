@@ -161,6 +161,13 @@ commentsTests fsPerm =
         , assertPretty fsPerm "comments everywhere" "CommentsEverywhere"
         , assertPretty fsPerm "consecutive comments in when branch" "ConsecutiveCommentsInBranch"
         , assertPretty fsPerm "when expressions as items in a commented array are preserved" "WhenInCommentedArray"
+        , assertPretty fsPerm "type union variant comments and type-syntax positions in signatures" "TypeComments"
+        , assertPretty fsPerm "port declarations with comments in every header position" "PortComments"
+        , assertPretty fsPerm "effect module with comments around top-level decls" "EffectModuleComments"
+        , assertPretty fsPerm "module/import header keyword-gap comments" "ModuleHeaderComments"
+        , assertPretty fsPerm "array patterns, ctor patterns, and when-branch pattern comments" "PatternComments"
+        , assertPretty fsPerm "backward pipeline and operator-rhs gap comments" "PipelineAndGlueComments"
+        , assertPretty fsPerm "doc/line/block adjacency and inter-declaration comments" "EdgeCaseComments"
         ]
 
 

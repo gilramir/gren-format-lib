@@ -1,0 +1,32 @@
+port module PortComments exposing (..)
+
+
+import Json.Encode exposing (Value)
+
+
+{-| Doc comment on a port declaration. -}
+port save : Value -> Cmd msg
+
+
+-- single-line comment between two ports
+port load : String -> Cmd msg
+
+
+{- block comment between two ports -}
+port receive : (Value -> msg) -> Sub msg
+
+
+-- comment between the `port` keyword and the port name
+port {- between port keyword and name -} ping : Cmd msg
+
+
+-- comment between the port name and its `:`
+port pong {- between port name and colon -} : Cmd msg
+
+
+-- comment between the `:` and the port type
+port flush : {- between colon and port type -} (Value -> msg) -> Sub msg
+
+
+{-| Doc comment on another port. -}
+port emit : String -> Cmd msg

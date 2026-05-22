@@ -1,0 +1,41 @@
+module PatternComments exposing (..)
+
+
+-- comment between two array-pattern items in a lambda
+arrayPat =
+    \[a {- between two array-pattern items -}, b, c] -> a
+
+
+-- comment inside a constructor pattern in a lambda argument
+ctorPat =
+    \(Just {- between ctor name and arg -} x) -> x
+
+
+-- comment between items of an array pattern in a when-branch
+whenArrayPat xs =
+    when xs is
+        [ a {- between array-pattern items in a when-branch -}, b ] ->
+            a + b
+
+        _ ->
+            0
+
+
+-- comment between ctor name and its arg in a when-branch pattern
+whenCtorPat maybe =
+    when maybe is
+        Just {- between ctor name and arg in a when-branch -} x ->
+            x
+
+        Nothing ->
+            0
+
+
+-- comment between two ctor args in a when-branch pattern
+whenCtorTwoArgs result =
+    when result is
+        Ok {- between ctor name and first arg -} x ->
+            x
+
+        Err _ ->
+            0

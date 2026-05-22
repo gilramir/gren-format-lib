@@ -1,0 +1,34 @@
+module PipelineAndGlueComments exposing (..)
+
+
+-- comment between an operator and its right-hand side
+opRhs : Int -> Int -> Int
+opRhs x y =
+    x + {- between op and rhs -} y
+
+
+-- comment between an operator and a numeric literal rhs
+opRhsLiteral : Int -> Int
+opRhsLiteral x =
+    x * {- between op and literal rhs -} 10
+
+
+-- backward pipeline with a leading inter-step comment
+backwardPipe : String -> String
+backwardPipe name =
+    -- leading comment before a backward-pipeline seed
+    String.append "Hello, " <| String.append name "!"
+
+
+-- backward pipeline with a block comment between steps
+backwardPipeBetween : String -> String
+backwardPipeBetween name =
+    String.append "Hello, "
+        {- block comment between two backward-pipe steps -}
+        <| String.append name "!"
+
+
+-- comment between a multi-arg call's function and its first argument
+callArgGap : String -> String
+callArgGap name =
+    String.append {- between function and first argument -} "Hi, " name

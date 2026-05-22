@@ -1,0 +1,39 @@
+module EdgeCaseComments exposing (..)
+
+
+-- doc comment followed immediately by a line comment, then the signature
+{-| Doc comment that introduces the function. -}
+-- regular line comment between doc comment and the signature
+docThenLine : Int -> Int
+docThenLine x =
+    x
+
+
+-- multiple consecutive line comments before a function group
+-- (second line of a two-line comment block)
+-- (third line of the same comment block)
+multipleLeading : Int -> Int
+multipleLeading x =
+    x
+
+
+-- doc comment, then block comment, then signature
+{-| Doc comment introducing another function. -}
+{- a block comment between the doc comment and the signature -}
+docThenBlock : Int -> Int
+docThenBlock x =
+    x
+
+
+-- a top-level line comment between two function groups
+betweenA : Int -> Int
+betweenA x =
+    x
+
+
+-- comment that sits in the gap between two top-level functions
+
+
+betweenB : Int -> Int
+betweenB x =
+    x
