@@ -14,6 +14,54 @@ and the resulting `Doc` is resolved against a 100-column page width with a
 Unhandled box types surface as `Err` rather than silently falling back, so
 every supported construct must have an explicit case in `makePDoc`.
 
+# Comments
+
+Comments arrive in the LPT already woven into the right slots by
+`Formatter.Comments`, so by the time `makePrettyResult` runs they're
+just `LPNode`s interleaved with content at whatever depth they belong
+to. What makes them tricky is that they can show up *anywhere* — in a
+top-level slot, mid-expression, between record fields, between a
+function and its arguments, inside a pipeline step, inside an exposing
+list — and each surrounding context renders them slightly differently.
+
+A handful of techniques carry the load:
+
+  - **Unflattenability via `hardNl`.** A `--` line comment consumes the
+    rest of its source line, so any `P.group` it appears in *must*
+    resolve to the multi-line branch. Rendering a `SingleLineComment`
+    as `--text` followed by `P.hardNl` makes any enclosing group
+    unflatten-able by construction.
+
+  - **Trailing vs. leading by row comparison.** Inside `buildFlowDoc` we
+    track the source row of the preceding item. A comment whose row
+    matches attaches to it with a space (`foo -- comment`); a comment
+    on a different row gets a forced `hardNl` before it so it starts
+    its own line.
+
+  - **`AlreadyTerminated` separator state.** Because every line comment
+    ends with a `hardNl`, the *next* item must not emit another
+    newline-or-space separator. The flow-builder's `NextSeparator`
+    carries an `AlreadyTerminated` value that suppresses the normal
+    separator for one step.
+
+  - **Container-specific peeling.** Some containers can't just let a
+    leading comment ride along with the flow. A `PipelineStep`'s body
+    is wrapped in an extra `+4` indent, so a leading comment is peeled
+    off and emitted at the step's own column. `RecordUpdate` and the
+    generic top-level builder peel leading comments via
+    `splitLeadingComments` so they stand on their own lines above the
+    first field or term.
+
+  - **Forcing list layouts.** Bracketed lists can't put a `--` inside a
+    flat group, so the presence of any comment in the children
+    promotes the whole list to a vertical layout where each comment
+    renders on its own line and never picks up a `, ` prefix.
+
+  - **Top-level comment slots.** Comments that don't belong to any
+    declaration sit at the LPT root as their own `OriginalRows` with
+    `StSingleLineComment` / `StBlockComment` / `StDocComment`;
+    `makePrettyLineDoc` dispatches them to a dedicated builder.
+
 @docs makePrettyLineDoc
 @docs makePrettyResult
 -}
