@@ -141,22 +141,42 @@ processModuleLine modAst root =
                         -- list item (an AcrossThenIndent containing the
                         -- `name = Ctor` tokens) so the surrounding list
                         -- joins items with commas, not the inner tokens.
-                        binding label name =
+                        --
+                        -- The label keyword ("command" / "subscription") and
+                        -- the `=` are not separate tokens in the AST, so we
+                        -- synthesize them with positions derived from the
+                        -- constructor's location: the label sits at the
+                        -- constructor's column minus 3 (for " = ") minus its
+                        -- own length, and the `=` sits two columns before
+                        -- the constructor. Positioning these makes the
+                        -- subtree row/col ranges precise enough for
+                        -- Formatter.Comments to place inter-token comments.
+                        binding label locName =
+                            let
+                                ctorCol = locName.start.col
+                                labelLen = String.count label
+                                labelCol = ctorCol - 3 - labelLen
+                                eqCol = ctorCol - 2
+                                labelStart = { row = locName.start.row, col = labelCol }
+                                labelEnd = { row = locName.start.row, col = labelCol + labelLen }
+                                eqStart = { row = locName.start.row, col = eqCol }
+                                eqEnd = { row = locName.start.row, col = eqCol + 1 }
+                            in
                             lpnNode AcrossThenIndent
-                                [ lpnLeaf (SynthesizedText label)
-                                , lpnLeaf (SynthesizedText "=")
-                                , lpnLeaf (SynthesizedText name)
+                                [ lpnLeaf (UnbreakableText { start = labelStart, end = labelEnd, value = label })
+                                , lpnLeaf (UnbreakableText { start = eqStart, end = eqEnd, value = "=" })
+                                , lpnLeaf (mkTextFromLocString locName)
                                 ]
 
                         fields =
                             when manager is
                                 Src.Cmd locName ->
-                                    [ binding "command" locName.value ]
+                                    [ binding "command" locName ]
                                 Src.Sub locName ->
-                                    [ binding "subscription" locName.value ]
+                                    [ binding "subscription" locName ]
                                 Src.Fx { cmd = cmd, sub = sub } ->
-                                    [ binding "command" cmd.value
-                                    , binding "subscription" sub.value
+                                    [ binding "command" cmd
+                                    , binding "subscription" sub
                                     ]
                     in
                     [ lpnLeaf (SynthesizedText "where")
@@ -169,7 +189,20 @@ processModuleLine modAst root =
             { row = modAst.name.start.row
             , col = modAst.name.start.col + String.count modAst.name.value + 1
             }
-        n3 = lpnLeaf (mkText exposingPos "exposing")
+        -- For `module …` and `port module …`, `exposing` sits one space
+        -- after the module name, so the position computed above is
+        -- accurate enough for Formatter.Comments to anchor neighbouring
+        -- comments. For `effect module … where { … } exposing`, the real
+        -- column depends on the where-block's contents and isn't tracked
+        -- in the AST. Falling back to SynthesizedText (position-less)
+        -- avoids a fake position that lies to the left of the where-block
+        -- content and confuses the comment-placement heuristic.
+        n3 =
+            when modAst.effects is
+                Src.Manager _ ->
+                    lpnLeaf (SynthesizedText "exposing")
+                _ ->
+                    lpnLeaf (mkText exposingPos "exposing")
 
         n4 =
             when modAst.exports is

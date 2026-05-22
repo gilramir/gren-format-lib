@@ -1,4 +1,18 @@
-module TrickyComments exposing (..)
+effect module TrickyComments where { {- c1 -} command = TrickyCmd {- c2 -}, subscription = TrickySub {- c3 -} } exposing (..)
+
+
+{-| Accumulates one regression case per previously-mishandled comment
+placement, identified by the bug letters from broken.txt.
+
+Bug B — block comments inside an effect module's `where { ... }`
+block used to be evicted to trailing continuation lines after
+`exposing (..)`. Now they stay adjacent to their original slot:
+c1 lands just after `where`, c2 stays inside the first binding,
+c3 stays inside the second binding.
+-}
+
+
+import Task
 
 
 -- Bug A — block comment between two union variants was previously
@@ -8,3 +22,11 @@ type Shape
     | Rectangle Float Float
     {- block comment between two union variants -}
     | Empty
+
+
+type TrickyCmd msg
+    = TrickyCmd (Task.Task Never msg)
+
+
+type TrickySub msg
+    = TrickySub Never
