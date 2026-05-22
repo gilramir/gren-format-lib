@@ -1,5 +1,63 @@
 module Formatter.Comments exposing (..)
 
+{-| Weave parse-context comments into the Logical Printing Tree.
+
+Comments are not part of the `Src.Module` AST. They flow through the parse
+`Ctx.Context` as a separate stream of located `Line` or `Block` strings,
+and have to be re-attached to the LPT before rendering — at the same
+logical position the author wrote them.
+
+# Strategy
+
+For each comment, in source order:
+
+1. **Find the top-level slot.** Scan the root's children — which are one
+   `OriginalRows` node per top-level declaration — for the one whose row
+   range covers the comment. If no declaration claims the row (a comment
+   between two functions, or trailing the file), splice in a fresh
+   `OriginalRows` at the right sorted position.
+
+2. **Descend to the owning subtree.** Walk down inside that slot, at each
+   level picking the deepest child whose subtree's row range still
+   contains the comment. Stop when no child can plausibly own the comment,
+   and insert it among the current node's children just after the last
+   child that ends before the comment's `(row, col)`.
+
+3. **Extend the row range for block comments.** Multi-line block comments
+   grow the enclosing `OriginalRows`' end row so the range still covers
+   the whole comment, keeping later comment placements and blank-line
+   insertion consistent.
+
+# Disambiguation
+
+Pure row-range containment is not enough — Gren source frequently has
+sibling subtrees that overlap on the same row. A few tie-breakers keep
+placement faithful:
+
+- A child whose subtree starts *after* the comment is never the owner,
+  even if its row range nominally contains the comment's row.
+- If a later sibling's first real token is at or before the comment, the
+  current child's apparent overlap is a false positive — the comment
+  really sits between the two siblings. (E.g. a comment between two
+  record types straddling a `->`.)
+- For `AcrossThenIndent` (a function-call argument flow), we also refuse
+  descent if the subtree ends *before* the comment, so a comment trailing
+  the call doesn't get sucked inside it.
+
+The insertion point also skips past synthesized (position-less) tokens at
+the boundary, so a comment never lands between a real token and a
+synthesized neighbour such as a generated `->` arrow.
+
+# Indent redirection
+
+When the insertion lands immediately before an `IndentedBlock` or a
+`PipelineStep`, the comment is pushed *inside* that wrapper as its first
+child rather than placed as a preceding sibling. Both wrappers add a
+newline and indent when rendered, so this nesting makes a comment at the
+start of an indented body render at the body's indentation level rather
+than the parent's.
+-}
+
 import Array.Builder as Builder
 
 import Compiler.Parse.Context as Ctx
