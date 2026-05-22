@@ -279,8 +279,8 @@ extremelyCommented ({ score, label } as wholeRecord) =
     in {-c46-} {-c47-}
     wholeRecord
         {-c48-}
-        {-c49-} |> {-c50-} {-c51-} {-c52-}
-            (\r -> {-c53-} {-c54-} {-c55-}
+        {-c49-} |> {-c50-} {-c51-}
+            (\{-c52-} r -> {-c53-} {-c54-} {-c55-}
                 if {-c56-} bumpedScore {-c57-} > {-c58-} 0 {-c59-} {-c60-} then
                         {-c61-} {-c62-} {-c63-} {-c64-}
                         { r

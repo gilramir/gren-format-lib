@@ -34,6 +34,14 @@ type Shape
     | Empty
 
 
+-- Bug F — a block comment between `\` and the first lambda pattern
+-- used to be hoisted out of the lambda head to a position before `\`.
+-- Now PrefixGlue carries a Located String so the prefix character has
+-- a source position, and the comment lands inside the lambda head.
+lambdaPrefix =
+    \ {- between backslash and first pattern -} x -> x
+
+
 type TrickyCmd msg
     = TrickyCmd (Task.Task Never msg)
 

@@ -127,7 +127,11 @@ lpBoxFields lpbox =
 
         PrefixGlue prefix ->
             [ { key = "type", value = Json.string "PrefixGlue" }
-            , { key = "prefix", value = Json.string prefix }
+            , { key = "prefix", value = Json.string prefix.value }
+            , { key = "startRow", value = Json.int prefix.start.row }
+            , { key = "startCol", value = Json.int prefix.start.col }
+            , { key = "endRow", value = Json.int prefix.end.row }
+            , { key = "endCol", value = Json.int prefix.end.col }
             ]
 
         SoftIndentedBlock ->

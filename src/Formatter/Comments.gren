@@ -405,6 +405,14 @@ firstRealPosition node =
                 BlockComment located ->
                     Just located.start
 
+                -- The prefix character (`\` for a lambda, `-` for a
+                -- negation) has its own source position; use it so a
+                -- comment between the prefix and its content can find
+                -- the PrefixGlue subtree during placement instead of
+                -- being treated as appearing before it.
+                PrefixGlue located ->
+                    Just located.start
+
                 _ ->
                     Nothing
     in

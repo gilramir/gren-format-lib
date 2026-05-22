@@ -652,7 +652,7 @@ makePDoc box children =
         PrefixGlue prefix ->
             when buildFlowDoc 0 children is
                 Err e -> Err e
-                Ok innerDoc -> Ok (P.concat (P.text prefix) innerDoc)
+                Ok innerDoc -> Ok (P.concat (P.text prefix.value) innerDoc)
         MultilineString lines ->
             let
                 tripleQuote = P.text "\"\"\""

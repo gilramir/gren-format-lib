@@ -157,7 +157,11 @@ type LPBox
     -- descends into nested containers and corrupts the AST (e.g.
     -- `-(n - 1)` would render as `(-n - 1)`); a record/array pattern
     -- would similarly land the prefix *inside* the brackets.
-    | PrefixGlue String
+    -- The prefix carries its own source position so the comment-
+    -- placement logic can anchor on it (otherwise a comment between
+    -- the prefix and its content lands outside the PrefixGlue
+    -- entirely).
+    | PrefixGlue (Located String)
 
     -- Let-def body: tries to keep children inline after `=`, but when it must
     -- break, places the body at +4 from the binding name's column.

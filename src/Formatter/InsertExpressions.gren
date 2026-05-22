@@ -153,8 +153,15 @@ insertExpression locExpr =
             -- The old approach of descending via tryMapFirstLeaf put the
             -- `-` *inside* a wrapping ParenBlock — e.g. `-(n - 1)`
             -- emitted as `(-n - 1)`, which has a different AST shape.
+            let
+                negLoc =
+                    { start = locExpr.start
+                    , end = { row = locExpr.start.row, col = locExpr.start.col + 1 }
+                    , value = "-"
+                    }
+            in
             insertExpression expr
-                |> Result.map (\nodes -> [lpnNode (PrefixGlue "-") nodes])
+                |> Result.map (\nodes -> [lpnNode (PrefixGlue negLoc) nodes])
 
         Src.Accessor string ->
             Ok [lpnLeaf (mkText locExpr.start ("." ++ string))]
@@ -289,11 +296,16 @@ insertExpression locExpr =
                         -- works for all pattern shapes including record ({ x, y })
                         -- and array ([ x, y ]) whose opening bracket is synthesised
                         -- during rendering and would be skipped by tryMapFirstLeaf.
+                        backslashLoc =
+                            { start = locExpr.start
+                            , end = { row = locExpr.start.row, col = locExpr.start.col + 1 }
+                            , value = "\\"
+                            }
                         updatedPatNodes =
                             when Array.popFirst patNodes is
                                 Nothing -> patNodes
                                 Just { first = firstPat, rest = restPats } ->
-                                    Array.pushFirst (lpnNode (PrefixGlue "\\") [firstPat]) restPats
+                                    Array.pushFirst (lpnNode (PrefixGlue backslashLoc) [firstPat]) restPats
                         arrowNode = lpnLeaf (SynthesizedText "->")
                     in
                     insertExpressionAsItem body
