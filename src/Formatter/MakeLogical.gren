@@ -524,12 +524,23 @@ processFunctionSignature locName maybeType root =
     when maybeType is
         Nothing ->
             Ok root
-        Just { start = _, type_ = locType } ->
+        Just { start = sigStart, type_ = locType } ->
             makeSignatureBranch locType
                 |> Result.map (\typeNodes ->
                     let
-                        nameNode = lpnLeaf (mkTextFromLocString locName)
-                        colonNode = lpnLeaf (mkText (incCol 1 locName.end) ":")
+                        -- `locName` is the AST's `name` location, which always
+                        -- points at the *definition's* name (the second
+                        -- occurrence in a `foo : T\nfoo = …` shape). Use the
+                        -- signature's own `start` position for the name node
+                        -- so the StFunctionSignature OriginalRows' row range
+                        -- doesn't stretch all the way down to the definition
+                        -- — that would suck a line comment sitting between
+                        -- signature and definition into the signature row.
+                        nameLen = String.count locName.value
+                        sigNameEnd = { row = sigStart.row, col = sigStart.col + nameLen }
+                        nameNode =
+                            lpnLeaf (UnbreakableText { start = sigStart, end = sigNameEnd, value = locName.value })
+                        colonNode = lpnLeaf (mkText (incCol 1 sigNameEnd) ":")
                         allChildren = [nameNode, colonNode] ++ typeNodes
                         origRow =
                             makeOrigRows locType.start.row StFunctionSignature allChildren

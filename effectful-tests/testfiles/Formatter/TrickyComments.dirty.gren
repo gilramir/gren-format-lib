@@ -68,6 +68,21 @@ backwardPipe x =
         <| "?"
 
 
+-- Bug J — a line comment between a function's type signature and its
+-- definition used to be indented +4 (as a continuation of the
+-- signature) and to leave a stray indented blank line. The signature's
+-- OriginalRows row range had been stretching from the signature line
+-- all the way down to the definition because the AST's `name`
+-- location points at the definition's name (not the signature's). The
+-- signature's name node now uses the AST-supplied `signature.start`
+-- instead, so the OriginalRows row range stops at the signature line
+-- and the comment lands at root level between the two declarations.
+sigToDef : Int -> Int
+-- a comment that lands between the signature and the definition
+sigToDef x =
+    x
+
+
 type TrickyCmd msg
     = TrickyCmd (Task.Task Never msg)
 
