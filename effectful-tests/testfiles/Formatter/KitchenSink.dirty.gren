@@ -32,6 +32,12 @@ import Result.Extra as ResultExtra
 import   String   exposing ( fromInt, toInt, toUpper, toLower, trim, words )
 import Task exposing(Task)
 
+infix left  6 (+) = add
+infix left  6 (-) = sub
+infix left  7 (*) = mul
+infix non   4 (==) = eq
+infix right 5 (<|) = apL
+
 -- A simple line comment introducing the next section.
 {- A multi-line block comment that should be preserved as-is even though
    it contains things that look almost like   code:
