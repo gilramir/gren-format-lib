@@ -884,3 +884,24 @@ foo1 = 1
 
 foo2 = 2
 ```
+
+### Known limitation: comments at elided-token positions
+
+Comment placement is position-driven: a comment is attached according to its
+source `(row, col)` relative to the positioned tokens around it. Several
+structural tokens — the `as` keyword and import-alias name, `|`, `=`, `:`, the
+`where`-block field keywords, bracket characters — are matched and discarded by
+the parser and carry **no position in the AST**. The formatter synthesizes one,
+assuming single-space, single-line layout. When the author's layout deviates
+(extra whitespace, a line break, or a comment sitting in the gap), the
+synthesized position lands on the wrong side of the comment and it is misplaced
+or — for import aliases, where neither `as` nor the alias name is positioned —
+evicted entirely, with two distinct author intents collapsing to one output.
+
+These cases are pinned by `Ambiguous` and `AmbiguousEffectModule` in the
+effectful suite. Their `.formatted.gren` baselines capture the **current
+(incorrect)** output deliberately, as regression guards; each `.dirty.gren`
+annotates what the author intended versus what the formatter produces. The fix
+is to carry the elided tokens' real positions through `Compiler.Parse.Context`
+(see `proposal-context-token-2.md` at the repo root); when that lands, those two
+baselines should be updated to the faithful placement.

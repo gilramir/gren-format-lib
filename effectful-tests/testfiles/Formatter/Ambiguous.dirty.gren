@@ -1,0 +1,67 @@
+module Ambiguous exposing (..)
+
+-- This file documents KNOWN-AMBIGUOUS / MISPLACED comment positions: spots
+-- whose faithful handling needs an elided token's real source location (the
+-- `as` keyword, the import alias name, `|`, `=`, `:`, ...) which the AST does
+-- not carry. See proposal-context-token-2.md.
+--
+-- The matching .formatted.gren is the formatter's CURRENT (incorrect) output,
+-- captured as a regression guard. When elided-token positions are carried in
+-- Compiler.Parse.Context these expectations should be updated to the faithful
+-- placement. (The effect-module `where` case is in AmbiguousEffectModule
+-- because it needs a different module header.)
+
+-- Case 1 — import alias. Comment authored between `as` and the alias `Bar`.
+-- Neither `as` nor the alias (a bare String in the AST) has a position, so the
+-- comment is evicted past the whole import line. The mirror-image intent
+-- (comment between `Foo` and `as`) collapses to this same output: the two
+-- placements are indistinguishable.
+import Foo as
+    {- authored between `as` and `Bar` -}
+    Bar
+
+
+-- Case 2 — as-pattern. Comment authored AFTER `as`, with extra spaces. The
+-- `name.start.col - 3` synthesis assumes one space before `as`, so the wrong
+-- column moves the comment to BEFORE `as`.
+unwrap x =
+    when x is
+        ({ a } as   {- authored after `as` -}   whole) ->
+            whole
+
+
+-- Case 3 — extensible record `|` (type). Comment authored AFTER `|`; the
+-- synthesized `|` position moves it to BEFORE `|`.
+field :
+    { r |   {- authored after `|` -}   name : String }
+    -> String
+field r =
+    r.name
+
+
+-- Case 4 — record update `|`. Comment authored AFTER `|`, inside the braces; it
+-- is evicted OUT of the braces, before the whole update expression.
+relabel rec =
+    { rec |   {- authored after `|` -}   name = 1 }
+
+
+-- Case 5 — union variant `|`. Comment authored AFTER `|` (between `|` and `B`);
+-- it moves to BEFORE `|`.
+type T
+    = A
+    |
+    {- authored after `|` -}
+    B
+
+
+-- Case 6 — declaration `=`. Comment authored BEFORE `=` (between the name and
+-- `=`), with extra spaces; the synthesized `=` moves it to AFTER `=`.
+six   {- authored before `=` -}   =
+    42
+
+
+-- Case 7 — signature `:`. Comment authored BEFORE `:` (between the name and
+-- `:`), with extra spaces; the synthesized `:` moves it to AFTER `:`.
+seven   {- authored before `:` -}   : Int
+seven =
+    7
