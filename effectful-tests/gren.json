@@ -11,7 +11,7 @@
             "gilramir/gren-diff": "1.0.1",
             "gilramir/gren-pretty-expressive": "2.0.1",
             "gren-lang/compiler-node": "local:..",
-            "gren-lang/core": "7.4.0",
+            "gren-lang/core": "7.4.2",
             "gren-lang/compiler-common": "local:../../compiler-common",
             "gren-lang/node": "6.1.0",
             "gren-lang/parser": "6.2.0",
