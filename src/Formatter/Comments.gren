@@ -239,7 +239,7 @@ insertCommentIntoSubtree commentNode row col node =
                             childChildren = lpnChildren child
                             laterSiblingClaims = anyLaterSiblingStartsAtOrBefore (acc.index + 1)
                         in
-                        if (not (Array.isEmpty childChildren) || isEmptyBracketedNode child)
+                        if (not (Array.isEmpty childChildren) || commentInsideEmptyBracket child row col)
                             && subtreeContainsRow child row
                             && not (subtreeStartsAfter child row col)
                             && not laterSiblingClaims
@@ -365,16 +365,19 @@ isPrefixGlueNode node =
         _ -> False
 
 
--- True if the node is an EmptyBracketed literal. An empty literal has
--- no LPT children by construction, but we want to ALLOW descent into
--- it so a comment whose source position falls inside the brackets can
--- become its first (and usually only) child — letting the renderer
--- emit `{ {- c -} }` rather than `{} {- c -}`.
-isEmptyBracketedNode : LPNode -> Bool
-isEmptyBracketedNode node =
+-- True if the node is an EmptyBracketed literal AND the comment sits *before*
+-- its closing bracket — i.e. genuinely between the brackets. We then allow
+-- descent so the comment becomes the literal's child and renders inside
+-- (`{ {- c -} }` rather than `{} {- c -}`). A comment past the closing bracket
+-- (`[] {- c -}`) must NOT be absorbed: doing so flips it to `[ {- c -} ]` on
+-- reparse (non-idempotent). The closing position is `loc.end`.
+commentInsideEmptyBracket : LPNode -> Int -> Int -> Bool
+commentInsideEmptyBracket node row col =
     when lpnBox node is
-        EmptyBracketed _ -> True
-        _ -> False
+        EmptyBracketed loc ->
+            row < loc.end.row || (row == loc.end.row && col < loc.end.col)
+        _ ->
+            False
 
 
 -- True if the node is a non-empty bracket-list LPBox whose children
