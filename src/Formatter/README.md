@@ -867,7 +867,9 @@ value =
         |> process
 ```
 
-This matters most for a comment that leads a binding or branch: because the comment ends its own line, the following token starts fresh at the correct column instead of being glued onto the `-}` line. (A *single-line* `{- … -}` standing alone before a non-first `let` binding can still mis-glue; that pre-existing, non-multiline case is tracked in `MultilineBroken.gren` at the repo root.)
+This matters most for a comment that leads a binding or branch: because the comment ends its own line, the following token starts fresh at the correct column instead of being glued onto the `-}` line.
+
+A *single-line* block comment standing alone on its own line (e.g. before a non-first `let` binding) is handled the same way — it breaks onto its own line so the binding starts fresh. A single-line block comment that *continues* a line stays inline (`a * {- c -} b`, a binop right-hand side, a `( … )` body). The flow builder distinguishes the two via an `inlineStart` flag threaded into the inline-continuation contexts.
 
 ### Doc comments (`{-| ... -}`)
 

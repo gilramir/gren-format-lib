@@ -169,6 +169,7 @@ commentsTests fsPerm =
         , assertPretty fsPerm "backward pipeline and operator-rhs gap comments" "PipelineAndGlueComments"
         , assertPretty fsPerm "doc/line/block adjacency and inter-declaration comments" "EdgeCaseComments"
         , assertPretty fsPerm "previously-mishandled comment placements (bugs A–K)" "TrickyComments"
+        , assertPretty fsPerm "standalone block comment before a non-first let binding" "LetBindingComments"
         , assertPretty fsPerm "canonical rendering of comments at elided-token positions" "Ambiguous"
         , assertPretty fsPerm "canonical rendering of a comment in an effect-module where block" "AmbiguousEffectModule"
         ]

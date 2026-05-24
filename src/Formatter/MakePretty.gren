@@ -403,6 +403,27 @@ renderBlockNode rule acc nodeChildren =
 -}
 buildFlowDoc : Int -> Array LPNode -> Result String (P.Doc cost)
 buildFlowDoc indent nodes =
+    buildFlowDocImpl indent False nodes
+
+
+-- Like `buildFlowDoc`, but for a flow that continues on the *same line* as a
+-- token the caller already emitted (e.g. a binop RHS after its operator, or
+-- the body of a `( … )`). A leading single-line block comment there is part
+-- of that line and stays inline, rather than being treated as a standalone
+-- own-line comment that forces a break.
+buildFlowDocInline : Int -> Array LPNode -> Result String (P.Doc cost)
+buildFlowDocInline indent nodes =
+    buildFlowDocImpl indent True nodes
+
+
+-- `inlineStart` says whether the first node of this flow continues a line the
+-- caller already started. It only affects a *leading single-line* block
+-- comment: in an inline context it stays inline; otherwise (a block/vertical
+-- context such as a `let` binding) it is standalone and forces the following
+-- token onto its own line at the correct column. Multi-line block comments
+-- always force the break regardless.
+buildFlowDocImpl : Int -> Bool -> Array LPNode -> Result String (P.Doc cost)
+buildFlowDocImpl indent inlineStart nodes =
     let
         -- separator: either "same line with space" or "new line with indent"
         flowSep accDoc nextDoc =
@@ -453,14 +474,19 @@ buildFlowDoc indent nodes =
                                        }
 
                                 BlockComment loc ->
-                                    if isMultiLineCommentValue loc.value then
-                                        -- A multi-line block comment is treated like a
-                                        -- SingleLineComment for flow purposes: it goes on its
-                                        -- own line (or attaches to the same-row item) and ends
-                                        -- with a hardNl, so the next item starts fresh at the
-                                        -- correct column instead of being glued onto the
-                                        -- comment's `-}` line (which, before a non-first `let`
-                                        -- binding, produced output that no longer parsed).
+                                    let
+                                        -- A block comment forces an own-line break (so the next
+                                        -- token starts fresh at the right column) when it is
+                                        -- multi-line, OR when it is a standalone leading comment
+                                        -- in a vertical context — the first item of a flow that
+                                        -- does not continue a line the caller already started
+                                        -- (e.g. before a non-first `let` binding). A single-line
+                                        -- block comment that continues a line stays inline
+                                        -- (`a * {- c -} b`, a binop RHS, a `( … )` body).
+                                        standaloneLeading =
+                                            acc.separator == FirstItem && not inlineStart
+                                    in
+                                    if isMultiLineCommentValue loc.value || standaloneLeading then
                                         let
                                             commentText = commentBoxDoc box
                                             docWithComment =
@@ -481,11 +507,7 @@ buildFlowDoc indent nodes =
                                            , prevBranchMultiLine = False
                                            }
                                     else
-                                        -- Single-line block comment: keep the inline flow
-                                        -- behavior (`a * {- c -} b`). (A standalone single-line
-                                        -- block comment before a non-first `let` binding can
-                                        -- still mis-glue — a pre-existing, non-multiline issue
-                                        -- tracked in MultilineBroken.gren.)
+                                        -- Single-line block comment continuing a line: inline.
                                         when makePDoc box nodeChildren is
                                             Err e -> Err e
                                             Ok itemDoc ->
@@ -734,7 +756,7 @@ makePDoc box children =
         SoftBodyBlock ->
             buildFlowDoc 0 children
         ParenBlock ->
-            when buildFlowDoc 0 children is
+            when buildFlowDocInline 0 children is
                 Err e -> Err e
                 Ok innerDoc -> Ok (P.concat (P.text "(") (P.concat innerDoc (P.text ")")))
         OpAndRhs ->
@@ -742,21 +764,21 @@ makePDoc box children =
                 Just { first = opNode, rest = rhsNodes } ->
                     when lpnBox opNode is
                         UnbreakableText opLoc ->
-                            when buildFlowDoc 0 rhsNodes is
+                            when buildFlowDocInline 0 rhsNodes is
                                 Err e -> Err e
                                 Ok rhsDoc -> Ok (P.concat (P.text (opLoc.value ++ " ")) rhsDoc)
                         SynthesizedText opStr ->
-                            when buildFlowDoc 0 rhsNodes is
+                            when buildFlowDocInline 0 rhsNodes is
                                 Err e -> Err e
                                 Ok rhsDoc -> Ok (P.concat (P.text (opStr ++ " ")) rhsDoc)
                         _ -> Err "OpAndRhs: first child must be a text operator"
                 Nothing -> Err "OpAndRhs: empty children"
         AlignedFlow ->
-            when buildFlowDoc 0 children is
+            when buildFlowDocInline 0 children is
                 Err e -> Err e
                 Ok innerDoc -> Ok (P.align innerDoc)
         PrefixGlue prefix ->
-            when buildFlowDoc 0 children is
+            when buildFlowDocInline 0 children is
                 Err e -> Err e
                 Ok innerDoc -> Ok (P.concat (P.text prefix.value) innerDoc)
         MultilineString located ->

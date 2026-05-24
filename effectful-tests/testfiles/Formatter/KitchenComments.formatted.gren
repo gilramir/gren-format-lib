@@ -182,7 +182,8 @@ reprice rawMultiplier ({ items, flags } as inboundCart) =
         -- nested ifs with comments at each branch
         
             if rawMultiplier < 0.0 then
-                {- block comment inside an if-branch -} 0.0
+                {- block comment inside an if-branch -}
+                0.0
             else if rawMultiplier > 10.0 then
                 -- single-line comment inside an else-if
                 10.0
@@ -243,7 +244,8 @@ torturedComments primaryIntValue secondaryStringValue tertiaryBoolValue =
                 String.append secondaryStringValue
                     {- block comment between function and its argument -} "!"
             else
-                {- block comment between `else` and body -} secondaryStringValue
+                {- block comment between `else` and body -}
+                secondaryStringValue
     in {- block comment between `in` and the body -}
     when {- inline comment between `when` and the scrutinee -} bumpedValue is
         {- inline comment between scrutinee and `is` -}
@@ -278,15 +280,19 @@ extremelyCommented {-c22-} {-c23-} {-c24-}
         , label {-c27-}
         } {-c28-} {-c29-} as wholeRecord) = {-c30-} {-c31-} {-c32-}
     let
-        {-c33-} {-c34-} bumpedScore = {-c35-} {-c36-} score {-c37-} + {-c38-} 1 {-c39-}
-        {-c40-} expandedLabel = {-c41-} {-c42-} label {-c43-} ++ {-c44-} "!" {-c45-}
+        {-c33-}
+        {-c34-} bumpedScore = {-c35-} {-c36-} score {-c37-} + {-c38-} 1 {-c39-}
+        {-c40-}
+        expandedLabel = {-c41-} {-c42-} label {-c43-} ++ {-c44-} "!" {-c45-}
     in {-c46-} {-c47-}
     wholeRecord
         {-c48-}
-        {-c49-} |> {-c50-} {-c51-}
+        {-c49-}
+            |> {-c50-} {-c51-}
             (\{-c52-} r -> {-c53-} {-c54-} {-c55-}
                 if {-c56-} bumpedScore {-c57-} > {-c58-} 0 {-c59-} {-c60-} then
-                        {-c61-} {-c62-}
+                        {-c61-}
+                        {-c62-}
                         { r
                             {-c63-}
                             {-c64-}
@@ -298,17 +304,21 @@ extremelyCommented {-c22-} {-c23-} {-c24-}
                             {-c72-}
                         }
                     else
-                        {-c73-} {-c74-}
+                        {-c73-}
+                        {-c74-}
                         when {-c75-} score is
-                            {-c76-} {-c77-} {-c78-}
+                            {-c76-}
+                            {-c77-} {-c78-}
 
                             0 -> {-c79-} {-c80-} {-c81-} {-c82-} {-c83-} {-c84-}
-                                { {-c85-} r | label = {-c86-} "zero" {-c87-}
+                                { {-c85-}
+                                    r | label = {-c86-} "zero" {-c87-}
                                 } {-c88-} {-c89-}
                             _ -> {-c90-} {-c91-} r {-c92-})
 
         {-c93-}
-        {-c94-} |> {-c95-} (\finalRecord -> {-c96-} {-c97-} finalRecord {-c98-} {-c99-})
+        {-c94-}
+            |> {-c95-} (\finalRecord -> {-c96-} {-c97-} finalRecord {-c98-} {-c99-})
 
 {-| Pick the best discount from a list of candidate codes. -}
 
