@@ -180,5 +180,6 @@ kitchenSinkTests fsPerm =
         [ assertPretty fsPerm "every AST construct in one file" "KitchenSink"
         , assertPretty fsPerm "comments at every position in one file" "KitchenComments"
         , assertPretty fsPerm "3-line block comments at every round-tripping position" "MultilineBlockComments"
+        , assertPretty fsPerm "3-line block comment in an effect-module where block" "MultilineEffectModule"
         ]
 
