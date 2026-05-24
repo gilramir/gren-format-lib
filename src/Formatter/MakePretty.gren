@@ -1165,19 +1165,57 @@ renderHeaderIndentedBodyDoc emptyError buildBody children =
                 )
 
 
+-- Render a top-level comment-line OriginalRows. Usually it holds a single
+-- comment, but comment placement merges comments that share a source row (or
+-- fall within a multi-line block comment's row span) into one OriginalRows —
+-- e.g. `{- a -} {- b -}` on one line. So render every comment child: join two
+-- block comments on the same row with a space, otherwise with a hardNl, and
+-- always break after a `--` line comment (which consumes the rest of its line).
 makeCommentLineDoc_ : Array LPNode -> Result String (P.Doc P.DefaultCostTuple)
 makeCommentLineDoc_ children =
-    when Array.popFirst children is
-        Just { first = first, rest = rest } ->
-            if Array.isEmpty rest then
-                if nodeIsComment first || isDocCommentNode first then
-                    Ok (commentNodeDoc first)
-                else
-                    Err "Unexpected node type in comment line"
-            else
-                Err "Too many nodes in comment line"
-        Nothing ->
-            Err "No nodes in comment line"
+    let
+        commentInfo node =
+            when lpnBox node is
+                SingleLineComment loc -> Just { row = loc.start.row, isLine = True }
+                BlockComment loc -> Just { row = loc.start.row, isLine = False }
+                DocComment loc -> Just { row = loc.start.row, isLine = False }
+                _ -> Nothing
+    in
+    Array.foldl
+        (\node accResult ->
+            when accResult is
+                Err e -> Err e
+                Ok acc ->
+                    when commentInfo node is
+                        Nothing ->
+                            Err "Unexpected node type in comment line"
+                        Just info ->
+                            let
+                                commentDoc = commentNodeDoc node
+                            in
+                            when acc.doc is
+                                Nothing ->
+                                    Ok { doc = Just commentDoc, prevRow = info.row, prevLine = info.isLine }
+                                Just prevDoc ->
+                                    let
+                                        separator =
+                                            if acc.prevLine || info.row /= acc.prevRow then
+                                                P.hardNl
+                                            else
+                                                P.text " "
+                                    in
+                                    Ok { doc = Just (P.concat prevDoc (P.concat separator commentDoc))
+                                       , prevRow = info.row
+                                       , prevLine = info.isLine
+                                       }
+        )
+        (Ok { doc = Nothing, prevRow = -1, prevLine = False })
+        children
+        |> Result.andThen (\acc ->
+            when acc.doc is
+                Nothing -> Err "No nodes in comment line"
+                Just d -> Ok d
+        )
 
 
 listBoxesWithBrackets : String -> String -> Array LPNode -> Result String (P.Doc cost)
