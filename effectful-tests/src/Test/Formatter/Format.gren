@@ -68,34 +68,6 @@ readTestFile fsPerm filename =
 
 assertPretty : FileSystem.Permission -> String -> String -> Effectful.Test
 assertPretty fsPerm testDescription filenameBase =
-    assertPrettyHelp True fsPerm testDescription filenameBase
-
-
-{-| Like `assertPretty`, but without the idempotency sub-test. Reserved for
-the maximal "comment in every gap" torture fixture (KitchenComments).
-
-Its bracket-placement non-idempotency has been fixed (record updates,
-signature braces). Two residual cases remain, both *comment-indentation
-migration* under extreme nesting, NOT elided-token or bracket placement:
-
-  * a comment between an `if` condition and `then` renders at the condition's
-    doubled indent but, once wrapped below the `then` line, reattaches to the
-    branch body's indent on reparse; and
-
-  * a `--` comment inside a deeply-nested destructuring lambda head shifts the
-    wrapped parameter by one column (a PrettyExpressive nest-base difference).
-
-Neither reproduces outside this exact deep context, and the obvious guard for
-the first regresses `else if` comments. Every other fixture — including all
-realistic comment cases and the other torture files — is held to idempotency.
--}
-assertPrettyNoIdempotency : FileSystem.Permission -> String -> String -> Effectful.Test
-assertPrettyNoIdempotency fsPerm testDescription filenameBase =
-    assertPrettyHelp False fsPerm testDescription filenameBase
-
-
-assertPrettyHelp : Bool -> FileSystem.Permission -> String -> String -> Effectful.Test
-assertPrettyHelp checkIdempotency fsPerm testDescription filenameBase =
     let
         dirtyFilename = filenameBase ++ ".dirty.gren"
         prettyFilename = filenameBase ++ ".formatted.gren"
@@ -109,39 +81,29 @@ assertPrettyHelp checkIdempotency fsPerm testDescription filenameBase =
         <| \{ ast = ast1, rendered = rendered } ->
             await ("reading expected " ++ prettyFilename) (readTestFile fsPerm prettyFilename)
         <| \expectedFormatting ->
-            let
-                coreTests =
-                    [ test "formatting" <| \_ ->
-                        Expect.equal rendered expectedFormatting
-                            |> Expect.onFail (unifiedDiffStrings expectedFormatting rendered)
-                    , test "AST equivalence" <| \_ ->
-                        when Parser.run reparser Context.empty rendered is
-                            Err errs ->
-                                Expect.fail ("Could not reparse formatted output: " ++ PM.errorsToString rendered errs)
-                            Ok { ast = ast2, payload = _ } ->
-                                when AstCompare.compareModules ast1 ast2 is
-                                    Ok {} ->
-                                        Expect.pass
-                                    Err explanation ->
-                                        Expect.fail ("AST mismatch: " ++ explanation)
-                    ]
-
-                idempotencyTest =
-                    test "idempotency" <| \_ ->
-                        -- Formatting must be a fixed point: re-formatting the
-                        -- already-formatted file must reproduce the exact same
-                        -- Module and Context (so no declaration moved and no
-                        -- comment shifted). Comparing positions also catches
-                        -- blank-line churn, since an added/removed blank line
-                        -- shifts the rows of everything after it.
-                        checkIdempotent expectedFormatting
-            in
             describe testDescription
-                (if checkIdempotency then
-                    Array.pushLast idempotencyTest coreTests
-                 else
-                    coreTests
-                )
+                [ test "formatting" <| \_ ->
+                    Expect.equal rendered expectedFormatting
+                        |> Expect.onFail (unifiedDiffStrings expectedFormatting rendered)
+                , test "AST equivalence" <| \_ ->
+                    when Parser.run reparser Context.empty rendered is
+                        Err errs ->
+                            Expect.fail ("Could not reparse formatted output: " ++ PM.errorsToString rendered errs)
+                        Ok { ast = ast2, payload = _ } ->
+                            when AstCompare.compareModules ast1 ast2 is
+                                Ok {} ->
+                                    Expect.pass
+                                Err explanation ->
+                                    Expect.fail ("AST mismatch: " ++ explanation)
+                , test "idempotency" <| \_ ->
+                    -- Formatting must be a fixed point: re-formatting the
+                    -- already-formatted file must reproduce the exact same
+                    -- Module and Context (so no declaration moved and no
+                    -- comment shifted). Comparing positions also catches
+                    -- blank-line churn, since an added/removed blank line
+                    -- shifts the rows of everything after it.
+                    checkIdempotent expectedFormatting
+                ]
 
 
 -- Parse a source string into its Module AST and parse Context, or an error.
@@ -297,7 +259,7 @@ kitchenSinkTests : FileSystem.Permission -> Effectful.Test
 kitchenSinkTests fsPerm =
     describe "Kitchen sink"
         [ assertPretty fsPerm "every AST construct in one file" "KitchenSink"
-        , assertPrettyNoIdempotency fsPerm "comments at every position in one file" "KitchenComments"
+        , assertPretty fsPerm "comments at every position in one file" "KitchenComments"
         , assertPretty fsPerm "3-line block comments at every round-tripping position" "MultilineBlockComments"
         , assertPretty fsPerm "3-line block comment in an effect-module where block" "MultilineEffectModule"
         ]

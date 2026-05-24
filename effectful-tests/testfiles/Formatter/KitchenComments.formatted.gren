@@ -90,7 +90,7 @@ processOrder ({ identifier, items, appliedDiscounts, flags } as inboundCart) =
                             |> Array.foldl
                                 (\{ basisPoints }
                                     -- comment inside a destructuring lambda head
-                                     accumulatingFactor ->
+                                    accumulatingFactor ->
                                     accumulatingFactor * (1.0 - (toFloat basisPoints / 10000.0)))
                                 -- comment before the second argument to Array.foldl
                                 1.0

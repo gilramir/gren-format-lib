@@ -244,7 +244,7 @@ insertCommentIntoSubtree commentNode row col node =
                             && not (subtreeStartsAfter child row col)
                             && not laterSiblingClaims
                             && not
-                                ((isAcrossThenIndentNode child || isItemBracketListNode child || isIfConditionNode child)
+                                ((isAcrossThenIndentNode child || isItemBracketListNode child || isIfConditionNode child || isPrefixGlueNode child)
                                     && subtreeEndsBefore child row col
                                     && not (commentInsideTrailingBracket child row col)
                                 ) then
@@ -347,6 +347,21 @@ isIfConditionNode : LPNode -> Bool
 isIfConditionNode node =
     when lpnBox node is
         IfCondition -> True
+        _ -> False
+
+
+-- True for a `PrefixGlue` node (the `\`-glued first lambda pattern, or unary
+-- `-`). A comment past its content — e.g. between a record-destructuring first
+-- parameter `\{ x }` and the next parameter — must not descend into it (which
+-- would tuck the comment inside the pattern and let the next parameter's
+-- flow-separator append it with a leading space, shifting that parameter by one
+-- column non-idempotently). Refusing descent keeps the comment a sibling in the
+-- lambda head. A comment genuinely inside the glued bracket (before its closing
+-- bracket) still descends, via the `commentInsideTrailingBracket` exception.
+isPrefixGlueNode : LPNode -> Bool
+isPrefixGlueNode node =
+    when lpnBox node is
+        PrefixGlue _ -> True
         _ -> False
 
 
