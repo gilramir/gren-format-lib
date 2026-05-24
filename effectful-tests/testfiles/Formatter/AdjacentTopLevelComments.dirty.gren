@@ -1,0 +1,14 @@
+module AdjacentTopLevelComments exposing (..)
+
+
+-- Regression guard: two comments sharing a top-level source row (or a
+-- multi-line block comment followed by a trailing comment) are merged into one
+-- comment-line OriginalRows. The renderer must handle more than one comment in
+-- that line rather than erroring with "Too many nodes in comment line".
+{- a -} {- b -}
+first = 1
+
+
+{- multi
+   line -} {- trailing -}
+second = 2
