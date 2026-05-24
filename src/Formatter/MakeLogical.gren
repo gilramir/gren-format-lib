@@ -131,7 +131,14 @@ processModuleLine modAst root =
         -- span and sort before it, escaping to before the module keyword —
         -- which does not parse. Anchored zero-width at column 1, any header
         -- comment sorts after it instead.
-        n1 = lpnLeaf (mkZeroWidthText { row = modAst.name.start.row, col = 1 } keyword)
+        --
+        -- Row 1, NOT the module name's row: the keyword always renders on the
+        -- module's first output row, but a long header comment can push the
+        -- name onto a continuation row (`effect module {- … -}⏎    Name …`).
+        -- Anchoring at the name's row would then place the keyword *below* a
+        -- comment on row 1, so the comment would sort before the keyword and
+        -- escape ahead of it on reparse (non-idempotent, and unparseable).
+        n1 = lpnLeaf (mkZeroWidthText { row = 1, col = 1 } keyword)
         n2 = lpnLeaf (mkTextFromLocString modAst.name)
 
         -- For effect modules, emit a `where { ... }` block between the
@@ -250,8 +257,14 @@ processModuleLine modAst root =
                 Src.Open ->
                     False
 
+        -- The module line's range starts at row 1, the keyword's row (see n1),
+        -- NOT the module name's row. A long header comment can push the name
+        -- onto row 2; if `first` were the name's row, a comment on row 1
+        -- (between the keyword and the name) would fall before the module
+        -- line's range and be re-attached as a top-level comment *ahead* of the
+        -- module keyword on reparse — which does not parse (non-idempotent).
         base =
-            makeOrigRows modAst.name.start.row StModule ([n1, n2] ++ whereNodes ++ [n3, n4])
+            makeOrigRows 1 StModule ([n1, n2] ++ whereNodes ++ [n3, n4])
 
         origRow =
             if exposingClosesBelow then
