@@ -17,10 +17,10 @@ are recorded in MultilineBroken.gren at the repo root. This doc comment also
 covers the module-doc position. -}
 
 -- a line comment before the import block
-import Array {- 3 a
-               3 b
-               3 c -}
-    exposing ( Array )
+import Array exposing {- 3 a
+                        3 b
+                        3 c -}
+    ( Array )
 import Dict
 {- 4 a
    4 b
@@ -57,22 +57,21 @@ type Shape
                 9 c -}
      Int Int
 
-port output {- 45 a
-              45 b
-              45 c -}
-    :
+port output : {- 45 a
+                45 b
+                45 c -}
     {- 46 a
       46 b
       46 c -}
     String -> Cmd msg
 
 
-sig : Int {- 10 a
-             10 b
-             10 c -}
-    -> Array {- 11 a
-                11 b
-                11 c -}
+sig : Int -> {- 10 a
+                10 b
+                10 c -}
+    Array {- 11 a
+             11 b
+             11 c -}
     String ->
     { a
         {- 12 a

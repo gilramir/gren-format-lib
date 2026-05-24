@@ -11,7 +11,7 @@ import Compiler.SourcePosition exposing (Located, Position)
 import Formatter.LogicalPrintingTree exposing (LPBox(..),
     LPNode(..), ListBrackets(..), lpnBox, lpnChildren, lpnLeaf, lpnNode)
 import Formatter.LPTHelpers exposing
-    ( mkText, mkTextFromLocString, incCol, resultFoldl, fixupParensChildrenNodes
+    ( mkText, mkZeroWidthText, mkTextFromLocString, resultFoldl, fixupParensChildrenNodes
     )
 
 
@@ -60,8 +60,12 @@ makeSignatureBranch locType =
                     makeSignatureBranch to
                         |> Result.map (\toNodes ->
                             let
-                                arrowLoc = incCol 1 from.end
-                                arrowNode = lpnLeaf (mkText arrowLoc "->")
+                                -- The `->` has no AST position. Anchor it
+                                -- zero-width at the end of the `from` type (a
+                                -- real position) so a comment in the gap
+                                -- always sorts after it, stably across
+                                -- reformats. See LPTHelpers.mkZeroWidthText.
+                                arrowNode = lpnLeaf (mkZeroWidthText from.end "->")
                             in
                             fromNodes ++ [arrowNode] ++ toNodes
                         )

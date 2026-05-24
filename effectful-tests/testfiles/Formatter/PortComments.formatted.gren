@@ -15,7 +15,7 @@ port receive : (Value -> msg) -> Sub msg
 port {- between port keyword and name -} ping : Cmd msg
 
 -- comment between the port name and its `:`
-port pong {- between port name and colon -} : Cmd msg
+port pong : {- between port name and colon -} Cmd msg
 
 -- comment between the `:` and the port type
 port flush : {- between colon and port type -} (Value -> msg) -> Sub msg

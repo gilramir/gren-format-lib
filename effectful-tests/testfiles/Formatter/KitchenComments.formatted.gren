@@ -18,7 +18,7 @@ module KitchenComments exposing
 -}
 
 -- a line comment before the import block
-import Array {- block comment between Array and exposing -} exposing ( Array )
+import Array exposing {- block comment between Array and exposing -} ( Array )
 import Dict
 -- a single-line comment between two imports
 import Math
@@ -221,15 +221,14 @@ reprice rawMultiplier ({ items, flags } as inboundCart) =
               }
     }
 
+
 {-| A function whose only purpose is to scatter comments in places the
     other functions don't already cover: between function-call arguments,
     around `->` in signatures, around `=` and `in` in let-bindings, around
     `if`/`then`, around `when`/`is`, and between case-arrow and body. -}
-
-
-torturedComments : Int -- comment after the first parameter type
-    -> {- block comment before the arrow -} String -- comment between -> and the next type
-    -> {- block comment between -> and Bool -} Bool
+torturedComments : Int -> -- comment after the first parameter type
+    {- block comment before the arrow -} String -> -- comment between -> and the next type
+    {- block comment between -> and Bool -} Bool
 torturedComments primaryIntValue secondaryStringValue tertiaryBoolValue =
     let
         {- block comment between `let` and the first binding -}
@@ -265,11 +264,11 @@ torturedComments primaryIntValue secondaryStringValue tertiaryBoolValue =
 {-| EXTREME case: one function that uses let, when, if, record destructuring,
     record updating, and pipelines — with a multi-line `{- -}` comment crammed
     into every whitespace position between tokens. -}
-extremelyCommented {-c1-} : {-c2-} {-c3-}
+extremelyCommented : {-c1-} {-c2-} {-c3-}
     { score : {-c4-} {-c5-} Int {-c6-}
     {-c7-}
     , label : {-c8-} {-c9-} String {-c10-}
-    } {-c11-} -> {-c12-} {-c13-}
+    } -> {-c11-} {-c12-} {-c13-}
     { score : {-c14-} {-c15-} Int {-c16-}
     {-c17-}
     , label : {-c18-} {-c19-} String {-c20-}
@@ -320,12 +319,10 @@ extremelyCommented {-c22-} {-c23-} {-c24-}
         {-c94-}
             |> {-c95-} (\finalRecord -> {-c96-} {-c97-} finalRecord {-c98-} {-c99-})
 
+
 {-| Pick the best discount from a list of candidate codes. -}
-
-
-bestDiscount : Array { code : String, basisPoints : Int }
-    -- comment after one parameter type
-    -> Maybe { code : String, basisPoints : Int }
+bestDiscount : Array { code : String, basisPoints : Int } -> -- comment after one parameter type
+    Maybe { code : String, basisPoints : Int }
 bestDiscount candidateDiscounts =
     candidateDiscounts
         -- comment leading into a long pipeline

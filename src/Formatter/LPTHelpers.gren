@@ -32,6 +32,22 @@ mkTextFromLocString ltext =
     UnbreakableText ltext
 
 
+-- Build an UnbreakableText for a synthesized (elided) token whose position
+-- is *zero-width*: `start == end == pos`. The token still renders its full
+-- text; the zero width matters only for comment placement. Anchoring a
+-- synthesized keyword/punctuation at a single point (rather than giving it a
+-- fake span) keeps it from overlapping a comment that happens to sit at the
+-- same column, which is what makes comment placement around elided tokens
+-- stable across reformats (idempotent).
+mkZeroWidthText : Position -> String -> LPBox
+mkZeroWidthText pos text =
+    UnbreakableText
+        { start = pos
+        , end = pos
+        , value = text
+        }
+
+
 incCol : Int -> Position -> Position
 incCol n pos =
     { pos

@@ -26,10 +26,9 @@ unwrap x =
     when x is
         { a } {- authored after `as` -} as whole -> whole
 
+
 -- Case 3 — extensible record `|` (type). Comment authored AFTER `|`. Canonical
 -- rendering places it on its own line BEFORE `|`.
-
-
 field :
     { r
         {- authored after `|` -}

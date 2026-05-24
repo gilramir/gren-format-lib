@@ -1,15 +1,15 @@
-module {- comment between `module` keyword and module name -} ModuleHeaderComments
-    {- comment between module name and `exposing` -} exposing
-    {- comment between `exposing` and `(` -} ( foo, bar )
+module {- comment between `module` keyword and module name -} ModuleHeaderComments exposing
+    {- comment between module name and `exposing` -} {- comment between `exposing` and `(` -}
+    ( foo, bar )
 
 -- single-line comment before the first import
 import Array
 
 -- comments inside an import without an `as` alias
-import Dict {- comment between import module name and `exposing` -} exposing ( Dict )
+import Dict exposing {- comment between import module name and `exposing` -} ( Dict )
 
 -- comments inside an import without an `as`, using `exposing`
-import Math {- between Math and `exposing` -} exposing (..)
+import Math exposing (..) {- between Math and `exposing` -}
 
 
 foo : Int -> Int

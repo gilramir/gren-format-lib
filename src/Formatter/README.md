@@ -919,14 +919,25 @@ therefore indistinguishable to the formatter — they format to the same output.
 (The AST carries no token position, and we are deliberately not adding one; the
 canonical rendering is the contract instead.)
 
+**Idempotency.** The canonical rendering must be a *fixed point*: formatting it
+again must reproduce it exactly. This is a hard requirement, enforced by the
+`idempotency` sub-test in `assertPretty` (it re-parses and re-formats the
+`.formatted.gren` and requires the `Module` *and* the parse `Context` —
+including every comment position — to be identical). To get there, each elided
+token is synthesized **zero-width at the end of the preceding real token** (see
+`LPTHelpers.mkZeroWidthText`): `exposing` at the module name's end, `->` at the
+end of its left type, `as`/alias/`:` likewise. A zero-width anchor can never
+overlap a comment that happens to share its column, and anchoring it to a real
+token's end means any comment in the gap *always* sorts to the same side across
+reformats. The consequence is the canonical placement below: such a comment
+renders **after** the elided token. (The one fixture not held to idempotency is
+`KitchenComments`, the maximal "comment in every gap" torture, whose residual
+instability is comment placement around *implicit* brackets and same-row
+comment merging — a separate problem from elided-token synthesis.)
+
 The pairs below each show two inputs the formatter cannot tell apart, followed
 by the single output both produce. They are pinned by the `Ambiguous` and
 `AmbiguousEffectModule` tests in the effectful suite.
-
-The effect is layout-driven. When the spacing is regular, the comment's own
-column is often enough to keep it where it was written; the collapse happens
-once the comment sits in the gap with a line break or irregular spacing around
-it. The examples use the layout that triggers the collapse.
 
 #### Import alias `as`
 
