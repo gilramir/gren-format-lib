@@ -141,7 +141,8 @@ def check_file(workdir, path, verbose=False):
     for g, why, once, twice in bugs:
         # show the source line where the comment was inserted
         line = src.count("\n", 0, g) + 1
-        print(f"      gap at line {line} ({why})")
+        ctx = (src[max(0, g - 20) : g] + "⟨here⟩" + src[g : g + 20]).replace("\n", "⏎")
+        print(f"      gap at line {line} ({why}): …{ctx}…")
         if verbose:
             diff = difflib.unified_diff(
                 once.splitlines(), twice.splitlines(), "format¹", "format²", lineterm=""

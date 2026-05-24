@@ -227,8 +227,10 @@ reprice rawMultiplier ({ items, flags } as inboundCart) =
     around `->` in signatures, around `=` and `in` in let-bindings, around
     `if`/`then`, around `when`/`is`, and between case-arrow and body. -}
 torturedComments : Int -> -- comment after the first parameter type
-    {- block comment before the arrow -} String -> -- comment between -> and the next type
-    {- block comment between -> and Bool -} Bool
+    {- block comment before the arrow -}
+    String -> -- comment between -> and the next type
+    {- block comment between -> and Bool -}
+    Bool
 torturedComments primaryIntValue secondaryStringValue tertiaryBoolValue =
     let
         {- block comment between `let` and the first binding -}
@@ -281,7 +283,8 @@ extremelyCommented {-c22-} {-c23-} {-c24-}
         } {-c28-} {-c29-} as wholeRecord) = {-c30-} {-c31-} {-c32-}
     let
         {-c33-}
-        {-c34-} bumpedScore = {-c35-} {-c36-} score {-c37-} + {-c38-} 1 {-c39-}
+        {-c34-}
+        bumpedScore = {-c35-} {-c36-} score {-c37-} + {-c38-} 1 {-c39-}
         {-c40-}
         expandedLabel = {-c41-} {-c42-} label {-c43-} ++ {-c44-} "!" {-c45-}
     in {-c46-} {-c47-}
@@ -292,7 +295,9 @@ extremelyCommented {-c22-} {-c23-} {-c24-}
             (\{-c52-} r -> {-c53-} {-c54-} {-c55-}
                 if {-c56-} bumpedScore {-c57-} > {-c58-} 0 then
                         {-c59-}
-                        {-c60-} {-c61-} {-c62-}
+                        {-c60-}
+                        {-c61-}
+                        {-c62-}
                         { r
                             {-c63-}
                             {-c64-}
@@ -308,8 +313,8 @@ extremelyCommented {-c22-} {-c23-} {-c24-}
                         {-c74-}
                         when {-c75-} score is
                             {-c76-}
-                            {-c77-} {-c78-}
-
+                            {-c77-}
+                            {-c78-}
                             0 -> {-c79-} {-c80-} {-c81-} {-c82-} {-c83-} {-c84-}
                                 { r | label = {-c85-} {-c86-} "zero" {-c87-}
                                 } {-c88-} {-c89-}

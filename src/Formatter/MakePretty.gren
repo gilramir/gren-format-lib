@@ -480,11 +480,15 @@ buildFlowDocImpl indent inlineStart nodes =
                                         -- multi-line, OR when it is a standalone leading comment
                                         -- in a vertical context — the first item of a flow that
                                         -- does not continue a line the caller already started
-                                        -- (e.g. before a non-first `let` binding). A single-line
-                                        -- block comment that continues a line stays inline
-                                        -- (`a * {- c -} b`, a binop RHS, a `( … )` body).
+                                        -- (e.g. before a non-first `let` binding), OR when a
+                                        -- previous comment already ended the line (AlreadyTerminated):
+                                        -- a run of own-line comments must each stay on their own
+                                        -- line, not glue the following token onto the last one.
+                                        -- A single-line block comment that continues a line stays
+                                        -- inline (`a * {- c -} b`, a binop RHS, a `( … )` body).
                                         standaloneLeading =
-                                            acc.separator == FirstItem && not inlineStart
+                                            (acc.separator == FirstItem && not inlineStart)
+                                                || acc.separator == AlreadyTerminated
                                     in
                                     if isMultiLineCommentValue loc.value || standaloneLeading then
                                         let

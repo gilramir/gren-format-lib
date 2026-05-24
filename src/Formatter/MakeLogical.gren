@@ -125,7 +125,13 @@ processModuleLine modAst root =
                 Src.Ports _ -> "port module"
                 Src.Manager _ -> "effect module"
                 Src.NoEffects -> "module"
-        n1 = lpnLeaf (mkText { row = modAst.name.start.row, col = 1 } keyword)
+        -- Zero-width: `port module` / `effect module` are rendered as one
+        -- multi-word token, but a real width would let a comment written
+        -- *between* the words (`port {- c -} module`) fall inside the token's
+        -- span and sort before it, escaping to before the module keyword —
+        -- which does not parse. Anchored zero-width at column 1, any header
+        -- comment sorts after it instead.
+        n1 = lpnLeaf (mkZeroWidthText { row = modAst.name.start.row, col = 1 } keyword)
         n2 = lpnLeaf (mkTextFromLocString modAst.name)
 
         -- For effect modules, emit a `where { ... }` block between the
