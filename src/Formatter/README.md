@@ -885,23 +885,137 @@ foo1 = 1
 foo2 = 2
 ```
 
-### Known limitation: comments at elided-token positions
+### Comments at elided-token positions
 
 Comment placement is position-driven: a comment is attached according to its
-source `(row, col)` relative to the positioned tokens around it. Several
+source `(row, col)` relative to the positioned tokens around it. But several
 structural tokens — the `as` keyword and import-alias name, `|`, `=`, `:`, the
 `where`-block field keywords, bracket characters — are matched and discarded by
-the parser and carry **no position in the AST**. The formatter synthesizes one,
-assuming single-space, single-line layout. When the author's layout deviates
-(extra whitespace, a line break, or a comment sitting in the gap), the
-synthesized position lands on the wrong side of the comment and it is misplaced
-or — for import aliases, where neither `as` nor the alias name is positioned —
-evicted entirely, with two distinct author intents collapsing to one output.
+the parser and carry **no position in the AST**. The formatter has nothing to
+attach the comment *to*: it can see the comment sits somewhere in the gap, but
+not which side of the elided token the author meant.
 
-These cases are pinned by `Ambiguous` and `AmbiguousEffectModule` in the
-effectful suite. Their `.formatted.gren` baselines capture the **current
-(incorrect)** output deliberately, as regression guards; each `.dirty.gren`
-annotates what the author intended versus what the formatter produces. The fix
-is to carry the elided tokens' real positions through `Compiler.Parse.Context`
-(see `proposal-context-token-2.md` at the repo root); when that lands, those two
-baselines should be updated to the faithful placement.
+So for these positions the formatter does **not** try to recover intent. It
+commits to one canonical rendering and always produces it. Two source programs
+that differ only in which side of the elided token a comment sits on are
+therefore indistinguishable to the formatter — they format to the same output.
+(The AST carries no token position, and we are deliberately not adding one; the
+canonical rendering is the contract instead.)
+
+The pairs below each show two inputs the formatter cannot tell apart, followed
+by the single output both produce. They are pinned by the `Ambiguous` and
+`AmbiguousEffectModule` tests in the effectful suite.
+
+The effect is layout-driven. When the spacing is regular, the comment's own
+column is often enough to keep it where it was written; the collapse happens
+once the comment sits in the gap with a line break or irregular spacing around
+it. The examples use the layout that triggers the collapse.
+
+#### Import alias `as`
+
+```gren
+import Foo            import Foo as
+    {- c -}              {- c -}
+    as Bar               Bar
+```
+
+Neither `as` nor the alias name (`alias : Maybe String`, no position) is in the
+AST, so the comment cannot be anchored to the import line at all. Both render as
+— the comment evicted to its own line after the import:
+
+```gren
+import Foo as Bar
+{- c -}
+```
+
+#### As-pattern `as`
+
+```gren
+(y {- c -} as whole)        (y as {- c -} whole)
+```
+
+Both render with the comment before `as`:
+
+```gren
+y {- c -} as whole
+```
+
+#### Extensible-record `|`
+
+```gren
+{ r {- c -} | name : String }        { r | {- c -} name : String }
+```
+
+Both render with the comment on its own line before `|`:
+
+```gren
+{ r
+    {- c -}
+    | name : String
+}
+```
+
+#### Record-update `|`
+
+```gren
+{ rec {- c -} | name = 1 }        { rec | {- c -} name = 1 }
+```
+
+Both render with the comment evicted before the whole update expression:
+
+```gren
+{- c -} { rec | name = 1 }
+```
+
+#### Union-variant `|`
+
+```gren
+type T = A {- c -} | B        type T = A | {- c -} B
+```
+
+Both render with the comment after the preceding variant (before `|`):
+
+```gren
+type T
+    = A {- c -}
+    | B
+```
+
+#### Declaration `=`
+
+```gren
+foo {- c -} = 42        foo = {- c -} 42
+```
+
+Both render with the comment after `=`:
+
+```gren
+foo = {- c -} 42
+```
+
+#### Signature `:`
+
+```gren
+foo   {- c -}   : Int        foo :   {- c -}   Int
+```
+
+Both render with the comment after `:`:
+
+```gren
+foo : {- c -} Int
+```
+
+#### Effect-module `where` block
+
+```gren
+effect module M where { command   {- c -}   = MyCmd } exposing (..)
+effect module M where   {- c -}   { command = MyCmd } exposing (..)
+```
+
+The `command` / `=` / `{` / `}` positions inside the block are all unanchored,
+so a comment anywhere in the header collapses to one slot — between `where` and
+the opening brace:
+
+```gren
+effect module M where {- c -} { command = MyCmd } exposing (..)
+```

@@ -1,15 +1,16 @@
 module Ambiguous exposing (..)
 
--- This file documents KNOWN-AMBIGUOUS / MISPLACED comment positions: spots
--- whose faithful handling needs an elided token's real source location (the
--- `as` keyword, the import alias name, `|`, `=`, `:`, ...) which the AST does
--- not carry. See proposal-context-token-2.md.
+-- This file pins comment placement at ELIDED-TOKEN positions: spots beside a
+-- token the AST does not carry a position for (the `as` keyword, the import
+-- alias name, `|`, `=`, `:`, ...). The formatter cannot tell which side of such
+-- a token a comment was meant for, so it commits to one canonical rendering and
+-- always produces it; two distinct author intents collapse to that output. This
+-- is deliberate — we are not adding token positions to the AST. See the
+-- "Comments at elided-token positions" section of Formatter/README.md.
 --
--- The matching .formatted.gren is the formatter's CURRENT (incorrect) output,
--- captured as a regression guard. When elided-token positions are carried in
--- Compiler.Parse.Context these expectations should be updated to the faithful
--- placement. (The effect-module `where` case is in AmbiguousEffectModule
--- because it needs a different module header.)
+-- The matching .formatted.gren is that canonical rendering. (The effect-module
+-- `where` case is in AmbiguousEffectModule because it needs a different module
+-- header.)
 
 -- Case 1 — import alias. Comment authored between `as` and the alias `Bar`.
 -- Neither `as` nor the alias (a bare String in the AST) has a position, so the
@@ -21,17 +22,16 @@ import Foo as
     Bar
 
 
--- Case 2 — as-pattern. Comment authored AFTER `as`, with extra spaces. The
--- `name.start.col - 3` synthesis assumes one space before `as`, so the wrong
--- column moves the comment to BEFORE `as`.
+-- Case 2 — as-pattern. Comment authored AFTER `as`, with extra spaces.
+-- Canonical rendering places it BEFORE `as`; either authored side lands here.
 unwrap x =
     when x is
         ({ a } as   {- authored after `as` -}   whole) ->
             whole
 
 
--- Case 3 — extensible record `|` (type). Comment authored AFTER `|`; the
--- synthesized `|` position moves it to BEFORE `|`.
+-- Case 3 — extensible record `|` (type). Comment authored AFTER `|`. Canonical
+-- rendering places it on its own line BEFORE `|`.
 field :
     { r |   {- authored after `|` -}   name : String }
     -> String
@@ -39,14 +39,14 @@ field r =
     r.name
 
 
--- Case 4 — record update `|`. Comment authored AFTER `|`, inside the braces; it
--- is evicted OUT of the braces, before the whole update expression.
+-- Case 4 — record update `|`. Comment authored AFTER `|`, inside the braces.
+-- Canonical rendering lifts it OUT, before the whole update expression.
 relabel rec =
     { rec |   {- authored after `|` -}   name = 1 }
 
 
--- Case 5 — union variant `|`. Comment authored AFTER `|` (between `|` and `B`);
--- it moves to BEFORE `|`.
+-- Case 5 — union variant `|`. Comment authored AFTER `|` (between `|` and `B`).
+-- Canonical rendering places it BEFORE `|`, after the preceding variant.
 type T
     = A
     |
@@ -55,13 +55,13 @@ type T
 
 
 -- Case 6 — declaration `=`. Comment authored BEFORE `=` (between the name and
--- `=`), with extra spaces; the synthesized `=` moves it to AFTER `=`.
+-- `=`), with extra spaces. Canonical rendering places it AFTER `=`.
 six   {- authored before `=` -}   =
     42
 
 
 -- Case 7 — signature `:`. Comment authored BEFORE `:` (between the name and
--- `:`), with extra spaces; the synthesized `:` moves it to AFTER `:`.
+-- `:`), with extra spaces. Canonical rendering places it AFTER `:`.
 seven   {- authored before `:` -}   : Int
 seven =
     7

@@ -169,8 +169,8 @@ commentsTests fsPerm =
         , assertPretty fsPerm "backward pipeline and operator-rhs gap comments" "PipelineAndGlueComments"
         , assertPretty fsPerm "doc/line/block adjacency and inter-declaration comments" "EdgeCaseComments"
         , assertPretty fsPerm "previously-mishandled comment placements (bugs A–K)" "TrickyComments"
-        , assertPretty fsPerm "ambiguous comment placements needing elided-token positions (documents current incorrect behavior)" "Ambiguous"
-        , assertPretty fsPerm "ambiguous comment in an effect-module where block (documents current incorrect behavior)" "AmbiguousEffectModule"
+        , assertPretty fsPerm "canonical rendering of comments at elided-token positions" "Ambiguous"
+        , assertPretty fsPerm "canonical rendering of a comment in an effect-module where block" "AmbiguousEffectModule"
         ]
 
 

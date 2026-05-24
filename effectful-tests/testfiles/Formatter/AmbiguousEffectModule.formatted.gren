@@ -2,12 +2,13 @@ effect module AmbiguousEffectModule where {- authored between `command` and `=` 
     { command = MyCmd } exposing (..)
 
 -- Companion to Ambiguous.dirty.gren for the elided-token `where`-block case,
--- which needs an effect-module header (see proposal-context-token-2.md).
+-- which needs an effect-module header. See the "Comments at elided-token
+-- positions" section of Formatter/README.md.
 --
 -- The `command` / `=` / `{` / `}` positions inside the `where { ... }` block
--- are synthesized, so a comment authored between `command` and `=` is evicted
--- out of the block to between `where` and `{`. The .formatted.gren captures
--- this CURRENT (incorrect) output as a regression guard.
+-- carry no position in the AST, so a comment anywhere in the header collapses
+-- to one slot: between `where` and `{`. The .formatted.gren is that canonical
+-- rendering.
 
 import Task
 
