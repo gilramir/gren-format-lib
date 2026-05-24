@@ -70,7 +70,7 @@ import Compiler.SourcePosition exposing (Located)
 
 import Formatter.LogicalPrintingTree exposing (LPBox(..),
     LPNode, ListBrackets(..), SyntaxType(..),
-    lpnBox, lpnChildren, lpnNode, firstRowInSubtree)
+    lpnBox, lpnChildren, lpnNode, firstRowInSubtree, lpnLastPos)
 import Formatter.LPTJson exposing (lptToJson)
 
 import Formatter.Strings exposing
@@ -269,7 +269,20 @@ makeUnionBodyDoc nodes =
                                         Err e -> Err e
                                         Ok childDoc ->
                                             Ok { docs = Array.pushLast childDoc acc.docs
-                                               , prevRow = firstRowInSubtree node
+                                               -- The row of the variant's last *token*, not the
+                                               -- subtree's max row: a variant carrying a multi-line
+                                               -- block comment has a max row past its last token,
+                                               -- but a comment trailing the variant shares the last
+                                               -- token's row. (And not the first row — a multi-row
+                                               -- variant's trailing comment would then look like a
+                                               -- different row.) A mismatched row pushes the comment
+                                               -- onto its own line, one row below and dedented from
+                                               -- the variant, where it escapes to a top-level comment
+                                               -- on reparse (non-idempotent).
+                                               , prevRow =
+                                                    lpnLastPos node
+                                                        |> Maybe.map (\p -> p.row)
+                                                        |> Maybe.withDefault (firstRowInSubtree node)
                                                }
                 )
                 (Ok { docs = [], prevRow = -1 })
