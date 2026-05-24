@@ -222,8 +222,46 @@ processModuleLine modAst root =
                     lpnNode (AllAcrossOrAllVertical ListParen)
                         (Array.map processExposed exposed)
 
-        origRow =
+        -- When the `exposing ( ... )` list renders *vertically* (one item per
+        -- row), its closing `)` sits on its own row below the last item — but
+        -- the `)` has no AST position, so the row range computed from the items
+        -- alone stops one row short. VerticalSpace would then see a two-row gap
+        -- to the first declaration and insert a spurious blank line on reparse
+        -- (the module line was single-line in the original, vertical in our
+        -- output → non-idempotent). Extend the module line's `last` by one row
+        -- to cover the `)` whenever the list is vertical.
+        --
+        -- A list that merely *wrapped onto a continuation row* but stayed
+        -- horizontal (`exposing⏎    ( a, b, c )`) keeps its `)` on the item
+        -- row, so it must NOT be bumped. The distinguishing signal is whether
+        -- the items span more than one row.
+        exposingClosesBelow =
+            when modAst.exports is
+                Src.Explicit exposed ->
+                    when Array.popFirst exposed is
+                        Just { first = firstExposed, rest } ->
+                            when Array.last rest is
+                                Just lastExposed ->
+                                    exposedRow lastExposed > exposedRow firstExposed
+                                Nothing ->
+                                    False
+                        Nothing ->
+                            False
+                Src.Open ->
+                    False
+
+        base =
             makeOrigRows modAst.name.start.row StModule ([n1, n2] ++ whereNodes ++ [n3, n4])
+
+        origRow =
+            if exposingClosesBelow then
+                when lpnBox base is
+                    OriginalRows r ->
+                        lpnNode (OriginalRows { r | last = r.last + 1 }) (lpnChildren base)
+                    _ ->
+                        base
+            else
+                base
     in
     Ok (addRootChild origRow root)
 
@@ -250,6 +288,20 @@ processExposed exposed =
 
         Src.ExposedOperator sp ->
             lpnLeaf (UnbreakableText { sp | value = "(" ++ sp.value ++ ")" })
+
+
+{-| The source row of an exposed item — used to detect whether the module
+`exposing` list wrapped onto multiple rows (so its closing `)` occupies an
+extra row not otherwise represented in the AST). -}
+exposedRow : Src.Exposed -> Int
+exposedRow exposed =
+    when exposed is
+        Src.ExposedLower sp ->
+            sp.start.row
+        Src.ExposedUpper { name = sp } ->
+            sp.start.row
+        Src.ExposedOperator sp ->
+            sp.start.row
 
 
 processImports : Src.Module -> LPNode -> Result String LPNode
