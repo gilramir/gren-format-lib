@@ -133,9 +133,16 @@ contextsExactlyEqual a b =
         && Builder.toArray a.comments == Builder.toArray b.comments
 
 
-{-| Idempotency check: parse the already-formatted source, format it again,
-re-parse, and require the Module and Context to be completely equivalent
-before and after. On failure, show the unified diff of the two renderings.
+{-| Idempotency check: re-format the already-formatted source and require the
+result to be **textually identical**. This is the strict gate — formatting
+must be a true fixed point.
+
+When the text differs, we additionally compare the parsed `Module` and
+`Context` to classify the failure: a `Module`/`Context` difference means a
+declaration moved or a comment shifted; if those match but the text still
+differs, it is a pure-whitespace non-idempotency (e.g. trailing spaces) that
+the structural comparison alone would miss. Either way the unified diff is
+shown.
 -}
 checkIdempotent : String -> Expectation
 checkIdempotent formatted =
@@ -150,30 +157,32 @@ checkIdempotent formatted =
                     let
                         reRendered = reRendered0 ++ "\n"
                     in
-                    when parseModuleAndContext reRendered is
-                        Err err ->
-                            Expect.fail ("Could not reparse the re-formatted output: " ++ err)
-                        Ok second ->
-                            let
-                                moduleOk = first.ast == second.ast
-                                contextOk = contextsExactlyEqual first.context second.context
-                            in
-                            if moduleOk && contextOk then
-                                Expect.pass
-                            else
-                                let
-                                    which =
+                    if reRendered == formatted then
+                        Expect.pass
+                    else
+                        let
+                            classification =
+                                when parseModuleAndContext reRendered is
+                                    Err err ->
+                                        "re-formatted output no longer parses: " ++ err
+                                    Ok second ->
+                                        let
+                                            moduleOk = first.ast == second.ast
+                                            contextOk = contextsExactlyEqual first.context second.context
+                                        in
                                         if not moduleOk && not contextOk then
                                             "Module and Context differ"
                                         else if not moduleOk then
                                             "Module differs"
-                                        else
+                                        else if not contextOk then
                                             "Context differs"
-                                in
-                                Expect.fail
-                                    ("Formatting is not idempotent (" ++ which ++ ") — re-formatting the formatted output changed it:\n"
-                                        ++ unifiedDiffStrings formatted reRendered
-                                    )
+                                        else
+                                            "whitespace only (Module and Context unchanged)"
+                        in
+                        Expect.fail
+                            ("Formatting is not idempotent (" ++ classification ++ ") — re-formatting the formatted output changed it:\n"
+                                ++ unifiedDiffStrings formatted reRendered
+                            )
 
 
 importTests: FileSystem.Permission -> Effectful.Test
