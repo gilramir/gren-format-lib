@@ -461,8 +461,17 @@ buildFlowDocImpl indent inlineStart nodes =
                                                     P.concat acc.doc commentText
                                                 _ ->
                                                     if loc.start.row == acc.prevRow then
-                                                        -- Same row as preceding item: attach with a space
-                                                        P.concat acc.doc (P.concat (P.text " ") commentText)
+                                                        -- Same row as preceding item: attach with a SOFT
+                                                        -- break — a space when it fits, otherwise its own
+                                                        -- line. A hard space would give the flow no break
+                                                        -- point here, forcing an *earlier* break (e.g. before
+                                                        -- an elided `->`) so the comment trails a token that
+                                                        -- moved down. Whether that earlier token then renders
+                                                        -- on row N or N+1 flips the comment's own input row on
+                                                        -- reparse, oscillating between layouts. The soft break
+                                                        -- keeps the preceding token in place and moves only the
+                                                        -- comment, which is stable across reformats.
+                                                        P.concat acc.doc (P.group (P.concat P.nl commentText))
                                                     else
                                                         -- Different row: force a line break before the comment
                                                         P.concat acc.doc (P.concat P.hardNl commentText)
