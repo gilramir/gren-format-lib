@@ -257,6 +257,19 @@ processModuleLine modAst root =
                 Src.Open ->
                     False
 
+        -- The same one-row shortfall happens for an effect module's
+        -- `where { … }` block: when it renders vertically (its fields span
+        -- multiple rows) the closing `}` — and the `exposing` that follows it
+        -- on the same row — sit one row below the last field, with no AST
+        -- position. Bump for that too. (Only `Fx` has two fields and can wrap;
+        -- a single-field `where` stays on one row.)
+        whereClosesBelow =
+            when modAst.effects is
+                Src.Manager (Src.Fx { cmd = cmd, sub = sub }) ->
+                    sub.start.row > cmd.start.row
+                _ ->
+                    False
+
         -- The module line's range starts at row 1, the keyword's row (see n1),
         -- NOT the module name's row. A long header comment can push the name
         -- onto row 2; if `first` were the name's row, a comment on row 1
@@ -267,7 +280,7 @@ processModuleLine modAst root =
             makeOrigRows 1 StModule ([n1, n2] ++ whereNodes ++ [n3, n4])
 
         origRow =
-            if exposingClosesBelow then
+            if exposingClosesBelow || whereClosesBelow then
                 when lpnBox base is
                     OriginalRows r ->
                         lpnNode (OriginalRows { r | last = r.last + 1 }) (lpnChildren base)
