@@ -235,6 +235,7 @@ type LPNode
         , minRow : Int
         , maxRow : Int
         , lastBracketEnd : Maybe Position
+        , bracketEndExact : Bool
         }
 
 
@@ -304,6 +305,17 @@ lpnLastBracketEnd node =
         LPNode r -> r.lastBracketEnd
 
 
+{-| True when `lastBracketEnd` is the container's *exact* closing-bracket
+position (set by `lpnBracketNode`), rather than the last item's end used as a
+fallback for bracket lists with no represented close (e.g. module `exposing`,
+where-blocks, patterns). Callers classifying a trailing comment use strict
+"before the close" when exact, and a small slack otherwise. -}
+lpnBracketEndExact : LPNode -> Bool
+lpnBracketEndExact node =
+    when node is
+        LPNode r -> r.bracketEndExact
+
+
 lpnLeaf : LPBox -> LPNode
 lpnLeaf box =
     lpnNode box []
@@ -343,6 +355,10 @@ lpnNode box children =
                         when cbe is
                             Just _ -> cbe
                             Nothing -> acc.lastBracketEnd
+                    , bracketEndExact =
+                        when cbe is
+                            Just _ -> lpnBracketEndExact child
+                            Nothing -> acc.bracketEndExact
                     }
                 )
                 { firstPos = self.firstPos
@@ -350,6 +366,7 @@ lpnNode box children =
                 , minRow = self.minRow
                 , maxRow = self.maxRow
                 , lastBracketEnd = Nothing
+                , bracketEndExact = False
                 }
                 children
 
@@ -364,6 +381,16 @@ lpnNode box children =
                 merged.lastPos
             else
                 merged.lastBracketEnd
+
+        -- A bracket list built via plain `lpnNode` has no represented close
+        -- position, so its `bracketEnd` is the last item (inexact). An exact
+        -- close only arrives via `lpnBracketNode` (below) or by propagation
+        -- from an inner exact container.
+        bracketExact =
+            if self.isBracket then
+                False
+            else
+                merged.bracketEndExact
     in
     LPNode
         { box = box
@@ -373,6 +400,7 @@ lpnNode box children =
         , minRow = merged.minRow
         , maxRow = merged.maxRow
         , lastBracketEnd = bracketEnd
+        , bracketEndExact = bracketExact
         }
 
 
@@ -391,6 +419,7 @@ lpnBracketNode box closeEnd children =
                 { r
                     | maxRow = max r.maxRow closeEnd.row
                     , lastBracketEnd = Just closeEnd
+                    , bracketEndExact = True
                 }
 
 
@@ -417,6 +446,7 @@ lpnReplaceChildren old newChildren =
                         { r
                             | maxRow = max r.maxRow oldEnd.row
                             , lastBracketEnd = Just oldEnd
+                            , bracketEndExact = lpnBracketEndExact old
                         }
 
 

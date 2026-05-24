@@ -66,7 +66,7 @@ import Compiler.SourcePosition exposing (Located, Position, at)
 import Formatter.LogicalPrintingTree exposing (LPBox(..),
     LPNode(..), ListBrackets(..), SyntaxType(..),
     lpnBox, lpnChildren, lpnLeaf, lpnNode, lpnReplaceChildren, subtreeRowRange,
-    lpnFirstPos, lpnLastPos, lpnLastBracketEnd)
+    lpnFirstPos, lpnLastPos, lpnLastBracketEnd, lpnBracketEndExact)
 import Formatter.Strings exposing (countNewlines)
 
 
@@ -432,8 +432,20 @@ commentInsideTrailingBracket node row col =
             False
 
         Just bracketEnd ->
-            (row < bracketEnd.row)
-                || (bracketEnd.row == row && col <= bracketEnd.col + 2)
+            if lpnBracketEndExact node then
+                -- `bracketEnd` is `loc.end`, one column past the closing
+                -- bracket. A comment strictly before it is genuinely between
+                -- the last item and the bracket (inside); one at or after the
+                -- bracket (e.g. `{ a } {- c -}` used as a list item) must stay
+                -- outside, else it gets absorbed and the item expands on
+                -- reparse (non-idempotent).
+                (row < bracketEnd.row)
+                    || (bracketEnd.row == row && col < bracketEnd.col)
+            else
+                -- `bracketEnd` is the last item's end; the real (unrepresented)
+                -- closing bracket is a little further right/down. Allow slack.
+                (row < bracketEnd.row)
+                    || (bracketEnd.row == row && col <= bracketEnd.col + 2)
 
 
 subtreeContainsRow : LPNode -> Int -> Bool
