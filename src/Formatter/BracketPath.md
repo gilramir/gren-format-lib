@@ -227,3 +227,69 @@ each in isolation regressed (see table above). This is a larger, cross-cutting
 change than the per-construct fixes (when-branch, union) that succeeded, and
 should be done behind heavy fuzzing of every record/array/update/call/paren
 fixture plus the full `fuzz-idempotency.py` sweep.
+
+### Update — implementation attempt and a fourth entanglement
+
+Implementing part 1 (give the single-field update `:262` its close position)
+exposed a problem the plan above understates: **correct comment attachment is
+itself what changes the blank-line decision**, so they cannot be fixed
+independently.
+
+Concretely, in `KitchenComments` a single-field update is a `when` branch body
+with two block comments after its `}`:
+
+```
+0 -> … { r | label = … "zero"
+    } {-c88-} {-c89-}
+_ -> … r
+```
+
+- **Without** the close position, the update's range stops at `"zero"`, so
+  `{-c88-} {-c89-}` fall *outside* the branch and attach as comment items
+  *between* the two branches. A comment between branches leaves the next branch's
+  separator `AlreadyTerminated`, which **suppresses the inter-branch blank**.
+- **With** the close position, the branch's range now reaches the `}` row, so
+  `{-c88-} {-c89-}` (genuinely on the branch's last row) attach *inside* the
+  branch. The branches are now adjacent, the separator is `FlowSep`, and the
+  multi-line `0 ->` branch inserts a **spurious blank** before `_ ->` (suite
+  188/1).
+
+This is not the `maxRow`-overloading of part 2 (the blank here is driven by
+`WhenBranch`'s `prevBranchMultiLine`/`AlreadyTerminated` separator logic, not by
+a row range). It is a *fourth* coupling: the inter-branch blank rule keys off
+"is there a comment item between the branches", and moving the comment to its
+correct home (inside the branch) removes that signal. A real fix therefore also
+needs the inter-branch blank rule to be **insensitive to where a trailing
+comment attaches** — e.g. suppress the blank when the previous branch's rendered
+output already ends with a comment line, regardless of whether that comment is a
+sibling between branches or a trailing child of the branch.
+
+Worse, the branch-blank fix this implies **conflicts with an existing fix**. The
+LPT after part 1 shows `{-c88-} {-c89-}` as direct children of the `0 ->`
+`WhenBranch`, after the branch's `AcrossThenIndent`:
+
+```
+WhenBranch
+  AcrossThenIndent   0  ->  …  { r | label = … "zero" }
+  BlockComment c88
+  BlockComment c89
+```
+
+To suppress the inter-branch blank, the branch must treat trailing comments as
+*terminating* it (own-line, set the next separator to `AlreadyTerminated`). But
+the committed `WhenBranch` peel (`fix(formatter): glue trailing block comment
+inside when-branch`, for CtorAsPattern) does the **opposite** — it glues a
+trailing block comment *inline* so it can't escape. The same construct now wants
+inline-glue in one case and own-line-terminate in another, distinguished only by
+whether the branch body is multi-line and whether a following branch exists.
+Reconciling these is its own sub-design.
+
+**Net assessment:** the bracket-path fix is a coordinated change across at least
+five coupled mechanisms — comment attachment extent (LogicalPrintingTree /
+Comments), the placement↔break feedback loop (MakePretty bracket renderers), the
+overloaded `maxRow` (multi-line/blank consumers), the when-branch blank separator
+rule, and the existing when-branch trailing-comment peel. Every single-piece
+attempt has regressed the suite or the fuzzer. It must be designed and landed as
+one refactor with the full fixture fuzz sweep as the gate, not incrementally.
+Until then the 13 residual gaps are left as documented known limitations; the
+formatter stays at suite 189/0.
