@@ -13,7 +13,7 @@ import Compiler.Parse.Number as PN
 import Compiler.SourcePosition exposing (Located, Position)
 
 import Formatter.LogicalPrintingTree exposing (LPBox(..),
-    LPNode(..), ListBrackets(..), lpnBox, lpnChildren, lpnLeaf, lpnNode, lpnLastPos)
+    LPNode(..), ListBrackets(..), lpnBox, lpnChildren, lpnLeaf, lpnNode, lpnBracketNode, lpnLastPos, lpnLastBracketEnd)
 import Formatter.LPTHelpers exposing
     ( mkText, mkZeroWidthText, mkTextFromLocString, resultFoldl
     , tryMapFirstLeaf, tryMapLastLeaf, fixupParensChildrenNodes
@@ -197,7 +197,9 @@ insertExpression locExpr =
                         Nothing ->
                             [lpnLeaf (EmptyBracketed { start = locExpr.start, end = locExpr.end, value = ListSquare })]
                         Just _ ->
-                            [lpnNode (AllAcrossOrAllVertical ListSquare) itemNodes]
+                            -- `locExpr.end` is the `]`, so a comment on its own
+                            -- line before the `]` stays inside the array.
+                            [lpnBracketNode (AllAcrossOrAllVertical ListSquare) locExpr.end itemNodes]
                 )
 
         Src.Record fieldArray ->
@@ -207,12 +209,14 @@ insertExpression locExpr =
                         Nothing ->
                             [lpnLeaf (EmptyBracketed { start = locExpr.start, end = locExpr.end, value = ListCurly })]
                         Just { first = _, rest = rest } ->
+                            -- `locExpr.end` is the `}`, so a comment on its own
+                            -- line before the `}` stays inside the record.
                             if Array.isEmpty rest then
                                 -- Single field: stay inline
-                                [lpnNode (AllAcrossOrAllVertical ListCurly) fieldNodes]
+                                [lpnBracketNode (AllAcrossOrAllVertical ListCurly) locExpr.end fieldNodes]
                             else
                                 -- 2+ fields: always vertical
-                                [lpnNode (AlwaysVertical ListCurly) fieldNodes]
+                                [lpnBracketNode (AlwaysVertical ListCurly) locExpr.end fieldNodes]
                 )
 
         Src.Update { record = record, newValues = newValues } ->
@@ -477,7 +481,14 @@ convertForArg : LPNode -> LPNode
 convertForArg node =
     when lpnBox node is
         AlwaysVertical bracket ->
-            lpnNode (AllAcrossOrAllVertical bracket) (lpnChildren node)
+            -- Preserve the closing-bracket position (if any) so a comment on
+            -- its own line before the `}` stays inside this record even when
+            -- it is nested as an argument/item.
+            when lpnLastBracketEnd node is
+                Just closeEnd ->
+                    lpnBracketNode (AllAcrossOrAllVertical bracket) closeEnd (lpnChildren node)
+                Nothing ->
+                    lpnNode (AllAcrossOrAllVertical bracket) (lpnChildren node)
         RecordUpdate baseName ->
             -- Prepend "baseName | " to first field's first text so the inline
             -- form renders correctly: { pt | x = 1, y = 2 }

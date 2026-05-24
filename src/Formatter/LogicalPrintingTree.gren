@@ -376,6 +376,24 @@ lpnNode box children =
         }
 
 
+{-| Like `lpnNode`, but for a bracketed container (record/array literal,
+record pattern/type, …) whose *closing* bracket sits at `closeEnd` — a
+position not represented by any child token. It extends the node's row range
+to cover the closing bracket and records `closeEnd` as the node's
+`lastBracketEnd`, so a comment written on its own line between the last item
+and the closing bracket is classified as *inside* the container (and stays
+there) instead of falling past the last item's range and escaping. -}
+lpnBracketNode : LPBox -> Position -> Array LPNode -> LPNode
+lpnBracketNode box closeEnd children =
+    when lpnNode box children is
+        LPNode r ->
+            LPNode
+                { r
+                    | maxRow = max r.maxRow closeEnd.row
+                    , lastBracketEnd = Just closeEnd
+                }
+
+
 {-| The bounds a box contributes by itself (independent of children).
 
 Inclusion rules match the legacy recursive helpers:

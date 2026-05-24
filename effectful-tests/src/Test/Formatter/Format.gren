@@ -250,6 +250,7 @@ commentsTests fsPerm =
         , assertPretty fsPerm "previously-mishandled comment placements (bugs A–K)" "TrickyComments"
         , assertPretty fsPerm "standalone block comment before a non-first let binding" "LetBindingComments"
         , assertPretty fsPerm "multiple comments sharing a top-level comment line" "AdjacentTopLevelComments"
+        , assertPretty fsPerm "own-line comment before a container's closing bracket stays inside" "BracketTrailingComments"
         , assertPretty fsPerm "canonical rendering of comments at elided-token positions" "Ambiguous"
         , assertPretty fsPerm "canonical rendering of a comment in an effect-module where block" "AmbiguousEffectModule"
         ]

@@ -408,6 +408,19 @@ comment but the bracket genuinely owns it.
 The column-proximity threshold (`+2`) accounts for one whitespace
 plus the closing bracket character (`]` / `}` / `)`) that we don't
 track explicitly in the LPT.
+
+When the bracket node carries its real closing-bracket position (built via
+`lpnBracketNode`), a comment on an *earlier* row than the closing bracket is
+also "inside": it was written on its own line between the last item and the
+closing bracket, e.g.
+
+    { a = 1
+    , b = 2
+    {- here -}
+    }
+
+Without this, such a comment falls past the last item's row range and escapes
+the container entirely (non-idempotently).
 -}
 commentInsideTrailingBracket : LPNode -> Int -> Int -> Bool
 commentInsideTrailingBracket node row col =
@@ -416,7 +429,8 @@ commentInsideTrailingBracket node row col =
             False
 
         Just bracketEnd ->
-            bracketEnd.row == row && col <= bracketEnd.col + 2
+            (row < bracketEnd.row)
+                || (bracketEnd.row == row && col <= bracketEnd.col + 2)
 
 
 subtreeContainsRow : LPNode -> Int -> Bool

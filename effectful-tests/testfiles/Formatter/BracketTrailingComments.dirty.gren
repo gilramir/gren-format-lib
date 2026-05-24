@@ -1,0 +1,27 @@
+module BracketTrailingComments exposing (..)
+
+
+-- Regression guard: a comment on its own line between the last item of a
+-- bracketed container and its closing bracket must stay INSIDE the container
+-- (not escape to the enclosing scope) and round-trip idempotently.
+
+recordLiteral =
+    { alpha = 1
+    , beta = 2
+    {- before the closing brace -}
+    }
+
+
+arrayLiteral =
+    [ 1
+    , 2
+    {- before the closing bracket -}
+    ]
+
+
+nested =
+    [ { gamma = 3
+      , delta = 4
+      {- inside nested record -}
+      }
+    ]
