@@ -930,10 +930,13 @@ end of its left type, `as`/alias/`:` likewise. A zero-width anchor can never
 overlap a comment that happens to share its column, and anchoring it to a real
 token's end means any comment in the gap *always* sorts to the same side across
 reformats. The consequence is the canonical placement below: such a comment
-renders **after** the elided token. (The one fixture not held to idempotency is
-`KitchenComments`, the maximal "comment in every gap" torture, whose residual
-instability is comment placement around *implicit* brackets and same-row
-comment merging — a separate problem from elided-token synthesis.)
+renders **after** the elided token.
+
+The same zero-width-anchor and descent-guard techniques also stabilise comment
+placement around *implicit* brackets (record-update and record-type braces),
+the `then`/`else if` keywords, and the `\`-glued first lambda parameter — so
+**every** fixture, including the maximal "comment in every gap" `KitchenComments`
+torture, is held to idempotency with no exemptions.
 
 The pairs below each show two inputs the formatter cannot tell apart, followed
 by the single output both produce. They are pinned by the `Ambiguous` and
