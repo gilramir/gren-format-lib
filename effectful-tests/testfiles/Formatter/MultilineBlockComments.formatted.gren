@@ -1,10 +1,11 @@
-port module MultilineBlockComments exposing {- 1 a
-         1 b
-         1 c -}
+port module MultilineBlockComments exposing
+    {- 1 a
+       1 b
+       1 c -}
     ( sig
     {- 2 a
-         2 b
-         2 c -}
+       2 b
+       2 c -}
     , decl
     , recordLit
     )
@@ -18,7 +19,8 @@ covers the module-doc position. -}
 -- a line comment before the import block
 import Array {- 3 a
                3 b
-               3 c -} exposing ( Array )
+               3 c -}
+    exposing ( Array )
 import Dict
 {- 4 a
    4 b
@@ -26,20 +28,20 @@ import Dict
 import String exposing
     ( fromInt
     {- 5 a
-         5 b
-         5 c -}
+       5 b
+       5 c -}
     , toInt
     )
 
 {-| Doc comment on a type alias. -}
 type alias Rec =
     {- 6 a
-         6 b
-         6 c -}
+       6 b
+       6 c -}
     { first : Int
     {- 7 a
-         7 b
-         7 c -}
+       7 b
+       7 c -}
     , second : { nested : Int }
     , third : String
     }
@@ -52,26 +54,30 @@ type Shape
        8 c -}
     | Square {- 9 a
                 9 b
-                9 c -} Int Int
+                9 c -}
+     Int Int
 
 port output {- 45 a
               45 b
-              45 c -} :
+              45 c -}
+    :
     {- 46 a
-                          46 b
-                          46 c -} String -> Cmd msg
+      46 b
+      46 c -}
+    String -> Cmd msg
 
 
 sig : Int {- 10 a
-           10 b
-           10 c -} -> Array
-    {- 11 a
+             10 b
+             10 c -}
+    -> Array {- 11 a
                 11 b
-                11 c -} String ->
+                11 c -}
+    String ->
     { a
         {- 12 a
-            12 b
-            12 c -}
+         12 b
+         12 c -}
         | x : Int
     } -> Int
 sig a b c =
@@ -79,68 +85,86 @@ sig a b c =
 
 decl {- 13 a
         13 b
-        13 c -} x =
+        13 c -}
+        x =
     {- 14 a
-                       14 b
-                       14 c -} x
+       14 b
+       14 c -}
+    x
 
 letFirst x =
     let
         {- 15 a
            15 b
-           15 c -} y =
+           15 c -}
+        y =
         {- 16 a
-             16 b
-             16 c -}
+           16 b
+           16 c -}
         {- 17 a
-                          17 b
-                          17 c -} x
-        {- 18 a
+           17 b
+           17 c -}
+         x
+        {- 47 a — leading comment of a NON-FIRST let binding
+           47 b
+           47 c -}
+        
+        z = y
+    in
+    {- 18 a
        18 b
        18 c -}
-    in
-    y
+    z
 
 whenExpr x =
     when {- 19 a
             19 b
-            19 c -} x is
+            19 c -}
+    x is
         {- 20 a
-                         20 b
-                         20 c -}
-        0 -> {- 21 a
-             21 b
-             21 c -}
+           20 b
+           20 c -}
+        0 ->
+            {- 21 a
+               21 b
+               21 c -}
             {- 22 a
-                           22 b
-                           22 c -} "zero"
+               22 b
+               22 c -}
+            "zero"
         _ -> "other"
 
 ifExpr x =
     if {- 23 a
           23 b
-          23 c -} x
+          23 c -}
+            x
             > 0 {- 24 a
-                           24 b
-                           24 c -} then
+                   24 b
+                   24 c -}
+             then
         1
     {- 25 a
-               25 b
-               25 c -} else if x < 0 then
+       25 b
+       25 c -}
+    else if x < 0 then
         -1
     else
         2
 
-recordLit = {- 26 a
-         26 b
-         26 c -}
+recordLit =
+    {- 26 a
+       26 b
+       26 c -}
     { alpha = 1
     {- 27 a
-         27 b
-         27 c -}
-    , beta = {- 28 a
-                           28 b
-                           28 c -} 2
+       27 b
+       27 c -}
+    , beta =
+        {- 28 a
+           28 b
+           28 c -}
+        2
     }
 
 recordUpd r =
@@ -150,8 +174,9 @@ recordUpd r =
            29 c -}
         | gamma =
               {- 30 a
-                                30 b
-                                30 c -} 3
+                 30 b
+                 30 c -}
+              3
         , delta = 4
     }
 
@@ -160,8 +185,9 @@ binops a b =
          31 b
          31 c -}
     + b {- 32 a
-                        32 b
-                        32 c -} * 2
+           32 b
+           32 c -}
+    * 2
 
 pipeline xs =
     xs
@@ -171,46 +197,55 @@ pipeline xs =
         |> Array.map identity
         |> {- 34 a
               34 b
-              34 c -} Array.foldl (+) 0
+              34 c -}
+            Array.foldl (+) 0
 
 calls f g =
     f {- 35 a
          35 b
-         35 c -} 1
-        {- 36 a
-                      36 b
-                      36 c -} (g 2)
+         35 c -}
+        1 {- 36 a
+             36 b
+             36 c -}
+        (g 2)
 
 lambdas =
     \{- 37 a
-         37 b
-         37 c -} x ->
+        37 b
+        37 c -}
+        x ->
     {- 38 a
-                      38 b
-                      38 c -}
+       38 b
+       38 c -}
     {- 39 a
-                                    39 b
-                                    39 c -} x
+       39 b
+       39 c -}
+     x
 
-arrays = {- 40 a
-         40 b
-         40 c -}
+arrays =
+    {- 40 a
+       40 b
+       40 c -}
     [ 1
     {- 41 a
-         41 b
-         41 c -}
+       41 b
+       41 c -}
     , 2
     ]
 
-parensAccessor r = {- 42 a
-         42 b
-         42 c -}
+parensAccessor r =
+    {- 42 a
+       42 b
+       42 c -}
     (r.field {- 43 a
-                            43 b
-                            43 c -} + 1)
+                43 b
+                43 c -}
+    + 1)
 
 asPattern arg =
     when arg is
-        { x } {- 44 a
-                  44 b
-                  44 c -} as whole -> whole
+        { x }
+            {- 44 a
+               44 b
+               44 c -}
+            as whole -> whole

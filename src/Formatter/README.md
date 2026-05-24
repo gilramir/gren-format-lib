@@ -846,13 +846,28 @@ foo2 a =
 
 ### Block comments (`{- ... -}`)
 
-A block comment inside an expression stays inline:
+A single-line block comment inside an expression stays inline:
 
 ```gren
-foo1 a = a * {- multiline inside an expression -} 100
+foo1 a = a * {- inline block comment -} 100
 ```
 
 A standalone block comment at the top level is treated like any other top-level item (see blank lines below).
+
+#### Multi-line block comments
+
+A block comment whose body spans more than one line is **unflattenable**: it forces the construct it sits in to break vertically rather than collapsing onto one line. Its continuation lines are re-indented to align under the `{-` wherever the comment ends up printing — they are dedented by the column the `{-` sat at in the source and then re-aligned, so the comment's internal shape (relative indentation, lists, ASCII art) is preserved while its absolute position follows the code:
+
+```gren
+value =
+    items
+        {- this comment spans
+           three lines and keeps
+           its shape -}
+        |> process
+```
+
+This matters most for a comment that leads a binding or branch: because the comment ends its own line, the following token starts fresh at the correct column instead of being glued onto the `-}` line. (A *single-line* `{- … -}` standing alone before a non-first `let` binding can still mis-glue; that pre-existing, non-multiline case is tracked in `MultilineBroken.gren` at the repo root.)
 
 ### Doc comments (`{-| ... -}`)
 

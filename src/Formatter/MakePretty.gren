@@ -452,6 +452,49 @@ buildFlowDoc indent nodes =
                                        , prevBranchMultiLine = False
                                        }
 
+                                BlockComment loc ->
+                                    if isMultiLineCommentValue loc.value then
+                                        -- A multi-line block comment is treated like a
+                                        -- SingleLineComment for flow purposes: it goes on its
+                                        -- own line (or attaches to the same-row item) and ends
+                                        -- with a hardNl, so the next item starts fresh at the
+                                        -- correct column instead of being glued onto the
+                                        -- comment's `-}` line (which, before a non-first `let`
+                                        -- binding, produced output that no longer parsed).
+                                        let
+                                            commentText = commentBoxDoc box
+                                            docWithComment =
+                                                when acc.separator is
+                                                    FirstItem ->
+                                                        commentText
+                                                    AlreadyTerminated ->
+                                                        P.concat acc.doc commentText
+                                                    _ ->
+                                                        if loc.start.row == acc.prevRow then
+                                                            P.concat acc.doc (P.concat (P.text " ") commentText)
+                                                        else
+                                                            P.concat acc.doc (P.concat P.hardNl commentText)
+                                        in
+                                        Ok { doc = P.concat docWithComment P.hardNl
+                                           , prevRow = loc.start.row
+                                           , separator = AlreadyTerminated
+                                           , prevBranchMultiLine = False
+                                           }
+                                    else
+                                        -- Single-line block comment: keep the inline flow
+                                        -- behavior (`a * {- c -} b`). (A standalone single-line
+                                        -- block comment before a non-first `let` binding can
+                                        -- still mis-glue — a pre-existing, non-multiline issue
+                                        -- tracked in MultilineBroken.gren.)
+                                        when makePDoc box nodeChildren is
+                                            Err e -> Err e
+                                            Ok itemDoc ->
+                                                Ok { doc = joinDoc acc.separator acc.doc itemDoc
+                                                   , prevRow = -1
+                                                   , separator = FlowSep
+                                                   , prevBranchMultiLine = False
+                                                   }
+
                                 AllAcrossOrAllVertical bracket ->
                                     when makeAllAcrossOrAllVertical bracket nodeChildren is
                                         Err e -> Err e
@@ -866,13 +909,76 @@ exposingListWithBrackets open close empty items =
 -- for a SingleLineComment, `{-xxx-}` for a BlockComment, `{-|xxx-}` for a
 -- DocComment. Returns P.empty for non-comment boxes; callers should only
 -- pass a comment box.
+--
+-- A block comment whose body spans multiple lines is rendered with
+-- `blockCommentDoc` so it is laid out (and re-indented) properly instead of
+-- being smuggled through as flat text with embedded newlines.
 commentBoxDoc : LPBox -> P.Doc cost
 commentBoxDoc box =
     when box is
         SingleLineComment loc -> P.text ("--" ++ loc.value)
-        BlockComment loc -> P.text ("{-" ++ loc.value ++ "-}")
+        BlockComment loc -> blockCommentDoc loc
         DocComment loc -> P.text ("{-|" ++ loc.value ++ "-}")
         _ -> P.empty
+
+
+-- True if a comment body spans more than one source line.
+isMultiLineCommentValue : String -> Bool
+isMultiLineCommentValue value =
+    String.contains "\n" value
+
+
+-- Count leading space characters in a string.
+leadingSpaceCount : String -> Int
+leadingSpaceCount s =
+    String.foldl
+        (\c acc ->
+            if acc.done then
+                acc
+            else if c == ' ' then
+                { acc | count = acc.count + 1 }
+            else
+                { acc | done = True }
+        )
+        { count = 0, done = False }
+        s
+        |> .count
+
+
+-- Render a block comment. A single-line body is emitted verbatim as flat
+-- text. A multi-line body is split into physical lines, joined with
+-- `P.hardNl`, and wrapped in `P.align`:
+--
+--   * The internal `hardNl`s make the doc unflattenable, so any enclosing
+--     `P.group` is forced to its multi-line branch (a 3-line comment no
+--     longer collapses a whole construct onto one line).
+--   * Continuation lines are dedented by the column the `{-` sat at in the
+--     source (clamped to each line's own leading whitespace), so that
+--     `P.align` realigns them under the `{-` wherever it now prints,
+--     instead of trailing off at their original absolute columns.
+--
+-- Comment *content* past that base indentation is preserved, so internal
+-- structure (lists, ASCII art) keeps its relative shape.
+blockCommentDoc : Located String -> P.Doc cost
+blockCommentDoc loc =
+    if not (isMultiLineCommentValue loc.value) then
+        P.text ("{-" ++ loc.value ++ "-}")
+    else
+        let
+            fullText = "{-" ++ loc.value ++ "-}"
+            dedent = loc.start.col - 1
+            stripLeadingSpaces s =
+                String.dropFirst (min dedent (leadingSpaceCount s)) s
+        in
+        when Array.popFirst (String.split "\n" fullText) is
+            Nothing ->
+                P.text fullText
+            Just { first = firstLine, rest = contLines } ->
+                Array.foldl
+                    (\line acc -> P.concat acc (P.concat P.hardNl (P.text (stripLeadingSpaces line))))
+                    (P.text firstLine)
+                    contLines
+                    |> P.align
 
 
 -- LPNode-form of commentBoxDoc.
