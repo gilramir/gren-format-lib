@@ -15,7 +15,7 @@ import Compiler.SourcePosition exposing (Located, Position)
 import Formatter.LogicalPrintingTree exposing (LPBox(..),
     LPNode(..), ListBrackets(..), lpnBox, lpnChildren, lpnLeaf, lpnNode)
 import Formatter.LPTHelpers exposing
-    ( mkText, mkTextFromLocString, resultFoldl
+    ( mkText, mkZeroWidthText, mkTextFromLocString, resultFoldl
     , tryMapFirstLeaf, tryMapLastLeaf, fixupParensChildrenNodes
     )
 import Formatter.LiteralFormat exposing (charLiteralString, escapeStringContent, escapeMultilineContent, intToHex)
@@ -224,8 +224,15 @@ insertExpression locExpr =
                 -- base and `|` (or between `|` and the first field) can
                 -- still locate the RecordUpdate subtree during placement.
                 recLoc =
+                    -- `start` anchors the base; `end` is the *whole* update's
+                    -- closing `}` (locExpr.end), not just the base name, so the
+                    -- RecordUpdate subtree's row range covers the closing brace.
+                    -- Otherwise a comment after the last field but before `}`
+                    -- falls outside the range and escapes to the next sibling
+                    -- on reparse (non-idempotent). `value` stays the base text
+                    -- used for rendering.
                     { start = record.start
-                    , end = { row = record.start.row, col = record.start.col + String.count recText }
+                    , end = locExpr.end
                     , value = recText
                     }
             in
@@ -237,9 +244,14 @@ insertExpression locExpr =
                         Just { first = firstField, rest = restFields } ->
                             if Array.isEmpty restFields then
                                 -- Single field update: inline, prepend "recName | " to first field text
+                                -- Zero-width merged "base | field" token (it
+                                -- spans base + `|` + field name in one leaf) so
+                                -- it can't overlap a comment between the field's
+                                -- `=` and its value; that comment then sorts
+                                -- after the field name consistently (idempotent).
                                 let
                                     updatedField =
-                                        when tryMapFirstLeaf (\loc -> mkText loc.start (recText ++ " | " ++ loc.value)) firstField is
+                                        when tryMapFirstLeaf (\loc -> mkZeroWidthText loc.start (recText ++ " | " ++ loc.value)) firstField is
                                             Just updated -> updated
                                             Nothing -> firstField
                                 in
@@ -475,7 +487,7 @@ convertForArg node =
                     when Array.popFirst children is
                         Nothing -> children
                         Just { first = firstField, rest = restFields } ->
-                            when tryMapFirstLeaf (\loc -> mkText loc.start (baseName.value ++ " | " ++ loc.value)) firstField is
+                            when tryMapFirstLeaf (\loc -> mkZeroWidthText loc.start (baseName.value ++ " | " ++ loc.value)) firstField is
                                 Just updatedFirst -> Array.pushFirst updatedFirst restFields
                                 Nothing -> children
             in
