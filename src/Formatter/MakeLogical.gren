@@ -540,15 +540,32 @@ processFunctionSignature locName maybeType root =
                             lpnLeaf (UnbreakableText { start = sigStart, end = sigNameEnd, value = locName.value })
                         colonNode = lpnLeaf (mkZeroWidthText sigNameEnd ":")
                         allChildren = [nameNode, colonNode] ++ typeNodes
+                        -- The signature's row range starts at the name
+                        -- (`sigStart`), not the type. For a multi-line
+                        -- signature (`foo :` on one row, the type below)
+                        -- using the type's row would leave a phantom one-row
+                        -- gap above the signature, which makes a preceding
+                        -- adjacent comment look non-adjacent and the blank-line
+                        -- pass non-idempotent.
+                        --
+                        -- The range must also extend to the type's end
+                        -- (`locType.end`), which lands on the type's closing
+                        -- bracket when the type ends in a record/paren. The
+                        -- positioned leaves stop at the last field, so without
+                        -- this a comment after that closing bracket but before
+                        -- the definition falls outside the signature and lands
+                        -- inconsistently across reformats.
+                        childrenLast =
+                            Array.foldl (\c acc -> max acc (lastRowInSubtree c)) -1 allChildren
                         origRow =
-                            -- The signature's row range starts at the name
-                            -- (`sigStart`), not the type. For a multi-line
-                            -- signature (`foo :` on one row, the type below)
-                            -- using the type's row would leave a phantom
-                            -- one-row gap above the signature, which makes a
-                            -- preceding adjacent comment look non-adjacent and
-                            -- the blank-line pass non-idempotent.
-                            makeOrigRows sigStart.row StFunctionSignature allChildren
+                            lpnNode
+                                (OriginalRows
+                                    { first = sigStart.row
+                                    , last = max childrenLast locType.end.row
+                                    , stype = StFunctionSignature
+                                    }
+                                )
+                                allChildren
                     in
                     addRootChild origRow root
                 )
