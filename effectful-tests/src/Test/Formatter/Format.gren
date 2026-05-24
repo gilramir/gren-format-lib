@@ -72,13 +72,22 @@ assertPretty fsPerm testDescription filenameBase =
 
 
 {-| Like `assertPretty`, but without the idempotency sub-test. Reserved for
-the maximal "comment in every gap" torture fixture (KitchenComments), whose
-remaining non-idempotency comes from comment placement around *implicit*
-brackets (`{ } [ ] ( )` rendered by the list boxes, with no synthesized token
-to anchor) and same-row comment merging under extreme density. That is a
-separate problem from elided-token synthesis (which is now position-stable),
-and it does not converge. Every other fixture — including all realistic
-comment cases — is held to idempotency.
+the maximal "comment in every gap" torture fixture (KitchenComments).
+
+Its bracket-placement non-idempotency has been fixed (record updates,
+signature braces). Two residual cases remain, both *comment-indentation
+migration* under extreme nesting, NOT elided-token or bracket placement:
+
+  * a comment between an `if` condition and `then` renders at the condition's
+    doubled indent but, once wrapped below the `then` line, reattaches to the
+    branch body's indent on reparse; and
+
+  * a `--` comment inside a deeply-nested destructuring lambda head shifts the
+    wrapped parameter by one column (a PrettyExpressive nest-base difference).
+
+Neither reproduces outside this exact deep context, and the obvious guard for
+the first regresses `else if` comments. Every other fixture — including all
+realistic comment cases and the other torture files — is held to idempotency.
 -}
 assertPrettyNoIdempotency : FileSystem.Permission -> String -> String -> Effectful.Test
 assertPrettyNoIdempotency fsPerm testDescription filenameBase =
