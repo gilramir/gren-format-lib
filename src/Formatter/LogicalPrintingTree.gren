@@ -394,6 +394,32 @@ lpnBracketNode box closeEnd children =
                 }
 
 
+{-| Rebuild `old` with `newChildren`, preserving an explicit closing-bracket
+position carried by `old` (from `lpnBracketNode`). Plain `lpnNode` recomputes
+bounds purely from children and would shrink a container's row range back to
+its last item — which is wrong when the new children are the *same* code plus
+an inserted comment. Comment insertion (`Formatter.Comments`) uses this so a
+container's closing-bracket extent survives every rebuild, keeping subsequent
+own-line comments before the bracket inside it. For nodes with no such
+extension it is identical to `lpnNode (lpnBox old) newChildren`. -}
+lpnReplaceChildren : LPNode -> Array LPNode -> LPNode
+lpnReplaceChildren old newChildren =
+    let
+        rebuilt = lpnNode (lpnBox old) newChildren
+    in
+    when lpnLastBracketEnd old is
+        Nothing ->
+            rebuilt
+        Just oldEnd ->
+            when rebuilt is
+                LPNode r ->
+                    LPNode
+                        { r
+                            | maxRow = max r.maxRow oldEnd.row
+                            , lastBracketEnd = Just oldEnd
+                        }
+
+
 {-| The bounds a box contributes by itself (independent of children).
 
 Inclusion rules match the legacy recursive helpers:

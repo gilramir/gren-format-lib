@@ -9,7 +9,7 @@ import Compiler.Ast.Source as Src
 import Compiler.SourcePosition exposing (Located, Position)
 
 import Formatter.LogicalPrintingTree exposing (LPBox(..),
-    LPNode(..), ListBrackets(..), lpnBox, lpnChildren, lpnLeaf, lpnNode)
+    LPNode(..), ListBrackets(..), lpnBox, lpnChildren, lpnLeaf, lpnNode, lpnBracketNode)
 import Formatter.LPTHelpers exposing
     ( mkText, mkZeroWidthText, mkTextFromLocString, resultFoldl, fixupParensChildrenNodes
     )
@@ -110,12 +110,18 @@ makeSignatureBranch locType =
                         Nothing ->
                             [lpnLeaf (mkText locType.start "{}")]
                         Just _ ->
+                            -- `locType.end` is the closing `}`. Anchoring the
+                            -- container's range there keeps a comment written on
+                            -- its own line before the `}` inside the record.
                             when extending is
                                 Nothing ->
-                                    [lpnNode (AllAcrossOrAllVertical ListCurly) fieldNodes]
+                                    [lpnBracketNode (AllAcrossOrAllVertical ListCurly) locType.end fieldNodes]
                                 Just locVar ->
                                     -- Extensible record type: render with the
                                     -- same vertical layout as a record update,
                                     -- so `|` and `,` align under the base name.
-                                    [lpnNode (RecordUpdate locVar) fieldNodes]
+                                    -- Extend the RecordUpdate box's range to the
+                                    -- closing `}` (locVar.end is only the
+                                    -- extension variable).
+                                    [lpnNode (RecordUpdate { locVar | end = locType.end }) fieldNodes]
                 )

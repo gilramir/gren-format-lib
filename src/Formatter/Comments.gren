@@ -65,7 +65,7 @@ import Compiler.SourcePosition exposing (Located, Position, at)
 
 import Formatter.LogicalPrintingTree exposing (LPBox(..),
     LPNode(..), ListBrackets(..), SyntaxType(..),
-    lpnBox, lpnChildren, lpnLeaf, lpnNode, subtreeRowRange,
+    lpnBox, lpnChildren, lpnLeaf, lpnNode, lpnReplaceChildren, subtreeRowRange,
     lpnFirstPos, lpnLastPos, lpnLastBracketEnd)
 import Formatter.Strings exposing (countNewlines)
 
@@ -261,10 +261,10 @@ insertCommentIntoSubtree commentNode row col node =
                 children
     in
     if result.done then
-        lpnNode (lpnBox node) result.children
+        lpnReplaceChildren node result.children
     else
         -- No matching child found; insert at this level
-        lpnNode (lpnBox node) (insertAmongChildren commentNode row col children)
+        lpnReplaceChildren node (insertAmongChildren commentNode row col children)
 
 
 {-

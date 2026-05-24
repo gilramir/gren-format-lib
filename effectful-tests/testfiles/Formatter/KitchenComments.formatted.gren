@@ -272,7 +272,8 @@ extremelyCommented : {-c1-} {-c2-} {-c3-}
     { score : {-c14-} {-c15-} Int {-c16-}
     {-c17-}
     , label : {-c18-} {-c19-} String {-c20-}
-    } {-c21-}
+    {-c21-}
+    }
 extremelyCommented {-c22-} {-c23-} {-c24-}
         ({ score {-c25-}
         {-c26-}
