@@ -11,7 +11,7 @@ import Compiler.SourcePosition exposing (Located, Position)
 
 import Formatter.LogicalPrintingTree exposing (LPBox(..),
     LPNode(..), ListBrackets(..), SyntaxType(..),
-    lpnBox, lpnChildren, lpnLeaf, lpnNode, lastRowInSubtree)
+    lpnBox, lpnChildren, lpnLeaf, lpnNode, lpnBracketNode, lastRowInSubtree)
 import Formatter.Comments exposing (lptAddComments)
 import Formatter.LPTHelpers exposing (mkText, mkZeroWidthText, mkTextFromLocString, resultFoldl)
 import Formatter.InsertExpressions exposing (insertExpression)
@@ -316,7 +316,14 @@ processImport locImport root =
                     when Array.popFirst xlist is
                         Just _ ->
                             [ lpnLeaf (mkZeroWidthText exposingStart "exposing")
-                            , lpnNode (AllAcrossOrAllVertical ListParen)
+                            , -- `locImport.end` is past the closing `)`, so the
+                              -- import's row range covers it. Without this, a
+                              -- comment that forces the exposing list multi-line
+                              -- leaves the import's last row at the last exposed
+                              -- name, and the `)` line reads as a one-row gap
+                              -- before the next declaration — inserting a blank
+                              -- line non-idempotently.
+                              lpnBracketNode (AllAcrossOrAllVertical ListParen) locImport.end
                                 (Array.map processExposed xlist)
                             ]
                         Nothing ->
