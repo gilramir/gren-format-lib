@@ -641,10 +641,41 @@ buildFlowDocImpl indent inlineStart nodes =
                                     renderBlockNode bodyBlockRule acc nodeChildren
 
                                 WhenBranch { isMultiLine = branchMultiLine } ->
-                                    when buildFlowDoc 0 nodeChildren is
+                                    -- Peel a single-line block comment off the END of the
+                                    -- branch and glue it inline to the body with a space,
+                                    -- rather than letting buildFlowDoc place it. Left in the
+                                    -- flow it rides a soft break, so an overflowing comment
+                                    -- drops onto its own line at the branch indent — one row
+                                    -- *below* the body's last token, and dedented from it. On
+                                    -- reparse that row sits past the declaration's range and
+                                    -- the comment escapes to a top-level comment (column 1),
+                                    -- non-idempotently. Gluing keeps it on the body's last
+                                    -- row (even past the page width) so it stays inside the
+                                    -- branch across reformats. The next branch's leading
+                                    -- hardNl terminates the line.
+                                    let
+                                        { branchNodes, trailingCommentDoc } =
+                                            when Array.popLast nodeChildren is
+                                                Just { last = lastChild, initial = initChildren } ->
+                                                    when lpnBox lastChild is
+                                                        BlockComment loc ->
+                                                            if isMultiLineCommentValue loc.value then
+                                                                { branchNodes = nodeChildren, trailingCommentDoc = P.empty }
+                                                            else
+                                                                { branchNodes = initChildren
+                                                                , trailingCommentDoc =
+                                                                    P.concat (P.text " ") (commentBoxDoc (lpnBox lastChild))
+                                                                }
+                                                        _ ->
+                                                            { branchNodes = nodeChildren, trailingCommentDoc = P.empty }
+                                                Nothing ->
+                                                    { branchNodes = nodeChildren, trailingCommentDoc = P.empty }
+                                    in
+                                    when buildFlowDoc 0 branchNodes is
                                         Err e -> Err e
-                                        Ok childrenDoc ->
+                                        Ok bodyDoc ->
                                             let
+                                                childrenDoc = P.concat bodyDoc trailingCommentDoc
                                                 insertBlankLine =
                                                     acc.prevBranchMultiLine || branchMultiLine
                                                 blankOrNewline =
