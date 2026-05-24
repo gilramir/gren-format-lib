@@ -13,7 +13,7 @@ import Compiler.Parse.Number as PN
 import Compiler.SourcePosition exposing (Located, Position)
 
 import Formatter.LogicalPrintingTree exposing (LPBox(..),
-    LPNode(..), ListBrackets(..), lpnBox, lpnChildren, lpnLeaf, lpnNode)
+    LPNode(..), ListBrackets(..), lpnBox, lpnChildren, lpnLeaf, lpnNode, lpnLastPos)
 import Formatter.LPTHelpers exposing
     ( mkText, mkZeroWidthText, mkTextFromLocString, resultFoldl
     , tryMapFirstLeaf, tryMapLastLeaf, fixupParensChildrenNodes
@@ -627,7 +627,16 @@ Emits two sibling nodes per branch: an `IfCondition` containing
 folderInsertElseIfBranch : Src.IfBranch -> Array LPNode -> Result String (Array LPNode)
 folderInsertElseIfBranch branch accNodes =
     let
-        elseIfNode = lpnLeaf (SynthesizedText "else if")
+        -- `else if` has no AST position. Anchor it zero-width at the end of the
+        -- preceding branch body (a real, stable position), so a comment written
+        -- between `else if` and its condition sorts *after* it and lands inside
+        -- this branch's condition consistently across reformats. (Left
+        -- position-less, the comment can't enter the condition and drifts.)
+        prevEnd =
+            Array.last accNodes
+                |> Maybe.andThen lpnLastPos
+                |> Maybe.withDefault branch.test.start
+        elseIfNode = lpnLeaf (mkZeroWidthText prevEnd "else if")
         thenNode = lpnLeaf (SynthesizedText "then")
     in
     insertExpression branch.test

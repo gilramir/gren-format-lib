@@ -244,7 +244,7 @@ insertCommentIntoSubtree commentNode row col node =
                             && not (subtreeStartsAfter child row col)
                             && not laterSiblingClaims
                             && not
-                                ((isAcrossThenIndentNode child || isItemBracketListNode child)
+                                ((isAcrossThenIndentNode child || isItemBracketListNode child || isIfConditionNode child)
                                     && subtreeEndsBefore child row col
                                     && not (commentInsideTrailingBracket child row col)
                                 ) then
@@ -340,6 +340,13 @@ isAcrossThenIndentNode : LPNode -> Bool
 isAcrossThenIndentNode node =
     when lpnBox node is
         AcrossThenIndent -> True
+        _ -> False
+
+
+isIfConditionNode : LPNode -> Bool
+isIfConditionNode node =
+    when lpnBox node is
+        IfCondition -> True
         _ -> False
 
 

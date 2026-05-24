@@ -238,7 +238,7 @@ torturedComments primaryIntValue secondaryStringValue tertiaryBoolValue =
             primaryIntValue {- inline block between binop operands -} + 1
         guardedString =
             if {- inline block between `if` and condition -} tertiaryBoolValue then
-                    {- inline block between condition and `then` -}
+                {- inline block between condition and `then` -}
                 -- comment between then and body
                 String.append secondaryStringValue
                     {- block comment between function and its argument -} "!"
@@ -289,9 +289,9 @@ extremelyCommented {-c22-} {-c23-} {-c24-}
         {-c49-}
             |> {-c50-} {-c51-}
             (\{-c52-} r -> {-c53-} {-c54-} {-c55-}
-                if {-c56-} bumpedScore {-c57-} > {-c58-} 0 {-c59-} {-c60-} then
-                        {-c61-}
-                        {-c62-}
+                if {-c56-} bumpedScore {-c57-} > {-c58-} 0 then
+                        {-c59-}
+                        {-c60-} {-c61-} {-c62-}
                         { r
                             {-c63-}
                             {-c64-}

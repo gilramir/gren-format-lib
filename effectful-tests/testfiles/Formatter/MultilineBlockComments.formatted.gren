@@ -137,16 +137,16 @@ ifExpr x =
     if {- 23 a
           23 b
           23 c -}
-            x
-            > 0 {- 24 a
-                   24 b
-                   24 c -}
-             then
+            x > 0 then
+        {- 24 a
+           24 b
+           24 c -}
         1
-    {- 25 a
-       25 b
-       25 c -}
-    else if x < 0 then
+    else if
+            {- 25 a
+               25 b
+               25 c -}
+            x < 0 then
         -1
     else
         2
