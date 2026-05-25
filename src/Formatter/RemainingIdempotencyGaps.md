@@ -5,12 +5,12 @@ Self-contained hand-off for the 6 non-idempotent gaps left after the
 `BracketPathFix.md` (the bracket-path refactor design + what landed). This file
 is the per-gap reproduction + diagnosis so each can be picked up independently.
 
-## State (2026-05-24, branch `formatter`)
+## State (2026-05-25, branch `formatter`)
 
 - Suite: **189/0** (`cd compiler-node/effectful-tests && ./run-tests.sh`).
-- Fuzzer: **6 non-idempotent gaps**
+- Fuzzer: **5 non-idempotent gaps**
   (`cd compiler-node/effectful-tests && python3 fuzz-idempotency.py`).
-- All prior fixes committed; working tree clean.
+- **Gap 1 (sig→def) is FIXED** — see its section below. Gaps 2–6 remain.
 
 ## How to reproduce any gap
 
@@ -47,7 +47,22 @@ that reroutes *every* trailing-comment-inside-a-construct — too broad (see
 
 ---
 
-## Gap 1 — KitchenSink ~line 410 — signature→definition boundary
+## Gap 1 — KitchenSink ~line 410 — signature→definition boundary — ✅ FIXED (2026-05-25)
+
+**Fix landed:** `Formatter.Comments.findOrCreateOrigRow` now declines to claim a
+comment for a `StFunctionSignature` `OriginalRows` when the comment sits past the
+signature's last token (new helper `trailsFunctionSignature`, gated by the
+existing `commentInsideTrailingBracket` so a comment still inside a trailing
+record/paren type is left to descend normally). The comment then falls through to
+a fresh top-level `OriginalRows` spliced between the signature and its definition
+— rendered at **column 1 on every format** (the canonical "leading comment of the
+definition" placement). `findOrCreateOrigRow` gained a `col` parameter for this.
+
+This also re-homed `KitchenComments`' `extremelyCommented` `{-c21-}` (which trails
+the signature's record `}`) from inline `} {-c21-}` to column 1 — the fixture was
+updated to match. Suite still 189/0; fuzzer 6 → 5 gaps; no new gaps anywhere.
+
+The original analysis follows.
 
 **Summary:** a comment after a function signature's last token, before the
 definition, renders at the signature's continuation indent (4) on `format¹` but
@@ -225,26 +240,34 @@ canonicalizes to column 1 (top-level) on both formats. (b) is narrower.
 
 ## Cross-cutting lever (and why it's not a quick win)
 
-Gaps 1, 3, 6 (and partly 2, 4) would all be solved by one rule: *a comment after
+Gaps 3, 6 (and partly 2, 4) would all be solved by one rule: *a comment after
 a construct's last token, before the next sibling, is canonicalized to the
 enclosing level (column 1 / block indent) on both formats.* The single place
 that decides this is `Formatter.Comments.findOrCreateOrigRow` (top-level
 attachment) / `insertCommentIntoSubtree` (the descent). But making
 `findOrCreateOrigRow` refuse a comment positioned after an OriginalRows' last
-token would reroute **every** trailing-comment-inside-a-declaration — including
-the when-branch, union, record/array/update, and paren cases that were just
-fixed to attach *inside*. That blast radius is why it wasn't attempted; a real
-fix needs per-context canonicalization (sig→def, let-binding gaps,
-module-exposing) rather than a global attachment change. Gate any attempt on the
-full `fuzz-idempotency.py` sweep + the 189-test suite.
+token *generically* would reroute **every** trailing-comment-inside-a-declaration
+— including the when-branch, union, record/array/update, and paren cases that
+were fixed to attach *inside*. That blast radius is why a global change wasn't
+attempted; a real fix needs per-context canonicalization rather than a global
+attachment change. Gate any attempt on the full `fuzz-idempotency.py` sweep + the
+189-test suite.
+
+**Gap 1 (sig→def) used exactly this per-context lever and is the template:** it
+added a `StFunctionSignature`-only guard (`trailsFunctionSignature`) to the
+`findOrCreateOrigRow` search so *only* trailing-signature comments are declined,
+re-using `commentInsideTrailingBracket` to keep inside-bracket comments
+descending. Gaps 3/6 want the analogous narrow guard for their own stype /
+context (let-binding gaps; module exposing).
 
 ## Recommended order for a hand-off
 
+- ~~**Gap 1** (sig→def)~~ — ✅ done (2026-05-25); see its section for the
+  per-context-guard template the remaining gaps can follow.
 1. **Gap 5** (let-binding leading-comment blank) — most self-contained, a pure
    blank-line bug, no attachment ambiguity.
 2. **Gaps 2 + 3** (let-binding / `in` boundaries) — one coherent unit; both are
    between-let-bindings / bindings→`in` comments.
-3. **Gap 1** (sig→def) — needs sig→def-adjacency special-casing.
-4. **Gap 6** (module-exposing `)`) — elided position; narrowest fix is
+3. **Gap 6** (module-exposing `)`) — elided position; narrowest fix is
    canonicalize-to-column-1.
-5. **Gap 4** (paren `)` + blank churn) — two coupled effects; do last.
+4. **Gap 4** (paren `)` + blank churn) — two coupled effects; do last.

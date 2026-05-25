@@ -89,7 +89,7 @@ lptAddComment locComment root =
                 Ctx.Line _ -> StSingleLineComment
                 Ctx.Block _ -> StBlockComment
         rootChildren = lpnChildren root
-        { origRowNode, before, after } = findOrCreateOrigRow row stype rootChildren
+        { origRowNode, before, after } = findOrCreateOrigRow row col stype rootChildren
         updatedOrigRow = insertCommentIntoSubtree commentNode row col origRowNode
         endRow =
             when locComment.value is
@@ -128,10 +128,11 @@ If no match is found, creates a new OriginalRows node inserted in sorted positio
 -}
 findOrCreateOrigRow :
     Int
+    -> Int
     -> SyntaxType
     -> Array LPNode
     -> { origRowNode : LPNode, before : Array LPNode, after : Array LPNode }
-findOrCreateOrigRow row stype nodes =
+findOrCreateOrigRow row col stype nodes =
     let
         -- First: try to find an existing OriginalRows containing 'row'
         searchResult =
@@ -143,8 +144,9 @@ findOrCreateOrigRow row stype nodes =
 
                         Nothing ->
                             when lpnBox node is
-                                OriginalRows { first = first, last = last } ->
-                                    if first <= row && row <= last then
+                                OriginalRows { first = first, last = last, stype = nodeStype } ->
+                                    if first <= row && row <= last
+                                        && not (trailsFunctionSignature nodeStype node row col) then
                                         { acc | found = Just node }
                                     else
                                         { acc | before = Array.pushLast node acc.before }
@@ -189,6 +191,33 @@ findOrCreateOrigRow row stype nodes =
             , before = insertResult.before
             , after = insertResult.after
             }
+
+
+{-| True for a comment positioned after a function signature's last token,
+before its definition. Such a comment renders at the signature's continuation
+indent on the first format (it's on the signature's last source row, so the
+StFunctionSignature OriginalRows claims it), but on reparse it sits on its own
+line one row past the signature's range and re-attaches as a top-level comment
+at column 1 — the indent oscillates.
+
+Declining to claim it for the signature makes `findOrCreateOrigRow` splice a
+fresh top-level OriginalRows between the signature and its definition, so the
+comment renders at column 1 on every format (the canonical placement: a leading
+comment of the definition).
+
+The comment must be genuinely past the signature's content. A comment still
+inside a trailing record/paren type of the signature (before its closing
+bracket) reports `commentInsideTrailingBracket` and is left to descend normally.
+-}
+trailsFunctionSignature : SyntaxType -> LPNode -> Int -> Int -> Bool
+trailsFunctionSignature stype node row col =
+    when stype is
+        StFunctionSignature ->
+            subtreeEndsBefore node row col
+                && not (commentInsideTrailingBracket node row col)
+
+        _ ->
+            False
 
 
 {-
