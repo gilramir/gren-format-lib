@@ -7,10 +7,12 @@ is the per-gap reproduction + diagnosis so each can be picked up independently.
 
 ## State (2026-05-25, branch `formatter`)
 
-- Suite: **189/0** (`cd compiler-node/effectful-tests && ./run-tests.sh`).
-- Fuzzer: **5 non-idempotent gaps**
+- Suite: **225/0** (`cd compiler-node/effectful-tests && ./run-tests.sh`).
+- Fuzzer: **3 non-idempotent gaps**
   (`cd compiler-node/effectful-tests && python3 fuzz-idempotency.py`).
-- **Gap 1 (sig→def) is FIXED** — see its section below. Gaps 2–6 remain.
+- **Gaps 1, 2, 5 FIXED** (see their sections). Gaps 3, 4, 6 remain.
+- Also added 10 effectful regression fixtures for the 2026-05-24 fuzzer fixes
+  (which had no suite coverage); that's why the suite count jumped 189 → 225.
 
 ## How to reproduce any gap
 
@@ -203,7 +205,26 @@ format²:                    {- ¤ -}              (indent 20, no blank)
 the boundary-attachment fix AND a blank-line (VerticalSpace / branch-separator)
 adjustment. The messiest of the six; consider last.
 
-## Gap 5 — MultilineBlockComments ~line 105 — leading comment of a non-first let binding (blank churn)
+## Gap 5 — MultilineBlockComments ~line 105 — leading comment of a non-first let binding (blank churn) — ✅ FIXED (2026-05-25)
+
+**Fix landed:** the root cause was `selfBoxBounds` in
+`Formatter.LogicalPrintingTree` computing a `BlockComment`'s `maxRow` as
+`loc.end.row + countNewlines loc.value`. `loc.end.row` is *already* the comment's
+real end row (the parser records the true span), so this over-counted by the
+number of content lines — matching neither `DocComment` nor `MultilineString`
+(both use `loc.end.row`). The inflation pushed a let-binding's row range past its
+last token, so a *leading* multi-line comment of the next binding fell inside the
+previous binding's range and was absorbed as a *trailing* comment of it (rendered
+own-line + a spurious blank before the next binding); reparsed own-line it
+re-attached as a leading comment (no blank) → oscillation. Changed to
+`maxRow = loc.end.row`. (Same inflation e8ec8e3 worked around in the union-variant
+renderer; this fixes it at the source.)
+
+Updated the `MultilineBlockComments` fixture (the spurious blank after the
+`{- 47 … -}` comment is gone). That fixture's idempotency+formatting sub-tests now
+guard the fix (reverting it re-adds the blank). Suite 225/0; fuzzer 4 → 3.
+
+The original analysis follows.
 
 **Summary:** inserting a comment in a let body makes a spurious blank line appear
 between a non-first binding's leading block comment and the binding itself on
@@ -292,11 +313,12 @@ context (let-binding gaps; module exposing).
   per-context-guard template the remaining gaps can follow.
 - ~~**Gap 2** (last binding → `in`)~~ — ✅ done (2026-05-25); glue-to-`in` via an
   `isInKeyword`-next-sibling descent guard (own-line was unreachable; see section).
-1. **Gap 5** (let-binding leading-comment blank) — most self-contained, a pure
-   blank-line bug, no attachment ambiguity.
-2. **Gap 3** (between two let bindings) — the remaining let-binding-boundary case;
+- ~~**Gap 5** (let-binding leading-comment blank)~~ — ✅ done (2026-05-25); root
+  cause was `BlockComment` `maxRow` over-count in `selfBoxBounds` (see section).
+1. **Gap 3** (between two let bindings) — the remaining let-binding-boundary case;
    note Gap 2's `in`-position ambiguity does NOT apply here (the next sibling is a
-   real binding, not the position-less `in`).
-3. **Gap 6** (module-exposing `)`) — elided position; narrowest fix is
+   real binding, not the position-less `in`). Check whether the Gap-5 `maxRow`
+   fix already moved it (it's a between-bindings comment too).
+2. **Gap 6** (module-exposing `)`) — elided position; narrowest fix is
    canonicalize-to-column-1.
-4. **Gap 4** (paren `)` + blank churn) — two coupled effects; do last.
+3. **Gap 4** (paren `)` + blank churn) — two coupled effects; do last.

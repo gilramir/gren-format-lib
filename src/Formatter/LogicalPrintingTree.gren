@@ -3,7 +3,6 @@ module Formatter.LogicalPrintingTree exposing (..)
 import Math exposing (maxSafeInteger)
 
 import Compiler.SourcePosition exposing (Located, Position)
-import Formatter.Strings exposing (countNewlines)
 
 type ListBrackets
     = ListParen
@@ -510,7 +509,14 @@ selfBoxBounds box =
                 | firstPos = Just loc.start
                 , lastPos = Just loc.end
                 , minRow = loc.start.row
-                , maxRow = loc.end.row + countNewlines loc.value
+                -- `loc.end.row` is already the comment's real end row (the parser
+                -- records the true multi-line span), so it is the correct maxRow —
+                -- matching DocComment / MultilineString below. Adding
+                -- `countNewlines` over-counted by the number of content lines,
+                -- inflating an enclosing binding's row range past its last token so
+                -- a *leading* comment of the next binding was absorbed as a
+                -- *trailing* comment of the previous one (blank-line churn).
+                , maxRow = loc.end.row
             }
         DocComment loc ->
             { empty
