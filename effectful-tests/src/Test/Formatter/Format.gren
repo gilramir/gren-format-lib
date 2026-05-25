@@ -262,6 +262,21 @@ commentsTests fsPerm =
         , assertPretty fsPerm "own-line comment before a container's closing bracket stays inside" "BracketTrailingComments"
         , assertPretty fsPerm "comment trailing a signature's last token canonicalizes to column 1 before the definition" "SignatureTrailingComment"
         , assertPretty fsPerm "comment trailing the last let binding routes after `in` (not own-line, which would oscillate)" "LetInTrailingComment"
+        -- Regression guards for the 2026-05-24 fuzzer-found idempotency fixes.
+        -- Each fixture reproduces a comment placement that oscillated before its
+        -- fix; the idempotency sub-test fails if that fix regresses. Each was
+        -- validated by reverting its fix and confirming the fixture goes
+        -- non-idempotent at the parent commit.
+        , assertPretty fsPerm "trailing comment after a multi-line union variant stays on the variant's last row" "UnionVariantTrailingComment"
+        , assertPretty fsPerm "overflowing trailing comment in a bracket list lays the item out as if absent" "BracketListOverflowComment"
+        , assertPretty fsPerm "comment in an empty-bracket body slot is not absorbed into the brackets" "EmptyBracketTrailingComment"
+        , assertPretty fsPerm "comments inside a record update and before its closing brace" "RecordUpdateFieldComment"
+        , assertPretty fsPerm "trailing comment on an overflowing when-branch body glues inline" "WhenBranchTrailingComment"
+        , assertPretty fsPerm "single-line comment around the arrow of a wrapping signature soft-breaks" "SignatureArrowLineComment"
+        , assertPretty fsPerm "comment after the exposing list of a vertical effect-module where block" "EffectModuleFxWhereComment"
+        , assertPretty fsPerm "comment on an item in a multi-line import exposing list" "ImportExposingMultilineComment"
+        , assertPretty fsPerm "long module-header comment that wraps the module name to a continuation row" "HeaderCommentNameWrap"
+        , assertPretty fsPerm "comment between a vertical module exposing list and the first declaration" "ModuleVerticalExposingComment"
         , assertPretty fsPerm "canonical rendering of comments at elided-token positions" "Ambiguous"
         , assertPretty fsPerm "canonical rendering of a comment in an effect-module where block" "AmbiguousEffectModule"
         ]

@@ -1,0 +1,3 @@
+module ModuleVerticalExposingComment exposing ( AlphaLongTypeName, BetaLongTypeName, GammaLongFunctionName, DeltaLongFunctionName, EpsilonLongValue )
+{- comment between the vertical exposing list and the first declaration -}
+alphaLongTypeName = 1

@@ -1,0 +1,19 @@
+module WhenBranchTrailingComment exposing (..)
+
+
+type Wrapped a
+    = Wrapped a
+
+
+describe : Wrapped { tagString : String, payloadInt : Int } -> String
+describe wrappedValue =
+    when wrappedValue is
+        Wrapped ({ tagString, payloadInt } as wholeRecord) ->
+            tagString ++ ":" ++ String.fromInt payloadInt ++ "/" ++ Debug.toString wholeRecord {- trailing the overflowing branch body, before the next declaration -}
+
+
+classify : Wrapped (Maybe Int) -> String
+classify wrappedValue =
+    when wrappedValue is
+        Wrapped (Just intValue as innerJust) ->
+            "just:" ++ String.fromInt intValue ++ "/" ++ Debug.toString innerJust
