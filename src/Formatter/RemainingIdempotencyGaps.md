@@ -1,0 +1,250 @@
+# Remaining idempotency gaps — hand-off
+
+Self-contained hand-off for the 6 non-idempotent gaps left after the
+83 → 6 burn-down. Read with `BracketPath.md` (problem/root-cause analysis) and
+`BracketPathFix.md` (the bracket-path refactor design + what landed). This file
+is the per-gap reproduction + diagnosis so each can be picked up independently.
+
+## State (2026-05-24, branch `formatter`)
+
+- Suite: **189/0** (`cd compiler-node/effectful-tests && ./run-tests.sh`).
+- Fuzzer: **6 non-idempotent gaps**
+  (`cd compiler-node/effectful-tests && python3 fuzz-idempotency.py`).
+- All prior fixes committed; working tree clean.
+
+## How to reproduce any gap
+
+```
+cd compiler-node/effectful-tests
+python3 fuzz-idempotency.py -v testfiles/Formatter/<Fixture>.formatted.gren
+```
+
+`-v` prints, for each non-idempotent gap: the source line, a `…ctx⟨here⟩ctx…`
+marker showing where a `{- ¤ -}` block comment was inserted, and the unified
+diff between the first format (`format¹`) and the second (`format²`). The bug is
+always that those two differ. The fuzzer inserts the comment into one
+inter-token whitespace gap at a time; the gaps below are identified by their
+line + context marker.
+
+## The common theme
+
+Five of the six are the same shape: **a comment that trails the last token of
+some construct is claimed by that construct and rendered at its indent on
+`format¹`, but when it lands on its own line there it sits past the construct's
+row range and reparses as a comment at the *enclosing* level on `format²`** — so
+the indent/placement oscillates. This is an *attachment* ambiguity
+(`Formatter.Comments.findOrCreateOrigRow` / the descent), not a rendering bug;
+render-time tweaks don't fix it (see the dead-ends in `BracketPathFix.md`).
+
+The constructs that were fixable (when-branch, type-union variant, record /
+array / record-update literal, paren) each had a builder that owns *both*
+attachment and rendering, or a representable closing bracket to anchor on. The
+remaining ones sit at **top-level OriginalRows boundaries** (between two
+declarations, or a signature and its definition) or at **let-binding / `in`
+boundaries**, where the only shared lever is `findOrCreateOrigRow`, and changing
+that reroutes *every* trailing-comment-inside-a-construct — too broad (see
+"Cross-cutting lever" at the end).
+
+---
+
+## Gap 1 — KitchenSink ~line 410 — signature→definition boundary
+
+**Summary:** a comment after a function signature's last token, before the
+definition, renders at the signature's continuation indent (4) on `format¹` but
+column 1 on `format²`.
+
+Fixture context:
+```
+fold : (a -> accumulatorValue -> accumulatorValue) -> accumulatorValue -> Tree a -> accumulatorValue
+fold reducerFunction initialAccumulatorValue currentTreeNode =
+```
+Reproduce: gap at `… -> accumulatorValue⟨here⟩⏎fold reducerFunctio…` (the final
+`accumulatorValue` of the signature, before the definition).
+
+```
+format¹:    {- ¤ -}      (indent 4, own line — claimed by the StFunctionSignature OriginalRows)
+format²:{- ¤ -}          (column 1 — a top-level comment between the sig and def)
+```
+
+**Diagnosis:** the `StFunctionSignature` OriginalRows range is
+`[sigStart.row, max(childrenLast, locType.end.row)]`. The comment is on the
+signature's last row, so `findOrCreateOrigRow` claims it for the signature; it
+renders own-line at the signature flow's `grenIndent`. On reparse it's one row
+below the signature's last token → outside the range → a new top-level
+OriginalRows at column 1. The signature renderer is `makeFlowIndentableDoc`
+(via the `_ ->` arm of `makePrettyLineDoc`).
+
+**Suggested approach:** canonicalize a comment that sits *between* a signature
+and its definition to a leading comment of the definition (column 1), the same
+on both formats. Likely needs special-casing the sig→def adjacency in
+`Formatter.Comments` (the def is the immediately-following OriginalRows), since a
+generic "don't claim after-last-token comments" change is too broad.
+
+## Gap 2 — KitchenSink ~line 430 — last let binding → `in`
+
+**Summary:** a comment after the last let binding, before `in`, renders own-line
+at the binding indent on `format¹` but glues to `in` (`in {- ¤ -}`) on `format²`.
+
+Fixture context:
+```
+                                accumulatedSoFar) initialAccumulatorValue branchAttributesArray
+            in
+```
+Reproduce: gap at `…ranchAttributesArray⟨here⟩⏎            in⏎…`.
+
+```
+format¹:                    {- ¤ -}      (own line, binding indent 20)
+            in
+format²:            in {- ¤ -}            (glued after `in`)
+```
+
+**Diagnosis:** the comment is between the let-bindings block and the `in`
+keyword. `format¹` keeps it inside the bindings block (own line); `format²`
+attaches it to the `in`/body. Lives in the `let … in` rendering (the bindings
+IndentedBlock vs the `in` token / body BodyBlock) + its comment attachment.
+
+**Suggested approach:** decide one home for a comment in the bindings→`in` gap
+(most natural: own line at the binding indent, i.e. `format¹`) and make
+attachment + rendering agree on it regardless of the comment's input row.
+
+## Gap 3 — KitchenSink ~line 291 — between let bindings (record-update field value)
+
+**Summary:** a comment after a single-field record-update binding value, before
+the next binding's leading comment, renders at indent 12 on `format¹` but 8 on
+`format²`.
+
+Fixture context:
+```
+        -- Single-field update bound to a name in let.
+        containerWithBumpedTimestamp =
+            { startingContainer | generatedAtMillis = startingContainer.generatedAtMillis + 1 }
+        -- Single-field update inside a let that uses an if/then/else for the new field value.
+```
+Reproduce: gap at `…eratedAtMillis + 1 }⟨here⟩⏎        -- Single-f…` (after the
+update's `}`, before the next binding's `--` comment).
+
+```
+format¹:            {- ¤ -}    (indent 12 — claimed by the binding's value subtree)
+format²:        {- ¤ -}        (indent 8 — the let-bindings block level)
+```
+
+**Diagnosis:** the comment trails the binding's value (the record update, which
+DOES now carry its `}` close position). On `format¹` it's pulled to the value's
+deeper indent; on `format²`, own-line, it sits at the bindings-block indent.
+Same boundary ambiguity, between two let bindings.
+
+**Suggested approach:** a comment between two let bindings should sit at the
+bindings-block indent (8), the binding-leading-comment column, on both formats.
+Related to Gap 6 (also a between-let-bindings comment).
+
+## Gap 4 — KitchenSink ~line 214 — comment after `)` in a record field value + blank churn
+
+**Summary:** a comment after a parenthesised call result inside a multi-line
+`if/else` expression changes indent (28→20) AND a blank line appears/disappears.
+
+Fixture context:
+```
+                        else
+                            Err ("unknown scheme in tracing sink endpoint: " ++ sinkEndpoint)
+
+                    Nothing -> Err "tracing enabled but no usable sinks configured"
+```
+Reproduce: gap at `…: " ++ sinkEndpoint)⟨here⟩⏎⏎                  …` (after the
+`)` closing the `Err ( … )`, at the end of an `else` branch).
+
+```
+format¹:                            {- ¤ -}      (indent 28) + a blank line
+format²:                    {- ¤ -}              (indent 20, no blank)
+```
+
+**Diagnosis:** two coupled effects — an indent shift (the comment trailing the
+`)` of an `if/else`-branch expression) and a blank-line churn. Likely needs both
+the boundary-attachment fix AND a blank-line (VerticalSpace / branch-separator)
+adjustment. The messiest of the six; consider last.
+
+## Gap 5 — MultilineBlockComments ~line 105 — leading comment of a non-first let binding (blank churn)
+
+**Summary:** inserting a comment in a let body makes a spurious blank line appear
+between a non-first binding's leading block comment and the binding itself on
+`format¹`, absent on `format²`.
+
+Fixture context (the `{- 47 … -}` is a leading comment of the `z = y` binding):
+```
+         x
+        {- 47 a — leading comment of a NON-FIRST let binding
+           47 b
+           47 c -}
+        <blank on format¹ only>
+        z = y
+    in
+```
+Reproduce: gap at `…b⏎           17 c -}⟨here⟩⏎         x⏎…`.
+
+```
+format¹: …47 c -}⏎⏎z = y      (blank between the leading comment and its binding)
+format²: …47 c -}⏎z = y        (no blank)
+```
+
+**Diagnosis:** pure blank-line bug in the let-binding renderer / VerticalSpace —
+a leading block comment of a non-first binding should sit directly above its
+binding (no blank). Independent of the trailing-comment theme; likely the most
+self-contained of the six.
+
+## Gap 6 — Records line 1 — comment after the module `exposing ( … )` close
+
+**Summary:** a comment after the module exposing list's `)` renders at indent 4
+on `format¹` but column 1 on `format²`.
+
+Fixture context:
+```
+module Records exposing ( makePoint, movePoint, distSq, singleton, makeOrigin, scalePoint, firstX )
+
+{- Record creation, access, and update -}
+```
+Reproduce: gap at `…scalePoint, firstX )⟨here⟩⏎⏎{- Record creation…` (after the
+exposing list's `)`).
+
+```
+format¹:    {- ¤ -}      (indent 4 — claimed by the module line, continuation indent)
+format²:{- ¤ -}          (column 1 — top-level)
+```
+
+**Diagnosis:** the module `exposing` list's closing `)` has **no AST position**
+(the parser discards it; this is the elided-token limitation we deliberately did
+NOT solve by changing `Compiler.Parse.Context`). When the long module line wraps,
+a trailing comment renders at the continuation indent (4); reparsed own-line it's
+past the module line and becomes top-level. Unlike record/array/paren, there is
+no representable close to anchor on.
+
+**Suggested approach:** either (a) synthesize a stable `)` position for the
+module exposing (note: a naive synthesis at the last-item end regressed earlier —
+see `BracketPath.md`), or (b) special-case: a comment trailing the module line
+canonicalizes to column 1 (top-level) on both formats. (b) is narrower.
+
+---
+
+## Cross-cutting lever (and why it's not a quick win)
+
+Gaps 1, 3, 6 (and partly 2, 4) would all be solved by one rule: *a comment after
+a construct's last token, before the next sibling, is canonicalized to the
+enclosing level (column 1 / block indent) on both formats.* The single place
+that decides this is `Formatter.Comments.findOrCreateOrigRow` (top-level
+attachment) / `insertCommentIntoSubtree` (the descent). But making
+`findOrCreateOrigRow` refuse a comment positioned after an OriginalRows' last
+token would reroute **every** trailing-comment-inside-a-declaration — including
+the when-branch, union, record/array/update, and paren cases that were just
+fixed to attach *inside*. That blast radius is why it wasn't attempted; a real
+fix needs per-context canonicalization (sig→def, let-binding gaps,
+module-exposing) rather than a global attachment change. Gate any attempt on the
+full `fuzz-idempotency.py` sweep + the 189-test suite.
+
+## Recommended order for a hand-off
+
+1. **Gap 5** (let-binding leading-comment blank) — most self-contained, a pure
+   blank-line bug, no attachment ambiguity.
+2. **Gaps 2 + 3** (let-binding / `in` boundaries) — one coherent unit; both are
+   between-let-bindings / bindings→`in` comments.
+3. **Gap 1** (sig→def) — needs sig→def-adjacency special-casing.
+4. **Gap 6** (module-exposing `)`) — elided position; narrowest fix is
+   canonicalize-to-column-1.
+5. **Gap 4** (paren `)` + blank churn) — two coupled effects; do last.
