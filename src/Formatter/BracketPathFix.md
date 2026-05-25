@@ -37,6 +37,39 @@ now resolved: it IS needed, specifically to unblock the paren/call cluster).
 Next implementer: do Part B (the `commentMaxRow` split), then re-apply the
 ParenBlock close position + a `Src.Call` audit, gated on the full fuzz sweep.
 
+### Deep dive — the ParenBlock close blocker is NOT Part B; it is a pipeline-step indent cascade (2026-05-24)
+
+Investigated the ParenBlock-close regression in full. Findings, all verified:
+
+1. **`MakePretty` never reads `maxRow`** (grep `lpnMaxRow`/`subtreeRowRange`/
+   `lastRowInSubtree` → only `Comments` and `MakeLogical` read them). So Part B
+   (separating `commentMaxRow` from `maxRow`) would **not** change any rendering
+   — it cannot fix this regression. The earlier "Part B is needed" claim was
+   wrong about the mechanism.
+
+2. The ParenBlock close does **not** change attachment in the *formatted* file
+   (the `--lpt` trees are identical with/without it). It changes attachment in
+   the *dirty* file: a comment (`c93`) that the baseline renders on its own line
+   attaches *inside* the preceding paren pipeline step instead.
+
+3. `format(dirty)` with the close is **self-idempotent** (`format(A) == A`), so
+   this looked like mere baseline churn — but it is a **layout bug**: the
+   pipeline's `|>` steps are all at indent 12 (e.g. KitchenComments line 293),
+   yet the affected step drops to indent **8**. Pulling `c93` into the prior
+   paren step changes which comments *lead* the next `|>` step, and the
+   `PipelineStep` renderer's leading-comment handling then mis-indents the `|>`.
+   So the baseline cannot simply be regenerated (it would bake in an
+   inconsistent `|>` indent).
+
+**Revised conclusion for the paren/call cluster:** it needs (a) the ParenBlock
+(and `Src.Call`) close position, AND (b) a fix to `PipelineStep`'s leading-/
+trailing-comment handling so the `|>` indent is invariant under which comments
+attach to the step (independent of an adjacent paren step's extent). It is NOT
+unblocked by Part B. This is a `PipelineStep`-renderer change, separate from the
+record/array/update work that landed. Until (b) is understood, the ParenBlock
+close stays reverted; the 5 paren/call gaps remain. The clean landed state is
+**7 non-idempotent gaps, suite 189/0**.
+
 ## 0. Invariant we are buying
 
 For any input `x` that parses, `format(format(x)) == format(x)` byte-for-byte,
