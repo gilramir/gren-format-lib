@@ -259,7 +259,10 @@ insertExpression locExpr =
                                             Just updated -> updated
                                             Nothing -> firstField
                                 in
-                                [lpnNode (AllAcrossOrAllVertical ListCurly) [updatedField]]
+                                -- Close position so an own-line comment after the field but
+                                -- before `}` attaches inside the update (consistent with the
+                                -- inline form), matching the 2+ field case below.
+                                [lpnBracketNode (AllAcrossOrAllVertical ListCurly) locExpr.end [updatedField]]
                             else
                                 -- 2+ field update: always vertical with RecordUpdate
                                 [lpnNode (RecordUpdate recLoc) fieldNodes]

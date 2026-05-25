@@ -689,6 +689,20 @@ buildFlowDocImpl indent inlineStart nodes =
                                         Ok bodyDoc ->
                                             let
                                                 childrenDoc = P.concat bodyDoc trailingCommentDoc
+                                                -- A branch ending in a trailing comment must not
+                                                -- trigger the inter-branch blank: that mirrors the
+                                                -- pre-existing "comment between branches" behaviour
+                                                -- (where the comment item leaves the next branch's
+                                                -- separator AlreadyTerminated, suppressing the
+                                                -- blank). Once trailing comments attach *inside* the
+                                                -- branch (because a container now carries its close
+                                                -- position), the comment is no longer a between-
+                                                -- branch item, so without this a multi-line branch
+                                                -- would gain a spurious blank before the next branch.
+                                                branchEndsWithComment =
+                                                    when Array.last nodeChildren is
+                                                        Just lastChild -> nodeIsComment lastChild
+                                                        Nothing -> False
                                                 insertBlankLine =
                                                     acc.prevBranchMultiLine || branchMultiLine
                                                 blankOrNewline =
@@ -709,7 +723,7 @@ buildFlowDocImpl indent inlineStart nodes =
                                             Ok { doc = newDoc
                                                , prevRow = -1
                                                , separator = FlowSep
-                                               , prevBranchMultiLine = branchMultiLine
+                                               , prevBranchMultiLine = branchMultiLine && not branchEndsWithComment
                                                }
 
                                 SoftIndentedBlock ->
