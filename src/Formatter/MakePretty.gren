@@ -581,17 +581,24 @@ buildFlowDocImpl indent inlineStart nodes =
                                     -- termination at the correct outer indent.
                                     let
                                         { commentDoc, withoutLeading, hasComment } =
-                                            when Array.popFirst nodeChildren is
-                                                Just { first = firstNode, rest = restNodes } ->
-                                                    if nodeIsComment firstNode then
-                                                        { commentDoc = P.concat (commentBoxDoc (lpnBox firstNode)) P.hardNl
-                                                        , withoutLeading = restNodes
-                                                        , hasComment = True
-                                                        }
-                                                    else
-                                                        { commentDoc = P.empty, withoutLeading = nodeChildren, hasComment = False }
-                                                Nothing ->
-                                                    { commentDoc = P.empty, withoutLeading = [], hasComment = False }
+                                            -- Peel ALL leading comments, not just the first. Each
+                                            -- renders own-line at the step's own column (the outer
+                                            -- nest), so `|>` is the first token after them at that
+                                            -- same column. Leaving a second leading comment inside
+                                            -- `childrenDoc` (which carries an inner `nest grenIndent`)
+                                            -- would let its own-line break push `|>` one level deeper
+                                            -- — an inconsistent `|>` indent that varies with how many
+                                            -- comments precede the step.
+                                            let { leading, rest } = splitLeadingComments nodeChildren
+                                            in
+                                            { commentDoc =
+                                                Array.foldl
+                                                    (\c cdoc -> P.concat cdoc (P.concat (commentBoxDoc (lpnBox c)) P.hardNl))
+                                                    P.empty
+                                                    leading
+                                            , withoutLeading = rest
+                                            , hasComment = not (Array.isEmpty leading)
+                                            }
 
                                         { stepChildren, trailingCommentDoc, hasTrailing } =
                                             when Array.popLast withoutLeading is

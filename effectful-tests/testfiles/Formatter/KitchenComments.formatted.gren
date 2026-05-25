@@ -290,7 +290,7 @@ extremelyCommented {-c22-} {-c23-} {-c24-}
     wholeRecord
         {-c48-}
         {-c49-}
-            |> {-c50-} {-c51-}
+        |> {-c50-} {-c51-}
             (\{-c52-} r -> {-c53-} {-c54-} {-c55-}
                 if {-c56-} bumpedScore {-c57-} > {-c58-} 0 then
                         {-c59-}
@@ -321,7 +321,7 @@ extremelyCommented {-c22-} {-c23-} {-c24-}
 
         {-c93-}
         {-c94-}
-            |> {-c95-} (\finalRecord -> {-c96-} {-c97-} finalRecord {-c98-} {-c99-})
+        |> {-c95-} (\finalRecord -> {-c96-} {-c97-} finalRecord {-c98-} {-c99-})
 
 
 {-| Pick the best discount from a list of candidate codes. -}
