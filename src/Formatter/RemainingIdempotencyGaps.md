@@ -7,12 +7,12 @@ is the per-gap reproduction + diagnosis so each can be picked up independently.
 
 ## State (2026-05-25, branch `formatter`)
 
-- Suite: **231/0** (`cd compiler-node/effectful-tests && ./run-tests.sh`).
-- Fuzzer: **1 non-idempotent gap**
+- Suite: **234/0** (`cd compiler-node/effectful-tests && ./run-tests.sh`).
+- Fuzzer: **0 non-idempotent gaps — FULL IDEMPOTENCY**
   (`cd compiler-node/effectful-tests && python3 fuzz-idempotency.py`).
-- **Gaps 1, 2, 3, 5, 6 FIXED** (see their sections). Only **Gap 4** remains.
-- Also added 12 effectful regression fixtures for the 2026-05-24 fuzzer fixes +
-  this session's gaps; that's why the suite count jumped 189 → 231.
+- **All six gaps (1–6) FIXED.** This file is now a historical record.
+- Also added 13 effectful regression fixtures for the 2026-05-24 fuzzer fixes +
+  this session's gaps; that's why the suite count jumped 189 → 234.
 
 ## How to reproduce any gap
 
@@ -196,7 +196,23 @@ Same boundary ambiguity, between two let bindings.
 bindings-block indent (8), the binding-leading-comment column, on both formats.
 Related to Gap 6 (also a between-let-bindings comment).
 
-## Gap 4 — KitchenSink ~line 214 — comment after `)` in a record field value + blank churn
+## Gap 4 — KitchenSink ~line 214 — comment after `)` in a record field value + blank churn — ✅ FIXED (2026-05-25)
+
+**Fix landed:** a third descent guard, mirroring Gaps 2/3. `insertCommentIntoSubtree`
+refuses descent into a `WhenBranch` when the comment trails its body (even nested
+deep inside an if/let in the body) and the next sibling is another `WhenBranch`
+(`nextSiblingIsWhenBranch`, gated by `commentInsideTrailingBracket`). The comment
+then lands between the branches at the branch indent on both formats — *and*
+because it now carries the inter-branch separator (`AlreadyTerminated`), the
+spurious inter-branch blank is suppressed too. So a single attachment change fixes
+*both* coupled effects (the 28→20 indent shift and the blank churn). No conflict
+with 3e7b0a4 (the last/only-branch inline glue): that fires only when there is no
+following `WhenBranch`, so this guard never triggers there.
+
+New fixture `BetweenWhenBranchesComment`. Suite 231 → 234/0; fuzzer 1 → **0 — full
+idempotency**.
+
+The original analysis follows.
 
 **Summary:** a comment after a parenthesised call result inside a multi-line
 `if/else` expression changes indent (28→20) AND a blank line appears/disappears.
@@ -341,16 +357,25 @@ re-using `commentInsideTrailingBracket` to keep inside-bracket comments
 descending. Gaps 3/6 want the analogous narrow guard for their own stype /
 context (let-binding gaps; module exposing).
 
-## Recommended order for a hand-off
+## Outcome — all six gaps fixed (2026-05-25)
 
-- ~~**Gap 1** (sig→def)~~ — ✅ done (2026-05-25); see its section for the
-  per-context-guard template the remaining gaps can follow.
-- ~~**Gap 2** (last binding → `in`)~~ — ✅ done (2026-05-25); glue-to-`in` via an
-  `isInKeyword`-next-sibling descent guard (own-line was unreachable; see section).
-- ~~**Gap 5** (let-binding leading-comment blank)~~ — ✅ done (2026-05-25); root
-  cause was `BlockComment` `maxRow` over-count in `selfBoxBounds` (see section).
-- ~~**Gap 3** (between two let bindings)~~ — ✅ done (2026-05-25); `nextSiblingIsIndentedBlock`
-  descent guard, mirroring Gap 2 (see section).
-- ~~**Gap 6** (module-exposing `)`)~~ — ✅ done (2026-05-25); `trailsClaimedConstruct`
-  extended to `StModule` (canonicalize-to-column-1; see section).
-1. **Gap 4** (paren `)` + blank churn) — two coupled effects; LAST remaining gap.
+All six closed; `fuzz-idempotency.py` reports **0 non-idempotent gaps**. The
+recurring shape was a comment trailing some construct's last token at a boundary:
+on the first format it's claimed by / descends into that construct and renders at
+its deep indent, but on reparse (own-line) it escapes to the enclosing level —
+oscillating. The fixes cluster into a few reusable levers:
+
+- **`findOrCreateOrigRow` decline-to-claim** (`trailsClaimedConstruct`) for
+  top-level `OriginalRows`: Gap 1 (`StFunctionSignature` → column 1) and Gap 6
+  (`StModule` → column 1).
+- **`insertCommentIntoSubtree` next-sibling descent guards**: Gap 2
+  (`nextSiblingIsIn` → after `in`), Gap 3 (`nextSiblingIsIndentedBlock` → bindings
+  indent), Gap 4 (`nextSiblingIsWhenBranch` → between branches, also suppresses the
+  inter-branch blank). All gated by `commentInsideTrailingBracket` so genuinely-
+  inside comments still descend.
+- **Render/bounds fixes**: Gap 5 (`BlockComment` `maxRow` over-count in
+  `selfBoxBounds`) and the when-branch multi-trailing-comment peel in MakePretty.
+
+Each fix has a dedicated effectful regression fixture, validated by reverting the
+fix and confirming the fixture goes non-idempotent. See the per-gap sections
+below for the detailed analysis (kept as a historical record).

@@ -1,0 +1,24 @@
+module BetweenWhenBranchesComment exposing (..)
+
+
+process tracingSection =
+    let
+        tracingDecision =
+            if tracingSection.isEnabled then
+                let
+                    chosenSink =
+                        tracingSection.chosen
+                in
+                when chosenSink is
+                    Just { endpoint = sinkEndpoint } ->
+                        if String.startsWith "https://" sinkEndpoint then
+                            Ok sinkEndpoint
+                        else
+                            Err ("unknown scheme in tracing sink endpoint: " ++ sinkEndpoint) {- trailing a non-last when-branch body -}
+
+                    Nothing ->
+                        Err "tracing enabled but no usable sinks configured"
+            else
+                Ok "disabled"
+    in
+    tracingDecision

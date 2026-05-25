@@ -309,13 +309,32 @@ insertCommentIntoSubtree commentNode row col node =
                                 when Array.get (acc.index + 1) children is
                                     Just sib -> isIndentedBlockNode sib
                                     Nothing -> False
+
+                            -- True when the next sibling is another `WhenBranch`,
+                            -- i.e. `child` is a non-last when-branch and the next
+                            -- branch follows. A comment trailing this branch's body
+                            -- (even nested deep inside an if/let in the body) must
+                            -- NOT descend into it — on the first format it renders
+                            -- own-line at the deepest body indent (plus a spurious
+                            -- inter-branch blank), but on reparse it sits own-line
+                            -- between the branches at the branch indent. Refusing
+                            -- descent routes both formats there; the comment then
+                            -- carries the inter-branch separator (AlreadyTerminated),
+                            -- which also suppresses the blank consistently. (The
+                            -- last/only branch has no following WhenBranch, so this
+                            -- never fires there — that case is the inline glue in
+                            -- MakePretty's WhenBranch arm.)
+                            nextSiblingIsWhenBranch =
+                                when Array.get (acc.index + 1) children is
+                                    Just sib -> isWhenBranchNode sib
+                                    Nothing -> False
                         in
                         if (not (Array.isEmpty childChildren) || commentInsideEmptyBracket child row col)
                             && subtreeContainsRow child row
                             && not (subtreeStartsAfter child row col)
                             && not laterSiblingClaims
                             && not
-                                ((isAcrossThenIndentNode child || isItemBracketListNode child || isIfConditionNode child || isPrefixGlueNode child || isParenBlockNode child || nextSiblingIsIn || nextSiblingIsIndentedBlock)
+                                ((isAcrossThenIndentNode child || isItemBracketListNode child || isIfConditionNode child || isPrefixGlueNode child || isParenBlockNode child || nextSiblingIsIn || nextSiblingIsIndentedBlock || nextSiblingIsWhenBranch)
                                     && subtreeEndsBefore child row col
                                     && not (commentInsideTrailingBracket child row col)
                                 ) then
@@ -415,6 +434,13 @@ isIndentedBlockNode : LPNode -> Bool
 isIndentedBlockNode node =
     when lpnBox node is
         IndentedBlock -> True
+        _ -> False
+
+
+isWhenBranchNode : LPNode -> Bool
+isWhenBranchNode node =
+    when lpnBox node is
+        WhenBranch _ -> True
         _ -> False
 
 
