@@ -674,22 +674,31 @@ buildFlowDocImpl indent inlineStart nodes =
                                     -- branch across reformats. The next branch's leading
                                     -- hardNl terminates the line.
                                     let
-                                        { branchNodes, trailingCommentDoc } =
-                                            when Array.popLast nodeChildren is
+                                        -- Peel *all* trailing single-line block comments off the
+                                        -- end (not just one): a branch body can end in a run of
+                                        -- them, and any left in the flow rides a soft break and
+                                        -- escapes on overflow. Each is glued inline with a space,
+                                        -- preserving source order.
+                                        peelTrailing remaining accDoc =
+                                            when Array.popLast remaining is
                                                 Just { last = lastChild, initial = initChildren } ->
                                                     when lpnBox lastChild is
                                                         BlockComment loc ->
                                                             if isMultiLineCommentValue loc.value then
-                                                                { branchNodes = nodeChildren, trailingCommentDoc = P.empty }
+                                                                { branchNodes = remaining, trailingCommentDoc = accDoc }
                                                             else
-                                                                { branchNodes = initChildren
-                                                                , trailingCommentDoc =
-                                                                    P.concat (P.text " ") (commentBoxDoc (lpnBox lastChild))
-                                                                }
+                                                                peelTrailing initChildren
+                                                                    (P.concat
+                                                                        (P.concat (P.text " ") (commentBoxDoc (lpnBox lastChild)))
+                                                                        accDoc
+                                                                    )
                                                         _ ->
-                                                            { branchNodes = nodeChildren, trailingCommentDoc = P.empty }
+                                                            { branchNodes = remaining, trailingCommentDoc = accDoc }
                                                 Nothing ->
-                                                    { branchNodes = nodeChildren, trailingCommentDoc = P.empty }
+                                                    { branchNodes = remaining, trailingCommentDoc = accDoc }
+
+                                        { branchNodes, trailingCommentDoc } =
+                                            peelTrailing nodeChildren P.empty
                                     in
                                     when buildFlowDoc 0 branchNodes is
                                         Err e -> Err e

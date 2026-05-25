@@ -8,12 +8,7 @@ describe : Wrapped { tagString : String, payloadInt : Int } -> String
 describe wrappedValue =
     when wrappedValue is
         Wrapped ({ tagString, payloadInt } as wholeRecord) ->
-            tagString
-                ++ ":"
-                ++ String.fromInt payloadInt
-                ++ "/"
-                ++ Debug.toString
-                    wholeRecord {- trailing the overflowing branch body, before the next declaration -}
+            tagString ++ ":" ++ String.fromInt payloadInt ++ "/" ++ Debug.toString wholeRecord {- first trailing comment -} {- second trailing comment after an overflowing branch body -}
 
 
 classify : Wrapped (Maybe Int) -> String
