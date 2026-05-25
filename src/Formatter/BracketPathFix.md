@@ -6,7 +6,31 @@ single coordinated refactor. Read `BracketPath.md` first.
 
 ## Implementation status (2026-05-24)
 
-Landed (suite 189/0, fuzzer **13 → 7** non-idempotent gaps, no baseline changes):
+LATEST: fuzzer at **6 gaps** (suite 189/0). After the parts below, two more
+landed:
+- **Pipeline `|>` indent fix** (`fix(formatter): pipeline |> indent invariant to
+  leading comments`). The "Deep dive 2" bug — `PipelineStep` peeled only one
+  leading comment, leaving a second inside `childrenDoc`'s inner `nest grenIndent`
+  so its break pushed `|>` one level deep. Fix: peel ALL leading comments via
+  `splitLeadingComments`. This is the cleaner equivalent of the "absolute column"
+  idea — it makes the `|>` indent invariant to comment count without touching
+  PrettyExpressive nesting. Corrected a buggy indent-12 in the KitchenComments
+  baseline (now 8, matching the seed+4 convention). A correctness fix on its own;
+  it also removed the indent cascade that had blocked the paren close.
+- **ParenBlock close position** (`fix(formatter): ParenBlock close position …`),
+  now safe on the fixed pipeline base: a comment before `)` attaches inside the
+  parens consistently, one after stays outside (`ParenBlock` added to the
+  Comments descent guard). Cleared the KitchenComments paren-arg gap (7 → 6).
+
+Remaining 6: KitchenSink 4 (line 214 paren/call `)` + blank churn; 291 & 430
+let-binding/`in` boundary indent; 410 top-level decl-boundary indent),
+MultilineBlockComments 1 (let-binding blank), Records 1 (module `exposing` `)`,
+elided). These are diverse boundary/blank cases across let-bindings, decl
+boundaries, and VerticalSpace — no longer a single bracket-path cluster.
+
+---
+
+Landed earlier (suite 189/0, fuzzer **13 → 7** non-idempotent gaps, no baseline changes):
 - **Part C** — `listBoxesWithBrackets` attaches a same-row trailing comment with
   a soft break (`group(nl ++ comment)`) instead of a hard space. Commit
   `fix(formatter): soft-break trailing comment in bracket lists`. Cleared 1.
