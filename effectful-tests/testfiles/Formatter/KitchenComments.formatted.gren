@@ -317,11 +317,10 @@ extremelyCommented {-c22-} {-c23-} {-c24-}
                             0 -> {-c79-} {-c80-} {-c81-} {-c82-} {-c83-} {-c84-}
                                 { r | label = {-c85-} {-c86-} "zero" {-c87-}
                                 } {-c88-} {-c89-}
-                            _ -> {-c90-} {-c91-} r {-c92-})
+                            _ -> {-c90-} {-c91-} r {-c92-}) {-c93-}
 
-        {-c93-}
         {-c94-}
-        |> {-c95-} (\finalRecord -> {-c96-} {-c97-} finalRecord {-c98-} {-c99-})
+        |> {-c95-} (\finalRecord -> {-c96-} {-c97-} finalRecord {-c98-}) {-c99-}
 
 
 {-| Pick the best discount from a list of candidate codes. -}

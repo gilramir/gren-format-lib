@@ -244,7 +244,7 @@ insertCommentIntoSubtree commentNode row col node =
                             && not (subtreeStartsAfter child row col)
                             && not laterSiblingClaims
                             && not
-                                ((isAcrossThenIndentNode child || isItemBracketListNode child || isIfConditionNode child || isPrefixGlueNode child)
+                                ((isAcrossThenIndentNode child || isItemBracketListNode child || isIfConditionNode child || isPrefixGlueNode child || isParenBlockNode child)
                                     && subtreeEndsBefore child row col
                                     && not (commentInsideTrailingBracket child row col)
                                 ) then
@@ -362,6 +362,13 @@ isPrefixGlueNode : LPNode -> Bool
 isPrefixGlueNode node =
     when lpnBox node is
         PrefixGlue _ -> True
+        _ -> False
+
+
+isParenBlockNode : LPNode -> Bool
+isParenBlockNode node =
+    when lpnBox node is
+        ParenBlock -> True
         _ -> False
 
 

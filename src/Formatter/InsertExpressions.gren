@@ -188,7 +188,10 @@ insertExpression locExpr =
 
         Src.Parens expression ->
             insertExpression expression
-                |> Result.andThen fixupParensChildrenNodes
+                |> Result.andThen (\nodes ->
+                    when Array.popFirst nodes is
+                        Nothing -> Ok [lpnLeaf (SynthesizedText "()")]
+                        Just _ -> Ok [lpnBracketNode ParenBlock locExpr.end nodes])
 
         Src.ArrayLiteral exprArray ->
             resultFoldl folderInsertExprAsArgItem [] exprArray
