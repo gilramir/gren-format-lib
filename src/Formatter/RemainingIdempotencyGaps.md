@@ -7,12 +7,12 @@ is the per-gap reproduction + diagnosis so each can be picked up independently.
 
 ## State (2026-05-25, branch `formatter`)
 
-- Suite: **228/0** (`cd compiler-node/effectful-tests && ./run-tests.sh`).
-- Fuzzer: **2 non-idempotent gaps**
+- Suite: **231/0** (`cd compiler-node/effectful-tests && ./run-tests.sh`).
+- Fuzzer: **1 non-idempotent gap**
   (`cd compiler-node/effectful-tests && python3 fuzz-idempotency.py`).
-- **Gaps 1, 2, 3, 5 FIXED** (see their sections). Gaps 4, 6 remain.
-- Also added 11 effectful regression fixtures for the 2026-05-24 fuzzer fixes +
-  this session's gaps; that's why the suite count jumped 189 → 228.
+- **Gaps 1, 2, 3, 5, 6 FIXED** (see their sections). Only **Gap 4** remains.
+- Also added 12 effectful regression fixtures for the 2026-05-24 fuzzer fixes +
+  this session's gaps; that's why the suite count jumped 189 → 231.
 
 ## How to reproduce any gap
 
@@ -268,7 +268,25 @@ a leading block comment of a non-first binding should sit directly above its
 binding (no blank). Independent of the trailing-comment theme; likely the most
 self-contained of the six.
 
-## Gap 6 — Records line 1 — comment after the module `exposing ( … )` close
+## Gap 6 — Records line 1 — comment after the module `exposing ( … )` close — ✅ FIXED (2026-05-25)
+
+**Fix landed (approach (b), canonicalize-to-column-1):** generalized Gap 1's
+guard — `trailsFunctionSignature` became `trailsClaimedConstruct`, now also
+matching `StModule`. A comment past the module line's last token (and not inside
+the exposing list, via `commentInsideTrailingBracket`) is declined by the
+`StModule` OriginalRows, so `findOrCreateOrigRow` splices a fresh top-level
+OriginalRows after the module line — column 1 on both formats. No `)` position
+synthesis needed (avoids the regression noted below). Header comments
+(before the name / mid-keyword) are not past the last token, so `subtreeEndsBefore`
+is false and they stay in the module line; comments inside the exposing list stay
+inside.
+
+Also re-homed `EffectModuleFxWhereComment`'s trailing comment after `exposing (..)`
+to column 1 (same canonical rule applies to effect modules); that fixture still
+also exercises bc19c27's where-block blank-churn bump. New fixture
+`ModuleExposingTrailingComment`. Suite 228 → 231/0; fuzzer 2 → 1.
+
+The original analysis follows.
 
 **Summary:** a comment after the module exposing list's `)` renders at indent 4
 on `format¹` but column 1 on `format²`.
@@ -333,6 +351,6 @@ context (let-binding gaps; module exposing).
   cause was `BlockComment` `maxRow` over-count in `selfBoxBounds` (see section).
 - ~~**Gap 3** (between two let bindings)~~ — ✅ done (2026-05-25); `nextSiblingIsIndentedBlock`
   descent guard, mirroring Gap 2 (see section).
-1. **Gap 6** (module-exposing `)`) — elided position; narrowest fix is
-   canonicalize-to-column-1.
-2. **Gap 4** (paren `)` + blank churn) — two coupled effects; do last.
+- ~~**Gap 6** (module-exposing `)`)~~ — ✅ done (2026-05-25); `trailsClaimedConstruct`
+  extended to `StModule` (canonicalize-to-column-1; see section).
+1. **Gap 4** (paren `)` + blank churn) — two coupled effects; LAST remaining gap.

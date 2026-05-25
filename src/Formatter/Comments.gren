@@ -146,7 +146,7 @@ findOrCreateOrigRow row col stype nodes =
                             when lpnBox node is
                                 OriginalRows { first = first, last = last, stype = nodeStype } ->
                                     if first <= row && row <= last
-                                        && not (trailsFunctionSignature nodeStype node row col) then
+                                        && not (trailsClaimedConstruct nodeStype node row col) then
                                         { acc | found = Just node }
                                     else
                                         { acc | before = Array.pushLast node acc.before }
@@ -193,26 +193,37 @@ findOrCreateOrigRow row col stype nodes =
             }
 
 
-{-| True for a comment positioned after a function signature's last token,
-before its definition. Such a comment renders at the signature's continuation
-indent on the first format (it's on the signature's last source row, so the
-StFunctionSignature OriginalRows claims it), but on reparse it sits on its own
-line one row past the signature's range and re-attaches as a top-level comment
-at column 1 — the indent oscillates.
+{-| True for a comment positioned after the last token of a top-level construct
+that would otherwise *claim* it for its own `OriginalRows` and render it at the
+construct's continuation indent — when on reparse (the comment now on its own
+line, one row past the construct's range) it re-attaches as a top-level comment
+at column 1. The indent then oscillates across reformats.
 
-Declining to claim it for the signature makes `findOrCreateOrigRow` splice a
-fresh top-level OriginalRows between the signature and its definition, so the
-comment renders at column 1 on every format (the canonical placement: a leading
-comment of the definition).
+Declining to claim it makes `findOrCreateOrigRow` splice a fresh top-level
+`OriginalRows` after the construct, so the comment renders at column 1 on every
+format. Two constructs need this:
 
-The comment must be genuinely past the signature's content. A comment still
-inside a trailing record/paren type of the signature (before its closing
-bracket) reports `commentInsideTrailingBracket` and is left to descend normally.
+  - `StFunctionSignature` — a comment after the signature's last type token,
+    before the definition (canonical: a leading comment of the definition).
+  - `StModule` — a comment after the module line's `exposing ( … )`, whose `)`
+    has no AST position, so when the long module line wraps the comment lands at
+    the continuation indent on the first format but escapes to column 1 on
+    reparse (canonical: a top-level comment after the module line).
+
+The comment must be genuinely past the construct's content: one still inside a
+trailing record/paren of the signature, or inside the exposing list before its
+close, reports `commentInsideTrailingBracket` and is left to descend normally. A
+header comment (before the module name / mid-keyword) is not past the last token,
+so `subtreeEndsBefore` is false and it stays claimed by the module line.
 -}
-trailsFunctionSignature : SyntaxType -> LPNode -> Int -> Int -> Bool
-trailsFunctionSignature stype node row col =
+trailsClaimedConstruct : SyntaxType -> LPNode -> Int -> Int -> Bool
+trailsClaimedConstruct stype node row col =
     when stype is
         StFunctionSignature ->
+            subtreeEndsBefore node row col
+                && not (commentInsideTrailingBracket node row col)
+
+        StModule ->
             subtreeEndsBefore node row col
                 && not (commentInsideTrailingBracket node row col)
 

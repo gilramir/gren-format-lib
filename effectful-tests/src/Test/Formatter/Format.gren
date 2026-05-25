@@ -263,6 +263,7 @@ commentsTests fsPerm =
         , assertPretty fsPerm "comment trailing a signature's last token canonicalizes to column 1 before the definition" "SignatureTrailingComment"
         , assertPretty fsPerm "comment trailing the last let binding routes after `in` (not own-line, which would oscillate)" "LetInTrailingComment"
         , assertPretty fsPerm "comment trailing a non-last let binding's value sits at the bindings-block indent" "BetweenLetBindingsComment"
+        , assertPretty fsPerm "comment after a wrapping module exposing list canonicalizes to column 1" "ModuleExposingTrailingComment"
         -- Regression guards for the 2026-05-24 fuzzer-found idempotency fixes.
         -- Each fixture reproduces a comment placement that oscillated before its
         -- fix; the idempotency sub-test fails if that fix regresses. Each was
