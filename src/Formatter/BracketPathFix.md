@@ -70,6 +70,50 @@ record/array/update work that landed. Until (b) is understood, the ParenBlock
 close stays reverted; the 5 paren/call gaps remain. The clean landed state is
 **7 non-idempotent gaps, suite 189/0**.
 
+### Deep dive 2 — the `|>` indent blocker is a pre-existing relative-nesting bug
+
+Took on (b). Isolated it to a minimal, **pre-existing** bug (reproduces with NO
+bracket-path changes, on the committed tree):
+
+```
+f =
+    seedValue
+        |> firstStep
+        {- a -}
+        {- b -}            -- TWO+ comments between steps
+        |> nextStep        -- ← over-indented (+4 deeper than the first |>)
+```
+
+- ONE comment between steps → correct indent. TWO+ → the next `|>` indents one
+  level too deep. It is **idempotent** (`format∘format` is stable), which is why
+  `fuzz-idempotency.py` never flagged it — it's a cosmetic indent bug, not a
+  comment-shift bug.
+- Root cause: `PipelineStep` renders its body as `P.nest grenIndent (…)`, which
+  is a **relative** indent. Between-step block comments are emitted by
+  `buildFlowDocImpl`'s `BlockComment` "inline" arm, which sets the next
+  separator to `FlowSep`; a *second* consecutive comment then rides a soft
+  `flowSep` (`group(nl …)`) rather than a hard own-line break like the first
+  (which came in on `HardNl`). That shifts the column the following step's
+  relative `nest grenIndent` builds on, so the next `|>` lands one level deep.
+- The ParenBlock close regression is the *same* root, the other direction:
+  moving a comment OUT from between two steps (into the preceding paren) makes
+  the next `|>` one level too **shallow**. Either way the `|>` indent is a
+  function of the between-step comments, which it must not be.
+
+**What a real fix needs:** make the `|>` indent invariant to between-step
+comments. Options, in increasing scope: (i) normalize consecutive between-step
+block comments to all break the same way (each own-line via `HardNl`, i.e. a
+second comment after a comment should not use `flowSep`) — narrowest, but the
+`BlockComment` separator logic is shared across every flow context, so it needs
+the full fuzz sweep; (ii) render pipeline-step bodies at an **absolute** column
+(`P.align`/`P.reset`) instead of relative `nest grenIndent`, so no preceding
+content can shift a step's `|>` — most robust, largest change to the pipeline
+renderer. Either is a `buildFlowDoc`/`PipelineStep` change with broad blast
+radius (the pipeline renderer is exercised by many fixtures) and must be gated
+on the whole suite + full fuzz. Not attempted further here to avoid a risky
+change to the load-bearing renderer at low confidence; the clean state remains
+**7 gaps, suite 189/0**.
+
 ## 0. Invariant we are buying
 
 For any input `x` that parses, `format(format(x)) == format(x)` byte-for-byte,
