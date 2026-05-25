@@ -283,13 +283,28 @@ insertCommentIntoSubtree commentNode row col node =
                                 when Array.get (acc.index + 1) children is
                                     Just sib -> isInKeyword sib
                                     Nothing -> False
+
+                            -- True when the next sibling is another `IndentedBlock`,
+                            -- i.e. `child` is a non-last `let` binding and the next
+                            -- one follows. A comment trailing this binding's value
+                            -- must NOT descend into the value (where it would render
+                            -- own-line at the deeper value indent); on reparse it
+                            -- sits own-line at the bindings-block indent, leading the
+                            -- next binding. Refusing descent routes both formats to
+                            -- that bindings-block placement (the next binding's
+                            -- leading-comment column). The last binding's
+                            -- `in`-boundary case is handled by `nextSiblingIsIn`.
+                            nextSiblingIsIndentedBlock =
+                                when Array.get (acc.index + 1) children is
+                                    Just sib -> isIndentedBlockNode sib
+                                    Nothing -> False
                         in
                         if (not (Array.isEmpty childChildren) || commentInsideEmptyBracket child row col)
                             && subtreeContainsRow child row
                             && not (subtreeStartsAfter child row col)
                             && not laterSiblingClaims
                             && not
-                                ((isAcrossThenIndentNode child || isItemBracketListNode child || isIfConditionNode child || isPrefixGlueNode child || isParenBlockNode child || nextSiblingIsIn)
+                                ((isAcrossThenIndentNode child || isItemBracketListNode child || isIfConditionNode child || isPrefixGlueNode child || isParenBlockNode child || nextSiblingIsIn || nextSiblingIsIndentedBlock)
                                     && subtreeEndsBefore child row col
                                     && not (commentInsideTrailingBracket child row col)
                                 ) then
@@ -385,6 +400,13 @@ insertAmongChildren commentNode row col children =
 -- whose value is exactly "in"). Used by the descent to detect the last-binding→`in`
 -- boundary, so a comment trailing the last binding routes after `in` rather than
 -- descending into the binding (where it would render non-idempotently).
+isIndentedBlockNode : LPNode -> Bool
+isIndentedBlockNode node =
+    when lpnBox node is
+        IndentedBlock -> True
+        _ -> False
+
+
 isInKeyword : LPNode -> Bool
 isInKeyword node =
     when lpnBox node is

@@ -7,12 +7,12 @@ is the per-gap reproduction + diagnosis so each can be picked up independently.
 
 ## State (2026-05-25, branch `formatter`)
 
-- Suite: **225/0** (`cd compiler-node/effectful-tests && ./run-tests.sh`).
-- Fuzzer: **3 non-idempotent gaps**
+- Suite: **228/0** (`cd compiler-node/effectful-tests && ./run-tests.sh`).
+- Fuzzer: **2 non-idempotent gaps**
   (`cd compiler-node/effectful-tests && python3 fuzz-idempotency.py`).
-- **Gaps 1, 2, 5 FIXED** (see their sections). Gaps 3, 4, 6 remain.
-- Also added 10 effectful regression fixtures for the 2026-05-24 fuzzer fixes
-  (which had no suite coverage); that's why the suite count jumped 189 → 225.
+- **Gaps 1, 2, 3, 5 FIXED** (see their sections). Gaps 4, 6 remain.
+- Also added 11 effectful regression fixtures for the 2026-05-24 fuzzer fixes +
+  this session's gaps; that's why the suite count jumped 189 → 228.
 
 ## How to reproduce any gap
 
@@ -150,7 +150,23 @@ IndentedBlock vs the `in` token / body BodyBlock) + its comment attachment.
 (most natural: own line at the binding indent, i.e. `format¹`) and make
 attachment + rendering agree on it regardless of the comment's input row.
 
-## Gap 3 — KitchenSink ~line 291 — between let bindings (record-update field value)
+## Gap 3 — KitchenSink ~line 291 — between let bindings (record-update field value) — ✅ FIXED (2026-05-25)
+
+**Fix landed:** mirrors Gap 2's descent guard. `insertCommentIntoSubtree` now
+also refuses descent into a binding when its next sibling is another
+`IndentedBlock` (the next binding) and the comment trails the binding's last
+token (`nextSiblingIsIndentedBlock`, gated by `commentInsideTrailingBracket`). The
+comment then routes to the bindings-block level and the existing IndentedBlock
+redirect makes it lead the next binding — own-line at the bindings-block indent
+(8) on both formats. Gap 2 (`nextSiblingIsIn`) + Gap 3 (`nextSiblingIsIndentedBlock`)
+together route *every* trailing-comment-of-a-binding to its canonical home.
+
+Re-homed KitchenComments `{-c39-}` (short inline trailing comment of `bumpedScore`)
+to its own line at indent 8 — same fits-vs-overflows indistinguishability as
+Gaps 1/2; fixture updated. New fixture `BetweenLetBindingsComment`. Suite 225 →
+228/0; fuzzer 3 → 2.
+
+The original analysis follows.
 
 **Summary:** a comment after a single-field record-update binding value, before
 the next binding's leading comment, renders at indent 12 on `format¹` but 8 on
@@ -315,10 +331,8 @@ context (let-binding gaps; module exposing).
   `isInKeyword`-next-sibling descent guard (own-line was unreachable; see section).
 - ~~**Gap 5** (let-binding leading-comment blank)~~ — ✅ done (2026-05-25); root
   cause was `BlockComment` `maxRow` over-count in `selfBoxBounds` (see section).
-1. **Gap 3** (between two let bindings) — the remaining let-binding-boundary case;
-   note Gap 2's `in`-position ambiguity does NOT apply here (the next sibling is a
-   real binding, not the position-less `in`). Check whether the Gap-5 `maxRow`
-   fix already moved it (it's a between-bindings comment too).
-2. **Gap 6** (module-exposing `)`) — elided position; narrowest fix is
+- ~~**Gap 3** (between two let bindings)~~ — ✅ done (2026-05-25); `nextSiblingIsIndentedBlock`
+  descent guard, mirroring Gap 2 (see section).
+1. **Gap 6** (module-exposing `)`) — elided position; narrowest fix is
    canonicalize-to-column-1.
-3. **Gap 4** (paren `)` + blank churn) — two coupled effects; do last.
+2. **Gap 4** (paren `)` + blank churn) — two coupled effects; do last.
