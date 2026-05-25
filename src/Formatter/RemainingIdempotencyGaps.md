@@ -95,7 +95,33 @@ on both formats. Likely needs special-casing the sig→def adjacency in
 `Formatter.Comments` (the def is the immediately-following OriginalRows), since a
 generic "don't claim after-last-token comments" change is too broad.
 
-## Gap 2 — KitchenSink ~line 430 — last let binding → `in`
+## Gap 2 — KitchenSink ~line 430 — last let binding → `in` — ✅ FIXED (2026-05-25)
+
+**Fix landed (glue-to-`in`, NOT own-line):** the descent in
+`Formatter.Comments.insertCommentIntoSubtree` now refuses to descend into a child
+whose next sibling is the `in` keyword (`isInKeyword`, a `SynthesizedText "in"`)
+when the comment trails that child's last token (gated by the existing
+`commentInsideTrailingBracket`). The comment then routes to the `let` level and
+past the position-less `in` — rendering after `in` (`in {- c -}` for a block
+comment, own-line below `in` for `--`/multi-line), matching the already-stable
+`format²` on both formats.
+
+**Why not own-line (the original suggestion):** `in` has no source position, so a
+comment on its own line between the last binding and the body is *indistinguishable*
+from a body-leading comment (one the author wrote after `in`, which correctly sits
+at the `in` indent). An own-line attempt pulled 3 real body-leading comments
+(KitchenSink, KitchenComments, MultilineBlockComments) into the preceding binding.
+Glue-to-`in` is the only stable canonical form that doesn't conflict with
+body-leading comments — they share the same after-`in` path. (User chose this
+trade-off; own-line would need either a fragile column heuristic or parsing the
+`in` token, which the project deliberately avoids — see Gap 6 / `BracketPath.md`.)
+
+Like Gap 1, a *short* trailing comment that fit inline (`"!" {-c45-}` in
+KitchenComments) also routes after `in` now — can't distinguish "fits" from
+"overflows" at attachment time; fixture updated. New regression fixture
+`LetInTrailingComment`. Suite 192→195/0; fuzzer 5→4; no new gaps.
+
+The original analysis follows.
 
 **Summary:** a comment after the last let binding, before `in`, renders own-line
 at the binding indent on `format¹` but glues to `in` (`in {- ¤ -}`) on `format²`.
@@ -264,10 +290,13 @@ context (let-binding gaps; module exposing).
 
 - ~~**Gap 1** (sig→def)~~ — ✅ done (2026-05-25); see its section for the
   per-context-guard template the remaining gaps can follow.
+- ~~**Gap 2** (last binding → `in`)~~ — ✅ done (2026-05-25); glue-to-`in` via an
+  `isInKeyword`-next-sibling descent guard (own-line was unreachable; see section).
 1. **Gap 5** (let-binding leading-comment blank) — most self-contained, a pure
    blank-line bug, no attachment ambiguity.
-2. **Gaps 2 + 3** (let-binding / `in` boundaries) — one coherent unit; both are
-   between-let-bindings / bindings→`in` comments.
+2. **Gap 3** (between two let bindings) — the remaining let-binding-boundary case;
+   note Gap 2's `in`-position ambiguity does NOT apply here (the next sibling is a
+   real binding, not the position-less `in`).
 3. **Gap 6** (module-exposing `)`) — elided position; narrowest fix is
    canonicalize-to-column-1.
 4. **Gap 4** (paren `)` + blank churn) — two coupled effects; do last.

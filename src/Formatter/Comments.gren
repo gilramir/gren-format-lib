@@ -267,13 +267,29 @@ insertCommentIntoSubtree commentNode row col node =
                         let
                             childChildren = lpnChildren child
                             laterSiblingClaims = anyLaterSiblingStartsAtOrBefore (acc.index + 1)
+
+                            -- True when the next sibling is the position-less `in`
+                            -- keyword of a `let … in`, i.e. `child` is the last
+                            -- binding. A comment trailing that binding must NOT
+                            -- descend into it: on the first format it would render
+                            -- own-line at the binding's value indent, but on
+                            -- reparse it sits past the binding's row range and
+                            -- re-attaches at the `let` level after `in` (`in {- c -}`).
+                            -- Refusing descent routes both formats to that same
+                            -- after-`in` placement. (`in` has no source position,
+                            -- so a body-leading comment after `in` is indistinguishable
+                            -- and is handled by the same after-`in` path already.)
+                            nextSiblingIsIn =
+                                when Array.get (acc.index + 1) children is
+                                    Just sib -> isInKeyword sib
+                                    Nothing -> False
                         in
                         if (not (Array.isEmpty childChildren) || commentInsideEmptyBracket child row col)
                             && subtreeContainsRow child row
                             && not (subtreeStartsAfter child row col)
                             && not laterSiblingClaims
                             && not
-                                ((isAcrossThenIndentNode child || isItemBracketListNode child || isIfConditionNode child || isPrefixGlueNode child || isParenBlockNode child)
+                                ((isAcrossThenIndentNode child || isItemBracketListNode child || isIfConditionNode child || isPrefixGlueNode child || isParenBlockNode child || nextSiblingIsIn)
                                     && subtreeEndsBefore child row col
                                     && not (commentInsideTrailingBracket child row col)
                                 ) then
@@ -363,6 +379,17 @@ insertAmongChildren commentNode row col children =
 
             Nothing ->
                 finalBefore ++ [commentNode]
+
+
+-- True for the position-less `in` keyword of a `let … in` (a SynthesizedText
+-- whose value is exactly "in"). Used by the descent to detect the last-binding→`in`
+-- boundary, so a comment trailing the last binding routes after `in` rather than
+-- descending into the binding (where it would render non-idempotently).
+isInKeyword : LPNode -> Bool
+isInKeyword node =
+    when lpnBox node is
+        SynthesizedText value -> value == "in"
+        _ -> False
 
 
 isAcrossThenIndentNode : LPNode -> Bool

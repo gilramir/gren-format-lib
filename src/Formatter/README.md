@@ -934,13 +934,13 @@ renders **after** the elided token.
 
 The same zero-width-anchor and descent-guard techniques also stabilise comment
 placement around *implicit* brackets (record-update and record-type braces),
-the `then`/`else if` keywords, and the `\`-glued first lambda parameter — so
-**every** fixture, including the maximal "comment in every gap" `KitchenComments`
-torture, is held to idempotency with no exemptions.
+the `then`/`else if` keywords, the `let … in` keyword, and the `\`-glued first
+lambda parameter — so **every** fixture, including the maximal "comment in every
+gap" `KitchenComments` torture, is held to idempotency with no exemptions.
 
 The pairs below each show two inputs the formatter cannot tell apart, followed
-by the single output both produce. They are pinned by the `Ambiguous` and
-`AmbiguousEffectModule` tests in the effectful suite.
+by the single output both produce. They are pinned by the `Ambiguous`,
+`AmbiguousEffectModule`, and `LetInTrailingComment` tests in the effectful suite.
 
 #### Import alias `as`
 
@@ -1050,3 +1050,36 @@ the opening brace:
 ```gren
 effect module M where {- c -} { command = MyCmd } exposing (..)
 ```
+
+#### `let … in`
+
+The `in` keyword carries no AST position. A comment in the gap between the last
+binding and the result expression could be read two ways — as trailing the last
+binding, or as leading the result — and the formatter cannot tell which:
+
+```gren
+-- written after the last binding     -- written after `in`
+let                                    let
+    total = subtotal + tax                 total = subtotal + tax
+    {- c -}                            in
+in                                         {- c -}
+total                                  total
+```
+
+Both render with the comment **after `in`** (the result expression aligns with
+`let`/`in`, as always):
+
+```gren
+let
+    total = subtotal + tax
+in {- c -}
+total
+```
+
+The ramification for where you write the comment: a comment you place at the end
+of your *last* let binding does not stay with that binding — it moves onto the
+`in` line, the one position both readings share. (A single-line block comment
+stays on the `in` line as shown; a `--` line comment or a multi-line block
+comment instead drops to its own line directly below `in`, since those always
+break their line.) A comment after a *non-last* binding is unaffected: the next
+binding is a real positioned token, so its side of the gap is unambiguous.

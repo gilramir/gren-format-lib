@@ -286,8 +286,8 @@ extremelyCommented {-c22-} {-c23-} {-c24-}
         {-c34-}
         bumpedScore = {-c35-} {-c36-} score {-c37-} + {-c38-} 1 {-c39-}
         {-c40-}
-        expandedLabel = {-c41-} {-c42-} label {-c43-} ++ {-c44-} "!" {-c45-}
-    in {-c46-} {-c47-}
+        expandedLabel = {-c41-} {-c42-} label {-c43-} ++ {-c44-} "!"
+    in {-c45-} {-c46-} {-c47-}
     wholeRecord
         {-c48-}
         {-c49-}

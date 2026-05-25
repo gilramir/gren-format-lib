@@ -261,6 +261,7 @@ commentsTests fsPerm =
         , assertPretty fsPerm "multiple comments sharing a top-level comment line" "AdjacentTopLevelComments"
         , assertPretty fsPerm "own-line comment before a container's closing bracket stays inside" "BracketTrailingComments"
         , assertPretty fsPerm "comment trailing a signature's last token canonicalizes to column 1 before the definition" "SignatureTrailingComment"
+        , assertPretty fsPerm "comment trailing the last let binding routes after `in` (not own-line, which would oscillate)" "LetInTrailingComment"
         , assertPretty fsPerm "canonical rendering of comments at elided-token positions" "Ambiguous"
         , assertPretty fsPerm "canonical rendering of a comment in an effect-module where block" "AmbiguousEffectModule"
         ]
