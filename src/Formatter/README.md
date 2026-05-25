@@ -902,6 +902,67 @@ foo1 = 1
 foo2 = 2
 ```
 
+### Trailing comments at a construct boundary
+
+A comment you write *after the last token of a construct* — at the boundary where
+the next thing is a sibling at a shallower indent — is placed at that **shallower
+indent on its own line**, not kept at the construct's deeper indent. The deeper
+placement is not a stable fixed point: on the next format the comment (now on its
+own line, one row past the construct) re-attaches at the shallower level, so the
+indent would oscillate between reformats. The formatter commits to the shallower
+level on every format.
+
+After a function signature's last type token, before the definition — its own
+line at column 1, as a leading comment of the definition (this holds even when the
+signature is short enough to fit on one line):
+
+```gren
+foo : Int -> Int
+{- a note -}
+foo n =
+    n
+```
+
+After a non-last `let` binding's value, before the next binding — its own line at
+the bindings indent, leading the next binding:
+
+```gren
+let
+    first = { x | a = 1 }
+    {- a note -}
+    second = x
+in
+first + second
+```
+
+After the module `exposing ( … )` list — its own line at column 1. (The list's
+closing `)` is discarded by the parser, so there is no token to anchor the comment
+to; column 1 is the canonical home.)
+
+```gren
+module MyApp exposing ( alpha, beta, gamma )
+{- a note -}
+```
+
+The same rule applies to a comment after the last `let` binding before `in` (see
+*Comments at elided-token positions → `let … in`* below). A comment after a `when`
+branch body behaves slightly differently: when it can stay on the body's last line
+it does — glued there with a space, even if that pushes the line past the page
+width — which keeps it on a stable row across reformats. Only when the branch body
+is itself multi-line (so the comment would otherwise fall onto its own line) and
+another branch follows is it lifted to sit between the branches at the branch
+indent.
+
+By contrast, a comment that is genuinely **inside** a construct stays there. A
+comment before a container's closing bracket stays inside the container rather
+than escaping to the enclosing level:
+
+```gren
+[ 1
+, 2 {- a note -}
+]
+```
+
 ### Comments at elided-token positions
 
 Comment placement is position-driven: a comment is attached according to its
