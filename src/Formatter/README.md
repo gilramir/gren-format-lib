@@ -1144,3 +1144,41 @@ stays on the `in` line as shown; a `--` line comment or a multi-line block
 comment instead drops to its own line directly below `in`, since those always
 break their line.) A comment after a *non-last* binding is unaffected: the next
 binding is a real positioned token, so its side of the gap is unambiguous.
+
+### Other trailing-comment details
+
+A few smaller cases, all driven by the same goal — keep a trailing comment on a
+stable row so the layout doesn't oscillate across reformats:
+
+**Empty containers.** A comment *after* an empty `[]` / `{}` stays outside it; a
+comment *before* the close stays inside. The two are not interchangeable — the
+formatter never moves a comment across the closing bracket:
+
+```gren
+x = [] {- not implemented yet -}
+y = [ {- nothing here yet -} ]
+```
+
+**Last item of a wrapped container.** A comment trailing the last item of a
+bracketed container stays on that item's line. The container wraps as if the
+comment were not there, so the comment never changes how the items lay out:
+
+```gren
+xs =
+    [ firstItem
+    , secondItem
+    , thirdItem -- a note on the last item
+    ]
+```
+
+**A trailing single-line comment uses a soft break.** When a `--` (or single-line
+`{- -}`) comment shares a row with the token before it, it attaches with a soft
+break: it stays on that line when it fits and drops to its own line only when the
+line overflows — and it never drags the preceding token down with it. This keeps
+an elided trailing `->` (or `|`, `=`, …) on its own row even when the comment
+after it wraps:
+
+```gren
+toLabels : Array { code : String, points : Int } -> -- one parameter
+    Int -> String
+```
