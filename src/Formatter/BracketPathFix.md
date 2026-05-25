@@ -4,6 +4,39 @@ Companion to `BracketPath.md` (which states the problem, the root cause, and why
 every incremental attempt regressed). This is the implementation design for the
 single coordinated refactor. Read `BracketPath.md` first.
 
+## Implementation status (2026-05-24)
+
+Landed (suite 189/0, fuzzer **13 → 7** non-idempotent gaps, no baseline changes):
+- **Part C** — `listBoxesWithBrackets` attaches a same-row trailing comment with
+  a soft break (`group(nl ++ comment)`) instead of a hard space. Commit
+  `fix(formatter): soft-break trailing comment in bracket lists`. Cleared 1.
+- **Parts A + D together** — single-field record update gets its `}` close
+  position (`InsertExpressions.gren`), and a when-branch ending in a trailing
+  comment no longer propagates "multi-line" to the inter-branch blank
+  (`prevBranchMultiLine = branchMultiLine && not branchEndsWithComment`). Commit
+  `fix(formatter): close position on single-field update + when-branch blank
+  robustness`. Cleared 5.
+
+Remaining 7 gaps and why:
+- **KitchenSink 4 + KitchenComments 1 — call/paren-arg trailing comments.**
+  Attempted Part A for `ParenBlock` (give it `locExpr.end`) + adding
+  `isParenBlockNode` to the descent guard. It **regressed** (suite 188/1): the
+  paren's close position extends the *enclosing declaration's* `maxRow` (via
+  propagation to `makeOrigRows`'s `last`), pulling a *following* top-level
+  comment into the declaration (`{-c93-}` glued after `)`). **This is the proof
+  that Part B is required** — the paren case cannot land until the
+  comment-acceptance extent is separated from the layout `maxRow`. Reverted.
+- **Records 1 — module `exposing` `)`** has no AST position (out of scope here;
+  handled by the existing `MakeLogical` synthesized bumps, which don't cover a
+  comment *after* a long multi-line exposing close).
+- **MultilineBlockComments 1 — a blank-line churn**, unrelated to trailing
+  comments.
+
+So Part B is no longer optional (the "confirm Part B is needed" caveat below is
+now resolved: it IS needed, specifically to unblock the paren/call cluster).
+Next implementer: do Part B (the `commentMaxRow` split), then re-apply the
+ParenBlock close position + a `Src.Call` audit, gated on the full fuzz sweep.
+
 ## 0. Invariant we are buying
 
 For any input `x` that parses, `format(format(x)) == format(x)` byte-for-byte,
