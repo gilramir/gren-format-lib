@@ -40,13 +40,54 @@ placement faithful:
   current child's apparent overlap is a false positive — the comment
   really sits between the two siblings. (E.g. a comment between two
   record types straddling a `->`.)
-- For `AcrossThenIndent` (a function-call argument flow), we also refuse
-  descent if the subtree ends *before* the comment, so a comment trailing
-  the call doesn't get sucked inside it.
+- The trailing-comment boundary rule (see below).
 
 The insertion point also skips past synthesized (position-less) tokens at
 the boundary, so a comment never lands between a real token and a
 synthesized neighbour such as a generated `->` arrow.
+
+# The trailing-comment boundary rule (idempotency)
+
+The single recurring idempotency hazard is a comment that *trails* a node's
+last token. On the first format it would render at that node's (deep) indent;
+on reparse it sits on its own line one row down and re-attaches at the
+*enclosing* level — so the indent oscillates. The cure is to attach such a
+comment at the enclosing flow level on *every* format. Two places enforce this,
+both keyed only on token positions (`commentTrailsNode`-style tests), so they
+are largely construct-agnostic:
+
+- **Top level** (`findOrCreateOrigRow` + `trailsClaimedConstruct`): a comment
+  past a signature's / module line's last token is not *claimed* by it; it
+  becomes its own top-level `OriginalRows` (rendered at column 1).
+- **Inner descent** (`insertCommentIntoSubtree`): the formatter does not
+  *descend* into a child it trails when the next sibling is a flow boundary
+  (`nextSiblingIsBoundary` — the `in` keyword, the next binding, the next branch)
+  or the child is one of a few box kinds that must never swallow a trailing
+  comment (the box-type guards). The comment stays a sibling at the current flow
+  level — between two `let` bindings, after the last binding before `in`, between
+  two `when` branches, etc. The boundary test is intentionally specific, not "any
+  following sibling": a container followed by a continuation (e.g. a record type
+  before its `->`) also has a sibling, but a comment before that record's close
+  belongs inside it.
+
+The exception in both layers is `commentInsideTrailingBracket`: a comment still
+*inside* a container before its closing bracket genuinely belongs there, so it
+descends. For that to work a container with a representable close must register
+it via `lpnBracketNode` (see "adding a construct" below).
+
+# Adding support for a new construct
+
+When a new Gren construct gains an LPT shape, comment handling usually needs
+*no* change here: emit its pieces as ordinary boxes in a flow and the
+trailing-comment rule above places boundary comments correctly. Two things to
+get right so it stays idempotent:
+
+1. If the construct has a closing bracket / delimiter the parser discards, build
+   its box with `lpnBracketNode <closePos>` so `commentInsideTrailingBracket`
+   can tell "inside the brackets" from "past them".
+2. Run `effectful-tests/fuzz-idempotency.py` (it is *not* part of `run-tests.sh`).
+   If it flags a trailing-comment gap, the fix belongs in one of the two places
+   above — not in a new construct-specific branch.
 
 # Indent redirection
 
@@ -279,62 +320,44 @@ insertCommentIntoSubtree commentNode row col node =
                             childChildren = lpnChildren child
                             laterSiblingClaims = anyLaterSiblingStartsAtOrBefore (acc.index + 1)
 
-                            -- True when the next sibling is the position-less `in`
-                            -- keyword of a `let … in`, i.e. `child` is the last
-                            -- binding. A comment trailing that binding must NOT
+                            -- True when the next sibling is a *flow boundary* — the
+                            -- position-less `in` of a `let … in`, the next `let`
+                            -- binding (`IndentedBlock`), or the next `when` branch
+                            -- (`WhenBranch`). In each case `child` is a non-last
+                            -- binding/branch and a comment trailing its body must NOT
                             -- descend into it: on the first format it would render
-                            -- own-line at the binding's value indent, but on
-                            -- reparse it sits past the binding's row range and
-                            -- re-attaches at the `let` level after `in` (`in {- c -}`).
-                            -- Refusing descent routes both formats to that same
-                            -- after-`in` placement. (`in` has no source position,
-                            -- so a body-leading comment after `in` is indistinguishable
-                            -- and is handled by the same after-`in` path already.)
-                            nextSiblingIsIn =
+                            -- own-line at `child`'s deep indent, but on reparse it
+                            -- sits past `child`'s row range and re-attaches at the
+                            -- enclosing level — the indent oscillates. Refusing
+                            -- descent leaves it a sibling at the current flow level
+                            -- (after `in`, between bindings, between branches), which
+                            -- is the stable placement.
+                            --
+                            -- These three sibling kinds are exactly the "new flow
+                            -- item" markers; the test is deliberately NOT "any
+                            -- following sibling" — a container followed by a
+                            -- *continuation* (e.g. a record type before its `->` in a
+                            -- signature) has a following sibling too, but a comment
+                            -- before that record's `}` belongs inside it, so widening
+                            -- the test there reintroduces non-idempotency.
+                            nextSiblingIsBoundary =
                                 when Array.get (acc.index + 1) children is
-                                    Just sib -> isInKeyword sib
-                                    Nothing -> False
+                                    Just sib ->
+                                        when lpnBox sib is
+                                            IndentedBlock -> True
+                                            WhenBranch _ -> True
+                                            SynthesizedText value -> value == "in"
+                                            _ -> False
 
-                            -- True when the next sibling is another `IndentedBlock`,
-                            -- i.e. `child` is a non-last `let` binding and the next
-                            -- one follows. A comment trailing this binding's value
-                            -- must NOT descend into the value (where it would render
-                            -- own-line at the deeper value indent); on reparse it
-                            -- sits own-line at the bindings-block indent, leading the
-                            -- next binding. Refusing descent routes both formats to
-                            -- that bindings-block placement (the next binding's
-                            -- leading-comment column). The last binding's
-                            -- `in`-boundary case is handled by `nextSiblingIsIn`.
-                            nextSiblingIsIndentedBlock =
-                                when Array.get (acc.index + 1) children is
-                                    Just sib -> isIndentedBlockNode sib
-                                    Nothing -> False
-
-                            -- True when the next sibling is another `WhenBranch`,
-                            -- i.e. `child` is a non-last when-branch and the next
-                            -- branch follows. A comment trailing this branch's body
-                            -- (even nested deep inside an if/let in the body) must
-                            -- NOT descend into it — on the first format it renders
-                            -- own-line at the deepest body indent (plus a spurious
-                            -- inter-branch blank), but on reparse it sits own-line
-                            -- between the branches at the branch indent. Refusing
-                            -- descent routes both formats there; the comment then
-                            -- carries the inter-branch separator (AlreadyTerminated),
-                            -- which also suppresses the blank consistently. (The
-                            -- last/only branch has no following WhenBranch, so this
-                            -- never fires there — that case is the inline glue in
-                            -- MakePretty's WhenBranch arm.)
-                            nextSiblingIsWhenBranch =
-                                when Array.get (acc.index + 1) children is
-                                    Just sib -> isWhenBranchNode sib
-                                    Nothing -> False
+                                    Nothing ->
+                                        False
                         in
                         if (not (Array.isEmpty childChildren) || commentInsideEmptyBracket child row col)
                             && subtreeContainsRow child row
                             && not (subtreeStartsAfter child row col)
                             && not laterSiblingClaims
                             && not
-                                ((isAcrossThenIndentNode child || isItemBracketListNode child || isIfConditionNode child || isPrefixGlueNode child || isParenBlockNode child || nextSiblingIsIn || nextSiblingIsIndentedBlock || nextSiblingIsWhenBranch)
+                                ((isAcrossThenIndentNode child || isItemBracketListNode child || isIfConditionNode child || isPrefixGlueNode child || isParenBlockNode child || nextSiblingIsBoundary)
                                     && subtreeEndsBefore child row col
                                     && not (commentInsideTrailingBracket child row col)
                                 ) then
@@ -426,31 +449,16 @@ insertAmongChildren commentNode row col children =
                 finalBefore ++ [commentNode]
 
 
--- True for the position-less `in` keyword of a `let … in` (a SynthesizedText
--- whose value is exactly "in"). Used by the descent to detect the last-binding→`in`
--- boundary, so a comment trailing the last binding routes after `in` rather than
--- descending into the binding (where it would render non-idempotently).
-isIndentedBlockNode : LPNode -> Bool
-isIndentedBlockNode node =
-    when lpnBox node is
-        IndentedBlock -> True
-        _ -> False
-
-
-isWhenBranchNode : LPNode -> Bool
-isWhenBranchNode node =
-    when lpnBox node is
-        WhenBranch _ -> True
-        _ -> False
-
-
-isInKeyword : LPNode -> Bool
-isInKeyword node =
-    when lpnBox node is
-        SynthesizedText value -> value == "in"
-        _ -> False
-
-
+-- Box-type guards for the descent. These predicates name the LPBox kinds that a
+-- trailing comment must never be sucked *into*, even when `child` is the last
+-- node in its flow (no following sibling to fall beside): a function-call /
+-- argument flow (`AcrossThenIndent`), an `if` / `else if` condition
+-- (`IfCondition`), a `\`-glued lambda head or unary `-` (`PrefixGlue`), a
+-- parenthesised expression (`ParenBlock`), and a bracketed item list
+-- (`isItemBracketListNode`, defined with the bracket helpers below). A comment
+-- past their last token belongs beside them, not inside. For every *other* box
+-- kind the `hasFollowingSibling` check in the descent expresses the same intent
+-- whenever a sibling follows — so most constructs need no entry here.
 isAcrossThenIndentNode : LPNode -> Bool
 isAcrossThenIndentNode node =
     when lpnBox node is
@@ -465,14 +473,11 @@ isIfConditionNode node =
         _ -> False
 
 
--- True for a `PrefixGlue` node (the `\`-glued first lambda pattern, or unary
--- `-`). A comment past its content — e.g. between a record-destructuring first
--- parameter `\{ x }` and the next parameter — must not descend into it (which
--- would tuck the comment inside the pattern and let the next parameter's
--- flow-separator append it with a leading space, shifting that parameter by one
--- column non-idempotently). Refusing descent keeps the comment a sibling in the
--- lambda head. A comment genuinely inside the glued bracket (before its closing
--- bracket) still descends, via the `commentInsideTrailingBracket` exception.
+-- `PrefixGlue` needs its own entry (rather than relying on `hasFollowingSibling`)
+-- because keeping a trailing comment out of it matters even mid-flow: the next
+-- lambda parameter's flow-separator would otherwise append the comment with a
+-- leading space and shift that parameter by a column (non-idempotent). A comment
+-- genuinely inside the glued bracket still descends, via commentInsideTrailingBracket.
 isPrefixGlueNode : LPNode -> Bool
 isPrefixGlueNode node =
     when lpnBox node is
