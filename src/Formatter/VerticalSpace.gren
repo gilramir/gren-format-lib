@@ -83,7 +83,19 @@ insertEmptyLines root =
                     in
                     when { prev = acc.prev, current = childBox } is
                         { prev = Just (OriginalRows prevRows), current = OriginalRows currentRows } ->
-                            if currentRows.first > prevRows.last + 1 then
+                            let
+                                -- The module declaration is always followed by a
+                                -- blank line, no matter how its exposing list
+                                -- renders. Forcing it here sidesteps the
+                                -- input-row-derived `prevRows.last` (which the
+                                -- `exposing`/`where` close bumps over-count when a
+                                -- perturbed list spans extra source rows).
+                                afterModule =
+                                    when prevRows.stype is
+                                        StModule -> True
+                                        _ -> False
+                            in
+                            if currentRows.first > prevRows.last + 1 || afterModule then
                                 let
                                     withBlanks =
                                         if isGroupStart then
