@@ -295,5 +295,6 @@ kitchenSinkTests fsPerm =
         , assertPretty fsPerm "block comment body re-indented from its own structure, not the open column" "BlockCommentBodyIndent"
         , assertPretty fsPerm "trailing comment placement (inline vs own line) is preserved, not normalized" "CommentPlacement"
         , assertPretty fsPerm "a variety of constructs near, at, and past the 100-column page width" "PageWidth"
+        , assertPretty fsPerm "empty literal ([] / {}) as an item inside a bracketed list" "EmptyBracketInList"
         ]
 
