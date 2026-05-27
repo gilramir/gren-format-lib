@@ -396,6 +396,47 @@ joinBlock rule sep accDoc childDoc =
             P.concat accDoc (rule.wrap childDoc)
 
 
+-- Peel any run of trailing single-line comments off the end of a block's
+-- children, returning the remaining body nodes plus a doc that glues those
+-- comments back on inline (each preceded by a space), in source order.
+--
+-- A single-line comment left inside the block's flow rides a soft break, so an
+-- overflowing line drops it onto its own line one row below the body's last
+-- token, dedented; on reparse it sits past the body's range and re-attaches at
+-- the enclosing level, the body collapses, and the layout oscillates
+-- (non-idempotent). Gluing keeps the comment on the body's last row across
+-- reformats — the same cure the `WhenBranch` arm uses for branch bodies.
+--
+-- A `--` line comment consumes the rest of its line, so it may only be the
+-- *rightmost* glued comment; a second `--` to its left would swallow it, so
+-- peeling stops there. Block comments may be chained freely. A multi-line block
+-- comment is left in place (it legitimately breaks the line).
+peelTrailingInlineComments : Array LPNode -> { bodyNodes : Array LPNode, trailingCommentDoc : P.Doc cost }
+peelTrailingInlineComments nodes =
+    let
+        go remaining accDoc sawLineComment =
+            when Array.popLast remaining is
+                Just { last = lastChild, initial = initChildren } ->
+                    let
+                        keep = { bodyNodes = remaining, trailingCommentDoc = accDoc }
+                        glue newSawLineComment =
+                            go initChildren
+                                (P.concat (P.text " ") (P.concat (commentBoxDoc (lpnBox lastChild)) accDoc))
+                                newSawLineComment
+                    in
+                    when lpnBox lastChild is
+                        SingleLineComment _ ->
+                            if sawLineComment then keep else glue True
+                        BlockComment loc ->
+                            if isMultiLineCommentValue loc.value then keep else glue sawLineComment
+                        _ ->
+                            keep
+                Nothing ->
+                    { bodyNodes = remaining, trailingCommentDoc = accDoc }
+    in
+    go nodes P.empty False
+
+
 -- Render a block-style child node inside buildFlowDoc's fold: recurse
 -- into the children, then join via joinBlock and produce the next acc.
 renderBlockNode :
@@ -666,7 +707,10 @@ buildFlowDocImpl indent inlineStart nodes =
                                                }
 
                                 BodyBlock ->
-                                    renderBlockNode bodyBlockRule acc nodeChildren
+                                    let { bodyNodes, trailingCommentDoc } = peelTrailingInlineComments nodeChildren
+                                    in
+                                    renderBlockNode bodyBlockRule acc bodyNodes
+                                        |> Result.map (\r -> { r | doc = P.concat r.doc trailingCommentDoc })
 
                                 WhenBranch { isMultiLine = branchMultiLine } ->
                                     -- Peel a single-line block comment off the END of the
@@ -754,7 +798,10 @@ buildFlowDocImpl indent inlineStart nodes =
                                     renderBlockNode softIndentedBlockRule acc nodeChildren
 
                                 SoftBodyBlock ->
-                                    renderBlockNode softBodyBlockRule acc nodeChildren
+                                    let { bodyNodes, trailingCommentDoc } = peelTrailingInlineComments nodeChildren
+                                    in
+                                    renderBlockNode softBodyBlockRule acc bodyNodes
+                                        |> Result.map (\r -> { r | doc = P.concat r.doc trailingCommentDoc })
 
                                 _ ->
                                     when makePDoc box nodeChildren is

@@ -1,0 +1,261 @@
+module PageWidth exposing (..)
+
+-- Exploration: what does the formatter do for code that nears, reaches, and
+-- exceeds the 100-column page width? Constructs below are placed in the
+-- 95-120 column band. Names are padded purely to control where lines land.
+
+-- ===== Type signatures =====
+
+
+-- arrow chain that runs to about column 100
+signatureNear : ArgumentTypeAlpha -> ArgumentTypeBeta -> ArgumentTypeGamma -> ResultTypeDelta
+signatureNear a b c =
+    a
+
+
+-- arrow chain that runs well past 100
+signaturePast : ArgumentTypeAlpha -> ArgumentTypeBeta -> ArgumentTypeGamma -> ArgumentTypeDelta ->
+    ArgumentTypeEpsilon -> ResultType
+signaturePast a b c d e =
+    a
+
+
+-- a record in a type signature, near the boundary
+signatureRecord : { fieldAlpha : Int, fieldBeta : String, fieldGamma : Bool, fieldDelta : Float } ->
+    Result
+signatureRecord r =
+    r
+
+-- ===== Function application =====
+
+-- call that fits just under 100
+callNear = functionUnderTest firstArgumentValue secondArgumentValue thirdArgumentValue fourthArg
+
+-- call that overflows past 100
+callPast =
+    functionUnderTest firstArgumentValue secondArgumentValue thirdArgumentValue fourthArgumentValue
+        fifthArgumentValue
+
+-- nested calls overflowing
+callNested =
+    outerFunction (innerFunction argumentOne argumentTwo argumentThree)
+        (anotherInner argumentFour argumentFive)
+
+-- ===== Records =====
+
+-- record literal near the boundary
+recordNear =
+    { alpha = valueAlpha
+    , beta = valueBeta
+    , gamma = valueGamma
+    , delta = valueDelta
+    }
+
+-- record literal past the boundary
+recordPast =
+    { alpha = valueAlpha
+    , beta = valueBeta
+    , gamma = valueGamma
+    , delta = valueDelta
+    , epsilon = valueEpsilon
+    , zeta = 0
+    }
+
+-- record update past the boundary
+recordUpdate existingRecord =
+    { existingRecord
+        | fieldOne = replacementOne
+        , fieldTwo = replacementTwo
+        , fieldThree = replacementThree
+    }
+
+-- nested record past the boundary
+recordNested =
+    { outer =
+        { innerAlpha = valueAlpha
+        , innerBeta = valueBeta
+        , innerGamma = valueGamma
+        , innerDelta = valueDelta
+        }
+    }
+
+-- ===== if / then / else =====
+
+-- short predicate
+ifShort x =
+    if x then
+        trueResult
+    else
+        falseResult
+
+-- long predicate reaching past 100
+ifLong x =
+    if conditionOne x && conditionTwo x && conditionThree x && conditionFour x && conditionFive x
+            then
+        trueBranchResult
+    else
+        falseBranchResult
+
+-- else-if chain with long predicates
+ifElseChain x =
+    if firstConditionThatIsFairlyLong x then
+        resultOne
+    else if secondConditionThatIsAlsoLong x then
+        resultTwo
+    else
+        resultThree
+
+-- ===== when / is =====
+
+whenExample value =
+    when value is
+        FirstConstructor { fieldAlpha, fieldBeta } ->
+            combineThemTogether fieldAlpha fieldBeta withExtraContext
+        SecondConstructor fieldAlpha ->
+            handleTheSecondConstructorCaseWithARatherLongFunctionName fieldAlpha here
+        ThirdConstructor -> defaultResultValue
+        _ -> fallbackResultValue
+
+-- when with a record-returning branch past the boundary
+whenRecord value =
+    when value is
+        Wrapped innerValue ->
+            { resultAlpha = innerValue
+            , resultBeta = computeBeta innerValue
+            , resultGamma = 0
+            }
+
+        Empty ->
+            { resultAlpha = 0
+            , resultBeta = 0
+            , resultGamma = 0
+            }
+
+-- ===== let / in =====
+
+letExample input =
+    let
+        firstBinding =
+            computeFirstThing input withAnExtraArgument andYetAnotherArgument toReachTheBoundary
+        secondBinding = computeSecondThing firstBinding
+    in
+    firstBinding + secondBinding
+
+letDestructure pair =
+    let
+        { leftComponent, rightComponent } = pair
+    in
+    leftComponent
+    ++ rightComponent ++ someTrailingValueToPushThisParticularLineOutTowardOneHundredColumns
+
+-- ===== lambdas =====
+
+lambdaExample collection =
+    List.map
+        (\eachElement -> transformElement eachElement withContextArgument andMore intoTheResultType)
+        collection
+
+-- ===== pipelines =====
+
+pipelineExample collection =
+    collection
+        |> List.map transformEachIndividualItem
+        |> List.filter retainTheGoodOnesOnly
+        |> List.foldl mergeItems start
+
+pipelineBackward collection =
+    List.foldl mergeAllItems initialSeed
+        <| List.filter shouldRetainThisItem
+        <| List.map applyTransform collection
+
+-- ===== binary operator chains =====
+
+binopChain =
+    operandOne
+    + operandTwo
+    + operandThree + operandFour + operandFive + operandSix + operandSeven + operandEight
+
+binopMixed =
+    valueA
+    ++ valueB
+    ++ valueC ++ valueD ++ valueE ++ valueF ++ valueG ++ valueH ++ valueI ++ valueJ ++ valueK
+
+-- ===== arrays =====
+
+arrayPast =
+    [ elementValueOne
+    , elementValueTwo
+    , elementValueThree
+    , elementValueFour
+    , elementValueFive
+    , elementValueSix
+    ]
+
+arrayOfRecords =
+    [ { idField = 1, nameField = "first" }
+    , { idField = 2, nameField = "second" }
+    , { idField = 3, nameField = "x" }
+    ]
+
+-- ===== unbreakable tokens that exceed the width =====
+
+-- a single string literal longer than the page width, which cannot be broken
+longStringLiteral =
+    "this is a single string literal that is deliberately made longer than one hundred columns so it cannot fit"
+
+-- a multiline string near the boundary
+multilineStringExample =
+    """
+    a line of triple-quoted content that itself approaches the one hundred column page width boundary here
+    """
+
+-- ===== custom types =====
+
+type LongUnion
+    = VariantAlpha ArgumentTypeOne ArgumentTypeTwo
+    | VariantBeta
+        ArgumentTypeOne ArgumentTypeTwo ArgumentTypeThree ArgumentTypeFour ArgumentTypeFive
+        ArgumentTypeSix
+    | VariantGamma
+
+type alias LongAlias =
+    { fieldAlpha : Int
+    , fieldBeta : String
+    , fieldGamma : Bool
+    , fieldDelta : Float
+    , fieldEpsilon : Char
+    , fieldZeta : Int
+    }
+
+-- ===== comment variety near the boundary =====
+
+
+{-| A doc comment on a function whose signature below also approaches the width. -}
+documentedFunction : ArgumentTypeAlpha -> ArgumentTypeBeta -> ArgumentTypeGamma -> ArgumentTypeDelta
+    -> Result
+documentedFunction a b c d =
+    a
+
+-- a trailing line comment that itself pushes the full line beyond column one hundred
+trailingLine =
+    someComputedValue -- this trailing comment is what carries the line past the one hundred column boundary
+
+trailingBlock =
+    someComputedValue {- this trailing block comment is what carries the line past the page width boundary here -}
+
+inlineBlockComment =
+    partOne
+    ++ {- a small inline comment -} partTwo
+    ++ partThree ++ partFour ++ partFive ++ partSix ++ partSeven
+
+-- a multi-line block comment whose body sits near the boundary
+multilineBlockComment =
+    {- the first line of this block comment is already fairly long and approaches the page width boundary
+       and this second line is also quite long, continuing well toward the one hundred column limit again -}
+    finalValue
+
+recordWithFieldComments =
+    { alpha = 1
+    -- a trailing comment on a field that extends the line out beyond one hundred columns total
+    , beta = 2
+    }
