@@ -119,6 +119,76 @@ def col_of(src, idx):
     return idx - (nl + 1)
 
 
+def comment_fingerprint(src):
+    """For each comment, in source order: (text, shares_line_with_prev_token).
+
+    A trailing comment that *shares a source line* with the preceding code token
+    is placed inline (`token {- c -}`); one on its own line is placed standalone
+    (and may be re-homed to the enclosing or top level). That is a deliberate,
+    meaning-bearing distinction the formatter preserves (see the formatter
+    README, "Comment placement"). So a whitespace perturbation that flips this
+    for any comment has changed comment *placement*, not merely layout — it is
+    not a valid format-invariance test, and is discarded like an AST change.
+
+    Comment interiors are never perturbed (gap_runs skips them), so the text is
+    stable; only the `shares_line` flag can move, and only when a newline is
+    added/removed between a comment and the token before it."""
+    fps = []
+    i, n = 0, len(src)
+    last_code = -1  # index just past the last non-ws, non-comment code char
+
+    def shares_line(comment_start):
+        return last_code != -1 and "\n" not in src[last_code:comment_start]
+
+    while i < n:
+        two = src[i : i + 2]
+        three = src[i : i + 3]
+        if two == "--":
+            j = src.find("\n", i)
+            end = n if j == -1 else j
+            fps.append((src[i:end].rstrip(), shares_line(i)))
+            i = end
+            continue
+        if two == "{-":
+            start, depth = i, 0
+            while i < n:
+                if src[i : i + 2] == "{-":
+                    depth += 1
+                    i += 2
+                elif src[i : i + 2] == "-}":
+                    depth -= 1
+                    i += 2
+                    if depth == 0:
+                        break
+                else:
+                    i += 1
+            fps.append((src[start:i], shares_line(start)))
+            continue
+        if three == '"""':
+            j = src.find('"""', i + 3)
+            i = n if j == -1 else j + 3
+            last_code = i
+            continue
+        if src[i] == '"' or src[i] == "'":
+            q, i = src[i], i + 1
+            while i < n:
+                if src[i] == "\\":
+                    i += 2
+                elif src[i] == q:
+                    i += 1
+                    break
+                else:
+                    i += 1
+            last_code = i
+            continue
+        if src[i] in " \t\r\n":
+            i += 1
+            continue
+        i += 1
+        last_code = i
+    return fps
+
+
 # ---- perturbation builders -------------------------------------------------
 
 
@@ -218,6 +288,7 @@ def check_file(workdir, path, mode, verbose):
     if base_ast is None or base_fmt is None:
         print(f"SKIP {name}: original does not parse/format")
         return 0
+    base_fp = comment_fingerprint(src)
 
     if mode == "stretch":
         variants = [("stretch", v) for v in perturb_stretch(src, runs)]
@@ -226,11 +297,17 @@ def check_file(workdir, path, mode, verbose):
     else:
         variants = perturb_newline_gap(src, runs)
 
-    ast_changed, drift, ok = 0, [], 0
+    ast_changed, comment_moved, drift, ok = 0, 0, [], 0
     for label, variant in variants:
         va = ast(workdir, variant)
         if va is None or va != base_ast:
             ast_changed += 1
+            continue
+        # A perturbation that flips any comment's inline/own-line placement has
+        # changed comment meaning, not just whitespace (see comment_fingerprint);
+        # the formatter rightly reflects that, so it is not a drift bug.
+        if comment_fingerprint(variant) != base_fp:
+            comment_moved += 1
             continue
         vf = fmt(workdir, variant)
         if vf != base_fmt:
@@ -241,7 +318,8 @@ def check_file(workdir, path, mode, verbose):
     status = "OK " if not drift else "DRIFT"
     print(
         f"{status} {name}: {len(variants)} variants, {ok} canonical, "
-        f"{ast_changed} ast-changed/illegal, {len(drift)} format-drift"
+        f"{ast_changed} ast-changed/illegal, {comment_moved} comment-placement, "
+        f"{len(drift)} format-drift"
     )
     for label, variant, vf in drift:
         print(f"      {label}: format(perturbed) != format(original)")

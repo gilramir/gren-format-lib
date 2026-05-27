@@ -825,6 +825,23 @@ result =
 
 The formatter never modifies the text of a comment — only its placement relative to code.
 
+### Comment placement is meaning-bearing and preserved
+
+Whether a comment **shares a line with the preceding token** or **sits on its own line** is treated as a deliberate distinction and is preserved — the formatter does *not* normalize one into the other. A comment that trails a token stays inline; a comment on its own line stays standalone (and is positioned relative to the code around it):
+
+```gren
+foo = 1 {- inline: trails the value -}
+
+bar =
+    { a = 1
+    {- standalone: kept on its own line, before the close -}
+    }
+```
+
+This is a real, intentional behavior, not an accident of layout. A consequence is that adding or removing the newline between a token and an adjacent comment changes the comment's placement, and the formatted output changes with it — so the two forms above are genuinely different inputs, even though they hold the same tokens. (The whitespace-canonicalization fuzzer accounts for this: a perturbation that moves a comment across a line boundary is treated as a meaning change, not a layout-only change.)
+
+A comment whose source position is ambiguous between two owners — for example a trailing comment pushed onto the line *below* a declaration — may re-attach to the enclosing construct or to the top level. Resolving those ambiguous cases canonically is an open problem, tracked with the comment-attachment work.
+
 ### Single-line comments (`--`)
 
 A comment on the same line as code stays attached to that line:
@@ -856,7 +873,7 @@ A standalone block comment at the top level is treated like any other top-level 
 
 #### Multi-line block comments
 
-A block comment whose body spans more than one line is **unflattenable**: it forces the construct it sits in to break vertically rather than collapsing onto one line. Its continuation lines are re-indented to align under the `{-` wherever the comment ends up printing — they are dedented by the column the `{-` sat at in the source and then re-aligned, so the comment's internal shape (relative indentation, lists, ASCII art) is preserved while its absolute position follows the code:
+A block comment whose body spans more than one line is **unflattenable**: it forces the construct it sits in to break vertically rather than collapsing onto one line. Its continuation lines are re-indented from the comment body's *own* structure: the smallest indent among the content lines is aligned three columns past the `{-` (under the first character after `{- `), and any deeper internal indentation is preserved relative to that base, so the comment's internal shape (relative indentation, lists, ASCII art) is kept. Blank lines and a closing `-}` alone on its own line are ignored when finding that smallest indent. Because the layout is derived from the body itself and not from the column the `{-` happened to sit at in the source, it is whitespace-canonical — re-indenting the comment in the source does not change the formatted result:
 
 ```gren
 value =

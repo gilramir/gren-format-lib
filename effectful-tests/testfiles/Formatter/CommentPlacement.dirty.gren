@@ -1,0 +1,17 @@
+module CommentPlacement exposing (..)
+
+
+inlineValue =
+    1     {- shares the line: kept inline -}
+
+
+recordInline :     { a : Int {- inline trailing the field -} }
+recordInline =
+    { a = 1 }
+
+
+recordOwnLine =
+    { alpha = 1
+    , beta = 2
+        {- on its own line: kept standalone -}
+    }
