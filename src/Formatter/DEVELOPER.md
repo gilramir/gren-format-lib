@@ -7,8 +7,7 @@ extend without breaking the invariants that keep formatting correct, stable, and
 comment-faithful.
 
 Read this once for the mental model, then keep `README.md` (the authoritative,
-example-driven description of *what every rule does*) open while you work. The
-architecture summary in the repo `CLAUDE.md` is the short version of this file.
+example-driven description of *what every rule does*) open while you work.
 
 ---
 
@@ -180,7 +179,7 @@ token at its `Located` position), `mkText pos str` (text at an explicit
 position), `mkZeroWidthText pos str` (a synthesized token anchored at a real
 position but contributing zero width — see below), `resultFoldl`.
 
-### 3. Get positions right (the part that bites)
+### 3. Get positions right (the difficult part)
 - A real token from the AST → `mkTextFromLocString` / `UnbreakableText`. Its own
   `Located` position is correct, use it.
 - A keyword/punctuation the parser discards (`=`, `->`, `then`) that has no
@@ -260,16 +259,6 @@ declaration (1)? Adjust `tagGroupStarts` if needed.
 
 ## How to test
 
-**Always rebuild first.** The test harness does *not* rebuild the formatter.
-After editing `src/Formatter/`:
-
-```bash
-cd compiler && ./build.sh          # builds the formatter into ../app
-```
-If `build.sh` fails with an opaque "package constraints too wide", compile the
-module standalone for a real error message (use the module name, not a path):
-`cd compiler-node && ../gren.sh make Formatter.PrettyPrinter`.
-
 **Inspect what the formatter is doing** (run from `compiler-node/`):
 
 ```bash
@@ -302,7 +291,8 @@ messy input) and `<Name>.formatted.gren` (the canonical output), then an
 confirm it is actually canonical before trusting it.
 
 **Two fuzzers** guard the cross-cutting properties; both are run by hand (not in
-`run-tests.sh`) and need a fresh `build.sh`:
+`run-tests.sh`) and need a fresh build of the compiler because unlike
+the effectful-tests, they spawn "gren format" processes.
 
 ```bash
 cd compiler-node/effectful-tests
@@ -326,4 +316,3 @@ comment-bearing fixture so the fuzzers exercise it.
 - `LogicalPrintingTree.gren` — every box's doc comment and the caching invariants.
 - `Comments.gren` module doc — the comment-attachment algorithm and its
   "Adding support for a new construct" section.
-- `CLAUDE.md` (repo root) — condensed architecture map and build/run commands.
