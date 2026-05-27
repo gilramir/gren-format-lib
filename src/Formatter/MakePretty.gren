@@ -182,6 +182,14 @@ grenIndent : Int
 grenIndent =
     4
 
+
+-- Canonical hanging indent for a multi-line block comment's continuation
+-- lines: the width of the `{- ` opener, so the body aligns under the first
+-- content character of the first line.
+blockCommentBodyOffset : Int
+blockCommentBodyOffset =
+    3
+
 {-| Render a complete Logical Printing Tree to its formatted source string.
 
 Renders each root child independently via `makePrettyLine` and joins the
@@ -1061,13 +1069,16 @@ leadingSpaceCount s =
 --   * The internal `hardNl`s make the doc unflattenable, so any enclosing
 --     `P.group` is forced to its multi-line branch (a 3-line comment no
 --     longer collapses a whole construct onto one line).
---   * Continuation lines are dedented by the column the `{-` sat at in the
---     source (clamped to each line's own leading whitespace), so that
---     `P.align` realigns them under the `{-` wherever it now prints,
---     instead of trailing off at their original absolute columns.
+--   * Continuation lines are re-indented from a canonical anchor derived
+--     *only from the body's own structure* — the smallest leading indent
+--     among the content lines maps to `blockCommentBodyOffset`. `P.align`
+--     then shifts the whole block under wherever the `{-` now prints. This
+--     is whitespace-canonical: it no longer reads the input `{-` column
+--     (`loc.start.col`), so perturbing the surrounding whitespace cannot
+--     shift the body indentation.
 --
--- Comment *content* past that base indentation is preserved, so internal
--- structure (lists, ASCII art) keeps its relative shape.
+-- Comment *content* indented past that base is preserved relative to it, so
+-- internal structure (lists, ASCII art) keeps its relative shape.
 blockCommentDoc : Located String -> P.Doc cost
 blockCommentDoc loc =
     if not (isMultiLineCommentValue loc.value) then
@@ -1075,16 +1086,36 @@ blockCommentDoc loc =
     else
         let
             fullText = "{-" ++ loc.value ++ "-}"
-            dedent = loc.start.col - 1
-            stripLeadingSpaces s =
-                String.dropFirst (min dedent (leadingSpaceCount s)) s
         in
         when Array.popFirst (String.split "\n" fullText) is
             Nothing ->
                 P.text fullText
             Just { first = firstLine, rest = contLines } ->
+                let
+                    -- The body's base column: the smallest leading-space count
+                    -- among continuation lines that carry content. Blank lines
+                    -- and a closing `-}` alone on its own line are excluded so
+                    -- they can't drag the base to column 0.
+                    isContentLine line =
+                        let t = String.trimLeft line
+                        in t /= "" && t /= "-}"
+                    base =
+                        contLines
+                            |> Array.keepIf isContentLine
+                            |> Array.map leadingSpaceCount
+                            |> Array.minimum
+                            |> Maybe.withDefault blockCommentBodyOffset
+                    -- Map the base to `blockCommentBodyOffset` and keep any
+                    -- deeper internal indentation relative to it. Lines shallower
+                    -- than the base (a bare `-}`, blank lines) clamp to column 0.
+                    reindent line =
+                        let l = leadingSpaceCount line
+                        in
+                        String.repeat (max 0 (blockCommentBodyOffset + l - base)) " "
+                            ++ String.dropFirst l line
+                in
                 Array.foldl
-                    (\line acc -> P.concat acc (P.concat P.hardNl (P.text (stripLeadingSpaces line))))
+                    (\line acc -> P.concat acc (P.concat P.hardNl (P.text (reindent line))))
                     (P.text firstLine)
                     contLines
                     |> P.align

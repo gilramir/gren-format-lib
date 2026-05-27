@@ -20,4 +20,4 @@ import Basics exposing -- comment after 'exposing'
 import String as S
 
 {- This is a
-multiline comment -}
+   multiline comment -}

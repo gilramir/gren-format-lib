@@ -1,0 +1,22 @@
+module BlockCommentBodyIndent exposing (..)
+
+{- Family B regression guard: body indentation is canonicalised from the body's
+   OWN structure, never the input open column. The smallest indent among
+       content lines maps to offset 3; this deeper line must stay deeper.
+
+   A blank line above is excluded from the base, and the closing delimiter
+   below is too, so neither can drag the base to column 0.
+-}
+topLevel = 1
+
+indented x =
+    let
+        first = x + 1
+        {- Body lines below are written flush-left in the source; the formatter
+           must re-anchor them to offset 3 from the rendered open delimiter, not their
+               absolute column, keeping this deeper line deeper.
+           trailing base line
+        -}
+        second = first + 1
+    in
+    second

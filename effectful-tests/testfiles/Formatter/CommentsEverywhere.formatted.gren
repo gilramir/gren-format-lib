@@ -12,7 +12,7 @@ And this is last line of it
 
 
 {- A multiline comment
-just before a function -}
+   just before a function -}
 foo1 : Int -> Int
 foo1 a =
     a * {- multiline inside an expression -} 100

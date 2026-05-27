@@ -18,8 +18,8 @@ covers the module-doc position. -}
 
 -- a line comment before the import block
 import Array exposing {- 3 a
-                        3 b
-                        3 c -}
+                         3 b
+                         3 c -}
     ( Array )
 import Dict
 {- 4 a
@@ -58,11 +58,11 @@ type Shape
      Int Int
 
 port output : {- 45 a
-                45 b
-                45 c -}
+                 45 b
+                 45 c -}
     {- 46 a
-      46 b
-      46 c -}
+       46 b
+       46 c -}
     String -> Cmd msg
 
 
@@ -75,8 +75,8 @@ sig : Int -> {- 10 a
     String ->
     { a
         {- 12 a
-         12 b
-         12 c -}
+           12 b
+           12 c -}
         | x : Int
     } -> Int
 sig a b c =

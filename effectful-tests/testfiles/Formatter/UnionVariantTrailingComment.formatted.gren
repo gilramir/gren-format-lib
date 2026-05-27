@@ -3,6 +3,6 @@ module UnionVariantTrailingComment exposing (..)
 type Shape
     = Circle Int
     | Square {- m1
-             m2
-             m3 -}
+                m2
+                m3 -}
      Int Int {- trailing the multi-line last variant -}
