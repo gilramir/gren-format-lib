@@ -328,7 +328,7 @@ infix non   4 (==) = eq
 infix right 5 (<|) = apL
 ```
 
-> **Note:** Infix declarations are only valid in kernel/core packages. This rule is implemented but not covered by the formatter's effectful test suite.
+> **Note:** When using the Haskell-based Gren compiler, infix declarations are only valid in kernel/core packages.
 
 ---
 
