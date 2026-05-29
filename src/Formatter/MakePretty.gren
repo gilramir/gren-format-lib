@@ -6,7 +6,7 @@ module Formatter.MakePretty exposing
 {-| Render a Logical Printing Tree to its final formatted source string.
 
 Each `LPBox` constructor maps to a `PrettyExpressive` `Doc` via `makePDoc`,
-and the resulting `Doc` is resolved against a 80-column page width with a
+and the resulting `Doc` is resolved against an 80-column page width with a
 4-space indent. `makePrettyResult` is the main entry point used by the
 `gren format` CLI; `makePrettyLineDoc` exposes the unresolved per-root-child
 `Doc` for the `--pex` debug flag.
@@ -1067,8 +1067,13 @@ makeListItemDoc node =
                 Err e -> Err e
                 Ok doc -> Ok (P.nest 2 doc)
         AlwaysVertical bracket ->
+            -- A nested always-vertical literal (e.g. a multi-line list inside a
+            -- list). Nest by 2 — the width of the enclosing "[ " / ", " prefix —
+            -- so its own continuation lines align under its first element, the
+            -- same as the `AllAcrossOrAllVertical` case above.
             let bs = bracketStrings bracket
             in listBoxesWithBrackets bs.open bs.close (lpnChildren node)
+                |> Result.map (P.nest 2)
         RecordUpdate baseName ->
             makeRecordUpdateDoc baseName.value (lpnChildren node)
         AlignedFlow ->
@@ -1438,15 +1443,18 @@ listBoxesWithBrackets open close nodes =
                         Err e -> Err e
                         Ok d -> Ok (Just { doc = d, row = firstRowInSubtree node })
                 AllAcrossOrAllVertical _ ->
+                    -- Nest a nested bracket-list item by 2 (the "[ " / ", "
+                    -- prefix width) so its continuation lines align under its
+                    -- own first element rather than the enclosing list's items.
                     when makePDoc (lpnBox node) (lpnChildren node) is
                         Err e -> Err e
-                        Ok d -> Ok (Just { doc = d, row = firstRowInSubtree node })
+                        Ok d -> Ok (Just { doc = P.nest 2 d, row = firstRowInSubtree node })
                 AlwaysVertical bracket ->
                     let bs = bracketStrings bracket
                     in
                     when listBoxesWithBrackets bs.open bs.close (lpnChildren node) is
                         Err e -> Err e
-                        Ok d -> Ok (Just { doc = d, row = firstRowInSubtree node })
+                        Ok d -> Ok (Just { doc = P.nest 2 d, row = firstRowInSubtree node })
                 RecordUpdate baseName ->
                     when makeRecordUpdateDoc baseName.value (lpnChildren node) is
                         Err e -> Err e

@@ -189,6 +189,137 @@ def comment_fingerprint(src):
     return fps
 
 
+def list_layout_fingerprint(src):
+    """For each `[ ... ]` array literal, in source order: whether the author
+    laid its items across multiple rows (signal B — some item starts on a row
+    below where the previous item ended).
+
+    The formatter now treats this as a meaning-bearing layout choice: a list
+    written on one line stays inline (if it fits), while one the author spread
+    across rows is kept one-item-per-line regardless of fit (see `Src.ArrayLiteral`
+    in InsertExpressions). So a whitespace perturbation that flips this for any
+    list has changed layout *intent*, not merely whitespace — like a
+    comment-placement flip, it is discarded rather than counted as drift.
+
+    Only the top-level commas of each list delimit its items; nested brackets,
+    strings, chars and comments are skipped (their interiors belong to one item
+    and are never perturbed anyway). A list with fewer than two items has no
+    inter-item gap and is always False. Comment chars do not extend an item's
+    row span — a comment-bearing list is forced vertical by a separate rule and
+    its comment moves are already guarded by comment_fingerprint."""
+    fps = []
+    i, n = 0, len(src)
+    row = 1
+    stack = []  # frames; '[' frames are dicts tracking items, others are markers
+
+    def note(r):
+        # Record a code char at row r into the innermost '[' frame, if any.
+        if stack and isinstance(stack[-1], dict):
+            fr = stack[-1]
+            if fr["cur_first"] is None:
+                fr["cur_first"] = r
+            fr["cur_last"] = r
+
+    def close_item(fr):
+        if fr["cur_first"] is not None:
+            fr["items"].append((fr["cur_first"], fr["cur_last"]))
+            fr["cur_first"] = fr["cur_last"] = None
+
+    while i < n:
+        c = src[i]
+        two = src[i : i + 2]
+        three = src[i : i + 3]
+        if c == "\n":
+            row += 1
+            i += 1
+            continue
+        if two == "--":
+            j = src.find("\n", i)
+            i = n if j == -1 else j
+            continue
+        if two == "{-":
+            depth = 0
+            while i < n:
+                if src[i] == "\n":
+                    row += 1
+                    i += 1
+                elif src[i : i + 2] == "{-":
+                    depth += 1
+                    i += 2
+                elif src[i : i + 2] == "-}":
+                    depth -= 1
+                    i += 2
+                    if depth == 0:
+                        break
+                else:
+                    i += 1
+            continue
+        if three == '"""' or c == '"' or c == "'":
+            # A string/char literal is item content: note its first and last row.
+            note(row)
+            if three == '"""':
+                i += 3
+                while i < n and src[i : i + 3] != '"""':
+                    if src[i] == "\n":
+                        row += 1
+                    i += 1
+                i += 3
+            else:
+                q, i = c, i + 1
+                while i < n:
+                    if src[i] == "\\":
+                        i += 2
+                    elif src[i] == q:
+                        i += 1
+                        break
+                    elif src[i] == "\n":
+                        row += 1
+                        i += 1
+                    else:
+                        i += 1
+            note(row)
+            continue
+        if c in " \t\r":
+            i += 1
+            continue
+        # A code character.
+        if c == "[":
+            note(row)  # the '[' belongs to the enclosing item, if any
+            stack.append({"items": [], "cur_first": None, "cur_last": None})
+            i += 1
+            continue
+        if c == "]":
+            if stack and isinstance(stack[-1], dict):
+                fr = stack.pop()
+                close_item(fr)
+                spans = any(
+                    fr["items"][k][1] < fr["items"][k + 1][0]
+                    for k in range(len(fr["items"]) - 1)
+                )
+                fps.append(spans)
+            note(row)
+            i += 1
+            continue
+        if c in "({":
+            note(row)
+            stack.append(c)
+            i += 1
+            continue
+        if c in ")}":
+            if stack and not isinstance(stack[-1], dict):
+                stack.pop()
+            note(row)
+            i += 1
+            continue
+        if c == "," and stack and isinstance(stack[-1], dict):
+            close_item(stack[-1])
+            i += 1
+            continue
+        note(row)
+        i += 1
+    return fps
+
+
 # ---- perturbation builders -------------------------------------------------
 
 
@@ -289,6 +420,7 @@ def check_file(workdir, path, mode, verbose):
         print(f"SKIP {name}: original does not parse/format")
         return 0
     base_fp = comment_fingerprint(src)
+    base_layout = list_layout_fingerprint(src)
 
     if mode == "stretch":
         variants = [("stretch", v) for v in perturb_stretch(src, runs)]
@@ -297,7 +429,7 @@ def check_file(workdir, path, mode, verbose):
     else:
         variants = perturb_newline_gap(src, runs)
 
-    ast_changed, comment_moved, drift, ok = 0, 0, [], 0
+    ast_changed, comment_moved, layout_moved, drift, ok = 0, 0, 0, [], 0
     for label, variant in variants:
         va = ast(workdir, variant)
         if va is None or va != base_ast:
@@ -309,6 +441,12 @@ def check_file(workdir, path, mode, verbose):
         if comment_fingerprint(variant) != base_fp:
             comment_moved += 1
             continue
+        # Likewise, a perturbation that flips whether a list literal is laid out
+        # across rows has changed layout intent, which the formatter now honours
+        # (one-line-if-fits vs one-item-per-line); not a canonicalization bug.
+        if list_layout_fingerprint(variant) != base_layout:
+            layout_moved += 1
+            continue
         vf = fmt(workdir, variant)
         if vf != base_fmt:
             drift.append((label, variant, vf))
@@ -319,7 +457,7 @@ def check_file(workdir, path, mode, verbose):
     print(
         f"{status} {name}: {len(variants)} variants, {ok} canonical, "
         f"{ast_changed} ast-changed/illegal, {comment_moved} comment-placement, "
-        f"{len(drift)} format-drift"
+        f"{layout_moved} list-layout, {len(drift)} format-drift"
     )
     for label, variant, vf in drift:
         print(f"      {label}: format(perturbed) != format(original)")

@@ -87,7 +87,10 @@ type LPBox
     --                                     ]
     | AllAcrossOrAllVertical ListBrackets
 
-    -- Always-vertical list (for 2+ field record literals).
+    -- Always-vertical list: one item per line regardless of page fit. Used
+    -- for 2+ field record literals, and for array literals the author wrote
+    -- across multiple source rows (see `Src.ArrayLiteral` in InsertExpressions
+    -- and `itemsSpanRows`).
     --
     --     { x = 1
     --     , y = 2

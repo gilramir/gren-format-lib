@@ -17,6 +17,7 @@ import Formatter.LogicalPrintingTree exposing (LPBox(..),
 import Formatter.LPTHelpers exposing
     ( mkText, mkZeroWidthText, mkTextFromLocString, resultFoldl
     , tryMapFirstLeaf, tryMapLastLeaf, fixupParensChildrenNodes
+    , itemsSpanRows
     )
 import Formatter.LiteralFormat exposing (charLiteralString, escapeStringContent, escapeMultilineContent, intToHex)
 import Formatter.InsertPatterns exposing (folderInsertPattern, insertPattern)
@@ -200,9 +201,21 @@ insertExpression locExpr =
                         Nothing ->
                             [lpnLeaf (EmptyBracketed { start = locExpr.start, end = locExpr.end, value = ListSquare })]
                         Just _ ->
+                            -- The author's layout decides the list shape: if the
+                            -- items were written across multiple rows, keep them
+                            -- one-per-line (`AlwaysVertical`); if they were on one
+                            -- row, let page fit decide (`AllAcrossOrAllVertical` —
+                            -- flat when it fits, one-per-line when it overflows).
                             -- `locExpr.end` is the `]`, so a comment on its own
                             -- line before the `]` stays inside the array.
-                            [lpnBracketNode (AllAcrossOrAllVertical ListSquare) locExpr.end itemNodes]
+                            let
+                                listBox =
+                                    if itemsSpanRows exprArray then
+                                        AlwaysVertical ListSquare
+                                    else
+                                        AllAcrossOrAllVertical ListSquare
+                            in
+                            [lpnBracketNode listBox locExpr.end itemNodes]
                 )
 
         Src.Record fieldArray ->
@@ -486,15 +499,20 @@ form `( recordUpdate )`.
 convertForArg : LPNode -> LPNode
 convertForArg node =
     when lpnBox node is
-        AlwaysVertical bracket ->
+        -- Only records (`ListCurly`) collapse to their inline-friendly form as
+        -- an argument/item. A list literal (`ListSquare`) that is `AlwaysVertical`
+        -- was laid out multi-line by the author, and that verticality is now
+        -- input-derived (see `Src.ArrayLiteral`) — it must survive being nested
+        -- or passed as an argument, so it is left untouched here.
+        AlwaysVertical ListCurly ->
             -- Preserve the closing-bracket position (if any) so a comment on
             -- its own line before the `}` stays inside this record even when
             -- it is nested as an argument/item.
             when lpnLastBracketEnd node is
                 Just closeEnd ->
-                    lpnBracketNode (AllAcrossOrAllVertical bracket) closeEnd (lpnChildren node)
+                    lpnBracketNode (AllAcrossOrAllVertical ListCurly) closeEnd (lpnChildren node)
                 Nothing ->
-                    lpnNode (AllAcrossOrAllVertical bracket) (lpnChildren node)
+                    lpnNode (AllAcrossOrAllVertical ListCurly) (lpnChildren node)
         RecordUpdate baseName ->
             -- Prepend "baseName | " to first field's first text so the inline
             -- form renders correctly: { pt | x = 1, y = 2 }

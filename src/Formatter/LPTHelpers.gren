@@ -55,6 +55,27 @@ incCol n pos =
     }
 
 
+{-| True when the author laid these located items out across more than one
+source row — i.e. some item starts on a row below where the previous item
+ended. This is the "multi-line authored" signal that decides whether a list
+literal stays one-per-line regardless of page fit (see `Src.ArrayLiteral` in
+`InsertExpressions`). A run that all sits on a single row — `[ 1, 2, 3 ]` — is
+False; `[ 1, 2\n, 3 ]` is True. A lone item that is itself multi-line does not
+count, since there is no *gap between* items to cross.
+-}
+itemsSpanRows : Array { r | start : Position, end : Position } -> Bool
+itemsSpanRows items =
+    Array.foldl
+        (\item acc ->
+            { prevEndRow = item.end.row
+            , spans = acc.spans || (acc.prevEndRow >= 0 && acc.prevEndRow < item.start.row)
+            }
+        )
+        { prevEndRow = -1, spans = False }
+        items
+        |> .spans
+
+
 -- Left-fold that threads a Result through the accumulator, short-circuiting
 -- on the first Err. Equivalent to Array.foldl + Result.andThen.
 resultFoldl : (i -> a -> Result e a) -> a -> Array i -> Result e a

@@ -208,6 +208,7 @@ expressionTests fsPerm =
         , assertPretty fsPerm "parenthesized expressions" "ParenWrapped"
         , assertPretty fsPerm "nested containers in list" "NestedContainersInList"
         , assertPretty fsPerm "array items that are too long to fit inline" "ArrayLongRecordItems"
+        , assertPretty fsPerm "list layout follows author: one line stays inline, multi-line stays one-per-line" "ListLayoutByAuthor"
         , assertPretty fsPerm "when branch body indentation" "WhenBranchBody"
         , assertPretty fsPerm "when branch patterns" "WhenPatterns"
         , assertPretty fsPerm "record field value indentation" "RecordFieldValue"

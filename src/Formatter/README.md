@@ -486,13 +486,21 @@ An empty array is always written as `[]`.
 
 A non-empty array uses an all-or-nothing layout: either every item fits on one line or every item gets its own line. There is no partial wrapping.
 
+**The author's layout chooses between the two forms.** This is one place the formatter is deliberately *not* canonical — it preserves the line/break structure the author gave:
+
+- If the items were written **on a single source line** and they **fit** the page width, they stay on one line (the flat form).
+- If the items were written on a single line but are **too long** to fit, they break to the vertical form (one per line).
+- If the author **spread the items across rows** — even with several items per line, e.g. `[ 1, 2\n, 3, 4 ]` — the array stays vertical, **one item per line**, regardless of whether it would have fit on one line.
+
+The trigger is "do the items span more than one source row" (some item starts on a row below where the previous one ended); a lone multi-line item does not count. A trailing `]` or leading `[` alone on its own line does not by itself force vertical — only newlines *between items* do.
+
 The flat form has a space after `[` and before `]`:
 
 ```gren
 [ 1, 2, 3 ]
 ```
 
-When the array is too long to fit on one line, it breaks to the vertical form. The opening `[` and first item are on the first line, each subsequent item is prefixed with `, ` on its own line, and the closing `]` is on a line by itself:
+In the vertical form — reached either by overflow or by the author's multi-line layout — the opening `[` and first item are on the first line, each subsequent item is prefixed with `, ` on its own line, and the closing `]` is on a line by itself:
 
 ```gren
 [ "first"
