@@ -60,7 +60,9 @@ processOrder ({ identifier, items, appliedDiscounts, flags } as inboundCart) =
         runningSubtotalCents =
             items
                 -- comment between the seed and the first pipeline step
-                |> Array.map (\{ quantity, unitPriceCents } -> quantity * unitPriceCents)
+                |> Array.map
+                    (\{ quantity, unitPriceCents } ->
+                        quantity * unitPriceCents)
 
                 {- block comment between two pipeline steps -}
                 |> Array.foldl (+) 0
@@ -91,7 +93,9 @@ processOrder ({ identifier, items, appliedDiscounts, flags } as inboundCart) =
                                 (\{ basisPoints }
                                     -- comment inside a destructuring lambda head
                                     accumulatingFactor ->
-                                    accumulatingFactor * (1.0 - (toFloat basisPoints / 10000.0)))
+                                    accumulatingFactor
+                                        * (1.0
+                                        - (toFloat basisPoints / 10000.0)))
                                 -- comment before the second argument to Array.foldl
                                 1.0
         -- comment before a Destruct (let-pattern) binding
@@ -148,7 +152,8 @@ summariseCart ({ identifier, items, flags } as inboundCart) =
             \({ sku, quantity, unitPriceCents } as wholeItem) ->
             -- comment inside a lambda body
             
-                String.join " " -- inline comment after the function being called
+                String.join " "
+                    -- inline comment after the function being called
                     -- comment before the first argument-item of join
                     [ sku
                     -- comment between arguments
@@ -203,7 +208,9 @@ reprice rawMultiplier ({ items, flags } as inboundCart) =
                               -- comment before the first updated field of a NESTED record update
                           
                               | unitPriceCents =
-                                    round (toFloat itemRecord.unitPriceCents * clampedMultiplier)
+                                    round
+                                        (toFloat itemRecord.unitPriceCents
+                                        * clampedMultiplier)
                               -- comment between two updated fields of a nested update
                           
                               , quantity = itemRecord.quantity
@@ -239,7 +246,8 @@ torturedComments primaryIntValue secondaryStringValue tertiaryBoolValue =
         {- comment between `=` and binding body -}
             primaryIntValue {- inline block between binop operands -} + 1
         guardedString =
-            if {- inline block between `if` and condition -} tertiaryBoolValue then
+            if {- inline block between `if` and condition -} tertiaryBoolValue
+                    then
                 {- inline block between condition and `then` -}
                 -- comment between then and body
                 String.append secondaryStringValue
@@ -250,14 +258,15 @@ torturedComments primaryIntValue secondaryStringValue tertiaryBoolValue =
     in {- block comment between `in` and the body -}
     when {- inline comment between `when` and the scrutinee -} bumpedValue is
         {- inline comment between scrutinee and `is` -}
-        0 -> {- inline block between pattern and arrow -} {- inline block between arrow and body -}
-            "zero/" ++ guardedString
+        0 -> {- inline block between pattern and arrow -}
+            {- inline block between arrow and body -} "zero/" ++ guardedString
         -- a regular comment between branches
         1 ->
             -- and after the arrow, before the body
             "one/" ++ guardedString
         otherwiseAnyValue ->
-            String.append {- comment between an arg and the next arg in a call -} "many/"
+            String.append
+                {- comment between an arg and the next arg in a call -} "many/"
                 {- another comment in the gap between arguments -}
                 (String.append guardedString {- yet another inter-arg comment -}
                     (String.fromInt otherwiseAnyValue))
@@ -326,7 +335,8 @@ extremelyCommented {-c22-} {-c23-} {-c24-}
 
 
 {-| Pick the best discount from a list of candidate codes. -}
-bestDiscount : Array { code : String, basisPoints : Int } -> -- comment after one parameter type
+bestDiscount : Array { code : String, basisPoints : Int } ->
+    -- comment after one parameter type
     Maybe { code : String, basisPoints : Int }
 bestDiscount candidateDiscounts =
     candidateDiscounts

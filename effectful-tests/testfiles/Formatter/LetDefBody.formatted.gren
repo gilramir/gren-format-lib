@@ -12,7 +12,8 @@ simple =
 wrapsToNextLine =
     let
         newDropdownState =
-            AutoDropdown.mouseEnter idx model.suggestions model.suggestionDropdownState
+            AutoDropdown.mouseEnter idx model.suggestions
+                model.suggestionDropdownState
     in
     newDropdownState
 

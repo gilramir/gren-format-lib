@@ -6,7 +6,7 @@ module Formatter.MakePretty exposing
 {-| Render a Logical Printing Tree to its final formatted source string.
 
 Each `LPBox` constructor maps to a `PrettyExpressive` `Doc` via `makePDoc`,
-and the resulting `Doc` is resolved against a 100-column page width with a
+and the resulting `Doc` is resolved against a 80-column page width with a
 4-space indent. `makePrettyResult` is the main entry point used by the
 `gren format` CLI; `makePrettyLineDoc` exposes the unresolved per-root-child
 `Doc` for the `--pex` debug flag.
@@ -83,7 +83,7 @@ import PrettyExpressive.Builder as B
 
 costFactory : P.CostFactory P.DefaultCostTuple
 costFactory =
-    P.defaultCostFactory { pageWidth = 100, computationWidth = Just 120 }
+    P.defaultCostFactory { pageWidth = 80, computationWidth = Just 100 }
 
 
 {-| Walk a Doc tree and wrap post-newline sub-documents in `P.share`.
@@ -441,14 +441,15 @@ peelTrailingInlineComments nodes =
 -- into the children, then join via joinBlock and produce the next acc.
 renderBlockNode :
     BlockRule cost
-    -> { doc : P.Doc cost, prevRow : Int, separator : NextSeparator, prevBranchMultiLine : Bool }
+    -> { doc : P.Doc cost, prevRow : Int, prevElided : Bool, separator : NextSeparator, prevBranchMultiLine : Bool }
     -> Array LPNode
-    -> Result String { doc : P.Doc cost, prevRow : Int, separator : NextSeparator, prevBranchMultiLine : Bool }
+    -> Result String { doc : P.Doc cost, prevRow : Int, prevElided : Bool, separator : NextSeparator, prevBranchMultiLine : Bool }
 renderBlockNode rule acc nodeChildren =
     buildFlowDoc 0 nodeChildren
         |> Result.map (\childrenDoc ->
             { doc = joinBlock rule acc.separator acc.doc childrenDoc
             , prevRow = -1
+            , prevElided = False
             , separator = rule.nextSep
             , prevBranchMultiLine = False
             }
@@ -522,7 +523,7 @@ buildFlowDocImpl indent inlineStart nodes =
                                                     -- consecutive comments.
                                                     P.concat acc.doc commentText
                                                 _ ->
-                                                    if loc.start.row == acc.prevRow then
+                                                    if loc.start.row == acc.prevRow || acc.prevElided then
                                                         -- Same row as preceding item: attach with a SOFT
                                                         -- break — a space when it fits, otherwise its own
                                                         -- line. A hard space would give the flow no break
@@ -533,6 +534,17 @@ buildFlowDocImpl indent inlineStart nodes =
                                                         -- reparse, oscillating between layouts. The soft break
                                                         -- keeps the preceding token in place and moves only the
                                                         -- comment, which is stable across reformats.
+                                                        --
+                                                        -- `prevElided` also takes this branch: a comment that
+                                                        -- directly trails a zero-width elided token (`->`, `:`,
+                                                        -- `=`, …) is anchored at that token's *left-neighbour*
+                                                        -- row, not where the token renders. If the token wraps
+                                                        -- onto its own continuation line, the comment's own row
+                                                        -- no longer equals that anchor — so a pure row test
+                                                        -- would flip it to its own line on the next format even
+                                                        -- though it fits beside the (wrapped) token. Soft-gluing
+                                                        -- whenever it trails an elided token keeps the glue-when-
+                                                        -- it-fits rendering stable across reformats.
                                                         P.concat acc.doc (P.group (P.concat P.nl commentText))
                                                     else
                                                         -- Different row: force a line break before the comment
@@ -540,6 +552,7 @@ buildFlowDocImpl indent inlineStart nodes =
                                     in
                                     Ok { doc = P.concat docWithComment P.hardNl
                                        , prevRow = loc.start.row
+                                       , prevElided = False
                                        , separator = AlreadyTerminated
                                        , prevBranchMultiLine = False
                                        }
@@ -578,6 +591,7 @@ buildFlowDocImpl indent inlineStart nodes =
                                         in
                                         Ok { doc = P.concat docWithComment P.hardNl
                                            , prevRow = loc.start.row
+                                           , prevElided = False
                                            , separator = AlreadyTerminated
                                            , prevBranchMultiLine = False
                                            }
@@ -588,6 +602,7 @@ buildFlowDocImpl indent inlineStart nodes =
                                             Ok itemDoc ->
                                                 Ok { doc = joinDoc acc.separator acc.doc itemDoc
                                                    , prevRow = -1
+                                                   , prevElided = False
                                                    , separator = FlowSep
                                                    , prevBranchMultiLine = False
                                                    }
@@ -598,6 +613,7 @@ buildFlowDocImpl indent inlineStart nodes =
                                         Ok itemDoc ->
                                             Ok { doc = joinDoc acc.separator acc.doc itemDoc
                                                , prevRow = -1
+                                               , prevElided = False
                                                , separator = FlowSep
                                                , prevBranchMultiLine = False
                                                }
@@ -702,6 +718,7 @@ buildFlowDocImpl indent inlineStart nodes =
                                             in
                                             Ok { doc = newDoc
                                                , prevRow = -1
+                                               , prevElided = False
                                                , separator = HardNl
                                                , prevBranchMultiLine = False
                                                }
@@ -790,6 +807,7 @@ buildFlowDocImpl indent inlineStart nodes =
                                             in
                                             Ok { doc = newDoc
                                                , prevRow = -1
+                                               , prevElided = False
                                                , separator = FlowSep
                                                , prevBranchMultiLine = branchMultiLine && not branchEndsWithComment
                                                }
@@ -812,14 +830,34 @@ buildFlowDocImpl indent inlineStart nodes =
                                                     when box is
                                                         UnbreakableText loc -> loc.start.row
                                                         _ -> -1
+
+                                                -- The synthesized signature `->` is a zero-width
+                                                -- `UnbreakableText` (start == end) built by
+                                                -- `LPTHelpers.mkZeroWidthText`, anchored at the end of its
+                                                -- `from` type — not where it renders. Its left neighbour is a
+                                                -- whole type, which can fill the line and push the `->` onto a
+                                                -- continuation row. A comment directly trailing it must then
+                                                -- glue regardless of row (see the SingleLineComment branch).
+                                                -- Scoped to `->` by value (cf. the `value == "in"` test in
+                                                -- the boundary check): other elided tokens (`exposing`, `:`)
+                                                -- precede a short neighbour or a bracketed block, where a
+                                                -- comment on its own row legitimately stays own-line.
+                                                prevElided =
+                                                    when box is
+                                                        UnbreakableText loc ->
+                                                            loc.value == "->"
+                                                                && loc.start.row == loc.end.row
+                                                                && loc.start.col == loc.end.col
+                                                        _ -> False
                                             in
                                             Ok { doc = joinDoc acc.separator acc.doc itemDoc
                                                , prevRow = prevRow
+                                               , prevElided = prevElided
                                                , separator = FlowSep
                                                , prevBranchMultiLine = False
                                                }
                 )
-                (Ok { doc = P.empty, prevRow = -1, separator = FirstItem, prevBranchMultiLine = False })
+                (Ok { doc = P.empty, prevRow = -1, prevElided = False, separator = FirstItem, prevBranchMultiLine = False })
                 nodes
     in
     when foldResult is

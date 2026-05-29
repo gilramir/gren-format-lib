@@ -1,8 +1,8 @@
 module SignatureArrowLineComment exposing (..)
 
 
-bestDiscount : {- leading the type -} Array { code : String, basisPoints : Int } ->
-    -- comment after one parameter type
+bestDiscount : {- leading the type -} Array { code : String, basisPoints : Int }
+    -> -- comment after one parameter type
     Maybe { code : String, basisPoints : Int }
 bestDiscount candidateDiscounts =
     candidateDiscounts

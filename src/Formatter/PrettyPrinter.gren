@@ -31,7 +31,7 @@ The work happens in three stages:
 2. Render to a pretty-printer document (MakePretty). The layout box tree is
    translated into a document in the Wadler/Lindig style: a choice-laden
    structure where the pretty-printer algorithm picks the layout that fits
-   within the 100-character page width.
+   within the 80-character page width.
 
 3. Serialize to a string. The pretty-printer resolves all layout choices and
    produces the final text.

@@ -2,7 +2,9 @@ module ParenWrapped exposing (..)
 
 -- paren wrapping an array-concat expression: ([...] ++ rest)
 -- the bug rendered this as "[ (item" instead of "([item"
-withAttrs rest = node "svg" ([ item "xmlns" "a", item "viewBox" "b", item "width" "c" ] ++ rest) []
+withAttrs rest =
+    node "svg"
+        ([ item "xmlns" "a", item "viewBox" "b", item "width" "c" ] ++ rest) []
 
 -- paren wrapping a record-concat expression: ({...} ++ rest)
 withFields rest = node "div" ({ foo = 1, bar = 2 }) []

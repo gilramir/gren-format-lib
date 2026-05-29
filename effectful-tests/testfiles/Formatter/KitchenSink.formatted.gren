@@ -32,7 +32,8 @@ port module KitchenSink exposing
 
 import Array exposing ( Array )
 import Dict
-import Json.Decode as Decode exposing ( Decoder, decodeString, field, int, string )
+import Json.Decode as Decode exposing
+    ( Decoder, decodeString, field, int, string )
 import Json.Encode as Encode
 import Math
 import Result.Extra as ResultExtra
@@ -93,9 +94,17 @@ type alias Container =
         , isQuarantined : Bool
         }
     , nestedConfiguration :
-        { retryCount : Int, exponentialBackoffMillis : Int, jitterMillis : Int, maxAttempts : Int }
+        { retryCount : Int
+        , exponentialBackoffMillis : Int
+        , jitterMillis : Int
+        , maxAttempts : Int
+        }
     , recentMessages : Array
-        { author : String, timestampMillis : Int, body : String, replyToIdentifier : Maybe String }
+        { author : String
+        , timestampMillis : Int
+        , body : String
+        , replyToIdentifier : Maybe String
+        }
     }
 
 {-| A configuration record with deeply nested option groups. -}
@@ -112,7 +121,8 @@ type alias Configuration =
         { defaultTickMillis : Int
         , overrides : Array { lane : String, tickMillis : Int, priority : Int }
         }
-    , featureFlags : Array { flagName : String, isOn : Bool, rolloutPercent : Int }
+    , featureFlags : Array
+        { flagName : String, isOn : Bool, rolloutPercent : Int }
     }
 
 -- A short single-line value definition (no type signature).
@@ -179,29 +189,38 @@ processConfiguration
         } ({ identifier, flags, nestedConfiguration } as incomingContainer) =
     let
         tracingDecision =
-            if tracingSection.isEnabled && Array.length tracingSection.sinks > 0 then
+            if tracingSection.isEnabled && Array.length tracingSection.sinks > 0
+                    then
                 let
                     chosenSink =
                         tracingSection.sinks
                             |> Array.keepIf
                                 (\{ kind, endpoint } ->
-                                    not (String.isEmpty endpoint) && kind /= "noop")
+                                    not (String.isEmpty endpoint)
+                                        && kind /= "noop")
                             |> Array.map
                                 (\sinkConfig ->
                                     { sinkConfig
-                                        | endpoint = String.trim sinkConfig.endpoint
+                                        | endpoint =
+                                              String.trim sinkConfig.endpoint
                                         , kind = String.toLower sinkConfig.kind
                                         , headers =
                                               Array.map
                                                   (\headerEntry ->
-                                                      { headerEntry | headerName =
-                                                          String.toLower headerEntry.headerName
+                                                      { headerEntry | headerName
+                                                          =
+                                                          String.toLower
+                                                              headerEntry.headerName
                                                       }) sinkConfig.headers
                                     })
                             |> Array.first
                 in
                 when chosenSink is
-                    Just { kind = sinkKind, endpoint = sinkEndpoint, headers = sinkHeaders } ->
+                    Just
+                    { kind = sinkKind
+                    , endpoint = sinkEndpoint
+                    , headers = sinkHeaders
+                    } ->
                         if String.startsWith "https://" sinkEndpoint then
                             Ok
                                 { kind = sinkKind
@@ -209,32 +228,42 @@ processConfiguration
                                 , header_count = Array.length sinkHeaders
                                 }
                         else if String.startsWith "http://" sinkEndpoint then
-                            Err ("refusing to use plaintext sink: " ++ sinkEndpoint)
+                            Err
+                                ("refusing to use plaintext sink: "
+                                ++ sinkEndpoint)
                         else
-                            Err ("unknown scheme in tracing sink endpoint: " ++ sinkEndpoint)
+                            Err
+                                ("unknown scheme in tracing sink endpoint: "
+                                ++ sinkEndpoint)
 
-                    Nothing -> Err "tracing enabled but no usable sinks configured"
+                    Nothing ->
+                        Err "tracing enabled but no usable sinks configured"
             else
                 Ok { kind = "disabled", endpoint = "", header_count = 0 }
         schedulerDecision =
             when schedulerSection.overrides is
                 [] -> schedulerSection.defaultTickMillis
                 [ singleOverride ] ->
-                    Math.max schedulerSection.defaultTickMillis singleOverride.tickMillis
+                    Math.max schedulerSection.defaultTickMillis
+                        singleOverride.tickMillis
                 _ ->
                     schedulerSection.overrides
                             |> Array.map .tickMillis
-                            |> Array.foldl Math.max schedulerSection.defaultTickMillis
+                            |> Array.foldl Math.max
+                                schedulerSection.defaultTickMillis
         rolloutDecision flagName =
             featureFlagDefinitions
                 |> Array.findFirst
-                    (\{ flagName = candidateFlagName } -> candidateFlagName == flagName)
-                |> Maybe.map (\{ isOn, rolloutPercent } -> isOn && rolloutPercent >= 50)
+                    (\{ flagName = candidateFlagName } ->
+                        candidateFlagName == flagName)
+                |> Maybe.map
+                    (\{ isOn, rolloutPercent } -> isOn && rolloutPercent >= 50)
                 |> Maybe.withDefault False
         updateFlagsForConfigDecision currentFlags =
             { currentFlags
                 | isReady = currentFlags.isReady || rolloutDecision "auto-ready"
-                , isVerified = currentFlags.isVerified && not (rolloutDecision "always-unverified")
+                , isVerified = currentFlags.isVerified
+                      && not (rolloutDecision "always-unverified")
                 , isPersisted = rolloutDecision "persist-on-config"
                 , isShadowBanned = currentFlags.isShadowBanned
                       || (rolloutDecision "shadow-everyone"
@@ -251,11 +280,15 @@ processConfiguration
                         , nestedConfiguration =
                               { nestedConfiguration
                                   | exponentialBackoffMillis =
-                                        Math.max nestedConfiguration.exponentialBackoffMillis
+                                        Math.max
+                                            nestedConfiguration.exponentialBackoffMillis
                                             schedulerDecision
-                                  , jitterMillis = nestedConfiguration.jitterMillis
+                                  , jitterMillis =
+                                        nestedConfiguration.jitterMillis
                                         + (schedulerDecision // 10)
-                                  , maxAttempts = if rolloutDecision "aggressive-retry" then
+                                  , maxAttempts =
+                                        if rolloutDecision "aggressive-retry"
+                                                then
                                             nestedConfiguration.maxAttempts * 2
                                         else
                                             nestedConfiguration.maxAttempts
@@ -271,7 +304,12 @@ processConfiguration
             in
             { ok = Just updatedContainer
             , err = Nothing
-            , annotations = [ { source = "processConfiguration", severity = 0, message = "ok" } ]
+            , annotations =
+                [ { source = "processConfiguration"
+                  , severity = 0
+                  , message = "ok"
+                  }
+                ]
             }
                 |> Ok
 
@@ -288,7 +326,9 @@ applyOverlays leadingOverridePriority tracingIsEnabled
     let
         -- Single-field update bound to a name in let.
         containerWithBumpedTimestamp =
-            { startingContainer | generatedAtMillis = startingContainer.generatedAtMillis + 1 }
+            { startingContainer | generatedAtMillis =
+                startingContainer.generatedAtMillis + 1
+            }
         -- Single-field update inside a let that uses an if/then/else for the new field value.
         containerWithConditionallyTrimmedPayload =
             { containerWithBumpedTimestamp | payload =
@@ -303,7 +343,8 @@ applyOverlays leadingOverridePriority tracingIsEnabled
             \receivedContainer ->
                 if tracingIsEnabled then
                         { receivedContainer
-                            | identifier = receivedContainer.identifier ++ "+tracing"
+                            | identifier = receivedContainer.identifier
+                                  ++ "+tracing"
                             , payload = "tracing=on"
                             , flags =
                                   { flags
@@ -314,7 +355,8 @@ applyOverlays leadingOverridePriority tracingIsEnabled
                         }
                     else
                         { receivedContainer
-                            | identifier = receivedContainer.identifier ++ "-tracing"
+                            | identifier = receivedContainer.identifier
+                                  ++ "-tracing"
                             , flags =
                                   { flags
                                       | isReady = False
@@ -347,8 +389,10 @@ applyOverlays leadingOverridePriority tracingIsEnabled
                               { nestedConfiguration
                                   | retryCount = leadingOverridePriority
                                   , exponentialBackoffMillis =
-                                        nestedConfiguration.exponentialBackoffMillis * 2
-                                  , jitterMillis = if leadingOverridePriority > 10 then
+                                        nestedConfiguration.exponentialBackoffMillis
+                                        * 2
+                                  , jitterMillis =
+                                        if leadingOverridePriority > 10 then
                                             nestedConfiguration.jitterMillis * 3
                                         else
                                             nestedConfiguration.jitterMillis + 1
@@ -360,9 +404,11 @@ applyOverlays leadingOverridePriority tracingIsEnabled
                               { flags
                                   | isPersisted = leadingOverridePriority > 5
                                   , isQuarantined = leadingOverridePriority < 0
-                                  , isShadowBanned = leadingOverridePriority > 100
+                                  , isShadowBanned = leadingOverridePriority
+                                        > 100
                               }
-                        , payload = "priority=" ++ String.fromInt leadingOverridePriority
+                        , payload = "priority="
+                              ++ String.fromInt leadingOverridePriority
                     }
     in
     -- A pipeline whose intermediate steps each thread through an update lambda.
@@ -370,7 +416,8 @@ applyOverlays leadingOverridePriority tracingIsEnabled
         |> applyTracingDecision
         |>
             (\penultimateContainer ->
-                { penultimateContainer | generatedAtMillis = penultimateContainer.generatedAtMillis
+                { penultimateContainer | generatedAtMillis =
+                    penultimateContainer.generatedAtMillis
                     + leadingOverridePriority
                 })
 
@@ -407,11 +454,13 @@ transform inputValues =
     aggressively it can collapse them. Uses long argument names to push lines
     near the 100-char threshold; the body intentionally has lines over 150
     chars before formatting. -}
-fold : (a -> accumulatorValue -> accumulatorValue) -> accumulatorValue -> Tree a -> accumulatorValue
+fold : (a -> accumulatorValue -> accumulatorValue) -> accumulatorValue -> Tree a
+    -> accumulatorValue
 fold reducerFunction initialAccumulatorValue currentTreeNode =
     when currentTreeNode is
         Empty -> initialAccumulatorValue
-        Leaf solitaryLeafValue -> reducerFunction solitaryLeafValue initialAccumulatorValue
+        Leaf solitaryLeafValue ->
+            reducerFunction solitaryLeafValue initialAccumulatorValue
 
         Branch
         { label = branchLabelString
@@ -426,30 +475,36 @@ fold reducerFunction initialAccumulatorValue currentTreeNode =
                             } accumulatedSoFar ->
                             reducerFunction
                                 (Debug.todo "fold attribute"
-                                :: nameOfAttribute :: valueOfAttributeAsString :: [])
-                                accumulatedSoFar) initialAccumulatorValue branchAttributesArray
+                                :: nameOfAttribute
+                                :: valueOfAttributeAsString :: [])
+                                accumulatedSoFar) initialAccumulatorValue
+                        branchAttributesArray
             in
             Array.foldl
                 (\childTreeNode innerAccumulator ->
-                    fold reducerFunction innerAccumulator childTreeNode) accumulatorAfterAttributes
-                branchChildrenArray
+                    fold reducerFunction innerAccumulator childTreeNode)
+                accumulatorAfterAttributes branchChildrenArray
 
         Cons { headValue, leftSubtree, rightSubtree } ->
             let
-                accumulatorAfterLeft = fold reducerFunction initialAccumulatorValue leftSubtree
-                accumulatorAfterCurrentValue = reducerFunction headValue accumulatorAfterLeft
+                accumulatorAfterLeft =
+                    fold reducerFunction initialAccumulatorValue leftSubtree
+                accumulatorAfterCurrentValue =
+                    reducerFunction headValue accumulatorAfterLeft
             in
             fold reducerFunction accumulatorAfterCurrentValue rightSubtree
 
 
 {-| Demonstrates lambdas with destructuring patterns, as-patterns, qualified
     constructors, negation, parens, and a backward-pipeline chain. -}
-traverseDeeply : Tree { firstNameString : String, lastNameString : String, ageInYears : Int } ->
+traverseDeeply : Tree
+    { firstNameString : String, lastNameString : String, ageInYears : Int } ->
     Array String
 traverseDeeply rootTree =
     let
         formatPersonRecord =
-            \({ firstNameString, lastNameString, ageInYears } as personRecord) ->
+            \({ firstNameString, lastNameString, ageInYears } as personRecord)
+                ->
                 if ageInYears < 0 then
                         "invalid:" ++ firstNameString
                     else if ageInYears == 0 then
@@ -482,7 +537,8 @@ traverseDeeply rootTree =
                         leftCollected = gatherNames leftSubtreeOfNames
                         rightCollected = gatherNames rightSubtreeOfNames
                     in
-                    [ formatPersonRecord headPersonRecord ] ++ leftCollected ++ rightCollected
+                    [ formatPersonRecord headPersonRecord ]
+                    ++ leftCollected ++ rightCollected
     in
     gatherNames rootTree
         |> Array.map String.trim
@@ -496,9 +552,11 @@ classifyTree : Tree a -> String
 classifyTree tree =
     when tree is
         Empty -> "empty"
-        Leaf _ as wholeLeafNode -> String.append "leaf:" (Debug.toString wholeLeafNode)
+        Leaf _ as wholeLeafNode ->
+            String.append "leaf:" (Debug.toString wholeLeafNode)
         Branch ({ label } as wholeBranchPayload) ->
-            String.append "branch:" label ++ "/" ++ Debug.toString wholeBranchPayload
+            String.append "branch:" label
+                ++ "/" ++ Debug.toString wholeBranchPayload
         Cons { leftSubtree = Empty, rightSubtree = Empty } -> "single-cons"
         Cons _ -> "wide-cons"
 
@@ -506,9 +564,10 @@ classifyTree tree =
 -- Exercises literal patterns (Int / Char / String), qualified-constructor
 -- patterns, multi-element array patterns, let-destructure bindings, and
 -- qualified types in signatures.
-interpretMicroCommand : Decode.Decoder Int -> String -> Array Char -> Maybe Int ->
-    { handled : Bool, replyCode : Int }
-interpretMicroCommand decoderForPayload commandText commandCharacters optionalRetryHint =
+interpretMicroCommand : Decode.Decoder Int -> String -> Array Char -> Maybe Int
+    -> { handled : Bool, replyCode : Int }
+interpretMicroCommand decoderForPayload commandText commandCharacters
+        optionalRetryHint =
     let
         -- let-destructure (Destruct binding) splits a static record into two
         -- locally-bound names without going through a fresh name first.
@@ -545,7 +604,8 @@ interpretMicroCommand decoderForPayload commandText commandCharacters optionalRe
                         _ -> fallbackReplyCode
     in
     { handled = codeFromCharacterArray > 0
-    , replyCode = codeFromCharacterArray + codeFromCommandText + codeFromRetryHint
+    , replyCode = codeFromCharacterArray
+        + codeFromCommandText + codeFromRetryHint
     }
 
 
@@ -561,12 +621,14 @@ sumOfSquaredOddIntegersUpTo upperBoundInclusive =
 -- Infix usage with mixed precedence, deliberately overflowing 150 columns
 -- before formatting:
 overflowingMathExpression : Int -> Int -> Int -> Int -> Int
-overflowingMathExpression alphaCoefficient betaCoefficient gammaCoefficient deltaCoefficient =
+overflowingMathExpression alphaCoefficient betaCoefficient gammaCoefficient
+        deltaCoefficient =
     alphaCoefficient
     * betaCoefficient
     + gammaCoefficient
     * deltaCoefficient
-    - (alphaCoefficient + betaCoefficient + gammaCoefficient + deltaCoefficient) * 2 + 0xCAFEBABE
+    - (alphaCoefficient + betaCoefficient + gammaCoefficient + deltaCoefficient)
+    * 2 + 0xCAFEBABE
 
 
 -- An if/else-if/else chain that should each break to its own line.

@@ -3,7 +3,9 @@ module BetweenLetBindingsComment exposing (..)
 bumpTimestamp startingContainer =
     let
         containerWithBumpedTimestamp =
-            { startingContainer | generatedAtMillis = startingContainer.generatedAtMillis + 1 }
+            { startingContainer | generatedAtMillis =
+                startingContainer.generatedAtMillis + 1
+            }
         {- trailing the record-update binding's value, between two bindings -}
         nextContainer = startingContainer
     in

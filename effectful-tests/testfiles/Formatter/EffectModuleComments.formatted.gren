@@ -1,5 +1,5 @@
-effect module {- comment between `effect module` keywords and module name -} EffectModuleComments
-    where { command = MyCmd } exposing (..)
+effect module {- comment between `effect module` keywords and module name -}
+    EffectModuleComments where { command = MyCmd } exposing (..)
 
 -- single-line comment before an import
 import Task

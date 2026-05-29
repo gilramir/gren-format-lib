@@ -28,6 +28,13 @@ withRecord msg model =
 withArray msg =
     when msg is
         LoadItems ->
-            [ firstItem, secondItem, thirdItem, fourthItem, fifthItem, sixthItem, seventhItem ]
+            [ firstItem
+            , secondItem
+            , thirdItem
+            , fourthItem
+            , fifthItem
+            , sixthItem
+            , seventhItem
+            ]
 
         ClearItems -> []

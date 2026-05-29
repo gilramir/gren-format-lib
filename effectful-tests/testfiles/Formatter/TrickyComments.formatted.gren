@@ -127,7 +127,8 @@ arrayPatTrailing =
 --   * The synthesized `as` in PAlias now carries a computed source
 --     position (name.start.col - 3), so the synth-text skip can't
 --     push the comment past `as`.
-recordPatternAs = \({ a, b } {- between record pattern and `as` -} as wholeR) -> a
+recordPatternAs =
+    \({ a, b } {- between record pattern and `as` -} as wholeR) -> a
 
 type TrickyCmd msg
     = TrickyCmd (Task.Task Never msg)

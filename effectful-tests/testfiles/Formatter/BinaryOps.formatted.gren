@@ -32,4 +32,5 @@ combined = 1 + 2 * 3
 
 -- Long binary expression that wraps
 longExpr =
-    someLongVariableName + anotherLongVariableName + yetAnotherLongVariableName + stillMoreLong
+    someLongVariableName
+    + anotherLongVariableName + yetAnotherLongVariableName + stillMoreLong

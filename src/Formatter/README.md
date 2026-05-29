@@ -3,6 +3,16 @@
 How `gren format` lays out your code.
 
 ---
+## Inheritance from
+[https://elm-lang.org/docs/style-guide](The Elm Style Guide) and
+[https://github.com/avh4/elm-format](elm-format).
+
+We try to format code in such a way to minify diffs between commits.
+
+Indentation is 4 spaces.
+The preferred page width is 80 columns.
+
+---
 
 ## Module declaration
 

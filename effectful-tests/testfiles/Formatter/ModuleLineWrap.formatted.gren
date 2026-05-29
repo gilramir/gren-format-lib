@@ -1,5 +1,11 @@
 module ModuleLineWrap exposing
-    ( AlphaType, BetaType, GammaFunction, DeltaFunction, EpsilonValue, ZetaValue )
+    ( AlphaType
+    , BetaType
+    , GammaFunction
+    , DeltaFunction
+    , EpsilonValue
+    , ZetaValue
+    )
 
 type AlphaType
     = AlphaType

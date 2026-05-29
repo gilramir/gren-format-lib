@@ -22,7 +22,8 @@ deeplyNested =
     { model =
         { newCacheModel
             | suggestions = results.results
-            , suggestionDropdownState = { model.suggestionDropdownState | isOpen = hasSuggestions }
+            , suggestionDropdownState =
+                  { model.suggestionDropdownState | isOpen = hasSuggestions }
         }
     , command = Cmd.none
     }

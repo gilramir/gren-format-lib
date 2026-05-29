@@ -14,7 +14,7 @@ applyTwice f x =
 
 
 -- Long signature wraps; continuation indents +4
-processItems : Array String -> Dict String Int -> (String -> Bool) -> Array String -> Result String
-    (Array String)
+processItems : Array String -> Dict String Int -> (String -> Bool) -> Array
+    String -> Result String (Array String)
 processItems items dict pred fallback =
     []
