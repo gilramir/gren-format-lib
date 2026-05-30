@@ -156,7 +156,14 @@ not count — only a break *between* the `->` parts makes it multi-line.)
 
 One exception: a signature that contains a comment keeps the older "fill"
 wrapping (it fills each line and wraps to the next as needed), because the
-all-or-nothing break points don't give a comment a stable home.
+all-or-nothing break points don't give a comment a stable home. So instead of
+each `->` part going on its own line, the parts pack onto a line and wrap only
+when they run out of room, with the comment left inline:
+
+```gren
+update : Msg -> Model -> {- returns new state -} Result Error Model -> Cmd Msg
+    -> Thing
+```
 
 ---
 
