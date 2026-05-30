@@ -122,6 +122,15 @@ makeSignatureBranch locType =
                                     -- so `|` and `,` align under the base name.
                                     -- Extend the RecordUpdate box's range to the
                                     -- closing `}` (locVar.end is only the
-                                    -- extension variable).
-                                    [lpnNode (RecordUpdate { locVar | end = locType.end }) fieldNodes]
+                                    -- extension variable). Kept always-vertical
+                                    -- (forceVertical); the author-layout rule is
+                                    -- scoped to record *expressions* for now.
+                                    [lpnNode
+                                        (RecordUpdate
+                                            { name = { locVar | end = locType.end }
+                                            , forceVertical = True
+                                            }
+                                        )
+                                        fieldNodes
+                                    ]
                 )

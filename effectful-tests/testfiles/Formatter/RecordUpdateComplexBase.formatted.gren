@@ -11,9 +11,7 @@ type alias Options =
 
 defaults : Options
 defaults =
-    { shell = "bash"
-    , verbose = False
-    }
+    { shell = "bash", verbose = False }
 
 
 makeNoShell : Options -> Options

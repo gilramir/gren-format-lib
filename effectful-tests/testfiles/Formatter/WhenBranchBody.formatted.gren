@@ -11,18 +11,11 @@ simple msg =
 withRecord msg model =
     when msg is
         ChangeLanguage lang ->
-            { model =
-                { model
-                    | tr = getTranslationPack lang
-                    , uiLang = lang
-                }
+            { model = { model | tr = getTranslationPack lang, uiLang = lang }
             , command = Cmd.none
             }
 
-        NoOp ->
-            { model = model
-            , command = Cmd.none
-            }
+        NoOp -> { model = model, command = Cmd.none }
 
 -- Array body that must wrap
 withArray msg =

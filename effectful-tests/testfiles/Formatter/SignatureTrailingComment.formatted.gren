@@ -11,9 +11,7 @@ fold reducerFunction initialAccumulatorValue currentTreeNode =
 afterRecordClose : { a : Int, b : String }
 {- after the record-type closing brace -}
 afterRecordClose =
-    { a = 1
-    , b = "x"
-    }
+    { a = 1, b = "x" }
 
 
 withLineComment : Int -> Int -> Int -> Int -> Int -> Int -> Int -> Int -> Int ->

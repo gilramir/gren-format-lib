@@ -134,11 +134,7 @@ whenRecord value =
             , resultGamma = 0
             }
 
-        Empty ->
-            { resultAlpha = 0
-            , resultBeta = 0
-            , resultGamma = 0
-            }
+        Empty -> { resultAlpha = 0, resultBeta = 0, resultGamma = 0 }
 
 -- ===== let / in =====
 

@@ -31,15 +31,33 @@ A perturbation that parses to the same AST but formats differently is a real
 """
 
 import argparse
+import concurrent.futures
 import difflib
 import json
 import os
 import subprocess
 import sys
 import tempfile
+import threading
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 GREN = os.path.join(HERE, "..", "..", "gren.sh")
+
+# Each worker thread formats in its own project dir so concurrent `gren format`
+# invocations never write the same Fuzz.gren. Created lazily, reused across the
+# tasks that land on the thread, cleaned up with the enclosing base tempdir.
+_local = threading.local()
+
+
+def worker_workdir(base):
+    wd = getattr(_local, "workdir", None)
+    if wd is None:
+        wd = tempfile.mkdtemp(dir=base)
+        os.makedirs(os.path.join(wd, "src"))
+        with open(os.path.join(wd, "gren.json"), "w") as f:
+            f.write('{ "type": "application" }')
+        _local.workdir = wd
+    return wd
 
 
 def gap_runs(src):
@@ -189,31 +207,35 @@ def comment_fingerprint(src):
     return fps
 
 
-def list_layout_fingerprint(src):
-    """For each `[ ... ]` array literal, in source order: whether the author
-    laid its items across multiple rows (signal B — some item starts on a row
-    below where the previous item ended).
+def container_layout_fingerprint(src):
+    """For each `[ ... ]` array literal and `{ ... }` record / record-update, in
+    source order: whether the author laid its items across multiple rows
+    (signal B — some item starts on a row below where the previous item ended).
 
-    The formatter now treats this as a meaning-bearing layout choice: a list
-    written on one line stays inline (if it fits), while one the author spread
-    across rows is kept one-item-per-line regardless of fit (see `Src.ArrayLiteral`
-    in InsertExpressions). So a whitespace perturbation that flips this for any
-    list has changed layout *intent*, not merely whitespace — like a
-    comment-placement flip, it is discarded rather than counted as drift.
+    The formatter now treats this as a meaning-bearing layout choice: a
+    container written on one line stays inline (if it fits), while one the
+    author spread across rows is kept one-item-per-line regardless of fit (see
+    `Src.ArrayLiteral` / `Src.Record` / `Src.Update` in InsertExpressions). So a
+    whitespace perturbation that flips this for any container has changed layout
+    *intent*, not merely whitespace — like a comment-placement flip, it is
+    discarded rather than counted as drift.
 
-    Only the top-level commas of each list delimit its items; nested brackets,
-    strings, chars and comments are skipped (their interiors belong to one item
-    and are never perturbed anyway). A list with fewer than two items has no
-    inter-item gap and is always False. Comment chars do not extend an item's
-    row span — a comment-bearing list is forced vertical by a separate rule and
-    its comment moves are already guarded by comment_fingerprint."""
+    Only the top-level commas of each container delimit its items; nested
+    brackets, parens, strings, chars and comments are skipped (their interiors
+    belong to one item and are never perturbed anyway). A container with fewer
+    than two items has no inter-item gap and is always False. `{ }` is also used
+    for record types/patterns, which do not follow the author-layout rule, but
+    they are stable under whitespace anyway, so including them only over-counts
+    harmlessly. Comment chars do not extend an item's row span — a
+    comment-bearing container is forced vertical by a separate rule and its
+    comment moves are already guarded by comment_fingerprint."""
     fps = []
     i, n = 0, len(src)
     row = 1
-    stack = []  # frames; '[' frames are dicts tracking items, others are markers
+    stack = []  # frames; '['/'{' frames are dicts tracking items, '(' is a marker
 
     def note(r):
-        # Record a code char at row r into the innermost '[' frame, if any.
+        # Record a code char at row r into the innermost item-tracking frame.
         if stack and isinstance(stack[-1], dict):
             fr = stack[-1]
             if fr["cur_first"] is None:
@@ -283,12 +305,12 @@ def list_layout_fingerprint(src):
             i += 1
             continue
         # A code character.
-        if c == "[":
-            note(row)  # the '[' belongs to the enclosing item, if any
+        if c == "[" or c == "{":
+            note(row)  # the bracket belongs to the enclosing item, if any
             stack.append({"items": [], "cur_first": None, "cur_last": None})
             i += 1
             continue
-        if c == "]":
+        if c == "]" or c == "}":
             if stack and isinstance(stack[-1], dict):
                 fr = stack.pop()
                 close_item(fr)
@@ -300,12 +322,12 @@ def list_layout_fingerprint(src):
             note(row)
             i += 1
             continue
-        if c in "({":
+        if c == "(":
             note(row)
             stack.append(c)
             i += 1
             continue
-        if c in ")}":
+        if c == ")":
             if stack and not isinstance(stack[-1], dict):
                 stack.pop()
             note(row)
@@ -409,18 +431,43 @@ def ast(workdir, source):
         return None
 
 
-def check_file(workdir, path, mode, verbose):
+def classify_variant(base, base_ast, base_fmt, base_fp, base_layout, label, variant):
+    """Classify one perturbed variant. Runs on a pool worker, in that worker's
+    isolated project dir. Returns (kind, label, vf) where kind is one of
+    ast / comment / layout / drift / ok."""
+    wd = worker_workdir(base)
+    va = ast(wd, variant)
+    if va is None or va != base_ast:
+        return ("ast", label, None)
+    # A perturbation that flips any comment's inline/own-line placement has
+    # changed comment meaning, not just whitespace (see comment_fingerprint);
+    # the formatter rightly reflects that, so it is not a drift bug.
+    if comment_fingerprint(variant) != base_fp:
+        return ("comment", label, None)
+    # Likewise, a perturbation that flips whether a container (list, record, or
+    # record update) is laid out across rows has changed layout intent, which the
+    # formatter now honours (one-line-if-fits vs one-item-per-line); not a bug.
+    if container_layout_fingerprint(variant) != base_layout:
+        return ("layout", label, None)
+    vf = fmt(wd, variant)
+    if vf != base_fmt:
+        return ("drift", label, vf)
+    return ("ok", label, None)
+
+
+def check_file(base, pool, path, mode, verbose):
     src = open(path).read()
     runs = gap_runs(src)
     name = os.path.basename(path)
 
-    base_ast = ast(workdir, src)
-    base_fmt = fmt(workdir, src)
+    wd0 = worker_workdir(base)
+    base_ast = ast(wd0, src)
+    base_fmt = fmt(wd0, src)
     if base_ast is None or base_fmt is None:
         print(f"SKIP {name}: original does not parse/format")
         return 0
     base_fp = comment_fingerprint(src)
-    base_layout = list_layout_fingerprint(src)
+    base_layout = container_layout_fingerprint(src)
 
     if mode == "stretch":
         variants = [("stretch", v) for v in perturb_stretch(src, runs)]
@@ -429,37 +476,26 @@ def check_file(workdir, path, mode, verbose):
     else:
         variants = perturb_newline_gap(src, runs)
 
-    ast_changed, comment_moved, layout_moved, drift, ok = 0, 0, 0, [], 0
-    for label, variant in variants:
-        va = ast(workdir, variant)
-        if va is None or va != base_ast:
-            ast_changed += 1
-            continue
-        # A perturbation that flips any comment's inline/own-line placement has
-        # changed comment meaning, not just whitespace (see comment_fingerprint);
-        # the formatter rightly reflects that, so it is not a drift bug.
-        if comment_fingerprint(variant) != base_fp:
-            comment_moved += 1
-            continue
-        # Likewise, a perturbation that flips whether a list literal is laid out
-        # across rows has changed layout intent, which the formatter now honours
-        # (one-line-if-fits vs one-item-per-line); not a canonicalization bug.
-        if list_layout_fingerprint(variant) != base_layout:
-            layout_moved += 1
-            continue
-        vf = fmt(workdir, variant)
-        if vf != base_fmt:
-            drift.append((label, variant, vf))
-        else:
-            ok += 1
+    # pool.map preserves input order, so reporting stays deterministic.
+    results = list(
+        pool.map(
+            lambda lv: classify_variant(base, base_ast, base_fmt, base_fp, base_layout, lv[0], lv[1]),
+            variants,
+        )
+    )
+    ast_changed = sum(1 for r in results if r[0] == "ast")
+    comment_moved = sum(1 for r in results if r[0] == "comment")
+    layout_moved = sum(1 for r in results if r[0] == "layout")
+    ok = sum(1 for r in results if r[0] == "ok")
+    drift = [(label, vf) for (kind, label, vf) in results if kind == "drift"]
 
     status = "OK " if not drift else "DRIFT"
     print(
         f"{status} {name}: {len(variants)} variants, {ok} canonical, "
         f"{ast_changed} ast-changed/illegal, {comment_moved} comment-placement, "
-        f"{layout_moved} list-layout, {len(drift)} format-drift"
+        f"{layout_moved} container-layout, {len(drift)} format-drift"
     )
-    for label, variant, vf in drift:
+    for label, vf in drift:
         print(f"      {label}: format(perturbed) != format(original)")
         if verbose:
             a = base_fmt.splitlines()
@@ -475,6 +511,7 @@ def main(argv):
     ap = argparse.ArgumentParser()
     ap.add_argument("--mode", choices=["stretch", "indent", "newline"], default="stretch")
     ap.add_argument("-v", action="store_true")
+    ap.add_argument("-j", "--jobs", type=int, default=2, help="concurrent `gren format`s (default 2)")
     ap.add_argument("files", nargs="*")
     args = ap.parse_args(argv[1:])
 
@@ -486,12 +523,10 @@ def main(argv):
         )
 
     total = 0
-    with tempfile.TemporaryDirectory() as workdir:
-        os.makedirs(os.path.join(workdir, "src"))
-        with open(os.path.join(workdir, "gren.json"), "w") as f:
-            f.write('{ "type": "application" }')
-        for path in files:
-            total += check_file(workdir, path, args.mode, args.v)
+    with tempfile.TemporaryDirectory() as base:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
+            for path in files:
+                total += check_file(base, pool, path, args.mode, args.v)
     print(f"\n{'FAIL' if total else 'PASS'}: {total} format-drift finding(s)")
     return 1 if total else 0
 

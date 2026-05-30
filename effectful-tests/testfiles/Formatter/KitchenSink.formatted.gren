@@ -571,10 +571,8 @@ interpretMicroCommand decoderForPayload commandText commandCharacters
     let
         -- let-destructure (Destruct binding) splits a static record into two
         -- locally-bound names without going through a fresh name first.
-        { defaultReplyCode, fallbackReplyCode } =
-            { defaultReplyCode = 0
-            , fallbackReplyCode = -1
-            }
+        { defaultReplyCode, fallbackReplyCode }
+        = { defaultReplyCode = 0, fallbackReplyCode = -1 }
         codeFromCharacterArray =
             when commandCharacters is
                 -- single-char array pattern with literal Char pattern

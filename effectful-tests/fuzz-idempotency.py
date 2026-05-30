@@ -10,6 +10,11 @@ hand-place comments (the way KitchenComments' `extremelyCommented` does).
 Usage:
     ./fuzz-idempotency.py                       # all testfiles/Formatter/*.formatted.gren
     ./fuzz-idempotency.py path/to/File.gren ... # specific files
+    ./fuzz-idempotency.py -j 4                   # run 4 `gren format`s at a time
+
+The gaps of each file are checked concurrently (default 2 jobs; `gren format`
+is a subprocess so threads scale with CPUs). Each worker thread gets its own
+isolated project dir so concurrent formats never share a file.
 
 A gap whose comment makes the file fail to PARSE is skipped (those are parser
 limitations, e.g. a comment between two type variables, not idempotency bugs)
@@ -17,15 +22,34 @@ and counted separately. Exit status is non-zero if any non-idempotent gap is
 found.
 """
 
+import argparse
+import concurrent.futures
 import difflib
 import os
 import subprocess
 import sys
 import tempfile
+import threading
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 GREN = os.path.join(HERE, "..", "..", "gren.sh")
 MARKER = "{- ¤ -}"  # ¤ — unlikely to collide with real comment text
+
+# Each worker thread formats in its own project dir so concurrent `gren format`
+# invocations never write the same Fuzz.gren. Created lazily, reused across the
+# tasks that land on the thread, and cleaned up with the enclosing base tempdir.
+_local = threading.local()
+
+
+def worker_workdir(base):
+    wd = getattr(_local, "workdir", None)
+    if wd is None:
+        wd = tempfile.mkdtemp(dir=base)
+        os.makedirs(os.path.join(wd, "src"))
+        with open(os.path.join(wd, "gren.json"), "w") as f:
+            f.write('{ "type": "application" }')
+        _local.workdir = wd
+    return wd
 
 
 def gap_indices(src):
@@ -120,22 +144,35 @@ def fmt(workdir, source):
     return out
 
 
-def check_file(workdir, path, verbose=False):
+def check_gap(base, src, g):
+    """Insert the marker at gap `g`, format twice, classify the outcome.
+    Runs on a pool worker; uses that worker's isolated project dir."""
+    workdir = worker_workdir(base)
+    variant = src[:g] + " " + MARKER + src[g:]
+    once = fmt(workdir, variant)
+    if once is None:
+        return ("skip", g, "", "")
+    twice = fmt(workdir, once)
+    if twice is None:
+        return ("bug", g, "re-format failed", once, "")
+    if once != twice:
+        return ("bug", g, "not idempotent", once, twice)
+    return ("ok", g, "", "")
+
+
+def check_file(base, pool, path, verbose=False):
     src = open(path).read()
     gaps = gap_indices(src)
     name = os.path.basename(path)
+    # ex.map preserves input order, so reporting stays deterministic.
+    results = list(pool.map(lambda g: check_gap(base, src, g), gaps))
     bugs, skipped = [], 0
-    for g in gaps:
-        variant = src[:g] + " " + MARKER + src[g:]
-        once = fmt(workdir, variant)
-        if once is None:
+    for r in results:
+        if r[0] == "skip":
             skipped += 1
-            continue
-        twice = fmt(workdir, once)
-        if twice is None:
-            bugs.append((g, "re-format failed", once, ""))
-        elif once != twice:
-            bugs.append((g, "not idempotent", once, twice))
+        elif r[0] == "bug":
+            _, g, why, once, twice = r
+            bugs.append((g, why, once, twice))
     status = "OK " if not bugs else "BUG"
     print(f"{status} {name}: {len(gaps)} gaps, {skipped} skipped (parser), {len(bugs)} non-idempotent")
     for g, why, once, twice in bugs:
@@ -153,19 +190,23 @@ def check_file(workdir, path, verbose=False):
 
 
 def main(argv):
-    files = [a for a in argv[1:] if a != "-v"]
+    ap = argparse.ArgumentParser()
+    ap.add_argument("-v", action="store_true", help="show the format¹/format² diff per gap")
+    ap.add_argument("-j", "--jobs", type=int, default=2, help="concurrent `gren format`s (default 2)")
+    ap.add_argument("files", nargs="*")
+    args = ap.parse_args(argv[1:])
+
+    files = args.files
     if not files:
         d = os.path.join(HERE, "testfiles", "Formatter")
         files = sorted(
             os.path.join(d, f) for f in os.listdir(d) if f.endswith(".formatted.gren")
         )
     total = 0
-    with tempfile.TemporaryDirectory() as workdir:
-        os.makedirs(os.path.join(workdir, "src"))
-        with open(os.path.join(workdir, "gren.json"), "w") as f:
-            f.write('{ "type": "application" }')
-        for path in files:
-            total += check_file(workdir, path, verbose=("-v" in argv))
+    with tempfile.TemporaryDirectory() as base:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
+            for path in files:
+                total += check_file(base, pool, path, verbose=args.v)
     print(f"\n{'FAIL' if total else 'PASS'}: {total} non-idempotent gap(s)")
     return 1 if total else 0
 

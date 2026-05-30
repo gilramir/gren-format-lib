@@ -348,22 +348,24 @@ infix right 5 (<|) = apL
 
 An empty record stays on one line: `{}`.
 
-A record with a single field stays on one line:
+Like array literals, **a record's shape follows the author's layout** (see "Array literals" for the full rationale):
+
+- Fields written on one line that **fit** stay inline: `{ x = x, y = y }`.
+- Fields written on one line that **overflow** break one-per-line.
+- Fields the author **spread across rows** stay one-per-line regardless of fit.
+
+The trigger is the same signal B as arrays — a newline *between fields*. A record with fewer than two fields has no inter-field gap, so it always stays inline (collapsing if the author wrote it across rows):
 
 ```gren
-singleton x = { x = x }
-```
+makePoint x y = { x = x, y = y }
 
-A record with two or more fields is always written across multiple lines, with `{` and the first field on the first line, `, ` before each subsequent field, and `}` on its own line:
-
-```gren
-makePoint x y =
-    { x = x
-    , y = y
+config =
+    { name = "app"
+    , version = 2
     }
 ```
 
-Records passed as function arguments follow the same rules — a single-field record stays on one line even when used as an argument:
+The vertical form puts `{` and the first field on the first line, `, ` before each subsequent field, and `}` on its own line. Records passed as function arguments follow the same rule — a record the author wrote on one line stays inline as an argument; one written across rows stays vertical:
 
 ```gren
 firstX = distSq { x = 0, y = 0 } { x = 1, y = 0 }
@@ -371,15 +373,17 @@ firstX = distSq { x = 0, y = 0 } { x = 1, y = 0 }
 
 ### Record updates
 
-An empty record update and a single-field update stay on one line:
+An empty record update stays on one line, and a single-field update is fit-based (inline when it fits):
 
 ```gren
 withDefault r = { r | x = 0 }
 ```
 
-A record update with two or more fields is always written across multiple lines. The base record name goes on the first line after `{`, the first field is on the next line prefixed with `| ` (indented by 4), and each subsequent field is on its own line prefixed with `, ` at the same indentation. The closing `}` goes on its own line aligned with `{`:
+A two-or-more-field update follows the author's layout exactly like a record literal. When inline it is `{ base | a = 1, b = 2 }`. When the author wrote the fields across rows — or when an inline update overflows — it breaks to the vertical form: the base name on the first line after `{`, the first field on the next line prefixed with `| ` (indented by 4), each subsequent field prefixed with `, ` at the same indentation, and `}` on its own line aligned with `{`:
 
 ```gren
+setOrigin pt = { pt | x = 0, y = 0 }
+
 movePoint dx dy pt =
     { pt
         | x = pt.x + dx

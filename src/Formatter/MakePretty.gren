@@ -891,8 +891,8 @@ makePDoc box children =
         AlwaysVertical bracket ->
             let bs = bracketStrings bracket
             in listBoxesWithBrackets bs.open bs.close children
-        RecordUpdate baseName ->
-            makeRecordUpdateDoc baseName.value children
+        RecordUpdate { name, forceVertical } ->
+            makeRecordUpdateDoc forceVertical name.value children
         EmptyBracketed loc ->
             -- An empty literal whose source spans more than the bare
             -- `{}` / `[]` / `()` only acquires children if a comment
@@ -1074,8 +1074,8 @@ makeListItemDoc node =
             let bs = bracketStrings bracket
             in listBoxesWithBrackets bs.open bs.close (lpnChildren node)
                 |> Result.map (P.nest 2)
-        RecordUpdate baseName ->
-            makeRecordUpdateDoc baseName.value (lpnChildren node)
+        RecordUpdate { name, forceVertical } ->
+            makeRecordUpdateDoc forceVertical name.value (lpnChildren node)
         AlignedFlow ->
             -- A list item that wraps an AlignedFlow construct (e.g. an
             -- inline `when ... is` expression). Render it inline; the
@@ -1231,8 +1231,8 @@ lineComment s =
     P.concat (P.text ("--" ++ s)) P.hardNl
 
 
-makeRecordUpdateDoc : String -> Array LPNode -> Result String (P.Doc cost)
-makeRecordUpdateDoc baseName children =
+makeRecordUpdateDoc : Bool -> String -> Array LPNode -> Result String (P.Doc cost)
+makeRecordUpdateDoc forceVertical baseName children =
     -- Skip any leading comment children so we can find the actual first field
     -- (the comment-bearing children get rendered as their own lines below).
     let
@@ -1259,35 +1259,77 @@ makeRecordUpdateDoc baseName children =
                     buildFlowDoc grenIndent (lpnChildren field)
                         |> Result.map P.align
 
-                leadingCommentLines =
-                    Array.map (\c -> P.concat (P.text "    ") (commentLineDoc c)) commentsBefore
+                hasComment =
+                    not (Array.isEmpty commentsBefore)
+                        || Array.any nodeIsComment restFields
             in
-            when fieldDoc firstField is
-                Err e -> Err e
-                Ok firstFieldDoc ->
-                    let
-                        firstLine = P.concat (P.text "    | ") firstFieldDoc
-                        restResult =
-                            Array.foldl
-                                (\field accResult ->
-                                    when accResult is
-                                        Err e -> Err e
-                                        Ok docs ->
-                                            if nodeIsComment field then
-                                                Ok (Array.pushLast (P.concat (P.text "    ") (commentLineDoc field)) docs)
-                                            else
-                                                when fieldDoc field is
-                                                    Err e -> Err e
-                                                    Ok d ->
-                                                        Ok (Array.pushLast (P.concat (P.text "    , ") d) docs)
-                                )
-                                (Ok (leadingCommentLines ++ [firstLine]))
-                                restFields
-                    in
-                    when restResult is
-                        Err e -> Err e
-                        Ok fieldLines ->
-                            Ok (P.vcat ([P.text ("{ " ++ baseName)] ++ fieldLines ++ [P.text "}"]))
+            if forceVertical || hasComment then
+                -- Always-vertical form: base on its own line, each field
+                -- prefixed with `| ` / `, ` indented +4, close on its own line.
+                -- Used when the author wrote the fields across rows, and
+                -- whenever a comment is present (a comment cannot live in the
+                -- inline form).
+                let
+                    leadingCommentLines =
+                        Array.map (\c -> P.concat (P.text "    ") (commentLineDoc c)) commentsBefore
+                in
+                when fieldDoc firstField is
+                    Err e -> Err e
+                    Ok firstFieldDoc ->
+                        let
+                            firstLine = P.concat (P.text "    | ") firstFieldDoc
+                            restResult =
+                                Array.foldl
+                                    (\field accResult ->
+                                        when accResult is
+                                            Err e -> Err e
+                                            Ok docs ->
+                                                if nodeIsComment field then
+                                                    Ok (Array.pushLast (P.concat (P.text "    ") (commentLineDoc field)) docs)
+                                                else
+                                                    when fieldDoc field is
+                                                        Err e -> Err e
+                                                        Ok d ->
+                                                            Ok (Array.pushLast (P.concat (P.text "    , ") d) docs)
+                                    )
+                                    (Ok (leadingCommentLines ++ [firstLine]))
+                                    restFields
+                        in
+                        when restResult is
+                            Err e -> Err e
+                            Ok fieldLines ->
+                                Ok (P.vcat ([P.text ("{ " ++ baseName)] ++ fieldLines ++ [P.text "}"]))
+            else
+                -- Fit-based form (no comments, author wrote it on one line): a
+                -- group whose flat rendering is `{ base | a = 1, b = 2 }` and
+                -- whose broken rendering is the vertical form above. The breaks
+                -- are built so that flattening reproduces the inline spacing:
+                -- `nl` before the first field (flattens to a space, giving
+                -- ` | `), `breakDoc` before each subsequent field (flattens to
+                -- empty, so its own `, ` prefix gives `, `), and `nl` before the
+                -- closing `}`. The fields are nested +4 so the broken form is
+                -- byte-identical to the vcat form above — keeping a single-line
+                -- update that overflows idempotent with a multi-line-authored one.
+                when fieldDoc firstField is
+                    Err e -> Err e
+                    Ok firstFieldDoc ->
+                        mapNodesToDocs fieldDoc restFields
+                            |> Result.map (\restDocs ->
+                                let
+                                    firstSeg = P.concat (P.text "| ") firstFieldDoc
+                                    restSegs =
+                                        Array.map
+                                            (\d -> P.concat P.breakDoc (P.concat (P.text ", ") d))
+                                            restDocs
+                                    fieldsInner = Array.foldl (\seg acc -> P.concat acc seg) firstSeg restSegs
+                                    fieldsPart = P.nest grenIndent (P.concat P.nl fieldsInner)
+                                    inner =
+                                        P.concat
+                                            (P.text ("{ " ++ baseName))
+                                            (P.concat fieldsPart (P.concat P.nl (P.text "}")))
+                                in
+                                P.group inner
+                            )
 
 
 -- Split leading comment children off from the rest. Used by makeRecordUpdateDoc
@@ -1455,8 +1497,8 @@ listBoxesWithBrackets open close nodes =
                     when listBoxesWithBrackets bs.open bs.close (lpnChildren node) is
                         Err e -> Err e
                         Ok d -> Ok (Just { doc = P.nest 2 d, row = firstRowInSubtree node })
-                RecordUpdate baseName ->
-                    when makeRecordUpdateDoc baseName.value (lpnChildren node) is
+                RecordUpdate { name, forceVertical } ->
+                    when makeRecordUpdateDoc forceVertical name.value (lpnChildren node) is
                         Err e -> Err e
                         Ok d -> Ok (Just { doc = d, row = firstRowInSubtree node })
                 AlignedFlow ->

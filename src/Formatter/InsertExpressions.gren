@@ -224,15 +224,21 @@ insertExpression locExpr =
                     when Array.popFirst fieldNodes is
                         Nothing ->
                             [lpnLeaf (EmptyBracketed { start = locExpr.start, end = locExpr.end, value = ListCurly })]
-                        Just { first = _, rest = rest } ->
+                        Just _ ->
+                            -- Like array literals, the author's layout chooses the
+                            -- shape: fields written on one line stay inline when
+                            -- they fit (vertical on overflow); fields the author
+                            -- spread across rows stay one-per-line regardless.
                             -- `locExpr.end` is the `}`, so a comment on its own
                             -- line before the `}` stays inside the record.
-                            if Array.isEmpty rest then
-                                -- Single field: stay inline
-                                [lpnBracketNode (AllAcrossOrAllVertical ListCurly) locExpr.end fieldNodes]
-                            else
-                                -- 2+ fields: always vertical
-                                [lpnBracketNode (AlwaysVertical ListCurly) locExpr.end fieldNodes]
+                            let
+                                recordBox =
+                                    if recordFieldsSpanRows fieldArray then
+                                        AlwaysVertical ListCurly
+                                    else
+                                        AllAcrossOrAllVertical ListCurly
+                            in
+                            [lpnBracketNode recordBox locExpr.end fieldNodes]
                 )
 
         Src.Update { record = record, newValues = newValues } ->
@@ -280,8 +286,18 @@ insertExpression locExpr =
                                 -- inline form), matching the 2+ field case below.
                                 [lpnBracketNode (AllAcrossOrAllVertical ListCurly) locExpr.end [updatedField]]
                             else
-                                -- 2+ field update: always vertical with RecordUpdate
-                                [lpnNode (RecordUpdate recLoc) fieldNodes]
+                                -- 2+ field update: like a record literal, the
+                                -- author's layout chooses the shape. Fields on one
+                                -- line → fit-based (inline `{ b | a, c }`, vertical
+                                -- on overflow); fields across rows → forced vertical.
+                                [lpnNode
+                                    (RecordUpdate
+                                        { name = recLoc
+                                        , forceVertical = recordFieldsSpanRows newValues
+                                        }
+                                    )
+                                    fieldNodes
+                                ]
                 )
 
         Src.Binops { left = lhsExpr, operator = locStringOp, right = rhsExpr } ->
@@ -489,44 +505,19 @@ folderInsertExprAsArgItem expr accNodes =
         |> Result.map (\node -> Array.pushLast (convertForArg node) accNodes)
 
 
-{-| Convert a top-level `AlwaysVertical` / `RecordUpdate` node into its
-inline-friendly `AllAcrossOrAllVertical` equivalent so it can fit on one
-line when used as a function argument.
+{-| Hook for adjusting a node when it appears as a function-call argument or
+list item.
 
-`ParenBlock` is recursed into so the rule still fires for the parenthesized
-form `( recordUpdate )`.
+Every container literal — list, record, and record update — now derives its
+inline-vs-vertical shape from the author's layout (`Src.ArrayLiteral`,
+`Src.Record`, `Src.Update`), and a fit-based container already collapses to one
+line when it fits, so nothing needs rewriting for the argument position. The
+only remaining work is to recurse through `ParenBlock` in case a future rule
+wants to reach the parenthesized form.
 -}
 convertForArg : LPNode -> LPNode
 convertForArg node =
     when lpnBox node is
-        -- Only records (`ListCurly`) collapse to their inline-friendly form as
-        -- an argument/item. A list literal (`ListSquare`) that is `AlwaysVertical`
-        -- was laid out multi-line by the author, and that verticality is now
-        -- input-derived (see `Src.ArrayLiteral`) — it must survive being nested
-        -- or passed as an argument, so it is left untouched here.
-        AlwaysVertical ListCurly ->
-            -- Preserve the closing-bracket position (if any) so a comment on
-            -- its own line before the `}` stays inside this record even when
-            -- it is nested as an argument/item.
-            when lpnLastBracketEnd node is
-                Just closeEnd ->
-                    lpnBracketNode (AllAcrossOrAllVertical ListCurly) closeEnd (lpnChildren node)
-                Nothing ->
-                    lpnNode (AllAcrossOrAllVertical ListCurly) (lpnChildren node)
-        RecordUpdate baseName ->
-            -- Prepend "baseName | " to first field's first text so the inline
-            -- form renders correctly: { pt | x = 1, y = 2 }
-            let
-                children = lpnChildren node
-                updatedChildren =
-                    when Array.popFirst children is
-                        Nothing -> children
-                        Just { first = firstField, rest = restFields } ->
-                            when tryMapFirstLeaf (\loc -> mkZeroWidthText loc.start (baseName.value ++ " | " ++ loc.value)) firstField is
-                                Just updatedFirst -> Array.pushFirst updatedFirst restFields
-                                Nothing -> children
-            in
-            lpnNode (AllAcrossOrAllVertical ListCurly) updatedChildren
         ParenBlock ->
             lpnNode ParenBlock (Array.map convertForArg (lpnChildren node))
         _ -> node
@@ -565,6 +556,17 @@ insertExpressionAsBodyBlock locExpr =
             else
                 Ok (lpnNode BodyBlock nodes)
         )
+
+
+{-| The "multi-line authored" signal for a record's (or record update's)
+fields: whether the author wrote them across more than one source row. A field
+spans from its name to the end of its value, so this reuses `itemsSpanRows`
+over those spans. Mirrors the array-literal rule in `Src.ArrayLiteral`.
+-}
+recordFieldsSpanRows : Array Src.RecordField -> Bool
+recordFieldsSpanRows fields =
+    itemsSpanRows
+        (Array.map (\f -> { start = f.field.start, end = f.value.end }) fields)
 
 
 {-| Folder for fields of a record literal or record update.

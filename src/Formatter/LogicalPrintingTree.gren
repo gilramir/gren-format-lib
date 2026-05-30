@@ -87,10 +87,11 @@ type LPBox
     --                                     ]
     | AllAcrossOrAllVertical ListBrackets
 
-    -- Always-vertical list: one item per line regardless of page fit. Used
-    -- for 2+ field record literals, and for array literals the author wrote
-    -- across multiple source rows (see `Src.ArrayLiteral` in InsertExpressions
-    -- and `itemsSpanRows`).
+    -- Always-vertical list: one item per line regardless of page fit. Used for
+    -- array literals and record literals the author wrote across multiple
+    -- source rows (see `Src.ArrayLiteral` / `Src.Record` in InsertExpressions
+    -- and `itemsSpanRows`). The fit-based counterpart is
+    -- `AllAcrossOrAllVertical`; record *updates* use `RecordUpdate`.
     --
     --     { x = 1
     --     , y = 2
@@ -108,7 +109,13 @@ type LPBox
     -- as the RecordUpdate subtree's "start" — keeping a comment that
     -- sits between the base name and `|` from being treated as
     -- appearing before the whole RecordUpdate.
-    | RecordUpdate (Located String)
+    --
+    -- `forceVertical` is True when the author wrote the fields across
+    -- multiple rows: like array/record literals, the update then stays
+    -- one-field-per-line regardless of fit. When False the layout is fit
+    -- based — inline `{ base | a, b }` when it fits, the vertical form
+    -- (shown above) when it overflows.
+    | RecordUpdate { name : Located String, forceVertical : Bool }
 
     -- An empty bracketed literal (`{}` / `[]` / `()`). Carries the full
     -- source span so a comment that sits between the opening and
@@ -539,11 +546,11 @@ selfBoxBounds box =
                 , minRow = loc.start.row
                 , maxRow = loc.end.row
             }
-        RecordUpdate loc ->
+        RecordUpdate { name } ->
             { empty
-                | firstPos = Just loc.start
-                , minRow = loc.start.row
-                , maxRow = loc.end.row
+                | firstPos = Just name.start
+                , minRow = name.start.row
+                , maxRow = name.end.row
             }
         EmptyBracketed loc ->
             { empty
