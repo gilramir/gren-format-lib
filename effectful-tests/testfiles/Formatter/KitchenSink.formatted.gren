@@ -239,7 +239,8 @@ processConfiguration
                 Ok { kind = "disabled", endpoint = "", header_count = 0 }
         schedulerDecision =
             when schedulerSection.overrides is
-                [] -> schedulerSection.defaultTickMillis
+                [] ->
+                    schedulerSection.defaultTickMillis
                 [ singleOverride ] ->
                     Math.max schedulerSection.defaultTickMillis
                         singleOverride.tickMillis
@@ -312,7 +313,8 @@ processConfiguration
             }
                 |> Ok
 
-        Err errorMessageForTracing -> Err errorMessageForTracing
+        Err errorMessageForTracing ->
+            Err errorMessageForTracing
 
 
 {-| Stress-tests record-update formatting at multiple nesting levels:
@@ -461,7 +463,8 @@ fold :
     -> accumulatorValue
 fold reducerFunction initialAccumulatorValue currentTreeNode =
     when currentTreeNode is
-        Empty -> initialAccumulatorValue
+        Empty ->
+            initialAccumulatorValue
         Leaf solitaryLeafValue ->
             reducerFunction solitaryLeafValue initialAccumulatorValue
 
@@ -523,9 +526,11 @@ traverseDeeply rootTree =
                             ]
         gatherNames currentTree =
             when currentTree is
-                Empty -> []
+                Empty ->
+                    []
 
-                Leaf personRecord -> [ formatPersonRecord personRecord ]
+                Leaf personRecord ->
+                    [ formatPersonRecord personRecord ]
 
                 Branch { children = childrenArray } ->
                     childrenArray |> Array.flatMap gatherNames
@@ -554,15 +559,18 @@ traverseDeeply rootTree =
 classifyTree : Tree a -> String
 classifyTree tree =
     when tree is
-        Empty -> "empty"
+        Empty ->
+            "empty"
         Leaf _ as wholeLeafNode ->
             String.append "leaf:" (Debug.toString wholeLeafNode)
         Branch ({ label } as wholeBranchPayload) ->
             String.append "branch:" label
                 ++ "/"
                 ++ Debug.toString wholeBranchPayload
-        Cons { leftSubtree = Empty, rightSubtree = Empty } -> "single-cons"
-        Cons _ -> "wide-cons"
+        Cons { leftSubtree = Empty, rightSubtree = Empty } ->
+            "single-cons"
+        Cons _ ->
+            "wide-cons"
 
 
 -- Exercises literal patterns (Int / Char / String), qualified-constructor
@@ -584,30 +592,42 @@ interpretMicroCommand decoderForPayload commandText commandCharacters
         codeFromCharacterArray =
             when commandCharacters is
                 -- single-char array pattern with literal Char pattern
-                [ 'q' ] -> 1
+                [ 'q' ] ->
+                    1
                 -- 3-element array pattern with literal Char and two PVars
-                [ '#', firstDigitCharacter, secondDigitCharacter ] -> 2
+                [ '#', firstDigitCharacter, secondDigitCharacter ] ->
+                    2
                 -- 4-element array pattern (all PVars)
-                [ firstChar, secondChar, thirdChar, fourthChar ] -> 3
-                _ -> defaultReplyCode
+                [ firstChar, secondChar, thirdChar, fourthChar ] ->
+                    3
+                _ ->
+                    defaultReplyCode
         codeFromCommandText =
             when commandText is
-                "skip" -> 100
-                "halt" -> 200
+                "skip" ->
+                    100
+                "halt" ->
+                    200
 
                 _ ->
                     when String.length commandText is
-                        0 -> 0
-                        1 -> 1
-                        _ -> fallbackReplyCode
+                        0 ->
+                            0
+                        1 ->
+                            1
+                        _ ->
+                            fallbackReplyCode
         codeFromRetryHint =
             when optionalRetryHint is
-                Maybe.Just retryAttemptNumber -> retryAttemptNumber
+                Maybe.Just retryAttemptNumber ->
+                    retryAttemptNumber
 
                 Maybe.Nothing ->
                     when String.uncons commandText is
-                        Just { first = '?', rest = _ } -> 42
-                        _ -> fallbackReplyCode
+                        Just { first = '?', rest = _ } ->
+                            42
+                        _ ->
+                            fallbackReplyCode
     in
     { handled = codeFromCharacterArray > 0
     , replyCode =

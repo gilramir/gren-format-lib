@@ -627,25 +627,17 @@ else
 
 ## When expressions
 
-Each branch pattern and its body are placed on the same line when they fit:
+A branch body always goes on the next line, indented 4 spaces relative to the pattern — even a tiny one that would fit beside the `->`:
 
 ```gren
 when n is
-    1 -> "one"
-    _ -> "other"
+    1 ->
+        "one"
+    _ ->
+        "other"
 ```
 
-When the body is too long to fit on the same line, it moves to the next line indented by 4 spaces relative to the pattern:
-
-```gren
-when msg is
-    ChangeLanguage lang ->
-        { model = { model | lang = lang }
-        , command = Cmd.none
-        }
-```
-
-A blank line is inserted between two branches whenever either branch occupies more than one line:
+A blank line is inserted between two branches whenever either branch's body is a multi-line container (a record, list, …):
 
 ```gren
 when msg is
@@ -660,13 +652,16 @@ when msg is
         }
 ```
 
-When all branches fit on a single line each, no blank lines are inserted:
+Branches whose bodies are simple (not multi-line containers) are not blank-separated, even though each body now sits on its own line:
 
 ```gren
 when n is
-    1 -> "Monday"
-    2 -> "Tuesday"
-    _ -> "Unknown"
+    1 ->
+        "Monday"
+    2 ->
+        "Tuesday"
+    _ ->
+        "Unknown"
 ```
 
 ---

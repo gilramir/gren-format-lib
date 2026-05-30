@@ -24,7 +24,8 @@ import Foo as Bar
 -- Canonical rendering places it BEFORE `as`; either authored side lands here.
 unwrap x =
     when x is
-        { a } {- authored after `as` -} as whole -> whole
+        { a } {- authored after `as` -} as whole ->
+            whole
 
 
 -- Case 3 — extensible record `|` (type). Comment authored AFTER `|`. Canonical

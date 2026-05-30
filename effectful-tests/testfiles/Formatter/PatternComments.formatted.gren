@@ -15,17 +15,23 @@ whenArrayPat xs =
     when xs is
         [ a {- between array-pattern items in a when-branch -}
             , b
-            ] -> a + b
-        _ -> 0
+            ] ->
+            a + b
+        _ ->
+            0
 
 -- comment between ctor name and its arg in a when-branch pattern
 whenCtorPat maybe =
     when maybe is
-        Just {- between ctor name and arg in a when-branch -} x -> x
-        Nothing -> 0
+        Just {- between ctor name and arg in a when-branch -} x ->
+            x
+        Nothing ->
+            0
 
 -- comment between two ctor args in a when-branch pattern
 whenCtorTwoArgs result =
     when result is
-        Ok {- between ctor name and first arg -} x -> x
-        Err _ -> 0
+        Ok {- between ctor name and first arg -} x ->
+            x
+        Err _ ->
+            0

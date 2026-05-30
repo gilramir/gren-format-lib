@@ -131,8 +131,10 @@ whenExample value =
         SecondConstructor fieldAlpha ->
             handleTheSecondConstructorCaseWithARatherLongFunctionName fieldAlpha
                 here
-        ThirdConstructor -> defaultResultValue
-        _ -> fallbackResultValue
+        ThirdConstructor ->
+            defaultResultValue
+        _ ->
+            fallbackResultValue
 
 -- when with a record-returning branch past the boundary
 whenRecord value =
@@ -143,7 +145,8 @@ whenRecord value =
             , resultGamma = 0
             }
 
-        Empty -> { resultAlpha = 0, resultBeta = 0, resultGamma = 0 }
+        Empty ->
+            { resultAlpha = 0, resultBeta = 0, resultGamma = 0 }
 
 -- ===== let / in =====
 

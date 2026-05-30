@@ -3,9 +3,12 @@ module WhenBranchBody exposing (..)
 -- Simple bodies that fit inline: unchanged
 simple msg =
     when msg is
-        Increment -> model + 1
-        Decrement -> model - 1
-        Reset -> 0
+        Increment ->
+            model + 1
+        Decrement ->
+            model - 1
+        Reset ->
+            0
 
 -- Record body that must wrap: body should be indented +4 from the pattern
 withRecord msg model =
@@ -15,7 +18,8 @@ withRecord msg model =
             , command = Cmd.none
             }
 
-        NoOp -> { model = model, command = Cmd.none }
+        NoOp ->
+            { model = model, command = Cmd.none }
 
 -- Array body that must wrap
 withArray msg =
@@ -30,4 +34,5 @@ withArray msg =
             , seventhItem
             ]
 
-        ClearItems -> []
+        ClearItems ->
+            []

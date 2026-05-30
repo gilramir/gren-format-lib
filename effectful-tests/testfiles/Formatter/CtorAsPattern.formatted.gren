@@ -27,4 +27,5 @@ classify wrappedValue =
                 ++ String.fromInt intValue
                 ++ "/"
                 ++ Debug.toString innerJust
-        Wrapped Nothing -> "nothing"
+        Wrapped Nothing ->
+            "nothing"

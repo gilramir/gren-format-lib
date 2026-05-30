@@ -3,11 +3,15 @@ module WhenInCommentedArray exposing ( foo )
 foo x y =
     -- first item is a when expression
     [ when x is
-          True -> 1
-          False -> 2
+          True ->
+              1
+          False ->
+              2
     -- second item is also a when expression
     , when y is
-          True -> 3
-          False -> 4
+          True ->
+              3
+          False ->
+              4
     , 5
     ]

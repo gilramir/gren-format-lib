@@ -76,7 +76,8 @@ processOrder ({ identifier, items, appliedDiscounts, flags } as inboundCart) =
         discountFactor =
             when Array.length appliedDiscounts is
                 -- zero discounts: nothing to do
-                0 -> 1.0
+                0 ->
+                    1.0
                 -- one discount: apply it directly
                 1 ->
                     when Array.first appliedDiscounts is
@@ -85,7 +86,8 @@ processOrder ({ identifier, items, appliedDiscounts, flags } as inboundCart) =
                             -- comment before the body of a when-branch
                             1.0 - (toFloat basisPoints / 10000.0)
                         -- unexpected: array said length 1 but first was Nothing
-                        Nothing -> 1.0
+                        Nothing ->
+                            1.0
                 -- two or more: stack them multiplicatively
                 _ ->
                     appliedDiscounts
@@ -259,7 +261,8 @@ torturedComments primaryIntValue secondaryStringValue tertiaryBoolValue =
     when {- inline comment between `when` and the scrutinee -} bumpedValue is
         {- inline comment between scrutinee and `is` -}
         0 -> {- inline block between pattern and arrow -}
-            {- inline block between arrow and body -} "zero/" ++ guardedString
+            {- inline block between arrow and body -}
+            "zero/" ++ guardedString
         -- a regular comment between branches
         1 ->
             -- and after the arrow, before the body
@@ -328,7 +331,8 @@ extremelyCommented {-c22-} {-c23-} {-c24-}
                             0 -> {-c79-} {-c80-} {-c81-} {-c82-} {-c83-} {-c84-}
                                 { r | label = {-c85-} {-c86-} "zero" {-c87-}
                                 } {-c88-} {-c89-}
-                            _ -> {-c90-} {-c91-} r {-c92-}) {-c93-}
+                            _ -> {-c90-} {-c91-}
+                                r {-c92-}) {-c93-}
 
         {-c94-}
         |> {-c95-} (\finalRecord -> {-c96-} {-c97-} finalRecord {-c98-}) {-c99-}
@@ -353,7 +357,8 @@ bestDiscount candidateDiscounts =
             
                 when currentBest is
                     -- comment before the first when-branch arm
-                    Nothing -> Just candidate
+                    Nothing ->
+                        Just candidate
                     -- comment before the second arm
                     Just existing ->
                         if candidate.basisPoints > existing.basisPoints then

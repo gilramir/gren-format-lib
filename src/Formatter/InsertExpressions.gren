@@ -830,9 +830,19 @@ folderInsertWhenBranch branch accNodes =
                                     AllAcrossOrAllVertical _ -> True
                                     RecordUpdate _ -> True
                                     _ -> False
-                            -- AcrossThenIndent ensures the body is indented by 4 when
-                            -- it cannot fit inline with the pattern and arrow.
-                            branchContent = lpnNode AcrossThenIndent (patNodes ++ [arrowNode, bodyNode])
+                            -- The branch body always drops onto its own line,
+                            -- indented +4, even when it would fit inline after the
+                            -- `->`. A `BodyBlock` forces the hard newline without an
+                            -- extra indent level, so the body sits at the
+                            -- AcrossThenIndent's +4 continuation column. Keeping the
+                            -- single AcrossThenIndent child under WhenBranch is what
+                            -- lets a trailing comment attach as a WhenBranch sibling
+                            -- (peelable, body stays comment-free) rather than burying
+                            -- inside the body expression.
+                            -- (`isBodyMultiLine` still drives only the inter-branch
+                            -- blank-line rule, so tiny bodies don't gain blank lines.)
+                            bodyAsBlock = lpnNode BodyBlock [bodyNode]
+                            branchContent = lpnNode AcrossThenIndent (patNodes ++ [arrowNode, bodyAsBlock])
                             container = lpnNode (WhenBranch { isMultiLine = isBodyMultiLine }) [branchContent]
                         in
                         Array.pushLast container accNodes
