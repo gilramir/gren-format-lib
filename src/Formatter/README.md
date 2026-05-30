@@ -1143,22 +1143,40 @@ meaning-bearing distinction (see [Comments](#comments)). The gap is that this ca
 flip when whitespace *elsewhere* changes how many rows the surrounding construct
 spans, even though the comment still trails the same token.
 
-For example, these two signatures are identical to the parser — the second just
-splits the record field across rows — but the trailing comment renders inline in
-the first and drops to its own line in the second:
+For example, write a record-type field with a trailing comment all on one line,
+and the comment stays inline beside the field:
 
 ```gren
+-- you write:
+foo : { a : Int {- trailing the field -} }
+
+-- formats to:
 foo :
     { a : Int {- trailing the field -}
     }
 ```
 
+Now write the *same* signature with the field's `a :` and `Int` on separate
+rows — identical to the parser, and the comment still sits right after `Int`.
+This time the comment drops to its own line, even though the field itself rejoins
+on one line in the output:
+
 ```gren
+-- you write (note the field spans two rows now):
+foo :
+    { a :
+        Int {- trailing the field -}
+    }
+
+-- formats to:
 foo :
     { a : Int
     {- trailing the field -}
     }
 ```
+
+The only difference between the two inputs is whitespace *inside the field* —
+yet it moves the comment.
 
 Resolving every such case to a single canonical placement is an open problem,
 related to the elided-token cases described in the [Comments](#comments) section
