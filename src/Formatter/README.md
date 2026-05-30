@@ -1023,10 +1023,29 @@ describe x =
 ```
 
 Either way the comment lands somewhere it re-parses to the same place, so it
-doesn't drift. This anchoring is specific to `when` branches: the very same
-trailing comment on a plain function body or a `let … in` result has no such
-anchor, which is exactly the
-[idempotency gap](#known-limitations-idempotency-gaps) described below.
+doesn't drift.
+
+**Why two different rules instead of one?** It's tempting to just glue the comment
+to the body's last line in every branch. That works for the last branch and for
+simple bodies, but it is *not* idempotent in general for a non-last branch:
+
+- When a non-last branch's body is itself multi-line — an `if`, a `let`, or a
+  long wrapped expression — there's no single clean last line to glue onto. The
+  comment ends up at the body's deep indent, and on the next format it sits a row
+  past the body, re-attaches outward, and the indent oscillates. Lifting it to the
+  between-branches position (aligned with the patterns) is the one placement that
+  re-parses to itself, so the formatter lifts *every* non-last branch's trailing
+  comment, uniformly.
+- The last branch has no following branch to lift above. A lifted comment there
+  would dedent all the way to column 1 and read as a free-floating top-level
+  comment, detached from the branch it annotates — so it's glued to the body's
+  last line instead, which (with nothing after it) is stable.
+
+This anchoring is specific to `when` branches, which have those two stable homes
+(between branches, or the last branch's body line). A trailing comment on a plain
+function body or a `let … in` result has neither — it's the
+[idempotency gap](#known-limitations-idempotency-gaps) described below, where the
+comment drifts to the margin on the second format.
 
 ### When the formatter genuinely can't tell what you meant
 
