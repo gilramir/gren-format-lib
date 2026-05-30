@@ -1100,22 +1100,63 @@ indentation **without** changing what it parses to, re-formatting *should* give
 byte-identical output.
 
 This holds for the vast majority of code. The remaining gaps are, again, all
-about comments and blank lines — not about regular code. The main families are:
+about comments and blank lines — not about regular code. There are two main
+families.
 
-- **Blank lines near a comment-and-declaration pair.** When a comment documents
-  a declaration, the formatter decides whether to keep a blank line between them
-  by looking at row positions in your source. A line break injected *inside* the
-  declaration's head can shift that decision, so the blank line is sometimes
-  added or dropped. The blank-line choice really ought to be a pure
-  width-and-adjacency decision; making it fully independent of incoming
-  whitespace is in progress (and partly blocked on an upstream parser issue).
+### Blank lines near a comment-and-declaration pair
 
-- **Re-attaching a comment to a different owner.** A comment whose position is
-  ambiguous between two neighbors — for instance one nudged onto the line just
-  *below* a declaration — can attach to the enclosing construct in one layout and
-  to the top level in another. Resolving every ambiguous case to a single
-  canonical owner is an open problem, related to the elided-token cases described
-  in the [Comments](#comments) section above.
+When a comment documents a declaration, the formatter decides whether to keep a
+blank line between them by looking at row positions in your source. A line break
+injected *inside* the declaration's head can shift that decision, so the blank
+line is sometimes added or dropped.
+
+For example, these two imports parse to exactly the same thing — the second just
+wraps the `import` keyword onto its own line. But the wrapped one makes the
+formatter insert a blank line that detaches the leading comment:
+
+```gren
+-- uses Array          (formats unchanged)
+import Array
+```
+
+```gren
+-- uses Array          (the head was written `import` ⏎ `    Array`)
+
+import Array
+```
+
+The blank-line choice really ought to be a pure width-and-adjacency decision;
+making it fully independent of incoming whitespace is in progress (and partly
+blocked on an upstream parser issue).
+
+### A comment's inline-vs-own-line placement flipping
+
+A comment that trails a token is rendered *inline* (on the token's line) when it
+shares that token's row, and *on its own line* otherwise — a deliberate,
+meaning-bearing distinction (see [Comments](#comments)). The gap is that this can
+flip when whitespace *elsewhere* changes how many rows the surrounding construct
+spans, even though the comment still trails the same token.
+
+For example, these two signatures are identical to the parser — the second just
+splits the record field across rows — but the trailing comment renders inline in
+the first and drops to its own line in the second:
+
+```gren
+foo :
+    { a : Int {- trailing the field -}
+    }
+```
+
+```gren
+foo :
+    { a : Int
+    {- trailing the field -}
+    }
+```
+
+Resolving every such case to a single canonical placement is an open problem,
+related to the elided-token cases described in the [Comments](#comments) section
+above.
 
 None of these change the meaning of your code, and none affect code without
 comments. They're documented here for completeness and tracked for future work.
