@@ -1110,17 +1110,32 @@ blank line between them by looking at row positions in your source. A line break
 injected *inside* the declaration's head can shift that decision, so the blank
 line is sometimes added or dropped.
 
-For example, these two imports parse to exactly the same thing — the second just
-wraps the `import` keyword onto its own line. But the wrapped one makes the
-formatter insert a blank line that detaches the leading comment:
+For example, write a comment directly above an import and they stay together —
+no blank line:
 
 ```gren
--- uses Array          (formats unchanged)
+-- you write:
+-- uses Array
+import Array
+
+-- formats to (unchanged):
+-- uses Array
 import Array
 ```
 
+Now write the *same* import with its `import` keyword on its own line, above the
+module name — identical to the parser. This time the formatter inserts a blank
+line, detaching the comment (and the import still rejoins on one line in the
+output):
+
 ```gren
--- uses Array          (the head was written `import` ⏎ `    Array`)
+-- you write (the import head spans two rows now):
+-- uses Array
+import
+    Array
+
+-- formats to:
+-- uses Array
 
 import Array
 ```
