@@ -1,0 +1,23 @@
+module RecordTypeLayoutByAuthor exposing (..)
+
+type alias Flat =
+    { x : Int, y : Int }
+
+type alias Vertical =
+    { x : Int
+    , y : Int
+    }
+
+type alias ExtFlat =
+    { base | active : Bool, count : Int }
+
+type alias ExtVertical =
+    { base
+        | active : Bool
+        , count : Int
+    }
+
+
+annotated : { name : String, age : Int } -> String
+annotated r =
+    r.name

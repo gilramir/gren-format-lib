@@ -78,10 +78,7 @@ type alias Result errorType successType =
 
 {-| An extensible record alias used as the basis for many other records. -}
 type alias HasIdentifier r =
-    { r
-        | identifier : String
-        , generatedAtMillis : Int
-    }
+    { r | identifier : String, generatedAtMillis : Int }
 
 type alias Container =
     HasIdentifier

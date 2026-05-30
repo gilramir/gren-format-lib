@@ -254,18 +254,19 @@ type alias Pair a b =
     }
 ```
 
-When the aliased type is a record, each field always gets its own line — the record is never collapsed to a single line even when it would fit:
+When the aliased type is a record, its layout follows the author's, exactly like a record literal (see "Records"): a record written on one line stays inline on the body line, while one written across rows keeps each field on its own line. Extensible record types (`{ r | … }`) follow the same rule, with the `|`/`,` aligned under the base when vertical:
 
 ```gren
+type alias Compact =
+    { x : Int, y : Int }
+
 type alias Point =
     { x : Int
     , y : Int
     }
 
-type alias Config a =
-    { name : String
-    , value : a
-    }
+type alias WithFlag r =
+    { r | active : Bool }
 ```
 
 Non-record aliased types (simple names, applied types, function types) appear on a single indented line:

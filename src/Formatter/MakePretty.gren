@@ -301,25 +301,22 @@ makeUnionBodyDoc nodes =
         Ok state -> Ok (P.vcat state.docs)
 
 
-makeTypeBodyAlwaysVertical : Array LPNode -> Result String (P.Doc cost)
-makeTypeBodyAlwaysVertical typeNodes =
+makeTypeBodyDoc : Array LPNode -> Result String (P.Doc cost)
+makeTypeBodyDoc typeNodes =
     when Array.popFirst typeNodes is
         Nothing ->
             Ok P.empty
         Just { first = onlyNode, rest = rest } ->
             if Array.isEmpty rest then
-                makePDocAlwaysVertical (lpnBox onlyNode) (lpnChildren onlyNode)
+                -- Render the single body node as-is. A record body now carries
+                -- its own author-derived layout (`AllAcrossOrAllVertical` when
+                -- written on one line, `AlwaysVertical` when written across
+                -- rows — see `Src.TRecord`), so it is no longer force-
+                -- verticalized; it sits inline on the body line when it fits,
+                -- exactly like a non-record alias body (`type alias Id = Int`).
+                makePDoc (lpnBox onlyNode) (lpnChildren onlyNode)
             else
                 buildFlowDoc 0 typeNodes
-
-
-makePDocAlwaysVertical : LPBox -> Array LPNode -> Result String (P.Doc cost)
-makePDocAlwaysVertical box children =
-    when box is
-        AllAcrossOrAllVertical bracket ->
-            renderBracketList LayoutVertical bracket children
-        _ ->
-            makePDoc box children
 
 
 {-| What separator to place before the next item.
@@ -983,25 +980,19 @@ makePDoc box children =
 
 makeAllAcrossOrAllVertical : ListBrackets -> Array LPNode -> Result String (P.Doc cost)
 makeAllAcrossOrAllVertical brackets children =
-    renderBracketList LayoutFlatOrVertical brackets children
+    renderBracketList brackets children
 
 
-type ListLayout
-    = LayoutFlatOrVertical
-    | LayoutVertical
-
-
--- Render a bracketed, comma-separated list of LPNode items.
+-- Render a bracketed, comma-separated list of LPNode items, flat-or-vertical.
 --
 -- If any child is a SingleLineComment, delegates to listBoxesWithBrackets,
 -- which always produces a multi-line layout (a line comment cannot live
--- inside a flat group).
---
--- Otherwise renders each child via makeListItemDoc. With LayoutVertical the
--- result is always multi-line (P.vcat); with LayoutFlatOrVertical the
--- pretty-printer chooses flat or per-line via P.group.
-renderBracketList : ListLayout -> ListBrackets -> Array LPNode -> Result String (P.Doc cost)
-renderBracketList layout brackets children =
+-- inside a flat group). Otherwise the pretty-printer chooses flat or
+-- one-item-per-line via the `P.group` in exposingListWithBrackets. (Callers
+-- that want an unconditional vertical layout use `AlwaysVertical`, which routes
+-- through listBoxesWithBrackets instead.)
+renderBracketList : ListBrackets -> Array LPNode -> Result String (P.Doc cost)
+renderBracketList brackets children =
     let
         bs = bracketStrings brackets
         hasComment = Array.any nodeIsComment children
@@ -1011,11 +1002,7 @@ renderBracketList layout brackets children =
     else
         mapNodesToDocs makeListItemDoc children
             |> Result.map (\itemDocs ->
-                when layout is
-                    LayoutFlatOrVertical ->
-                        exposingListWithBrackets bs.open bs.close bs.empty itemDocs
-                    LayoutVertical ->
-                        verticalBracketList bs.open bs.close bs.empty itemDocs
+                exposingListWithBrackets bs.open bs.close bs.empty itemDocs
             )
 
 
@@ -1032,20 +1019,6 @@ mapNodesToDocs build nodes =
         (Ok [])
         nodes
 
-
--- Always-multi-line bracketed list: open + first on first line, ", " + item
--- on each subsequent line, close on its own line.
-verticalBracketList : String -> String -> String -> Array (P.Doc cost) -> P.Doc cost
-verticalBracketList open close empty items =
-    when Array.popFirst items is
-        Nothing ->
-            P.text empty
-        Just { first, rest } ->
-            let
-                firstD = P.concat (P.text open) first
-                restD = Array.map (\d -> P.concat (P.text ", ") d) rest
-            in
-            P.vcat ([firstD] ++ restD ++ [P.text close])
 
 bracketStrings : ListBrackets -> { open : String, close : String, empty : String }
 bracketStrings brackets =
@@ -1397,7 +1370,7 @@ makeFlowIndentableDoc children =
 
 makeTypeAliasPrettyDoc : Array LPNode -> Result String (P.Doc P.DefaultCostTuple)
 makeTypeAliasPrettyDoc =
-    renderHeaderIndentedBodyDoc "type alias declaration is empty" makeTypeBodyAlwaysVertical
+    renderHeaderIndentedBodyDoc "type alias declaration is empty" makeTypeBodyDoc
 
 
 makeTypeUnionPrettyDoc : Array LPNode -> Result String (P.Doc P.DefaultCostTuple)

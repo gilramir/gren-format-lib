@@ -12,6 +12,7 @@ import Formatter.LogicalPrintingTree exposing (LPBox(..),
     LPNode(..), ListBrackets(..), lpnBox, lpnChildren, lpnLeaf, lpnNode, lpnBracketNode)
 import Formatter.LPTHelpers exposing
     ( mkText, mkZeroWidthText, mkTextFromLocString, resultFoldl, fixupParensChildrenNodes
+    , itemsSpanRows
     )
 
 
@@ -104,6 +105,15 @@ makeSignatureBranch locType =
                             Array.pushLast itemContainer accNodes
                         )
             in
+            let
+                -- Signal B over the type's fields (name start → signature end):
+                -- a record type the author wrote across rows stays one-field-
+                -- per-line; one written on a single line is fit-based. Mirrors
+                -- the record-literal rule in `Src.Record`.
+                fieldsMultiLine =
+                    itemsSpanRows
+                        (Array.map (\f -> { start = f.field.start, end = f.signature.end }) fields)
+            in
             resultFoldl folderField [] fields
                 |> Result.map (\fieldNodes ->
                     when Array.popFirst fieldNodes is
@@ -115,20 +125,24 @@ makeSignatureBranch locType =
                             -- its own line before the `}` inside the record.
                             when extending is
                                 Nothing ->
-                                    [lpnBracketNode (AllAcrossOrAllVertical ListCurly) locType.end fieldNodes]
+                                    let
+                                        recordBox =
+                                            if fieldsMultiLine then
+                                                AlwaysVertical ListCurly
+                                            else
+                                                AllAcrossOrAllVertical ListCurly
+                                    in
+                                    [lpnBracketNode recordBox locType.end fieldNodes]
                                 Just locVar ->
                                     -- Extensible record type: render with the
-                                    -- same vertical layout as a record update,
-                                    -- so `|` and `,` align under the base name.
-                                    -- Extend the RecordUpdate box's range to the
-                                    -- closing `}` (locVar.end is only the
-                                    -- extension variable). Kept always-vertical
-                                    -- (forceVertical); the author-layout rule is
-                                    -- scoped to record *expressions* for now.
+                                    -- same layout as a record update, so `|` and
+                                    -- `,` align under the base name. Extend the
+                                    -- RecordUpdate box's range to the closing `}`
+                                    -- (locVar.end is only the extension variable).
                                     [lpnNode
                                         (RecordUpdate
                                             { name = { locVar | end = locType.end }
-                                            , forceVertical = True
+                                            , forceVertical = fieldsMultiLine
                                             }
                                         )
                                         fieldNodes
