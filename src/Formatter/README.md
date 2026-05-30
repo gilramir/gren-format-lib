@@ -1052,6 +1052,39 @@ comment lands — and they only show up in deliberately adversarial inputs. The
 known cases live in a handful of test fixtures and are tracked for a future fix;
 ordinary code does not hit them.
 
+For example, a binary-operator chain long enough to overflow, ending in a trailing
+block comment that lands on its own line, formats like this the first time:
+
+```gren
+joinUp input =
+    let
+        prefix = sanitize input
+    in
+    prefix
+    ++ rightComponent
+    ++ someTrailingValueToPushThisParticularLineOutTowardOneHundredColumns
+    {- c -}
+```
+
+Because the chain carries a comment, it uses the fill wrapping (operators at the
+body indent) and the comment drops to that same indent. But formatting *that*
+output again slides the comment out to the margin — and with no comment left in
+the chain, the operators take their normal precedence-aware indent:
+
+```gren
+joinUp input =
+    let
+        prefix = sanitize input
+    in
+    prefix
+        ++ rightComponent
+        ++ someTrailingValueToPushThisParticularLineOutTowardOneHundredColumns
+{- c -}
+```
+
+A third format leaves this second form unchanged — so it settles after one extra
+pass.
+
 If you ever notice the formatter producing a slightly different result the second
 time you run it on a file, it will be a comment near a line-wrap boundary like
 this — and re-running once more will settle it.
