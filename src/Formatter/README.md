@@ -1245,9 +1245,29 @@ foo :
 The only difference between the two inputs is whitespace *inside the field* —
 yet it moves the comment.
 
-Resolving every such case to a single canonical placement is an open problem,
-related to the elided-token cases described in the [Comments](#comments) section
-above.
+**Why this isn't fixed yet.** The formatter decides inline-vs-own-line by
+comparing the comment's row to the row of the item it follows — and there is no
+single "row of the item" that is right for every item:
+
+- Use the item's **first** row, and a comment trailing the item's *last* token
+  looks like it's on a different row — the bug shown above (the field starts on
+  one row, the comment trails `Int` on a later row).
+- Use the item's **last token's** row, and that fixes the case above but breaks a
+  different one: an item that ends in a multi-line bracketed value has its closing
+  `}` (or `]`) on a line *below* its last token. A comment trailing that value
+  then glues onto the last token's row in one pass but sits on the bracket's row
+  on the next, so it oscillates between the two — trading this gap for an
+  *idempotency* gap, which is worse.
+
+The value that would actually be correct is the item's last *rendered* row. But
+that row often belongs to a closing bracket the parser discards (`}`, `]`, `)`
+carry no position in the AST — see the elided-token cases under
+[Comments](#comments)), so it isn't known until after layout, while the
+comment-placement decision is made before. Doing this right means making that
+decision against post-layout positions (or tracking the synthesized brackets'
+rows) — a deeper change than swapping which row the test reads. Until then the
+formatter keeps the current rule, which is stable (idempotent) everywhere but
+flips this particular case.
 
 None of these change the meaning of your code, and none affect code without
 comments. They're documented here for completeness and tracked for future work.
