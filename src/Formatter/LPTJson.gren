@@ -141,6 +141,11 @@ lpBoxFields lpbox =
         OpAndRhs ->
             [ { key = "type", value = Json.string "OpAndRhs" } ]
 
+        Binop { forceVertical } ->
+            [ { key = "type", value = Json.string "Binop" }
+            , { key = "forceVertical", value = Json.bool forceVertical }
+            ]
+
         AlignedFlow ->
             [ { key = "type", value = Json.string "AlignedFlow" } ]
 

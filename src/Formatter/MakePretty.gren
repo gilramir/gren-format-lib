@@ -72,6 +72,7 @@ import Formatter.LogicalPrintingTree exposing (LPBox(..),
     LPNode, ListBrackets(..), SyntaxType(..),
     lpnBox, lpnChildren, lpnNode, firstRowInSubtree, lpnLastPos)
 import Formatter.LPTJson exposing (lptToJson)
+import Formatter.LPTHelpers exposing (binopPrecedence)
 
 import Formatter.Strings exposing
     ( joinResultStrings
@@ -946,13 +947,20 @@ makePDoc box children =
         AcrossThenIndent ->
             buildFlowDoc grenIndent children
         IfCondition ->
-            buildFlowDoc (2 * grenIndent) children
+            -- An `if`/`else if` condition keeps the older fill rendering for a
+            -- binop: unwrap a `Binop` child back to its `OpAndRhs` flow so the
+            -- first operand stays on the `if` line and operators fill-wrap below,
+            -- rather than the precedence-aware group pushing the whole condition
+            -- onto its own (doubly-indented) line under a lone `if`.
+            buildFlowDoc (2 * grenIndent) (unwrapTopLevelBinops children)
         IndentedBlock ->
             buildFlowDoc 0 children
         PipelineStep ->
             buildFlowDoc 0 children
         Pipeline { forceVertical } ->
             makePipelineDoc forceVertical children
+        Binop { forceVertical } ->
+            makeBinopDoc forceVertical children
         BodyBlock ->
             buildFlowDoc 0 children
         WhenBranch _ ->
@@ -1097,6 +1105,13 @@ makeListItemDoc node =
             -- A synthesised keyword/punctuation can appear as a list item
             -- when, e.g., a `where { command = Cmd }` block's body is
             -- placed in a list-rendered container.
+            makePDoc (lpnBox node) (lpnChildren node)
+        Pipeline _ ->
+            -- A pipeline as a list item (`[ a |> b, c ]`). Delegate to its
+            -- renderer; the enclosing list's break decision still applies.
+            makePDoc (lpnBox node) (lpnChildren node)
+        Binop _ ->
+            -- A binop chain as a list item (`[ a + b, c * d ]`).
             makePDoc (lpnBox node) (lpnChildren node)
         _ -> Err ("makeListItemDoc: unexpected box type:\n" ++ lptToJson node)
 
@@ -1632,6 +1647,180 @@ makePipelineDoc forceVertical children =
             )
 
 
+-- Flatten the right-nested `OpAndRhs` structure of a Binop container back into
+-- its operands (each a flow of LPNodes) and operator leaf nodes, in source
+-- order. Inverse of `InsertExpressions.buildNestedOpAndRhs`. Used only on the
+-- comment-free path; comments would otherwise live among these nodes.
+flattenBinopNodes : Array LPNode -> { operands : Array (Array LPNode), ops : Array LPNode }
+flattenBinopNodes children =
+    when Array.popLast children is
+        Nothing ->
+            { operands = [], ops = [] }
+        Just { last = lastNode, initial = operandNodes } ->
+            when lpnBox lastNode is
+                OpAndRhs ->
+                    when Array.popFirst (lpnChildren lastNode) is
+                        Just { first = opNode, rest = restChildren } ->
+                            let inner = flattenBinopNodes restChildren
+                            in
+                            { operands = [operandNodes] ++ inner.operands
+                            , ops = [opNode] ++ inner.ops
+                            }
+                        Nothing ->
+                            { operands = [operandNodes], ops = [] }
+                _ ->
+                    { operands = [children], ops = [] }
+
+
+-- Replace each top-level `Binop` container with its `OpAndRhs` children,
+-- reverting to the flat fill flow. Used where a binop is embedded after a bare
+-- keyword (an `if` condition) and the precedence-aware group would otherwise
+-- push the whole chain onto its own line below the keyword.
+unwrapTopLevelBinops : Array LPNode -> Array LPNode
+unwrapTopLevelBinops nodes =
+    Array.foldl
+        (\n acc ->
+            when lpnBox n is
+                Binop _ -> acc ++ lpnChildren n
+                _ -> Array.pushLast n acc
+        )
+        []
+        nodes
+
+
+-- The text of an operator leaf node (`UnbreakableText` / `SynthesizedText`).
+opNodeText : LPNode -> String
+opNodeText node =
+    when lpnBox node is
+        UnbreakableText loc -> loc.value
+        SynthesizedText s -> s
+        _ -> ""
+
+
+{-| Render a non-pipeline binop chain with precedence-aware author layout.
+
+A chain the author wrote on one line stays inline when it fits; otherwise it
+breaks **only at its lowest-precedence operators** (operator-led, one group per
+line), keeping tighter-binding sub-terms inline:
+
+    baseScore
+        + bonusPoints * multiplier
+        - penaltyAmount
+
+The fit-based `P.group` and the forced-vertical form share the broken doc (fit
+uses `P.nl`, forced uses `P.hardNl` so an outer `name = body` group can't collapse
+a multi-line chain), so overflow == author-multi-line and formatting is a fixed
+point. A chain carrying any comment falls back to the existing `OpAndRhs` fill
+renderer (`buildFlowDoc 0 children`), unchanged.
+-}
+makeBinopDoc : Bool -> Array LPNode -> Result String (P.Doc cost)
+makeBinopDoc forceVertical children =
+    if Array.any subtreeHasComment children then
+        buildFlowDoc 0 children
+    else
+        let
+            flat = flattenBinopNodes children
+        in
+        when Array.popFirst flat.operands is
+            Nothing ->
+                Ok P.empty
+            Just { first = operand0Nodes, rest = restOperands } ->
+                if Array.isEmpty flat.ops then
+                    buildFlowDoc 0 operand0Nodes
+                else
+                    -- Render every operand to a doc, then split at the chain's
+                    -- minimum precedence into operator-led groups.
+                    let
+                        operandDocsResult =
+                            Array.foldl
+                                (\opNodes accR ->
+                                    accR
+                                        |> Result.andThen (\acc ->
+                                            buildFlowDoc 0 opNodes
+                                                |> Result.map (\d -> Array.pushLast d acc)
+                                        )
+                                )
+                                (Ok [])
+                                flat.operands
+                        minPrec =
+                            Array.foldl (\op acc -> min acc (binopPrecedence (opNodeText op))) 999 flat.ops
+                    in
+                    operandDocsResult
+                        |> Result.map (\operandDocs ->
+                            assembleBinopGroups forceVertical minPrec operandDocs flat.ops
+                        )
+
+
+-- Assemble the operand docs and operator nodes into the precedence-aware layout.
+-- `operandDocs` has one more entry than `ops`; `ops[k]` sits between
+-- `operandDocs[k]` and `operandDocs[k+1]`. Groups break at operators whose
+-- precedence equals `minPrec`; tighter (higher-precedence) operators join their
+-- operands inline within a group.
+assembleBinopGroups : Bool -> Int -> Array (P.Doc cost) -> Array LPNode -> P.Doc cost
+assembleBinopGroups forceVertical minPrec operandDocs ops =
+    let
+        firstDoc =
+            Array.first operandDocs |> Maybe.withDefault P.empty
+        -- Pair each operator with the operand doc that follows it.
+        paired =
+            Array.map2
+                (\op nextDoc -> { op = op, nextDoc = nextDoc })
+                ops
+                (Array.dropFirst 1 operandDocs)
+        -- Fold left, accumulating the current group's inline doc and emitting a
+        -- completed group (led by its lowest-precedence operator) each time we
+        -- cross a minimum-precedence operator.
+        state =
+            Array.foldl
+                (\pair acc ->
+                    if binopPrecedence (opNodeText pair.op) == minPrec then
+                        { firstGroup =
+                            -- The first minimum-precedence operator closes group 0;
+                            -- capture the accumulated `curDoc` (which may already hold
+                            -- higher-precedence ops, e.g. `a * b` in `a * b + c`).
+                            if acc.started then acc.firstGroup else acc.curDoc
+                        , started = True
+                        , segments =
+                            if acc.started then
+                                Array.pushLast { sep = acc.pendingSep, doc = acc.curDoc } acc.segments
+                            else
+                                acc.segments
+                        , pendingSep = opNodeText pair.op
+                        , curDoc = pair.nextDoc
+                        }
+                    else
+                        { acc
+                            | curDoc =
+                                P.concat acc.curDoc
+                                    (P.concat (P.text (" " ++ opNodeText pair.op ++ " ")) pair.nextDoc)
+                        }
+                )
+                { firstGroup = firstDoc
+                , started = False
+                , segments = []
+                , pendingSep = ""
+                , curDoc = firstDoc
+                }
+                paired
+        -- Close the final group.
+        segments =
+            Array.pushLast { sep = state.pendingSep, doc = state.curDoc } state.segments
+        sep =
+            if forceVertical then P.hardNl else P.nl
+        restInner =
+            Array.foldl
+                (\seg acc ->
+                    P.concat acc
+                        (P.concat sep (P.concat (P.text (seg.sep ++ " ")) seg.doc))
+                )
+                P.empty
+                segments
+        full =
+            P.concat state.firstGroup (P.nest grenIndent restInner)
+    in
+    if forceVertical then full else P.group full
+
+
 makeTypeAliasPrettyDoc : Array LPNode -> Result String (P.Doc P.DefaultCostTuple)
 makeTypeAliasPrettyDoc =
     renderHeaderIndentedBodyDoc "type alias declaration is empty" makeTypeBodyDoc
@@ -1759,6 +1948,14 @@ listBoxesWithBrackets open close nodes =
                         Err e -> Err e
                         Ok d -> Ok (Just { doc = d, row = firstRowInSubtree node })
                 SynthesizedText _ ->
+                    when makePDoc (lpnBox node) (lpnChildren node) is
+                        Err e -> Err e
+                        Ok d -> Ok (Just { doc = d, row = firstRowInSubtree node })
+                Pipeline _ ->
+                    when makePDoc (lpnBox node) (lpnChildren node) is
+                        Err e -> Err e
+                        Ok d -> Ok (Just { doc = d, row = firstRowInSubtree node })
+                Binop _ ->
                     when makePDoc (lpnBox node) (lpnChildren node) is
                         Err e -> Err e
                         Ok d -> Ok (Just { doc = d, row = firstRowInSubtree node })

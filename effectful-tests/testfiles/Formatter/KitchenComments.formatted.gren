@@ -210,7 +210,7 @@ reprice rawMultiplier ({ items, flags } as inboundCart) =
                               | unitPriceCents =
                                     round
                                         (toFloat itemRecord.unitPriceCents
-                                        * clampedMultiplier)
+                                            * clampedMultiplier)
                               -- comment between two updated fields of a nested update
                           
                               , quantity = itemRecord.quantity

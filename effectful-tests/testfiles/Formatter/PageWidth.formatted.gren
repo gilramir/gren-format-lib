@@ -161,8 +161,8 @@ letDestructure pair =
         { leftComponent, rightComponent } = pair
     in
     leftComponent
-    ++ rightComponent
-    ++ someTrailingValueToPushThisParticularLineOutTowardOneHundredColumns
+        ++ rightComponent
+        ++ someTrailingValueToPushThisParticularLineOutTowardOneHundredColumns
 
 -- ===== lambdas =====
 
@@ -189,16 +189,26 @@ pipelineBackward collection =
 
 binopChain =
     operandOne
-    + operandTwo
-    + operandThree
-    + operandFour + operandFive + operandSix + operandSeven + operandEight
+        + operandTwo
+        + operandThree
+        + operandFour
+        + operandFive
+        + operandSix
+        + operandSeven
+        + operandEight
 
 binopMixed =
     valueA
-    ++ valueB
-    ++ valueC
-    ++ valueD
-    ++ valueE ++ valueF ++ valueG ++ valueH ++ valueI ++ valueJ ++ valueK
+        ++ valueB
+        ++ valueC
+        ++ valueD
+        ++ valueE
+        ++ valueF
+        ++ valueG
+        ++ valueH
+        ++ valueI
+        ++ valueJ
+        ++ valueK
 
 -- ===== arrays =====
 

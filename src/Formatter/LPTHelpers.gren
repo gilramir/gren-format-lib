@@ -76,6 +76,46 @@ itemsSpanRows items =
         |> .spans
 
 
+{-| Precedence of a binary operator, used to lay out a binop chain by breaking
+at its lowest-precedence operators while keeping tighter-binding sub-terms
+inline (`a + b * c` breaks at `+`, keeps `b * c` together).
+
+The values are core's authoritative fixities (`core/src/Basics.gren`): higher
+binds tighter. `|>` / `<|` (precedence 0) are pipelines, handled by the separate
+`Pipeline` path and never reach the binop layout. Module-local operators and
+operators imported with a custom fixity are rare; they fall back to
+`defaultBinopPrecedence`, which sits just below the tightest standard tier so an
+unknown operator in a mixed chain errs toward staying grouped rather than
+splitting the chain at the wrong place.
+-}
+defaultBinopPrecedence : Int
+defaultBinopPrecedence =
+    7
+
+
+binopPrecedence : String -> Int
+binopPrecedence op =
+    when op is
+        "||" -> 2
+        "&&" -> 3
+        "==" -> 4
+        "/=" -> 4
+        "<" -> 4
+        ">" -> 4
+        "<=" -> 4
+        ">=" -> 4
+        "++" -> 5
+        "+" -> 6
+        "-" -> 6
+        "*" -> 7
+        "/" -> 7
+        "//" -> 7
+        "^" -> 8
+        "<<" -> 9
+        ">>" -> 9
+        _ -> defaultBinopPrecedence
+
+
 -- Left-fold that threads a Result through the accumulator, short-circuiting
 -- on the first Err. Equivalent to Array.foldl + Result.andThen.
 resultFoldl : (i -> a -> Result e a) -> a -> Array i -> Result e a

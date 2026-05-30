@@ -227,11 +227,11 @@ processConfiguration
                         else if String.startsWith "http://" sinkEndpoint then
                             Err
                                 ("refusing to use plaintext sink: "
-                                ++ sinkEndpoint)
+                                    ++ sinkEndpoint)
                         else
                             Err
                                 ("unknown scheme in tracing sink endpoint: "
-                                ++ sinkEndpoint)
+                                    ++ sinkEndpoint)
 
                     Nothing ->
                         Err "tracing enabled but no usable sinks configured"
@@ -259,12 +259,14 @@ processConfiguration
         updateFlagsForConfigDecision currentFlags =
             { currentFlags
                 | isReady = currentFlags.isReady || rolloutDecision "auto-ready"
-                , isVerified = currentFlags.isVerified
-                      && not (rolloutDecision "always-unverified")
+                , isVerified =
+                      currentFlags.isVerified
+                          && not (rolloutDecision "always-unverified")
                 , isPersisted = rolloutDecision "persist-on-config"
-                , isShadowBanned = currentFlags.isShadowBanned
-                      || (rolloutDecision "shadow-everyone"
-                      && not (rolloutDecision "shadow-bypass"))
+                , isShadowBanned =
+                      currentFlags.isShadowBanned
+                          || (rolloutDecision "shadow-everyone"
+                              && not (rolloutDecision "shadow-bypass"))
                 , isQuarantined = currentFlags.isQuarantined
             }
     in
@@ -282,7 +284,7 @@ processConfiguration
                                             schedulerDecision
                                   , jitterMillis =
                                         nestedConfiguration.jitterMillis
-                                        + (schedulerDecision // 10)
+                                            + (schedulerDecision // 10)
                                   , maxAttempts =
                                         if rolloutDecision "aggressive-retry"
                                                 then
@@ -340,8 +342,8 @@ applyOverlays leadingOverridePriority tracingIsEnabled
             \receivedContainer ->
                 if tracingIsEnabled then
                         { receivedContainer
-                            | identifier = receivedContainer.identifier
-                                  ++ "+tracing"
+                            | identifier =
+                                  receivedContainer.identifier ++ "+tracing"
                             , payload = "tracing=on"
                             , flags =
                                   { flags
@@ -352,8 +354,8 @@ applyOverlays leadingOverridePriority tracingIsEnabled
                         }
                     else
                         { receivedContainer
-                            | identifier = receivedContainer.identifier
-                                  ++ "-tracing"
+                            | identifier =
+                                  receivedContainer.identifier ++ "-tracing"
                             , flags =
                                   { flags
                                       | isReady = False
@@ -387,7 +389,7 @@ applyOverlays leadingOverridePriority tracingIsEnabled
                                   | retryCount = leadingOverridePriority
                                   , exponentialBackoffMillis =
                                         nestedConfiguration.exponentialBackoffMillis
-                                        * 2
+                                            * 2
                                   , jitterMillis =
                                         if leadingOverridePriority > 10 then
                                             nestedConfiguration.jitterMillis * 3
@@ -401,11 +403,12 @@ applyOverlays leadingOverridePriority tracingIsEnabled
                               { flags
                                   | isPersisted = leadingOverridePriority > 5
                                   , isQuarantined = leadingOverridePriority < 0
-                                  , isShadowBanned = leadingOverridePriority
-                                        > 100
+                                  , isShadowBanned =
+                                        leadingOverridePriority > 100
                               }
-                        , payload = "priority="
-                              ++ String.fromInt leadingOverridePriority
+                        , payload =
+                              "priority="
+                                  ++ String.fromInt leadingOverridePriority
                     }
     in
     -- A pipeline whose intermediate steps each thread through an update lambda.
@@ -415,7 +418,7 @@ applyOverlays leadingOverridePriority tracingIsEnabled
             (\penultimateContainer ->
                 { penultimateContainer | generatedAtMillis =
                     penultimateContainer.generatedAtMillis
-                    + leadingOverridePriority
+                        + leadingOverridePriority
                 })
 
 
@@ -475,10 +478,10 @@ fold reducerFunction initialAccumulatorValue currentTreeNode =
                             } accumulatedSoFar ->
                             reducerFunction
                                 (Debug.todo "fold attribute"
-                                :: nameOfAttribute
-                                :: valueOfAttributeAsString :: [])
-                                accumulatedSoFar) initialAccumulatorValue
-                        branchAttributesArray
+                                    :: nameOfAttribute
+                                    :: valueOfAttributeAsString
+                                    :: []) accumulatedSoFar)
+                        initialAccumulatorValue branchAttributesArray
             in
             Array.foldl
                 (\childTreeNode innerAccumulator ->
@@ -537,7 +540,8 @@ traverseDeeply rootTree =
                         rightCollected = gatherNames rightSubtreeOfNames
                     in
                     [ formatPersonRecord headPersonRecord ]
-                    ++ leftCollected ++ rightCollected
+                        ++ leftCollected
+                        ++ rightCollected
     in
     gatherNames rootTree
         |> Array.map String.trim
@@ -555,7 +559,8 @@ classifyTree tree =
             String.append "leaf:" (Debug.toString wholeLeafNode)
         Branch ({ label } as wholeBranchPayload) ->
             String.append "branch:" label
-                ++ "/" ++ Debug.toString wholeBranchPayload
+                ++ "/"
+                ++ Debug.toString wholeBranchPayload
         Cons { leftSubtree = Empty, rightSubtree = Empty } -> "single-cons"
         Cons _ -> "wide-cons"
 
@@ -605,8 +610,8 @@ interpretMicroCommand decoderForPayload commandText commandCharacters
                         _ -> fallbackReplyCode
     in
     { handled = codeFromCharacterArray > 0
-    , replyCode = codeFromCharacterArray
-        + codeFromCommandText + codeFromRetryHint
+    , replyCode =
+        codeFromCharacterArray + codeFromCommandText + codeFromRetryHint
     }
 
 
@@ -624,12 +629,13 @@ sumOfSquaredOddIntegersUpTo upperBoundInclusive =
 overflowingMathExpression : Int -> Int -> Int -> Int -> Int
 overflowingMathExpression alphaCoefficient betaCoefficient gammaCoefficient
         deltaCoefficient =
-    alphaCoefficient
-    * betaCoefficient
-    + gammaCoefficient
-    * deltaCoefficient
-    - (alphaCoefficient + betaCoefficient + gammaCoefficient + deltaCoefficient)
-    * 2 + 0xCAFEBABE
+    alphaCoefficient * betaCoefficient
+        + gammaCoefficient * deltaCoefficient
+        - (alphaCoefficient
+            + betaCoefficient
+            + gammaCoefficient
+            + deltaCoefficient) * 2
+        + 0xCAFEBABE
 
 
 -- An if/else-if/else chain that should each break to its own line.

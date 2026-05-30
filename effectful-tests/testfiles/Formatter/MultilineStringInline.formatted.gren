@@ -8,8 +8,8 @@ module MultilineStringInline exposing (..)
 explain : String -> String
 explain errorMessage =
     "prefix "
-    ++ errorMessage
-    ++ """
-       line one of the body
-       line two of the body
-       """
+        ++ errorMessage
+        ++ """
+           line one of the body
+           line two of the body
+           """

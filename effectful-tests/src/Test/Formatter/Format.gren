@@ -214,6 +214,7 @@ expressionTests fsPerm =
         , assertPretty fsPerm "record/array pattern layout follows author" "PatternLayoutByAuthor"
         , assertPretty fsPerm "union variant layout follows author: one line inline, multi-line one-per-line" "UnionLayoutByAuthor"
         , assertPretty fsPerm "pipeline layout follows author: one line inline, multi-line one-per-line" "PipelineLayoutByAuthor"
+        , assertPretty fsPerm "binop layout follows author: precedence-aware split, lowest-precedence operators break first" "BinopLayoutByAuthor"
         , assertPretty fsPerm "when branch body indentation" "WhenBranchBody"
         , assertPretty fsPerm "when branch patterns" "WhenPatterns"
         , assertPretty fsPerm "record field value indentation" "RecordFieldValue"

@@ -711,16 +711,124 @@ def pipeline_layout_fingerprint(src):
     return fps
 
 
+_OPERATOR_CHARS = set("+-*/<>=&|^")
+_BINOP_OPS = {
+    "+", "-", "*", "/", "//", "^", "++", "==", "/=",
+    "<", ">", "<=", ">=", "&&", "||", "<<", ">>",
+}
+
+
+def binop_layout_fingerprint(src):
+    """For each non-pipeline binary operator (`+ - * / // ^ ++ == /= < > <= >=
+    && || << >>`), whether its step spans rows — a newline between the operand
+    before it and the operand after it. Binop chains now follow the author's
+    layout (inline when written on one line and it fits; precedence-aware split
+    otherwise), so a whitespace perturbation that flips a chain's layout is
+    intended, not drift.
+
+    Records *every* binop operator, not just a chain's lowest-precedence ones:
+    a newline at a higher-precedence operator is canonicalised back inline by the
+    formatter (so it never drifts), and over-recording it here only discards a
+    no-drift perturbation harmlessly. `|>` / `<|` are pipelines (their own
+    fingerprint); `->`, `|`, `=`, `<|`, `|>` and other operator runs that are not
+    in the binop set are skipped. Operators inside comments/strings are skipped."""
+    fps = []
+    pending = []
+    last_code_row = None
+    i, n, row = 0, len(src), 1
+
+    def resolve(next_row):
+        for prev in pending:
+            fps.append(prev is not None and next_row > prev)
+        pending.clear()
+
+    while i < n:
+        c = src[i]
+        two = src[i : i + 2]
+        three = src[i : i + 3]
+        if c == "\n":
+            row += 1
+            i += 1
+            continue
+        if two == "--":
+            j = src.find("\n", i)
+            i = n if j == -1 else j
+            continue
+        if two == "{-":
+            d = 0
+            while i < n:
+                if src[i] == "\n":
+                    row += 1
+                    i += 1
+                elif src[i : i + 2] == "{-":
+                    d += 1
+                    i += 2
+                elif src[i : i + 2] == "-}":
+                    d -= 1
+                    i += 2
+                    if d == 0:
+                        break
+                else:
+                    i += 1
+            continue
+        if three == '"""' or c == '"' or c == "'":
+            resolve(row)
+            if three == '"""':
+                i += 3
+                while i < n and src[i : i + 3] != '"""':
+                    if src[i] == "\n":
+                        row += 1
+                    i += 1
+                i += 3
+            else:
+                q, i = c, i + 1
+                while i < n:
+                    if src[i] == "\\":
+                        i += 2
+                    elif src[i] == q:
+                        i += 1
+                        break
+                    elif src[i] == "\n":
+                        row += 1
+                        i += 1
+                    else:
+                        i += 1
+            last_code_row = row
+            continue
+        if c in " \t\r":
+            i += 1
+            continue
+        if c in _OPERATOR_CHARS:
+            # Collect the maximal operator-symbol run and classify it.
+            j = i
+            while j < n and src[j] in _OPERATOR_CHARS:
+                j += 1
+            op = src[i:j]
+            if op in _BINOP_OPS:
+                pending.append(last_code_row)
+            # A non-binop operator run (`-> = | <| |> ::` …) is neither a binop
+            # nor an operand; leave last_code_row and pending untouched so the
+            # operand on each side still pairs up correctly.
+            i = j
+            continue
+        # Any other code char resolves pending ops and advances the code row.
+        resolve(row)
+        last_code_row = row
+        i += 1
+    return fps
+
+
 def layout_fingerprint(src):
     """Combined author-layout signature: bracket containers (lists, records,
     record updates, record types, patterns), union variant lists, function/port
-    type signatures, and `|>`/`<|` pipelines. A perturbation that leaves this
-    unchanged is not an intended layout flip."""
+    type signatures, `|>`/`<|` pipelines, and non-pipeline binop chains. A
+    perturbation that leaves this unchanged is not an intended layout flip."""
     return (
         container_layout_fingerprint(src),
         union_layout_fingerprint(src),
         signature_layout_fingerprint(src),
         pipeline_layout_fingerprint(src),
+        binop_layout_fingerprint(src),
     )
 
 

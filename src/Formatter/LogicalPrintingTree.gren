@@ -178,6 +178,22 @@ type LPBox
     -- new line instead of dangling at the end of the previous one.
     | OpAndRhs
 
+    -- A whole non-pipeline binop chain (`a + b * c`). Children are the nested
+    -- `[operand0, OpAndRhs(op1, [operand1, OpAndRhs(op2, …)])]` structure the
+    -- chain has always built. Mirrors the author-layout rule: inline when written
+    -- on one line and it fits, otherwise **precedence-aware** — broken only at the
+    -- chain's lowest-precedence operators (operator-led, one group per line), with
+    -- tighter-binding sub-terms kept inline:
+    --
+    --     baseScore
+    --         + bonusPoints * multiplier
+    --         - penaltyAmount
+    --
+    -- `forceVertical` is True when the author wrote the lowest-precedence split
+    -- groups across rows. A chain carrying any comment falls back to the existing
+    -- `OpAndRhs` fill rendering (`buildFlowDoc 0 children`), unchanged.
+    | Binop { forceVertical : Bool }
+
     -- A flow whose internal newlines are aligned to the column where the
     -- flow starts (via P.align). Used to wrap indentation-sensitive
     -- constructs (when/is, if/then/else, let/in) so their bodies indent

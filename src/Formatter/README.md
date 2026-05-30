@@ -879,6 +879,49 @@ result =
 
 ---
 
+## Binary operators
+
+A binary-operator chain (`a + b`, `x && y`, `s ++ t`, …) follows the author's layout, like a list or record. One the author wrote on a single line stays inline when it fits:
+
+```gren
+area = width * height + margin
+```
+
+When a one-line chain overflows — or the author wrote it across rows — it breaks **precedence-aware**: only at the chain's lowest-precedence operators, with each such operator leading its own line (indented 4 spaces from the first operand) and tighter-binding sub-terms kept inline:
+
+```gren
+score =
+    baseScore
+        + bonusPoints * multiplier
+        - penaltyAmount
+        + streakBonus * weight
+```
+
+A chain whose operators are all the same precedence breaks at every operator:
+
+```gren
+greeting =
+    "Hello, "
+        ++ firstName
+        ++ " "
+        ++ lastName
+```
+
+With three or more precedence levels, the break happens only at the lowest; higher-precedence groups stay together:
+
+```gren
+eligible =
+    isAdministrator
+        || hasElevatedRole && accountIsActive == True
+        || isOwner
+```
+
+A chain the author wrote across rows is kept split even when it would fit on one line.
+
+Two contexts keep the older fill-style wrapping instead: an `if` / `else if` condition (so the first operand stays on the `if` line rather than the whole condition dropping below a lone `if`), and any chain carrying a comment (`a + {- note -} b`).
+
+---
+
 ## Comments
 
 The formatter never modifies the text of a comment — only its placement relative to code.

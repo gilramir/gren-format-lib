@@ -17,7 +17,7 @@ import Formatter.LogicalPrintingTree exposing (LPBox(..),
 import Formatter.LPTHelpers exposing
     ( mkText, mkZeroWidthText, mkTextFromLocString, resultFoldl
     , tryMapFirstLeaf, tryMapLastLeaf, fixupParensChildrenNodes
-    , itemsSpanRows
+    , itemsSpanRows, binopPrecedence
     )
 import Formatter.LiteralFormat exposing (charLiteralString, escapeStringContent, escapeMultilineContent, intToHex)
 import Formatter.InsertPatterns exposing (folderInsertPattern, insertPattern)
@@ -104,6 +104,90 @@ insertStepBody outerOpStr body =
                 insertExpression body
         _ ->
             insertExpression body
+
+
+{-| Flatten a non-pipeline binop chain into its operands and operators in source
+order. The parser nests binops on the right spine (`a + b * c` is
+`a +(b *(c))`, NOT precedence-resolved), so walking the right spine collects the
+operands and operators in the order they were written. Stops at a pipeline
+operator (mixed `|>`/`<|` is handled separately) or any non-binop, treating it as
+a single operand.
+-}
+flattenBinop : Src.Expression -> { operands : Array Src.Expression, ops : Array (Located String) }
+flattenBinop locExpr =
+    when locExpr.value is
+        Src.Binops { left = lhs, operator = op, right = rhs } ->
+            if isPipelineOp op.value then
+                { operands = [locExpr], ops = [] }
+            else
+                let rest = flattenBinop rhs
+                in
+                { operands = [lhs] ++ rest.operands
+                , ops = [op] ++ rest.ops
+                }
+        _ ->
+            { operands = [locExpr], ops = [] }
+
+
+{-| Signal B for a binop chain: do the lowest-precedence split groups span rows?
+The chain breaks only at its lowest-precedence operators (keeping tighter
+sub-terms inline), so the author "wrote it across rows" exactly when a newline
+sits at one of those split points. A group is a maximal run of operands joined by
+higher-than-minimum-precedence operators.
+-}
+binopForceVertical : Array Src.Expression -> Array (Located String) -> Bool
+binopForceVertical operands ops =
+    when Array.popFirst operands is
+        Nothing ->
+            False
+        Just { first = operand0, rest = restOperands } ->
+            if Array.isEmpty ops then
+                False
+            else
+                let
+                    minPrec =
+                        Array.foldl (\o acc -> min acc (binopPrecedence o.value)) 999 ops
+                    paired =
+                        Array.map2 (\op next -> { op = op, next = next }) ops restOperands
+                    final =
+                        Array.foldl
+                            (\pair acc ->
+                                if binopPrecedence pair.op.value == minPrec then
+                                    { groups = Array.pushLast { start = acc.curStart, end = acc.curEnd } acc.groups
+                                    , curStart = pair.next.start
+                                    , curEnd = pair.next.end
+                                    }
+                                else
+                                    { acc | curEnd = pair.next.end }
+                            )
+                            { groups = [], curStart = operand0.start, curEnd = operand0.end }
+                            paired
+                    groups =
+                        Array.pushLast { start = final.curStart, end = final.curEnd } final.groups
+                in
+                itemsSpanRows groups
+
+
+{-| Rebuild the right-nested `OpAndRhs` structure from a flattened chain — the
+exact shape the recursive build produced before flattening — so comment insertion
+and the comment-bearing fill renderer stay byte-identical. For operands
+`[a, b, c]` and ops `[+, *]` this yields `[a, OpAndRhs(+, [b, OpAndRhs(*, [c])])]`.
+-}
+buildNestedOpAndRhs : Array (Array LPNode) -> Array (Located String) -> Array LPNode
+buildNestedOpAndRhs operandNodesList ops =
+    when Array.popFirst operandNodesList is
+        Nothing ->
+            []
+        Just { first = firstOperandNodes, rest = restOperandNodes } ->
+            when Array.popFirst ops is
+                Nothing ->
+                    firstOperandNodes
+                Just { first = op0, rest = restOps } ->
+                    let
+                        opNode = lpnLeaf (mkTextFromLocString op0)
+                        innerNested = buildNestedOpAndRhs restOperandNodes restOps
+                    in
+                    firstOperandNodes ++ [lpnNode OpAndRhs ([opNode] ++ innerNested)]
 
 
 {-| Recursively convert a Gren expression into LPT nodes.
@@ -346,18 +430,25 @@ insertExpression locExpr =
                         |> Result.map (\allNodes -> [lpnNode (Pipeline { forceVertical = forceVertical }) allNodes])
                     )
             else
-                insertExpression lhsExpr
-                    |> Result.andThen (\lhsNodes ->
-                        let opNode = lpnLeaf (mkTextFromLocString locStringOp)
+                -- Flatten the whole chain (not recurse into it) so the Binop
+                -- container wraps the entire chain exactly once. The nested
+                -- `OpAndRhs` structure is then rebuilt from the flat operands so
+                -- the comment-bearing fill path stays byte-identical.
+                let flat = flattenBinop locExpr
+                in
+                resultFoldl
+                    (\operand accList ->
+                        insertExpression operand
+                            |> Result.map (\nodes -> Array.pushLast nodes accList)
+                    )
+                    []
+                    flat.operands
+                    |> Result.map (\operandNodesList ->
+                        let
+                            nested = buildNestedOpAndRhs operandNodesList flat.ops
+                            forceVertical = binopForceVertical flat.operands flat.ops
                         in
-                        insertExpression rhsExpr
-                            |> Result.map (\rhsNodes ->
-                                -- Bundle this `op rhs` into an OpAndRhs node so
-                                -- the operator stays adjacent to its rhs when
-                                -- the surrounding chain breaks (i.e. the break
-                                -- goes before the operator, not after).
-                                lhsNodes ++ [lpnNode OpAndRhs ([opNode] ++ rhsNodes)]
-                            )
+                        [lpnNode (Binop { forceVertical = forceVertical }) nested]
                     )
 
         Src.Call { fn = fnExpr, args = argsExprs } ->
