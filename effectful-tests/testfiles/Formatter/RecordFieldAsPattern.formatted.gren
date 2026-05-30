@@ -13,5 +13,6 @@ getLeft tree =
     when tree is
         Node { left = (Node _ as inner) } ->
             inner
+
         _ ->
             tree

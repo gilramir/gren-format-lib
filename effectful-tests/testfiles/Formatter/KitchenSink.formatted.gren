@@ -246,9 +246,11 @@ processConfiguration
             when schedulerSection.overrides is
                 [] ->
                     schedulerSection.defaultTickMillis
+
                 [ singleOverride ] ->
                     Math.max schedulerSection.defaultTickMillis
                         singleOverride.tickMillis
+
                 _ ->
                     schedulerSection.overrides
                         |> Array.map .tickMillis
@@ -470,6 +472,7 @@ fold reducerFunction initialAccumulatorValue currentTreeNode =
     when currentTreeNode is
         Empty ->
             initialAccumulatorValue
+
         Leaf solitaryLeafValue ->
             reducerFunction solitaryLeafValue initialAccumulatorValue
 
@@ -566,14 +569,18 @@ classifyTree tree =
     when tree is
         Empty ->
             "empty"
+
         Leaf _ as wholeLeafNode ->
             String.append "leaf:" (Debug.toString wholeLeafNode)
+
         Branch ({ label } as wholeBranchPayload) ->
             String.append "branch:" label
                 ++ "/"
                 ++ Debug.toString wholeBranchPayload
+
         Cons { leftSubtree = Empty, rightSubtree = Empty } ->
             "single-cons"
+
         Cons _ ->
             "wide-cons"
 
@@ -605,12 +612,14 @@ interpretMicroCommand decoderForPayload commandText commandCharacters
                 -- 4-element array pattern (all PVars)
                 [ firstChar, secondChar, thirdChar, fourthChar ] ->
                     3
+
                 _ ->
                     defaultReplyCode
         codeFromCommandText =
             when commandText is
                 "skip" ->
                     100
+
                 "halt" ->
                     200
 
@@ -618,8 +627,10 @@ interpretMicroCommand decoderForPayload commandText commandCharacters
                     when String.length commandText is
                         0 ->
                             0
+
                         1 ->
                             1
+
                         _ ->
                             fallbackReplyCode
         codeFromRetryHint =
@@ -631,6 +642,7 @@ interpretMicroCommand decoderForPayload commandText commandCharacters
                     when String.uncons commandText is
                         Just { first = '?', rest = _ } ->
                             42
+
                         _ ->
                             fallbackReplyCode
     in

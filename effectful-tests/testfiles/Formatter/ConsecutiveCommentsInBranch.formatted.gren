@@ -10,5 +10,6 @@ foo maybeThing =
             -- first comment
             -- second comment
             defaultValue
+
         Just x ->
             x

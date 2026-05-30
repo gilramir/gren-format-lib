@@ -17,8 +17,10 @@ intLit x =
     when x is
         0 ->
             "zero"
+
         1 ->
             "one"
+
         _ ->
             "other"
 
@@ -27,6 +29,7 @@ strLit x =
     when x is
         "hello" ->
             "greeting"
+
         _ ->
             "other"
 
@@ -35,6 +38,7 @@ charLit x =
     when x is
         'a' ->
             "ay"
+
         _ ->
             "other"
 
@@ -43,6 +47,7 @@ ctorNoPayload x =
     when x is
         Nothing ->
             0
+
         Just n ->
             n
 
@@ -51,6 +56,7 @@ ctorPayload x =
     when x is
         Just n ->
             n
+
         Nothing ->
             0
 
@@ -59,6 +65,7 @@ nestedCtor x =
     when x is
         Just Just n ->
             n
+
         _ ->
             0
 
@@ -67,6 +74,7 @@ aliasPat x =
     when x is
         Just n as whole ->
             whole
+
         _ ->
             Nothing
 
@@ -81,9 +89,12 @@ arrayPat x =
     when x is
         [] ->
             "empty"
+
         [ a ] ->
             "one"
+
         [ a, b ] ->
             "two"
+
         _ ->
             "many"

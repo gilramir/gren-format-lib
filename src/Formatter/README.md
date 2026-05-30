@@ -630,21 +630,24 @@ else
 ## When expressions
 
 A branch body always goes on the next line, indented 4 spaces from the pattern —
-even a tiny one that would fit beside the `->`:
+even a tiny one that would fit beside the `->` — and a blank line always
+separates one branch from the next:
 
 ```gren
 when n is
     1 ->
         "one"
+
+    2 ->
+        "two"
+
     _ ->
         "other"
 ```
 
-A blank line is inserted between two branches when either branch's body is a
-container or block — a record, a record update, a list, or an `if`/`let`/`when`.
-(This is based on the *kind* of body, not on whether it wrapped: a record body
-gets the blank line even when the record itself is short enough to stay on one
-line.)
+The blank line is uniform: it doesn't matter whether a body is a single value or
+a multi-line block — a branch whose body is a record just looks taller, with the
+same blank line before the next branch:
 
 ```gren
 when msg is
@@ -657,19 +660,6 @@ when msg is
         { model = model
         , command = Cmd.none
         }
-```
-
-Branches with simple bodies are *not* blank-separated, even though each body sits
-on its own line:
-
-```gren
-when n is
-    1 ->
-        "Monday"
-    2 ->
-        "Tuesday"
-    _ ->
-        "Unknown"
 ```
 
 ---
@@ -1018,9 +1008,13 @@ describe x =
                 ++ secondComponent
                 ++ thirdComponentThatPushesThisPastEighty
         {- a trailing note that runs well past the page width here -}
+
         _ ->
             "other"
 ```
+
+(The comment stays with the branch it trails; the usual blank line then separates
+that branch from the next.)
 
 Either way the comment lands somewhere it re-parses to the same place, so it
 doesn't drift.

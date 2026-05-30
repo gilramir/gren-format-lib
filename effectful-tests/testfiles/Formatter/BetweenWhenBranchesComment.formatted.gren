@@ -16,6 +16,7 @@ process tracingSection =
                                 ("unknown scheme in tracing sink endpoint: "
                                     ++ sinkEndpoint)
                     {- trailing a non-last when-branch body -}
+
                     Nothing ->
                         Err "tracing enabled but no usable sinks configured"
             else

@@ -5,8 +5,10 @@ simple msg =
     when msg is
         Increment ->
             model + 1
+
         Decrement ->
             model - 1
+
         Reset ->
             0
 

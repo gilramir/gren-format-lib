@@ -128,11 +128,14 @@ whenExample value =
     when value is
         FirstConstructor { fieldAlpha, fieldBeta } ->
             combineThemTogether fieldAlpha fieldBeta withExtraContext
+
         SecondConstructor fieldAlpha ->
             handleTheSecondConstructorCaseWithARatherLongFunctionName fieldAlpha
                 here
+
         ThirdConstructor ->
             defaultResultValue
+
         _ ->
             fallbackResultValue
 

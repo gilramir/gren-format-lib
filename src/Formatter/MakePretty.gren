@@ -813,8 +813,10 @@ buildFlowDocImpl indent inlineStart nodes =
                                                     when Array.last nodeChildren is
                                                         Just lastChild -> nodeIsComment lastChild
                                                         Nothing -> False
+                                                -- Always blank-separate consecutive branches,
+                                                -- regardless of whether either body is multi-line.
                                                 insertBlankLine =
-                                                    acc.prevBranchMultiLine || branchMultiLine
+                                                    True
                                                 blankOrNewline =
                                                     if insertBlankLine then
                                                         P.concat (P.text "\n") P.hardNl

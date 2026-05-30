@@ -17,6 +17,7 @@ whenArrayPat xs =
             , b
             ] ->
             a + b
+
         _ ->
             0
 
@@ -25,6 +26,7 @@ whenCtorPat maybe =
     when maybe is
         Just {- between ctor name and arg in a when-branch -} x ->
             x
+
         Nothing ->
             0
 
@@ -33,5 +35,6 @@ whenCtorTwoArgs result =
     when result is
         Ok {- between ctor name and first arg -} x ->
             x
+
         Err _ ->
             0
