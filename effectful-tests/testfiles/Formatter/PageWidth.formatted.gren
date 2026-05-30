@@ -8,15 +8,23 @@ module PageWidth exposing (..)
 
 
 -- arrow chain that runs to about column 100
-signatureNear : ArgumentTypeAlpha -> ArgumentTypeBeta -> ArgumentTypeGamma ->
-    ResultTypeDelta
+signatureNear :
+    ArgumentTypeAlpha
+    -> ArgumentTypeBeta
+    -> ArgumentTypeGamma
+    -> ResultTypeDelta
 signatureNear a b c =
     a
 
 
 -- arrow chain that runs well past 100
-signaturePast : ArgumentTypeAlpha -> ArgumentTypeBeta -> ArgumentTypeGamma ->
-    ArgumentTypeDelta -> ArgumentTypeEpsilon -> ResultType
+signaturePast :
+    ArgumentTypeAlpha
+    -> ArgumentTypeBeta
+    -> ArgumentTypeGamma
+    -> ArgumentTypeDelta
+    -> ArgumentTypeEpsilon
+    -> ResultType
 signaturePast a b c d e =
     a
 
@@ -27,7 +35,8 @@ signatureRecord :
     , fieldBeta : String
     , fieldGamma : Bool
     , fieldDelta : Float
-    } -> Result
+    }
+    -> Result
 signatureRecord r =
     r
 
@@ -242,8 +251,12 @@ type alias LongAlias =
 
 
 {-| A doc comment on a function whose signature below also approaches the width. -}
-documentedFunction : ArgumentTypeAlpha -> ArgumentTypeBeta -> ArgumentTypeGamma
-    -> ArgumentTypeDelta -> Result
+documentedFunction :
+    ArgumentTypeAlpha
+    -> ArgumentTypeBeta
+    -> ArgumentTypeGamma
+    -> ArgumentTypeDelta
+    -> Result
 documentedFunction a b c d =
     a
 

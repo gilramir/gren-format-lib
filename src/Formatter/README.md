@@ -88,7 +88,9 @@ The wildcard form `exposing (..)` is left as-is.
 
 ## Type signatures
 
-A type signature (`name : Type`) is kept on one line when it fits:
+A type signature's layout follows the author's, exactly like a list or record: it is **all-or-nothing**, never partially wrapped.
+
+A signature the author wrote on one line stays on one line when it fits:
 
 ```gren
 add : Int -> Int -> Int
@@ -98,12 +100,30 @@ applyTwice : (a -> a) -> a -> a
 
 Function types used as arguments are wrapped in parentheses in the signature.
 
-When a signature is too long to fit on one line, it continues on the next line indented 4 spaces. The `->` stays at the end of the preceding line:
+When a one-line signature is too long to fit, it breaks so that the `:` moves to the end of the first line and every `->`-delimited segment gets its own line, indented 4 spaces, with the `->` leading each continuation line:
 
 ```gren
-processItems : Array String -> Dict String Int -> (String -> Bool) -> Array String -> Result String
-    (Array String)
+processItems :
+    Array String
+    -> Dict String Int
+    -> (String -> Bool)
+    -> Array String
+    -> Result String (Array String)
 ```
+
+A signature the author wrote across rows is kept one-segment-per-line even when it would fit on one line:
+
+```gren
+-- kept multi-line because the author wrote it that way
+keptMultiLine :
+    Int
+    -> Int
+    -> Int
+```
+
+(A newline after the `:` alone, with the segments still on one line, does not count — only a newline *between* segments makes it multi-line.)
+
+Signatures carrying a comment are an exception: they keep the older fill-style wrapping (the all-or-nothing break points have no stable anchor for a trailing comment).
 
 ---
 
@@ -309,7 +329,7 @@ type Maybe a
     | Just a
 ```
 
-Variant payloads appear on the same line as the variant name, space-separated. Payload types follow the same rules as type signatures:
+Variant payloads appear on the same line as the variant name, space-separated. A payload type that overflows wraps in flow style (it is not subject to the all-or-nothing signature rule):
 
 ```gren
 type Shape
@@ -329,7 +349,7 @@ port outgoing : String -> Cmd msg
 port incoming : (String -> msg) -> Sub msg
 ```
 
-Long port type signatures follow the same wrapping rule as function type signatures — the continuation indents 4 spaces and the `->` stays at the end of the preceding line.
+Long port type signatures follow the same all-or-nothing rule as function type signatures — when a one-line port type overflows (or the author wrote it across rows), the `:` moves to the end of the first line and each `->`-segment goes on its own line, indented 4 spaces, with the `->` leading each continuation line.
 
 ---
 

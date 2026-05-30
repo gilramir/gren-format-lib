@@ -8,6 +8,13 @@ add a b = a + b
 applyTwice : (a -> a) -> a -> a
 applyTwice f x = f (f x)
 
--- Long signature wraps; continuation indents +4
+-- Long one-line signature breaks to one segment per line, each `->` leading its line
 processItems : Array String -> Dict String Int -> (String -> Bool) -> Array String -> Result String (Array String)
 processItems items dict pred fallback = []
+
+-- Author-multi-line signature that WOULD fit on one line is kept multi-line
+keptMultiLine :
+    Int
+    -> Int
+    -> Int
+keptMultiLine a b = a

@@ -451,7 +451,10 @@ transform inputValues =
     aggressively it can collapse them. Uses long argument names to push lines
     near the 100-char threshold; the body intentionally has lines over 150
     chars before formatting. -}
-fold : (a -> accumulatorValue -> accumulatorValue) -> accumulatorValue -> Tree a
+fold :
+    (a -> accumulatorValue -> accumulatorValue)
+    -> accumulatorValue
+    -> Tree a
     -> accumulatorValue
 fold reducerFunction initialAccumulatorValue currentTreeNode =
     when currentTreeNode is
@@ -494,9 +497,9 @@ fold reducerFunction initialAccumulatorValue currentTreeNode =
 
 {-| Demonstrates lambdas with destructuring patterns, as-patterns, qualified
     constructors, negation, parens, and a backward-pipeline chain. -}
-traverseDeeply : Tree
-    { firstNameString : String, lastNameString : String, ageInYears : Int } ->
-    Array String
+traverseDeeply :
+    Tree { firstNameString : String, lastNameString : String, ageInYears : Int }
+    -> Array String
 traverseDeeply rootTree =
     let
         formatPersonRecord =
@@ -561,7 +564,11 @@ classifyTree tree =
 -- Exercises literal patterns (Int / Char / String), qualified-constructor
 -- patterns, multi-element array patterns, let-destructure bindings, and
 -- qualified types in signatures.
-interpretMicroCommand : Decode.Decoder Int -> String -> Array Char -> Maybe Int
+interpretMicroCommand :
+    Decode.Decoder Int
+    -> String
+    -> Array Char
+    -> Maybe Int
     -> { handled : Bool, replyCode : Int }
 interpretMicroCommand decoderForPayload commandText commandCharacters
         optionalRetryHint =

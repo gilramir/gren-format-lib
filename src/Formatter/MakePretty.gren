@@ -1371,6 +1371,8 @@ makePrettyLineDoc node =
                 StSingleLineComment -> makeCommentLineDoc_ children
                 StBlockComment -> makeCommentLineDoc_ children
                 StDocComment -> makeCommentLineDoc_ children
+                StFunctionSignature -> makeSignaturePrettyDoc children
+                StPort -> makeSignaturePrettyDoc children
                 _ -> makeFlowIndentableDoc children
         EmptyLine ->
             Ok P.empty
@@ -1393,6 +1395,164 @@ makeFlowIndentableDoc children =
             else
                 P.concat (P.vcat commentDocs) (P.concat P.hardNl flowDoc)
         )
+
+
+-- True if `node` or any of its descendants is a line/block comment.
+subtreeHasComment : LPNode -> Bool
+subtreeHasComment node =
+    nodeIsComment node || Array.any subtreeHasComment (lpnChildren node)
+
+
+-- True for the synthesized signature/lambda `->`: a zero-width
+-- `UnbreakableText` (start == end) built by `LPTHelpers.mkZeroWidthText`. These
+-- are the top-level arrows of the signature's lambda chain; nested arrows live
+-- inside a `ParenBlock` and never appear among a signature's direct children.
+isArrowLeaf : LPNode -> Bool
+isArrowLeaf node =
+    when lpnBox node is
+        UnbreakableText loc ->
+            loc.value == "->"
+                && loc.start.row == loc.end.row
+                && loc.start.col == loc.end.col
+        _ ->
+            False
+
+
+-- True for the zero-width `:` leaf that separates a signature's header
+-- (`name :` / `port name :`) from its type. Record-type field colons are
+-- `SynthesizedText` nested inside item containers, so the first top-level
+-- `UnbreakableText ":"` is always the signature colon.
+isColonLeaf : LPNode -> Bool
+isColonLeaf node =
+    when lpnBox node is
+        UnbreakableText loc -> loc.value == ":"
+        _ -> False
+
+
+-- Split a signature's type nodes (everything after the `:`) into segments at
+-- each top-level `->`: the first segment is the leading type, each later one
+-- begins with its `->` so it renders as `-> NextType`.
+splitSignatureSegments : Array LPNode -> Array (Array LPNode)
+splitSignatureSegments nodes =
+    Array.foldl
+        (\node acc ->
+            if isArrowLeaf node then
+                Array.pushLast [node] acc
+            else
+                when Array.popLast acc is
+                    Just { last = seg, initial = front } ->
+                        Array.pushLast (Array.pushLast node seg) front
+                    Nothing ->
+                        [[node]]
+        )
+        []
+        nodes
+
+
+-- A segment's first content row, ignoring its leading `->` (which is anchored
+-- at the *previous* segment's end, not where its own type sits). Used for
+-- "signal B": if consecutive segments start on different rows the author wrote
+-- the signature across lines, so it stays one-segment-per-line.
+segContentFirstRow : Array LPNode -> Int
+segContentFirstRow seg =
+    Array.foldl
+        (\node acc ->
+            if isArrowLeaf node then
+                acc
+            else
+                let r = firstRowInSubtree node
+                in
+                if acc < 0 then r else min acc r
+        )
+        -1
+        seg
+
+
+{-| Render a function/port signature with the author's one-line-vs-multi-line
+layout (all-or-nothing, mirroring lists/records).
+
+A signature the author wrote on one line stays inline when it fits and breaks
+to one-segment-per-line on overflow; one written across rows stays
+one-segment-per-line. Both the overflow form and the multi-line form are:
+
+    foo :
+        VeryLongType
+        -> AnotherType
+        -> ResultType
+
+The fit-based `P.group`'s broken branch is byte-identical to the forced-vertical
+form (same `nl` separators), so overflow == author-multi-line and formatting is
+a fixed point.
+
+Comment-bearing signatures fall back to the original fill renderer: the
+all-or-nothing break points have no stable anchor for a trailing comment, and
+the existing fill path already keeps arrow-comment placement idempotent.
+-}
+makeSignaturePrettyDoc : Array LPNode -> Result String (P.Doc P.DefaultCostTuple)
+makeSignaturePrettyDoc children =
+    if Array.any subtreeHasComment children then
+        makeFlowIndentableDoc children
+    else
+        let
+            -- Header = everything up to and including the `:`; the rest is the
+            -- type. (`name :` for a function, `port name :` for a port.)
+            colonSplit =
+                Array.foldl
+                    (\node acc ->
+                        if acc.afterColon then
+                            { acc | typeNodes = Array.pushLast node acc.typeNodes }
+                        else if isColonLeaf node then
+                            { acc | header = Array.pushLast node acc.header, afterColon = True }
+                        else
+                            { acc | header = Array.pushLast node acc.header }
+                    )
+                    { header = [], typeNodes = [], afterColon = False }
+                    children
+        in
+        if not colonSplit.afterColon then
+            -- No colon found: not a real signature shape; render as a flow.
+            makeFlowIndentableDoc children
+        else
+            let
+                segments = splitSignatureSegments colonSplit.typeNodes
+                segRows = Array.map segContentFirstRow segments
+                forceVertical =
+                    when Array.popFirst segRows is
+                        Nothing -> False
+                        Just { first, rest } -> Array.any (\r -> r /= first) rest
+
+                segDocsResult =
+                    Array.foldl
+                        (\seg accR ->
+                            accR
+                                |> Result.andThen (\accDocs ->
+                                    buildFlowDoc 0 seg
+                                        |> Result.map (\d -> Array.pushLast d accDocs)
+                                )
+                        )
+                        (Ok [])
+                        segments
+            in
+            buildFlowDoc 0 colonSplit.header
+                |> Result.andThen (\headerDoc ->
+                    segDocsResult
+                        |> Result.map (\segDocs ->
+                            let
+                                bodyInner =
+                                    when Array.popFirst segDocs is
+                                        Nothing -> P.empty
+                                        Just { first = d0, rest = ds } ->
+                                            Array.foldl
+                                                (\d acc -> P.concat acc (P.concat P.nl d))
+                                                d0
+                                                ds
+                                full =
+                                    P.concat headerDoc
+                                        (P.nest grenIndent (P.concat P.nl bodyInner))
+                            in
+                            if forceVertical then full else P.group full
+                        )
+                )
 
 
 makeTypeAliasPrettyDoc : Array LPNode -> Result String (P.Doc P.DefaultCostTuple)

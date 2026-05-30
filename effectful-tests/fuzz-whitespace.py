@@ -429,11 +429,205 @@ def union_layout_fingerprint(src):
     return fps
 
 
+def _signature_segments_span_rows(block):
+    """Within one top-level signature block (`name : TYPE` or `port name :
+    TYPE`), whether the `->`-delimited segments of the type span rows — i.e. two
+    consecutive top-level segments start on different rows (signal B for
+    signatures). Mirrors `forceVertical` in `makeSignaturePrettyDoc`: only the
+    *segment* rows matter, so a newline right after the `:` with the segments
+    themselves still on one line (`foo :\\n    A -> B`) is NOT spanning.
+
+    Walks at bracket depth 0; brackets/strings/comments are skipped (a
+    parenthesised `(a -> b)` is one segment, its inner `->` doesn't split).
+    Rows are relative to the block, which is enough to compare."""
+    i, n = 0, len(block)
+    row = 1
+    depth = 0
+    seen_colon = False
+    seg_first_rows = []
+    cur_first = None
+
+    def close_seg():
+        nonlocal cur_first
+        seg_first_rows.append(cur_first)
+        cur_first = None
+
+    while i < n:
+        c = block[i]
+        two = block[i : i + 2]
+        three = block[i : i + 3]
+        if c == "\n":
+            row += 1
+            i += 1
+            continue
+        if two == "--":
+            j = block.find("\n", i)
+            i = n if j == -1 else j
+            continue
+        if two == "{-":
+            d = 0
+            while i < n:
+                if block[i] == "\n":
+                    row += 1
+                    i += 1
+                elif block[i : i + 2] == "{-":
+                    d += 1
+                    i += 2
+                elif block[i : i + 2] == "-}":
+                    d -= 1
+                    i += 2
+                    if d == 0:
+                        break
+                else:
+                    i += 1
+            continue
+        if three == '"""':
+            i += 3
+            while i < n and block[i : i + 3] != '"""':
+                if block[i] == "\n":
+                    row += 1
+                i += 1
+            i += 3
+            continue
+        if c == '"' or c == "'":
+            q, i = c, i + 1
+            while i < n:
+                if block[i] == "\\":
+                    i += 2
+                elif block[i] == q:
+                    i += 1
+                    break
+                elif block[i] == "\n":
+                    row += 1
+                    i += 1
+                else:
+                    i += 1
+            continue
+        if c in " \t\r":
+            i += 1
+            continue
+        if not seen_colon:
+            # Skip the header (`name` / `port name`) up to its depth-0 `:`.
+            if c in "([{":
+                depth += 1
+            elif c in ")]}":
+                depth -= 1
+            elif depth == 0 and c == ":":
+                seen_colon = True
+            i += 1
+            continue
+        # Past the colon: walk the type, splitting at depth-0 `->`.
+        if depth == 0 and two == "->":
+            close_seg()
+            i += 2
+            continue
+        if c in "([{":
+            depth += 1
+        elif c in ")]}":
+            depth -= 1
+        if cur_first is None:
+            cur_first = row
+        i += 1
+    if cur_first is not None:
+        close_seg()
+    return any(
+        seg_first_rows[k] != seg_first_rows[k + 1]
+        for k in range(len(seg_first_rows) - 1)
+    )
+
+
+def signature_layout_fingerprint(src):
+    """For each top-level function/port signature, whether its `->`-segments span
+    rows. Signatures now follow the author's layout — inline `name : A -> B` when
+    written on one line and it fits, one-segment-per-line otherwise (each `->`
+    leading its line) — so a whitespace perturbation that flips this is intended
+    layout, not drift. Signatures are not bracket-delimited, so they need their
+    own fingerprint (cf. unions).
+
+    A signature block is a top-level (column-0) declaration that has a `:` at
+    bracket depth 0 but no `=` at depth 0 — distinguishing it from the function
+    definition, `type alias`, and `type` blocks that all carry a depth-0 `=`."""
+    fps = []
+    n = len(src)
+    starts = []
+    at_line_start = True
+    for i in range(n):
+        if at_line_start and src[i] not in " \t\r\n":
+            starts.append(i)
+        at_line_start = src[i] == "\n"
+    starts.append(n)
+    for k in range(len(starts) - 1):
+        block = src[starts[k] : starts[k + 1]]
+        if _has_depth0_colon_no_eq(block):
+            fps.append(_signature_segments_span_rows(block))
+    return fps
+
+
+def _has_depth0_colon_no_eq(block):
+    """True if `block` has a `:` at bracket depth 0 occurring before any depth-0
+    `=` — the shape of a signature (`name : …` / `port name : …`), not a
+    definition / alias / union (which carry a depth-0 `=`)."""
+    i, n = 0, len(block)
+    depth = 0
+    while i < n:
+        c = block[i]
+        two = block[i : i + 2]
+        three = block[i : i + 3]
+        if two == "--":
+            j = block.find("\n", i)
+            i = n if j == -1 else j
+            continue
+        if two == "{-":
+            d = 0
+            while i < n:
+                if block[i : i + 2] == "{-":
+                    d += 1
+                    i += 2
+                elif block[i : i + 2] == "-}":
+                    d -= 1
+                    i += 2
+                    if d == 0:
+                        break
+                else:
+                    i += 1
+            continue
+        if three == '"""':
+            j = block.find('"""', i + 3)
+            i = n if j == -1 else j + 3
+            continue
+        if c == '"' or c == "'":
+            q, i = c, i + 1
+            while i < n:
+                if block[i] == "\\":
+                    i += 2
+                elif block[i] == q:
+                    i += 1
+                    break
+                else:
+                    i += 1
+            continue
+        if c in "([{":
+            depth += 1
+        elif c in ")]}":
+            depth -= 1
+        elif depth == 0 and c == ":":
+            return True
+        elif depth == 0 and c == "=":
+            return False
+        i += 1
+    return False
+
+
 def layout_fingerprint(src):
     """Combined author-layout signature: bracket containers (lists, records,
-    record updates, record types, patterns) plus union variant lists. A
-    perturbation that leaves this unchanged is not an intended layout flip."""
-    return (container_layout_fingerprint(src), union_layout_fingerprint(src))
+    record updates, record types, patterns), union variant lists, and function/
+    port type signatures. A perturbation that leaves this unchanged is not an
+    intended layout flip."""
+    return (
+        container_layout_fingerprint(src),
+        union_layout_fingerprint(src),
+        signature_layout_fingerprint(src),
+    )
 
 
 # ---- perturbation builders -------------------------------------------------
