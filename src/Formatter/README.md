@@ -257,7 +257,21 @@ squareArea side =
 ```
 
 A comment separated from a function by a blank line is treated as "floating"
-(not attached to anything) and keeps a single blank line before it.
+(not attached to anything) and keeps a single blank line before it. The function
+below still gets its usual two blank lines, so the comment sits apart from both:
+
+```gren
+double : Int -> Int
+double n =
+    n * 2
+
+-- A floating note, kept at arm's length from square below
+
+
+square : Int -> Int
+square n =
+    n * n
+```
 
 ---
 
