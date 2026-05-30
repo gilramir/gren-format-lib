@@ -1183,7 +1183,7 @@ joinUp input =
     in
     prefix
         ++ rightComponent
-        ++ someTrailingValueToPushThisParticularLineOutTowardOneHundredColumns
+        ++ someTrailingValueToPushThisParticularLineOutWellPastTheEightyColumnLimit
         {- c -}
 ```
 
@@ -1197,7 +1197,7 @@ joinUp input =
     in
     prefix
         ++ rightComponent
-        ++ someTrailingValueToPushThisParticularLineOutTowardOneHundredColumns
+        ++ someTrailingValueToPushThisParticularLineOutWellPastTheEightyColumnLimit
 {- c -}
 ```
 
