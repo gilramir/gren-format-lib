@@ -12,7 +12,7 @@ import Compiler.SourcePosition exposing (Located, Position)
 
 import Formatter.LogicalPrintingTree exposing (LPBox(..),
     LPNode(..), ListBrackets(..), lpnBox, lpnChildren, lpnLeaf, lpnNode)
-import Formatter.LPTHelpers exposing (mkText, mkZeroWidthText, mkTextFromLocString, resultFoldl)
+import Formatter.LPTHelpers exposing (mkText, mkZeroWidthText, mkTextFromLocString, resultFoldl, itemsSpanRows)
 import Formatter.LiteralFormat exposing (charLiteralString, escapeStringContent, intToHex)
 
 
@@ -30,10 +30,23 @@ insertPattern locPat =
                 Nothing ->
                     Ok [lpnLeaf (mkText locPat.start "{}")]
                 Just _ ->
+                    let
+                        -- Signal B: a field spans from its name to the end of its
+                        -- sub-pattern (or the name itself for a bare `{ x }`).
+                        spans =
+                            itemsSpanRows
+                                (Array.map
+                                    (\f ->
+                                        { start = f.field.start
+                                        , end = Maybe.map .end f.pattern |> Maybe.withDefault f.field.end
+                                        }
+                                    )
+                                    fields
+                                )
+                        box = if spans then AlwaysVertical ListCurly else AllAcrossOrAllVertical ListCurly
+                    in
                     resultFoldl folderInsertPRecordField [] fields
-                        |> Result.map (\fieldNodes ->
-                            [lpnNode (AllAcrossOrAllVertical ListCurly) fieldNodes]
-                        )
+                        |> Result.map (\fieldNodes -> [lpnNode box fieldNodes])
 
         Src.PAlias { pattern = pat, name = name } ->
             insertPattern pat
@@ -74,13 +87,20 @@ insertPattern locPat =
                         |> Result.map (\argNode -> [ctorNode, parenIfAlias argPat argNode])
 
         Src.PArray patterns ->
+            let
+                box =
+                    if itemsSpanRows patterns then
+                        AlwaysVertical ListSquare
+                    else
+                        AllAcrossOrAllVertical ListSquare
+            in
             resultFoldl folderInsertPatternAsItem [] patterns
                 |> Result.map (\itemNodes ->
                     when Array.popFirst itemNodes is
                         Nothing ->
                             [lpnLeaf (mkText locPat.start "[]")]
                         Just _ ->
-                            [lpnNode (AllAcrossOrAllVertical ListSquare) itemNodes]
+                            [lpnNode box itemNodes]
                 )
 
         Src.PChr c ->

@@ -725,7 +725,7 @@ in
 model
 ```
 
-When a destructuring pattern is too long to fit on one line, the fields wrap to subsequent lines with `, ` aligned with the opening `{`, and the closing `}` and `=` stay together on the last line of the pattern:
+Record and array patterns follow the author's layout, exactly like record and array literals (see "Records" / "Array literals"): a pattern written on one line stays inline when it fits, and one the author wrote across rows — or that overflows — wraps with `, ` aligned with the opening bracket, the closing `}`/`]` and `=` staying together on the last line:
 
 ```gren
 let

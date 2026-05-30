@@ -1,0 +1,23 @@
+module PatternLayoutByAuthor exposing (..)
+
+
+inlineRecord { x, y } = x + y
+
+
+inlineArray [ a, b ] = a + b
+
+
+lambdaRecord = \{ name, age } -> name
+
+
+letDestructure value =
+    let
+        { first, second } = value
+    in
+    first
+
+
+multilineRecord
+    { alpha
+    , beta
+    } = alpha
