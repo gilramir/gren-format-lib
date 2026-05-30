@@ -1134,6 +1134,48 @@ exposingListWithBrackets open close empty items =
                 (P.concat joined (P.concat P.nl (P.text close)))
 
 
+{-| Render a module/import `exposing ( ... )` list, coupling its "drop to the
+next line" with its "go vertical" so the two happen together. The result is
+**all-or-nothing**: either the whole list stays inline on the `exposing` line, or
+it drops to the next line *and* breaks one item per line. There is no
+intermediate "dropped onto its own line but still on one line" form.
+
+The leading break (the drop) is baked into the *same* group as the item breaks,
+so a single fit decision drives both. The returned doc starts with that leading
+break (a space when flat, a newline when broken), so the caller glues it directly
+after `exposing` rather than adding its own flow separator. The +4 indentation
+comes from the enclosing flow's `P.nest`, so no nest is added here.
+
+A comment among the items forces the vertical form (with no flat alternative),
+matching the always-vertical comment-aware list rendering.
+-}
+makeExposingListDoc : Array LPNode -> Result String (P.Doc cost)
+makeExposingListDoc children =
+    if Array.any nodeIsComment children then
+        listBoxesWithBrackets "( " ")" children
+            |> Result.map (\body -> P.concat P.hardNl body)
+    else
+        mapNodesToDocs makeListItemDoc children
+            |> Result.map (\itemDocs ->
+                when Array.popFirst itemDocs is
+                    Nothing ->
+                        P.text " ()"
+                    Just { first = firstItem, rest = restItems } ->
+                        let
+                            firstSeg = P.concat (P.text "( ") firstItem
+                            restSegs =
+                                Array.map
+                                    (\d -> P.concat P.breakDoc (P.concat (P.text ", ") d))
+                                    restItems
+                            body =
+                                Array.foldl (\seg acc -> P.concat acc seg) firstSeg restSegs
+                            full =
+                                P.concat body (P.concat P.nl (P.text ")"))
+                        in
+                        P.group (P.concat P.nl full)
+            )
+
+
 -- Render a comment box as just the source text it would produce: `--xxx`
 -- for a SingleLineComment, `{-xxx-}` for a BlockComment, `{-|xxx-}` for a
 -- DocComment. Returns P.empty for non-comment boxes; callers should only
@@ -1390,11 +1432,67 @@ makePrettyLineDoc node =
                 StDocComment -> makeCommentLineDoc_ children
                 StFunctionSignature -> makeSignaturePrettyDoc children
                 StPort -> makeSignaturePrettyDoc children
+                StModule -> makeExposingLineDoc children
+                StImport -> makeExposingLineDoc children
                 _ -> makeFlowIndentableDoc children
         EmptyLine ->
             Ok P.empty
         _ ->
             Err "Unexpected item in LPTree root children"
+
+
+{-| Render a `module …` or `import …` line. When it ends in an `exposing ( … )`
+list and the part before that list is all plain keyword/name tokens (the common
+case: a plain `module`/`port module` or any `import`, but not an effect module's
+`where { … }` block, and no comment in the header), render the header on a single
+unbreakable line and glue the exposing list as a coupled all-or-nothing group via
+`makeExposingListDoc`. This makes the line either fully on one line, or `header
+exposing` then the list one-item-per-line — never the in-between "list dropped to
+its own line but still flat" form, and never a break inside the header itself.
+
+Anything that doesn't match (a `(..)` wildcard, an effect-module `where` block, a
+comment in the header) falls back to the generic flow.
+-}
+makeExposingLineDoc : Array LPNode -> Result String (P.Doc P.DefaultCostTuple)
+makeExposingLineDoc children =
+    when Array.popLast children is
+        Just { last = lastNode, initial = headerNodes } ->
+            let
+                lastIsParenList =
+                    when lpnBox lastNode is
+                        AllAcrossOrAllVertical ListParen -> True
+                        _ -> False
+                headerAllLeaves =
+                    Array.all
+                        (\n ->
+                            when lpnBox n is
+                                UnbreakableText _ -> True
+                                SynthesizedText _ -> True
+                                _ -> False
+                        )
+                        headerNodes
+            in
+            if lastIsParenList && headerAllLeaves && not (Array.isEmpty headerNodes) then
+                mapNodesToDocs (\n -> makePDoc (lpnBox n) (lpnChildren n)) headerNodes
+                    |> Result.andThen (\headerDocs ->
+                        makeExposingListDoc (lpnChildren lastNode)
+                            |> Result.map (\listDoc ->
+                                let
+                                    -- Header tokens joined by hard spaces: no break
+                                    -- point inside the header, so the only break is the
+                                    -- exposing list's coupled drop.
+                                    headerDoc =
+                                        P.foldDoc
+                                            (\a b -> P.concat a (P.concat (P.text " ") b))
+                                            headerDocs
+                                in
+                                P.concat headerDoc (P.nest grenIndent listDoc)
+                            )
+                    )
+            else
+                makeFlowIndentableDoc children
+        Nothing ->
+            makeFlowIndentableDoc children
 
 
 makeFlowIndentableDoc : Array LPNode -> Result String (P.Doc P.DefaultCostTuple)

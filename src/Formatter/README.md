@@ -59,23 +59,17 @@ A few house rules that apply everywhere:
 
 ## Module declaration
 
-The `module` line stays on one line when it fits. The `exposing` list is written
-with a space just inside each parenthesis:
+The `module` line stays on one line when the whole thing fits. The `exposing`
+list is written with a space just inside each parenthesis:
 
 ```gren
 module MyApp exposing ( Model, Msg, init, update )
 ```
 
-When the list is too long, it drops to the next line, indented 4 spaces. If it
-fits there on one line, it stays that way:
-
-```gren
-module MyApp exposing
-    ( Model, Msg, init, update, view, subscriptions )
-```
-
-If it still doesn't fit, every item goes on its own line, with `, ` before each
-item after the first and the closing `)` alone on the last line:
+The list is **all-or-nothing**: when the line is too long, the keyword stays put
+and every export goes on its own line, with `, ` before each one after the first
+and the closing `)` alone on the last line. There is no in-between form where the
+whole list drops to one indented line:
 
 ```gren
 module MyApp exposing
@@ -100,8 +94,8 @@ A plain import stays on one line:
 import Array
 ```
 
-An alias uses `as`, and an `exposing` list follows the same three-level shape as
-the module line (one line → one indented line → one item per line):
+An alias uses `as`, and an `exposing` list follows the same all-or-nothing shape
+as the module line — all on one line, or one export per line:
 
 ```gren
 -- fits on one line
@@ -110,16 +104,13 @@ import String exposing ( fromInt, toInt )
 -- alias and exposing together
 import Array.Extra as AE exposing ( filterMap, unique )
 
--- too long for one line: the list moves to an indented line
+-- too long: the keyword stays, every export gets its own line
 import MyModule exposing
-    ( AlphaType, BetaType, gammaFunction, deltaFunction, epsilonValue )
-
--- still too long: one item per line
-import MyOtherModule exposing
-    ( AlphaLongTypeName
-    , BetaLongTypeName
-    , GammaLongFunctionName
-    , DeltaLongFunctionName
+    ( AlphaType
+    , BetaType
+    , gammaFunction
+    , deltaFunction
+    , epsilonValue
     )
 ```
 

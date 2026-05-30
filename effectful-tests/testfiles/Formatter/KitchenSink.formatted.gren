@@ -33,7 +33,12 @@ port module KitchenSink exposing
 import Array exposing ( Array )
 import Dict
 import Json.Decode as Decode exposing
-    ( Decoder, decodeString, field, int, string )
+    ( Decoder
+    , decodeString
+    , field
+    , int
+    , string
+    )
 import Json.Encode as Encode
 import Math
 import Result.Extra as ResultExtra

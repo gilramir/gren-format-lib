@@ -1,5 +1,13 @@
 module ModuleExposingTrailingComment exposing
-    ( alpha, beta, gamma, delta, epsilon, zeta, eta, theta )
+    ( alpha
+    , beta
+    , gamma
+    , delta
+    , epsilon
+    , zeta
+    , eta
+    , theta
+    )
 
 {- trailing the module exposing list, past its close -}
 

@@ -17,7 +17,12 @@ import Array.Extra as AE exposing ( filterMap, unique )
 
 -- Long exposing list wraps to one indented line
 import MyModule exposing
-    ( AlphaType, BetaType, gammaFunction, deltaFunction, epsilonValue )
+    ( AlphaType
+    , BetaType
+    , gammaFunction
+    , deltaFunction
+    , epsilonValue
+    )
 
 -- Very long exposing list wraps to one item per line
 import MyOtherModule exposing
