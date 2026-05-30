@@ -1250,26 +1250,74 @@ blockCommentDoc loc =
                     isContentLine line =
                         let t = String.trimLeft line
                         in t /= "" && t /= "-}"
-                    base =
+                    contentCols =
                         contLines
                             |> Array.keepIf isContentLine
                             |> Array.map leadingSpaceCount
-                            |> Array.minimum
-                            |> Maybe.withDefault blockCommentBodyOffset
-                    -- Map the base to `blockCommentBodyOffset` and keep any
-                    -- deeper internal indentation relative to it. Lines shallower
-                    -- than the base (a bare `-}`, blank lines) clamp to column 0.
-                    reindent line =
-                        let l = leadingSpaceCount line
-                        in
-                        String.repeat (max 0 (blockCommentBodyOffset + l - base)) " "
-                            ++ String.dropFirst l line
+                    -- Zero-based column of the `{-` opener in the source.
+                    openerCol = loc.start.col - 1
+                    -- A body line sits *left* of the `{-` — re-indenting it under
+                    -- the opener would pull it right (and could distort ASCII
+                    -- art). Move the comment as a rigid block instead.
+                    bodyLeftOfOpener =
+                        when Array.minimum contentCols is
+                            Just m -> m < openerCol
+                            Nothing -> False
+                    -- `{-` already sits alone on its first line (nothing after the
+                    -- opener). That is exactly the shape the rigid branch emits, so
+                    -- it must re-enter the rigid branch to stay a fixed point:
+                    -- otherwise reparsing it (opener now at the construct indent,
+                    -- body further right) would flip it into the re-anchor branch
+                    -- below and shift the body.
+                    openerAlone =
+                        String.trimLeft (String.dropFirst 2 firstLine) == ""
                 in
-                Array.foldl
-                    (\line acc -> P.concat acc (P.concat P.hardNl (P.text (reindent line))))
-                    (P.text firstLine)
-                    contLines
-                    |> P.align
+                if bodyLeftOfOpener || openerAlone then
+                    -- Rigid mode: the whole comment would have to move left to put
+                    -- `{-` at the construct's indent, but a body line is already
+                    -- left of where it would land, so the body can't move. Instead
+                    -- lift the `{-` onto its own line at the construct's indent and
+                    -- leave every content line at its original column (no text
+                    -- moves — only the `{-`). Body lines render at absolute columns
+                    -- (via `reset`, so nesting doesn't shift them).
+                    let
+                        -- The text after `{-` on the opener's line, replaced onto
+                        -- its own line at the column it occupied in the source
+                        -- (right after `{- `).
+                        firstContent = String.dropFirst 2 firstLine
+                        firstContentDoc =
+                            if String.trimLeft firstContent == "" then
+                                P.empty
+                            else
+                                P.concat P.hardNl
+                                    (P.text (String.repeat (openerCol + 2) " " ++ firstContent))
+                        contDoc =
+                            Array.foldl
+                                (\line acc -> P.concat acc (P.concat P.hardNl (P.text line)))
+                                P.empty
+                                contLines
+                    in
+                    P.concat (P.text "{-") (P.reset (P.concat firstContentDoc contDoc))
+                else
+                    let
+                        base =
+                            contentCols
+                                |> Array.minimum
+                                |> Maybe.withDefault blockCommentBodyOffset
+                        -- Map the base to `blockCommentBodyOffset` and keep any
+                        -- deeper internal indentation relative to it. Lines shallower
+                        -- than the base (a bare `-}`, blank lines) clamp to column 0.
+                        reindent line =
+                            let l = leadingSpaceCount line
+                            in
+                            String.repeat (max 0 (blockCommentBodyOffset + l - base)) " "
+                                ++ String.dropFirst l line
+                    in
+                    Array.foldl
+                        (\line acc -> P.concat acc (P.concat P.hardNl (P.text (reindent line))))
+                        (P.text firstLine)
+                        contLines
+                        |> P.align
 
 
 -- LPNode-form of commentBoxDoc.

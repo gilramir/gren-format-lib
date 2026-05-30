@@ -927,9 +927,10 @@ foo a = a * {- inline note -} 100
 ```
 
 A block comment whose body spans several lines forces the construct around it to
-break vertically (it can't be collapsed onto one line). Its inner lines are
-re-indented to line up neatly under the `{-`, while keeping the comment's own
-internal shape (relative indentation, lists, little diagrams):
+break vertically (it can't be collapsed onto one line). When every body line is
+indented at or to the right of the `{-`, the inner lines are re-indented to line
+up neatly under the `{-`, while keeping the comment's own internal shape
+(relative indentation, lists, little diagrams):
 
 ```gren
 value =
@@ -939,6 +940,36 @@ value =
            its shape -}
         |> process
 ```
+
+**The body is never moved left.** If any body line sits *to the left* of the
+`{-` — flush against the margin, or as part of a diagram that reaches further
+left than the opener — the formatter can't slide the comment left to line the
+`{-` up with the construct without dragging that line off the page or distorting
+the picture. So it does the opposite: it lifts the `{-` onto its own line at the
+construct's indent and leaves **every line of the body exactly where you wrote
+it**, column for column. Only the `{-` moves.
+
+```gren
+-- you wrote (the {- is indented, the body is flush-left):
+config =
+        {- this comment opener is indented
+but the body lines are written flush at the left margin
+   and this one is a little deeper -}
+        42
+
+-- the formatter produces (only the {- moved — to column 4; no body text moved):
+config =
+    {-
+           this comment opener is indented
+but the body lines are written flush at the left margin
+   and this one is a little deeper -}
+    42
+```
+
+This is deliberate: it means hand-drawn ASCII art, tables, or any
+carefully-aligned block inside a comment survives formatting untouched. The cost
+is that the body's whitespace is *not* canonicalized — see the note under
+[whitespace canonicalization gaps](#a-multi-line-block-comments-body-is-kept-verbatim).
 
 ### Doc comments (`{-| ... -}`)
 
@@ -1299,6 +1330,40 @@ decision against post-layout positions (or tracking the synthesized brackets'
 rows) — a deeper change than swapping which row the test reads. Until then the
 formatter keeps the current rule, which is stable (idempotent) everywhere but
 flips this particular case.
+
+### A multi-line block comment's body is kept verbatim
+
+This one is intentional, not a defect — but it has the same observable shape, so
+it belongs here. As described in the **Block comments** section above, when a
+multi-line `{- ... -}` comment has a body line to the left of its `{-`,
+the formatter lifts the `{-` onto its own line and leaves the body **exactly as
+written**, column for column, rather than re-indenting it. That protects ASCII
+art and hand-aligned blocks.
+
+The consequence is that the body's leading whitespace is no longer canonicalized:
+two inputs that differ only in how far the body is indented format to two
+different outputs.
+
+```gren
+-- one author wrote:
+x =
+    {-
+       diagram line
+    -}
+    1
+
+-- another indented the body further:
+x =
+    {-
+              diagram line
+    -}
+    1
+```
+
+Both are left untouched, so they stay different. (Formatting is still
+idempotent — each output formats back to itself — and the comment's meaning is
+unchanged; it's only that the body indentation you chose is preserved rather than
+normalized.) This is the deliberate trade for not mangling diagrams.
 
 None of these change the meaning of your code, and none affect code without
 comments. They're documented here for completeness and tracked for future work.
