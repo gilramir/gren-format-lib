@@ -999,25 +999,41 @@ meant it to be on.
 
 Rather than guess, the formatter picks **one** canonical spot and always renders
 the comment there. So two programs that differ only in which side of one of these
-symbols a comment sits on will format to the *same* output. A few examples of
-the canonical choice it makes:
+symbols a comment sits on will format to the *same* output. In each case below,
+*either* input on the left becomes the single form on the right.
+
+A comment around a signature's `:` always lands **after** the `:`:
 
 ```gren
--- a comment around a signature's `:` always lands after the `:`
-foo : {- c -} Int
+foo {- c -} : Int          -->   foo : {- c -} Int
+foo : {- c -} Int          -->   foo : {- c -} Int
+```
 
--- a comment around `=` always lands after the `=`
-foo = {- c -} 42
+A comment around a definition's `=` always lands **after** the `=`:
 
--- a comment around a union `|` lands after the variant before it
+```gren
+foo {- c -} = 42           -->   foo = {- c -} 42
+foo = {- c -} 42           -->   foo = {- c -} 42
+```
+
+A comment around a union `|` always lands **after the variant before it** (so if
+you wrote it after the `|`, it moves up to the end of the previous variant):
+
+```gren
+-- both of these inputs:
+type T = A {- c -} | B
+type T = A | {- c -} B
+
+-- format to:
 type T
     = A {- c -}
     | B
 ```
 
-This is the one place the formatter is deliberately *not* faithful to your exact
-placement — and it's unavoidable, because the information simply isn't there in
-the parsed program.
+So if you write one of the left-hand forms, expect the formatter to rewrite it
+to the right-hand one. This is the one place the formatter is deliberately *not*
+faithful to your exact placement — and it's unavoidable, because the information
+simply isn't there in the parsed program.
 
 ---
 
