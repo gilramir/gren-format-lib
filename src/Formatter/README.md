@@ -635,6 +635,27 @@ glued to its last line. (Within the stacked form, a long condition wraps by its
 own rules — here the `&&` chain breaks one operator per line, as binops do.) The
 same applies to `else if`.
 
+> **Open decision — how the stacked predicate wraps.** A long predicate currently
+> breaks the way binops break everywhere else (precedence-aware, one operator per
+> line, shown above). An alternative is **fill** wrapping: keep the predicate on
+> one line and spill only its overflow onto an indented continuation —
+>
+> ```gren
+> if
+>     userIsActive && accountHasCredit && not isSuspended && withinQuota
+>         && verified
+> then
+>     body
+> ```
+>
+> This is implementable (it would render the predicate as a filled flow rather
+> than the precedence-aware binop layout). The trade-off is that an `if`
+> predicate would then wrap *differently* from how the same expression wraps
+> anywhere else. **This has not been decided.**
+>
+> **Action item:** decide whether a stacked `if`/`else if` predicate should wrap
+> precedence-aware (current) or fill-style, and make it consistent.
+
 ---
 
 ## When expressions
