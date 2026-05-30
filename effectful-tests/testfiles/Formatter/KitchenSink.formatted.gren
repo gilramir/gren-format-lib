@@ -245,9 +245,9 @@ processConfiguration
                         singleOverride.tickMillis
                 _ ->
                     schedulerSection.overrides
-                            |> Array.map .tickMillis
-                            |> Array.foldl Math.max
-                                schedulerSection.defaultTickMillis
+                        |> Array.map .tickMillis
+                        |> Array.foldl Math.max
+                            schedulerSection.defaultTickMillis
         rolloutDecision flagName =
             featureFlagDefinitions
                 |> Array.findFirst
@@ -525,8 +525,7 @@ traverseDeeply rootTree =
                 Leaf personRecord -> [ formatPersonRecord personRecord ]
 
                 Branch { children = childrenArray } ->
-                    childrenArray
-                            |> Array.flatMap gatherNames
+                    childrenArray |> Array.flatMap gatherNames
 
                 Cons
                 { headValue = headPersonRecord

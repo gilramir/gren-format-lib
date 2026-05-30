@@ -122,6 +122,11 @@ lpBoxFields lpbox =
         PipelineStep ->
             [ { key = "type", value = Json.string "PipelineStep" } ]
 
+        Pipeline { forceVertical } ->
+            [ { key = "type", value = Json.string "Pipeline" }
+            , { key = "forceVertical", value = Json.bool forceVertical }
+            ]
+
         BodyBlock ->
             [ { key = "type", value = Json.string "BodyBlock" } ]
 

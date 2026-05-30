@@ -618,15 +618,109 @@ def _has_depth0_colon_no_eq(block):
     return False
 
 
+def pipeline_layout_fingerprint(src):
+    """For each `|>` / `<|` pipeline operator, whether its step spans rows — i.e.
+    a newline appears in the gap between the previous item and the step's body
+    (the operator sitting in that gap). Pipelines now follow the author's layout:
+    inline `seed |> a |> b` when written on one line and it fits, one step per
+    line otherwise. So a whitespace perturbation that flips a pipeline's
+    one-line/multi-line layout is intended layout, not drift. Pipelines are not
+    bracket-delimited, so they need their own fingerprint (cf. unions, signatures).
+
+    Operators inside comments/strings are skipped. Comments do not count as code,
+    matching the formatter's signal B (which uses AST token rows). A
+    comment-bearing pipeline is always rendered vertical regardless, so any
+    over-count here only over-discards harmlessly (cf. the container note)."""
+    fps = []
+    pending = []  # prev-code-row for each `|>`/`<|` awaiting its next code char
+    last_code_row = None
+    i, n, row = 0, len(src), 1
+
+    def resolve(next_row):
+        for prev in pending:
+            fps.append(prev is not None and next_row > prev)
+        pending.clear()
+
+    while i < n:
+        c = src[i]
+        two = src[i : i + 2]
+        three = src[i : i + 3]
+        if c == "\n":
+            row += 1
+            i += 1
+            continue
+        if two == "--":
+            j = src.find("\n", i)
+            i = n if j == -1 else j
+            continue
+        if two == "{-":
+            d = 0
+            while i < n:
+                if src[i] == "\n":
+                    row += 1
+                    i += 1
+                elif src[i : i + 2] == "{-":
+                    d += 1
+                    i += 2
+                elif src[i : i + 2] == "-}":
+                    d -= 1
+                    i += 2
+                    if d == 0:
+                        break
+                else:
+                    i += 1
+            continue
+        if three == '"""' or c == '"' or c == "'":
+            # A string/char literal is code: it resolves a pending op (its first
+            # row) and becomes the new last code token (its last row).
+            resolve(row)
+            start_row = row
+            if three == '"""':
+                i += 3
+                while i < n and src[i : i + 3] != '"""':
+                    if src[i] == "\n":
+                        row += 1
+                    i += 1
+                i += 3
+            else:
+                q, i = c, i + 1
+                while i < n:
+                    if src[i] == "\\":
+                        i += 2
+                    elif src[i] == q:
+                        i += 1
+                        break
+                    elif src[i] == "\n":
+                        row += 1
+                        i += 1
+                    else:
+                        i += 1
+            last_code_row = row
+            continue
+        if c in " \t\r":
+            i += 1
+            continue
+        if two == "|>" or two == "<|":
+            pending.append(last_code_row)
+            i += 2
+            continue
+        # Any other code char resolves pending ops and advances the code row.
+        resolve(row)
+        last_code_row = row
+        i += 1
+    return fps
+
+
 def layout_fingerprint(src):
     """Combined author-layout signature: bracket containers (lists, records,
-    record updates, record types, patterns), union variant lists, and function/
-    port type signatures. A perturbation that leaves this unchanged is not an
-    intended layout flip."""
+    record updates, record types, patterns), union variant lists, function/port
+    type signatures, and `|>`/`<|` pipelines. A perturbation that leaves this
+    unchanged is not an intended layout flip."""
     return (
         container_layout_fingerprint(src),
         union_layout_fingerprint(src),
         signature_layout_fingerprint(src),
+        pipeline_layout_fingerprint(src),
     )
 
 

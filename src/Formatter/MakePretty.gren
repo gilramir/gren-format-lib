@@ -951,6 +951,8 @@ makePDoc box children =
             buildFlowDoc 0 children
         PipelineStep ->
             buildFlowDoc 0 children
+        Pipeline { forceVertical } ->
+            makePipelineDoc forceVertical children
         BodyBlock ->
             buildFlowDoc 0 children
         WhenBranch _ ->
@@ -1553,6 +1555,81 @@ makeSignaturePrettyDoc children =
                             if forceVertical then full else P.group full
                         )
                 )
+
+
+-- True for a `PipelineStep` node (one `|> step` / `<| step`).
+isPipelineStepNode : LPNode -> Bool
+isPipelineStepNode node =
+    when lpnBox node is
+        PipelineStep -> True
+        _ -> False
+
+
+{-| Render a whole pipeline with the author's one-line-vs-multi-line layout.
+
+`children` are the seed node(s) followed by the `PipelineStep` nodes. A pipeline
+the author wrote on one line stays inline when it fits (`seed |> a |> b`); one
+written across rows, or one that overflows, gets one step per line:
+
+    seed
+        |> step1
+        |> step2
+
+The fit-based `P.group`'s broken branch and the forced-vertical form are the
+*same* doc (just grouped vs not), so overflow == author-multi-line and formatting
+is a fixed point. A pipeline carrying any comment always renders through the
+existing `PipelineStep` path (`buildFlowDoc 0 children`), whose comment-peeling
+and blank-line logic stays untouched.
+-}
+makePipelineDoc : Bool -> Array LPNode -> Result String (P.Doc cost)
+makePipelineDoc forceVertical children =
+    if Array.any subtreeHasComment children then
+        -- Comment-bearing pipeline: the intricate per-step comment handling
+        -- lives in buildFlowDocImpl's PipelineStep case. Route there.
+        buildFlowDoc 0 children
+    else
+        let
+            -- No comments in this branch, so every non-step node is a seed node
+            -- and they all precede the steps; `keepIf` preserves that order.
+            seedNodes = Array.keepIf (\n -> not (isPipelineStepNode n)) children
+            stepNodes = Array.keepIf isPipelineStepNode children
+        in
+        buildFlowDoc 0 seedNodes
+            |> Result.andThen (\seedDoc ->
+                Array.foldl
+                    (\step accR ->
+                        accR
+                            |> Result.andThen (\accDocs ->
+                                -- `|> body` with continuation args nested +4 from
+                                -- the `|>` column — exactly the PipelineStep path's
+                                -- `buildFlowDoc grenIndent stepChildren`.
+                                buildFlowDoc grenIndent (lpnChildren step)
+                                    |> Result.map (\d -> Array.pushLast d accDocs)
+                            )
+                    )
+                    (Ok [])
+                    stepNodes
+                    |> Result.map (\stepDocs ->
+                        let
+                            -- Step separator. Fit path: `P.nl` flattens to a space
+                            -- (inline `seed |> a |> b`) and breaks to a newline. Forced
+                            -- path: `P.hardNl` — unflattenable, so an outer group (the
+                            -- `name = body` same-line rule) can never collapse a
+                            -- multi-line pipeline back onto the `=` line. Both render the
+                            -- same bytes when broken, so fit-overflow == forced-vertical.
+                            sep = if forceVertical then P.hardNl else P.nl
+                            -- Each step on its own line, indented +grenIndent from the seed.
+                            stepsInner =
+                                Array.foldl
+                                    (\d acc -> P.concat acc (P.concat sep d))
+                                    P.empty
+                                    stepDocs
+                            full =
+                                P.concat seedDoc (P.nest grenIndent stepsInner)
+                        in
+                        if forceVertical then full else P.group full
+                    )
+            )
 
 
 makeTypeAliasPrettyDoc : Array LPNode -> Result String (P.Doc P.DefaultCostTuple)

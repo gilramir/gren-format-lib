@@ -304,6 +304,17 @@ insertExpression locExpr =
             if isPipelineOp locStringOp.value then
                 let
                     flattened = flattenPipeline locExpr
+                    -- Signal B for pipelines: a newline between the seed and the
+                    -- first step, or between consecutive steps, means the author
+                    -- wrote the pipeline across rows, so it stays one-step-per-line.
+                    -- (The `|>` sits between an item's end and the next body's
+                    -- start, so spanning shows up as the next body starting on a
+                    -- later row than the previous item ended.)
+                    forceVertical =
+                        itemsSpanRows
+                            ([ { start = flattened.seed.start, end = flattened.seed.end } ]
+                                ++ Array.map (\s -> { start = s.body.start, end = s.body.end }) flattened.steps
+                            )
                 in
                 insertExpression flattened.seed
                     |> Result.andThen (\seedNodes ->
@@ -330,6 +341,9 @@ insertExpression locExpr =
                             )
                             seedNodes
                             flattened.steps
+                        -- Wrap the seed + steps in a single Pipeline container so the
+                        -- renderer can choose inline (fits) vs one-step-per-line.
+                        |> Result.map (\allNodes -> [lpnNode (Pipeline { forceVertical = forceVertical }) allNodes])
                     )
             else
                 insertExpression lhsExpr

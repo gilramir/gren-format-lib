@@ -820,7 +820,7 @@ The `->` always stays at the end of the parameter line; it never moves to the bo
 
 Both `|>` (forward) and `<|` (backward) are treated as pipeline operators. The same layout rules apply to both: a contiguous run of the *same* operator is treated as one pipeline. A chain that mixes `|>` and `<|` is not collapsed into a single pipeline — only contiguous runs of the same operator chain.
 
-A pipeline that fits on one line stays on one line:
+A pipeline follows the author's layout, exactly like a list or record. One the author wrote on a single line stays on one line when it fits:
 
 ```gren
 result = list |> Array.map double |> Array.first
@@ -830,7 +830,16 @@ result = list |> Array.map double |> Array.first
 result = String.toUpper <| String.append "Hello, " name
 ```
 
-When the pipeline is too long to fit on one line, each step starts on its own line, indented by 4 spaces relative to the pipeline seed:
+A pipeline the author wrote across rows is kept one step per line even when it would fit on one line:
+
+```gren
+-- kept multi-line because the author wrote it that way
+result =
+    list
+        |> Array.first
+```
+
+When a one-line pipeline is too long to fit, each step starts on its own line, indented by 4 spaces relative to the pipeline seed:
 
 ```gren
 result =
