@@ -286,13 +286,19 @@ type alias Transform a =
 
 ## Custom types
 
-A `type` declaration has the `type` keyword, the type name, and any type variables on the first line. Each variant always gets its own line indented 4 spaces. The first variant is preceded by `=` and each subsequent one by `|`:
+A `type` declaration has the `type` keyword, the type name, and any type variables on the first line. The variants form a list that follows the author's layout, like every other list-like construct (see "Array literals"): the first variant is preceded by `=` and each subsequent one by `|`.
+
+A union the author wrote on one line stays inline (on the body line) when it fits; one written across rows, or one that overflows, gets one variant per line:
 
 ```gren
 type Color
-    = Red
-    | Green
-    | Blue
+    = Red | Green | Blue
+
+type Direction
+    = North
+    | South
+    | East
+    | West
 ```
 
 Type variables appear after the name on the header line:

@@ -1,0 +1,16 @@
+module UnionLayoutByAuthor exposing (..)
+
+
+type Flat = Red | Green | Blue
+
+
+type Vertical
+    = North
+    | South
+    | East
+
+
+type WithPayloads = Wrap Int | Pair Int Int
+
+
+type Overflows = AlphaVariant | BetaVariant | GammaVariant | DeltaVariant | EpsilonVariant | ZetaVariant

@@ -342,6 +342,100 @@ def container_layout_fingerprint(src):
     return fps
 
 
+def _union_variants_span_rows(block):
+    """Within one `type … = …` declaration block, whether a newline appears
+    after the union's `=` at bracket depth 0 — i.e. the variants are laid out
+    across rows. Trailing blank lines are ignored; brackets/strings/comments are
+    skipped (payload records/lists and their interiors don't count)."""
+    block = block.rstrip()
+    i, n = 0, len(block)
+    depth = 0
+    seen_eq = False
+    while i < n:
+        c = block[i]
+        two = block[i : i + 2]
+        three = block[i : i + 3]
+        if two == "--":
+            j = block.find("\n", i)
+            i = n if j == -1 else j
+            continue
+        if two == "{-":
+            d = 0
+            while i < n:
+                if block[i : i + 2] == "{-":
+                    d += 1
+                    i += 2
+                elif block[i : i + 2] == "-}":
+                    d -= 1
+                    i += 2
+                    if d == 0:
+                        break
+                else:
+                    i += 1
+            continue
+        if three == '"""':
+            j = block.find('"""', i + 3)
+            i = n if j == -1 else j + 3
+            continue
+        if c == '"' or c == "'":
+            q, i = c, i + 1
+            while i < n:
+                if block[i] == "\\":
+                    i += 2
+                elif block[i] == q:
+                    i += 1
+                    break
+                else:
+                    i += 1
+            continue
+        if c in "([{":
+            depth += 1
+        elif c in ")]}":
+            depth -= 1
+        elif depth == 0 and c == "=" and not seen_eq:
+            seen_eq = True
+        elif depth == 0 and c == "\n" and seen_eq:
+            return True
+        i += 1
+    return False
+
+
+def union_layout_fingerprint(src):
+    """For each `type` (not `type alias`) declaration, whether its `|`-separated
+    variants span rows (signal B for unions). The union variant list now follows
+    the author's layout — inline `= A | B | C` when written on one line, one
+    variant per line otherwise — so a whitespace perturbation that flips this is
+    intended layout, not drift (like the bracket containers above). Unions are
+    not bracket-delimited, so they need their own fingerprint."""
+    fps = []
+    n = len(src)
+    # Top-level declaration starts: a non-whitespace char at column 0.
+    starts = []
+    at_line_start = True
+    for i in range(n):
+        if at_line_start and src[i] not in " \t\r\n":
+            starts.append(i)
+        at_line_start = src[i] == "\n"
+    starts.append(n)
+    for k in range(len(starts) - 1):
+        block = src[starts[k] : starts[k + 1]]
+        head = block.lstrip()
+        if not (head == "type" or head.startswith("type ") or head.startswith("type\n")):
+            continue
+        after = head[4:].lstrip()
+        if after == "alias" or after.startswith("alias ") or after.startswith("alias\n"):
+            continue
+        fps.append(_union_variants_span_rows(block))
+    return fps
+
+
+def layout_fingerprint(src):
+    """Combined author-layout signature: bracket containers (lists, records,
+    record updates, record types, patterns) plus union variant lists. A
+    perturbation that leaves this unchanged is not an intended layout flip."""
+    return (container_layout_fingerprint(src), union_layout_fingerprint(src))
+
+
 # ---- perturbation builders -------------------------------------------------
 
 
@@ -447,7 +541,7 @@ def classify_variant(base, base_ast, base_fmt, base_fp, base_layout, label, vari
     # Likewise, a perturbation that flips whether a container (list, record, or
     # record update) is laid out across rows has changed layout intent, which the
     # formatter now honours (one-line-if-fits vs one-item-per-line); not a bug.
-    if container_layout_fingerprint(variant) != base_layout:
+    if layout_fingerprint(variant) != base_layout:
         return ("layout", label, None)
     vf = fmt(wd, variant)
     if vf != base_fmt:
@@ -467,7 +561,7 @@ def check_file(base, pool, path, mode, verbose):
         print(f"SKIP {name}: original does not parse/format")
         return 0
     base_fp = comment_fingerprint(src)
-    base_layout = container_layout_fingerprint(src)
+    base_layout = layout_fingerprint(src)
 
     if mode == "stretch":
         variants = [("stretch", v) for v in perturb_stretch(src, runs)]

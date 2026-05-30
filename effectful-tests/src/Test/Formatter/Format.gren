@@ -212,6 +212,7 @@ expressionTests fsPerm =
         , assertPretty fsPerm "record + record-update layout follows author: one line inline, multi-line one-per-line" "RecordLayoutByAuthor"
         , assertPretty fsPerm "record type (alias, extensible, annotation) layout follows author" "RecordTypeLayoutByAuthor"
         , assertPretty fsPerm "record/array pattern layout follows author" "PatternLayoutByAuthor"
+        , assertPretty fsPerm "union variant layout follows author: one line inline, multi-line one-per-line" "UnionLayoutByAuthor"
         , assertPretty fsPerm "when branch body indentation" "WhenBranchBody"
         , assertPretty fsPerm "when branch patterns" "WhenPatterns"
         , assertPretty fsPerm "record field value indentation" "RecordFieldValue"

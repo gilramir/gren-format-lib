@@ -245,6 +245,33 @@ splitLeadingComments nodes =
 makeUnionBodyDoc : Array LPNode -> Result String (P.Doc cost)
 makeUnionBodyDoc nodes =
     let
+        hasComment = Array.any nodeIsComment nodes
+        variantNodes = Array.keepIf (\n -> not (nodeIsComment n)) nodes
+        -- Signal B over the variants: a union the author wrote across rows stays
+        -- one-variant-per-line; one written on a single line is fit-based
+        -- (`= A | B | C` inline when it fits, one-per-line on overflow). Mirrors
+        -- the record/list rule, with the fit-based↔vertical group built so the
+        -- broken form is byte-identical to the always-vertical (P.vcat) form.
+        variantRows = Array.map firstRowInSubtree variantNodes
+        variantsSpanRows =
+            when Array.popFirst variantRows is
+                Nothing -> False
+                Just { first, rest } -> Array.any (\r -> r /= first) rest
+    in
+    if hasComment || variantsSpanRows then
+        makeUnionBodyVertical nodes
+    else
+        mapNodesToDocs (\n -> buildFlowDoc 0 (lpnChildren n)) variantNodes
+            |> Result.map (\docs ->
+                P.group (P.foldDoc (\a b -> P.concat a (P.concat P.nl b)) docs)
+            )
+
+
+-- Always-vertical union body: one variant per line via P.vcat, with comments
+-- placed inline after the variant they trail or on their own line otherwise.
+makeUnionBodyVertical : Array LPNode -> Result String (P.Doc cost)
+makeUnionBodyVertical nodes =
+    let
         placeComment row commentDoc acc =
             when Array.popLast acc.docs is
                 Nothing ->

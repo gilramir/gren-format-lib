@@ -1,9 +1,7 @@
 module TypeUnion exposing ( Color, Maybe, Shape )
 
 type Color
-    = Red
-    | Green
-    | Blue
+    = Red | Green | Blue
 
 type Maybe a
     = Nothing
