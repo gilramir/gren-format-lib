@@ -988,6 +988,43 @@ comment before a closing bracket stays in the container:
 ]
 ```
 
+### A trailing comment on a `when` branch body
+
+A block comment written at the end of a `when` branch body is given special
+handling so it stays on a stable row, in one of two ways depending on whether
+another branch follows.
+
+If it's the **last** branch, the comment is glued to the body's last line — even
+when that runs the line past the page width:
+
+```gren
+when x is
+    Wrapped value ->
+        firstComponent
+            ++ secondComponent
+            ++ thirdComponentThatPushesThisPastEighty {- a trailing note that runs well past the page width here -}
+```
+
+If **another branch follows**, the comment is lifted onto its own line at the
+branch (pattern) indent, sitting between the two branches:
+
+```gren
+when x is
+    Wrapped value ->
+        firstComponent
+            ++ secondComponent
+            ++ thirdComponentThatPushesThisPastEighty
+        {- a trailing note that runs well past the page width here -}
+    _ ->
+        "other"
+```
+
+Either way the comment lands somewhere it re-parses to the same place, so it
+doesn't drift. This anchoring is specific to `when` branches: the very same
+trailing comment on a plain function body or a `let … in` result has no such
+anchor, which is exactly the
+[idempotency gap](#known-limitations-idempotency-gaps) described below.
+
 ### When the formatter genuinely can't tell what you meant
 
 Some pieces of Gren syntax — `=`, `:`, `|`, the `as` keyword and the alias name
