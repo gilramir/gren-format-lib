@@ -949,12 +949,7 @@ makePDoc box children =
         AcrossThenIndent ->
             buildFlowDoc grenIndent children
         IfCondition ->
-            -- An `if`/`else if` condition keeps the older fill rendering for a
-            -- binop: unwrap a `Binop` child back to its `OpAndRhs` flow so the
-            -- first operand stays on the `if` line and operators fill-wrap below,
-            -- rather than the precedence-aware group pushing the whole condition
-            -- onto its own (doubly-indented) line under a lone `if`.
-            buildFlowDoc (2 * grenIndent) (unwrapTopLevelBinops children)
+            makeIfConditionDoc children
         IndentedBlock ->
             buildFlowDoc 0 children
         PipelineStep ->
@@ -1772,20 +1767,54 @@ flattenBinopNodes children =
                     { operands = [children], ops = [] }
 
 
--- Replace each top-level `Binop` container with its `OpAndRhs` children,
--- reverting to the flat fill flow. Used where a binop is embedded after a bare
--- keyword (an `if` condition) and the precedence-aware group would otherwise
--- push the whole chain onto its own line below the keyword.
-unwrapTopLevelBinops : Array LPNode -> Array LPNode
-unwrapTopLevelBinops nodes =
-    Array.foldl
-        (\n acc ->
-            when lpnBox n is
-                Binop _ -> acc ++ lpnChildren n
-                _ -> Array.pushLast n acc
-        )
-        []
-        nodes
+{-| Render an `if` / `else if` condition: the children are `[if, …condition…,
+then]`. Either it all fits on one line —
+
+    if cond then
+
+— or, when it doesn't, the condition drops to its own indented line and `then`
+goes on a line flush with `if`:
+
+    if
+        cond
+    then
+
+The flat branch is fully flattened (`P.flatten` on the condition), so the choice
+is genuinely all-on-one-line vs. the stacked form — the optimizer can't pick a
+middle shape where the condition wraps but `then` stays glued to its last line.
+-}
+makeIfConditionDoc : Array LPNode -> Result String (P.Doc cost)
+makeIfConditionDoc children =
+    when Array.popFirst children is
+        Nothing ->
+            Err "if condition: no nodes"
+        Just { first = ifNode, rest = afterIf } ->
+            when Array.popLast afterIf is
+                Nothing ->
+                    Err "if condition: missing then"
+                Just { initial = condNodes, last = thenNode } ->
+                    makePDoc (lpnBox ifNode) (lpnChildren ifNode)
+                        |> Result.andThen (\ifDoc ->
+                            makePDoc (lpnBox thenNode) (lpnChildren thenNode)
+                                |> Result.andThen (\thenDoc ->
+                                    buildFlowDoc 0 condNodes
+                                        |> Result.map (\condDoc ->
+                                            let
+                                                flat =
+                                                    P.concat ifDoc
+                                                        (P.concat (P.text " ")
+                                                            (P.concat (P.flatten condDoc)
+                                                                (P.concat (P.text " ") thenDoc)))
+                                                stacked =
+                                                    P.concat ifDoc
+                                                        (P.concat
+                                                            (P.nest grenIndent (P.concat P.hardNl condDoc))
+                                                            (P.concat P.hardNl thenDoc))
+                                            in
+                                            P.choice stacked flat
+                                        )
+                                )
+                        )
 
 
 -- The text of an operator leaf node (`UnbreakableText` / `SynthesizedText`).

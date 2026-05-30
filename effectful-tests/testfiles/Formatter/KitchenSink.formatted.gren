@@ -191,8 +191,10 @@ processConfiguration
         } ({ identifier, flags, nestedConfiguration } as incomingContainer) =
     let
         tracingDecision =
-            if tracingSection.isEnabled && Array.length tracingSection.sinks > 0
-                    then
+            if
+                tracingSection.isEnabled
+                    && Array.length tracingSection.sinks > 0
+            then
                 let
                     chosenSink =
                         tracingSection.sinks
@@ -294,8 +296,9 @@ processConfiguration
                                         nestedConfiguration.jitterMillis
                                             + (schedulerDecision // 10)
                                   , maxAttempts =
-                                        if rolloutDecision "aggressive-retry"
-                                                then
+                                        if
+                                            rolloutDecision "aggressive-retry"
+                                        then
                                             nestedConfiguration.maxAttempts * 2
                                         else
                                             nestedConfiguration.maxAttempts

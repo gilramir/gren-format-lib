@@ -611,19 +611,29 @@ else
     "positive"
 ```
 
-When a condition is too long, it wraps to lines indented **8 spaces** — twice the
-usual indent, so the wrapped condition stays visually distinct from the 4-space
-branch body. The first part stays beside `if`, each operator leads a wrapped
-line, and `then` stays on the last line of the condition:
+When the whole `if … then` doesn't fit on one line, it stacks: `if` goes on its
+own line, the condition drops to the next line indented 4 spaces, and `then` goes
+on its own line flush with `if`. The branch body then follows, indented 4 spaces
+under `then`:
 
 ```gren
-if model.isAuthenticated
-        && model.hasPermission
-        && model.featureEnabled && model.subscriptionActive then
-    showDashboard model
+if
+    conditionOne x
+        && conditionTwo x
+        && conditionThree x
+        && conditionFour x
+        && conditionFive x
+then
+    showDashboard x
 else
-    showLoginPage model
+    showLoginPage x
 ```
+
+It's all-or-nothing: either `if … then` fits on one line, or it takes the stacked
+form above — there's no in-between where the condition wraps but `then` stays
+glued to its last line. (Within the stacked form, a long condition wraps by its
+own rules — here the `&&` chain breaks one operator per line, as binops do.) The
+same applies to `else if`.
 
 ---
 
