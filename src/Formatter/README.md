@@ -1125,9 +1125,15 @@ import Array
 import Array
 ```
 
-The blank-line choice really ought to be a pure width-and-adjacency decision;
-making it fully independent of incoming whitespace is in progress (and partly
-blocked on an upstream parser issue).
+The root cause is upstream, in the parser:
+[gren-lang/compiler-common#25](https://github.com/gren-lang/compiler-common/issues/25)
+— "The wrong row number is assigned to `import`, `type`, `type alias`, and
+`port` in the AST". When one of those keywords is separated from its name by a
+newline, the declaration node records the *name's* row instead of the
+*keyword's*. The formatter reads that row range to decide the blank line, so the
+wrapped head looks one row taller than it is and the comment-adjacency test
+flips. Once #25 is fixed so the keyword's own row is recorded, the formatter can
+make this a pure width-and-adjacency decision and the gap should close.
 
 ### A comment's inline-vs-own-line placement flipping
 
