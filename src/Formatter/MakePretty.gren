@@ -1845,7 +1845,7 @@ makeIfConditionDoc children =
                         |> Result.andThen (\ifDoc ->
                             makePDoc (lpnBox thenNode) (lpnChildren thenNode)
                                 |> Result.andThen (\thenDoc ->
-                                    buildFlowDoc 0 condNodes
+                                    makePredicateFillDoc condNodes
                                         |> Result.map (\condDoc ->
                                             let
                                                 flat =
@@ -1863,6 +1863,84 @@ makeIfConditionDoc children =
                                         )
                                 )
                         )
+
+
+{-| Render an `if` / `else if` predicate for the stacked form.
+
+A binop predicate uses **fill** wrapping: the operator-led groups pack onto a
+line and only the overflow spills onto a continuation indented +4 from the
+predicate's first line —
+
+    if
+        userIsActive && accountHasCredit && not isSuspended && withinQuota
+            && verified
+    then
+
+— rather than the precedence-aware one-operator-per-line layout that binops use
+everywhere else. (Alternatively this could match that layout; see the README's
+if-expressions section.) Any other predicate shape (a call, a comparison) is laid
+out by the ordinary flow renderer, which already fills.
+-}
+makePredicateFillDoc : Array LPNode -> Result String (P.Doc cost)
+makePredicateFillDoc condNodes =
+    when Array.first condNodes is
+        Just only ->
+            if Array.length condNodes == 1 then
+                when lpnBox only is
+                    Binop _ ->
+                        predicateBinopFill (lpnChildren only)
+                    _ ->
+                        buildFlowDoc 0 condNodes
+            else
+                buildFlowDoc 0 condNodes
+        Nothing ->
+            buildFlowDoc 0 condNodes
+
+
+-- Lay out a flattened binop chain as a filled flow of operator-led groups:
+-- `operand0`, then each `op operandN` kept together as one breakable unit, with
+-- the break points *between* groups so the operator leads any continuation line.
+-- Continuation lines indent +4 from the first line.
+predicateBinopFill : Array LPNode -> Result String (P.Doc cost)
+predicateBinopFill binopChildren =
+    let
+        flat = flattenBinopNodes binopChildren
+
+        operandDocsResult =
+            Array.foldl
+                (\opNodes accR ->
+                    accR
+                        |> Result.andThen (\acc ->
+                            buildFlowDoc 0 opNodes
+                                |> Result.map (\d -> Array.pushLast d acc)
+                        )
+                )
+                (Ok [])
+                flat.operands
+    in
+    operandDocsResult
+        |> Result.map (\operandDocs ->
+            let
+                firstDoc =
+                    Array.first operandDocs |> Maybe.withDefault P.empty
+                -- Each non-first group is `op` glued to the operand that follows
+                -- it, so a break can only land *before* the operator.
+                restGroups =
+                    Array.map2
+                        (\op od ->
+                            P.concat (P.text (opNodeText op)) (P.concat (P.text " ") od)
+                        )
+                        flat.ops
+                        (Array.dropFirst 1 operandDocs)
+                -- Fill: each inter-group gap independently chooses space-or-break.
+                fillDoc =
+                    Array.foldl
+                        (\g acc -> P.concat acc (P.group (P.concat P.nl g)))
+                        firstDoc
+                        restGroups
+            in
+            P.nest grenIndent fillDoc
+        )
 
 
 -- The text of an operator leaf node (`UnbreakableText` / `SynthesizedText`).

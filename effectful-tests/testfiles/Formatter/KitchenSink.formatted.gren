@@ -192,8 +192,8 @@ processConfiguration
     let
         tracingDecision =
             if
-                tracingSection.isEnabled
-                    && Array.length tracingSection.sinks > 0
+                tracingSection.isEnabled && Array.length tracingSection.sinks
+                    > 0
             then
                 let
                     chosenSink =

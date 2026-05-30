@@ -612,49 +612,54 @@ else
 ```
 
 When the whole `if … then` doesn't fit on one line, it stacks: `if` goes on its
-own line, the condition drops to the next line indented 4 spaces, and `then` goes
+own line, the predicate drops to the next line indented 4 spaces, and `then` goes
 on its own line flush with `if`. The branch body then follows, indented 4 spaces
-under `then`:
+under `then`.
+
+The predicate itself is **filled**: as much as fits stays on the first line, and
+only the overflow spills onto a continuation indented one more level, with the
+operator leading each wrapped line:
 
 ```gren
 if
-    conditionOne x
-        && conditionTwo x
-        && conditionThree x
-        && conditionFour x
-        && conditionFive x
+    userIsActive && accountHasCredit && not isSuspended && withinQuota
+        && verified
 then
     showDashboard x
 else
     showLoginPage x
 ```
 
-It's all-or-nothing: either `if … then` fits on one line, or it takes the stacked
-form above — there's no in-between where the condition wraps but `then` stays
-glued to its last line. (Within the stacked form, a long condition wraps by its
-own rules — here the `&&` chain breaks one operator per line, as binops do.) The
-same applies to `else if`.
+It's all-or-nothing at the `if … then` level: either the whole thing fits on one
+line, or it takes the stacked form above — there's no in-between where the
+predicate wraps but `then` stays glued to its last line. The same applies to
+`else if`.
 
-> **Open decision — how the stacked predicate wraps.** A long predicate currently
-> breaks the way binops break everywhere else (precedence-aware, one operator per
-> line, shown above). An alternative is **fill** wrapping: keep the predicate on
-> one line and spill only its overflow onto an indented continuation —
+> **Open decision — how the stacked predicate wraps.** The predicate currently
+> *fills* (packs onto the line, overflow spilling to an indented continuation,
+> shown above). The alternative is **precedence-aware** wrapping — the way binops
+> break everywhere else in Gren: break only at the lowest-precedence operators,
+> one group per line —
 >
 > ```gren
 > if
->     userIsActive && accountHasCredit && not isSuspended && withinQuota
+>     userIsActive
+>         && accountHasCredit
+>         && not isSuspended
+>         && withinQuota
 >         && verified
 > then
->     body
+>     showDashboard x
 > ```
 >
-> This is implementable (it would render the predicate as a filled flow rather
-> than the precedence-aware binop layout). The trade-off is that an `if`
-> predicate would then wrap *differently* from how the same expression wraps
-> anywhere else. **This has not been decided.**
+> This is implementable (it would render the predicate with the precedence-aware
+> binop layout rather than a filled flow). The trade-off is the mirror image of
+> today's: fill keeps an `if` predicate compact but wraps it *differently* from
+> how the same expression wraps anywhere else; precedence-aware wraps it
+> consistently but takes more vertical space. **This has not been decided.**
 >
 > **Action item:** decide whether a stacked `if`/`else if` predicate should wrap
-> precedence-aware (current) or fill-style, and make it consistent.
+> fill-style (current) or precedence-aware, and make it consistent.
 
 ---
 
