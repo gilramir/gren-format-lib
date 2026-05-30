@@ -998,25 +998,28 @@ If it's the **last** branch, the comment is glued to the body's last line — ev
 when that runs the line past the page width:
 
 ```gren
-when x is
-    Wrapped value ->
-        firstComponent
-            ++ secondComponent
-            ++ thirdComponentThatPushesThisPastEighty {- a trailing note that runs well past the page width here -}
+describe x =
+    when x is
+        Wrapped value ->
+            firstComponent
+                ++ secondComponent
+                ++ thirdComponentThatPushesThisPastEighty {- a trailing note that runs well past the page width here -}
 ```
 
 If **another branch follows**, the comment is lifted onto its own line at the
-branch (pattern) indent, sitting between the two branches:
+branch (pattern) indent — lined up with the patterns, *not* with the body — so it
+reads as belonging between the two branches:
 
 ```gren
-when x is
-    Wrapped value ->
-        firstComponent
-            ++ secondComponent
-            ++ thirdComponentThatPushesThisPastEighty
+describe x =
+    when x is
+        Wrapped value ->
+            firstComponent
+                ++ secondComponent
+                ++ thirdComponentThatPushesThisPastEighty
         {- a trailing note that runs well past the page width here -}
-    _ ->
-        "other"
+        _ ->
+            "other"
 ```
 
 Either way the comment lands somewhere it re-parses to the same place, so it
