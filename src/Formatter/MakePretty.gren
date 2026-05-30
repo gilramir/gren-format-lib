@@ -1808,13 +1808,18 @@ line), keeping tighter-binding sub-terms inline:
 The fit-based `P.group` and the forced-vertical form share the broken doc (fit
 uses `P.nl`, forced uses `P.hardNl` so an outer `name = body` group can't collapse
 a multi-line chain), so overflow == author-multi-line and formatting is a fixed
-point. A chain carrying any comment falls back to the existing `OpAndRhs` fill
-renderer (`buildFlowDoc 0 children`), unchanged.
+point. A chain carrying any comment falls back to the `OpAndRhs` fill renderer
+(`buildFlowDoc grenIndent children`), so wrapped operators indent +4 like the
+precedence-aware form.
 -}
 makeBinopDoc : Bool -> Array LPNode -> Result String (P.Doc cost)
 makeBinopDoc forceVertical children =
     if Array.any subtreeHasComment children then
-        buildFlowDoc 0 children
+        -- Comment-bearing chain: fall back to the fill renderer. Use a +4
+        -- continuation indent (grenIndent), matching the precedence-aware form
+        -- and the comment-bearing signature fallback, so wrapped operators sit
+        -- under the first operand rather than back at its own column.
+        buildFlowDoc grenIndent children
     else
         let
             flat = flattenBinopNodes children

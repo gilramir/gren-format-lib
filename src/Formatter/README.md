@@ -1053,7 +1053,8 @@ known cases live in a handful of test fixtures and are tracked for a future fix;
 ordinary code does not hit them.
 
 For example, a binary-operator chain long enough to overflow, ending in a trailing
-block comment that lands on its own line, formats like this the first time:
+block comment that lands on its own line, formats like this the first time — the
+comment sitting at the chain's indent:
 
 ```gren
 joinUp input =
@@ -1061,15 +1062,13 @@ joinUp input =
         prefix = sanitize input
     in
     prefix
-    ++ rightComponent
-    ++ someTrailingValueToPushThisParticularLineOutTowardOneHundredColumns
-    {- c -}
+        ++ rightComponent
+        ++ someTrailingValueToPushThisParticularLineOutTowardOneHundredColumns
+        {- c -}
 ```
 
-Because the chain carries a comment, it uses the fill wrapping (operators at the
-body indent) and the comment drops to that same indent. But formatting *that*
-output again slides the comment out to the margin — and with no comment left in
-the chain, the operators take their normal precedence-aware indent:
+But formatting *that* output again slides the comment out to the margin (where it
+reads as a leading comment of whatever comes next):
 
 ```gren
 joinUp input =

@@ -126,10 +126,10 @@ processOrder ({ identifier, items, appliedDiscounts, flags } as inboundCart) =
     , totalCents =
         -- comment before a binop chain that overflows
         runningSubtotalCents
-        -- comment in the middle of a binop chain
-        + priorityBoost
-        -- another comment between binop operands
-        - 0
+            -- comment in the middle of a binop chain
+            + priorityBoost
+            -- another comment between binop operands
+            - 0
     -- trailing comment on a binop operand
     , notes =
         -- comment inside an array literal

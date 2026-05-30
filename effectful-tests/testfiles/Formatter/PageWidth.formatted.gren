@@ -280,8 +280,8 @@ trailingBlock = someComputedValue {- this trailing block comment is what carries
 
 inlineBlockComment =
     partOne
-    ++ {- a small inline comment -} partTwo
-    ++ partThree ++ partFour ++ partFive ++ partSix ++ partSeven
+        ++ {- a small inline comment -} partTwo
+        ++ partThree ++ partFour ++ partFive ++ partSix ++ partSeven
 
 -- a multi-line block comment whose body sits near the boundary
 multilineBlockComment =
