@@ -948,16 +948,36 @@ kept.
 
 A comment you write *after the last token of a construct*, right where the next
 thing is a sibling at a shallower indent, is placed at that shallower indent on
-its own line — not tucked at the construct's deeper indent. (Keeping it deep
-would not be stable: on the next format it would drift back out, and the indent
-would flip-flop. The formatter commits to the shallower spot every time.)
+its own line — not tucked at the construct's deeper indent. Here a comment after
+a multi-line signature lands at column 1, leading the definition, rather than at
+the type's 4-space indent:
 
 ```gren
-foo : Int -> Int
+foo :
+    Int
+    -> Int
 {- a note -}
 foo n =
     n
 ```
+
+Why not keep it tucked in beside the type it follows? Because that placement
+isn't stable. If the formatter *did* produce the deeper form —
+
+```gren
+foo :
+    Int
+    -> Int
+    {- a note -}
+foo n =
+    n
+```
+
+— then re-formatting it would pull the comment straight back out to column 1: the
+comment sits on its own line one row past the signature, where it reads as a
+leading comment of the definition. So the deep form isn't a fixed point — it
+changes the next time you format. The shallow form re-formats to itself, so the
+formatter commits to the shallow (column-1) spot up front and stays there.
 
 By contrast, a comment that is genuinely *inside* a construct stays inside it. A
 comment before a closing bracket stays in the container:
