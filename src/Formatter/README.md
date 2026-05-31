@@ -739,8 +739,6 @@ when msg is
 under `let`, and the result expression starts on the line after `in`, back at the
 `let`/`in` level:
 
-> **TODO** - what if the function has a signature inside a 'let' body?
-
 ```gren
 circleArea radius =
     let
@@ -748,6 +746,21 @@ circleArea radius =
         rSquared = radius * radius
     in
     pi * rSquared
+```
+
+A binding may carry its own type signature, exactly like a top-level function.
+The signature goes on the line directly above the definition with no blank line
+between them, and (unlike the top level) `let` bindings are never blank-separated
+from one another — any blank lines between them are removed, so the whole block
+stays compact:
+
+```gren
+hypotenuse x y =
+    let
+        square : Int -> Int
+        square n = n * n
+    in
+    square x + square y
 ```
 
 A binding value that fits stays on the same line as its name and `=`; one that's
