@@ -6,8 +6,10 @@ classify : Int -> String
 classify n =
     if n < 0 then
         "negative"
+
     else if n == 0 then
         "zero"
+
     else
         "positive"
 
@@ -17,8 +19,10 @@ clamp : Int -> Int -> Int -> Int
 clamp lo hi n =
     if n < lo then
         lo
+
     else if n > hi then
         hi
+
     else
         n
 

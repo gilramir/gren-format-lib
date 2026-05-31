@@ -1,10 +1,11 @@
-module Formatter.VerticalSpace exposing (insertEmptyLines, insertLetBlankLines)
+module Formatter.VerticalSpace exposing (insertEmptyLines, insertLetBlankLines, insertIfBlankLines)
 
 {-| Insert blank-line `EmptyLine` siblings into the Logical Printing Tree to
 preserve and normalise vertical spacing — between top-level declarations
-(`insertEmptyLines`) and between `let` bindings (`insertLetBlankLines`).
+(`insertEmptyLines`), between `let` bindings (`insertLetBlankLines`), and before
+the `else`/`else if` of an if-expression (`insertIfBlankLines`).
 
-@docs insertEmptyLines, insertLetBlankLines
+@docs insertEmptyLines, insertLetBlankLines, insertIfBlankLines
 -}
 
 import Formatter.LogicalPrintingTree exposing (LPBox(..), SyntaxType(..), lpnNode,
@@ -309,3 +310,65 @@ insertLetBlankLines node =
         recursed = Array.map insertLetBlankLines (lpnChildren node)
     in
     lpnReplaceChildren node (insertBlanksInLetFlow recursed)
+
+
+-- True if a node is an `else if` condition: an `IfCondition` whose first leaf
+-- is the synthesized `else if` token. The leading `if` condition of the same
+-- expression starts with `if`, so it is excluded.
+isElseIfCondition : LPNode -> Bool
+isElseIfCondition node =
+    when lpnBox node is
+        IfCondition ->
+            when Array.popFirst (lpnChildren node) is
+                Just { first = firstChild } ->
+                    when lpnBox firstChild is
+                        UnbreakableText loc -> loc.value == "else if"
+                        _ -> False
+                Nothing -> False
+        _ -> False
+
+
+-- True if a node is the synthesized `else` leaf of an if-expression.
+isElseKeyword : LPNode -> Bool
+isElseKeyword node =
+    when lpnBox node is
+        SynthesizedText value -> value == "else"
+        _ -> False
+
+
+-- Within one node's children, insert a single `EmptyLine` marker before every
+-- `else if` condition and every `else` leaf, so a blank line always separates a
+-- branch body from the `else`/`else if` that follows it. Unlike `let` spacing
+-- this is unconditional — the blank appears no matter what the author wrote (or
+-- didn't). The leading `if` condition is never preceded by a blank.
+insertBlanksInIfFlow : Array LPNode -> Array LPNode
+insertBlanksInIfFlow children =
+    Array.foldl
+        (\child acc ->
+            if (isElseIfCondition child || isElseKeyword child) && not (Array.isEmpty acc) then
+                acc
+                    |> Array.pushLast (lpnLeaf EmptyLine)
+                    |> Array.pushLast child
+            else
+                Array.pushLast child acc
+        )
+        []
+        children
+
+
+{-| Insert a single blank-line `EmptyLine` marker before every `else if` and
+`else` of an if-expression, so each branch body is visually separated from the
+`else`/`else if` that follows. Always one blank, regardless of the author's
+spacing.
+
+Recurses over the whole tree. Runs *after* `Formatter.Comments`, so any comment
+nodes already sit among the if-expression's children and the blank is placed
+relative to them. Rebuilds via `lpnReplaceChildren` so bracket-extent caches
+survive.
+-}
+insertIfBlankLines : LPNode -> LPNode
+insertIfBlankLines node =
+    let
+        recursed = Array.map insertIfBlankLines (lpnChildren node)
+    in
+    lpnReplaceChildren node (insertBlanksInIfFlow recursed)

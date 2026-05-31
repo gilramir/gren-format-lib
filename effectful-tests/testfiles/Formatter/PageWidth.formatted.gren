@@ -106,6 +106,7 @@ recordNested =
 ifShort x =
     if x then
         trueResult
+
     else
         falseResult
 
@@ -117,6 +118,7 @@ ifLong x =
             && conditionFive x
     then
         trueBranchResult
+
     else
         falseBranchResult
 
@@ -125,8 +127,10 @@ ifLong x =
 ifElseChain x =
     if firstConditionThatIsFairlyLong x then
         resultOne
+
     else if secondConditionThatIsAlsoLong x then
         resultTwo
+
     else
         resultThree
 

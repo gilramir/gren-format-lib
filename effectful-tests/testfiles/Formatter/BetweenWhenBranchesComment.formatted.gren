@@ -12,6 +12,7 @@ process tracingSection =
                     Just { endpoint = sinkEndpoint } ->
                         if String.startsWith "https://" sinkEndpoint then
                             Ok sinkEndpoint
+
                         else
                             Err
                                 ("unknown scheme in tracing sink endpoint: "
@@ -20,6 +21,7 @@ process tracingSection =
 
                     Nothing ->
                         Err "tracing enabled but no usable sinks configured"
+
             else
                 Ok "disabled"
     in

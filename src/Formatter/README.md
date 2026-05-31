@@ -712,11 +712,16 @@ Two consequences:
 ## If expressions
 
 Every branch body starts on the next line, indented 4 spaces. There is no inline
-form, even for a one-word body. `else` lines up with `if`:
+form, even for a one-word body. `else` lines up with `if`.
+
+A single blank line always separates a branch body from the `else` or `else if`
+that follows it, to keep the branches visually distinct. This is unconditional:
+you get exactly one blank line there no matter how many (or how few) you wrote.
 
 ```gren
 if n > 0 then
     "positive"
+
 else
     "non-positive"
 ```
@@ -726,8 +731,10 @@ else
 ```gren
 if n < 0 then
     "negative"
+
 else if n == 0 then
     "zero"
+
 else
     "positive"
 ```
@@ -747,6 +754,7 @@ if
         && verified
 then
     showDashboard x
+
 else
     showLoginPage x
 ```
@@ -880,6 +888,7 @@ complexBody =
         command =
             if condition then
                 doThis
+
             else
                 doThat
     in

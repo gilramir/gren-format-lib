@@ -26,6 +26,7 @@ complexBody =
         command =
             if condition then
                 doThis
+
             else
                 doThat
     in

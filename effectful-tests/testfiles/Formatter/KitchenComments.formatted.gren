@@ -115,12 +115,15 @@ processOrder ({ identifier, items, appliedDiscounts, flags } as inboundCart) =
                 if isGift then
                     -- nested then-branch
                     50 {- inline block comment before a multiplication -} * 2
+
                 else
                     -- nested else-branch
                     50
+
             else if isShippable then
                 -- comment inside an else-if branch
                 10
+
             else
                 -- comment inside the final else-branch
                 0
@@ -191,9 +194,11 @@ reprice rawMultiplier ({ items, flags } as inboundCart) =
             if rawMultiplier < 0.0 then
                 {- block comment inside an if-branch -}
                 0.0
+
             else if rawMultiplier > 10.0 then
                 -- single-line comment inside an else-if
                 10.0
+
             else
                 rawMultiplier
     in
@@ -253,6 +258,7 @@ torturedComments primaryIntValue secondaryStringValue tertiaryBoolValue =
                 -- comment between then and body
                 String.append secondaryStringValue
                     {- block comment between function and its argument -} "!"
+
             else
                 {- block comment between `else` and body -}
                 secondaryStringValue
@@ -330,6 +336,7 @@ extremelyCommented {-c22-} {-c23-} {-c24-}
                             {-c71-}
                             {-c72-}
                         }
+
                     else
                         {-c73-}
                         {-c74-}
@@ -373,6 +380,7 @@ bestDiscount candidateDiscounts =
                         if candidate.basisPoints > existing.basisPoints then
                             -- comment inside the then-branch
                             Just candidate
+
                         else
                             -- comment inside the else-branch
                             Just existing)
