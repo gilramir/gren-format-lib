@@ -330,10 +330,10 @@ makeUnionBodyVertical nodes =
                         Ok acc ->
                             when lpnBox node is
                                 SingleLineComment loc ->
-                                    placeComment loc.start.row (commentBoxDoc (lpnBox node)) acc
+                                    placeComment loc.start.row (commentNodeDoc node) acc
 
                                 BlockComment loc ->
-                                    placeComment loc.start.row (commentBoxDoc (lpnBox node)) acc
+                                    placeComment loc.start.row (commentNodeDoc node) acc
 
                                 _ ->
                                     when buildFlowDoc 0 (lpnChildren node) is
@@ -488,7 +488,7 @@ peelTrailingComments peelLineComments nodes =
                         keep = { bodyNodes = remaining, trailingCommentDoc = accDoc }
                         glue newSawLineComment =
                             go initChildren
-                                (P.concat (P.text " ") (P.concat (commentBoxDoc (lpnBox lastChild)) accDoc))
+                                (P.concat (P.text " ") (P.concat (commentNodeDoc lastChild) accDoc))
                                 newSawLineComment
                     in
                     when lpnBox lastChild is
@@ -736,7 +736,7 @@ buildFlowDocImpl indent inlineStart nodes =
                                             in
                                             { commentDoc =
                                                 Array.foldl
-                                                    (\c cdoc -> P.concat cdoc (P.concat (commentBoxDoc (lpnBox c)) P.hardNl))
+                                                    (\c cdoc -> P.concat cdoc (P.concat (commentNodeDoc c) P.hardNl))
                                                     P.empty
                                                     leading
                                             , withoutLeading = rest
@@ -749,7 +749,7 @@ buildFlowDocImpl indent inlineStart nodes =
                                                     if nodeIsComment lastChild then
                                                         { stepChildren = initChildren
                                                         , trailingCommentDoc =
-                                                            P.concat (P.text " ") (commentBoxDoc (lpnBox lastChild))
+                                                            P.concat (P.text " ") (commentNodeDoc lastChild)
                                                         , hasTrailing = True
                                                         }
                                                     else
@@ -923,8 +923,7 @@ makePDoc box children =
         AllAcrossOrAllVertical bracket ->
             makeAllAcrossOrAllVertical bracket children
         AlwaysVertical bracket ->
-            let bs = bracketStrings bracket
-            in listBoxesWithBrackets bs.open bs.close children
+            listBoxesForBracket bracket children
         RecordUpdate { name, forceVertical } ->
             makeRecordUpdateDoc forceVertical name.value children
         EmptyBracketed loc ->
@@ -940,7 +939,7 @@ makePDoc box children =
                 Ok (P.text bs.empty)
             else
                 let
-                    commentDocs = Array.map (\node -> commentBoxDoc (lpnBox node)) children
+                    commentDocs = Array.map commentNodeDoc children
                     body =
                         Array.foldl
                             (\d acc ->
@@ -1019,11 +1018,6 @@ makePDoc box children =
         unexpected -> Err ("makePDoc: unexpected box type:\n" ++ lptToJson (lpnNode unexpected children))
 
 
-makeAllAcrossOrAllVertical : ListBrackets -> Array LPNode -> Result String (P.Doc cost)
-makeAllAcrossOrAllVertical brackets children =
-    renderBracketList brackets children
-
-
 -- Render a bracketed, comma-separated list of LPNode items, flat-or-vertical.
 --
 -- If any child is a SingleLineComment, delegates to listBoxesWithBrackets,
@@ -1032,8 +1026,8 @@ makeAllAcrossOrAllVertical brackets children =
 -- one-item-per-line via the `P.group` in exposingListWithBrackets. (Callers
 -- that want an unconditional vertical layout use `AlwaysVertical`, which routes
 -- through listBoxesWithBrackets instead.)
-renderBracketList : ListBrackets -> Array LPNode -> Result String (P.Doc cost)
-renderBracketList brackets children =
+makeAllAcrossOrAllVertical : ListBrackets -> Array LPNode -> Result String (P.Doc cost)
+makeAllAcrossOrAllVertical brackets children =
     let
         bs = bracketStrings brackets
         hasComment = Array.any nodeIsComment children
@@ -1095,8 +1089,7 @@ listItemBoxDoc node =
         AllAcrossOrAllVertical _ ->
             Just (makePDoc (lpnBox node) children |> Result.map (P.nest 2))
         AlwaysVertical bracket ->
-            let bs = bracketStrings bracket
-            in Just (listBoxesWithBrackets bs.open bs.close children |> Result.map (P.nest 2))
+            Just (listBoxesForBracket bracket children |> Result.map (P.nest 2))
         RecordUpdate { name, forceVertical } ->
             Just (makeRecordUpdateDoc forceVertical name.value children)
         -- An inline `when ... is`, a prefix-glued expr (`-1`), an empty literal
@@ -1449,13 +1442,9 @@ makeRecordUpdateDoc forceVertical baseName children =
                             )
 
 
--- Split leading comment children off from the rest. Used by makeRecordUpdateDoc
--- so a comment that lands before the first field renders on its own line
--- rather than being treated as a field.
--- Render a single LPNode comment as a one-line doc.
--- Like commentNodeDoc, but appends a hardNl for SingleLineComment (which
--- must terminate its line). Used when emitting comment children as
--- successive lines via P.vcat or P.concat.
+-- Render a single LPNode comment as a one-line doc. Like commentNodeDoc, but
+-- appends a hardNl for SingleLineComment (which must terminate its line). Used
+-- when emitting comment children as successive lines via P.vcat or P.concat.
 commentLineDoc : LPNode -> P.Doc cost
 commentLineDoc node =
     when lpnBox node is
@@ -2134,6 +2123,14 @@ makeCommentLineDoc_ children =
         )
 
 
+-- `listBoxesWithBrackets` keyed by a `ListBrackets` value rather than explicit
+-- open/close strings — the shape every nested always-vertical literal needs.
+listBoxesForBracket : ListBrackets -> Array LPNode -> Result String (P.Doc cost)
+listBoxesForBracket bracket nodes =
+    let bs = bracketStrings bracket
+    in listBoxesWithBrackets bs.open bs.close nodes
+
+
 listBoxesWithBrackets : String -> String -> Array LPNode -> Result String (P.Doc cost)
 listBoxesWithBrackets open close nodes =
     let
@@ -2163,7 +2160,7 @@ listBoxesWithBrackets open close nodes =
                             let
                                 handleCommentNode commentRow =
                                     let
-                                        commentDoc = commentBoxDoc (lpnBox node)
+                                        commentDoc = commentNodeDoc node
                                     in
                                     if commentRow == acc.prevRow then
                                         -- Trailing the preceding item: attach with a SOFT break —
