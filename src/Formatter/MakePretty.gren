@@ -1061,56 +1061,60 @@ bracketStrings brackets =
         ListCurly  -> { open = "{ ", close = "}", empty = "{}" }
         ListSquare -> { open = "[ ", close = "]", empty = "[]" }
 
+-- Shared per-box rendering for a list item, used by both the flat/vertical
+-- bracket renderer (`makeListItemDoc`) and the comment-bearing always-vertical
+-- renderer (`listBoxesWithBrackets`). Returns `Nothing` for a box that is not a
+-- recognised list item, leaving the fallback to each caller (an error for the
+-- plain path, a silent skip for the comment path).
+--
+-- A nested bracketed literal (`AllAcrossOrAllVertical` / `AlwaysVertical`) is
+-- nested +2 — the width of the enclosing "[ " / ", " prefix — so its own
+-- continuation lines align under its first element rather than the enclosing
+-- list's items.
+listItemBoxDoc : LPNode -> Maybe (Result String (P.Doc cost))
+listItemBoxDoc node =
+    let
+        children = lpnChildren node
+    in
+    when lpnBox node is
+        UnbreakableText loc ->
+            Just (Ok (P.text loc.value))
+        AcrossThenIndent ->
+            Just (buildFlowDoc grenIndent children)
+        ParenBlock ->
+            Just (makePDoc ParenBlock children)
+        AllAcrossOrAllVertical _ ->
+            Just (makePDoc (lpnBox node) children |> Result.map (P.nest 2))
+        AlwaysVertical bracket ->
+            let bs = bracketStrings bracket
+            in Just (listBoxesWithBrackets bs.open bs.close children |> Result.map (P.nest 2))
+        RecordUpdate { name, forceVertical } ->
+            Just (makeRecordUpdateDoc forceVertical name.value children)
+        -- An inline `when ... is`, a prefix-glued expr (`-1`), an empty literal
+        -- (`[]` / `{}` / `()`), a synthesised keyword, a pipeline, or a binop
+        -- chain as a list item: render inline; the enclosing list's break-or-flat
+        -- decision still applies.
+        AlignedFlow ->
+            Just (makePDoc AlignedFlow children)
+        PrefixGlue _ ->
+            Just (makePDoc (lpnBox node) children)
+        EmptyBracketed _ ->
+            Just (makePDoc (lpnBox node) children)
+        SynthesizedText _ ->
+            Just (makePDoc (lpnBox node) children)
+        Pipeline _ ->
+            Just (makePDoc (lpnBox node) children)
+        Binop _ ->
+            Just (makePDoc (lpnBox node) children)
+        _ ->
+            Nothing
+
+
 makeListItemDoc : LPNode -> Result String (P.Doc cost)
 makeListItemDoc node =
-    when lpnBox node is
-        UnbreakableText loc -> Ok (P.text loc.value)
-        AcrossThenIndent ->
-            buildFlowDoc grenIndent (lpnChildren node)
-        ParenBlock ->
-            makePDoc ParenBlock (lpnChildren node)
-        AllAcrossOrAllVertical bracket ->
-            when makeAllAcrossOrAllVertical bracket (lpnChildren node) is
-                Err e -> Err e
-                Ok doc -> Ok (P.nest 2 doc)
-        AlwaysVertical bracket ->
-            -- A nested always-vertical literal (e.g. a multi-line list inside a
-            -- list). Nest by 2 — the width of the enclosing "[ " / ", " prefix —
-            -- so its own continuation lines align under its first element, the
-            -- same as the `AllAcrossOrAllVertical` case above.
-            let bs = bracketStrings bracket
-            in listBoxesWithBrackets bs.open bs.close (lpnChildren node)
-                |> Result.map (P.nest 2)
-        RecordUpdate { name, forceVertical } ->
-            makeRecordUpdateDoc forceVertical name.value (lpnChildren node)
-        AlignedFlow ->
-            -- A list item that wraps an AlignedFlow construct (e.g. an
-            -- inline `when ... is` expression). Render it inline; the
-            -- enclosing list's break-or-flat decision still applies.
-            makePDoc AlignedFlow (lpnChildren node)
-        PrefixGlue _ ->
-            -- A list item that is a prefix-glued expression (e.g. `-1` as
-            -- an array element). Render inline as the prefix glued to the
-            -- children.
-            makePDoc (lpnBox node) (lpnChildren node)
-        EmptyBracketed _ ->
-            -- A list item that is itself an empty literal (`[]` / `{}` / `()`),
-            -- e.g. `[ [ 1 ], [] ]` or `[[]]`. Delegate to makePDoc, which
-            -- renders the bare brackets (or keeps an inside comment inline).
-            makePDoc (lpnBox node) (lpnChildren node)
-        SynthesizedText _ ->
-            -- A synthesised keyword/punctuation can appear as a list item
-            -- when, e.g., a `where { command = Cmd }` block's body is
-            -- placed in a list-rendered container.
-            makePDoc (lpnBox node) (lpnChildren node)
-        Pipeline _ ->
-            -- A pipeline as a list item (`[ a |> b, c ]`). Delegate to its
-            -- renderer; the enclosing list's break decision still applies.
-            makePDoc (lpnBox node) (lpnChildren node)
-        Binop _ ->
-            -- A binop chain as a list item (`[ a + b, c * d ]`).
-            makePDoc (lpnBox node) (lpnChildren node)
-        _ -> Err ("makeListItemDoc: unexpected box type:\n" ++ lptToJson node)
+    when listItemBoxDoc node is
+        Just result -> result
+        Nothing -> Err ("makeListItemDoc: unexpected box type:\n" ++ lptToJson node)
 
 exposingListWithBrackets : String -> String -> String -> Array (P.Doc cost) -> P.Doc cost
 exposingListWithBrackets open close empty items =
@@ -2125,65 +2129,22 @@ makeCommentLineDoc_ children =
 listBoxesWithBrackets : String -> String -> Array LPNode -> Result String (P.Doc cost)
 listBoxesWithBrackets open close nodes =
     let
+        -- Reuse the shared list-item dispatch, tagging each rendered doc with its
+        -- source row (so the fold can place trailing comments) and treating an
+        -- unrecognised box as "skip" rather than an error — a comment-bearing
+        -- list never errors on an item it can't classify, it just drops it.
         nodeItemDoc node =
-            when lpnBox node is
-                UnbreakableText loc ->
-                    Ok (Just { doc = P.text loc.value, row = loc.start.row })
-                AcrossThenIndent ->
-                    when buildFlowDoc grenIndent (lpnChildren node) is
-                        Err e -> Err e
-                        Ok d -> Ok (Just { doc = d, row = firstRowInSubtree node })
-                AllAcrossOrAllVertical _ ->
-                    -- Nest a nested bracket-list item by 2 (the "[ " / ", "
-                    -- prefix width) so its continuation lines align under its
-                    -- own first element rather than the enclosing list's items.
-                    when makePDoc (lpnBox node) (lpnChildren node) is
-                        Err e -> Err e
-                        Ok d -> Ok (Just { doc = P.nest 2 d, row = firstRowInSubtree node })
-                AlwaysVertical bracket ->
-                    let bs = bracketStrings bracket
-                    in
-                    when listBoxesWithBrackets bs.open bs.close (lpnChildren node) is
-                        Err e -> Err e
-                        Ok d -> Ok (Just { doc = P.nest 2 d, row = firstRowInSubtree node })
-                RecordUpdate { name, forceVertical } ->
-                    when makeRecordUpdateDoc forceVertical name.value (lpnChildren node) is
-                        Err e -> Err e
-                        Ok d -> Ok (Just { doc = d, row = firstRowInSubtree node })
-                AlignedFlow ->
-                    when makePDoc AlignedFlow (lpnChildren node) is
-                        Err e -> Err e
-                        Ok d -> Ok (Just { doc = d, row = firstRowInSubtree node })
-                PrefixGlue _ ->
-                    when makePDoc (lpnBox node) (lpnChildren node) is
-                        Err e -> Err e
-                        Ok d -> Ok (Just { doc = d, row = firstRowInSubtree node })
-                ParenBlock ->
-                    when makePDoc ParenBlock (lpnChildren node) is
-                        Err e -> Err e
-                        Ok d -> Ok (Just { doc = d, row = firstRowInSubtree node })
-                EmptyBracketed _ ->
-                    -- An empty literal (`[]` / `{}` / `()`) as an item of a
-                    -- comment-bearing list. Without this case it falls through
-                    -- to `_ -> Ok Nothing` and the item is silently dropped
-                    -- (e.g. `[ {}, {- c -} { a = 1 }, {} ]` losing both `{}`).
-                    when makePDoc (lpnBox node) (lpnChildren node) is
-                        Err e -> Err e
-                        Ok d -> Ok (Just { doc = d, row = firstRowInSubtree node })
-                SynthesizedText _ ->
-                    when makePDoc (lpnBox node) (lpnChildren node) is
-                        Err e -> Err e
-                        Ok d -> Ok (Just { doc = d, row = firstRowInSubtree node })
-                Pipeline _ ->
-                    when makePDoc (lpnBox node) (lpnChildren node) is
-                        Err e -> Err e
-                        Ok d -> Ok (Just { doc = d, row = firstRowInSubtree node })
-                Binop _ ->
-                    when makePDoc (lpnBox node) (lpnChildren node) is
-                        Err e -> Err e
-                        Ok d -> Ok (Just { doc = d, row = firstRowInSubtree node })
-                _ ->
+            when listItemBoxDoc node is
+                Nothing ->
                     Ok Nothing
+                Just result ->
+                    let
+                        row =
+                            when lpnBox node is
+                                UnbreakableText loc -> loc.start.row
+                                _ -> firstRowInSubtree node
+                    in
+                    result |> Result.map (\d -> Just { doc = d, row = row })
 
         foldResult =
             Array.foldl
