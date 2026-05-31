@@ -72,7 +72,7 @@ import Formatter.LogicalPrintingTree exposing (LPBox(..),
     LPNode, ListBrackets(..), SyntaxType(..),
     lpnBox, lpnChildren, lpnNode, firstRowInSubtree, lpnLastPos)
 import Formatter.LPTJson exposing (lptToJson)
-import Formatter.LPTHelpers exposing (binopPrecedence)
+import Formatter.LPTHelpers exposing (binopPrecedence, binopMinPrecedence)
 
 import Formatter.Strings exposing
     ( joinResultStrings
@@ -1976,7 +1976,7 @@ makeBinopDoc forceVertical children =
                         operandDocsResult =
                             traverseArray (buildFlowDoc 0) flat.operands
                         minPrec =
-                            Array.foldl (\op acc -> min acc (binopPrecedence (opNodeText op))) 999 flat.ops
+                            binopMinPrecedence (Array.map opNodeText flat.ops)
                     in
                     operandDocsResult
                         |> Result.map (\operandDocs ->
@@ -1987,8 +1987,10 @@ makeBinopDoc forceVertical children =
 -- Assemble the operand docs and operator nodes into the precedence-aware layout.
 -- `operandDocs` has one more entry than `ops`; `ops[k]` sits between
 -- `operandDocs[k]` and `operandDocs[k+1]`. Groups break at operators whose
--- precedence equals `minPrec`; tighter (higher-precedence) operators join their
--- operands inline within a group.
+-- precedence equals `minPrec` (= `binopMinPrecedence ops`); tighter
+-- (higher-precedence) operators join their operands inline within a group. This
+-- is the render-side twin of `InsertExpressions.binopForceVertical`, which
+-- groups the operand *ranges* the same way to decide the forced-vertical flag.
 assembleBinopGroups : Bool -> Int -> Array (P.Doc cost) -> Array LPNode -> P.Doc cost
 assembleBinopGroups forceVertical minPrec operandDocs ops =
     let

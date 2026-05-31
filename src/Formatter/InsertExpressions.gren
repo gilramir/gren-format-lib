@@ -17,7 +17,7 @@ import Formatter.LogicalPrintingTree exposing (LPBox(..),
 import Formatter.LPTHelpers exposing
     ( mkText, mkZeroWidthText, mkTextFromLocString, resultFoldl
     , tryMapFirstLeaf, tryMapLastLeaf, fixupParensChildrenNodes
-    , itemsSpanRows, binopPrecedence
+    , itemsSpanRows, binopPrecedence, binopMinPrecedence
     )
 import Formatter.LiteralFormat exposing (charLiteralString, escapeStringContent, escapeMultilineContent, intToHex)
 import Formatter.InsertPatterns exposing (folderInsertPattern, insertPattern)
@@ -134,6 +134,9 @@ The chain breaks only at its lowest-precedence operators (keeping tighter
 sub-terms inline), so the author "wrote it across rows" exactly when a newline
 sits at one of those split points. A group is a maximal run of operands joined by
 higher-than-minimum-precedence operators.
+
+This grouping mirrors `MakePretty.assembleBinopGroups`, which renders the same
+groups; both break at `binopMinPrecedence ops`, so they stay in lockstep.
 -}
 binopForceVertical : Array Src.Expression -> Array (Located String) -> Bool
 binopForceVertical operands ops =
@@ -146,7 +149,7 @@ binopForceVertical operands ops =
             else
                 let
                     minPrec =
-                        Array.foldl (\o acc -> min acc (binopPrecedence o.value)) 999 ops
+                        binopMinPrecedence (Array.map .value ops)
                     paired =
                         Array.map2 (\op next -> { op = op, next = next }) ops restOperands
                     final =
