@@ -825,6 +825,20 @@ when msg is
         }
 ```
 
+A `--` comment written on its own line between two cases is treated as belonging
+to the following case: it keeps the blank line above it (separating it from the
+previous case) and stays attached to the case below, with no blank between:
+
+```gren
+when n is
+    1 ->
+        "one"
+
+    -- a note about the next case
+    2 ->
+        "two"
+```
+
 ---
 
 ## Let expressions

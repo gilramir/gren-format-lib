@@ -45,7 +45,8 @@ makeLogicalPrintingTree ast ctx =
                 lptWc = lptAddComments ctx lpt
                 lptLb = insertLetBlankLines lptWc
                 lptIf = insertIfBlankLines lptLb
-                lptXl = insertEmptyLines lptIf
+                lptWhen = insertWhenBlankLines lptIf
+                lptXl = insertEmptyLines lptWhen
             in
             Ok lptXl
 

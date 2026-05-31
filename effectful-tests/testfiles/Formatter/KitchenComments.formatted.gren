@@ -80,6 +80,7 @@ processOrder ({ identifier, items, appliedDiscounts, flags } as inboundCart) =
                 -- zero discounts: nothing to do
                 0 ->
                     1.0
+
                 -- one discount: apply it directly
                 1 ->
                     when Array.first appliedDiscounts is
@@ -87,9 +88,11 @@ processOrder ({ identifier, items, appliedDiscounts, flags } as inboundCart) =
                         Just { code, basisPoints } ->
                             -- comment before the body of a when-branch
                             1.0 - (toFloat basisPoints / 10000.0)
+
                         -- unexpected: array said length 1 but first was Nothing
                         Nothing ->
                             1.0
+
                 -- two or more: stack them multiplicatively
                 _ ->
                     appliedDiscounts
@@ -268,6 +271,7 @@ torturedComments primaryIntValue secondaryStringValue tertiaryBoolValue =
         0 -> {- inline block between pattern and arrow -}
             {- inline block between arrow and body -}
             "zero/" ++ guardedString
+
         -- a regular comment between branches
         1 ->
             -- and after the arrow, before the body
@@ -375,6 +379,7 @@ bestDiscount candidateDiscounts =
                     -- comment before the first when-branch arm
                     Nothing ->
                         Just candidate
+
                     -- comment before the second arm
                     Just existing ->
                         if candidate.basisPoints > existing.basisPoints then

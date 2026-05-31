@@ -1,11 +1,12 @@
-module Formatter.VerticalSpace exposing (insertEmptyLines, insertLetBlankLines, insertIfBlankLines)
+module Formatter.VerticalSpace exposing (insertEmptyLines, insertLetBlankLines, insertIfBlankLines, insertWhenBlankLines)
 
 {-| Insert blank-line `EmptyLine` siblings into the Logical Printing Tree to
 preserve and normalise vertical spacing — between top-level declarations
-(`insertEmptyLines`), between `let` bindings (`insertLetBlankLines`), and before
-the `else`/`else if` of an if-expression (`insertIfBlankLines`).
+(`insertEmptyLines`), between `let` bindings (`insertLetBlankLines`), before the
+`else`/`else if` of an if-expression (`insertIfBlankLines`), and before a comment
+sitting between two `when` cases (`insertWhenBlankLines`).
 
-@docs insertEmptyLines, insertLetBlankLines, insertIfBlankLines
+@docs insertEmptyLines, insertLetBlankLines, insertIfBlankLines, insertWhenBlankLines
 -}
 
 import Formatter.LogicalPrintingTree exposing (LPBox(..), SyntaxType(..), lpnNode,
@@ -354,6 +355,74 @@ insertBlanksInIfFlow children =
         )
         []
         children
+
+
+-- True if a node is a `when … is` branch.
+isWhenBranchNode : LPNode -> Bool
+isWhenBranchNode node =
+    when lpnBox node is
+        WhenBranch -> True
+        _ -> False
+
+
+-- True if a node is a standalone `--` line comment. Restricted to line
+-- comments on purpose: a `--` between two cases is unambiguously its own line
+-- and belongs to the following case, so it earns a blank above. A single-line
+-- `{- -}` block comment may instead be trailing the previous body (it renders
+-- glued to it), so it is left alone.
+isLineComment : LPNode -> Bool
+isLineComment node =
+    when lpnBox node is
+        SingleLineComment _ -> True
+        _ -> False
+
+
+-- Within one node's children, insert a single `EmptyLine` marker before a
+-- line comment that directly follows a `when` branch — i.e. a comment sitting
+-- between two cases. This restores the canonical "one blank line between
+-- cases" (which `MakePretty` emits between adjacent branches) for the
+-- comment-bearing gap, where the comment otherwise glues straight onto the
+-- previous branch's body. Only the *first* comment of a run is preceded by a
+-- branch, so a block of comment lines gets exactly one blank above it; the
+-- following branch stays glued to the comment (no blank below).
+insertBlanksInWhenFlow : Array LPNode -> Array LPNode
+insertBlanksInWhenFlow children =
+    let
+        result =
+            Array.foldl
+                (\child acc ->
+                    let
+                        out2 =
+                            if acc.prevWasBranch && isLineComment child then
+                                acc.out
+                                    |> Array.pushLast (lpnLeaf EmptyLine)
+                                    |> Array.pushLast child
+                            else
+                                Array.pushLast child acc.out
+                    in
+                    { out = out2, prevWasBranch = isWhenBranchNode child }
+                )
+                { out = [], prevWasBranch = False }
+                children
+    in
+    result.out
+
+
+{-| Insert a single blank-line `EmptyLine` marker before a comment that sits
+between two `when` cases, so the comment is separated from the previous branch
+by one blank — matching the blank `MakePretty` already places between adjacent
+(comment-free) branches.
+
+Recurses over the whole tree. Runs *after* `Formatter.Comments`, so the
+between-branch comment is already a sibling among the branch nodes. Rebuilds via
+`lpnReplaceChildren` so bracket-extent caches survive.
+-}
+insertWhenBlankLines : LPNode -> LPNode
+insertWhenBlankLines node =
+    let
+        recursed = Array.map insertWhenBlankLines (lpnChildren node)
+    in
+    lpnReplaceChildren node (insertBlanksInWhenFlow recursed)
 
 
 {-| Insert a single blank-line `EmptyLine` marker before every `else if` and

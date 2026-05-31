@@ -636,9 +636,11 @@ interpretMicroCommand decoderForPayload commandText commandCharacters
                 -- single-char array pattern with literal Char pattern
                 [ 'q' ] ->
                     1
+
                 -- 3-element array pattern with literal Char and two PVars
                 [ '#', firstDigitCharacter, secondDigitCharacter ] ->
                     2
+
                 -- 4-element array pattern (all PVars)
                 [ firstChar, secondChar, thirdChar, fourthChar ] ->
                     3
