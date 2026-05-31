@@ -209,6 +209,19 @@ groupUnlessForced forceVertical full =
     if forceVertical then full else P.group full
 
 
+-- True if the rows are not all equal — i.e. the items they came from span more
+-- than one source line, so the author wrote the construct across rows and it
+-- should stay vertical. The Doc-side mirror of `InsertExpressions.itemsSpanRows`
+-- (which decides the same thing at LPT-build time for lists, records, pipelines,
+-- and binops); used here for unions and signatures, whose layout decision is
+-- still taken at render time.
+rowsSpanMultiple : Array Int -> Bool
+rowsSpanMultiple rows =
+    when Array.popFirst rows is
+        Nothing -> False
+        Just { first, rest } -> Array.any (\r -> r /= first) rest
+
+
 -- Canonical hanging indent for a multi-line block comment's continuation
 -- lines: the width of the `{- ` opener, so the body aligns under the first
 -- content character of the first line.
@@ -278,11 +291,8 @@ makeUnionBodyDoc nodes =
         -- (`= A | B | C` inline when it fits, one-per-line on overflow). Mirrors
         -- the record/list rule, with the fit-based↔vertical group built so the
         -- broken form is byte-identical to the always-vertical (P.vcat) form.
-        variantRows = Array.map firstRowInSubtree variantNodes
         variantsSpanRows =
-            when Array.popFirst variantRows is
-                Nothing -> False
-                Just { first, rest } -> Array.any (\r -> r /= first) rest
+            rowsSpanMultiple (Array.map firstRowInSubtree variantNodes)
     in
     if hasComment || variantsSpanRows then
         makeUnionBodyVertical nodes
@@ -1678,11 +1688,8 @@ makeSignaturePrettyDoc children =
         else
             let
                 segments = splitSignatureSegments colonSplit.typeNodes
-                segRows = Array.map segContentFirstRow segments
                 forceVertical =
-                    when Array.popFirst segRows is
-                        Nothing -> False
-                        Just { first, rest } -> Array.any (\r -> r /= first) rest
+                    rowsSpanMultiple (Array.map segContentFirstRow segments)
 
                 segDocsResult =
                     traverseArray (buildFlowDoc 0) segments
