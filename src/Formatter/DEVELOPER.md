@@ -25,7 +25,7 @@ Src.Module + Ctx.Context  ──►  LPT  ──►  PrettyExpressive Doc  ─�
   not the exact spaces. It also carries enough source-position information to put
   comments back where the author wrote them.
 - **PrettyExpressive** turns the LPT into a concrete string, choosing line
-  breaks optimally for the 100-column page width.
+  breaks optimally for the 80-column page width.
 
 Entry point: `Formatter.PrettyPrinter.prettyPrint : Src.Module -> Ctx.Context ->
 Result String String`. It calls `MakeLogical.makeLogicalPrintingTree` (build the
@@ -148,8 +148,9 @@ generated `->` never attracts a comment.
 printer: you build a `Doc` from combinators (`text`, `concat`, `nl`, `hardNl`,
 `group`, `nest`, `align`, `vcat`) and it picks the cheapest legal line-breaking
 for the page width. `MakePretty` is the only module that imports it; you only
-need its docs if you add a genuinely new layout shape. Page width is 100 and one
-indent step is 4 (`grenIndent`), both in `MakePretty`.
+need its docs if you add a genuinely new layout shape. Page width is 80 (with a
+wider 100-column computation budget, `computationWidth`) and one indent step is 4
+(`grenIndent`), all in `MakePretty`.
 
 ---
 
