@@ -1,10 +1,12 @@
 module PatternLayoutByAuthor exposing (..)
 
 
-inlineRecord { x, y } = x + y
+inlineRecord { x, y } =
+    x + y
 
 
-inlineArray [ a, b ] = a + b
+inlineArray [ a, b ] =
+    a + b
 
 
 lambdaRecord = \{ name, age } -> name
@@ -20,4 +22,5 @@ letDestructure value =
 multilineRecord
         { alpha
         , beta
-        } = alpha
+        } =
+    alpha

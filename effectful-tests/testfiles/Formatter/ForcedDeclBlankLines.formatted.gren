@@ -19,7 +19,8 @@ first n =
     n + 1
 
 
-sansSignature n = n * 2
+sansSignature n =
+    n * 2
 
 
 {-| A doc comment is the beginning of its unit. -}

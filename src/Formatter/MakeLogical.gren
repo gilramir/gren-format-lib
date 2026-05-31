@@ -558,14 +558,15 @@ processModDecl modDecl root =
 
 {-| Emit the value declaration's body row.
 
-Uses `BodyBlock` when a signature row precedes it (forces a hard newline
-before the body) and `SoftBodyBlock` otherwise (the body can stay inline
-with `name args =` when it fits).
+Uses `BodyBlock` (forces a hard newline before the body) when the
+declaration is a *function* (it takes arguments) or carries a type
+signature row; uses `SoftBodyBlock` otherwise, so a plain value binding can
+stay inline with `name =` when it fits.
 
-    foo x =           -- BodyBlock when a signature row sits above
+    foo x =           -- BodyBlock: a function always drops its body
         x + 1
 
-    bar = 42          -- SoftBodyBlock when no signature; can stay inline
+    bar = 42          -- SoftBodyBlock: a plain value stays inline
 -}
 processFunctionBody : Src.Value -> Bool -> LPNode -> Result String LPNode
 processFunctionBody modVal hasSignature root =
@@ -579,8 +580,11 @@ processFunctionBody modVal hasSignature root =
                 |> Result.map (\bodyNodes ->
                     let
                         header = lpnNode AcrossThenIndent ([nameNode] ++ argsNodes ++ [eqNode])
+                        dropsBody =
+                            hasSignature || not (Array.isEmpty modVal.args)
+
                         bodyWrapper =
-                            if hasSignature then
+                            if dropsBody then
                                 lpnNode BodyBlock bodyNodes
                             else
                                 lpnNode SoftBodyBlock bodyNodes

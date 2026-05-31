@@ -740,17 +740,21 @@ folderInsertLetDef locDef accNodes =
                                 |> Result.map (\bodyNodes ->
                                     let
                                         header = lpnNode AcrossThenIndent ([nameNode] ++ argsNodes ++ [eqNode])
-                                        -- Mirror the top-level rule (processFunctionBody):
-                                        -- a binding *with* a signature drops its body to
-                                        -- the next line (IndentedBlock = forced hardNl);
-                                        -- one *without* keeps it inline if it fits
-                                        -- (SoftIndentedBlock = soft break). This makes a
-                                        -- typed `let` binding lay out exactly like a typed
-                                        -- top-level declaration.
+                                        -- Same rule as the top-level (processFunctionBody):
+                                        -- a *function* declaration (it takes arguments), or
+                                        -- a binding with a type signature, drops its body to
+                                        -- the next line, indented (IndentedBlock = forced
+                                        -- hardNl). Only a plain value binding — no args, no
+                                        -- signature — keeps its body inline when it fits
+                                        -- (SoftIndentedBlock = soft break).
+                                        dropsBody =
+                                            def.typeSignature /= Nothing || not (Array.isEmpty def.args)
+
                                         bodyWrapper =
-                                            when def.typeSignature is
-                                                Just _ -> lpnNode IndentedBlock bodyNodes
-                                                Nothing -> lpnNode SoftIndentedBlock bodyNodes
+                                            if dropsBody then
+                                                lpnNode IndentedBlock bodyNodes
+                                            else
+                                                lpnNode SoftIndentedBlock bodyNodes
                                         container = lpnNode IndentedBlock [header, bodyWrapper]
                                     in
                                     Array.pushLast container acc

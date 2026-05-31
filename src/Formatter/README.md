@@ -182,44 +182,40 @@ result =
 
 ## Function body
 
-When a function has a type signature, its body always starts on the next line,
-indented 4 spaces — even if the body is a very short expression:
+A declaration's body starts on the next line, indented 4 spaces, whenever the
+declaration is a **function** (it takes arguments) or carries a type signature —
+even if the body is a very short expression:
 
 ```gren
 double : Int -> Int
 double n =
     n * 2
 
-version : String
-version =
-    "1.0.0"
+triple n =
+    n * 3
+
+makePoint x y =
+    { x = x, y = y }
 ```
 
-When there's **no** type signature, a short body stays on the same line as the
-name and `=`.
-
-> **NOTE** we could change this. This formatting makes sense
-> if the body of the function is just a literal, so that it looks like
-> a variable declaration. If the body has any expression in it, we could
-> render it on the next line like a function with a type signature. We
-> could also remove this rule entirely.
+Only a **plain value binding** — no arguments and no type signature — keeps its
+body on the same line as the name and `=`:
 
 ```gren
-double n = n * 2
-
 version = "1.0.0"
 
-makePoint x y = { x = x, y = y }
+answer = 42
 ```
 
-A body that's too long, or that is inherently multi-line (an `if`, `let`, or
-`when`), always starts on its own line indented 4 spaces:
+The inline form is reserved for a *short* value body. Even a plain value binding
+drops its body to the next line when that body is too long to fit, or is
+inherently multi-line (an `if`, `let`, or `when`):
 
 ```gren
-findPreferredLanguage languages =
-    Array.keepIf (\lang -> Array.member lang supported) languages
+supportedLanguages =
+    Array.keepIf (\lang -> Array.member lang preferred) allKnownLanguages
 
-classify n =
+label =
     when n is
         1 ->
             "one"
@@ -813,12 +809,13 @@ circleArea radius =
     pi * rSquared
 ```
 
-A binding may carry its own type signature, exactly like a top-level function.
-The signature goes on the line directly above the definition with no blank line
-between them. A binding *with* a signature lays out exactly like a typed
-top-level declaration: its value drops to the next line, indented 4 more spaces,
-even when it would have fit inline. A binding *without* a signature keeps its
-value inline if it fits (see below).
+A binding follows the same body rule as a top-level declaration: a binding that
+is a **function** (it takes arguments), or that carries a type signature, drops
+its value to the next line, indented 4 more spaces, even when it would have fit
+inline. A type signature goes on the line directly above the definition with no
+blank line between them, exactly like a top-level function. Only a **plain value
+binding** — no arguments and no signature — keeps its value inline when it fits
+(see below).
 
 ```gren
 hypotenuse x y =
@@ -848,9 +845,9 @@ let
 in
 ```
 
-A binding value with no signature that fits stays on the same line as its name
-and `=`; one that's too long, or inherently multi-line, drops to the next line
-indented 4 more spaces:
+A plain value binding (no arguments, no signature) whose body fits stays on the
+same line as its name and `=`; one that's too long, or inherently multi-line,
+drops to the next line indented 4 more spaces:
 
 ```gren
 complexBody =

@@ -10,11 +10,16 @@ process n =
         doubled m =
             m * 2
 
-        -- A binding without a signature should be unaffected.
-        plain x = x + 1
+        -- A function binding without a signature still drops its body to
+        -- the next line, because it takes an argument.
+        plain x =
+            x + 1
+
+        -- A plain value binding (no args, no signature) stays inline.
+        bias = 7
 
         labelFor : Int -> String
         labelFor v =
             "n=" ++ String.fromInt v
     in
-    doubled (plain n)
+    doubled (plain n) + bias
