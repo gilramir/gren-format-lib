@@ -156,7 +156,6 @@ summariseCart ({ identifier, items, flags } as inboundCart) =
         formatLine =
             \({ sku, quantity, unitPriceCents } as wholeItem) ->
             -- comment inside a lambda body
-            
                 String.join " "
                     -- inline comment after the function being called
                     -- comment before the first argument-item of join
@@ -177,7 +176,7 @@ summariseCart ({ identifier, items, flags } as inboundCart) =
         |> Array.map
             (\formattedItemLine ->
             -- comment inside a single-arg lambda body
-             "- " ++ formattedItemLine)
+                "- " ++ formattedItemLine)
 
         {- comment between two pipeline steps using block-comment style -}
         |> String.join "\n"
@@ -190,7 +189,6 @@ reprice rawMultiplier ({ items, flags } as inboundCart) =
         -- comment before a clamped value
         clampedMultiplier =
         -- nested ifs with comments at each branch
-        
             if rawMultiplier < 0.0 then
                 {- block comment inside an if-branch -}
                 0.0
@@ -203,31 +201,25 @@ reprice rawMultiplier ({ items, flags } as inboundCart) =
     -- the actual record update happens here
     { inboundCart
         -- comment before the first updated field
-    
         | items =
               items
                   |> Array.map
                       (\itemRecord ->
                       -- comment leading into a nested record update inside a pipeline step
-                      
                           { itemRecord
                               -- comment before the first updated field of a NESTED record update
-                          
                               | unitPriceCents =
                                     round
                                         (toFloat itemRecord.unitPriceCents
                                             * clampedMultiplier)
                               -- comment between two updated fields of a nested update
-                          
                               , quantity = itemRecord.quantity
                           })
         -- comment between two updated fields of the OUTER record update
-    
         , flags =
               -- comment before another nested record update
               { flags
                   -- comment before an updated boolean
-              
                   | isPriority = flags.isPriority || clampedMultiplier > 1.5
                   {- block comment inside a record update -}
                   , isGift = flags.isGift
@@ -360,13 +352,12 @@ bestDiscount candidateDiscounts =
         |> Array.keepIf
             (\{ basisPoints } ->
             -- comment inside the lambda body of a keepIf step
-             basisPoints > 0 && basisPoints <= 5000)
+                basisPoints > 0 && basisPoints <= 5000)
 
         {- two-step block-comment narration begins -}
         |> Array.foldl
             (\candidate currentBest ->
             -- comment inside a fold reducer lambda
-            
                 when currentBest is
                     -- comment before the first when-branch arm
                     Nothing ->

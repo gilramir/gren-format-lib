@@ -57,7 +57,7 @@ type Shape
     | Square {- 9 a
                 9 b
                 9 c -}
-     Int Int
+        Int Int
 
 
 port output : {- 45 a
@@ -108,7 +108,7 @@ letFirst x =
         {- 17 a
            17 b
            17 c -}
-         x
+            x
 
         {- 47 a — leading comment of a NON-FIRST let binding
            47 b
@@ -237,7 +237,7 @@ lambdas =
     {- 39 a
        39 b
        39 c -}
-     x
+        x
 
 
 arrays =

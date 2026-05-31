@@ -7,4 +7,4 @@ type Shape
                 m1
         m2
         m3 -}
-     Int Int {- trailing the multi-line last variant -}
+        Int Int {- trailing the multi-line last variant -}

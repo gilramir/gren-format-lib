@@ -451,7 +451,20 @@ joinBlock rule sep accDoc childDoc =
             if rule.bypassAlreadyTerminated then
                 P.concat accDoc childDoc
             else
-                P.concat accDoc (rule.wrap childDoc)
+                -- The previous item (a comment) already ended its line with a
+                -- hardNl, so applying the normal wrap — which begins with its own
+                -- nl/hardNl — would emit a *second* newline: a whitespace-only
+                -- blank line (the break re-emits the current indentation).
+                -- Instead indent the child to the wrap's level without a leading
+                -- break: `nest grenIndent` so the child's own line breaks land at
+                -- +grenIndent, plus a literal run of spaces to push its first line
+                -- there too (there is no leading break to do that). The two
+                -- non-bypass rules (IndentedBlock, SoftIndentedBlock) both nest by
+                -- exactly grenIndent, so this matches their broken form minus the
+                -- spurious blank line.
+                P.concat accDoc
+                    (P.nest grenIndent
+                        (P.concat (P.text (String.repeat grenIndent " ")) childDoc))
         _ ->
             P.concat accDoc (rule.wrap childDoc)
 
@@ -1371,7 +1384,7 @@ makeRecordUpdateDoc forceVertical baseName children =
                 Just _ ->
                     Ok (P.vcat
                         ([P.text ("{ " ++ baseName)]
-                        ++ Array.map (\c -> P.concat (P.text "    ") (commentLineDoc c)) commentsBefore
+                        ++ Array.map (\c -> P.concat (P.text "    ") (commentNodeDoc c)) commentsBefore
                         ++ [P.text "}"]))
         Just { first = firstField, rest = restFields } ->
             -- Wrap each field's flow with P.align so that when the field value
@@ -1397,7 +1410,7 @@ makeRecordUpdateDoc forceVertical baseName children =
                 -- inline form).
                 let
                     leadingCommentLines =
-                        Array.map (\c -> P.concat (P.text "    ") (commentLineDoc c)) commentsBefore
+                        Array.map (\c -> P.concat (P.text "    ") (commentNodeDoc c)) commentsBefore
                 in
                 when fieldDoc firstField is
                     Err e -> Err e
@@ -1411,7 +1424,7 @@ makeRecordUpdateDoc forceVertical baseName children =
                                             Err e -> Err e
                                             Ok docs ->
                                                 if nodeIsComment field then
-                                                    Ok (Array.pushLast (P.concat (P.text "    ") (commentLineDoc field)) docs)
+                                                    Ok (Array.pushLast (P.concat (P.text "    ") (commentNodeDoc field)) docs)
                                                 else
                                                     when fieldDoc field is
                                                         Err e -> Err e
@@ -1456,16 +1469,6 @@ makeRecordUpdateDoc forceVertical baseName children =
                                 in
                                 P.group inner
                             )
-
-
--- Render a single LPNode comment as a one-line doc. Like commentNodeDoc, but
--- appends a hardNl for SingleLineComment (which must terminate its line). Used
--- when emitting comment children as successive lines via P.vcat or P.concat.
-commentLineDoc : LPNode -> P.Doc cost
-commentLineDoc node =
-    when lpnBox node is
-        SingleLineComment loc -> lineComment loc.value
-        _ -> commentNodeDoc node
 
 
 {-| Build the `PrettyExpressive` `Doc` for a single root-child node without
@@ -1566,7 +1569,7 @@ makeFlowIndentableDoc children =
     buildFlowDoc grenIndent rest
         |> Result.map (\flowDoc ->
             let
-                commentDocs = Array.map commentLineDoc leading
+                commentDocs = Array.map commentNodeDoc leading
             in
             if Array.isEmpty commentDocs then
                 flowDoc
