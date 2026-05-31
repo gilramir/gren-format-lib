@@ -3,18 +3,13 @@
 A guide to how `gren format` lays out your code — what it changes, what it
 leaves alone, and why.
 
-This document is meant to be read start to finish if you're new to Gren, or
-dipped into by construct if you're looking for one specific rule. Every rule
-comes with an example, because a sample of before/after is usually faster to
-understand than a paragraph.
-
 ---
 
-## The big idea
+## Background
 
-Most code formatters impose a single "correct" style: you write your code
+Some code formatters impose a single "correct" style: you write your code
 however you like, run the formatter, and it rewrites everything into one fixed
-shape. The Gren formatter is a little different. For many constructs it
+shape. The Gren formatter is different. For many constructs it
 **follows your layout choices** instead of overriding them.
 
 The guiding rules are:
@@ -47,7 +42,7 @@ this: write it on one line to get the compact form, or put a line break between
 its items to get the one-per-line form. Both are valid; the formatter keeps
 whichever you chose (collapsing the compact one only if it's too wide to fit).
 
-A few house rules that apply everywhere:
+A few rules that apply everywhere:
 
 - **Indentation is 4 spaces.** Always spaces, never tabs.
 - **The target page width is 80 columns.**
@@ -68,8 +63,7 @@ module MyApp exposing ( Model, Msg, init, update )
 
 The list is **all-or-nothing**: when the line is too long, the keyword stays put
 and every export goes on its own line, with `, ` before each one after the first
-and the closing `)` alone on the last line. There is no in-between form where the
-whole list drops to one indented line:
+and the closing `)` alone on the last line.
 
 ```gren
 module MyApp exposing
@@ -151,14 +145,14 @@ keptMultiLine :
     -> Int
 ```
 
-(A line break right after the `:` with everything else still on one line does
-not count — only a break *between* the `->` parts makes it multi-line.)
+A line break right after the `:` with everything else still on one line does
+not count — only a break *between* the `->` parts makes it multi-line.
 
-One exception: a signature that contains a comment keeps the older "fill"
-wrapping (it fills each line and wraps to the next as needed), because the
-all-or-nothing break points don't give a comment a stable home. So instead of
-each `->` part going on its own line, the parts pack onto a line and wrap only
-when they run out of room, with the comment left inline:
+One exception: a signature that contains a comment fills the entire row,
+wrapping to the next line as neeed, because otherwise the the formatting
+would change between iterations, as the formatter can't attach the comment
+correctly. So instead of each `->` part going on its own line,the parts pack
+onto a line and wrap only when they run out of room, with the comment left inline:
 
 ```gren
 update : Msg -> Model -> {- returns new state -} Result Error Model -> Cmd Msg
@@ -189,7 +183,7 @@ result =
 ## Function body
 
 When a function has a type signature, its body always starts on the next line,
-indented 4 spaces — even a tiny body:
+indented 4 spaces — even if the body is a very short expression:
 
 ```gren
 double : Int -> Int
@@ -202,7 +196,13 @@ version =
 ```
 
 When there's **no** type signature, a short body stays on the same line as the
-name and `=`:
+name and `=`.
+
+> **NOTE** we could change this. This formatting makes sense
+> if the body of the function is just a literal, so that it looks like
+> a variable declaration. If the body has any expression in it, we could
+> render it on the next line like a function with a type signature. We
+> could also remove this rule entirely.
 
 ```gren
 double n = n * 2
@@ -582,6 +582,8 @@ poem =
     """
 ```
 
+> **TODO** - check this
+
 The content lines are always re-indented to line up with the `"""` delimiters,
 no matter how much leading whitespace the original had. (The *text* of each line
 is never changed — only the common indentation in front of it.)
@@ -653,10 +655,8 @@ predicate wraps but `then` stays glued to its last line. The same applies to
 > ```
 >
 > This is implementable (it would render the predicate with the precedence-aware
-> binop layout rather than a filled flow). The trade-off is the mirror image of
-> today's: fill keeps an `if` predicate compact but wraps it *differently* from
-> how the same expression wraps anywhere else; precedence-aware wraps it
-> consistently but takes more vertical space. **This has not been decided.**
+> binop layout rather than a filled flow).
+> **This has not been decided yet.**
 >
 > **Action item:** decide whether a stacked `if`/`else if` predicate should wrap
 > fill-style (current) or precedence-aware, and make it consistent.
@@ -705,6 +705,8 @@ when msg is
 `let` and `in` line up at the same indentation. Bindings are indented 4 spaces
 under `let`, and the result expression starts on the line after `in`, back at the
 `let`/`in` level:
+
+> **TODO** - what if the function has a signature inside a 'let' body?
 
 ```gren
 circleArea radius =
@@ -950,7 +952,7 @@ value =
 `{-` — flush against the margin, or as part of a diagram that reaches further
 left than the opener — the formatter can't slide the comment left to line the
 `{-` up with the construct without dragging that line off the page or distorting
-the picture. So it does the opposite: it lifts the `{-` onto its own line at the
+the comment. So it makes a compromise: it lifts the `{-` onto its own line at the
 construct's indent and leaves **every line of the body exactly where you wrote
 it**, column for column. Only the `{-` moves.
 
@@ -1003,6 +1005,7 @@ kept.
 
 ### A comment at the *end* of something
 
+**TODO** - rewrite for ease of understanding
 A comment you write *after the last token of a construct*, right where the next
 thing is a sibling at a shallower indent, is placed at that shallower indent on
 its own line — not tucked at the construct's deeper indent. Here a comment after
@@ -1080,8 +1083,8 @@ describe x =
             "other"
 ```
 
-(The comment stays with the branch it trails; the usual blank line then separates
-that branch from the next.)
+The comment stays with the branch it trails; the usual blank line then separates
+that branch from the next.
 
 Either way the comment lands somewhere it re-parses to the same place, so it
 doesn't drift.
@@ -1159,18 +1162,18 @@ simply isn't there in the parsed program.
 
 ## Known limitations: idempotency gaps
 
-"Idempotent" is a fancy word for a simple promise: **formatting already-formatted
+"Idempotent" is the promise that **formatting already-formatted
 code gives you back exactly the same code.** Format once or format ten times —
 same result. The formatter holds to this almost everywhere, including a torture
-test that jams a comment into *every* gap between tokens in a large file.
+test that places a comment into *every* gap between tokens in a large file.
 
 There are a small number of known exceptions, all involving block comments
 (`{- ... -}`) sitting at awkward spots near the 80-column boundary. In these rare
 cases, the *first* format settles the comment in one place, and a *second* format
 may nudge it. They don't change what your code means — only exactly where a
-comment lands — and they only show up in deliberately adversarial inputs. The
+comment lands — and they only show up in very specific, difficult inputs. The
 known cases live in a handful of test fixtures and are tracked for a future fix;
-ordinary code does not hit them.
+ordinary code should not hit them.
 
 For example, a binary-operator chain long enough to overflow, ending in a trailing
 block comment that lands on its own line, formats like this the first time — the
@@ -1206,7 +1209,7 @@ pass.
 
 If you ever notice the formatter producing a slightly different result the second
 time you run it on a file, it will be a comment near a line-wrap boundary like
-this — and re-running once more will settle it.
+this, and re-running once more will settle it.
 
 ---
 
@@ -1267,13 +1270,13 @@ newline, the declaration node records the *name's* row instead of the
 *keyword's*. The formatter reads that row range to decide the blank line, so the
 wrapped head looks one row taller than it is and the comment-adjacency test
 flips. Once #25 is fixed so the keyword's own row is recorded, the formatter can
-make this a pure width-and-adjacency decision and the gap should close.
+make this a pure width-and-adjacency decision and format it correctly.
 
 ### A comment's inline-vs-own-line placement flipping
 
 A comment that trails a token is rendered *inline* (on the token's line) when it
 shares that token's row, and *on its own line* otherwise — a deliberate,
-meaning-bearing distinction (see [Comments](#comments)). The gap is that this can
+meaning-bearing distinction (see [Comments](#comments)). The problem is that this can
 flip when whitespace *elsewhere* changes how many rows the surrounding construct
 spans, even though the comment still trails the same token.
 
@@ -1332,14 +1335,15 @@ carry no position in the AST — see the elided-token cases under
 [Comments](#comments)), so it isn't known until after layout, while the
 comment-placement decision is made before. Doing this right means making that
 decision against post-layout positions (or tracking the synthesized brackets'
-rows) — a deeper change than swapping which row the test reads. Until then the
-formatter keeps the current rule, which is stable (idempotent) everywhere but
-flips this particular case.
+rows) — a deeper change than swapping which row the test reads. This is a large
+change in the interaction between the formatter's internal data structures
+and the renderer's data structures. Until then the formatter keeps the current
+rule, which is stable (idempotent) everywhere but flips this particular case.
 
 ### A multi-line block comment's body is kept verbatim
 
-This one is intentional, not a defect — but it has the same observable shape, so
-it belongs here. As described in the **Block comments** section above, when a
+This one is intentional, not a defect — but it has the same observable problem.
+As described in the **Block comments** section above, when a
 multi-line `{- ... -}` comment has a body line to the left of its `{-`,
 the formatter lifts the `{-` onto its own line and leaves the body **exactly as
 written**, column for column, rather than re-indenting it. That protects ASCII
@@ -1368,18 +1372,8 @@ x =
 Both are left untouched, so they stay different. (Formatting is still
 idempotent — each output formats back to itself — and the comment's meaning is
 unchanged; it's only that the body indentation you chose is preserved rather than
-normalized.) This is the deliberate trade for not mangling diagrams.
+normalized.) This is the deliberate trade for not mangling the alignment
+of text within the comment.
 
 None of these change the meaning of your code, and none affect code without
 comments. They're documented here for completeness and tracked for future work.
-
----
-
-## A note for contributors
-
-This file is the human-readable contract for what the formatter does. If you
-change a formatting rule, update the matching section here with a worked example.
-The accompanying test suite (`compiler-node/effectful-tests`) pins every example
-to an actual fixture and additionally checks that formatting is idempotent and
-preserves the parsed program — so the behavior described here is the behavior
-that ships.
