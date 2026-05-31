@@ -1151,12 +1151,14 @@ kept.
 
 ### A comment at the *end* of something
 
-**TODO** - rewrite for ease of understanding
-A comment you write *after the last token of a construct*, right where the next
-thing is a sibling at a shallower indent, is placed at that shallower indent on
-its own line — not tucked at the construct's deeper indent. Here a comment after
-a multi-line signature lands at column 1, leading the definition, rather than at
-the type's 4-space indent:
+When you put a comment right after the **last token** of a multi-line construct,
+and the next line of code belongs to something *outside* that construct (so it
+sits at a shallower indent), the formatter puts the comment on its own line at
+that outer indent. It does **not** tuck the comment in at the construct's deeper
+indent.
+
+For example, a comment after a multi-line type signature lands at the left margin,
+leading the definition below it, rather than staying indented under the type:
 
 ```gren
 foo :
@@ -1167,8 +1169,8 @@ foo n =
     n
 ```
 
-Why not keep it tucked in beside the type it follows? Because that placement
-isn't stable. If the formatter *did* produce the deeper form —
+The reason is stability. Suppose the formatter instead tucked the comment in under
+the type:
 
 ```gren
 foo :
@@ -1179,11 +1181,11 @@ foo n =
     n
 ```
 
-— then re-formatting it would pull the comment straight back out to column 1: the
-comment sits on its own line one row past the signature, where it reads as a
-leading comment of the definition. So the deep form isn't a fixed point — it
-changes the next time you format. The shallow form re-formats to itself, so the
-formatter commits to the shallow (column-1) spot up front and stays there.
+That comment is still alone on its line, one row below the signature — which reads
+as a comment introducing the `foo n =` definition. So the next time you formatted
+the file, the formatter would just move it back out to the margin. Rather than
+shuffle the comment on every run, it places it at the margin from the start and
+leaves it there.
 
 By contrast, a comment that is genuinely *inside* a construct stays inside it. A
 comment before a closing bracket stays in the container:
@@ -1417,46 +1419,6 @@ newline, the declaration node records the *name's* row instead of the
 wrapped head looks one row taller than it is and the comment-adjacency test
 flips. Once #25 is fixed so the keyword's own row is recorded, the formatter can
 make this a pure width-and-adjacency decision and format it correctly.
-
-### A comment's inline-vs-own-line placement (fixed)
-
-*This was a whitespace-canonicalization gap; it is now fixed.*
-
-A comment that trails a token is rendered *inline* (on the token's line) when it
-shares that token's row, and *on its own line* otherwise — a deliberate,
-meaning-bearing distinction (see [Comments](#comments)). This placement used to
-**flip** when whitespace *elsewhere* changed how many rows the surrounding
-construct spanned, even though the comment still trailed the same token. Writing a
-record-type field's trailing comment on one line kept it inline, but writing the
-*same* field across rows pushed the comment onto its own line — purely because of
-whitespace inside the field.
-
-Both inputs now format the same way, with the comment inline:
-
-```gren
--- either of these inputs…
-foo : { a : Int {- trailing the field -} }
-
--- …or this one (the field spans two rows)…
-foo :
-    { a :
-        Int {- trailing the field -}
-    }
-
--- …both format to:
-foo :
-    { a : Int {- trailing the field -}
-    }
-```
-
-**The fix.** The placement test compares the comment's row to the item's **last**
-row rather than its first. The earlier worry — that an item ending in a multi-line
-bracketed value would *oscillate*, because its closing `}`/`]`/`)` "carries no
-position in the AST" — turned out not to apply. A bracketed expression's (or
-type's) `end` position **is** its closing bracket, and the item's row range already
-extends to it, so the comparison lands on the bracket's own row, which is exactly
-where a comment trailing the value sits. That makes the decision stable across
-reformats (idempotent) while keeping the inline placement the author intended.
 
 ### A multi-line block comment's body is kept verbatim
 
