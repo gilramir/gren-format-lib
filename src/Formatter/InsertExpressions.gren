@@ -483,16 +483,39 @@ insertExpression locExpr =
                                 Just { first = firstPat, rest = restPats } ->
                                     Array.pushFirst (lpnNode (PrefixGlue backslashLoc) [firstPat]) restPats
                         arrowNode = lpnLeaf (SynthesizedText "->")
+
+                        -- A block-like body (`let`/`if`/`when`) is already a
+                        -- vertical structure whose inner rows carry their own
+                        -- `IndentedBlock` indentation. Wrapping it through
+                        -- `insertExpressionAsItem` would bundle those rows under
+                        -- an extra `AcrossThenIndent`, whose +4 continuation
+                        -- indent stacks on top of the inner blocks and
+                        -- double-indents the `let` bindings / branch bodies. So
+                        -- for those, drop the raw rows straight into the
+                        -- `SoftIndentedBlock` (as every other block context
+                        -- does). Other bodies keep `insertExpressionAsItem` so a
+                        -- call body still gets the +4 arg-flow continuation.
+                        isBlockBody =
+                            when body.value is
+                                Src.Let _ -> True
+                                Src.If _ -> True
+                                Src.When _ -> True
+                                _ -> False
+
+                        bodyBlockResult =
+                            if isBlockBody then
+                                insertExpression body
+                                    |> Result.map (\bodyNodes -> lpnNode SoftIndentedBlock bodyNodes)
+                            else
+                                insertExpressionAsItem body
+                                    |> Result.map (\bodyNode -> lpnNode SoftIndentedBlock [bodyNode])
                     in
-                    insertExpressionAsItem body
-                        |> Result.map (\bodyNode ->
+                    bodyBlockResult
+                        |> Result.map (\bodyBlock ->
                             -- Bundle the `->` with the patterns so the body is
-                            -- the only thing that can break to a new line; then
-                            -- wrap the body in SoftIndentedBlock so when it
-                            -- breaks it lands at +4 from the `\`.
+                            -- the only thing that can break to a new line.
                             let
                                 patsWithArrow = lpnNode AcrossThenIndent (updatedPatNodes ++ [arrowNode])
-                                bodyBlock = lpnNode SoftIndentedBlock [bodyNode]
                             in
                             [patsWithArrow, bodyBlock]
                         )

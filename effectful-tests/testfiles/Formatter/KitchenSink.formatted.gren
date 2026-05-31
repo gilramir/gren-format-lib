@@ -368,28 +368,25 @@ applyOverlays leadingOverridePriority tracingIsEnabled
         applyTracingDecision =
             \receivedContainer ->
                 if tracingIsEnabled then
-                        { receivedContainer
-                            | identifier =
-                                  receivedContainer.identifier ++ "+tracing"
-                            , payload = "tracing=on"
-                            , flags =
-                                  { flags
-                                      | isReady = True
-                                      , isVerified = True
-                                      , isShadowBanned = False
-                                  }
-                        }
+                    { receivedContainer
+                        | identifier =
+                              receivedContainer.identifier ++ "+tracing"
+                        , payload = "tracing=on"
+                        , flags =
+                              { flags
+                                  | isReady = True
+                                  , isVerified = True
+                                  , isShadowBanned = False
+                              }
+                    }
 
-                    else
-                        { receivedContainer
-                            | identifier =
-                                  receivedContainer.identifier ++ "-tracing"
-                            , flags =
-                                  { flags
-                                      | isReady = False
-                                      , isVerified = False
-                                  }
-                        }
+                else
+                    { receivedContainer
+                        | identifier =
+                              receivedContainer.identifier ++ "-tracing"
+                        , flags =
+                              { flags | isReady = False, isVerified = False }
+                    }
 
         -- When-branch arms produce updates of different shapes. The wildcard
         -- arm contains updates that are deeply nested: a multi-field update
@@ -471,18 +468,18 @@ transform inputValues =
         |> Array.map
             (\n ->
                 if Math.modBy 2 n == 0 then
-                        n * n
+                    n * n
 
-                    else
-                        -n)
+                else
+                    -n)
         |> Array.foldl (+) 0
         |>
             (\result ->
                 if result < 0 then
-                        -result
+                    -result
 
-                    else
-                        result)
+                else
+                    result)
         |> identity <| 0
 
 
@@ -547,20 +544,20 @@ traverseDeeply rootTree =
             \({ firstNameString, lastNameString, ageInYears } as personRecord)
                 ->
                 if ageInYears < 0 then
-                        "invalid:" ++ firstNameString
+                    "invalid:" ++ firstNameString
 
-                    else if ageInYears == 0 then
-                        String.toUpper
-                            <| String.append firstNameString
-                            <| String.append " "
-                            <| lastNameString
+                else if ageInYears == 0 then
+                    String.toUpper
+                        <| String.append firstNameString
+                        <| String.append " "
+                        <| lastNameString
 
-                    else
-                        String.join " "
-                            [ firstNameString
-                            , lastNameString
-                            , "(" ++ String.fromInt ageInYears ++ ")"
-                            ]
+                else
+                    String.join " "
+                        [ firstNameString
+                        , lastNameString
+                        , "(" ++ String.fromInt ageInYears ++ ")"
+                        ]
 
         gatherNames currentTree =
             when currentTree is
