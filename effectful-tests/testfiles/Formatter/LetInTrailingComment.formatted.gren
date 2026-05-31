@@ -23,7 +23,8 @@ withTrailingLineComment someArgumentValue =
 
 bodyLeadingComment someArgumentValue =
     let
-        someBinding = someArgumentValue + 1
+        someBinding =
+            someArgumentValue + 1
     in
     -- leading comment of the let body, after in
     someBinding

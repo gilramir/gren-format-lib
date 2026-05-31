@@ -14,7 +14,7 @@ import Formatter.LogicalPrintingTree exposing (LPBox(..),
     lpnBox, lpnChildren, lpnLeaf, lpnNode, lpnBracketNode, lastRowInSubtree)
 import Formatter.Comments exposing (lptAddComments)
 import Formatter.LPTHelpers exposing (mkText, mkZeroWidthText, mkTextFromLocString, resultFoldl)
-import Formatter.InsertExpressions exposing (insertExpression)
+import Formatter.InsertExpressions exposing (insertExpression, isSimpleBody)
 import Formatter.InsertPatterns exposing (folderInsertPattern)
 import Formatter.InsertTypes exposing (makeSignatureBranch)
 import Formatter.VerticalSpace exposing (..)
@@ -547,29 +547,25 @@ processModDecl : Src.ModuleDeclaration Src.Value -> LPNode -> Result String LPNo
 processModDecl modDecl root =
     let
         t0 = processFunctionDoc modDecl.value.docs root
-        hasSignature =
-            when modDecl.value.value.signature is
-                Just _ -> True
-                Nothing -> False
     in
     processFunctionSignature modDecl.value.value.name modDecl.value.value.signature t0
-        |> Result.andThen (processFunctionBody modDecl.value.value hasSignature)
+        |> Result.andThen (processFunctionBody modDecl.value.value)
 
 
 {-| Emit the value declaration's body row.
 
-Uses `BodyBlock` (forces a hard newline before the body) when the
-declaration is a *function* (it takes arguments) or carries a type
-signature row; uses `SoftBodyBlock` otherwise, so a plain value binding can
-stay inline with `name =` when it fits.
+The body stays inline with `name args =` (`SoftBodyBlock` = soft break)
+only when it is a literal or a single bare atom (`isSimpleBody`); any other
+expression drops to the next line (`BodyBlock` = forced hard newline).
+Arguments and a type signature have no bearing on this choice.
 
-    foo x =           -- BodyBlock: a function always drops its body
+    foo x =           -- BodyBlock: a compound body drops to its own line
         x + 1
 
-    bar = 42          -- SoftBodyBlock: a plain value stays inline
+    answer = 42       -- SoftBodyBlock: a simple body stays inline
 -}
-processFunctionBody : Src.Value -> Bool -> LPNode -> Result String LPNode
-processFunctionBody modVal hasSignature root =
+processFunctionBody : Src.Value -> LPNode -> Result String LPNode
+processFunctionBody modVal root =
     let
         nameNode = lpnLeaf (mkTextFromLocString modVal.name)
         eqNode = lpnLeaf (SynthesizedText "=")
@@ -580,14 +576,11 @@ processFunctionBody modVal hasSignature root =
                 |> Result.map (\bodyNodes ->
                     let
                         header = lpnNode AcrossThenIndent ([nameNode] ++ argsNodes ++ [eqNode])
-                        dropsBody =
-                            hasSignature || not (Array.isEmpty modVal.args)
-
                         bodyWrapper =
-                            if dropsBody then
-                                lpnNode BodyBlock bodyNodes
-                            else
+                            if isSimpleBody modVal.body then
                                 lpnNode SoftBodyBlock bodyNodes
+                            else
+                                lpnNode BodyBlock bodyNodes
                         allChildren = [header, bodyWrapper]
                     in
                     addRootChild (makeOrigRows modVal.name.start.row StFunctionDeclaration allChildren) root

@@ -28,8 +28,10 @@ distSq : { x : Int, y : Int } -> { x : Int, y : Int } -> Int
 distSq a b =
     let
         -- Differences in each axis
-        dx = a.x - b.x
-        dy = a.y - b.y
+        dx =
+            a.x - b.x
+        dy =
+            a.y - b.y
     in
     dx * dx + dy * dy
 
@@ -44,7 +46,8 @@ singleton x =
 makeOrigin : { x : Int, y : Int }
 makeOrigin =
     let
-        pt = { x = 0, y = 0 }
+        pt =
+            { x = 0, y = 0 }
     in
     pt
 

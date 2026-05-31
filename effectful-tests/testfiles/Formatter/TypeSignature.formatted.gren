@@ -29,5 +29,4 @@ keptMultiLine :
     Int
     -> Int
     -> Int
-keptMultiLine a b =
-    a
+keptMultiLine a b = a

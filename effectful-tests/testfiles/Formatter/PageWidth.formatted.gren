@@ -13,8 +13,7 @@ signatureNear :
     -> ArgumentTypeBeta
     -> ArgumentTypeGamma
     -> ResultTypeDelta
-signatureNear a b c =
-    a
+signatureNear a b c = a
 
 
 -- arrow chain that runs well past 100
@@ -25,8 +24,7 @@ signaturePast :
     -> ArgumentTypeDelta
     -> ArgumentTypeEpsilon
     -> ResultType
-signaturePast a b c d e =
-    a
+signaturePast a b c d e = a
 
 
 -- a record in a type signature, near the boundary
@@ -37,8 +35,7 @@ signatureRecord :
     , fieldDelta : Float
     }
     -> Result
-signatureRecord r =
-    r
+signatureRecord r = r
 
 -- ===== Function application =====
 
@@ -172,7 +169,8 @@ letExample input =
         firstBinding =
             computeFirstThing input withAnExtraArgument andYetAnotherArgument
                 toReachTheBoundary
-        secondBinding = computeSecondThing firstBinding
+        secondBinding =
+            computeSecondThing firstBinding
     in
     firstBinding + secondBinding
 
@@ -299,8 +297,7 @@ documentedFunction :
     -> ArgumentTypeGamma
     -> ArgumentTypeDelta
     -> Result
-documentedFunction a b c d =
-    a
+documentedFunction a b c d = a
 
 
 -- a trailing line comment that itself pushes the full line beyond column one hundred

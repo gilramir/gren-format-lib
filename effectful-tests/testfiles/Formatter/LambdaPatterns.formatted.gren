@@ -2,16 +2,20 @@ module LambdaPatterns exposing (..)
 
 
 -- Lambda with simple variable pattern (regression: must still work)
-simpleVar = Array.map (\n -> n * 2) nums
+simpleVar =
+    Array.map (\n -> n * 2) nums
 
 
 -- Lambda with record destructure: \ must precede {, not be inside it
-recordDestructure = Array.map (\{ start, end } -> end - start) ranges
+recordDestructure =
+    Array.map (\{ start, end } -> end - start) ranges
 
 
 -- Lambda with array pattern: \ must precede [
-arrayPattern = Array.map (\[ first, second ] -> first + second) pairs
+arrayPattern =
+    Array.map (\[ first, second ] -> first + second) pairs
 
 
 -- Multi-arg lambda with record as first pattern
-multiArg = Array.foldl (\{ value } acc -> acc + value) 0 items
+multiArg =
+    Array.foldl (\{ value } acc -> acc + value) 0 items

@@ -2,7 +2,8 @@ module FunctionCalls exposing (..)
 
 
 -- Short call stays on one line
-short = foo a b c
+short =
+    foo a b c
 
 
 -- Long call: overflow args indented +4 from function name
@@ -22,4 +23,5 @@ inLet =
 
 
 -- Nested calls (parens around inner calls)
-nested = outer (inner a b) (another c d)
+nested =
+    outer (inner a b) (another c d)

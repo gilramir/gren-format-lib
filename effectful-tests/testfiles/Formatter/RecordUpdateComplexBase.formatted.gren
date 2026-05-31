@@ -21,5 +21,4 @@ makeNoShell base =
 
 
 someTransform : Options -> Options
-someTransform o =
-    o
+someTransform o = o

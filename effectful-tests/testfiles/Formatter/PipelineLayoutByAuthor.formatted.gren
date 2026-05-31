@@ -2,7 +2,8 @@ module PipelineLayoutByAuthor exposing (..)
 
 
 -- Author wrote it on one line and it fits: stays inline.
-inlineFits = items |> List.map double |> List.first
+inlineFits =
+    items |> List.map double |> List.first
 
 
 -- Author wrote it on one line but it overflows: one step per line.

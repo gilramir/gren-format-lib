@@ -2,7 +2,8 @@ module BinopLayoutByAuthor exposing (..)
 
 
 -- Author wrote it on one line and it fits: stays inline.
-inlineFits = width * height + margin
+inlineFits =
+    width * height + margin
 
 
 -- Author wrote it on one line but it overflows: breaks only at the lowest

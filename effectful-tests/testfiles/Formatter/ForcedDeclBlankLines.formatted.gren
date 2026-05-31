@@ -25,8 +25,7 @@ sansSignature n =
 
 {-| A doc comment is the beginning of its unit. -}
 docced : Int
-docced =
-    3
+docced = 3
 
 
 port save : String -> Cmd msg

@@ -187,7 +187,7 @@ reprice rawMultiplier ({ items, flags } as inboundCart) =
     let
         -- comment before a clamped value
         clampedMultiplier =
-        -- nested ifs with comments at each branch
+            -- nested ifs with comments at each branch
             if rawMultiplier < 0.0 then
                 {- block comment inside an if-branch -}
                 0.0
@@ -239,8 +239,9 @@ torturedComments primaryIntValue secondaryStringValue tertiaryBoolValue =
     let
         {- block comment between `let` and the first binding -}
         -- and a regular comment too
-        bumpedValue = {- comment between binding name and `=` -}
-        {- comment between `=` and binding body -}
+        bumpedValue =
+            {- comment between binding name and `=` -}
+            {- comment between `=` and binding body -}
             primaryIntValue {- inline block between binop operands -} + 1
 
         guardedString =
@@ -295,10 +296,16 @@ extremelyCommented {-c22-} {-c23-} {-c24-}
     let
         {-c33-}
         {-c34-}
-        bumpedScore = {-c35-} {-c36-} score {-c37-} + {-c38-} 1
+        bumpedScore =
+            {-c35-}
+            {-c36-}
+            score {-c37-} + {-c38-} 1
         {-c39-}
         {-c40-}
-        expandedLabel = {-c41-} {-c42-} label {-c43-} ++ {-c44-} "!"
+        expandedLabel =
+            {-c41-}
+            {-c42-}
+            label {-c43-} ++ {-c44-} "!"
     in {-c45-} {-c46-} {-c47-}
     wholeRecord
         {-c48-}

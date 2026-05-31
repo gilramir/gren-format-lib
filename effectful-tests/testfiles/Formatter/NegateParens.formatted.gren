@@ -11,8 +11,7 @@ intersperseLength n =
 
 -- Negation of a simple value still works as before.
 negativeOne : Int
-negativeOne =
-    -1
+negativeOne = -1
 
 
 -- Negation of a longer call result.

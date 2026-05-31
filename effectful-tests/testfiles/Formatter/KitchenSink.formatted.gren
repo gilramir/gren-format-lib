@@ -141,19 +141,16 @@ piApprox = 3.141592653589793
 
 -- A hex literal, character literal, and a multiline string literal.
 magicByteSequenceAsHex : Int
-magicByteSequenceAsHex =
-    0xDEADBEEF
+magicByteSequenceAsHex = 0xDEADBEEF
 
 
 sentinelCharacterValue : Char
-sentinelCharacterValue =
-    '\u{2603}'
+sentinelCharacterValue = '\u{2603}'
 
 
 -- Non-ASCII characters inside a string literal must round-trip unchanged.
 thankYouInKorean : String
-thankYouInKorean =
-    "감사함니다"
+thankYouInKorean = "감사함니다"
 
 
 multiLineLicenseBanner : String
@@ -453,9 +450,12 @@ applyOverlays leadingOverridePriority tracingIsEnabled
 transform : Array Int -> Int
 transform inputValues =
     let
-        addOne = (+) 1
-        doubleThenIncrement = ((*) 2) >> addOne
-        decrementThenHalve = addOne << negate << (\n -> n // 2)
+        addOne =
+            (+) 1
+        doubleThenIncrement =
+            ((*) 2) >> addOne
+        decrementThenHalve =
+            addOne << negate << (\n -> n // 2)
     in
     inputValues
         |> Array.map (doubleThenIncrement >> decrementThenHalve)
@@ -567,8 +567,10 @@ traverseDeeply rootTree =
                 , rightSubtree = rightSubtreeOfNames
                 } ->
                     let
-                        leftCollected = gatherNames leftSubtreeOfNames
-                        rightCollected = gatherNames rightSubtreeOfNames
+                        leftCollected =
+                            gatherNames leftSubtreeOfNames
+                        rightCollected =
+                            gatherNames rightSubtreeOfNames
                     in
                     [ formatPersonRecord headPersonRecord ]
                         ++ leftCollected

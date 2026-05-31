@@ -182,36 +182,37 @@ result =
 
 ## Function body
 
-A declaration's body starts on the next line, indented 4 spaces, whenever the
-declaration is a **function** (it takes arguments) or carries a type signature —
-even if the body is a very short expression:
+Whether a binding's body stays on the same line as `name args =` or drops to
+the next line indented 4 spaces is decided **by the body alone** — the same rule
+for a function (one that takes arguments) and a plain value, and regardless of
+whether a type signature is present.
+
+The body stays **inline** only when it is *simple*: a literal (char, string,
+number) or a single bare atom — a variable, a qualified variable like
+`List.first`, a `.field` accessor, or field access such as `model.user.name`.
+(`-5` and `(foo)` count as simple too, since negation and parentheses around a
+simple body are themselves simple.)
+
+```gren
+version = "1.0.0"     -- literal
+answer = 42           -- literal
+handler = onClick     -- bare variable
+name = model.user.name -- field access
+double n = 2          -- a function whose body is a literal also stays inline
+```
+
+Any **other** expression drops the body to the next line — function calls,
+operator chains, lists, records, record updates, lambdas, and the multi-line
+constructs (`if`, `when`, `let`):
 
 ```gren
 double : Int -> Int
 double n =
     n * 2
 
-triple n =
-    n * 3
-
 makePoint x y =
     { x = x, y = y }
-```
 
-Only a **plain value binding** — no arguments and no type signature — keeps its
-body on the same line as the name and `=`:
-
-```gren
-version = "1.0.0"
-
-answer = 42
-```
-
-The inline form is reserved for a *short* value body. Even a plain value binding
-drops its body to the next line when that body is too long to fit, or is
-inherently multi-line (an `if`, `let`, or `when`):
-
-```gren
 supportedLanguages =
     Array.keepIf (\lang -> Array.member lang preferred) allKnownLanguages
 
@@ -223,6 +224,30 @@ label =
         _ ->
             "other"
 ```
+
+### Why empty `[]` and `{}` drop to the next line
+
+An empty array `[]` or empty record `{}` looks like it ought to count as a simple
+literal and stay inline — but it deliberately does **not**; it always drops to
+its own line:
+
+```gren
+items =
+    []
+
+config =
+    {}
+```
+
+The reason is comment idempotency. A comment written in an empty-bracket body
+slot is *lifted out* to sit beside the brackets rather than being absorbed
+inside them (`{- c -} []` formats to `[] {- c -}`). If the brackets stayed on
+the `name args =` line and that line then overflowed the page width, only the
+lifted comment would break to a fresh line — and a comment dangling on its own
+indented line after `[]` re-parses as a top-level trailing comment, so the next
+format run pulls it back to column 0. The output would not be a fixed point.
+Dropping the empty brackets to their own line keeps the body and its comment
+together in a layout that survives re-formatting unchanged.
 
 ---
 
@@ -804,18 +829,18 @@ under `let`, and the result expression starts on the line after `in`, back at th
 circleArea radius =
     let
         pi = 3.14159
-        rSquared = radius * radius
+        rSquared =
+            radius * radius
     in
     pi * rSquared
 ```
 
-A binding follows the same body rule as a top-level declaration: a binding that
-is a **function** (it takes arguments), or that carries a type signature, drops
-its value to the next line, indented 4 more spaces, even when it would have fit
-inline. A type signature goes on the line directly above the definition with no
-blank line between them, exactly like a top-level function. Only a **plain value
-binding** — no arguments and no signature — keeps its value inline when it fits
-(see below).
+A binding follows the same body rule as a top-level declaration (see [Function
+body](#function-body)): the value stays inline only when it is a literal or a
+single bare atom; any other expression — including the `radius * radius` above —
+drops to the next line, indented 4 more spaces. Arguments and a type signature
+make no difference. A type signature goes on the line directly above the
+definition with no blank line between them, exactly like a top-level function.
 
 ```gren
 hypotenuse x y =
@@ -837,17 +862,17 @@ against the next binding does not introduce a blank:
 
 ```gren
 let
-    first = compute a
+    first = a
 
     -- one authored blank above is kept as one
-    second = compute b
-    third = compute c
+    second = b
+    third = c
 in
 ```
 
-A plain value binding (no arguments, no signature) whose body fits stays on the
-same line as its name and `=`; one that's too long, or inherently multi-line,
-drops to the next line indented 4 more spaces:
+A binding whose value is a literal or bare atom stays on the same line as its
+name and `=`; any other expression — or a value too long to fit — drops to the
+next line indented 4 more spaces:
 
 ```gren
 complexBody =
@@ -875,8 +900,9 @@ model
 
 A function written in a `let` and one written at the top level follow the
 same core rules — type signatures (always directly above the definition, with no
-blank line between them) and the body dropping to the next line — but the two
-aren't yet exactly identical. The difference is in the blank lines between them:
+blank line between them) and the same body rule (a literal or bare atom stays
+inline, anything else drops) — but the two aren't yet exactly identical. The
+difference is in the blank lines between them:
 
 - **At the top level it's forced.** Every declaration gets exactly **two** blank
   lines before it, no matter what you wrote — the formatter adds them even if you

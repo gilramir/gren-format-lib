@@ -13,13 +13,15 @@ topLevel = 1
 
 indented x =
     let
-        first = x + 1
+        first =
+            x + 1
         {-
            Body lines below are written flush-left in the source; the formatter
    must re-anchor them to offset 3 from the rendered open delimiter, not their
        absolute column, keeping this deeper line deeper.
    trailing base line
 -}
-        second = first + 1
+        second =
+            first + 1
     in
     second

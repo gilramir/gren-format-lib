@@ -8,19 +8,23 @@ module LetBindingComments exposing (..)
 -- that no longer parsed.
 single x =
     let
-        first = x + 1
+        first =
+            x + 1
         {- standalone single-line block comment -}
-        second = first + 1
+        second =
+            first + 1
     in
     second
 
 
 multi x =
     let
-        first = x + 1
+        first =
+            x + 1
         {- standalone
            multi-line
            block comment -}
-        second = first + 1
+        second =
+            first + 1
     in
     second

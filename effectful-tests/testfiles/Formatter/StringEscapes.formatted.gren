@@ -20,4 +20,5 @@ doubleQuoteStr = "\""
 mixedStr = "hello\nworld\t!\\"
 
 
-concatStr = "\n" ++ "\t" ++ "\\"
+concatStr =
+    "\n" ++ "\t" ++ "\\"

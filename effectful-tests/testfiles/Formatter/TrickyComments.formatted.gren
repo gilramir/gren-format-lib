@@ -38,7 +38,8 @@ type Shape
 -- used to be hoisted out of the lambda head to a position before `\`.
 -- Now PrefixGlue carries a Located String so the prefix character has
 -- a source position, and the comment lands inside the lambda head.
-lambdaPrefix = \{- between backslash and first pattern -} x -> x
+lambdaPrefix =
+    \{- between backslash and first pattern -} x -> x
 
 
 -- Bug G — a line comment immediately before a triple-quoted multi-line
@@ -79,8 +80,7 @@ backwardPipe x =
 -- and the comment lands at root level between the two declarations.
 sigToDef : Int -> Int
 -- a comment that lands between the signature and the definition
-sigToDef x =
-    x
+sigToDef x = x
 
 
 -- Bug K — a block comment inside an extensible record type (between
@@ -95,8 +95,7 @@ extensibleSig :
         | foo : Int
         , bar : String
     } -> Int
-extensibleSig _ =
-    0
+extensibleSig _ = 0
 
 
 -- Bug I — a comment that was the only content of an empty record or
@@ -104,10 +103,12 @@ extensibleSig _ =
 -- `{}` / `[]`. An `EmptyBracketed (Located ListBrackets)` LPT node
 -- now carries the full source span of the literal so the comment can
 -- descend into it and render inside the brackets.
-emptyRecord = { {- only content of an empty record literal -} }
+emptyRecord =
+    { {- only content of an empty record literal -} }
 
 
-emptyArray = [ {- only content of an empty array literal -} ]
+emptyArray =
+    [ {- only content of an empty array literal -} ]
 
 
 -- Bug D — a trailing block comment after the last item of an array

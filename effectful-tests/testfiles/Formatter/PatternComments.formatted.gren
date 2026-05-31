@@ -10,7 +10,8 @@ arrayPat =
 
 
 -- comment inside a constructor pattern in a lambda argument
-ctorPat = \Just {- between ctor name and arg -} x -> x
+ctorPat =
+    \Just {- between ctor name and arg -} x -> x
 
 
 -- comment between items of an array pattern in a when-branch

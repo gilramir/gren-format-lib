@@ -10,12 +10,12 @@ process n =
         doubled m =
             m * 2
 
-        -- A function binding without a signature still drops its body to
-        -- the next line, because it takes an argument.
+        -- Body is an operator expression, so it drops to the next line
+        -- (arguments and signatures don't affect this).
         plain x =
             x + 1
 
-        -- A plain value binding (no args, no signature) stays inline.
+        -- Body is a literal, so it stays inline.
         bias = 7
 
         labelFor : Int -> String

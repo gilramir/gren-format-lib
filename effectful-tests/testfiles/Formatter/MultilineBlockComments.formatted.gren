@@ -82,8 +82,7 @@ sig : Int -> {- 10 a
            12 c -}
         | x : Int
     } -> Int
-sig a b c =
-    0
+sig a b c = 0
 
 
 decl {- 13 a
