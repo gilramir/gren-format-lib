@@ -130,10 +130,8 @@ lpBoxFields lpbox =
         BodyBlock ->
             [ { key = "type", value = Json.string "BodyBlock" } ]
 
-        WhenBranch { isMultiLine = ml } ->
-            [ { key = "type", value = Json.string "WhenBranch" }
-            , { key = "isMultiLine", value = Json.bool ml }
-            ]
+        WhenBranch ->
+            [ { key = "type", value = Json.string "WhenBranch" } ]
 
         ParenBlock ->
             [ { key = "type", value = Json.string "ParenBlock" } ]

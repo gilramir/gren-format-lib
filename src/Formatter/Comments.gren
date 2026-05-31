@@ -345,7 +345,7 @@ insertCommentIntoSubtree commentNode row col node =
                                     Just sib ->
                                         when lpnBox sib is
                                             IndentedBlock -> True
-                                            WhenBranch _ -> True
+                                            WhenBranch -> True
                                             SynthesizedText value -> value == "in"
                                             _ -> False
 

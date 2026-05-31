@@ -160,11 +160,10 @@ type LPBox
     | BodyBlock
 
     -- One branch in a when/is expression.
-    -- isMultiLine: True if the body is always multi-line (record, if/let/when, etc.).
     --
     --     Pattern ->
     --         body
-    | WhenBranch { isMultiLine : Bool }
+    | WhenBranch
 
     -- Parenthesized expression: renders children with ( prefix and ) suffix
     -- using P.concat (immediate adjacency, no space). Used instead of

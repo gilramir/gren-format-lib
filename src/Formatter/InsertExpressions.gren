@@ -793,10 +793,8 @@ folderInsertElseIfBranch branch accNodes =
 {-| Folder for branches of a `when ... is` expression.
 
 Produces one `WhenBranch` node per branch. If the body is itself a control
-construct (`if`, `let`, `when`), the body is wrapped in an `IndentedBlock`
-and the branch is tagged multi-line; otherwise the pattern, `->`, and body
-flow under `AcrossThenIndent` and the branch is multi-line only when the
-body's container type forces it (e.g. a record literal).
+construct (`if`, `let`, `when`), the body is wrapped in an `IndentedBlock`;
+otherwise the pattern, `->`, and body flow under `AcrossThenIndent`.
 -}
 folderInsertWhenBranch : Src.WhenBranch -> Array LPNode -> Result String (Array LPNode)
 folderInsertWhenBranch branch accNodes =
@@ -816,7 +814,7 @@ folderInsertWhenBranch branch accNodes =
                     |> Result.map (\bodyNode ->
                         let
                             allChildren = patNodes ++ [arrowNode, bodyNode]
-                            container = lpnNode (WhenBranch { isMultiLine = True }) allChildren
+                            container = lpnNode WhenBranch allChildren
                         in
                         Array.pushLast container accNodes
                     )
@@ -824,12 +822,6 @@ folderInsertWhenBranch branch accNodes =
                 insertExpressionAsItem branch.body
                     |> Result.map (\bodyNode ->
                         let
-                            isBodyMultiLine =
-                                when lpnBox bodyNode is
-                                    AlwaysVertical _ -> True
-                                    AllAcrossOrAllVertical _ -> True
-                                    RecordUpdate _ -> True
-                                    _ -> False
                             -- The branch body always drops onto its own line,
                             -- indented +4, even when it would fit inline after the
                             -- `->`. A `BodyBlock` forces the hard newline without an
@@ -839,11 +831,9 @@ folderInsertWhenBranch branch accNodes =
                             -- lets a trailing comment attach as a WhenBranch sibling
                             -- (peelable, body stays comment-free) rather than burying
                             -- inside the body expression.
-                            -- (`isBodyMultiLine` still drives only the inter-branch
-                            -- blank-line rule, so tiny bodies don't gain blank lines.)
                             bodyAsBlock = lpnNode BodyBlock [bodyNode]
                             branchContent = lpnNode AcrossThenIndent (patNodes ++ [arrowNode, bodyAsBlock])
-                            container = lpnNode (WhenBranch { isMultiLine = isBodyMultiLine }) [branchContent]
+                            container = lpnNode WhenBranch [branchContent]
                         in
                         Array.pushLast container accNodes
                     )

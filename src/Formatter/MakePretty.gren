@@ -466,9 +466,9 @@ peelTrailingInlineComments nodes =
 -- into the children, then join via joinBlock and produce the next acc.
 renderBlockNode :
     BlockRule cost
-    -> { doc : P.Doc cost, prevRow : Int, prevElided : Bool, separator : NextSeparator, prevBranchMultiLine : Bool }
+    -> { doc : P.Doc cost, prevRow : Int, prevElided : Bool, separator : NextSeparator }
     -> Array LPNode
-    -> Result String { doc : P.Doc cost, prevRow : Int, prevElided : Bool, separator : NextSeparator, prevBranchMultiLine : Bool }
+    -> Result String { doc : P.Doc cost, prevRow : Int, prevElided : Bool, separator : NextSeparator }
 renderBlockNode rule acc nodeChildren =
     buildFlowDoc 0 nodeChildren
         |> Result.map (\childrenDoc ->
@@ -476,7 +476,6 @@ renderBlockNode rule acc nodeChildren =
             , prevRow = -1
             , prevElided = False
             , separator = rule.nextSep
-            , prevBranchMultiLine = False
             }
         )
 
@@ -579,7 +578,6 @@ buildFlowDocImpl indent inlineStart nodes =
                                        , prevRow = loc.start.row
                                        , prevElided = False
                                        , separator = AlreadyTerminated
-                                       , prevBranchMultiLine = False
                                        }
 
                                 BlockComment loc ->
@@ -618,7 +616,6 @@ buildFlowDocImpl indent inlineStart nodes =
                                            , prevRow = loc.start.row
                                            , prevElided = False
                                            , separator = AlreadyTerminated
-                                           , prevBranchMultiLine = False
                                            }
                                     else
                                         -- Single-line block comment continuing a line: inline.
@@ -629,7 +626,6 @@ buildFlowDocImpl indent inlineStart nodes =
                                                    , prevRow = -1
                                                    , prevElided = False
                                                    , separator = FlowSep
-                                                   , prevBranchMultiLine = False
                                                    }
 
                                 AllAcrossOrAllVertical bracket ->
@@ -640,7 +636,6 @@ buildFlowDocImpl indent inlineStart nodes =
                                                , prevRow = -1
                                                , prevElided = False
                                                , separator = FlowSep
-                                               , prevBranchMultiLine = False
                                                }
 
                                 IndentedBlock ->
@@ -745,7 +740,6 @@ buildFlowDocImpl indent inlineStart nodes =
                                                , prevRow = -1
                                                , prevElided = False
                                                , separator = HardNl
-                                               , prevBranchMultiLine = False
                                                }
 
                                 BodyBlock ->
@@ -754,7 +748,7 @@ buildFlowDocImpl indent inlineStart nodes =
                                     renderBlockNode bodyBlockRule acc bodyNodes
                                         |> Result.map (\r -> { r | doc = P.concat r.doc trailingCommentDoc })
 
-                                WhenBranch { isMultiLine = branchMultiLine } ->
+                                WhenBranch ->
                                     -- Peel a single-line block comment off the END of the
                                     -- branch and glue it inline to the body with a space,
                                     -- rather than letting buildFlowDoc place it. Left in the
@@ -799,29 +793,10 @@ buildFlowDocImpl indent inlineStart nodes =
                                         Ok bodyDoc ->
                                             let
                                                 childrenDoc = P.concat bodyDoc trailingCommentDoc
-                                                -- A branch ending in a trailing comment must not
-                                                -- trigger the inter-branch blank: that mirrors the
-                                                -- pre-existing "comment between branches" behaviour
-                                                -- (where the comment item leaves the next branch's
-                                                -- separator AlreadyTerminated, suppressing the
-                                                -- blank). Once trailing comments attach *inside* the
-                                                -- branch (because a container now carries its close
-                                                -- position), the comment is no longer a between-
-                                                -- branch item, so without this a multi-line branch
-                                                -- would gain a spurious blank before the next branch.
-                                                branchEndsWithComment =
-                                                    when Array.last nodeChildren is
-                                                        Just lastChild -> nodeIsComment lastChild
-                                                        Nothing -> False
                                                 -- Always blank-separate consecutive branches,
                                                 -- regardless of whether either body is multi-line.
-                                                insertBlankLine =
-                                                    True
                                                 blankOrNewline =
-                                                    if insertBlankLine then
-                                                        P.concat (P.text "\n") P.hardNl
-                                                    else
-                                                        P.hardNl
+                                                    P.concat (P.text "\n") P.hardNl
                                                 newDoc =
                                                     when acc.separator is
                                                         FirstItem -> childrenDoc
@@ -836,7 +811,6 @@ buildFlowDocImpl indent inlineStart nodes =
                                                , prevRow = -1
                                                , prevElided = False
                                                , separator = FlowSep
-                                               , prevBranchMultiLine = branchMultiLine && not branchEndsWithComment
                                                }
 
                                 SoftIndentedBlock ->
@@ -881,10 +855,9 @@ buildFlowDocImpl indent inlineStart nodes =
                                                , prevRow = prevRow
                                                , prevElided = prevElided
                                                , separator = FlowSep
-                                               , prevBranchMultiLine = False
                                                }
                 )
-                (Ok { doc = P.empty, prevRow = -1, prevElided = False, separator = FirstItem, prevBranchMultiLine = False })
+                (Ok { doc = P.empty, prevRow = -1, prevElided = False, separator = FirstItem })
                 nodes
     in
     when foldResult is
@@ -960,7 +933,7 @@ makePDoc box children =
             makeBinopDoc forceVertical children
         BodyBlock ->
             buildFlowDoc 0 children
-        WhenBranch _ ->
+        WhenBranch ->
             buildFlowDoc 0 children
         SoftIndentedBlock ->
             buildFlowDoc 0 children
