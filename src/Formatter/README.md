@@ -563,6 +563,43 @@ A comment between items forces the vertical layout and sits between the items:
 ]
 ```
 
+### Planned: uniform item layout (not yet implemented)
+
+Today each item decides independently whether it breaks, so a short record can
+stay on one line next to a sibling that is spread across several:
+
+```gren
+[ { name = "circle", sides = 0 }
+, { name = "triangle"
+  , sides = 3
+  }
+]
+```
+
+The intended behavior is to format every item the same way: if **any** item is
+broken across multiple lines — whether because you wrote it that way or because
+it is too long to fit — then **all** of them break, so the array reads uniformly:
+
+```gren
+[ { name = "circle"
+  , sides = 0
+  }
+, { name = "triangle"
+  , sides = 3
+  }
+]
+```
+
+This is **not implemented yet**, and the two halves of the rule cannot be shipped
+separately. Reacting only to *your* line breaks (ignoring width) would make
+formatting unstable: an item the formatter broke purely because it was too long
+looks exactly like one you wrote multi-line when the output is read back in, so a
+second formatting pass would suddenly couple the siblings and change the result —
+the formatter would no longer reach the same output it produced the first time.
+To be correct, the rule has to react to an item being too wide as well, which
+needs a width-aware coupling the underlying pretty-printer does not yet offer.
+Or, another solution needs to be found.
+
 ---
 
 ## String literals
