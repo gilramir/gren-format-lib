@@ -563,10 +563,10 @@ letter         = 'a'
 
 ### Multi-line (triple-quoted) strings
 
-A `"""` string always stays in triple-quoted form. The opening `"""` goes at the
-end of the line (or on its own indented line when the value wraps), the content
-lines sit at the same indentation as the delimiters, and the closing `"""` goes
-on its own line at that same indentation:
+A `"""` string always stays in triple-quoted form. The opening `"""` sits where
+the string begins — on its own line under a `name =`, or on its own indented line
+when the string is a nested sub-expression — the content lines sit at that same
+indentation, and the closing `"""` goes on its own line there too:
 
 ```gren
 message =
@@ -582,11 +582,44 @@ poem =
     """
 ```
 
-> **TODO** - check this
+The content lines are re-indented to line up with the `"""` delimiters, no matter
+how much leading whitespace the original had. This is safe because Gren gives
+these strings *text-block* semantics: the column of the closing `"""` defines a
+common indent that the parser strips from every line before it ever reaches the
+formatter (which is why every content line must be indented at least that far).
+That stripped indent is not part of the string's value, so re-placing the block
+doesn't change the program.
 
-The content lines are always re-indented to line up with the `"""` delimiters,
-no matter how much leading whitespace the original had. (The *text* of each line
-is never changed — only the common indentation in front of it.)
+Two consequences:
+
+- **The whole block moves to its canonical column.** An over-indented source
+  block is pulled back in:
+
+  ```gren
+  -- written like this …            … is formatted to this
+  value =                           value =
+              """                        """
+              Hello                      Hello
+              World                      World
+              """                        """
+  ```
+
+- **Indentation *relative* to the block is preserved; only the common indent in
+  front of it changes, and the line text itself never does.** A line indented
+  further than its neighbours stays further in, wherever the block lands:
+
+  ```gren
+  greeting =
+      let
+          banner =
+              """
+              top
+                  nested
+              bottom
+              """
+      in
+      banner
+  ```
 
 ---
 
