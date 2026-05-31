@@ -7,10 +7,14 @@ process : Int -> Int
 process n =
     let
         doubled : Int -> Int
-        doubled m = m * 2
+        doubled m =
+            m * 2
+
         -- A binding without a signature should be unaffected.
         plain x = x + 1
+
         labelFor : Int -> String
-        labelFor v = "n=" ++ String.fromInt v
+        labelFor v =
+            "n=" ++ String.fromInt v
     in
     doubled (plain n)

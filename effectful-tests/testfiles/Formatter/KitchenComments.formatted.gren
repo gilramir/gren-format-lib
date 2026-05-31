@@ -31,6 +31,7 @@ import String exposing
     , trim
     )
 
+
 {-| Doc comment on a type alias. -}
 type alias Cart =
     -- comment before the first field of a record-type alias
@@ -69,6 +70,7 @@ processOrder ({ identifier, items, appliedDiscounts, flags } as inboundCart) =
 
                 -- final pipeline step
                 |> identity
+
         {- a multi-line block comment introducing another binding.
            This comment really does span multiple lines, and includes a
            dangling close brace } and an open brace { just to keep things
@@ -99,11 +101,13 @@ processOrder ({ identifier, items, appliedDiscounts, flags } as inboundCart) =
                                     * (1.0 - (toFloat basisPoints / 10000.0)))
                             -- comment before the second argument to Array.foldl
                             1.0
+
         -- comment before a Destruct (let-pattern) binding
         { isShippable {- comment in the middle of a destructuring -}
         , isGift
         , isPriority
         } = flags
+
         -- comment introducing a nested if/then/else
         priorityBoost =
             if isPriority then
@@ -247,6 +251,7 @@ torturedComments primaryIntValue secondaryStringValue tertiaryBoolValue =
         bumpedValue = {- comment between binding name and `=` -}
         {- comment between `=` and binding body -}
             primaryIntValue {- inline block between binop operands -} + 1
+
         guardedString =
             if
                 {- inline block between `if` and condition -}

@@ -1,5 +1,6 @@
 module LetDestructLong exposing (..)
 
+
 longPattern =
     let
         { veryLongFieldNameAlpha = aliasAlpha

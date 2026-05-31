@@ -1,5 +1,6 @@
 module WhenBranchTrailingComment exposing (..)
 
+
 type Wrapped a
     = Wrapped a
 

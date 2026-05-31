@@ -1,7 +1,9 @@
 module NestedContainersInList exposing (..)
 
+
 -- Array items that are records (no comments): exercises makeListItemDoc
 plainRecords = f [ { label = "a", value = 1 }, { label = "b", value = 2 } ]
+
 
 -- Array items that are records with interleaved comments:
 -- exercises listBoxesWithBrackets (the comment-aware path)
@@ -13,6 +15,7 @@ commentedRecords =
         , { label = "second", item = string "two" }
         , { label = "third", item = string "three" }
         ]
+
 
 -- Array items that are themselves arrays
 nestedArrays = f [ [ 1, 2, 3 ], [ 4, 5, 6 ] ]

@@ -42,15 +42,18 @@ signatureRecord r =
 
 -- ===== Function application =====
 
+
 -- call that fits just under 100
 callNear =
     functionUnderTest firstArgumentValue secondArgumentValue thirdArgumentValue
         fourthArg
 
+
 -- call that overflows past 100
 callPast =
     functionUnderTest firstArgumentValue secondArgumentValue thirdArgumentValue
         fourthArgumentValue fifthArgumentValue
+
 
 -- nested calls overflowing
 callNested =
@@ -59,6 +62,7 @@ callNested =
 
 -- ===== Records =====
 
+
 -- record literal near the boundary
 recordNear =
     { alpha = valueAlpha
@@ -66,6 +70,7 @@ recordNear =
     , gamma = valueGamma
     , delta = valueDelta
     }
+
 
 -- record literal past the boundary
 recordPast =
@@ -77,6 +82,7 @@ recordPast =
     , zeta = 0
     }
 
+
 -- record update past the boundary
 recordUpdate existingRecord =
     { existingRecord
@@ -84,6 +90,7 @@ recordUpdate existingRecord =
         , fieldTwo = replacementTwo
         , fieldThree = replacementThree
     }
+
 
 -- nested record past the boundary
 recordNested =
@@ -97,12 +104,14 @@ recordNested =
 
 -- ===== if / then / else =====
 
+
 -- short predicate
 ifShort x =
     if x then
         trueResult
     else
         falseResult
+
 
 -- long predicate reaching past 100
 ifLong x =
@@ -114,6 +123,7 @@ ifLong x =
     else
         falseBranchResult
 
+
 -- else-if chain with long predicates
 ifElseChain x =
     if firstConditionThatIsFairlyLong x then
@@ -124,6 +134,7 @@ ifElseChain x =
         resultThree
 
 -- ===== when / is =====
+
 
 whenExample value =
     when value is
@@ -140,6 +151,7 @@ whenExample value =
         _ ->
             fallbackResultValue
 
+
 -- when with a record-returning branch past the boundary
 whenRecord value =
     when value is
@@ -154,6 +166,7 @@ whenRecord value =
 
 -- ===== let / in =====
 
+
 letExample input =
     let
         firstBinding =
@@ -162,6 +175,7 @@ letExample input =
         secondBinding = computeSecondThing firstBinding
     in
     firstBinding + secondBinding
+
 
 letDestructure pair =
     let
@@ -173,6 +187,7 @@ letDestructure pair =
 
 -- ===== lambdas =====
 
+
 lambdaExample collection =
     List.map
         (\eachElement ->
@@ -181,11 +196,13 @@ lambdaExample collection =
 
 -- ===== pipelines =====
 
+
 pipelineExample collection =
     collection
         |> List.map transformEachIndividualItem
         |> List.filter retainTheGoodOnesOnly
         |> List.foldl mergeItems start
+
 
 pipelineBackward collection =
     List.foldl mergeAllItems initialSeed
@@ -193,6 +210,7 @@ pipelineBackward collection =
         <| List.map applyTransform collection
 
 -- ===== binary operator chains =====
+
 
 binopChain =
     operandOne
@@ -203,6 +221,7 @@ binopChain =
         + operandSix
         + operandSeven
         + operandEight
+
 
 binopMixed =
     valueA
@@ -219,6 +238,7 @@ binopMixed =
 
 -- ===== arrays =====
 
+
 arrayPast =
     [ elementValueOne
     , elementValueTwo
@@ -228,6 +248,7 @@ arrayPast =
     , elementValueSix
     ]
 
+
 arrayOfRecords =
     [ { idField = 1, nameField = "first" }
     , { idField = 2, nameField = "second" }
@@ -236,9 +257,11 @@ arrayOfRecords =
 
 -- ===== unbreakable tokens that exceed the width =====
 
+
 -- a single string literal longer than the page width, which cannot be broken
 longStringLiteral =
     "this is a single string literal that is deliberately made longer than one hundred columns so it cannot fit"
+
 
 -- a multiline string near the boundary
 multilineStringExample =
@@ -248,12 +271,14 @@ multilineStringExample =
 
 -- ===== custom types =====
 
+
 type LongUnion
     = VariantAlpha ArgumentTypeOne ArgumentTypeTwo
     | VariantBeta
         ArgumentTypeOne ArgumentTypeTwo ArgumentTypeThree ArgumentTypeFour
         ArgumentTypeFive ArgumentTypeSix
     | VariantGamma
+
 
 type alias LongAlias =
     { fieldAlpha : Int
@@ -277,21 +302,26 @@ documentedFunction :
 documentedFunction a b c d =
     a
 
+
 -- a trailing line comment that itself pushes the full line beyond column one hundred
 trailingLine = someComputedValue -- this trailing comment is what carries the line past the one hundred column boundary
 
+
 trailingBlock = someComputedValue {- this trailing block comment is what carries the line past the page width boundary here -}
+
 
 inlineBlockComment =
     partOne
         ++ {- a small inline comment -} partTwo
         ++ partThree ++ partFour ++ partFive ++ partSix ++ partSeven
 
+
 -- a multi-line block comment whose body sits near the boundary
 multilineBlockComment =
     {- the first line of this block comment is already fairly long and approaches the page width boundary
        and this second line is also quite long, continuing well toward the one hundred column limit again -}
     finalValue
+
 
 recordWithFieldComments =
     { alpha = 1

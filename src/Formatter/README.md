@@ -223,6 +223,7 @@ classify n =
     when n is
         1 ->
             "one"
+
         _ ->
             "other"
 ```
@@ -231,8 +232,10 @@ classify n =
 
 ## Blank lines between declarations
 
-Two blank lines appear before every top-level function (the line with the type
-signature, if there is one). This gives each function clear breathing room:
+Two blank lines always appear before every top-level declaration — functions,
+type aliases, custom types, and ports alike. This is **not** gap-driven: it
+doesn't matter whether you wrote zero, one, or five blank lines, you get exactly
+two. This gives each declaration clear, uniform breathing room:
 
 ```gren
 double : Int -> Int
@@ -245,16 +248,41 @@ square n =
     n * n
 ```
 
-A comment written directly above a function (no blank line between them) is
-treated as belonging to that function — the two blank lines go *above* the
-comment, not between the comment and the function:
+The two blank lines go before the *beginning* of the whole declaration. The
+beginning is any comment directly above it (with no blank line in between);
+otherwise its type signature if it has one; otherwise the declaration itself. So
+the leading comment(s), signature, and definition stay together as a unit, with
+the two blanks above the topmost line:
 
 ```gren
--- Area of a square
+{-| Doubles its argument. -}
+double : Int -> Int
+double n =
+    n * 2
+```
+
+Any kind of comment counts — a `--` line comment, a `{- -}` block comment, or a
+`{-| -}` doc comment — and a stack of them all join the unit, as long as each
+sits directly above the next with no blank line between:
+
+```gren
+-- a plain note
+-- a second line, also part of the block
 squareArea : Int -> Int
 squareArea side =
     side * side
 ```
+
+A type signature and its definition always sit on adjacent lines, with **no**
+blank line between them. If you write one, the formatter removes it — the two
+blank lines belong *above* the topmost line of the unit (a leading comment, or
+the signature), never between the signature and its definition.
+
+A comment written directly above a declaration (no blank line between them) is
+treated as belonging to it — the two blank lines go *above* the comment, not
+between the comment and the declaration. This is what "attaches" a comment: put
+it on the line directly above the signature (or the declaration), and they stay
+joined.
 
 A comment separated from a function by a blank line is treated as "floating"
 (not attached to anything) and keeps a single blank line before it. The function
@@ -750,22 +778,42 @@ circleArea radius =
 
 A binding may carry its own type signature, exactly like a top-level function.
 The signature goes on the line directly above the definition with no blank line
-between them, and (unlike the top level) `let` bindings are never blank-separated
-from one another — any blank lines between them are removed, so the whole block
-stays compact:
+between them. A binding *with* a signature lays out exactly like a typed
+top-level declaration: its value drops to the next line, indented 4 more spaces,
+even when it would have fit inline. A binding *without* a signature keeps its
+value inline if it fits (see below).
 
 ```gren
 hypotenuse x y =
     let
         square : Int -> Int
-        square n = n * n
+        square n =
+            n * n
     in
     square x + square y
 ```
 
-A binding value that fits stays on the same line as its name and `=`; one that's
-too long, or inherently multi-line, drops to the next line indented 4 more
-spaces:
+Blank lines between bindings are *gap-driven* (unlike top-level declarations,
+which always get two forced blank lines): wherever you left a gap, the formatter
+keeps one blank line, and any run of two or more blanks is normalized down to
+one; bindings you wrote with no blank between them stay tight. The formatter
+never inserts a blank where you didn't write one. A comment on its own line
+between two bindings is measured as its own line, so a comment sitting directly
+against the next binding does not introduce a blank:
+
+```gren
+let
+    first = compute a
+
+    -- one authored blank above is kept as one
+    second = compute b
+    third = compute c
+in
+```
+
+A binding value with no signature that fits stays on the same line as its name
+and `=`; one that's too long, or inherently multi-line, drops to the next line
+indented 4 more spaces:
 
 ```gren
 complexBody =
@@ -788,6 +836,21 @@ let
 in
 model
 ```
+
+### Why `let` functions aren't formatted *exactly* like top-level ones
+
+A function written in a `let` and one written at the top level follow the
+same core rules — type signatures (always directly above the definition, with no
+blank line between them) and the body dropping to the next line — but the two
+aren't yet exactly identical. The difference is in the blank lines between them:
+
+- **At the top level it's forced.** Every declaration gets exactly **two** blank
+  lines before it, no matter what you wrote — the formatter adds them even if you
+  left none.
+- **Inside a `let` it's gap-driven.** The formatter never invents a blank line;
+  it only keeps a blank where you wrote one, normalized to a single line.
+  (Bindings you wrote packed together stay packed.) Two forced blank lines would
+  feel like a lot in an indented block like a `let` body.
 
 ---
 

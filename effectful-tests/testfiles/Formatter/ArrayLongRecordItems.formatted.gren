@@ -1,5 +1,6 @@
 module ArrayLongRecordItems exposing (..)
 
+
 -- Multi-field records that are individually too long to fit inline
 longRecords =
     [ { veryLongFieldNameAlpha = valueAlpha
@@ -11,6 +12,7 @@ longRecords =
       , veryLongFieldNameGamma = valueGamma2
       }
     ]
+
 
 -- Nested arrays whose items must break
 nestedBreaking =

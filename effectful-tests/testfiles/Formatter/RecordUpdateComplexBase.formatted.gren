@@ -1,5 +1,6 @@
 module RecordUpdateComplexBase exposing (..)
 
+
 -- A record-update base can be a parenthesized function call, not just
 -- a Var/VarQual/Access. Without handling that, the formatter emits
 -- `{  | field = value }` (empty base) which fails to re-parse.

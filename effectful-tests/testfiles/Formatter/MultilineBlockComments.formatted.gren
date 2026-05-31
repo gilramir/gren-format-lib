@@ -33,6 +33,7 @@ import String exposing
     , toInt
     )
 
+
 {-| Doc comment on a type alias. -}
 type alias Rec =
     {- 6 a
@@ -46,6 +47,7 @@ type alias Rec =
     , third : String
     }
 
+
 {-| Doc comment on a union type. -}
 type Shape
     = Circle Int
@@ -56,6 +58,7 @@ type Shape
                 9 b
                 9 c -}
      Int Int
+
 
 port output : {- 45 a
                  45 b
@@ -82,6 +85,7 @@ sig : Int -> {- 10 a
 sig a b c =
     0
 
+
 decl {- 13 a
         13 b
         13 c -}
@@ -90,6 +94,7 @@ decl {- 13 a
        14 b
        14 c -}
     x
+
 
 letFirst x =
     let
@@ -104,6 +109,7 @@ letFirst x =
            17 b
            17 c -}
          x
+
         {- 47 a — leading comment of a NON-FIRST let binding
            47 b
            47 c -}
@@ -113,6 +119,7 @@ letFirst x =
        18 b
        18 c -}
     z
+
 
 whenExpr x =
     when {- 19 a
@@ -133,6 +140,7 @@ whenExpr x =
 
         _ ->
             "other"
+
 
 ifExpr x =
     if
@@ -155,6 +163,7 @@ ifExpr x =
     else
         2
 
+
 recordLit =
     {- 26 a
        26 b
@@ -170,6 +179,7 @@ recordLit =
         2
     }
 
+
 recordUpd r =
     { r
         {- 29 a
@@ -183,6 +193,7 @@ recordUpd r =
         , delta = 4
     }
 
+
 binops a b =
     a {- 31 a
          31 b
@@ -191,6 +202,7 @@ binops a b =
                32 b
                32 c -}
         * 2
+
 
 pipeline xs =
     xs
@@ -203,6 +215,7 @@ pipeline xs =
               34 c -}
             Array.foldl (+) 0
 
+
 calls f g =
     f {- 35 a
          35 b
@@ -211,6 +224,7 @@ calls f g =
              36 b
              36 c -}
         (g 2)
+
 
 lambdas =
     \{- 37 a
@@ -225,6 +239,7 @@ lambdas =
        39 c -}
      x
 
+
 arrays =
     {- 40 a
        40 b
@@ -236,6 +251,7 @@ arrays =
     , 2
     ]
 
+
 parensAccessor r =
     {- 42 a
        42 b
@@ -244,6 +260,7 @@ parensAccessor r =
                 43 b
                 43 c -}
         + 1)
+
 
 asPattern arg =
     when arg is

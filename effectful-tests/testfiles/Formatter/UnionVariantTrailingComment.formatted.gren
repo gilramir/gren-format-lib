@@ -1,5 +1,6 @@
 module UnionVariantTrailingComment exposing (..)
 
+
 type Shape
     = Circle Int
     | Square {-

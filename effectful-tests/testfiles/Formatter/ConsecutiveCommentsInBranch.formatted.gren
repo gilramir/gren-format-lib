@@ -4,6 +4,7 @@ module ConsecutiveCommentsInBranch exposing (..)
 -- The synthesized '->' arrow between the pattern and comments caused
 -- the insertion index to be off-by-one, reversing the comment order.
 
+
 foo maybeThing =
     when maybeThing is
         Nothing ->

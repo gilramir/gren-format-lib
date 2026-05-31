@@ -1,14 +1,14 @@
-module Formatter.VerticalSpace exposing (insertEmptyLines)
+module Formatter.VerticalSpace exposing (insertEmptyLines, insertLetBlankLines)
 
-{-| Insert blank-line `EmptyLine` siblings into the root of the Logical
-Printing Tree to preserve and normalise vertical spacing between top-level
-declarations.
+{-| Insert blank-line `EmptyLine` siblings into the Logical Printing Tree to
+preserve and normalise vertical spacing — between top-level declarations
+(`insertEmptyLines`) and between `let` bindings (`insertLetBlankLines`).
 
-@docs insertEmptyLines
+@docs insertEmptyLines, insertLetBlankLines
 -}
 
 import Formatter.LogicalPrintingTree exposing (LPBox(..), SyntaxType(..), lpnNode,
-    LPNode(..), lpnBox, lpnChildren, lpnLeaf)
+    LPNode(..), lpnBox, lpnChildren, lpnLeaf, lpnMinRow, lpnMaxRow, lpnReplaceChildren)
 
 
 isCommentStype : SyntaxType -> Bool
@@ -20,106 +20,292 @@ isCommentStype stype =
         _ -> False
 
 
--- Tag each root-level child as the start of a function group.
--- A function group starts at StFunctionSignature, or at a comment
--- that is immediately adjacent (no source gap) to a group start.
--- We scan right-to-left so adjacency can propagate backwards.
-tagGroupStarts : Array LPNode -> Array { node : LPNode, isGroupStart : Bool }
-tagGroupStarts nodes =
+{-| Row/type info plus classification for one root child, used by the
+blank-line pass. `stype = Nothing` for the (theoretical) non-`OriginalRows`
+root child; such a node is treated as non-core and non-comment.
+-}
+type alias DeclInfo =
+    { node : LPNode
+    , first : Int
+    , last : Int
+    , stype : Maybe SyntaxType
+    , isComment : Bool
+    , core : Bool
+    }
+
+
+{-| Classify each root child. `core` marks a node that *owns* a declaration
+unit: a type signature, type alias, custom type, or port — or a function
+declaration that has **no** type signature directly above it (a signature is
+allowed to be separated from its definition only by comments). A function
+declaration *with* a signature is not a core start; its signature is.
+
+`lastNonComment` carries the nearest non-comment stype above, so a definition
+can see its signature across an intervening comment.
+-}
+classifyChildren : Array LPNode -> Array DeclInfo
+classifyChildren nodes =
     let
-        { items } =
+        { out } =
             Array.foldl
                 (\node acc ->
-                    let
-                        isGroupStart =
-                            when lpnBox node is
-                                OriginalRows rowInfo ->
-                                    when rowInfo.stype is
+                    when lpnBox node is
+                        OriginalRows r ->
+                            let
+                                comment = isCommentStype r.stype
+                                core =
+                                    when r.stype is
                                         StFunctionSignature -> True
-                                        _ ->
-                                            if isCommentStype rowInfo.stype then
-                                                when acc.nextGroupStartFirst is
-                                                    Nothing -> False
-                                                    Just nextFirst -> nextFirst == rowInfo.last + 1
-                                            else
-                                                False
-                                _ -> False
-                        nextGroupStartFirst_ =
-                            if isGroupStart then
-                                when lpnBox node is
-                                    OriginalRows rowInfo -> Just rowInfo.first
-                                    _ -> Nothing
+                                        StTypeAlias -> True
+                                        StTypeUnion -> True
+                                        StPort -> True
+                                        StFunctionDeclaration ->
+                                            acc.lastNonComment /= Just StFunctionSignature
+                                        _ -> False
+                            in
+                            { out =
+                                Array.pushLast
+                                    { node = node
+                                    , first = r.first
+                                    , last = r.last
+                                    , stype = Just r.stype
+                                    , isComment = comment
+                                    , core = core
+                                    }
+                                    acc.out
+                            , lastNonComment =
+                                if comment then acc.lastNonComment else Just r.stype
+                            }
+                        _ ->
+                            { out =
+                                Array.pushLast
+                                    { node = node, first = -1, last = -1, stype = Nothing, isComment = False, core = False }
+                                    acc.out
+                            , lastNonComment = acc.lastNonComment
+                            }
+                )
+                { out = [], lastNonComment = Nothing }
+                nodes
+    in
+    out
+
+
+{-| Mark each child as a *group start* — a core declaration node, or a comment
+that is source-adjacent above (a chain leading to) one. Scans bottom-to-top so
+adjacency propagates upward through a run of leading comments.
+-}
+computeGroupStarts : Array DeclInfo -> Array Bool
+computeGroupStarts infos =
+    let
+        { flags } =
+            Array.foldl
+                (\info acc ->
+                    let
+                        isStart =
+                            if info.core then
+                                True
+                            else if info.isComment then
+                                when acc.nextStartFirst is
+                                    Just nf -> nf == info.last + 1
+                                    Nothing -> False
                             else
-                                Nothing
+                                False
                     in
-                    { items = Array.pushLast { node = node, isGroupStart = isGroupStart } acc.items
-                    , nextGroupStartFirst = nextGroupStartFirst_
+                    { flags = Array.pushFirst isStart acc.flags
+                    , nextStartFirst = if isStart then Just info.first else Nothing
                     }
                 )
-                { items = [], nextGroupStartFirst = Nothing }
-                (Array.reverse nodes)
+                { flags = [], nextStartFirst = Nothing }
+                (Array.reverse infos)
     in
-    Array.reverse items
+    flags
 
 
 {-| Insert blank-line `EmptyLine` siblings into the root of the Logical
-Printing Tree to preserve and normalise vertical spacing between top-level
-declarations.
+Printing Tree.
 
 Runs after `Formatter.MakeLogical` has built the tree and
-`Formatter.Comments` has attached comments. The rule is two blank lines
-before the start of each function group (a `StFunctionSignature`, or a
-comment immediately adjacent to one) and one blank line between any other
-two declarations that had a source gap.
+`Formatter.Comments` has attached comments. The rule:
+
+  - **Two blank lines before the start of every top-level declaration unit,
+    always** — whether the author wrote zero, one, or several. A "unit" is one
+    declaration (function, type alias, custom type, or port) together with its
+    type signature and any doc/leading comment directly above it; the unit's
+    *start* is the topmost of those. The two blanks go before that start.
+  - No blank line *within* a unit (between a doc comment, signature, and
+    definition — even if the author left one).
+  - Imports, the module line, and floating comments keep gap-driven spacing
+    (a single blank only where the author left one; the module line is always
+    followed by one blank).
 -}
 insertEmptyLines : LPNode -> LPNode
 insertEmptyLines root =
     let
-        tagged = tagGroupStarts (lpnChildren root)
+        infos = classifyChildren (lpnChildren root)
+        groupStarts = computeGroupStarts infos
+        zipped = Array.map2 (\info gs -> { info = info, isGroupStart = gs }) infos groupStarts
         { newChildren } =
             Array.foldl
-                (\{ node, isGroupStart } acc ->
-                    let childBox = lpnBox node
+                (\{ info, isGroupStart } acc ->
+                    let
+                        -- A group start is the *unit* start unless the node
+                        -- directly above it is a leading comment of the same
+                        -- unit (itself a comment group start). That keeps a run
+                        -- of leading comments + signature collapsed to a single
+                        -- unit with one set of blanks above the topmost node,
+                        -- while two adjacent declarations (both group starts, the
+                        -- upper one NOT a comment) each start their own unit.
+                        unitStart =
+                            isGroupStart
+                                && (when acc.prev is
+                                        Just p -> not (p.isGroupStart && p.isComment)
+                                        Nothing -> True
+                                   )
+                        prevRec =
+                            { isGroupStart = isGroupStart
+                            , isComment = info.isComment
+                            , last = info.last
+                            , stype = info.stype
+                            }
                     in
-                    when { prev = acc.prev, current = childBox } is
-                        { prev = Just (OriginalRows prevRows), current = OriginalRows currentRows } ->
-                            let
-                                -- The module declaration is always followed by a
-                                -- blank line, no matter how its exposing list
-                                -- renders. Forcing it here sidesteps the
-                                -- input-row-derived `prevRows.last` (which the
-                                -- `exposing`/`where` close bumps over-count when a
-                                -- perturbed list spans extra source rows).
-                                afterModule =
-                                    when prevRows.stype is
-                                        StModule -> True
-                                        _ -> False
-                            in
-                            if currentRows.first > prevRows.last + 1 || afterModule then
-                                let
-                                    withBlanks =
-                                        if isGroupStart then
-                                            acc.newChildren
-                                                |> Array.pushLast (lpnLeaf EmptyLine)
-                                                |> Array.pushLast (lpnLeaf EmptyLine)
-                                        else
-                                            Array.pushLast (lpnLeaf EmptyLine) acc.newChildren
-                                in
-                                { newChildren = Array.pushLast node withBlanks
-                                , prev = Just childBox
+                    when acc.prev is
+                        Nothing ->
+                            -- First child (the module line): no leading blanks.
+                            { newChildren = Array.pushLast info.node acc.newChildren
+                            , prev = Just prevRec
+                            }
+
+                        Just p ->
+                            if unitStart then
+                                { newChildren =
+                                    acc.newChildren
+                                        |> Array.pushLast (lpnLeaf EmptyLine)
+                                        |> Array.pushLast (lpnLeaf EmptyLine)
+                                        |> Array.pushLast info.node
+                                , prev = Just prevRec
                                 }
                             else
-                                { acc
-                                    | newChildren = Array.pushLast node acc.newChildren
-                                    , prev = Just childBox
-                                }
-                        _ ->
-                            { acc
-                                | newChildren = Array.pushLast node acc.newChildren
-                                , prev = Just childBox
-                            }
+                                let
+                                    -- The module line is always followed by one
+                                    -- blank, regardless of how its exposing list
+                                    -- renders (its input-row `last` can over-count
+                                    -- when a perturbed list spans extra rows).
+                                    afterModule = p.stype == Just StModule
+                                    -- A definition sits directly under its own
+                                    -- signature with no blank, even if the author
+                                    -- left one.
+                                    sigThenDef =
+                                        p.stype == Just StFunctionSignature
+                                            && info.stype == Just StFunctionDeclaration
+                                    gap = info.first > p.last + 1
+                                in
+                                if (gap || afterModule) && not sigThenDef then
+                                    { newChildren =
+                                        acc.newChildren
+                                            |> Array.pushLast (lpnLeaf EmptyLine)
+                                            |> Array.pushLast info.node
+                                    , prev = Just prevRec
+                                    }
+                                else
+                                    { newChildren = Array.pushLast info.node acc.newChildren
+                                    , prev = Just prevRec
+                                    }
                 )
                 { newChildren = [], prev = Nothing }
-                tagged
+                zipped
     in
     lpnNode (lpnBox root) newChildren
+
+
+-- True if a node is the `let` keyword leaf that opens a let-expression
+-- (built by `InsertExpressions` as `mkText … "let"`, an UnbreakableText).
+isLetKeyword : LPNode -> Bool
+isLetKeyword node =
+    when lpnBox node is
+        UnbreakableText loc -> loc.value == "let"
+        _ -> False
+
+
+-- True if a node is the synthesized `in` leaf that closes a let-expression's
+-- bindings. (The same marker `Formatter.Comments` uses to find the boundary.)
+isInKeyword : LPNode -> Bool
+isInKeyword node =
+    when lpnBox node is
+        SynthesizedText value -> value == "in"
+        _ -> False
+
+
+-- Within one node's children, find the `let … in` binding span (the nodes
+-- strictly between the direct `let` and `in` leaves) and insert a single
+-- `EmptyLine` marker before any binding/comment node the author separated from
+-- its predecessor with a source-row gap. Any run of blank lines normalises to
+-- exactly one; adjacent bindings stay adjacent. Gaps are measured *around*
+-- comment nodes (a comment alone in a gap is not a blank line), which is what
+-- keeps the result idempotent.
+--
+-- Only direct children are inspected, so a nested let's own `let`/`in` markers
+-- (which live deeper in the subtree) are not seen here — those are handled when
+-- the recursion reaches that node.
+insertBlanksInLetFlow : Array LPNode -> Array LPNode
+insertBlanksInLetFlow children =
+    let
+        result =
+            Array.foldl
+                (\child acc ->
+                    if isLetKeyword child then
+                        { out = Array.pushLast child acc.out
+                        , inLet = True
+                        , prevMaxRow = -1
+                        }
+                    else if isInKeyword child then
+                        { out = Array.pushLast child acc.out
+                        , inLet = False
+                        , prevMaxRow = -1
+                        }
+                    else if acc.inLet then
+                        let
+                            curMin = lpnMinRow child
+                            curMax = lpnMaxRow child
+                            hasGap =
+                                acc.prevMaxRow >= 0
+                                    && curMin >= 0
+                                    && curMin > acc.prevMaxRow + 1
+                            out2 =
+                                if hasGap then
+                                    acc.out
+                                        |> Array.pushLast (lpnLeaf EmptyLine)
+                                        |> Array.pushLast child
+                                else
+                                    Array.pushLast child acc.out
+                        in
+                        { out = out2
+                        , inLet = True
+                        , prevMaxRow =
+                            if curMax >= 0 then curMax else acc.prevMaxRow
+                        }
+                    else
+                        { acc | out = Array.pushLast child acc.out }
+                )
+                { out = [], inLet = False, prevMaxRow = -1 }
+                children
+    in
+    result.out
+
+
+{-| Insert single blank-line `EmptyLine` markers between `let` bindings the
+author separated with one or more blank lines, normalising any run of blanks to
+exactly one — mirroring the top level's gap-driven spacing (but always one
+blank, never the top level's two). Bindings written adjacent stay adjacent.
+
+Recurses over the whole tree, acting on every `let … in` binding span it finds.
+Runs *after* `Formatter.Comments`, so comment nodes already sit in the binding
+sequence as their own nodes and gaps are measured around them — see
+`insertBlanksInLetFlow`. Rebuilds via `lpnReplaceChildren` so bracket-extent
+caches survive.
+-}
+insertLetBlankLines : LPNode -> LPNode
+insertLetBlankLines node =
+    let
+        recursed = Array.map insertLetBlankLines (lpnChildren node)
+    in
+    lpnReplaceChildren node (insertBlanksInLetFlow recursed)

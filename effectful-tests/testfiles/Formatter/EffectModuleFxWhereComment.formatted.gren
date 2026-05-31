@@ -7,8 +7,10 @@ effect module EffectModuleFxWhereComment where
 
 import Task
 
+
 type TrickyCmd msg
     = TrickyCmd (Task.Task Never msg)
+
 
 type TrickySub msg
     = TrickySub Never

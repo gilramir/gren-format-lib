@@ -24,6 +24,7 @@ import Task
 import Array as A {- between module and `as` -}
 import Dict as D exposing {- between alias and `exposing` -} ( Dict )
 
+
 -- Bug A — block comment between two union variants was previously
 -- dropped entirely; now it renders on its own line in place.
 type Shape
@@ -32,11 +33,13 @@ type Shape
     {- block comment between two union variants -}
     | Empty
 
+
 -- Bug F — a block comment between `\` and the first lambda pattern
 -- used to be hoisted out of the lambda head to a position before `\`.
 -- Now PrefixGlue carries a Located String so the prefix character has
 -- a source position, and the comment lands inside the lambda head.
 lambdaPrefix = \{- between backslash and first pattern -} x -> x
+
 
 -- Bug G — a line comment immediately before a triple-quoted multi-line
 -- string used to be moved AFTER the string (because the MultilineString
@@ -95,6 +98,7 @@ extensibleSig :
 extensibleSig _ =
     0
 
+
 -- Bug I — a comment that was the only content of an empty record or
 -- array literal used to be evicted to a sibling slot after the bare
 -- `{}` / `[]`. An `EmptyBracketed (Located ListBrackets)` LPT node
@@ -102,7 +106,9 @@ extensibleSig _ =
 -- descend into it and render inside the brackets.
 emptyRecord = { {- only content of an empty record literal -} }
 
+
 emptyArray = [ {- only content of an empty array literal -} ]
+
 
 -- Bug D — a trailing block comment after the last item of an array
 -- pattern used to escape the brackets ([ a, b, c ] -> {- c -} body).
@@ -117,6 +123,7 @@ arrayPatTrailing =
         , c {- trailing comment after last array-pattern item -}
         ] -> a
 
+
 -- Bug E — a block comment between a record pattern and `as` in an
 -- as-pattern used to be sucked into the record pattern (between the
 -- last field and the closing `}`). Two changes fix it:
@@ -130,8 +137,10 @@ arrayPatTrailing =
 recordPatternAs =
     \({ a, b } {- between record pattern and `as` -} as wholeR) -> a
 
+
 type TrickyCmd msg
     = TrickyCmd (Task.Task Never msg)
+
 
 type TrickySub msg
     = TrickySub Never

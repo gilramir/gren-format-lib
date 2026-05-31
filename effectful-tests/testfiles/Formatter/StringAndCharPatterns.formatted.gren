@@ -1,5 +1,6 @@
 module StringAndCharPatterns exposing (..)
 
+
 classifyStr s =
     when s is
         "\n" ->
@@ -22,6 +23,7 @@ classifyStr s =
 
         _ ->
             "other"
+
 
 classifyChar c =
     when c is

@@ -1,5 +1,6 @@
 module WhenBranchBody exposing (..)
 
+
 -- Simple bodies that fit inline: unchanged
 simple msg =
     when msg is
@@ -12,6 +13,7 @@ simple msg =
         Reset ->
             0
 
+
 -- Record body that must wrap: body should be indented +4 from the pattern
 withRecord msg model =
     when msg is
@@ -22,6 +24,7 @@ withRecord msg model =
 
         NoOp ->
             { model = model, command = Cmd.none }
+
 
 -- Array body that must wrap
 withArray msg =

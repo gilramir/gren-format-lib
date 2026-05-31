@@ -1,12 +1,15 @@
 module FunctionCalls exposing (..)
 
+
 -- Short call stays on one line
 short = foo a b c
+
 
 -- Long call: overflow args indented +4 from function name
 long =
     someFunction firstLongArgument secondLongArgument thirdLongArgument
         fourthLongArgument fifthLongArgument
+
 
 -- Call inside let binding: overflow args indented +4 from function name
 inLet =
@@ -16,6 +19,7 @@ inLet =
                 fourthLongArgument extraLongArg
     in
     x
+
 
 -- Nested calls (parens around inner calls)
 nested = outer (inner a b) (another c d)

@@ -1,11 +1,13 @@
 module RecordUpdateFieldComment exposing (..)
 
+
 multiFieldTrailing baseRecordValue =
     { baseRecordValue
         | firstFieldName = 1
         , secondFieldName = 2
         {- after last field, before brace -}
     }
+
 
 singleFieldTrailing baseRecordValue =
     { baseRecordValue | onlyFieldName =

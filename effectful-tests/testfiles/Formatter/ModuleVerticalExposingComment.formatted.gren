@@ -6,5 +6,6 @@ module ModuleVerticalExposingComment exposing
     , EpsilonLongValue
     )
 
+
 {- comment between the vertical exposing list and the first declaration -}
 alphaLongTypeName = 1

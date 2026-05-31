@@ -4,6 +4,7 @@ module CtorAsPattern exposing (..)
 -- its parentheses. Without them, the `as` would bind to the outer
 -- constructor pattern instead of the inner one, changing the AST.
 
+
 type Wrapped a
     = Wrapped a
 

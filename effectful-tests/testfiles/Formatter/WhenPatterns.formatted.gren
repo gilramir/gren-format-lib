@@ -1,16 +1,19 @@
 module WhenPatterns exposing (..)
 
+
 -- Variable pattern
 varPat x =
     when x is
         n ->
             n
 
+
 -- Wildcard
 wildcard x =
     when x is
         _ ->
             0
+
 
 -- Integer literal
 intLit x =
@@ -24,6 +27,7 @@ intLit x =
         _ ->
             "other"
 
+
 -- String literal
 strLit x =
     when x is
@@ -32,6 +36,7 @@ strLit x =
 
         _ ->
             "other"
+
 
 -- Char literal
 charLit x =
@@ -42,6 +47,7 @@ charLit x =
         _ ->
             "other"
 
+
 -- Constructor with no payload
 ctorNoPayload x =
     when x is
@@ -50,6 +56,7 @@ ctorNoPayload x =
 
         Just n ->
             n
+
 
 -- Constructor with payload
 ctorPayload x =
@@ -60,6 +67,7 @@ ctorPayload x =
         Nothing ->
             0
 
+
 -- Nested constructors
 nestedCtor x =
     when x is
@@ -68,6 +76,7 @@ nestedCtor x =
 
         _ ->
             0
+
 
 -- Alias pattern
 aliasPat x =
@@ -78,11 +87,13 @@ aliasPat x =
         _ ->
             Nothing
 
+
 -- Record pattern (shorthand)
 recordPat x =
     when x is
         { name, value } ->
             name
+
 
 -- Array patterns
 arrayPat x =

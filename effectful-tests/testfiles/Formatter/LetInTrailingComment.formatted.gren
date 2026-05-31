@@ -1,5 +1,6 @@
 module LetInTrailingComment exposing (..)
 
+
 foldOverAttributes reducerFunction initialAccumulatorValue branchAttributesArray
         =
     let
@@ -9,6 +10,7 @@ foldOverAttributes reducerFunction initialAccumulatorValue branchAttributesArray
     in {- trailing the last binding, before in -}
     accumulatorAfterAttributes
 
+
 withTrailingLineComment someArgumentValue =
     let
         firstComputedResult =
@@ -17,6 +19,7 @@ withTrailingLineComment someArgumentValue =
     in
     -- trailing line comment
     firstComputedResult
+
 
 bodyLeadingComment someArgumentValue =
     let

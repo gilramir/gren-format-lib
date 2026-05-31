@@ -1,5 +1,6 @@
 module LetBindingComments exposing (..)
 
+
 -- Regression guard: a standalone block comment before a NON-FIRST `let`
 -- binding must render on its own line, with the binding starting fresh at the
 -- binding column. Both single-line and multi-line block comments previously
@@ -12,6 +13,7 @@ single x =
         second = first + 1
     in
     second
+
 
 multi x =
     let

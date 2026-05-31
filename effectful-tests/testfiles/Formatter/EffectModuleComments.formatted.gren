@@ -4,6 +4,7 @@ effect module {- comment between `effect module` keywords and module name -}
 -- single-line comment before an import
 import Task
 
+
 {-| Doc comment on the command type of an effect module. -}
 type MyCmd msg
     = MyCmd (Task.Task Never msg)

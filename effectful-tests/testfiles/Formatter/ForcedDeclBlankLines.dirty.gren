@@ -1,0 +1,16 @@
+module ForcedDeclBlankLines exposing (..)
+
+import Array
+import Dict
+type alias Id = Int
+type Color
+    = Red
+    | Blue
+-- a leading comment owns the unit below it
+first : Int -> Int
+first n = n + 1
+sansSignature n = n * 2
+{-| A doc comment is the beginning of its unit. -}
+docced : Int
+docced = 3
+port save : String -> Cmd msg

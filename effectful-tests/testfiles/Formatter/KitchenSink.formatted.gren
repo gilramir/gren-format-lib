@@ -59,9 +59,12 @@ infix right 5 (<|) = apL
        in x + y
 -}
 
+
 port port_out_message : String -> Cmd msg
 
+
 port port_in_message : (String -> msg) -> Sub msg
+
 
 {-| A tree where each node carries a label, an array of attribute pairs, and an array of child trees. The Empty case represents a missing branch. -}
 type Tree a
@@ -74,6 +77,7 @@ type Tree a
         }
     | Cons { headValue : a, leftSubtree : Tree a, rightSubtree : Tree a }
 
+
 {-| Generic result-style type using qualified names everywhere. -}
 type alias Result errorType successType =
     { ok : Maybe successType
@@ -81,9 +85,11 @@ type alias Result errorType successType =
     , annotations : Array { source : String, severity : Int, message : String }
     }
 
+
 {-| An extensible record alias used as the basis for many other records. -}
 type alias HasIdentifier r =
     { r | identifier : String, generatedAtMillis : Int }
+
 
 type alias Container =
     HasIdentifier
@@ -109,6 +115,7 @@ type alias Container =
         }
     }
 
+
 {-| A configuration record with deeply nested option groups. -}
 type alias Configuration =
     { tracing :
@@ -126,6 +133,7 @@ type alias Configuration =
     , featureFlags : Array
         { flagName : String, isOn : Bool, rolloutPercent : Int }
     }
+
 
 -- A short single-line value definition (no type signature).
 piApprox = 3.141592653589793
@@ -244,6 +252,7 @@ processConfiguration
                         Err "tracing enabled but no usable sinks configured"
             else
                 Ok { kind = "disabled", endpoint = "", header_count = 0 }
+
         schedulerDecision =
             when schedulerSection.overrides is
                 [] ->
@@ -258,6 +267,7 @@ processConfiguration
                         |> Array.map .tickMillis
                         |> Array.foldl Math.max
                             schedulerSection.defaultTickMillis
+
         rolloutDecision flagName =
             featureFlagDefinitions
                 |> Array.findFirst
@@ -266,6 +276,7 @@ processConfiguration
                 |> Maybe.map
                     (\{ isOn, rolloutPercent } -> isOn && rolloutPercent >= 50)
                 |> Maybe.withDefault False
+
         updateFlagsForConfigDecision currentFlags =
             { currentFlags
                 | isReady = currentFlags.isReady || rolloutDecision "auto-ready"
@@ -340,6 +351,7 @@ applyOverlays leadingOverridePriority tracingIsEnabled
             { startingContainer | generatedAtMillis =
                 startingContainer.generatedAtMillis + 1
             }
+
         -- Single-field update inside a let that uses an if/then/else for the new field value.
         containerWithConditionallyTrimmedPayload =
             { containerWithBumpedTimestamp | payload =
@@ -348,6 +360,7 @@ applyOverlays leadingOverridePriority tracingIsEnabled
                 else
                     startingContainer.payload
             }
+
         -- A lambda whose body is a multi-field update; one of the field
         -- values is itself a multi-field record update inline.
         applyTracingDecision =
@@ -374,6 +387,7 @@ applyOverlays leadingOverridePriority tracingIsEnabled
                                       , isVerified = False
                                   }
                         }
+
         -- When-branch arms produce updates of different shapes. The wildcard
         -- arm contains updates that are deeply nested: a multi-field update
         -- whose field values include TWO inline multi-field record updates
@@ -535,6 +549,7 @@ traverseDeeply rootTree =
                             , lastNameString
                             , "(" ++ String.fromInt ageInYears ++ ")"
                             ]
+
         gatherNames currentTree =
             when currentTree is
                 Empty ->
@@ -604,6 +619,7 @@ interpretMicroCommand decoderForPayload commandText commandCharacters
         -- locally-bound names without going through a fresh name first.
         { defaultReplyCode, fallbackReplyCode }
         = { defaultReplyCode = 0, fallbackReplyCode = -1 }
+
         codeFromCharacterArray =
             when commandCharacters is
                 -- single-char array pattern with literal Char pattern
@@ -618,6 +634,7 @@ interpretMicroCommand decoderForPayload commandText commandCharacters
 
                 _ ->
                     defaultReplyCode
+
         codeFromCommandText =
             when commandText is
                 "skip" ->
@@ -636,6 +653,7 @@ interpretMicroCommand decoderForPayload commandText commandCharacters
 
                         _ ->
                             fallbackReplyCode
+
         codeFromRetryHint =
             when optionalRetryHint is
                 Maybe.Just retryAttemptNumber ->

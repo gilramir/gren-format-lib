@@ -1,5 +1,6 @@
 module RecordFieldAsPattern exposing (..)
 
+
 -- A record-destructure field value can carry an `as`-alias when wrapped
 -- in parens. The formatter must keep the outer parens — without them the
 -- output re-parses with `as` binding outside the record entirely.

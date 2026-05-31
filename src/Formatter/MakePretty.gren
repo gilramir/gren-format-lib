@@ -856,6 +856,22 @@ buildFlowDocImpl indent inlineStart nodes =
                                 SoftBodyBlock ->
                                     renderBodyBlockNode softBodyBlockRule acc nodeChildren
 
+                                EmptyLine ->
+                                    -- A blank-line marker between `let` bindings,
+                                    -- inserted by `VerticalSpace.insertLetBlankLines`.
+                                    -- Emit one raw "\n" (not P.hardNl, which would
+                                    -- re-emit indentation and leave trailing whitespace
+                                    -- on the blank line — cf. the WhenBranch/PipelineStep
+                                    -- blanks). The following binding's IndentedBlock
+                                    -- supplies its own leading hardNl, so each EmptyLine
+                                    -- nets exactly one blank line. Keep separator = HardNl
+                                    -- so that binding still wraps onto its own line.
+                                    Ok { doc = P.concat acc.doc (P.text "\n")
+                                       , prevRow = -1
+                                       , prevElided = False
+                                       , separator = HardNl
+                                       }
+
                                 _ ->
                                     when makePDoc box nodeChildren is
                                         Err e -> Err e

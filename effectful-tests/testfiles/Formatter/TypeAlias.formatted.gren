@@ -1,16 +1,19 @@
 module TypeAlias exposing ( Point, Config, Named )
 
+
 -- Simple record type alias
 type alias Point =
     { x : Int
     , y : Int
     }
 
+
 -- Type alias with a type variable
 type alias Config a =
     { name : String
     , value : a
     }
+
 
 -- Fits on one line
 type alias Named =

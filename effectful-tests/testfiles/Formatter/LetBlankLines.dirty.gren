@@ -1,0 +1,24 @@
+module LetBlankLines exposing (..)
+
+
+-- The formatter honors the author's blank lines between `let` bindings,
+-- normalizing any run of one-or-more blanks down to exactly one, and
+-- preserving the absence of a blank. Gaps are measured around comment nodes,
+-- so a comment alone between two bindings is not itself a blank line.
+compute x =
+    let
+        a = x + 1
+
+
+
+        b = a * 2
+        c = b - 3
+
+        d = c + 4
+        -- adjacent comment (no authored blank) stays tight to its binding
+        e = d * 5
+
+        {- authored blank above this comment is preserved as one -}
+        f = e + 6
+    in
+    a + b + c + d + e + f

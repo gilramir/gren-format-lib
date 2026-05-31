@@ -1,15 +1,19 @@
 module RecordTypeLayoutByAuthor exposing (..)
 
+
 type alias Flat =
     { x : Int, y : Int }
+
 
 type alias Vertical =
     { x : Int
     , y : Int
     }
 
+
 type alias ExtFlat =
     { base | active : Bool, count : Int }
+
 
 type alias ExtVertical =
     { base

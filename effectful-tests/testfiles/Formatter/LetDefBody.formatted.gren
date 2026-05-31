@@ -1,5 +1,6 @@
 module LetDefBody exposing (..)
 
+
 -- Simple body fits inline: stays on one line
 simple =
     let
@@ -7,6 +8,7 @@ simple =
         y = "hello"
     in
     x
+
 
 -- Function application body that must wrap: body goes to name_col + 4
 wrapsToNextLine =
@@ -16,6 +18,7 @@ wrapsToNextLine =
                 model.suggestionDropdownState
     in
     newDropdownState
+
 
 -- Complex body (if/let/when): always on a new indented line
 complexBody =
@@ -28,12 +31,14 @@ complexBody =
     in
     command
 
+
 -- Record destructuring with field aliases: { field = alias }
 fieldAliases =
     let
         { cache = newCache, value = maybeResults } = LRUCache.get text cache
     in
     maybeResults
+
 
 -- Record destructuring shorthand (no alias): { field }
 fieldShorthand =

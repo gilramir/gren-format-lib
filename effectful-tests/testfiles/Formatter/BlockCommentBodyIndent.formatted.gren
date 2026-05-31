@@ -1,5 +1,6 @@
 module BlockCommentBodyIndent exposing (..)
 
+
 {- Family B regression guard: body indentation is canonicalised from the body's
    OWN structure, never the input open column. The smallest indent among
        content lines maps to offset 3; this deeper line must stay deeper.
@@ -8,6 +9,7 @@ module BlockCommentBodyIndent exposing (..)
    below is too, so neither can drag the base to column 0.
 -}
 topLevel = 1
+
 
 indented x =
     let

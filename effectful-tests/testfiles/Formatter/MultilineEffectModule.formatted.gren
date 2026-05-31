@@ -7,5 +7,6 @@ effect module MultilineEffectModule where
 
 import Task
 
+
 type MyCmd a
     = MyCmd (Task.Task Never a)

@@ -20,6 +20,7 @@ module Ambiguous exposing (..)
 import Foo as Bar
 {- authored between `as` and `Bar` -}
 
+
 -- Case 2 — as-pattern. Comment authored AFTER `as`, with extra spaces.
 -- Canonical rendering places it BEFORE `as`; either authored side lands here.
 unwrap x =
@@ -38,9 +39,11 @@ field :
 field r =
     r.name
 
+
 -- Case 4 — record update `|`. Comment authored AFTER `|`, inside the braces.
 -- Canonical rendering lifts it OUT, before the whole update expression.
 relabel rec = {- authored after `|` -} { rec | name = 1 }
+
 
 -- Case 5 — union variant `|`. Comment authored AFTER `|` (between `|` and `B`).
 -- Canonical rendering places it BEFORE `|`, after the preceding variant.
@@ -48,6 +51,7 @@ type T
     = A
     {- authored after `|` -}
     | B
+
 
 -- Case 6 — declaration `=`. Comment authored BEFORE `=` (between the name and
 -- `=`), with extra spaces. Canonical rendering places it AFTER `=`.
