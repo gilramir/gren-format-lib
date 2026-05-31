@@ -70,7 +70,7 @@ import Compiler.SourcePosition exposing (Located)
 
 import Formatter.LogicalPrintingTree exposing (LPBox(..),
     LPNode, ListBrackets(..), SyntaxType(..),
-    lpnBox, lpnChildren, lpnNode, firstRowInSubtree, lpnLastPos)
+    lpnBox, lpnChildren, lpnNode, firstRowInSubtree, lpnMaxRow, lpnLastPos)
 import Formatter.LPTJson exposing (lptToJson)
 import Formatter.LPTHelpers exposing (binopPrecedence, binopMinPrecedence)
 
@@ -2166,7 +2166,7 @@ listBoxesWithBrackets open close nodes =
                         row =
                             when lpnBox node is
                                 UnbreakableText loc -> loc.start.row
-                                _ -> firstRowInSubtree node
+                                _ -> lpnMaxRow node
                     in
                     result |> Result.map (\d -> Just { doc = d, row = row })
 

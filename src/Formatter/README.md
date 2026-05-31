@@ -1418,78 +1418,51 @@ wrapped head looks one row taller than it is and the comment-adjacency test
 flips. Once #25 is fixed so the keyword's own row is recorded, the formatter can
 make this a pure width-and-adjacency decision and format it correctly.
 
-### A comment's inline-vs-own-line placement flipping
+### A comment's inline-vs-own-line placement (fixed)
+
+*This was a whitespace-canonicalization gap; it is now fixed.*
 
 A comment that trails a token is rendered *inline* (on the token's line) when it
 shares that token's row, and *on its own line* otherwise — a deliberate,
-meaning-bearing distinction (see [Comments](#comments)). The problem is that this can
-flip when whitespace *elsewhere* changes how many rows the surrounding construct
-spans, even though the comment still trails the same token.
+meaning-bearing distinction (see [Comments](#comments)). This placement used to
+**flip** when whitespace *elsewhere* changed how many rows the surrounding
+construct spanned, even though the comment still trailed the same token. Writing a
+record-type field's trailing comment on one line kept it inline, but writing the
+*same* field across rows pushed the comment onto its own line — purely because of
+whitespace inside the field.
 
-For example, write a record-type field with a trailing comment all on one line,
-and the comment stays inline beside the field:
+Both inputs now format the same way, with the comment inline:
 
 ```gren
--- you write:
+-- either of these inputs…
 foo : { a : Int {- trailing the field -} }
 
--- formats to:
-foo :
-    { a : Int {- trailing the field -}
-    }
-```
-
-Now write the *same* signature with the field's `a :` and `Int` on separate
-rows — identical to the parser, and the comment still sits right after `Int`.
-This time the comment drops to its own line, even though the field itself rejoins
-on one line in the output:
-
-```gren
--- you write (note the field spans two rows now):
+-- …or this one (the field spans two rows)…
 foo :
     { a :
         Int {- trailing the field -}
     }
 
--- formats to:
+-- …both format to:
 foo :
-    { a : Int
-    {- trailing the field -}
+    { a : Int {- trailing the field -}
     }
 ```
 
-The only difference between the two inputs is whitespace *inside the field* —
-yet it moves the comment.
-
-**Why this isn't fixed yet.** The formatter decides inline-vs-own-line by
-comparing the comment's row to the row of the item it follows — and there is no
-single "row of the item" that is right for every item:
-
-- Use the item's **first** row, and a comment trailing the item's *last* token
-  looks like it's on a different row — the bug shown above (the field starts on
-  one row, the comment trails `Int` on a later row).
-- Use the item's **last token's** row, and that fixes the case above but breaks a
-  different one: an item that ends in a multi-line bracketed value has its closing
-  `}` (or `]`) on a line *below* its last token. A comment trailing that value
-  then glues onto the last token's row in one pass but sits on the bracket's row
-  on the next, so it oscillates between the two — trading this gap for an
-  *idempotency* gap, which is worse.
-
-The value that would actually be correct is the item's last *rendered* row. But
-that row often belongs to a closing bracket the parser discards (`}`, `]`, `)`
-carry no position in the AST — see the elided-token cases under
-[Comments](#comments)), so it isn't known until after layout, while the
-comment-placement decision is made before. Doing this right means making that
-decision against post-layout positions (or tracking the synthesized brackets'
-rows) — a deeper change than swapping which row the test reads. This is a large
-change in the interaction between the formatter's internal data structures
-and the renderer's data structures. Until then the formatter keeps the current
-rule, which is stable (idempotent) everywhere but flips this particular case.
+**The fix.** The placement test compares the comment's row to the item's **last**
+row rather than its first. The earlier worry — that an item ending in a multi-line
+bracketed value would *oscillate*, because its closing `}`/`]`/`)` "carries no
+position in the AST" — turned out not to apply. A bracketed expression's (or
+type's) `end` position **is** its closing bracket, and the item's row range already
+extends to it, so the comparison lands on the bracket's own row, which is exactly
+where a comment trailing the value sits. That makes the decision stable across
+reformats (idempotent) while keeping the inline placement the author intended.
 
 ### A multi-line block comment's body is kept verbatim
 
-This one is intentional, not a defect — but it has the same observable problem.
-As described in the **Block comments** section above, when a
+This one is intentional, not a defect — but it is a whitespace-canonicalization
+gap of the same kind (two inputs differing only in whitespace can format
+differently). As described in the **Block comments** section above, when a
 multi-line `{- ... -}` comment has a body line to the left of its `{-`,
 the formatter lifts the `{-` onto its own line and leaves the body **exactly as
 written**, column for column, rather than re-indenting it. That protects ASCII
