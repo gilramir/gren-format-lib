@@ -287,7 +287,7 @@ makeUnionBodyDoc nodes =
     if hasComment || variantsSpanRows then
         makeUnionBodyVertical nodes
     else
-        mapNodesToDocs (\n -> buildFlowDoc 0 (lpnChildren n)) variantNodes
+        traverseArray (\n -> buildFlowDoc 0 (lpnChildren n)) variantNodes
             |> Result.map (\docs ->
                 P.group (P.foldDoc (\a b -> P.concat a (P.concat P.nl b)) docs)
             )
@@ -1032,24 +1032,26 @@ renderBracketList brackets children =
     if hasComment then
         listBoxesWithBrackets bs.open bs.close children
     else
-        mapNodesToDocs makeListItemDoc children
+        traverseArray makeListItemDoc children
             |> Result.map (\itemDocs ->
                 exposingListWithBrackets bs.open bs.close bs.empty itemDocs
             )
 
 
--- Run an item-doc builder over each child, collecting docs into an array.
--- Short-circuits on the first error.
-mapNodesToDocs : (LPNode -> Result String (P.Doc cost)) -> Array LPNode -> Result String (Array (P.Doc cost))
-mapNodesToDocs build nodes =
+-- Map a Result-producing builder over each element, collecting the Ok values
+-- into an array. Short-circuits on the first Err. The collect-or-fail traversal
+-- that several doc builders need (over nodes, signature segments, binop
+-- operands, pipeline steps).
+traverseArray : (a -> Result e b) -> Array a -> Result e (Array b)
+traverseArray build items =
     Array.foldl
-        (\node acc ->
-            acc |> Result.andThen (\docs ->
-                build node |> Result.map (\d -> Array.pushLast d docs)
+        (\item acc ->
+            acc |> Result.andThen (\collected ->
+                build item |> Result.map (\b -> Array.pushLast b collected)
             )
         )
         (Ok [])
-        nodes
+        items
 
 
 bracketStrings : ListBrackets -> { open : String, close : String, empty : String }
@@ -1150,7 +1152,7 @@ makeExposingListDoc children =
         listBoxesWithBrackets "( " ")" children
             |> Result.map (\body -> P.concat P.hardNl body)
     else
-        mapNodesToDocs makeListItemDoc children
+        traverseArray makeListItemDoc children
             |> Result.map (\itemDocs ->
                 when Array.popFirst itemDocs is
                     Nothing ->
@@ -1415,7 +1417,7 @@ makeRecordUpdateDoc forceVertical baseName children =
                 when fieldDoc firstField is
                     Err e -> Err e
                     Ok firstFieldDoc ->
-                        mapNodesToDocs fieldDoc restFields
+                        traverseArray fieldDoc restFields
                             |> Result.map (\restDocs ->
                                 let
                                     firstSeg = P.concat (P.text "| ") firstFieldDoc
@@ -1516,7 +1518,7 @@ makeExposingLineDoc children =
                         headerNodes
             in
             if lastIsParenList && headerAllLeaves && not (Array.isEmpty headerNodes) then
-                mapNodesToDocs (\n -> makePDoc (lpnBox n) (lpnChildren n)) headerNodes
+                traverseArray (\n -> makePDoc (lpnBox n) (lpnChildren n)) headerNodes
                     |> Result.andThen (\headerDocs ->
                         makeExposingListDoc (lpnChildren lastNode)
                             |> Result.map (\listDoc ->
@@ -1680,16 +1682,7 @@ makeSignaturePrettyDoc children =
                         Just { first, rest } -> Array.any (\r -> r /= first) rest
 
                 segDocsResult =
-                    Array.foldl
-                        (\seg accR ->
-                            accR
-                                |> Result.andThen (\accDocs ->
-                                    buildFlowDoc 0 seg
-                                        |> Result.map (\d -> Array.pushLast d accDocs)
-                                )
-                        )
-                        (Ok [])
-                        segments
+                    traverseArray (buildFlowDoc 0) segments
             in
             buildFlowDoc 0 colonSplit.header
                 |> Result.andThen (\headerDoc ->
@@ -1752,19 +1745,10 @@ makePipelineDoc forceVertical children =
         in
         buildFlowDoc 0 seedNodes
             |> Result.andThen (\seedDoc ->
-                Array.foldl
-                    (\step accR ->
-                        accR
-                            |> Result.andThen (\accDocs ->
-                                -- `|> body` with continuation args nested +4 from
-                                -- the `|>` column — exactly the PipelineStep path's
-                                -- `buildFlowDoc grenIndent stepChildren`.
-                                buildFlowDoc grenIndent (lpnChildren step)
-                                    |> Result.map (\d -> Array.pushLast d accDocs)
-                            )
-                    )
-                    (Ok [])
-                    stepNodes
+                -- `|> body` with continuation args nested +4 from the `|>` column
+                -- — exactly the PipelineStep path's `buildFlowDoc grenIndent
+                -- stepChildren`.
+                traverseArray (\step -> buildFlowDoc grenIndent (lpnChildren step)) stepNodes
                     |> Result.map (\stepDocs ->
                         let
                             -- Step separator (see `authorSep`): a soft break inline,
@@ -1904,16 +1888,7 @@ predicateBinopFill binopChildren =
         flat = flattenBinopNodes binopChildren
 
         operandDocsResult =
-            Array.foldl
-                (\opNodes accR ->
-                    accR
-                        |> Result.andThen (\acc ->
-                            buildFlowDoc 0 opNodes
-                                |> Result.map (\d -> Array.pushLast d acc)
-                        )
-                )
-                (Ok [])
-                flat.operands
+            traverseArray (buildFlowDoc 0) flat.operands
     in
     operandDocsResult
         |> Result.map (\operandDocs ->
@@ -1989,16 +1964,7 @@ makeBinopDoc forceVertical children =
                     -- minimum precedence into operator-led groups.
                     let
                         operandDocsResult =
-                            Array.foldl
-                                (\opNodes accR ->
-                                    accR
-                                        |> Result.andThen (\acc ->
-                                            buildFlowDoc 0 opNodes
-                                                |> Result.map (\d -> Array.pushLast d acc)
-                                        )
-                                )
-                                (Ok [])
-                                flat.operands
+                            traverseArray (buildFlowDoc 0) flat.operands
                         minPrec =
                             Array.foldl (\op acc -> min acc (binopPrecedence (opNodeText op))) 999 flat.ops
                     in
