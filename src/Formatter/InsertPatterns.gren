@@ -22,8 +22,8 @@ insertPattern locPat =
         Src.PVar name ->
             Ok [lpnLeaf (mkText locPat.start name)]
 
-        Src.PAnything _ ->
-            Ok [lpnLeaf (mkText locPat.start "_")]
+        Src.PAnything name ->
+            Ok [lpnLeaf (mkText locPat.start ("_" ++ name))]
 
         Src.PRecord fields ->
             when Array.popFirst fields is

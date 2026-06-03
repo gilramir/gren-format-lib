@@ -1,0 +1,32 @@
+module AnythingPatterns exposing (..)
+
+
+-- Named wildcard in function arguments
+funcArg value _unusedValue = value
+
+
+-- Bare wildcard stays bare
+bareWildcard _ x = x
+
+
+-- Named wildcard in a lambda
+lambdaArg =
+    \_ignored x -> x
+
+
+-- Named wildcard in when branches
+whenBranch x =
+    when x is
+        Just _payload ->
+            1
+
+        _other ->
+            0
+
+
+-- Named wildcard in let destructure
+letDestruct x =
+    let
+        { name = _droppedName } = x
+    in
+    x
