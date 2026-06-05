@@ -956,8 +956,8 @@ update ({ model } as state) msg =
 mapBox = \(Box value) -> value
 ```
 
-A bare constructor with no payload (`Nothing`) and a named wildcard
-(`_unusedValue`) take no parentheses. The parentheses matter because arguments
+A bare constructor with no payload (`Nothing`) takes no parentheses. The
+parentheses matter because arguments
 parse greedily: `f Response response` would read `response` as the payload of
 `Response`, and `f thing as name` would attach `as` to the whole argument list
 rather than to `thing` alone.
