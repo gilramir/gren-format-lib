@@ -744,13 +744,16 @@ own line, the predicate drops to the next line indented 4 spaces, and `then` goe
 on its own line flush with `if`. The branch body then follows, indented 4 spaces
 under `then`.
 
-The predicate itself is **filled**: as much as fits stays on the first line, and
-only the overflow spills onto a continuation indented one more level, with the
-operator leading each wrapped line:
+The predicate itself wraps the **precedence-aware** way — the same layout
+binops use everywhere else in Gren: it breaks only at the lowest-precedence
+operators, one operator-led group per line, indented one more level:
 
 ```gren
 if
-    userIsActive && accountHasCredit && not isSuspended && withinQuota
+    userIsActive
+        && accountHasCredit
+        && not isSuspended
+        && withinQuota
         && verified
 then
     showDashboard x
@@ -759,34 +762,24 @@ else
     showLoginPage x
 ```
 
+Tighter-binding sub-terms stay together on a line — only the loosest operators
+split:
+
+```gren
+if
+    lowerBound - toleranceMargin <= candidateValue
+        && candidateValue <= upperBound + toleranceMargin
+then
+    "inside"
+
+else
+    "outside"
+```
+
 It's all-or-nothing at the `if … then` level: either the whole thing fits on one
 line, or it takes the stacked form above — there's no in-between where the
 predicate wraps but `then` stays glued to its last line. The same applies to
 `else if`.
-
-> **Open decision — how the stacked predicate wraps.** The predicate currently
-> *fills* (packs onto the line, overflow spilling to an indented continuation,
-> shown above). The alternative is **precedence-aware** wrapping — the way binops
-> break everywhere else in Gren: break only at the lowest-precedence operators,
-> one group per line —
->
-> ```gren
-> if
->     userIsActive
->         && accountHasCredit
->         && not isSuspended
->         && withinQuota
->         && verified
-> then
->     showDashboard x
-> ```
->
-> This is implementable (it would render the predicate with the precedence-aware
-> binop layout rather than a filled flow).
-> **This has not been decided yet.**
->
-> **Action item:** decide whether a stacked `if`/`else if` predicate should wrap
-> fill-style (current) or precedence-aware, and make it consistent.
 
 ---
 
@@ -1101,10 +1094,10 @@ eligible =
         || isOwner
 ```
 
-Two situations keep the older fill-style wrapping instead of this shape: an
-`if`/`else if` condition (so the first part stays beside `if` rather than the
-whole condition dropping below a lone `if`), and any chain that contains a
-comment (`a + {- note -} b`).
+One situation keeps the older fill-style wrapping instead of this shape: a
+chain that contains a comment (`a + {- note -} b`). A stacked `if`/`else if`
+predicate uses this same precedence-aware layout (see
+[If expressions](#if-expressions)).
 
 ---
 

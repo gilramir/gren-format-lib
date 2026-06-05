@@ -114,7 +114,10 @@ ifShort x =
 -- long predicate reaching past 100
 ifLong x =
     if
-        conditionOne x && conditionTwo x && conditionThree x && conditionFour x
+        conditionOne x
+            && conditionTwo x
+            && conditionThree x
+            && conditionFour x
             && conditionFive x
     then
         trueBranchResult

@@ -1,0 +1,27 @@
+module IfPredicate exposing (..)
+
+
+-- A long single-precedence predicate breaks at every operator
+gate userIsActive accountHasCredit isSuspended withinQuota verified =
+    if userIsActive && accountHasCredit && not isSuspended && withinQuota && verified then
+        "dashboard"
+    else
+        "login"
+
+
+-- Mixed precedences break only at the loosest operators
+inWindow lowerBound upperBound candidateValue toleranceMargin =
+    if lowerBound - toleranceMargin <= candidateValue && candidateValue <= upperBound + toleranceMargin then
+        "inside"
+    else
+        "outside"
+
+
+-- A long else-if predicate stacks and wraps the same way
+classify totalRequestCount failedRequestCount slowRequestCount maximumAllowed =
+    if totalRequestCount > maximumAllowed then
+        "overloaded"
+    else if failedRequestCount * 100 > totalRequestCount * 5 && slowRequestCount * 100 > totalRequestCount * 20 then
+        "degraded"
+    else
+        "healthy"

@@ -201,6 +201,7 @@ expressionTests fsPerm =
         [ assertPretty fsPerm "simple arithmetic" "SimpleArithmetic"
         , assertPretty fsPerm "when expression" "WhenExpression"
         , assertPretty fsPerm "if expression" "IfExpression"
+        , assertPretty fsPerm "stacked if predicate wraps precedence-aware" "IfPredicate"
         , assertPretty fsPerm "let expression" "LetExpression"
         , assertPretty fsPerm "records" "Records"
         , assertPretty fsPerm "lambdas and calls" "LambdasAndCalls"
