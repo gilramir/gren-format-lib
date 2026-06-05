@@ -147,15 +147,35 @@ folderInsertPattern locPat accNodes =
     insertPattern locPat
         |> Result.map (\newNodes ->
             -- Function arguments are space-separated patterns. An `as`-alias
-            -- argument must keep its parens, otherwise the rendered
-            -- `arg1 { ... } as name = body` re-parses with `as` binding to
-            -- the whole arg list rather than just the inner record pattern.
-            when locPat.value is
-                Src.PAlias _ ->
-                    Array.pushLast (lpnNode ParenBlock newNodes) accNodes
-                _ ->
-                    accNodes ++ newNodes
+            -- or a constructor-with-payload argument must keep its parens:
+            --   * `arg1 { ... } as name = body` re-parses with `as` binding
+            --     to the whole arg list rather than just the inner pattern;
+            --   * a constructor's payload is parsed greedily, so dropping the
+            --     parens around a nested one changes the grouping —
+            --     `f (Just Nothing) x` would re-parse as `f (Just (Nothing x))`.
+            -- Wrapping in parens is also the canonical form for these args.
+            if argNeedsParens locPat.value then
+                Array.pushLast (lpnNode ParenBlock newNodes) accNodes
+            else
+                accNodes ++ newNodes
         )
+
+
+-- A pattern used as a space-separated function/lambda argument needs
+-- surrounding parens when it is an `as`-alias or a constructor applied to
+-- a payload — both to preserve grouping when nested and to keep the
+-- canonical form.
+argNeedsParens : Src.Pattern_ -> Bool
+argNeedsParens pat =
+    when pat is
+        Src.PAlias _ ->
+            True
+        Src.PCtor { arg = Just _ } ->
+            True
+        Src.PCtorQual { arg = Just _ } ->
+            True
+        _ ->
+            False
 
 
 folderInsertPatternAsItem : Src.Pattern -> Array LPNode -> Result String (Array LPNode)

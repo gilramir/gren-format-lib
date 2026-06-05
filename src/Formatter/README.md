@@ -937,6 +937,33 @@ difference is in the blank lines between them:
 
 ---
 
+## Patterns as arguments
+
+Wherever patterns sit side by side as space-separated arguments — a top-level
+function definition, a `let` definition, or a lambda — two pattern forms are
+wrapped in parentheses so they keep binding the way you wrote them:
+
+- a **constructor applied to a payload**, e.g. `(Response response)`;
+- an **`as`-alias**, e.g. `({ x, y } as point)`.
+
+```gren
+setStatus statusCode (Response response) =
+    Response { response | status = statusCode }
+
+update ({ model } as state) msg =
+    state
+
+mapBox = \(Box value) -> value
+```
+
+A bare constructor with no payload (`Nothing`) and a named wildcard
+(`_unusedValue`) take no parentheses. The parentheses matter because arguments
+parse greedily: `f Response response` would read `response` as the payload of
+`Response`, and `f thing as name` would attach `as` to the whole argument list
+rather than to `thing` alone.
+
+---
+
 ## Lambdas
 
 A lambda starts with `\` directly before the first pattern (no space), then any

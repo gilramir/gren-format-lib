@@ -1,0 +1,27 @@
+module CtorArgPattern exposing (..)
+
+
+-- Constructor-with-payload as a function argument keeps its parens
+setStatus statusCode (Response response) =
+    Response { response | status = statusCode }
+
+
+-- Qualified constructor with payload keeps its parens
+unwrapQual (Http.Response body) = body
+
+
+-- Constructor with payload in a lambda keeps its parens
+mapper =
+    \(Box value) -> value
+
+
+-- Constructor with payload in a let-def argument keeps its parens
+helper x =
+    let
+        inner (Wrapped w) = w
+    in
+    inner x
+
+
+-- A bare constructor with no payload takes no parens
+nullary Nothing = 0

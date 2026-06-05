@@ -8,5 +8,5 @@ type MyCmd msg
 
 
 cmdMap : (a -> b) -> MyCmd a -> MyCmd b
-cmdMap f MyCmd task =
+cmdMap f (MyCmd task) =
     MyCmd (Task.map f task)
