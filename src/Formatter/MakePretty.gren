@@ -1063,11 +1063,11 @@ makeAllAcrossOrAllVertical brackets children =
 
 {-| Does this bracketed literal get the *uniform item layout* treatment?
 
-True for a `[ ... ]` array whose items are all record literals. Such an
-array renders via `uniformRecordArrayDoc`, which couples the items'
-flat-vs-expanded decision so that no record ever breaks across lines while
-a sibling stays inline. Comments among the items don't disqualify the
-array — they ride along in the vertical forms.
+True for a `[ ... ]` array whose items are all record literals or record
+updates. Such an array renders via `uniformRecordArrayDoc`, which couples
+the items' flat-vs-expanded decision so that no record ever breaks across
+lines while a sibling stays inline. Comments among the items don't
+disqualify the array — they ride along in the vertical forms.
 -}
 isUniformRecordArray : ListBrackets -> Array LPNode -> Bool
 isUniformRecordArray brackets children =
@@ -1082,6 +1082,7 @@ isUniformRecordArray brackets children =
                         when lpnBox n is
                             AllAcrossOrAllVertical ListCurly -> True
                             AlwaysVertical ListCurly -> True
+                            RecordUpdate _ -> True
                             _ -> False
                     )
                     items
@@ -1090,9 +1091,10 @@ isUniformRecordArray brackets children =
             False
 
 
-{-| Uniform item layout for an array of record literals (see the README's
-"uniform item layout" section): every record breaks the same way, so the
-array reads uniformly. The doc offers at most three shapes:
+{-| Uniform item layout for an array of record literals and/or record
+updates (see the README's "uniform item layout" section): every record
+breaks the same way, so the array reads uniformly. The doc offers at most
+three shapes:
 
   1. everything flat on one line — `[ { a = 1 }, { b = 2 } ]`
   2. vertical array, every record flat — one record per line
@@ -1159,13 +1161,19 @@ flatUniformItemDoc node =
 {-| Render a uniform-array record item forced expanded (one field per
 line), regardless of how it was authored. The `P.nest 2` matches
 `listItemBoxDoc`'s handling of nested vertical literals, aligning the
-record's continuation lines under its own first field.
+record's continuation lines under its own first field. A record update is
+forced expanded by rendering it with `forceVertical = True` — the exact doc
+an author-broken update produces, which is what keeps the expanded shape a
+fixed point under reparse.
 -}
 expandedUniformItemDoc : LPNode -> Maybe (Result String (P.Doc cost))
 expandedUniformItemDoc node =
     when lpnBox node is
         AllAcrossOrAllVertical ListCurly ->
             Just (listBoxesForBracket ListCurly (lpnChildren node) |> Result.map (P.nest 2))
+
+        RecordUpdate { name } ->
+            Just (makeRecordUpdateDoc True name.value (lpnChildren node))
 
         _ ->
             listItemBoxDoc node

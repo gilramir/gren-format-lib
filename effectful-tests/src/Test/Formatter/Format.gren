@@ -210,6 +210,7 @@ expressionTests fsPerm =
         , assertPretty fsPerm "nested containers in list" "NestedContainersInList"
         , assertPretty fsPerm "array items that are too long to fit inline" "ArrayLongRecordItems"
         , assertPretty fsPerm "uniform item layout: records in an array all break together or not at all" "UniformRecordArray"
+        , assertPretty fsPerm "uniform item layout: record updates couple like record literals" "UniformUpdateArray"
         , assertPretty fsPerm "list layout follows author: one line stays inline, multi-line stays one-per-line" "ListLayoutByAuthor"
         , assertPretty fsPerm "record + record-update layout follows author: one line inline, multi-line one-per-line" "RecordLayoutByAuthor"
         , assertPretty fsPerm "record type (alias, extensible, annotation) layout follows author" "RecordTypeLayoutByAuthor"

@@ -1,0 +1,66 @@
+module UniformUpdateArray exposing
+    ( updates
+    , updatesWide
+    , mixedKinds
+    , singleField
+    , plain
+    )
+
+
+base =
+    { name = "", sides = 0 }
+
+
+-- author-broken update expands its flat sibling
+updates =
+    [ { base
+        | name = "circle"
+        , sides = 0
+    }
+    , { base
+        | name = "tri"
+        , sides = 3
+    }
+    ]
+
+
+-- width-broken update next to a fitting one: both expand now
+updatesWide =
+    [ { base
+        | name =
+              "a circle with a very very long name that overflows the page width limit"
+        , sides = 0
+    }
+    , { base
+        | name = "tri"
+        , sides = 3
+    }
+    ]
+
+
+-- literal + update mixed: still uniform (both are records)
+mixedKinds =
+    [ { base
+        | name =
+              "a circle with a very very long name that overflows the page width limit"
+        , sides = 0
+    }
+    , { name = "tri"
+      , sides = 3
+      }
+    ]
+
+
+-- single-field update participating in the rule
+singleField =
+    [ { base | name =
+          "a circle with a very very long name that overflows the page width limit"
+      }
+    , { base | sides = 3
+      }
+    ]
+
+
+-- updates that all fit stay flat
+plain =
+    [ { base | name = "circle" }, { base | name = "tri" } ]

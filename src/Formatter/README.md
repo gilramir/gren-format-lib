@@ -566,10 +566,11 @@ A comment between items forces the vertical layout and sits between the items:
 
 ### Uniform item layout (arrays of records)
 
-An array whose items are all record literals formats every record the same
-way: if **any** record is broken across multiple lines — whether because you
-wrote it that way, because it is too wide to fit, or because a comment inside
-it forces a break — then **all** of them break, so the array reads uniformly.
+An array whose items are all record literals or record updates (in any
+mixture) formats every record the same way: if **any** record is broken
+across multiple lines — whether because you wrote it that way, because it is
+too wide to fit, or because a comment inside it forces a break — then **all**
+of them break, so the array reads uniformly.
 You never get a short record on one line next to a sibling spread across
 several:
 
@@ -626,6 +627,34 @@ vertically never collapses back to one line, and an author-broken (or
 comment-bearing) record rules out both flat shapes. Width then chooses the
 first shape of the remaining ones that fits.
 
+Record updates couple exactly like literals (each kind keeps its own
+vertical style — an expanded update puts `| field` lines under the base and
+its `}` at the item column). Here one update is too wide to stay flat, so
+its fitting sibling expands with it:
+
+```gren
+updatesWide =
+    [ { base | name = "a circle with a very very long name that overflows the page width limit", sides = 0 }
+    , { base | name = "tri", sides = 3 }
+    ]
+```
+
+becomes
+
+```gren
+updatesWide =
+    [ { base
+        | name =
+              "a circle with a very very long name that overflows the page width limit"
+        , sides = 0
+    }
+    , { base
+        | name = "tri"
+        , sides = 3
+    }
+    ]
+```
+
 Why this is stable across reformats (the earlier blocker for this rule): each
 shape reparses to a state that reproduces exactly that shape. A
 width-expanded record is indistinguishable from an author-broken one on the
@@ -633,9 +662,31 @@ second pass — but that no longer matters, because both force the same
 all-expanded shape. There is no per-item width decision left to disagree
 between passes.
 
-The rule currently applies only when every item of the array is a record
-literal. Mixed arrays (records next to other expressions, or record
-*updates*) keep the per-item behavior described above.
+#### Outside the rule: mixed arrays
+
+The rule applies only when *every* item of the array is a record literal or
+record update. An array that mixes records with anything else — a function
+call, a name, a nested array — keeps the per-item behavior described earlier
+in this section: each item decides its own shape, so a broken record can sit
+next to an inline one. The `makeShape` call here disqualifies the array, and
+the `tri` record stays inline even though its sibling is expanded:
+
+```gren
+mixed = [ { name = "circle"
+      , sides = 0 }, { name = "tri", sides = 3 }, makeShape "square" 4 ]
+```
+
+becomes
+
+```gren
+mixed =
+    [ { name = "circle"
+      , sides = 0
+      }
+    , { name = "tri", sides = 3 }
+    , makeShape "square" 4
+    ]
+```
 
 ---
 
