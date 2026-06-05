@@ -36,7 +36,8 @@ field :
         {- authored after `|` -}
         | name : String
     } -> String
-field r = r.name
+field r =
+    r.name
 
 
 -- Case 4 — record update `|`. Comment authored AFTER `|`, inside the braces.
@@ -55,10 +56,12 @@ type T
 
 -- Case 6 — declaration `=`. Comment authored BEFORE `=` (between the name and
 -- `=`), with extra spaces. Canonical rendering places it AFTER `=`.
-six = {- authored before `=` -} 42
+six = {- authored before `=` -}
+    42
 
 
 -- Case 7 — signature `:`. Comment authored BEFORE `:` (between the name and
 -- `:`), with extra spaces. Canonical rendering places it AFTER `:`.
 seven : {- authored before `:` -} Int
-seven = 7
+seven =
+    7

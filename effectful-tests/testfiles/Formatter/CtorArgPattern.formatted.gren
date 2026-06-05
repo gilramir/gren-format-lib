@@ -7,7 +7,8 @@ setStatus statusCode (Response response) =
 
 
 -- Qualified constructor with payload keeps its parens
-unwrapQual (Http.Response body) = body
+unwrapQual (Http.Response body) =
+    body
 
 
 -- Constructor with payload in a lambda keeps its parens
@@ -18,10 +19,12 @@ mapper =
 -- Constructor with payload in a let-def argument keeps its parens
 helper x =
     let
-        inner (Wrapped w) = w
+        inner (Wrapped w) =
+            w
     in
     inner x
 
 
 -- A bare constructor with no payload takes no parens
-nullary Nothing = 0
+nullary Nothing =
+    0

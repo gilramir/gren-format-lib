@@ -112,7 +112,6 @@ Patterns this catches:
   - `indentedBlockRule.wrap = nest n (concat hardNl content)`.
   - `bodyBlockRule.wrap = concat hardNl content`.
   - `softIndentedBlockRule.wrap = group (nest n (concat nl content))`.
-  - `softBodyBlockRule.wrap = group (concat nl content)`.
 
 `P.share` requires a fresh id per invocation, threaded through
 `B.Builder`. The walker uses `B.map` / `B.andThen` to plumb the id
@@ -432,14 +431,6 @@ softIndentedBlockRule =
     }
 
 
-softBodyBlockRule : BlockRule cost
-softBodyBlockRule =
-    { wrap = \c -> P.group (P.concat P.nl c)
-    , bypassAlreadyTerminated = True
-    , nextSep = FlowSep
-    }
-
-
 -- Join a block's child doc onto the accumulator, honoring the rule's
 -- FirstItem / AlreadyTerminated bypasses.
 joinBlock : BlockRule cost -> NextSeparator -> P.Doc cost -> P.Doc cost -> P.Doc cost
@@ -517,7 +508,7 @@ peelTrailingComments peelLineComments nodes =
     go nodes P.empty False
 
 
--- Render a body-block child (BodyBlock / SoftBodyBlock) inside buildFlowDoc's
+-- Render a body-block child (BodyBlock) inside buildFlowDoc's
 -- fold: peel its trailing inline comments, render the body via `renderBlockNode`,
 -- then glue the comments back onto the result. Shared by both arms.
 renderBodyBlockNode :
@@ -866,9 +857,6 @@ buildFlowDocImpl indent inlineStart nodes =
                                 SoftIndentedBlock ->
                                     renderBlockNode softIndentedBlockRule acc nodeChildren
 
-                                SoftBodyBlock ->
-                                    renderBodyBlockNode softBodyBlockRule acc nodeChildren
-
                                 EmptyLine ->
                                     -- A blank-line marker between `let` bindings,
                                     -- inserted by `VerticalSpace.insertLetBlankLines`.
@@ -998,8 +986,6 @@ makePDoc box children =
         WhenBranch ->
             buildFlowDoc 0 children
         SoftIndentedBlock ->
-            buildFlowDoc 0 children
-        SoftBodyBlock ->
             buildFlowDoc 0 children
         ParenBlock ->
             when buildFlowDocInline 0 children is

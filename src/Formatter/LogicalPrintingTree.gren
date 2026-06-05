@@ -221,11 +221,6 @@ type LPBox
     --                                             body
     | SoftIndentedBlock
 
-    -- Top-level function body: like SoftIndentedBlock but adds no extra
-    -- indentation — the enclosing buildFlowDoc grenIndent already provides
-    -- the 4-space indent, so P.nl here breaks at exactly that level.
-    | SoftBodyBlock
-
     -- A triple-quoted (""") multiline string literal.
     -- Each element is one line of content (leading whitespace already stripped by the parser).
     -- Rendered as """ followed by a hard-newline-separated list of lines and a closing """.

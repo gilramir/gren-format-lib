@@ -110,9 +110,9 @@ Layout boxes (have children):
   item per line (`ListParen`/`ListCurly`/`ListSquare`).
 - `AlwaysVertical ListBrackets` — bracketed list that never collapses (2+ field
   record literal).
-- `IndentedBlock` / `BodyBlock` and their soft variants `SoftIndentedBlock` /
-  `SoftBodyBlock` — a body on its own indented line (hard break) vs. one that may
-  stay inline when it fits.
+- `IndentedBlock` / `BodyBlock` — a body on its own (indented) line, hard break.
+  `SoftIndentedBlock` is the soft variant that may stay inline when it fits
+  (lambda bodies, port payloads).
 - `WhenBranch`, `IfCondition`, `PipelineStep`, `ParenBlock`, `OpAndRhs`,
   `AlignedFlow`, `PrefixGlue`, `RecordUpdate`, `EmptyBracketed` — specialised
   shapes; read their doc comments in `LogicalPrintingTree.gren` before reusing.

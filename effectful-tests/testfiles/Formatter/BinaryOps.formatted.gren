@@ -57,17 +57,21 @@ orOp =
 
 
 -- Negation
-negNum = -42
+negNum =
+    -42
 
 
-negVar = -x
+negVar =
+    -x
 
 
 -- Hex literals
-hexVal = 0xFF
+hexVal =
+    0xFF
 
 
-hexLarge = 0x1A2B
+hexLarge =
+    0x1A2B
 
 
 -- Combined expressions (operator precedence preserved)

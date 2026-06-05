@@ -80,7 +80,8 @@ backwardPipe x =
 -- and the comment lands at root level between the two declarations.
 sigToDef : Int -> Int
 -- a comment that lands between the signature and the definition
-sigToDef x = x
+sigToDef x =
+    x
 
 
 -- Bug K — a block comment inside an extensible record type (between
@@ -95,7 +96,8 @@ extensibleSig :
         | foo : Int
         , bar : String
     } -> Int
-extensibleSig _ = 0
+extensibleSig _ =
+    0
 
 
 -- Bug I — a comment that was the only content of an empty record or

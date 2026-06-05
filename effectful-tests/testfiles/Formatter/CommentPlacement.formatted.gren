@@ -1,7 +1,8 @@
 module CommentPlacement exposing (..)
 
 
-inlineValue = 1 {- shares the line: kept inline -}
+inlineValue =
+    1 {- shares the line: kept inline -}
 
 
 recordInline :

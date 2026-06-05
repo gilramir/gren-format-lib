@@ -15,8 +15,10 @@ import Math exposing (..) {- between Math and `exposing` -}
 
 
 foo : Int -> Int
-foo x = x
+foo x =
+    x
 
 
 bar : Int -> Int
-bar x = x
+bar x =
+    x

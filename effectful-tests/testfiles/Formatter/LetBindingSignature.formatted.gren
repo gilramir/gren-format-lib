@@ -16,7 +16,8 @@ process n =
             x + 1
 
         -- Body is a literal, so it stays inline.
-        bias = 7
+        bias =
+            7
 
         labelFor : Int -> String
         labelFor v =

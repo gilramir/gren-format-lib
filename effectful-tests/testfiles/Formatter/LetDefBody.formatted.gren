@@ -4,8 +4,10 @@ module LetDefBody exposing (..)
 -- Simple body fits inline: stays on one line
 simple =
     let
-        x = 1
-        y = "hello"
+        x =
+            1
+        y =
+            "hello"
     in
     x
 
@@ -36,7 +38,8 @@ complexBody =
 -- Record destructuring with field aliases: { field = alias }
 fieldAliases =
     let
-        { cache = newCache, value = maybeResults } = LRUCache.get text cache
+        { cache = newCache, value = maybeResults } =
+            LRUCache.get text cache
     in
     maybeResults
 
@@ -44,6 +47,7 @@ fieldAliases =
 -- Record destructuring shorthand (no alias): { field }
 fieldShorthand =
     let
-        { model, command } = update msg model
+        { model, command } =
+            update msg model
     in
     model

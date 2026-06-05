@@ -1,11 +1,11 @@
-module Formatter.InsertExpressions exposing (insertExpression, isSimpleBody)
+module Formatter.InsertExpressions exposing (insertExpression)
 
 {-|
 Expression → LPT conversion. Recurses through Src.Expression producing the
 top-level LPNodes for each constructor. Patterns, types, primitive literal
 formatting, and shared LPT helpers live in sibling modules.
 
-@docs insertExpression, isSimpleBody
+@docs insertExpression
 -}
 
 import Compiler.Ast.Source as Src
@@ -721,49 +721,14 @@ folderInsertRecordField field accNodes =
         )
 
 
-{-| Is this declaration body "simple" — a literal or a single bare atom?
-
-A binding (function or value, top-level or `let`) keeps its body inline
-with `name args =` only when the body is simple; any other expression drops
-to the next line, indented. "Simple" is:
-
-  - a literal — char, string, number;
-  - a bare atom — a variable, a qualified variable, a `.field` accessor, a
-    bare operator section, or field access (`a.b.c`).
-
-`Negate` and `Parens` are simple exactly when their inner expression is, so
-`-5` and `(foo)` stay inline but `-(a + b)` and `(a + b)` drop. Everything
-else is not simple — calls, operator chains, lists/records (including the
-*empty* `[]` and `{}`), record updates, lambdas, `if`/`when`/`let`. Empty
-brackets are deliberately excluded: a comment occupying an empty-bracket
-body slot is lifted out beside the brackets, and on an overflowing line
-that lifted comment breaks to its own line non-idempotently — so empty
-brackets always drop to their own line, where the layout is stable.
--}
-isSimpleBody : Src.Expression -> Bool
-isSimpleBody expr =
-    when expr.value is
-        Src.CharLiteral _ -> True
-        Src.StringLiteral _ -> True
-        Src.NumberLiteral _ -> True
-        Src.Var _ -> True
-        Src.VarQual _ -> True
-        Src.Accessor _ -> True
-        Src.Operator _ -> True
-        Src.Access { expression = inner } -> isSimpleBody inner
-        Src.Negate inner -> isSimpleBody inner
-        Src.Parens inner -> isSimpleBody inner
-        _ -> False
-
-
 {-| Folder for `let` definitions.
 
 Handles both `Src.Define` (named bindings, optionally with an inline type
 signature) and `Src.Destruct` (pattern-destructuring bindings). Each
 binding becomes one `IndentedBlock` node containing a header and a body
-block. The body stays inline (soft break) only when it is `isSimpleBody`;
-otherwise it drops to the next line. A let-level type signature is emitted
-as a sibling `IndentedBlock` before its definition.
+block. The body always drops to the next line — one rule for every binding
+body, with no inline form. A let-level type signature is emitted as a
+sibling `IndentedBlock` before its definition.
 -}
 folderInsertLetDef : Located Src.Def -> Array LPNode -> Result String (Array LPNode)
 folderInsertLetDef locDef accNodes =
@@ -800,16 +765,9 @@ folderInsertLetDef locDef accNodes =
                                     let
                                         header = lpnNode AcrossThenIndent ([nameNode] ++ argsNodes ++ [eqNode])
                                         -- Same rule as the top-level (processFunctionBody):
-                                        -- the body stays inline (SoftIndentedBlock = soft
-                                        -- break) only when it is a literal or a single bare
-                                        -- atom; any other expression drops to the next line
-                                        -- (IndentedBlock = forced hardNl). Arguments and a
-                                        -- type signature have no bearing on this choice.
-                                        bodyWrapper =
-                                            if isSimpleBody def.body then
-                                                lpnNode SoftIndentedBlock bodyNodes
-                                            else
-                                                lpnNode IndentedBlock bodyNodes
+                                        -- the body always drops to the next line
+                                        -- (IndentedBlock = forced hardNl).
+                                        bodyWrapper = lpnNode IndentedBlock bodyNodes
                                         container = lpnNode IndentedBlock [header, bodyWrapper]
                                     in
                                     Array.pushLast container acc
@@ -825,7 +783,9 @@ folderInsertLetDef locDef accNodes =
                     insertExpression body
                         |> Result.map (\bodyNodes ->
                             let
-                                bodyWrapper = lpnNode SoftIndentedBlock bodyNodes
+                                -- A destructure body drops to the next line too —
+                                -- same rule as every other binding body.
+                                bodyWrapper = lpnNode IndentedBlock bodyNodes
                                 container = lpnNode IndentedBlock (patNodes ++ [eqNode, bodyWrapper])
                             in
                             Array.pushLast container accNodes

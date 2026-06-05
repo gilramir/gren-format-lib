@@ -6,52 +6,65 @@ module FloatLiterals exposing (..)
 -- formatter emits that text verbatim. Decimal form stays decimal;
 -- scientific form stays scientific (preserving case and sign style).
 tiny : Float
-tiny = 0.0000000001
+tiny =
+    0.0000000001
 
 
 smaller : Float
-smaller = 0.00000001
+smaller =
+    0.00000001
 
 
 small : Float
-small = 0.00001
+small =
+    0.00001
 
 
 regular : Float
-regular = 3.14
+regular =
+    3.14
 
 
 big : Float
-big = 100000.5
+big =
+    100000.5
 
 
 verySmall : Float
-verySmall = 0.0000000000000001
+verySmall =
+    0.0000000000000001
 
 
 negativeTiny : Float
-negativeTiny = -0.0000000001
+negativeTiny =
+    -0.0000000001
 
 
 sciInt : Float
-sciInt = 1e5
+sciInt =
+    1e5
 
 
 sciDecimal : Float
-sciDecimal = 1.5e3
+sciDecimal =
+    1.5e3
 
 
 sciUpper : Float
-sciUpper = 1.5E3
+sciUpper =
+    1.5E3
 
 
 sciPlus : Float
-sciPlus = 1.5e+3
+sciPlus =
+    1.5e+3
 
 
 sciNeg : Float
-sciNeg = 1.5e-3
+sciNeg =
+    1.5e-3
 
 
 sciNegativeBase : Float
-sciNegativeBase = -1.5e3
+sciNegativeBase =
+    -1.5e3

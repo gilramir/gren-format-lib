@@ -82,7 +82,8 @@ sig : Int -> {- 10 a
            12 c -}
         | x : Int
     } -> Int
-sig a b c = 0
+sig a b c =
+    0
 
 
 decl {- 13 a
@@ -101,18 +102,19 @@ letFirst x =
            15 b
            15 c -}
         y =
-        {- 16 a
-           16 b
-           16 c -}
-        {- 17 a
-           17 b
-           17 c -}
+            {- 16 a
+               16 b
+               16 c -}
+            {- 17 a
+               17 b
+               17 c -}
             x
 
         {- 47 a — leading comment of a NON-FIRST let binding
            47 b
            47 c -}
-        z = y
+        z =
+            y
     in
     {- 18 a
        18 b

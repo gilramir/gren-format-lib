@@ -8,4 +8,5 @@ module ModuleVerticalExposingComment exposing
 
 
 {- comment between the vertical exposing list and the first declaration -}
-alphaLongTypeName = 1
+alphaLongTypeName =
+    1

@@ -7,7 +7,8 @@ fold :
     -> Tree a
     -> accumulatorValue
 {- trailing a long wrapping signature -}
-fold reducerFunction initialAccumulatorValue currentTreeNode = currentTreeNode
+fold reducerFunction initialAccumulatorValue currentTreeNode =
+    currentTreeNode
 
 
 afterRecordClose : { a : Int, b : String }
@@ -29,7 +30,8 @@ withLineComment :
     -> Int
     -> Int
 -- trailing single-line comment
-withLineComment a b c d e f g h i j = a
+withLineComment a b c d e f g h i j =
+    a
 
 
 insideRecordType :

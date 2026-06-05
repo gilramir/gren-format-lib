@@ -23,4 +23,5 @@ type alias ExtVertical =
 
 
 annotated : { name : String, age : Int } -> String
-annotated r = r.name
+annotated r =
+    r.name

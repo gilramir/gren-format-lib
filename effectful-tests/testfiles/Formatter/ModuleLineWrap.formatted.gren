@@ -16,13 +16,17 @@ type BetaType
     = BetaType
 
 
-gammaFunction = 1
+gammaFunction =
+    1
 
 
-deltaFunction = 2
+deltaFunction =
+    2
 
 
-epsilonValue = 3
+epsilonValue =
+    3
 
 
-zetaValue = 4
+zetaValue =
+    4

@@ -6,10 +6,12 @@ module AdjacentTopLevelComments exposing (..)
 -- comment-line OriginalRows. The renderer must handle more than one comment in
 -- that line rather than erroring with "Too many nodes in comment line".
 {- a -} {- b -}
-first = 1
+first =
+    1
 
 
 {- multi
    line -}
 {- trailing -}
-second = 2
+second =
+    2

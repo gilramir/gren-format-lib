@@ -15,9 +15,11 @@ type Shape
 
 nestedTypeAppSig : Result {- comment between a type and its first arg -} Int
     {- comment between two type args -} (Array String) -> Int
-nestedTypeAppSig _ = 0
+nestedTypeAppSig _ =
+    0
 
 
 arrowInSig : Int -> {- comment around the arrow in a function signature -}
     String
-arrowInSig _ = ""
+arrowInSig _ =
+    ""

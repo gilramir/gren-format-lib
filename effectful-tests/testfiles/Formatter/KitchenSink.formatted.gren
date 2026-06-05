@@ -136,21 +136,25 @@ type alias Configuration =
 
 
 -- A short single-line value definition (no type signature).
-piApprox = 3.141592653589793
+piApprox =
+    3.141592653589793
 
 
 -- A hex literal, character literal, and a multiline string literal.
 magicByteSequenceAsHex : Int
-magicByteSequenceAsHex = 0xDEADBEEF
+magicByteSequenceAsHex =
+    0xDEADBEEF
 
 
 sentinelCharacterValue : Char
-sentinelCharacterValue = '\u{2603}'
+sentinelCharacterValue =
+    '\u{2603}'
 
 
 -- Non-ASCII characters inside a string literal must round-trip unchanged.
 thankYouInKorean : String
-thankYouInKorean = "감사함니다"
+thankYouInKorean =
+    "감사함니다"
 
 
 multiLineLicenseBanner : String
@@ -628,8 +632,8 @@ interpretMicroCommand decoderForPayload commandText commandCharacters
     let
         -- let-destructure (Destruct binding) splits a static record into two
         -- locally-bound names without going through a fresh name first.
-        { defaultReplyCode, fallbackReplyCode }
-        = { defaultReplyCode = 0, fallbackReplyCode = -1 }
+        { defaultReplyCode, fallbackReplyCode } =
+            { defaultReplyCode = 0, fallbackReplyCode = -1 }
 
         codeFromCharacterArray =
             when commandCharacters is

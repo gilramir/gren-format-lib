@@ -3,12 +3,14 @@ module ExtensibleRecords exposing (..)
 
 -- Extensible record type in a type signature
 getName : { r | name : String } -> String
-getName record = record.name
+getName record =
+    record.name
 
 
 -- Extensible record with multiple fields
 getInfo : { r | name : String, age : Int } -> String
-getInfo record = record.name
+getInfo record =
+    record.name
 
 
 -- Extensible record type alias

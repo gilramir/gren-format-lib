@@ -12,4 +12,5 @@ module ModuleExposingTrailingComment exposing
 {- trailing the module exposing list, past its close -}
 
 
-alpha = 1
+alpha =
+    1

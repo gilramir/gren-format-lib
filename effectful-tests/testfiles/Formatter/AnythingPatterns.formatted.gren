@@ -2,11 +2,13 @@ module AnythingPatterns exposing (..)
 
 
 -- Named wildcard in function arguments
-funcArg value _unusedValue = value
+funcArg value _unusedValue =
+    value
 
 
 -- Bare wildcard stays bare
-bareWildcard _ x = x
+bareWildcard _ x =
+    x
 
 
 -- Named wildcard in a lambda
@@ -27,6 +29,7 @@ whenBranch x =
 -- Named wildcard in let destructure
 letDestruct x =
     let
-        { name = _droppedName } = x
+        { name = _droppedName } =
+            x
     in
     x

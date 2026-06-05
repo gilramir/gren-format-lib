@@ -7,7 +7,8 @@ module LetExpression exposing ( circleArea, initials, labeledPair )
 circleArea : Float -> Float
 circleArea radius =
     let
-        pi = 3.14159
+        pi =
+            3.14159
         rSquared =
             radius * radius
     in

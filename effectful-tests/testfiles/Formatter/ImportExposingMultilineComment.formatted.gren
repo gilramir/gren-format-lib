@@ -8,4 +8,5 @@ import Dict exposing
 import Basics exposing ( max )
 
 
-theValue = 1
+theValue =
+    1

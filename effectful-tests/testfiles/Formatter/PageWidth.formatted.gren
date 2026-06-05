@@ -13,7 +13,8 @@ signatureNear :
     -> ArgumentTypeBeta
     -> ArgumentTypeGamma
     -> ResultTypeDelta
-signatureNear a b c = a
+signatureNear a b c =
+    a
 
 
 -- arrow chain that runs well past 100
@@ -24,7 +25,8 @@ signaturePast :
     -> ArgumentTypeDelta
     -> ArgumentTypeEpsilon
     -> ResultType
-signaturePast a b c d e = a
+signaturePast a b c d e =
+    a
 
 
 -- a record in a type signature, near the boundary
@@ -35,7 +37,8 @@ signatureRecord :
     , fieldDelta : Float
     }
     -> Result
-signatureRecord r = r
+signatureRecord r =
+    r
 
 -- ===== Function application =====
 
@@ -184,7 +187,8 @@ letExample input =
 
 letDestructure pair =
     let
-        { leftComponent, rightComponent } = pair
+        { leftComponent, rightComponent } =
+            pair
     in
     leftComponent
         ++ rightComponent
@@ -304,14 +308,17 @@ documentedFunction :
     -> ArgumentTypeGamma
     -> ArgumentTypeDelta
     -> Result
-documentedFunction a b c d = a
+documentedFunction a b c d =
+    a
 
 
 -- a trailing line comment that itself pushes the full line beyond column one hundred
-trailingLine = someComputedValue -- this trailing comment is what carries the line past the one hundred column boundary
+trailingLine =
+    someComputedValue -- this trailing comment is what carries the line past the one hundred column boundary
 
 
-trailingBlock = someComputedValue {- this trailing block comment is what carries the line past the page width boundary here -}
+trailingBlock =
+    someComputedValue {- this trailing block comment is what carries the line past the page width boundary here -}
 
 
 inlineBlockComment =

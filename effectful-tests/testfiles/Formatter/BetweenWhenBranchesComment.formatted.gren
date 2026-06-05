@@ -6,7 +6,8 @@ process tracingSection =
         tracingDecision =
             if tracingSection.isEnabled then
                 let
-                    chosenSink = tracingSection.chosen
+                    chosenSink =
+                        tracingSection.chosen
                 in
                 when chosenSink is
                     Just { endpoint = sinkEndpoint } ->

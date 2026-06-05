@@ -7,16 +7,21 @@ module ModuleLineVertical exposing
     )
 
 
-alphaLongTypeName = 1
+alphaLongTypeName =
+    1
 
 
-betaLongTypeName = 2
+betaLongTypeName =
+    2
 
 
-gammaLongFunctionName = 3
+gammaLongFunctionName =
+    3
 
 
-deltaLongFunctionName = 4
+deltaLongFunctionName =
+    4
 
 
-epsilonLongValue = 5
+epsilonLongValue =
+    5

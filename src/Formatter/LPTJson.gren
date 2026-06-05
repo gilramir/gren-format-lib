@@ -159,9 +159,6 @@ lpBoxFields lpbox =
         SoftIndentedBlock ->
             [ { key = "type", value = Json.string "SoftIndentedBlock" } ]
 
-        SoftBodyBlock ->
-            [ { key = "type", value = Json.string "SoftBodyBlock" } ]
-
         SynthesizedText s ->
             [ { key = "type", value = Json.string "SynthesizedText" }
             , { key = "value", value = Json.string s }

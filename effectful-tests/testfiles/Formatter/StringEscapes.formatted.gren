@@ -2,22 +2,28 @@ module StringEscapes exposing (..)
 
 
 -- String literals with escape sequences must survive a format round-trip.
-newlineStr = "\n"
+newlineStr =
+    "\n"
 
 
-tabStr = "\t"
+tabStr =
+    "\t"
 
 
-carriageReturnStr = "\r"
+carriageReturnStr =
+    "\r"
 
 
-backslashStr = "\\"
+backslashStr =
+    "\\"
 
 
-doubleQuoteStr = "\""
+doubleQuoteStr =
+    "\""
 
 
-mixedStr = "hello\nworld\t!\\"
+mixedStr =
+    "hello\nworld\t!\\"
 
 
 concatStr =

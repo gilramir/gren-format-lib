@@ -15,7 +15,9 @@ shape. The Gren formatter is different. For many constructs it
 The guiding rules are:
 
 1. **If it fits on one line, and you wrote it on one line, it stays on one
-   line.** The page is 80 columns wide. Short things stay short.
+   line.** The page is 80 columns wide. Short things stay short. (One fixed
+   exception: a binding's body always starts on its own line, however short —
+   see [Function body](#function-body).)
 
 2. **If you spread something across several lines, the formatter keeps it
    spread** — one item per line — even if it *would* have fit on one line. The
@@ -170,7 +172,8 @@ place there is no "one item per line" shape:
 
 ```gren
 -- fits on one line
-result = foo a b c
+result =
+    foo a b c
 
 -- overflows: the extra arguments wrap, indented +4 from the function name
 result =
@@ -182,30 +185,21 @@ result =
 
 ## Function body
 
-Whether a binding's body stays on the same line as `name args =` or drops to
-the next line indented 4 spaces is decided **by the body alone** — the same rule
-for a function (one that takes arguments) and a plain value, and regardless of
-whether a type signature is present.
-
-The body stays **inline** only when it is *simple*: a literal (char, string,
-number) or a single bare atom — a variable, a qualified variable like
-`List.first`, a `.field` accessor, or field access such as `model.user.name`.
-(`-5` and `(foo)` count as simple too, since negation and parentheses around a
-simple body are themselves simple.)
+A binding's body **always** goes on the next line, indented 4 spaces from
+`name args =`. There is one rule for every binding — a function, a plain
+value, a `let` binding, a `let` destructure — with no inline form, however
+short the body is:
 
 ```gren
-version = "1.0.0"     -- literal
-answer = 42           -- literal
-handler = onClick     -- bare variable
-name = model.user.name -- field access
-double n = 2          -- a function whose body is a literal also stays inline
-```
+version =
+    "1.0.0"
 
-Any **other** expression drops the body to the next line — function calls,
-operator chains, lists, records, record updates, lambdas, and the multi-line
-constructs (`if`, `when`, `let`):
+answer =
+    42
 
-```gren
+handler =
+    onClick
+
 double : Int -> Int
 double n =
     n * 2
@@ -225,29 +219,9 @@ label =
             "other"
 ```
 
-### Why empty `[]` and `{}` drop to the next line
-
-An empty array `[]` or empty record `{}` looks like it ought to count as a simple
-literal and stay inline — but it deliberately does **not**; it always drops to
-its own line:
-
-```gren
-items =
-    []
-
-config =
-    {}
-```
-
-The reason is comment idempotency. A comment written in an empty-bracket body
-slot is *lifted out* to sit beside the brackets rather than being absorbed
-inside them (`{- c -} []` formats to `[] {- c -}`). If the brackets stayed on
-the `name args =` line and that line then overflowed the page width, only the
-lifted comment would break to a fresh line — and a comment dangling on its own
-indented line after `[]` re-parses as a top-level trailing comment, so the next
-format run pulls it back to column 0. The output would not be a fixed point.
-Dropping the empty brackets to their own line keeps the body and its comment
-together in a layout that survives re-formatting unchanged.
+This is deliberate uniformity: nothing about the body's shape — literal,
+variable, call, or multi-line construct — changes where it goes, so adding a
+single argument or wrapping a value in a call never reshuffles the line.
 
 ---
 
@@ -447,7 +421,8 @@ A record with only one field has no "between fields" gap, so it always collapses
 to one line (when it fits):
 
 ```gren
-makePoint x y = { x = x, y = y }
+makePoint x y =
+    { x = x, y = y }
 
 config =
     { name = "app"
@@ -460,7 +435,8 @@ The one-field-per-line shape puts `{` and the first field on the first line, a
 a function argument follows the same rule:
 
 ```gren
-firstX = distSq { x = 0, y = 0 } { x = 1, y = 0 }
+firstX =
+    distSq { x = 0, y = 0 } { x = 1, y = 0 }
 ```
 
 ### Record updates
@@ -468,7 +444,8 @@ firstX = distSq { x = 0, y = 0 } { x = 1, y = 0 }
 An empty-style update or a single-field update stays inline when it fits:
 
 ```gren
-withDefault r = { r | x = 0 }
+withDefault r =
+    { r | x = 0 }
 ```
 
 A two-or-more-field update follows your layout, like a record value. Inline it
@@ -477,7 +454,8 @@ line after `{`, the first field goes on the next line with a `| ` prefix, later
 fields line up under it with `, `, and `}` closes on its own line:
 
 ```gren
-setOrigin pt = { pt | x = 0, y = 0 }
+setOrigin pt =
+    { pt | x = 0, y = 0 }
 
 movePoint dx dy pt =
     { pt
@@ -628,9 +606,11 @@ Or, another solution needs to be found.
 A regular string is left as written, with its escape sequences intact:
 
 ```gren
-greeting = "Hello, World!"
+greeting =
+    "Hello, World!"
 
-withEscapes = "line one\nline two\t!\\"
+withEscapes =
+    "line one\nline two\t!\\"
 ```
 
 ### Character literals
@@ -641,7 +621,8 @@ as escapes; everything else is written as the plain character:
 ```gren
 tab            = '\t'
 newline        = '\n'
-carriageReturn = '\r'
+carriageReturn =
+    '\r'
 singleQuote    = '\''
 backslash      = '\\'
 letter         = 'a'
@@ -843,7 +824,8 @@ under `let`, and the result expression starts on the line after `in`, back at th
 ```gren
 circleArea radius =
     let
-        pi = 3.14159
+        pi =
+            3.14159
         rSquared =
             radius * radius
     in
@@ -851,9 +833,8 @@ circleArea radius =
 ```
 
 A binding follows the same body rule as a top-level declaration (see [Function
-body](#function-body)): the value stays inline only when it is a literal or a
-single bare atom; any other expression — including the `radius * radius` above —
-drops to the next line, indented 4 more spaces. Arguments and a type signature
+body](#function-body)): the value always drops to the next line, indented 4
+more spaces — no inline form, however short. Arguments and a type signature
 make no difference. A type signature goes on the line directly above the
 definition with no blank line between them, exactly like a top-level function.
 
@@ -877,17 +858,19 @@ against the next binding does not introduce a blank:
 
 ```gren
 let
-    first = a
+    first =
+        a
 
     -- one authored blank above is kept as one
-    second = b
-    third = c
+    second =
+        b
+    third =
+        c
 in
 ```
 
-A binding whose value is a literal or bare atom stays on the same line as its
-name and `=`; any other expression — or a value too long to fit — drops to the
-next line indented 4 more spaces:
+The body starts on the next line however large or small the value is — a
+multi-line construct simply continues from there:
 
 ```gren
 complexBody =
@@ -903,11 +886,12 @@ complexBody =
 ```
 
 You can destructure on the left of a binding with the same record/array pattern
-syntax used elsewhere:
+syntax used elsewhere; the body drops to the next line all the same:
 
 ```gren
 let
-    { model, command } = update msg model
+    { model, command } =
+        update msg model
 in
 model
 ```
@@ -916,8 +900,8 @@ model
 
 A function written in a `let` and one written at the top level follow the
 same core rules — type signatures (always directly above the definition, with no
-blank line between them) and the same body rule (a literal or bare atom stays
-inline, anything else drops) — but the two aren't yet exactly identical. The
+blank line between them) and the same body rule (the body always drops to the
+next line) — but the two aren't yet exactly identical. The
 difference is in the blank lines between them:
 
 - **At the top level it's forced.** Every declaration gets exactly **two** blank
@@ -946,7 +930,8 @@ setStatus statusCode (Response response) =
 update ({ model } as state) msg =
     state
 
-mapBox = \(Box value) -> value
+mapBox =
+    \(Box value) -> value
 ```
 
 A bare constructor with no payload (`Nothing`) takes no parentheses.
@@ -973,15 +958,18 @@ A lambda starts with `\` directly before the first pattern (no space), then any
 further patterns, then `->`, then the body:
 
 ```gren
-double = \n -> n * 2
+double =
+    \n -> n * 2
 
-add = \a b -> a + b
+add =
+    \a b -> a + b
 ```
 
 Passed as an argument, a lambda is wrapped in parentheses:
 
 ```gren
-doubleAll = Array.map (\n -> n * 2) nums
+doubleAll =
+    Array.map (\n -> n * 2) nums
 ```
 
 Patterns can be variables, record destructures, or array destructures:
@@ -1013,9 +1001,11 @@ A pipeline follows your layout. Written on one line, it stays on one line when i
 fits:
 
 ```gren
-result = list |> Array.map double |> Array.first
+result =
+    list |> Array.map double |> Array.first
 
-result = String.toUpper <| String.append "Hello, " name
+result =
+    String.toUpper <| String.append "Hello, " name
 ```
 
 Written across rows, it stays one step per line even if it would have fit:
@@ -1056,7 +1046,8 @@ A chain of operators (`a + b`, `x && y`, `s ++ t`) follows your layout. Written
 on one line, it stays inline when it fits:
 
 ```gren
-area = width * height + margin
+area =
+    width * height + margin
 ```
 
 When a one-line chain is too long — or you wrote it across rows — it breaks in a
@@ -1114,7 +1105,8 @@ line** is treated as a real, deliberate choice — the formatter keeps whichever
 you wrote, and never converts one into the other:
 
 ```gren
-foo = 1 {- inline: stays on the value's line -}
+foo =
+    1 {- inline: stays on the value's line -}
 
 bar =
     { a = 1
@@ -1152,7 +1144,8 @@ foo a =
 A short block comment inside an expression stays inline:
 
 ```gren
-foo a = a * {- inline note -} 100
+foo a =
+    a * {- inline note -} 100
 ```
 
 A block comment whose body spans several lines forces the construct around it to
@@ -1359,8 +1352,13 @@ foo : {- c -} Int          -->   foo : {- c -} Int
 A comment around a definition's `=` always lands **after** the `=`:
 
 ```gren
-foo {- c -} = 42           -->   foo = {- c -} 42
-foo = {- c -} 42           -->   foo = {- c -} 42
+-- both of these inputs:
+foo {- c -} = 42
+foo = {- c -} 42
+
+-- format to:
+foo = {- c -}
+    42
 ```
 
 A comment around a union `|` always lands **after the variant before it** (so if

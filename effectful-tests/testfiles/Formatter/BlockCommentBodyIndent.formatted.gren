@@ -8,7 +8,8 @@ module BlockCommentBodyIndent exposing (..)
    A blank line above is excluded from the base, and the closing delimiter
    below is too, so neither can drag the base to column 0.
 -}
-topLevel = 1
+topLevel =
+    1
 
 
 indented x =

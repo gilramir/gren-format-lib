@@ -14,7 +14,7 @@ import Formatter.LogicalPrintingTree exposing (LPBox(..),
     lpnBox, lpnChildren, lpnLeaf, lpnNode, lpnBracketNode, lastRowInSubtree)
 import Formatter.Comments exposing (lptAddComments)
 import Formatter.LPTHelpers exposing (mkText, mkZeroWidthText, mkTextFromLocString, resultFoldl)
-import Formatter.InsertExpressions exposing (insertExpression, isSimpleBody)
+import Formatter.InsertExpressions exposing (insertExpression)
 import Formatter.InsertPatterns exposing (folderInsertPattern)
 import Formatter.InsertTypes exposing (makeSignatureBranch)
 import Formatter.VerticalSpace exposing (..)
@@ -556,15 +556,15 @@ processModDecl modDecl root =
 
 {-| Emit the value declaration's body row.
 
-The body stays inline with `name args =` (`SoftBodyBlock` = soft break)
-only when it is a literal or a single bare atom (`isSimpleBody`); any other
-expression drops to the next line (`BodyBlock` = forced hard newline).
-Arguments and a type signature have no bearing on this choice.
+The body always drops to the next line (`BodyBlock` = forced hard
+newline) — one rule for every binding body, with no inline form, however
+simple the body is.
 
-    foo x =           -- BodyBlock: a compound body drops to its own line
+    foo x =
         x + 1
 
-    answer = 42       -- SoftBodyBlock: a simple body stays inline
+    answer =
+        42
 -}
 processFunctionBody : Src.Value -> LPNode -> Result String LPNode
 processFunctionBody modVal root =
@@ -578,11 +578,7 @@ processFunctionBody modVal root =
                 |> Result.map (\bodyNodes ->
                     let
                         header = lpnNode AcrossThenIndent ([nameNode] ++ argsNodes ++ [eqNode])
-                        bodyWrapper =
-                            if isSimpleBody modVal.body then
-                                lpnNode SoftBodyBlock bodyNodes
-                            else
-                                lpnNode BodyBlock bodyNodes
+                        bodyWrapper = lpnNode BodyBlock bodyNodes
                         allChildren = [header, bodyWrapper]
                     in
                     addRootChild (makeOrigRows modVal.name.start.row StFunctionDeclaration allChildren) root
