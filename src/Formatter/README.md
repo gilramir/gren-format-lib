@@ -531,7 +531,9 @@ item, and `]` alone on the last line:
 ]
 ```
 
-Records inside an array stay inline as long as each one fits on its own line:
+Records inside an array stay inline as long as every one of them fits on its
+own line (see "Uniform item layout" below — they break all together or not at
+all):
 
 ```gren
 [ { label = "first", value = 1 }
@@ -562,10 +564,14 @@ A comment between items forces the vertical layout and sits between the items:
 ]
 ```
 
-### Planned: uniform item layout (not yet implemented)
+### Uniform item layout (arrays of records)
 
-Today each item decides independently whether it breaks, so a short record can
-stay on one line next to a sibling that is spread across several:
+An array whose items are all record literals formats every record the same
+way: if **any** record is broken across multiple lines — whether because you
+wrote it that way, because it is too wide to fit, or because a comment inside
+it forces a break — then **all** of them break, so the array reads uniformly.
+You never get a short record on one line next to a sibling spread across
+several:
 
 ```gren
 [ { name = "circle", sides = 0 }
@@ -575,9 +581,7 @@ stay on one line next to a sibling that is spread across several:
 ]
 ```
 
-The intended behavior is to format every item the same way: if **any** item is
-broken across multiple lines — whether because you wrote it that way or because
-it is too long to fit — then **all** of them break, so the array reads uniformly:
+becomes
 
 ```gren
 [ { name = "circle"
@@ -589,15 +593,49 @@ it is too long to fit — then **all** of them break, so the array reads uniform
 ]
 ```
 
-This is **not implemented yet**, and the two halves of the rule cannot be shipped
-separately. Reacting only to *your* line breaks (ignoring width) would make
-formatting unstable: an item the formatter broke purely because it was too long
-looks exactly like one you wrote multi-line when the output is read back in, so a
-second formatting pass would suddenly couple the siblings and change the result —
-the formatter would no longer reach the same output it produced the first time.
-To be correct, the rule has to react to an item being too wide as well, which
-needs a width-aware coupling the underlying pretty-printer does not yet offer.
-Or, another solution needs to be found.
+Concretely, such an array takes exactly one of three shapes — everything flat
+on one line, one flat record per line, or every record expanded one field per
+line — and never a mixture:
+
+```gren
+allFlat =
+    [ { name = "circle", sides = 0 }, { name = "tri", sides = 3 } ]
+
+onePerLine =
+    [ { name = "circle", sides = 0 }
+    , { name = "triangle", sides = 3 }
+    , { name = "square", sides = 4 }
+    ]
+
+allExpanded =
+    [ { name = "circle"
+      , sides = 0
+      }
+    , { name = "a triangle with a very long name that overflows the page width"
+      , sides = 3
+      }
+    ]
+```
+
+Note the `circle` record in the last example: it would fit flat, but its
+sibling can't, so it expands too.
+
+The usual author-layout rules still pick which shapes are on the table: an
+array you wrote on one line may use any of the three, an array you wrote
+vertically never collapses back to one line, and an author-broken (or
+comment-bearing) record rules out both flat shapes. Width then chooses the
+first shape of the remaining ones that fits.
+
+Why this is stable across reformats (the earlier blocker for this rule): each
+shape reparses to a state that reproduces exactly that shape. A
+width-expanded record is indistinguishable from an author-broken one on the
+second pass — but that no longer matters, because both force the same
+all-expanded shape. There is no per-item width decision left to disagree
+between passes.
+
+The rule currently applies only when every item of the array is a record
+literal. Mixed arrays (records next to other expressions, or record
+*updates*) keep the per-item behavior described above.
 
 ---
 

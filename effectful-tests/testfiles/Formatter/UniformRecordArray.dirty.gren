@@ -1,0 +1,42 @@
+module UniformRecordArray exposing (..)
+
+-- One author-broken record makes every sibling expand
+mixedAuthor = [ { name = "circle", sides = 0 }, { name = "triangle"
+                  , sides = 3 } ]
+
+-- All flat and fitting stays flat
+allFlatFits = [ { name = "circle", sides = 0 }, { name = "tri", sides = 3 } ]
+
+-- All flat but too wide goes one record per line, records still flat
+allFlatWide = [ { name = "circle", sides = 0 }, { name = "triangle", sides = 3 }, { name = "square", sides = 4 } ]
+
+-- Author-vertical with flat records is already uniform; it stays
+verticalFlat =
+    [ { name = "circle", sides = 0 }
+    , { name = "triangle", sides = 3 }
+    ]
+
+-- A record too wide to stay flat expands all its siblings too
+oneWide =
+    [ { name = "circle", sides = 0 }
+    , { name = "a triangle with a very very very long name that overflows the page width", sides = 3 }
+    ]
+
+-- A comment inside one record expands all the records
+commentInRecord = [ { name = "circle" {- why -}, sides = 0 }, { name = "tri", sides = 3 } ]
+
+-- A comment between items leaves fitting records flat
+commentBetween =
+    [ { name = "circle", sides = 0 }
+    -- a comment
+    , { name = "tri", sides = 3 }
+    ]
+
+-- An array of record patterns gets the same uniform treatment
+patterns xs =
+    when xs is
+        [ { name = n }, { name = m } ] ->
+            n ++ m
+
+        _ ->
+            ""

@@ -1047,13 +1047,128 @@ makeAllAcrossOrAllVertical brackets children =
         bs = bracketStrings brackets
         hasComment = Array.any nodeIsComment children
     in
-    if hasComment then
+    if isUniformRecordArray brackets children then
+        -- Uniform item layout for an array of record literals: a comment
+        -- among the items rules out the flat form, exactly as in the
+        -- generic path below.
+        uniformRecordArrayDoc { allowFlat = not hasComment } children
+    else if hasComment then
         listBoxesWithBrackets bs.open bs.close children
     else
         traverseArray makeListItemDoc children
             |> Result.map (\itemDocs ->
                 exposingListWithBrackets bs.open bs.close bs.empty itemDocs
             )
+
+
+{-| Does this bracketed literal get the *uniform item layout* treatment?
+
+True for a `[ ... ]` array whose items are all record literals. Such an
+array renders via `uniformRecordArrayDoc`, which couples the items'
+flat-vs-expanded decision so that no record ever breaks across lines while
+a sibling stays inline. Comments among the items don't disqualify the
+array — they ride along in the vertical forms.
+-}
+isUniformRecordArray : ListBrackets -> Array LPNode -> Bool
+isUniformRecordArray brackets children =
+    when brackets is
+        ListSquare ->
+            let
+                items = Array.keepIf (\n -> not (nodeIsComment n)) children
+            in
+            Array.length items > 0
+                && Array.all
+                    (\n ->
+                        when lpnBox n is
+                            AllAcrossOrAllVertical ListCurly -> True
+                            AlwaysVertical ListCurly -> True
+                            _ -> False
+                    )
+                    items
+
+        _ ->
+            False
+
+
+{-| Uniform item layout for an array of record literals (see the README's
+"uniform item layout" section): every record breaks the same way, so the
+array reads uniformly. The doc offers at most three shapes:
+
+  1. everything flat on one line — `[ { a = 1 }, { b = 2 } ]`
+  2. vertical array, every record flat — one record per line
+  3. vertical array, every record expanded — one field per line
+
+and PrettyExpressive picks the cheapest that fits. There is deliberately
+*no* shape where one record is expanded and a sibling is flat.
+
+Idempotency rests on each shape being a fixed point under reparse:
+
+  - Shape 1 reparses with no author breaks and re-fits, so it re-renders flat.
+  - Shape 2 reparses as an author-vertical array of flat records
+    (`AlwaysVertical ListSquare`, items `AllAcrossOrAllVertical ListCurly`),
+    which lands back here with `allowFlat = False` and the same
+    shape-2-vs-shape-3 cost comparison.
+  - Shape 3 reparses with every record author-broken
+    (`AlwaysVertical ListCurly`), whose docs contain `hardNl`; flattening
+    them yields `failDoc`, so shapes 1 and 2 self-destruct (`concat`
+    propagates failure, `choice` drops failing branches) and only shape 3
+    remains.
+
+That last mechanism also handles the trigger direction for free: an
+author-broken record — or one that can't be flat at all (a comment inside
+it, a multiline string) — invalidates every branch that would keep any
+sibling inline, forcing the whole array to shape 3 with no explicit check.
+
+`allowFlat` is False when the array was authored vertical (its verticality
+is preserved, as everywhere else) or when a comment sits among the items.
+-}
+uniformRecordArrayDoc : { allowFlat : Bool } -> Array LPNode -> Result String (P.Doc cost)
+uniformRecordArrayDoc { allowFlat } children =
+    let
+        bs = bracketStrings ListSquare
+
+        verticalResult =
+            Result.map2 P.choice
+                (listBoxesWithBracketsUsing flatUniformItemDoc bs.open bs.close children)
+                (listBoxesWithBracketsUsing expandedUniformItemDoc bs.open bs.close children)
+    in
+    if allowFlat then
+        Result.map2
+            (\itemDocs vertical ->
+                P.choice
+                    (P.flatten (exposingListWithBrackets bs.open bs.close bs.empty itemDocs))
+                    vertical
+            )
+            (traverseArray makeListItemDoc children)
+            verticalResult
+    else
+        verticalResult
+
+
+{-| Render a uniform-array record item forced flat. An item that cannot be
+flat (an author-broken record's `hardNl`, a comment inside it) flattens to
+`failDoc`, which invalidates the whole containing branch — exactly the
+degeneration the uniform layout wants.
+-}
+flatUniformItemDoc : LPNode -> Maybe (Result String (P.Doc cost))
+flatUniformItemDoc node =
+    listItemBoxDoc node
+        |> Maybe.map (Result.map P.flatten)
+
+
+{-| Render a uniform-array record item forced expanded (one field per
+line), regardless of how it was authored. The `P.nest 2` matches
+`listItemBoxDoc`'s handling of nested vertical literals, aligning the
+record's continuation lines under its own first field.
+-}
+expandedUniformItemDoc : LPNode -> Maybe (Result String (P.Doc cost))
+expandedUniformItemDoc node =
+    when lpnBox node is
+        AllAcrossOrAllVertical ListCurly ->
+            Just (listBoxesForBracket ListCurly (lpnChildren node) |> Result.map (P.nest 2))
+
+        _ ->
+            listItemBoxDoc node
 
 
 -- Map a Result-producing builder over each element, collecting the Ok values
@@ -2097,19 +2212,34 @@ makeCommentLineDoc_ children =
 -- open/close strings — the shape every nested always-vertical literal needs.
 listBoxesForBracket : ListBrackets -> Array LPNode -> Result String (P.Doc cost)
 listBoxesForBracket bracket nodes =
-    let bs = bracketStrings bracket
-    in listBoxesWithBrackets bs.open bs.close nodes
+    if isUniformRecordArray bracket nodes then
+        -- An author-vertical array of record literals: stay vertical, but
+        -- couple the records' flat-vs-expanded decision (uniform item layout).
+        uniformRecordArrayDoc { allowFlat = False } nodes
+    else
+        let bs = bracketStrings bracket
+        in listBoxesWithBrackets bs.open bs.close nodes
 
 
 listBoxesWithBrackets : String -> String -> Array LPNode -> Result String (P.Doc cost)
 listBoxesWithBrackets open close nodes =
+    listBoxesWithBracketsUsing listItemBoxDoc open close nodes
+
+
+-- The general form of `listBoxesWithBrackets`: render each item with the
+-- given renderer instead of the default `listItemBoxDoc`. The uniform
+-- record-array layout uses this to build the same comment-aware vertical
+-- structure twice — once with every record forced flat, once with every
+-- record forced expanded — and offer the pair as a single choice.
+listBoxesWithBracketsUsing : (LPNode -> Maybe (Result String (P.Doc cost))) -> String -> String -> Array LPNode -> Result String (P.Doc cost)
+listBoxesWithBracketsUsing itemRenderer open close nodes =
     let
         -- Reuse the shared list-item dispatch, tagging each rendered doc with its
         -- source row (so the fold can place trailing comments) and treating an
         -- unrecognised box as "skip" rather than an error — a comment-bearing
         -- list never errors on an item it can't classify, it just drops it.
         nodeItemDoc node =
-            when listItemBoxDoc node is
+            when itemRenderer node is
                 Nothing ->
                     Ok Nothing
                 Just result ->
