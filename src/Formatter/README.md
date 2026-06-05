@@ -956,11 +956,21 @@ update ({ model } as state) msg =
 mapBox = \(Box value) -> value
 ```
 
-A bare constructor with no payload (`Nothing`) takes no parentheses. The
-parentheses matter because arguments
-parse greedily: `f Response response` would read `response` as the payload of
-`Response`, and `f thing as name` would attach `as` to the whole argument list
-rather than to `thing` alone.
+A bare constructor with no payload (`Nothing`) takes no parentheses.
+
+The parentheses matter because a constructor's payload parses greedily: in
+`setStatus statusCode Response response` the parser reads `response` as the
+payload of `Response`, not as a separate argument. With nested constructors
+the greediness changes the grouping outright:
+
+```gren
+wrap (Just Nothing) x = ...   -- two arguments: (Just Nothing) and x
+wrap Just Nothing x = ...     -- ONE argument: Just (Nothing x)
+```
+
+The parens around an `as`-alias likewise keep the binding explicit: in
+`update ({ model } as state) msg`, `state` visibly names the record pattern
+and nothing more.
 
 ---
 

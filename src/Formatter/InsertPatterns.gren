@@ -147,13 +147,13 @@ folderInsertPattern locPat accNodes =
     insertPattern locPat
         |> Result.map (\newNodes ->
             -- Function arguments are space-separated patterns. An `as`-alias
-            -- or a constructor-with-payload argument must keep its parens:
-            --   * `arg1 { ... } as name = body` re-parses with `as` binding
-            --     to the whole arg list rather than just the inner pattern;
+            -- or a constructor-with-payload argument keeps its parens:
             --   * a constructor's payload is parsed greedily, so dropping the
             --     parens around a nested one changes the grouping —
-            --     `f (Just Nothing) x` would re-parse as `f (Just (Nothing x))`.
-            -- Wrapping in parens is also the canonical form for these args.
+            --     `f (Just Nothing) x` would re-parse as `f (Just (Nothing x))`;
+            --   * an unparenthesized `as`-alias happens to re-parse the same
+            --     today, but the parens are the canonical form and keep the
+            --     alias visibly bound to its own pattern.
             if argNeedsParens locPat.value then
                 Array.pushLast (lpnNode ParenBlock newNodes) accNodes
             else
