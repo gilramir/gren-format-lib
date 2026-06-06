@@ -11,7 +11,7 @@ import Compiler.Ast.Source as Src
 import Compiler.SourcePosition exposing (Located, Position)
 
 import Formatter.LogicalPrintingTree exposing (LPBox(..),
-    LPNode(..), ListBrackets(..), lpnBox, lpnChildren, lpnLeaf, lpnNode)
+    LPNode(..), ListBrackets(..), lpnBox, lpnChildren, lpnLeaf, lpnNode, lpnBracketNode)
 import Formatter.LPTHelpers exposing (mkText, mkZeroWidthText, mkTextFromLocString, resultFoldl, itemsSpanRows)
 import Formatter.LiteralFormat exposing (charLiteralString, escapeStringContent, intToHex)
 
@@ -46,7 +46,14 @@ insertPattern locPat =
                         box = if spans then AlwaysVertical ListCurly else AllAcrossOrAllVertical ListCurly
                     in
                     resultFoldl folderInsertPRecordField [] fields
-                        |> Result.map (\fieldNodes -> [lpnNode box fieldNodes])
+                        -- Register the closing `}` (locPat.end) so an own-line
+                        -- comment between the last field and the close is
+                        -- classified as *inside* the pattern (and stays there),
+                        -- matching record literals. With only the last field's
+                        -- end as an inexact bracket end, such a comment fell
+                        -- past the pattern's row range on reparse and re-glued
+                        -- after the `}` (non-idempotent).
+                        |> Result.map (\fieldNodes -> [lpnBracketNode box locPat.end fieldNodes])
 
         Src.PAlias { pattern = pat, name = name } ->
             insertPattern pat
