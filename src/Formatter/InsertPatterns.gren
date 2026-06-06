@@ -107,7 +107,13 @@ insertPattern locPat =
                         Nothing ->
                             [lpnLeaf (mkText locPat.start "[]")]
                         Just _ ->
-                            [lpnNode box itemNodes]
+                            -- Register the closing `]` (locPat.end) so a
+                            -- trailing comment classifies as inside/outside by
+                            -- the bracket's real position, not the last item's
+                            -- end + 2-column slack — the slack made the
+                            -- attachment flip with incoming gap widths.
+                            -- Matches PRecord above.
+                            [lpnBracketNode box locPat.end itemNodes]
                 )
 
         Src.PChr c ->
