@@ -1251,6 +1251,60 @@ value =
         |> process
 ```
 
+The re-anchoring works from the body's *own structure*: its shallowest line is
+lined up under the `{-` (just past the `{- ` prefix), and any line the author
+indented deeper than that stays deeper by the same amount. The body's
+*absolute* input columns are irrelevant, so sloppy or accidental indentation is
+cleaned up. Both of these inputs — body flush against the margin, or pushed
+far right —
+
+```gren
+-- one author wrote:
+total =
+    items
+        {- sums the visible items;
+   hidden items are skipped,
+       and this deeper line stays deeper. -}
+        |> sum
+
+-- another wrote:
+total =
+    items
+        {- sums the visible items;
+                  hidden items are skipped,
+                      and this deeper line stays deeper. -}
+        |> sum
+```
+
+format to the same thing:
+
+```gren
+total =
+    items
+        {- sums the visible items;
+           hidden items are skipped,
+               and this deeper line stays deeper. -}
+        |> sum
+```
+
+The same applies when the comment sits somewhere that itself moves — say,
+embedded in an effect module's `where` block, which the formatter reflows. The
+body follows the `{-` to its new home and lines up there:
+
+```gren
+-- you wrote:
+effect module MyModule where { command {- a
+   b
+   c -} = MyCmd } exposing (..)
+
+-- formats to:
+effect module MyModule where
+    {- a
+       b
+       c -}
+    { command = MyCmd } exposing (..)
+```
+
 **Want the body left completely untouched? Put the `{-` alone on its first
 line.** That is the signal for *verbatim mode*: every body line keeps its
 exact column — hand-drawn ASCII art, tables, or any carefully-aligned block
