@@ -1189,7 +1189,7 @@ that decision, and a few spots where the decision is genuinely hard.
 
 Whether a comment **shares a line with the code before it** or **sits on its own
 line** is treated as a real, deliberate choice — the formatter keeps whichever
-you wrote, and never converts one into the other:
+you wrote:
 
 ```gren
 foo =
@@ -1205,6 +1205,12 @@ A practical consequence: adding or removing the line break between a comment and
 the token next to it genuinely changes your program's layout, so the two
 versions are different inputs that format differently. This is intended — the
 comment's position carries meaning.
+
+(There are a few deliberate exceptions where a comment *is* moved, each covered
+later in this section: a too-wide line drops its trailing comment to the next
+line, a comment at the end of a signature or module line moves to the left
+margin, and a comment beside an invisible symbol like `=` or `as` snaps to one
+side of it.)
 
 ### Single-line comments (`--`)
 
@@ -1358,22 +1364,45 @@ foo n =
 
 ### Blank lines around comments
 
-Whether a blank line sits between a comment and an adjacent declaration mirrors
-your source: if you left no blank line, none is added; if you left one, one is
-kept.
+Whether a comment touches the declaration below it mirrors your source. Write
+them together and they stay together:
+
+```gren
+-- about foo
+foo =
+    1
+```
+
+Leave a blank line and they stay apart — the comment stands on its own, and
+the gap is sized by the usual blank-line rules (so a single blank before a
+top-level declaration grows to the standard two):
+
+```gren
+-- you wrote:
+-- a loose remark
+
+foo =
+    1
+
+-- formats to:
+-- a loose remark
+
+
+foo =
+    1
+```
 
 ### A comment at the *end* of something
 
-When a comment sits on its own line directly below the **last line** of a
-top-level construct, its **column is taken at face value**: indent it at least
-as deep as the line above it and it stays attached to the construct, at that
-depth. Place it at the left margin instead and it stays at the margin, reading
-as a leading comment of the next declaration. Either way, the placement is
-stable — formatting again leaves it exactly where it is.
-
-So both of these are fixed points, and which one you get is up to you:
+Suppose a declaration ends with a long, wrapped expression, and the next line
+is a comment. Does the comment belong to the code above it, or to whatever
+comes next? The formatter reads your **indentation** as the answer: indented
+like the code above it, the comment belongs to that code and stays there; at
+the left margin, it introduces what comes next and stays at the margin. Both
+versions of this file are left exactly as written:
 
 ```gren
+-- indented: the comment is part of the chain above it
 total =
     leftComponent
         ++ rightComponent
@@ -1382,25 +1411,84 @@ total =
 ```
 
 ```gren
-foo :
-    Int
-    -> Int
-{- a note about the definition below -}
+-- at the margin: the comment introduces whatever comes next
+total =
+    leftComponent
+        ++ rightComponent
+        ++ aTrailingValueThatPushesThisLineOutPastTheEightyColumnLimit
+{- about whatever comes next -}
+```
+
+The same choice is available after a pipeline's last step, a wrapped import —
+the end of any multi-line declaration.
+
+A blank line between the code and the comment always cuts the comment loose,
+no matter how it's indented. It moves to the margin and attaches to what
+follows:
+
+```gren
+-- you wrote (indented, but with a blank line in between):
+total =
+    leftComponent
+        ++ aTrailingValueThatPushesThisLineOutPastTheEightyColumnLimit
+
+        {- detached by the blank line -}
+next =
+    2
+
+-- formats to:
+total =
+    leftComponent
+        ++ aTrailingValueThatPushesThisLineOutPastTheEightyColumnLimit
+
+
+{- detached by the blank line -}
+next =
+    2
+```
+
+What about a comment at the end of the *last line itself*, instead of on its
+own line? It stays right there if the line has room:
+
+```gren
+limit =
+    100 {- a short note -}
+```
+
+If the line would run past the page width, the comment drops to its own line,
+indented with the code it ends — the first form above:
+
+```gren
+-- you wrote (one line, too wide):
+total =
+    leftComponent
+        ++ aTrailingValueThatPushesThisLineOutPastTheEightyColumnLimit {- this trailing note is far too long to stay on that line -}
+
+-- formats to:
+total =
+    leftComponent
+        ++ aTrailingValueThatPushesThisLineOutPastTheEightyColumnLimit
+        {- this trailing note is far too long to stay on that line -}
+```
+
+Two spots are handled more simply: a comment at the end of a **type
+signature** or of the **module line** always moves to the left margin, even
+when it would have fit. A comment below a signature reads as introducing the
+definition anyway, and the margin is the one spot that reads the same whether
+or not the line had room:
+
+```gren
+-- you wrote:
+foo : Int -> Int {- about foo -}
+foo n =
+    n
+
+-- formats to:
+foo : Int -> Int
+{- about foo -}
 foo n =
     n
 ```
-
-The same applies to a comment trailing a pipeline's last step, a wrapped
-import, or any other multi-line declaration. A blank line between the
-construct and the comment always detaches it — it becomes a margin-level
-comment of whatever follows.
-
-A comment written **inline after the last token** mostly stays with its
-construct: inline if the line fits, dropped to its own line at the construct's
-inner indent if it doesn't (the indented form above). The two exceptions are a
-comment glued to a *signature's* or the *module line's* last token, which
-moves to the left margin — for those two, the margin is the one placement
-that's stable whether or not the line would have fit.
 
 By contrast, a comment that is genuinely *inside* a construct stays inside it. A
 comment before a closing bracket stays in the container:
@@ -1449,24 +1537,23 @@ describe x =
 The comment stays with the branch it trails; the usual blank line then separates
 that branch from the next.
 
-Either way the comment lands somewhere it re-parses to the same place, so it
-doesn't drift.
+Either way the comment lands somewhere it stays put on every later format.
 
 **Why two different rules instead of one?** It's tempting to just glue the comment
 to the body's last line in every branch. That works for the last branch and for
-simple bodies, but it is *not* idempotent in general for a non-last branch:
+simple bodies, but for a non-last branch the comment wouldn't stay put:
 
 - When a non-last branch's body is itself multi-line — an `if`, a `let`, or a
   long wrapped expression — there's no single clean last line to glue onto. The
-  comment ends up at the body's deep indent, and on the next format it sits a row
-  past the body, re-attaches outward, and the indent oscillates. Lifting it to the
-  between-branches position (aligned with the patterns) is the one placement that
-  re-parses to itself, so the formatter lifts *every* non-last branch's trailing
-  comment, uniformly.
-- The last branch has no following branch to lift above. A lifted comment there
-  would dedent all the way to column 1 and read as a free-floating top-level
-  comment, detached from the branch it annotates — so it's glued to the body's
-  last line instead, which (with nothing after it) is stable.
+  comment would land deep inside the body, where it reads as sitting *between*
+  the branches — so the next run of the formatter would move it, and it would
+  creep on every run. The between-branches position (aligned with the patterns)
+  is the one spot it stays put, so the formatter puts every non-last branch's
+  trailing comment there, uniformly.
+- The last branch has no following branch to sit above. A comment lifted there
+  would fall all the way out to the left margin and read as a free-floating
+  top-level comment, detached from the branch it annotates — so it's glued to
+  the body's last line instead, which (with nothing after it) stays put.
 
 This anchoring is specific to `when` branches, which have those two stable homes
 (between branches, or the last branch's body line). A trailing comment on a plain
@@ -1476,12 +1563,11 @@ indent, as described in
 
 ### When the formatter genuinely can't tell what you meant
 
-Some pieces of Gren syntax — `=`, `:`, `|`, the `as` keyword and the alias name
-after it, and the brackets of a record — are recognized by the parser and then
-**thrown away**. They leave no trace in the parsed program. If you put a comment
-right next to one of these, the formatter can see the comment is *somewhere in
-that gap*, but it has no way to know which side of the (now-invisible) symbol you
-meant it to be on.
+Some pieces of Gren syntax — `=`, `:`, `|`, and an import's `as` keyword and
+alias name — are recognized by the parser and then **thrown away**. They leave
+no trace in the parsed program. If you put a comment right next to one of
+these, the formatter can see the comment is *somewhere in that gap*, but it has
+no way to know which side of the (now-invisible) symbol you meant it to be on.
 
 Rather than guess, the formatter picks **one** canonical spot and always renders
 the comment there. So two programs that differ only in which side of one of these
@@ -1534,9 +1620,9 @@ import Foo {- c -} as Bar
 ```
 
 So if you write one of the left-hand forms, expect the formatter to rewrite it
-to the right-hand one. This is the one place the formatter is deliberately *not*
-faithful to your exact placement — and it's unavoidable, because the information
-simply isn't there in the parsed program.
+to the right-hand one. These spots are the one exception to the formatter's
+faithfulness to your comment placement — and they're unavoidable, because the
+information simply isn't there in the parsed program.
 
 ---
 
@@ -1548,15 +1634,17 @@ same result.
 
 The formatter holds to this everywhere we can measure. A torture test
 (`effectful-tests/fuzz-idempotency.py`) inserts a block comment into *every*
-gap between tokens of every test fixture, formats twice, and requires the two
-outputs to be byte-identical; it currently reports **zero** non-idempotent
-placements across the corpus. The historically hard cases — comments trailing
-an overflowing construct near the 80-column boundary — are anchored by the
-column-attachment rule described in
-[A comment at the end of something](#a-comment-at-the-end-of-something): the
-first format places such a comment at its construct's inner indent, and that
-column is exactly what re-attaches it to the same construct on every later
-format.
+gap between tokens of every test file, formats twice, and requires the two
+outputs to be byte-identical; it currently finds **zero** comment placements
+that fail this.
+
+The historically hard case was a comment at the end of a long, wrapped
+expression — early versions would put it one place on the first format and
+nudge it on the second. That's solved by reading the comment's indentation as
+its attachment (see
+[A comment at the end of something](#a-comment-at-the-end-of-something)):
+wherever the first format puts the comment, its indentation says exactly the
+same thing to every later format, so it never moves again.
 
 If you ever catch the formatter producing a different result the second time
 it runs on the same file, that's a bug — please report it with the file that
@@ -1576,11 +1664,11 @@ This holds for the vast majority of code. The remaining gaps are all
 about comments and blank lines — not about regular code. There are two main
 families.
 
-(One related behavior is deliberate, not a gap: *where a comment attaches* can
-depend on the column you wrote it at — an own-line comment below a construct
-stays with it when indented, or leads the next declaration when at the margin.
-That's the formatter reading your layout as intent; see
-[Where you put a comment is meaningful](#where-you-put-a-comment-is-meaningful).)
+(One related behavior is deliberate, not a gap: changing a comment's
+*indentation* can change which code it attaches to — indented under the code
+above it, it belongs to that code; at the margin, it belongs to what follows.
+That's the formatter reading your layout as intent, not noise; see
+[A comment at the end of something](#a-comment-at-the-end-of-something).)
 
 ### Blank lines near a comment-and-declaration pair
 
@@ -1623,11 +1711,10 @@ The root cause is upstream, in the parser:
 [gren-lang/compiler-common#25](https://github.com/gren-lang/compiler-common/issues/25)
 — "The wrong row number is assigned to `import`, `type`, `type alias`, and
 `port` in the AST". When one of those keywords is separated from its name by a
-newline, the declaration node records the *name's* row instead of the
-*keyword's*. The formatter reads that row range to decide the blank line, so the
-wrapped head looks one row taller than it is and the comment-adjacency test
-flips. Once #25 is fixed so the keyword's own row is recorded, the formatter can
-make this a pure width-and-adjacency decision and format it correctly.
+line break, the parser records the wrong line number for the declaration. The
+formatter trusts that number when checking whether the comment sits directly
+above the declaration, so the check wrongly concludes they're a line apart and
+inserts the blank. Once #25 is fixed, the formatter can get this right.
 
 ### A multi-line block comment's body is kept verbatim
 
