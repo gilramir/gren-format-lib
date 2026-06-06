@@ -1805,11 +1805,33 @@ Everything above describes what the formatter does. This is the short, honest
 list of what it does imperfectly, collected in one place, with pointers to the
 fuller explanations.
 
-First, what holds without exception: the formatter **never changes what your
-code means**, and formatting is **stable** — format a file once or ten times
-and you get the same bytes ([Idempotency](#idempotency)). Every imperfection
-below is about *comments and blank lines*; code without comments has none of
-these issues.
+First, the two core promises: the formatter **never changes what your code
+means**, and formatting is **stable** — format a file once or ten times and
+you get the same bytes ([Idempotency](#idempotency)).
+
+**One open bug currently breaks the first promise.** Field access written
+directly after a closing bracket or a qualified name —
+
+```gren
+(getUser model).name
+{ x = 1 }.x
+{ r | x = 1 }.x
+Config.default.timeout
+```
+
+— is formatted with a space before the dot (`(getUser model) .name`). That
+space changes the meaning: it applies the accessor *function* `.name` to the
+value instead of reading its field, and the formatted file no longer
+compiles ("This value is not a function, but it was given 1 argument"). The
+cause is in the parser the formatter is built on: it reads both spellings as
+the same expression, so the formatter cannot see the difference — and for the
+same reason the AST-equivalence safety check passes. Until the parser is
+fixed, don't format files containing `).field`, `}.field`, or
+`Module.value.field`. Waiting on
+[compiler-common#27](https://github.com/gren-lang/compiler-common/issues/27).
+
+Every other imperfection below is about *comments and blank lines*; code
+without comments has none of these issues.
 
 1. **A line break inside a declaration's head can flip a blank line.** Write
    `import` on one line and the module name on the next, with a comment above,
