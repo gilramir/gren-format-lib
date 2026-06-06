@@ -138,7 +138,8 @@ def col_of(src, idx):
 
 
 def comment_fingerprint(src):
-    """For each comment, in source order: (text, shares_line_with_prev_token).
+    """For each comment, in source order:
+    (text, shares_line_with_prev_token, column_claim_relation).
 
     A trailing comment that *shares a source line* with the preceding code token
     is placed inline (`token {- c -}`); one on its own line is placed standalone
@@ -150,7 +151,18 @@ def comment_fingerprint(src):
 
     Comment interiors are never perturbed (gap_runs skips them), so the text is
     stable; only the `shares_line` flag can move, and only when a newline is
-    added/removed between a comment and the token before it."""
+    added/removed between a comment and the token before it.
+
+    The third element guards the adjacent-below *column claim* (Comments.gren
+    `columnClaim`): an own-line comment directly below a construct is claimed
+    by it when the comment is at or deeper than the construct's last line.
+    When that line starts with a token the parser discards (`=`, `|`, `|>` —
+    union variants, pipeline steps), the formatter reconstructs the line's
+    visible start as (first positioned token column − discarded-token width −
+    1). A same-line stretch between the discarded token and the next one moves
+    that reconstruction while leaving the comment column alone, legitimately
+    flipping the claim — the author's column is meaning-bearing. Such a flip
+    is comment *placement* change, so the variant is discarded, not drift."""
     fps = []
     i, n = 0, len(src)
     last_code = -1  # index just past the last non-ws, non-comment code char
@@ -158,13 +170,33 @@ def comment_fingerprint(src):
     def shares_line(comment_start):
         return last_code != -1 and "\n" not in src[last_code:comment_start]
 
+    def claim_rel(comment_start):
+        # Column-claim relation for an own-line comment directly below a
+        # synth-led line (`=`, `|`, `|>`); None when not applicable.
+        ls = src.rfind("\n", 0, comment_start) + 1
+        if src[ls:comment_start].strip() != "":
+            return None  # not own-line; shares_line covers it
+        if ls == 0:
+            return None
+        ps = src.rfind("\n", 0, ls - 1) + 1
+        prev = src[ps : ls - 1]
+        stripped = prev.lstrip()
+        tok = next((t for t in ("|>", "|", "=") if stripped.startswith(t + " ")), None)
+        if tok is None:
+            return None
+        rest = stripped[len(tok) :]
+        indent = len(prev) - len(stripped)
+        second_col = indent + len(tok) + (len(rest) - len(rest.lstrip()))
+        ref = second_col - (len(tok) + 1)
+        return (comment_start - ls) >= ref
+
     while i < n:
         two = src[i : i + 2]
         three = src[i : i + 3]
         if two == "--":
             j = src.find("\n", i)
             end = n if j == -1 else j
-            fps.append((src[i:end].rstrip(), shares_line(i)))
+            fps.append((src[i:end].rstrip(), shares_line(i), claim_rel(i)))
             i = end
             continue
         if two == "{-":
@@ -180,7 +212,7 @@ def comment_fingerprint(src):
                         break
                 else:
                     i += 1
-            fps.append((src[start:i], shares_line(start)))
+            fps.append((src[start:i], shares_line(start), claim_rel(start)))
             continue
         if three == '"""':
             j = src.find('"""', i + 3)

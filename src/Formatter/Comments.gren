@@ -793,9 +793,14 @@ lastRealPosition node =
 
 
 {-| The first column of a subtree's last content line: among positioned leaves,
-the largest start row, then the smallest start column on that row. This is the
-indent of the construct's last source line — the reference column for deciding
-whether an own-line comment below it reads as its trailing comment. -}
+the largest start row, then the smallest start column on that row — minus the
+rendered width of any synthesized tokens the flow emits before the line's
+first positioned token. A union variant's line reads `| DocShared Int`, but
+the `|` is `SynthesizedText` with no source position, so the first positioned
+leaf (`DocShared`) starts two columns past the visible line start; the same
+holds for the leading `=`. The result is the indent of the construct's last
+source line as the reader sees it — the reference column for deciding whether
+an own-line comment below it reads as its trailing comment. -}
 lastLeafRowMinCol : LPNode -> Maybe Position
 lastLeafRowMinCol node =
     let
@@ -805,24 +810,55 @@ lastLeafRowMinCol node =
         lpnFirstPos node
     else
         Array.foldl
-            (\child acc ->
+            (\child st ->
                 when lastLeafRowMinCol child is
                     Nothing ->
-                        acc
+                        -- Positionless child. A synthesized leaf before the
+                        -- first positioned child renders on that child's first
+                        -- line, just before it: its width plus the flow's
+                        -- joining space shift the line's visible start left.
+                        if st.sawPositioned then
+                            st
+                        else
+                            when lpnBox child is
+                                SynthesizedText s ->
+                                    { st | synthPrefix = st.synthPrefix + String.count s + 1 }
+
+                                _ ->
+                                    st
 
                     Just p ->
-                        when acc is
-                            Nothing ->
-                                Just p
+                        let
+                            -- The synthesized prefix renders before the child's
+                            -- *first* line only; a position on a later line of
+                            -- a multi-line child is not shifted by it.
+                            onOwnFirstRow =
+                                when lpnFirstPos child is
+                                    Just fp -> fp.row == p.row
+                                    Nothing -> False
 
-                            Just q ->
-                                if p.row > q.row || (p.row == q.row && p.col < q.col) then
-                                    Just p
+                            adjusted =
+                                if not st.sawPositioned && onOwnFirstRow && st.synthPrefix > 0 then
+                                    { p | col = max 1 (p.col - st.synthPrefix) }
                                 else
-                                    acc
+                                    p
+
+                            best =
+                                when st.best is
+                                    Nothing ->
+                                        Just adjusted
+
+                                    Just q ->
+                                        if adjusted.row > q.row || (adjusted.row == q.row && adjusted.col < q.col) then
+                                            Just adjusted
+                                        else
+                                            st.best
+                        in
+                        { best = best, synthPrefix = st.synthPrefix, sawPositioned = True }
             )
-            Nothing
+            { best = Nothing, synthPrefix = 0, sawPositioned = False }
             children
+            |> .best
 
 
 {-| True for a node whose own box renders enclosing brackets. The column-guided
@@ -858,7 +894,7 @@ appendTrailingComment commentNode col node =
     let
         children = lpnChildren node
 
-        lastPositioned =
+        lastPositionedOf nodes_ =
             Array.foldl
                 (\child st ->
                     { index = st.index + 1
@@ -869,20 +905,43 @@ appendTrailingComment commentNode col node =
                     }
                 )
                 { index = 0, found = Nothing }
-                children
+                nodes_
                 |> .found
 
-        shouldDescend candidate =
-            not (Array.isEmpty (lpnChildren candidate.node))
-                && not (isBracketContainerBox candidate.node)
-                && (when lastLeafRowMinCol candidate.node is
+        lastPositioned = lastPositionedOf children
+
+        -- An indenting flow (`AcrossThenIndent`, `IfCondition`) is never
+        -- itself the append level: a comment appended as its direct child
+        -- renders at the flow's continuation indent, and the comment's own
+        -- hard newline then emits that indent as trailing whitespace.
+        -- Descend into one only when the descent continues deeper (into a
+        -- payload block whose indent the comment matches); otherwise stop at
+        -- the enclosing block, where the comment renders own-line at the
+        -- block indent like any interior own-line comment.
+        isIndentingFlowBox flowNode =
+            when lpnBox flowNode is
+                AcrossThenIndent -> True
+                IfCondition -> True
+                _ -> False
+
+        shouldDescend descNode =
+            not (Array.isEmpty (lpnChildren descNode))
+                && not (isBracketContainerBox descNode)
+                && (when lastLeafRowMinCol descNode is
                         Just p -> col >= p.col
                         Nothing -> False
+                   )
+                && (if isIndentingFlowBox descNode then
+                        when lastPositionedOf (lpnChildren descNode) is
+                            Just inner -> shouldDescend inner.node
+                            Nothing -> False
+                    else
+                        True
                    )
     in
     when lastPositioned is
         Just candidate ->
-            if shouldDescend candidate then
+            if shouldDescend candidate.node then
                 let
                     { before, after } = splitAt candidate.idx children
                 in

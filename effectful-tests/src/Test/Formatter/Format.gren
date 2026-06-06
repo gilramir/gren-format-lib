@@ -285,6 +285,7 @@ commentsTests fsPerm =
         -- validated by reverting its fix and confirming the fixture goes
         -- non-idempotent at the parent commit.
         , assertPretty fsPerm "trailing comment after a multi-line union variant stays on the variant's last row" "UnionVariantTrailingComment"
+        , assertPretty fsPerm "own-line comment below the last union variant attaches at the variant indent" "UnionTrailingOwnLineComment"
         , assertPretty fsPerm "overflowing trailing comment in a bracket list lays the item out as if absent" "BracketListOverflowComment"
         , assertPretty fsPerm "comment in an empty-bracket body slot is not absorbed into the brackets" "EmptyBracketTrailingComment"
         , assertPretty fsPerm "comments inside a record update and before its closing brace" "RecordUpdateFieldComment"

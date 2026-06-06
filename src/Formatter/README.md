@@ -1436,7 +1436,17 @@ total =
 ```
 
 The same choice is available after a pipeline's last step, a wrapped import —
-the end of any multi-line declaration.
+the end of any multi-line declaration. After the last variant of a custom
+type, it is what keeps a `-- ^` doc note attached to its variant — indented
+like the variants (lining up with the `|` counts as indented), it stays put:
+
+```gren
+type Doc
+    = DocText String
+    -- ^ A literal string.
+    | DocShared Int
+    -- ^ A sub-document marked for memoization.
+```
 
 A blank line between the code and the comment always cuts the comment loose,
 no matter how it's indented. It moves to the margin and attaches to what

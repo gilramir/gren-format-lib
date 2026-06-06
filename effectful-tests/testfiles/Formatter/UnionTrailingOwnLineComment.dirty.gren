@@ -1,0 +1,23 @@
+module UnionTrailingOwnLineComment exposing ( Doc, Color, next )
+
+
+type Doc
+    = DocText String
+      -- ^ A literal string. Some more
+      --   words here.
+    | DocShared Int
+      -- ^ A sub-document marked for memoization by share. The renderer
+      --   caches things.
+
+
+type Color
+    = Red
+    | Green
+    {- ^ a block comment trailing the last variant -}
+
+-- detached: shallower than the variants, leading comment of what follows
+
+
+next : Int
+next =
+    1
