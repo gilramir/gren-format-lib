@@ -1756,3 +1756,60 @@ of text within the comment.
 
 None of these change the meaning of your code, and none affect code without
 comments. They're documented here for completeness and tracked for future work.
+
+---
+
+## Summary: known imperfections
+
+Everything above describes what the formatter does. This is the short, honest
+list of what it does imperfectly, collected in one place, with pointers to the
+fuller explanations.
+
+First, what holds without exception: the formatter **never changes what your
+code means**, and formatting is **stable** — format a file once or ten times
+and you get the same bytes ([Idempotency](#idempotency)). Every imperfection
+below is about *comments and blank lines*; code without comments has none of
+these issues.
+
+1. **A line break inside a declaration's head can flip a blank line.** Write
+   `import` on one line and the module name on the next, with a comment above,
+   and a blank line wrongly appears between the comment and the import. The
+   cause is a parser bug — it records the wrong line number for the keyword —
+   so this waits on
+   [compiler-common#25](https://github.com/gren-lang/compiler-common/issues/25).
+   See [Blank lines near a comment-and-declaration pair](#blank-lines-near-a-comment-and-declaration-pair).
+
+2. **Comments near an effect module's `where { … }` block can move when
+   spacing changes.** Everything after the block's last constructor — the `}`,
+   the `exposing` — is invisible to the formatter, so a comment there attaches
+   by how close it happens to sit to the constructor. Widen the gap and it
+   lands somewhere else. Every fix we've found makes something else worse, so
+   this stays as-is until the parser records those positions. (Effect modules
+   are rare, so few files can hit this.)
+
+3. **Some comment placements collapse into one.** A comment beside an
+   invisible symbol — `=`, `:`, `|`, an import's `as` — always snaps to one
+   chosen side, because the formatter cannot tell which side you meant. Two
+   different intents produce the same output. See
+   [When the formatter genuinely can't tell what you meant](#when-the-formatter-genuinely-cant-tell-what-you-meant).
+   Relatedly, a comment at the end of a type signature or the module line
+   always moves to the left margin, even when it would have fit where you
+   wrote it.
+
+4. **Spacing around comments is treated as intent, so changing it changes the
+   output.** Inline or on its own line, indented or at the margin, blank line
+   or none — the formatter keeps whichever you wrote
+   ([A comment at the end of something](#a-comment-at-the-end-of-something)).
+   The same goes for a verbatim comment body (`{-` alone on its line): its
+   hand-alignment is preserved, never tidied. This is a feature, but it means
+   two files differing only in comment spacing can format differently — so it
+   shares a border with the genuine gaps above.
+
+5. **A small untriaged tail remains.** Automated testing that injects line
+   breaks into unusual spots still finds a number of cases where a comment
+   shifts its home. Most are instances of point 4 doing its job; the rest are
+   small, real attachment quirks tracked for future work.
+
+Separately — a parser limitation, not a formatting one: the current parser
+rejects constructor patterns with two or more argument sub-patterns (`Pair x y`
+in a `when` branch), so such files can't be formatted until they're parseable.
