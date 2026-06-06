@@ -377,12 +377,17 @@ insertExpression locExpr =
                                 -- author's layout chooses the shape. Fields on one
                                 -- line → fit-based (inline `{ b | a, c }`, vertical
                                 -- on overflow); fields across rows → forced vertical.
-                                [lpnNode
+                                -- Close position so the descent guards classify a
+                                -- comment before/after the `}` correctly (inside
+                                -- stays; past it escapes), matching the single-field
+                                -- form above.
+                                [lpnBracketNode
                                     (RecordUpdate
                                         { name = recLoc
                                         , forceVertical = recordFieldsSpanRows newValues
                                         }
                                     )
+                                    locExpr.end
                                     fieldNodes
                                 ]
                 )

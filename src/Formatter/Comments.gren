@@ -321,8 +321,9 @@ insertCommentIntoSubtree commentNode row col node =
                             laterSiblingClaims = anyLaterSiblingStartsAtOrBefore (acc.index + 1)
 
                             -- True when the next sibling is a *flow boundary* — the
-                            -- position-less `in` of a `let … in`, the next `let`
-                            -- binding (`IndentedBlock`), or the next `when` branch
+                            -- position-less `in` of a `let … in`, the position-less
+                            -- `else` of an `if`, the next `let` binding
+                            -- (`IndentedBlock`), or the next `when` branch
                             -- (`WhenBranch`). In each case `child` is a non-last
                             -- binding/branch and a comment trailing its body must NOT
                             -- descend into it: on the first format it would render
@@ -330,10 +331,10 @@ insertCommentIntoSubtree commentNode row col node =
                             -- sits past `child`'s row range and re-attaches at the
                             -- enclosing level — the indent oscillates. Refusing
                             -- descent leaves it a sibling at the current flow level
-                            -- (after `in`, between bindings, between branches), which
-                            -- is the stable placement.
+                            -- (after `in`, leading the else-body, between bindings,
+                            -- between branches), which is the stable placement.
                             --
-                            -- These three sibling kinds are exactly the "new flow
+                            -- These sibling kinds are exactly the "new flow
                             -- item" markers; the test is deliberately NOT "any
                             -- following sibling" — a container followed by a
                             -- *continuation* (e.g. a record type before its `->` in a
@@ -346,7 +347,7 @@ insertCommentIntoSubtree commentNode row col node =
                                         when lpnBox sib is
                                             IndentedBlock -> True
                                             WhenBranch -> True
-                                            SynthesizedText value -> value == "in"
+                                            SynthesizedText value -> value == "in" || value == "else"
                                             _ -> False
 
                                     Nothing ->

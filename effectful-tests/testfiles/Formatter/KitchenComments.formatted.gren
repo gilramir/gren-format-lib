@@ -339,10 +339,10 @@ extremelyCommented {-c22-} {-c23-} {-c24-}
                         {-c68-}
                         , label = {-c69-} {-c70-} expandedLabel
                         {-c71-}
-                        {-c72-}
                     }
 
                 else
+                    {-c72-}
                     {-c73-}
                     {-c74-}
                     when {-c75-} score is
