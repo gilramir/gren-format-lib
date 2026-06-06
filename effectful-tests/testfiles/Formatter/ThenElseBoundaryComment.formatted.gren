@@ -1,0 +1,22 @@
+module ThenElseBoundaryComment exposing (..)
+
+
+guardedString condition secondaryStringValue =
+    if condition then
+        String.append secondaryStringValue "!"
+
+    else
+        {- this trailing comment pushes the then-body line well past the eighty column limit -}
+        secondaryStringValue
+
+
+bumpedRecord condition startingRecord =
+    if condition then
+        { startingRecord
+            | score = startingRecord.score + 1
+            , label = "bumped"
+            {- inside the update's braces -}
+        }
+
+    else
+        startingRecord

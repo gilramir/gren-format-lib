@@ -1,0 +1,11 @@
+module PipelineTrailingComment exposing (..)
+
+
+transform startingRecord =
+    startingRecord
+        |> identity
+        |> (\finalRecord -> finalRecord) {- first trailing comment -} {- second pushes past eighty -}
+
+
+anchorDeclaration =
+    1

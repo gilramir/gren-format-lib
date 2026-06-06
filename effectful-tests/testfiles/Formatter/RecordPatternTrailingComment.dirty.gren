@@ -1,0 +1,10 @@
+module RecordPatternTrailingComment exposing (..)
+
+
+foldAttributes reducerFunction initialValue attributes =
+    Array.foldl
+        (\{ attrName = nameOfAttribute
+            , attrValueAsString = valueOfAttributeAsString {- before the pattern's closing brace -}
+            } accumulatedSoFar ->
+            reducerFunction nameOfAttribute valueOfAttributeAsString accumulatedSoFar)
+        initialValue attributes

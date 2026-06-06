@@ -1,0 +1,15 @@
+module BinopChainTrailingComment exposing (..)
+
+
+joinUp pair =
+    let
+        { leftComponent, rightComponent } =
+            pair
+    in
+    leftComponent
+        ++ rightComponent
+        ++ someTrailingValueToPushThisParticularLineOutTowardOneHundredColumns {- trailing the chain -}
+
+-- leading comment of the next declaration
+anchorDeclaration =
+    1

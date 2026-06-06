@@ -296,6 +296,14 @@ commentsTests fsPerm =
         , assertPretty fsPerm "comment between a vertical module exposing list and the first declaration" "ModuleVerticalExposingComment"
         , assertPretty fsPerm "canonical rendering of comments at elided-token positions" "Ambiguous"
         , assertPretty fsPerm "canonical rendering of a comment in an effect-module where block" "AmbiguousEffectModule"
+        -- Regression guards for the 2026-06-06 column-attachment fixes. Same
+        -- methodology as above: each was validated non-idempotent at its fix's
+        -- parent commit.
+        , assertPretty fsPerm "comment trailing the then-body routes to leading the else-body" "ThenElseBoundaryComment"
+        , assertPretty fsPerm "own-line comment before a record pattern's closing brace stays inside" "RecordPatternTrailingComment"
+        , assertPretty fsPerm "trailing comment below an overflowing binop chain stays at the chain indent" "BinopChainTrailingComment"
+        , assertPretty fsPerm "trailing comment below a wrapped import stays at the continuation indent" "ImportTrailingComment"
+        , assertPretty fsPerm "trailing comments below a pipeline's last step stay at the step indent" "PipelineTrailingComment"
         ]
 
 
