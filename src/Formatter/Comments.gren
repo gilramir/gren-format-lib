@@ -13,9 +13,11 @@ For each comment, in source order:
 
 1. **Find the top-level slot.** Scan the root's children — which are one
    `OriginalRows` node per top-level declaration — for the one whose row
-   range covers the comment. If no declaration claims the row (a comment
-   between two functions, or trailing the file), splice in a fresh
-   `OriginalRows` at the right sorted position.
+   range covers the comment. If no declaration's range covers the row, the
+   construct directly above may still claim the comment as its trailing
+   comment when the comment's own indentation says it belongs there
+   (`columnClaim`); otherwise splice in a fresh `OriginalRows` at the right
+   sorted position.
 
 2. **Descend to the owning subtree.** Walk down inside that slot, at each
    level picking the deepest child whose subtree's row range still
@@ -58,7 +60,12 @@ are largely construct-agnostic:
 
 - **Top level** (`findOrCreateOrigRow` + `trailsClaimedConstruct`): a comment
   past a signature's / module line's last token is not *claimed* by it; it
-  becomes its own top-level `OriginalRows` (rendered at column 1).
+  becomes its own top-level `OriginalRows` (rendered at column 1). For other
+  constructs the opposite applies: an own-line comment directly below one,
+  indented at least as deep as its last content line, is claimed as its
+  trailing comment (`columnClaim`) and placed by column depth
+  (`appendTrailingComment`) — the render column re-triggers the same claim on
+  reparse, so both the indented and the margin placement are fixed points.
 - **Inner descent** (`insertCommentIntoSubtree`): the formatter does not
   *descend* into a child it trails when the next sibling is a flow boundary
   (`nextSiblingIsBoundary` — the `in` keyword, the next binding, the next branch)
