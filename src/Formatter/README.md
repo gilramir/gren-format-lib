@@ -1465,7 +1465,7 @@ type T
 ```
 
 A comment around an import's `as` (or around the alias name after it) always
-lands at the **end of the import line**:
+lands **before the `as`**:
 
 ```gren
 -- both of these inputs:
@@ -1473,7 +1473,7 @@ import Foo {- c -} as Bar
 import Foo as {- c -} Bar
 
 -- format to:
-import Foo as Bar {- c -}
+import Foo {- c -} as Bar
 ```
 
 So if you write one of the left-hand forms, expect the formatter to rewrite it

@@ -351,26 +351,24 @@ processImport locImport root =
         n1 = lpnLeaf (mkText { row = locImport.start.row, col = 1 } "import")
         n2 = lpnLeaf (mkTextFromLocString locImport.value.module_)
 
-        -- Compute positions for the keywords/identifiers that appear
-        -- after the module name. The AST only stores the module name's
-        -- location and the alias as a bare String, so we synthesize
-        -- positions assuming single-space separation:
-        --   import Foo as Alias exposing (...)
-        --                ↑       ↑
-        --   These computed columns are an approximation, but they give
-        --   Formatter.Comments enough structure to anchor inter-token
-        --   comments correctly. Without them, the synthesized-text
-        --   boundary-skip in Comments.gren pushes any comment between
-        --   the module name and `as` (or between the alias and
-        --   `exposing`) all the way past `as`/`exposing`.
-        -- `as`, the alias name, and `exposing` have no AST positions. Anchor
-        -- them all zero-width at the *end of the module name* (a real, stable
-        -- position) and let them keep their array order. Any comment written
-        -- after the module name then sorts after all of them in every pass,
-        -- so placement is idempotent (the canonical rendering puts such a
-        -- comment after `exposing` / the alias). The exact synthesized
-        -- columns used previously (modEnd+1, +4, …) collided with comments
-        -- sitting in those gaps and flipped sides across reformats.
+        -- `as`, the alias name, and `exposing` have no AST positions; only the
+        -- module name and the import's overall end are recorded. Anchor the
+        -- elided tokens zero-width at *real* positions (never at synthesized
+        -- intermediate columns — those collided with comments sitting in the
+        -- gaps and flipped sides across reformats):
+        --
+        --   - `as` + the alias sit at `locImport.end` (the import's true end).
+        --     Every comment authored inside the import head — either side of
+        --     `as`, or on its own row in a wrapped head — then sorts *before*
+        --     them, giving the one canonical rendering
+        --     `import Foo {- c -} as Bar`; a comment past the import still
+        --     sorts after. Anchoring at the end also makes the alias leaves
+        --     carry the import's true last row, so the OriginalRows range
+        --     covers a multi-row `import Foo as ⏎ Bar` head with no special
+        --     case.
+        --   - `exposing` sits at the module name's end, so a comment in the
+        --     exposing area sorts after it (canonical:
+        --     `exposing {- c -} ( … )`).
         modEnd = locImport.value.module_.end
 
         aliasNodes =
@@ -378,8 +376,8 @@ processImport locImport root =
                 Nothing ->
                     []
                 Just name ->
-                    [ lpnLeaf (mkZeroWidthText modEnd "as")
-                    , lpnLeaf (mkZeroWidthText modEnd name)
+                    [ lpnLeaf (mkZeroWidthText locImport.end "as")
+                    , lpnLeaf (mkZeroWidthText locImport.end name)
                     ]
 
         exposingStart = modEnd
@@ -411,26 +409,8 @@ processImport locImport root =
                             []
 
         allChildren = [n1, n2] ++ aliasNodes ++ exposeNodes
-
-        -- The alias tokens are zero-width at the module name's end, so the
-        -- children understate a multi-row `import Foo as ⏎ Bar` head. The
-        -- AST's end (the alias's real position) is the truthful extent;
-        -- without it a comment between `as` and the alias on its own row
-        -- looks adjacent-*below* the import and is mis-claimed as its
-        -- trailing comment instead of sorting between the import's tokens.
-        baseOrigRow =
-            makeOrigRows locImport.start.row StImport allChildren
-
         origRow =
-            when lpnBox baseOrigRow is
-                OriginalRows info ->
-                    if locImport.end.row > info.last then
-                        lpnNode (OriginalRows { info | last = locImport.end.row }) allChildren
-                    else
-                        baseOrigRow
-
-                _ ->
-                    baseOrigRow
+            makeOrigRows locImport.start.row StImport allChildren
     in
     addRootChild origRow root
 

@@ -14,10 +14,10 @@ module Ambiguous exposing (..)
 
 -- Case 1 — import alias. Comment authored between `as` and the alias `Bar`.
 -- Neither `as` nor the alias (a bare String in the AST) has a position, so the
--- comment lands at the end of the import line. The mirror-image intent
--- (comment between `Foo` and `as`) collapses to this same output: the two
--- placements are indistinguishable.
-import Foo as Bar {- authored between `as` and `Bar` -}
+-- comment lands before the `as`. The mirror-image intent (comment between
+-- `Foo` and `as`) collapses to this same output: the two placements are
+-- indistinguishable.
+import Foo {- authored between `as` and `Bar` -} as Bar
 
 
 -- Case 2 — as-pattern. Comment authored AFTER `as`, with extra spaces.

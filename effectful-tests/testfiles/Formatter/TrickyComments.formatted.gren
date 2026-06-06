@@ -21,7 +21,7 @@ import Task
 -- original slot. (A multi-comment-per-line variant remains partly off
 -- because computed positions can't reflect the columns the earlier
 -- comments push everything to.)
-import Array as A {- between module and `as` -}
+import Array {- between module and `as` -} as A
 import Dict as D exposing {- between alias and `exposing` -} ( Dict )
 
 
