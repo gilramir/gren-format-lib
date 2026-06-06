@@ -1,8 +1,7 @@
 effect module MultilineEffectModule where
-    {-
-                                                       a
-   b
-   c -}
+    {- a
+       b
+       c -}
     { command = MyCmd } exposing (..)
 
 import Task

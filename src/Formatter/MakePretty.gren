@@ -1374,6 +1374,11 @@ leadingSpaceCount s =
 --
 -- Comment *content* indented past that base is preserved relative to it, so
 -- internal structure (lists, ASCII art) keeps its relative shape.
+--
+-- Exception: when the author wrote the `{-` ALONE on its first line, the body
+-- is kept verbatim — absolute columns, untouched — and only the `{-` moves.
+-- That opener-alone form is the explicit, text-derived signal for "do not
+-- re-indent my comment body" (see the verbatim branch below).
 blockCommentDoc : Located String -> P.Doc cost
 blockCommentDoc loc =
     if not (isMultiLineCommentValue loc.value) then
@@ -1398,50 +1403,33 @@ blockCommentDoc loc =
                         contLines
                             |> Array.keepIf isContentLine
                             |> Array.map leadingSpaceCount
-                    -- Zero-based column of the `{-` opener in the source.
-                    openerCol = loc.start.col - 1
-                    -- A body line sits *left* of the `{-` — re-indenting it under
-                    -- the opener would pull it right (and could distort ASCII
-                    -- art). Move the comment as a rigid block instead.
-                    bodyLeftOfOpener =
-                        when Array.minimum contentCols is
-                            Just m -> m < openerCol
-                            Nothing -> False
-                    -- `{-` already sits alone on its first line (nothing after the
-                    -- opener). That is exactly the shape the rigid branch emits, so
-                    -- it must re-enter the rigid branch to stay a fixed point:
-                    -- otherwise reparsing it (opener now at the construct indent,
-                    -- body further right) would flip it into the re-anchor branch
-                    -- below and shift the body.
+                    -- `{-` sits alone on its first line (nothing after the
+                    -- opener). This is the author's signal — and the only
+                    -- trigger — for verbatim mode below. It is a property of
+                    -- the comment's own text, so the mode cannot flip when
+                    -- the whitespace *around* the comment changes. (An earlier
+                    -- trigger also compared the body's columns to the `{-`'s
+                    -- source column; that read `loc.start.col`, so widening
+                    -- the gap before the opener changed the rendering.)
                     openerAlone =
                         String.trimLeft (String.dropFirst 2 firstLine) == ""
                 in
-                if bodyLeftOfOpener || openerAlone then
-                    -- Rigid mode: the whole comment would have to move left to put
-                    -- `{-` at the construct's indent, but a body line is already
-                    -- left of where it would land, so the body can't move. Instead
-                    -- lift the `{-` onto its own line at the construct's indent and
-                    -- leave every content line at its original column (no text
-                    -- moves — only the `{-`). Body lines render at absolute columns
-                    -- (via `reset`, so nesting doesn't shift them).
+                if openerAlone then
+                    -- Verbatim mode: the body is left exactly as written,
+                    -- column for column — only the `{-` moves (to the
+                    -- construct's indent). Protects ASCII art and hand-aligned
+                    -- blocks. Body lines render at absolute columns (via
+                    -- `reset`, so nesting doesn't shift them). The output's
+                    -- opener is again alone on its line, so this re-enters
+                    -- verbatim mode on reparse — a fixed point.
                     let
-                        -- The text after `{-` on the opener's line, replaced onto
-                        -- its own line at the column it occupied in the source
-                        -- (right after `{- `).
-                        firstContent = String.dropFirst 2 firstLine
-                        firstContentDoc =
-                            if String.trimLeft firstContent == "" then
-                                P.empty
-                            else
-                                P.concat P.hardNl
-                                    (P.text (String.repeat (openerCol + 2) " " ++ firstContent))
                         contDoc =
                             Array.foldl
                                 (\line acc -> P.concat acc (P.concat P.hardNl (P.text line)))
                                 P.empty
                                 contLines
                     in
-                    P.concat (P.text "{-") (P.reset (P.concat firstContentDoc contDoc))
+                    P.concat (P.text "{-") (P.reset contDoc)
                 else
                     let
                         base =

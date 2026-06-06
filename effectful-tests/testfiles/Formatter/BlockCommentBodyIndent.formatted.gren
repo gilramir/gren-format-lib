@@ -16,13 +16,24 @@ indented x =
     let
         first =
             x + 1
-        {-
-           Body lines below are written flush-left in the source; the formatter
-   must re-anchor them to offset 3 from the rendered open delimiter, not their
-       absolute column, keeping this deeper line deeper.
-   trailing base line
--}
+        {- Body lines below are written flush-left in the source; the formatter
+           must re-anchor them to offset 3 from the rendered open delimiter, not their
+               absolute column, keeping this deeper line deeper.
+           trailing base line
+        -}
         second =
             first + 1
     in
     second
+
+
+{-
+      An opener ALONE on its first line is the author's signal for verbatim
+  mode: every body line keeps its absolute column, untouched.
+
+         /\
+        /  \    hand-aligned art must not be re-anchored
+       /____\
+-}
+verbatimGuard =
+    2

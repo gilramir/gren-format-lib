@@ -1236,10 +1236,11 @@ foo a =
 ```
 
 A block comment whose body spans several lines forces the construct around it to
-break vertically (it can't be collapsed onto one line). When every body line is
-indented at or to the right of the `{-`, the inner lines are re-indented to line
-up neatly under the `{-`, while keeping the comment's own internal shape
-(relative indentation, lists, little diagrams):
+break vertically (it can't be collapsed onto one line). When the comment's text
+starts on the same line as the `{-`, the body lines are re-indented to line up
+neatly under the `{-`, while keeping the comment's own internal shape (relative
+indentation, lists, little diagrams) — no matter how the body was indented in
+the input:
 
 ```gren
 value =
@@ -1250,34 +1251,36 @@ value =
         |> process
 ```
 
-**The body is never moved left.** If any body line sits *to the left* of the
-`{-` — flush against the margin, or as part of a diagram that reaches further
-left than the opener — the formatter can't slide the comment left to line the
-`{-` up with the construct without dragging that line off the page or distorting
-the comment. So it makes a compromise: it lifts the `{-` onto its own line at the
-construct's indent and leaves **every line of the body exactly where you wrote
-it**, column for column. Only the `{-` moves.
+**Want the body left completely untouched? Put the `{-` alone on its first
+line.** That is the signal for *verbatim mode*: every body line keeps its
+exact column — hand-drawn ASCII art, tables, or any carefully-aligned block
+survives formatting untouched. Only the `{-` itself moves, to the construct's
+indent:
 
 ```gren
--- you wrote (the {- is indented, the body is flush-left):
+-- you wrote (the {- alone on its line; the body hand-aligned):
 config =
-        {- this comment opener is indented
-but the body lines are written flush at the left margin
-   and this one is a little deeper -}
+        {-
+      this body is kept verbatim
+         /\
+        /  \
+       /____\
+-}
         42
 
 -- the formatter produces (only the {- moved — to column 4; no body text moved):
 config =
     {-
-           this comment opener is indented
-but the body lines are written flush at the left margin
-   and this one is a little deeper -}
+      this body is kept verbatim
+         /\
+        /  \
+       /____\
+-}
     42
 ```
 
-This is deliberate: it means hand-drawn ASCII art, tables, or any
-carefully-aligned block inside a comment survives formatting untouched. The cost
-is that the body's whitespace is *not* canonicalized — see the note under
+The trade-off is that a verbatim body's whitespace is *not* canonicalized — see
+the note under
 [whitespace canonicalization gaps](#a-multi-line-block-comments-body-is-kept-verbatim).
 
 ### Doc comments (`{-| ... -}`)
@@ -1577,10 +1580,12 @@ make this a pure width-and-adjacency decision and format it correctly.
 This one is intentional, not a defect — but it is a whitespace-canonicalization
 gap of the same kind (two inputs differing only in whitespace can format
 differently). As described in the **Block comments** section above, when a
-multi-line `{- ... -}` comment has a body line to the left of its `{-`,
-the formatter lifts the `{-` onto its own line and leaves the body **exactly as
-written**, column for column, rather than re-indenting it. That protects ASCII
-art and hand-aligned blocks.
+multi-line `{- ... -}` comment starts with the `{-` **alone on its first
+line**, the formatter leaves the body **exactly as written**, column for
+column, rather than re-indenting it. That protects ASCII art and hand-aligned
+blocks. (The mode is decided only by the comment's own text — whether the
+opener's line carries content — so whitespace *around* the comment can never
+flip it.)
 
 The consequence is that the body's leading whitespace is no longer canonicalized:
 two inputs that differ only in how far the body is indented format to two

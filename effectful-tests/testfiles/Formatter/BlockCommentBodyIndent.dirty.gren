@@ -23,3 +23,15 @@ indented x =
         second = first + 1
     in
     second
+
+
+{-
+      An opener ALONE on its first line is the author's signal for verbatim
+  mode: every body line keeps its absolute column, untouched.
+
+         /\
+        /  \    hand-aligned art must not be re-anchored
+       /____\
+-}
+verbatimGuard =
+    2
