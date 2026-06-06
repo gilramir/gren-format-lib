@@ -225,6 +225,7 @@ expressionTests fsPerm =
         , assertPretty fsPerm "record field value indentation" "RecordFieldValue"
         , assertPretty fsPerm "let def body indentation" "LetDefBody"
         , assertPretty fsPerm "let destructure pattern too long to fit on one line" "LetDestructLong"
+        , assertPretty fsPerm "let destructure of a ctor-with-payload or as-alias keeps its parens" "LetDestructParens"
         , assertPretty fsPerm "pipeline step argument indentation" "PipelineArgIndent"
         , assertPretty fsPerm "backward pipeline (<|) treated like forward pipeline (|>)" "BackwardPipeline"
         , assertPretty fsPerm "string escape sequences preserved" "StringEscapes"

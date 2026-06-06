@@ -20,7 +20,7 @@ import Formatter.LPTHelpers exposing
     , itemsSpanRows, binopPrecedence, binopMinPrecedence
     )
 import Formatter.LiteralFormat exposing (charLiteralString, escapeStringContent, escapeMultilineContent, intToHex)
-import Formatter.InsertPatterns exposing (folderInsertPattern, insertPattern)
+import Formatter.InsertPatterns exposing (argNeedsParens, folderInsertPattern, insertPattern)
 import Formatter.InsertTypes exposing (makeSignatureBranch)
 
 
@@ -783,7 +783,18 @@ folderInsertLetDef locDef accNodes =
         Src.Destruct { pattern = pattern, body = body } ->
             insertPattern pattern
                 |> Result.andThen (\patNodes ->
-                    let eqNode = lpnLeaf (SynthesizedText "=")
+                    let
+                        eqNode = lpnLeaf (SynthesizedText "=")
+
+                        -- The destructured pattern keeps its parens when it is
+                        -- a constructor-with-payload or an `as`-alias — the
+                        -- canonical form, same as a function argument
+                        -- (`argNeedsParens`).
+                        lhsNodes =
+                            if argNeedsParens pattern.value then
+                                [lpnNode ParenBlock patNodes]
+                            else
+                                patNodes
                     in
                     insertExpression body
                         |> Result.map (\bodyNodes ->
@@ -791,7 +802,7 @@ folderInsertLetDef locDef accNodes =
                                 -- A destructure body drops to the next line too —
                                 -- same rule as every other binding body.
                                 bodyWrapper = lpnNode IndentedBlock bodyNodes
-                                container = lpnNode IndentedBlock (patNodes ++ [eqNode, bodyWrapper])
+                                container = lpnNode IndentedBlock (lhsNodes ++ [eqNode, bodyWrapper])
                             in
                             Array.pushLast container accNodes
                         )

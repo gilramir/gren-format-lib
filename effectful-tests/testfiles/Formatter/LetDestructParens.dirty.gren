@@ -1,0 +1,13 @@
+module LetDestructParens exposing (..)
+
+f x =
+    let
+        Builder bb =
+            g x
+
+        ({ y } as p) =
+            h x
+
+        Wrapped (Inner v) = i x
+    in
+    bb p v

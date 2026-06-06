@@ -983,6 +983,20 @@ in
 model
 ```
 
+A destructure of a constructor with a payload, or an `as`-alias, is wrapped in
+parentheses — the same two forms that take parens as function arguments:
+
+```gren
+let
+    (Builder bb) =
+        toBuilder x
+
+    ({ y } as point) =
+        origin
+in
+bb point
+```
+
 ### Why `let` functions aren't formatted *exactly* like top-level ones
 
 A function written in a `let` and one written at the top level follow the
