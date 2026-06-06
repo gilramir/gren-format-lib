@@ -411,8 +411,26 @@ processImport locImport root =
                             []
 
         allChildren = [n1, n2] ++ aliasNodes ++ exposeNodes
-        origRow =
+
+        -- The alias tokens are zero-width at the module name's end, so the
+        -- children understate a multi-row `import Foo as ⏎ Bar` head. The
+        -- AST's end (the alias's real position) is the truthful extent;
+        -- without it a comment between `as` and the alias on its own row
+        -- looks adjacent-*below* the import and is mis-claimed as its
+        -- trailing comment instead of sorting between the import's tokens.
+        baseOrigRow =
             makeOrigRows locImport.start.row StImport allChildren
+
+        origRow =
+            when lpnBox baseOrigRow is
+                OriginalRows info ->
+                    if locImport.end.row > info.last then
+                        lpnNode (OriginalRows { info | last = locImport.end.row }) allChildren
+                    else
+                        baseOrigRow
+
+                _ ->
+                    baseOrigRow
     in
     addRootChild origRow root
 

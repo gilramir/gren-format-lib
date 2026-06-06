@@ -14,7 +14,7 @@ module Ambiguous exposing (..)
 
 -- Case 1 — import alias. Comment authored between `as` and the alias `Bar`.
 -- Neither `as` nor the alias (a bare String in the AST) has a position, so the
--- comment is evicted past the whole import line. The mirror-image intent
+-- comment lands at the end of the import line. The mirror-image intent
 -- (comment between `Foo` and `as`) collapses to this same output: the two
 -- placements are indistinguishable.
 import Foo as

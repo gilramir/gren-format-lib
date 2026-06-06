@@ -130,8 +130,12 @@ lptAddComment locComment root =
                 Ctx.Line _ -> StSingleLineComment
                 Ctx.Block _ -> StBlockComment
         rootChildren = lpnChildren root
-        { origRowNode, before, after } = findOrCreateOrigRow row col stype rootChildren
-        updatedOrigRow = insertCommentIntoSubtree commentNode row col origRowNode
+        { origRowNode, before, after, trailingClaim } = findOrCreateOrigRow row col stype rootChildren
+        updatedOrigRow =
+            if trailingClaim then
+                appendTrailingComment commentNode col origRowNode
+            else
+                insertCommentIntoSubtree commentNode row col origRowNode
         endRow =
             when locComment.value is
                 Ctx.Line _ -> row
@@ -172,7 +176,11 @@ findOrCreateOrigRow :
     -> Int
     -> SyntaxType
     -> Array LPNode
-    -> { origRowNode : LPNode, before : Array LPNode, after : Array LPNode }
+    -> { origRowNode : LPNode
+       , before : Array LPNode
+       , after : Array LPNode
+       , trailingClaim : Bool
+       }
 findOrCreateOrigRow row col stype nodes =
     let
         -- First: try to find an existing OriginalRows containing 'row'
@@ -203,35 +211,150 @@ findOrCreateOrigRow row col stype nodes =
             { origRowNode = existing
             , before = searchResult.before
             , after = searchResult.after
+            , trailingClaim = False
             }
 
         Nothing ->
-            -- Create a new OriginalRows node inserted in sorted order
-            let
-                newNode = lpnLeaf (OriginalRows { first = row, last = row, stype = stype })
-                insertResult =
-                    Array.foldl
-                        (\node acc ->
-                            if acc.done then
-                                { acc | after = Array.pushLast node acc.after }
-                            else
-                                when lpnBox node is
-                                    OriginalRows { first = first } ->
-                                        if row < first then
-                                            { acc | after = Array.pushLast node acc.after, done = True }
-                                        else
-                                            { acc | before = Array.pushLast node acc.before }
+            when columnClaim row col nodes is
+                Just claimed ->
+                    claimed
 
-                                    _ ->
-                                        { acc | before = Array.pushLast node acc.before }
-                        )
-                        { before = [], after = [], done = False }
-                        nodes
-            in
-            { origRowNode = newNode
-            , before = insertResult.before
-            , after = insertResult.after
-            }
+                Nothing ->
+                    -- Create a new OriginalRows node inserted in sorted order
+                    let
+                        newNode = lpnLeaf (OriginalRows { first = row, last = row, stype = stype })
+                        insertResult =
+                            Array.foldl
+                                (\node acc ->
+                                    if acc.done then
+                                        { acc | after = Array.pushLast node acc.after }
+                                    else
+                                        when lpnBox node is
+                                            OriginalRows { first = first } ->
+                                                if row < first then
+                                                    { acc | after = Array.pushLast node acc.after, done = True }
+                                                else
+                                                    { acc | before = Array.pushLast node acc.before }
+
+                                            _ ->
+                                                { acc | before = Array.pushLast node acc.before }
+                                )
+                                { before = [], after = [], done = False }
+                                nodes
+                    in
+                    { origRowNode = newNode
+                    , before = insertResult.before
+                    , after = insertResult.after
+                    , trailingClaim = False
+                    }
+
+
+{-| The adjacent-below column claim. An own-line comment in the gap between two
+top-level constructs normally becomes its own fresh `OriginalRows` (rendered at
+column 1). But when it sits *directly* below a construct (row == the
+construct's last row + 1), the author's column decides the attachment:
+
+  - at or deeper than the construct's last content line, AND deeper than the
+    next top-level item → it reads as the construct's trailing comment, so the
+    construct claims it (placed by `appendTrailingComment`, which uses the
+    column to pick the depth);
+  - otherwise (column 1, or shallower than the line above) → it reads as a
+    leading comment of what follows and falls through to the fresh-row path.
+
+This is what makes a deep trailing comment a reparse fixed point: the first
+format renders it own-line at the construct's inner indent, and this rule
+re-claims it at that same column on every subsequent format. A blank line
+between the construct and the comment (row gap >= 2) always detaches it. -}
+columnClaim :
+    Int
+    -> Int
+    -> Array LPNode
+    -> Maybe
+        { origRowNode : LPNode
+        , before : Array LPNode
+        , after : Array LPNode
+        , trailingClaim : Bool
+        }
+columnClaim row col nodes =
+    let
+        adjacentPrev =
+            Array.foldl
+                (\node st ->
+                    { index = st.index + 1
+                    , found =
+                        when lpnBox node is
+                            OriginalRows { last } ->
+                                if last + 1 == row then
+                                    Just { idx = st.index, node = node }
+                                else
+                                    st.found
+
+                            _ ->
+                                st.found
+                    }
+                )
+                { index = 0, found = Nothing }
+                nodes
+                |> .found
+
+        -- Column of the next top-level item after the comment's row
+        -- (1 if the comment is past the last item).
+        nextItemCol =
+            Array.foldl
+                (\node acc ->
+                    when acc is
+                        Just _ ->
+                            acc
+
+                        Nothing ->
+                            when lpnBox node is
+                                OriginalRows { first } ->
+                                    if first > row then
+                                        when firstRealPosition node is
+                                            Just p -> Just p.col
+                                            Nothing -> Just 1
+                                    else
+                                        Nothing
+
+                                _ ->
+                                    Nothing
+                )
+                Nothing
+                nodes
+                |> Maybe.withDefault 1
+    in
+    when adjacentPrev is
+        Nothing ->
+            Nothing
+
+        Just candidate ->
+            when lastLeafRowMinCol candidate.node is
+                Nothing ->
+                    Nothing
+
+                Just lastLine ->
+                    -- `lastLine.row < row` guards against constructs whose
+                    -- OriginalRows row metadata understates their extent (e.g. a
+                    -- wrapped import head, compiler-common#25): a comment with
+                    -- construct tokens still BELOW it is between the construct's
+                    -- tokens, not trailing it.
+                    if lastLine.row < row && col >= lastLine.col && col > nextItemCol then
+                        let
+                            { before, after } = splitAt candidate.idx nodes
+                        in
+                        when Array.popFirst after is
+                            Just { first = claimedNode, rest } ->
+                                Just
+                                    { origRowNode = claimedNode
+                                    , before = before
+                                    , after = rest
+                                    , trailingClaim = True
+                                    }
+
+                            Nothing ->
+                                Nothing
+                    else
+                        Nothing
 
 
 {-| True for a comment positioned after the last token of a top-level construct
@@ -649,3 +772,112 @@ subtreeStartsAfter node row col =
 lastRealPosition : LPNode -> Maybe Position
 lastRealPosition node =
     lpnLastPos node
+
+
+{-| The first column of a subtree's last content line: among positioned leaves,
+the largest start row, then the smallest start column on that row. This is the
+indent of the construct's last source line — the reference column for deciding
+whether an own-line comment below it reads as its trailing comment. -}
+lastLeafRowMinCol : LPNode -> Maybe Position
+lastLeafRowMinCol node =
+    let
+        children = lpnChildren node
+    in
+    if Array.isEmpty children then
+        lpnFirstPos node
+    else
+        Array.foldl
+            (\child acc ->
+                when lastLeafRowMinCol child is
+                    Nothing ->
+                        acc
+
+                    Just p ->
+                        when acc is
+                            Nothing ->
+                                Just p
+
+                            Just q ->
+                                if p.row > q.row || (p.row == q.row && p.col < q.col) then
+                                    Just p
+                                else
+                                    acc
+            )
+            Nothing
+            children
+
+
+{-| True for a node whose own box renders enclosing brackets. The column-guided
+trailing append must not descend into one: the comment being placed sits below
+the whole construct, i.e. past this container's closing bracket, so appending
+inside would move it between the brackets. -}
+isBracketContainerBox : LPNode -> Bool
+isBracketContainerBox node =
+    when lpnBox node is
+        ParenBlock -> True
+        AllAcrossOrAllVertical _ -> True
+        AlwaysVertical _ -> True
+        RecordUpdate _ -> True
+        EmptyBracketed _ -> True
+        PrefixGlue _ -> True
+        _ -> False
+
+
+{-| Column-guided placement for a trailing comment claimed via the
+adjacent-below column rule in `findOrCreateOrigRow`. The comment's row is past
+every child's row range, so the row-based descent cannot place it; instead the
+comment's *column* picks the depth: walk the rightmost positioned spine,
+descending into the last positioned child while the comment is at or deeper
+than that child's last-line indent, and append at the level where this stops.
+Bracket containers are never entered (the comment is below the construct, so
+it is past their closing bracket).
+
+Rendered there, the comment lands own-line at that level's indent — the same
+column that re-triggers this claim and descent on reparse, making the
+placement a fixed point. -}
+appendTrailingComment : LPNode -> Int -> LPNode -> LPNode
+appendTrailingComment commentNode col node =
+    let
+        children = lpnChildren node
+
+        lastPositioned =
+            Array.foldl
+                (\child st ->
+                    { index = st.index + 1
+                    , found =
+                        when lpnFirstPos child is
+                            Just _ -> Just { idx = st.index, node = child }
+                            Nothing -> st.found
+                    }
+                )
+                { index = 0, found = Nothing }
+                children
+                |> .found
+
+        shouldDescend candidate =
+            not (Array.isEmpty (lpnChildren candidate.node))
+                && not (isBracketContainerBox candidate.node)
+                && (when lastLeafRowMinCol candidate.node is
+                        Just p -> col >= p.col
+                        Nothing -> False
+                   )
+    in
+    when lastPositioned is
+        Just candidate ->
+            if shouldDescend candidate then
+                let
+                    { before, after } = splitAt candidate.idx children
+                in
+                when Array.popFirst after is
+                    Just { first = target, rest } ->
+                        lpnReplaceChildren node
+                            (before ++ [appendTrailingComment commentNode col target] ++ rest)
+
+                    Nothing ->
+                        -- Unreachable: candidate.idx is a valid index.
+                        lpnReplaceChildren node (Array.pushLast commentNode children)
+            else
+                lpnReplaceChildren node (Array.pushLast commentNode children)
+
+        Nothing ->
+            lpnReplaceChildren node (Array.pushLast commentNode children)
