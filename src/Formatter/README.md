@@ -1033,6 +1033,22 @@ wrap (Just Nothing) x = ...   -- two arguments: (Just Nothing) and x
 wrap Just Nothing x = ...     -- ONE argument: Just (Nothing x)
 ```
 
+The same parens are written around a constructor's payload when that payload
+is itself a constructor with a payload — everywhere patterns appear, including
+`when` branches. A `when` branch holds just one pattern, so `Just Just n`
+would mean the same thing as `Just (Just n)`, but the formatter always writes
+the parens so the nesting stays visible:
+
+```gren
+unwrapTwice x =
+    when x is
+        Just (Just n) ->
+            n
+
+        _ ->
+            0
+```
+
 The parens around an `as`-alias likewise keep the binding explicit: in
 `update ({ model } as state) msg`, `state` visibly names the record pattern
 and nothing more.

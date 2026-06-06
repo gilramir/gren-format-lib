@@ -71,7 +71,7 @@ ctorPayload x =
 -- Nested constructors
 nestedCtor x =
     when x is
-        Just Just n ->
+        Just (Just n) ->
             n
 
         _ ->

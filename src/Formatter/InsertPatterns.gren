@@ -81,7 +81,7 @@ insertPattern locPat =
                     Ok [nameNode]
                 Just argPat ->
                     insertPatternAsItem argPat
-                        |> Result.map (\argNode -> [nameNode, parenIfAlias argPat argNode])
+                        |> Result.map (\argNode -> [nameNode, parenCtorArg argPat argNode])
 
         Src.PCtorQual { varRegion = varRegion, module_ = module_, name = name, arg = arg } ->
             let ctorNode = lpnLeaf (mkText varRegion.start (module_ ++ "." ++ name))
@@ -91,7 +91,7 @@ insertPattern locPat =
                     Ok [ctorNode]
                 Just argPat ->
                     insertPatternAsItem argPat
-                        |> Result.map (\argNode -> [ctorNode, parenIfAlias argPat argNode])
+                        |> Result.map (\argNode -> [ctorNode, parenCtorArg argPat argNode])
 
         Src.PArray patterns ->
             let
@@ -142,17 +142,22 @@ insertPatternAsItem locPat =
         )
 
 
--- Constructor arguments are parsed with `parserNoAlias`, which does NOT
--- consume `as`. If the argument is itself a `PAlias`, the surface form
--- `Ctor pat as name` would re-parse as `(Ctor pat) as name` — a different
--- AST. Wrap the alias in parens so the `as` stays bound to the inner pattern.
-parenIfAlias : Src.Pattern -> LPNode -> LPNode
-parenIfAlias argPat argNode =
-    when argPat.value is
-        Src.PAlias _ ->
-            lpnNode ParenBlock [argNode]
-        _ ->
-            argNode
+-- A constructor's payload keeps its parens when it is itself a
+-- constructor-with-payload or an `as`-alias (same `argNeedsParens` test as
+-- function arguments):
+--   * a nested constructor-with-payload re-parses the same without parens
+--     (the payload is parsed greedily, so `Just (Just s)` ≡ `Just Just s`),
+--     but the parenthesized form is canonical and keeps the grouping visible;
+--   * a `PAlias` payload MUST be parenthesized — constructor payloads are
+--     parsed with `parserNoAlias`, which does not consume `as`, so
+--     `Ctor pat as name` would re-parse as `(Ctor pat) as name` — a
+--     different AST.
+parenCtorArg : Src.Pattern -> LPNode -> LPNode
+parenCtorArg argPat argNode =
+    if argNeedsParens argPat.value then
+        lpnNode ParenBlock [argNode]
+    else
+        argNode
 
 
 folderInsertPattern : Src.Pattern -> Array LPNode -> Result String (Array LPNode)
