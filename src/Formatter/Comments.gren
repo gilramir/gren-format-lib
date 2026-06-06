@@ -264,7 +264,14 @@ construct's last row + 1), the author's column decides the attachment:
 This is what makes a deep trailing comment a reparse fixed point: the first
 format renders it own-line at the construct's inner indent, and this rule
 re-claims it at that same column on every subsequent format. A blank line
-between the construct and the comment (row gap >= 2) always detaches it. -}
+between the construct and the comment (row gap >= 2) always detaches it.
+
+Constructs whose *inline* trailing comments are declined to the margin by
+`trailsClaimedConstruct` (signatures and the module line) never column-claim
+either: claiming would render the comment glued/indented, which the decline
+then re-homes to the margin on reparse — re-creating the oscillation this rule
+exists to prevent. For those two, the margin is the single canonical home for
+every trailing comment. -}
 columnClaim :
     Int
     -> Int
@@ -283,8 +290,8 @@ columnClaim row col nodes =
                     { index = st.index + 1
                     , found =
                         when lpnBox node is
-                            OriginalRows { last } ->
-                                if last + 1 == row then
+                            OriginalRows { last, stype } ->
+                                if last + 1 == row && not (declinesTrailingComments stype) then
                                     Just { idx = st.index, node = node }
                                 else
                                     st.found
@@ -382,17 +389,21 @@ so `subtreeEndsBefore` is false and it stays claimed by the module line.
 -}
 trailsClaimedConstruct : SyntaxType -> LPNode -> Int -> Int -> Bool
 trailsClaimedConstruct stype node row col =
+    declinesTrailingComments stype
+        && subtreeEndsBefore node row col
+        && not (commentInsideTrailingBracket node row col)
+
+
+{-| Constructs whose canonical home for every trailing comment is the margin
+(column 1). Both attachment layers consult this — `trailsClaimedConstruct`
+(declining an inline trailing comment) and `columnClaim` (declining the
+own-line column claim) — so they can never disagree and oscillate. -}
+declinesTrailingComments : SyntaxType -> Bool
+declinesTrailingComments stype =
     when stype is
-        StFunctionSignature ->
-            subtreeEndsBefore node row col
-                && not (commentInsideTrailingBracket node row col)
-
-        StModule ->
-            subtreeEndsBefore node row col
-                && not (commentInsideTrailingBracket node row col)
-
-        _ ->
-            False
+        StFunctionSignature -> True
+        StModule -> True
+        _ -> False
 
 
 {-
