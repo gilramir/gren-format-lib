@@ -212,6 +212,16 @@ type LPBox
     -- entirely).
     | PrefixGlue (Located String)
 
+    -- Children concatenated with NO separator. Used for a postfix
+    -- accessor glued after a bracket-rendered base: `(expr).field`,
+    -- `{ a = 1 }.a`, `{ r | a = 1 }.a`. Mapping the accessor onto the
+    -- last text leaf would land it *inside* the closing bracket
+    -- (`(... b.field)`), and a flow separator would insert a space —
+    -- which re-parses as applying the accessor *function* to the base,
+    -- a different expression. The accessor is an ordinary positioned
+    -- leaf child, so position bookkeeping needs no special casing.
+    | Glue
+
     -- Let-def body: tries to keep children inline after `=`, but when it must
     -- break, places the body at +4 from the binding name's column.
     -- Unlike IndentedBlock (which always forces P.hardNl), this uses

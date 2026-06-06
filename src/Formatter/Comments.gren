@@ -874,6 +874,7 @@ isBracketContainerBox node =
         RecordUpdate _ -> True
         EmptyBracketed _ -> True
         PrefixGlue _ -> True
+        Glue -> True
         _ -> False
 
 

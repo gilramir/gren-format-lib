@@ -1013,6 +1013,22 @@ makePDoc box children =
             when buildFlowDocInline 0 children is
                 Err e -> Err e
                 Ok innerDoc -> Ok (P.concat (P.text prefix.value) innerDoc)
+        Glue ->
+            -- Children concatenated with no separator (a postfix accessor
+            -- glued after a bracketed base). Each child renders on its own
+            -- via the inline flow builder (a one-node flow emits no
+            -- separators), then the docs are concatenated directly.
+            Array.foldl
+                (\child acc ->
+                    when acc is
+                        Err e -> Err e
+                        Ok accDoc ->
+                            when buildFlowDocInline 0 [child] is
+                                Err e -> Err e
+                                Ok childDoc -> Ok (P.concat accDoc childDoc)
+                )
+                (Ok P.empty)
+                children
         MultilineString located ->
             let
                 tripleQuote = P.text "\"\"\""
@@ -1237,6 +1253,8 @@ listItemBoxDoc node =
         AlignedFlow ->
             Just (makePDoc AlignedFlow children)
         PrefixGlue _ ->
+            Just (makePDoc (lpnBox node) children)
+        Glue ->
             Just (makePDoc (lpnBox node) children)
         EmptyBracketed _ ->
             Just (makePDoc (lpnBox node) children)

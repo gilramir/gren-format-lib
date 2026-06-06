@@ -193,6 +193,22 @@ buildNestedOpAndRhs operandNodesList ops =
                     firstOperandNodes ++ [lpnNode OpAndRhs ([opNode] ++ innerNested)]
 
 
+{-| True when a postfix accessor on this expression must be glued after a
+closing bracket rather than mapped onto the last text leaf: a parenthesized
+expression, a record literal, a record update — or an access chain ending in
+one (`(f x).a.b`). These are exactly the non-variable shapes the parser's
+`accessible` accepts a `.field` suffix on.
+-}
+accessBaseIsBracketed : Src.Expression -> Bool
+accessBaseIsBracketed locExpr =
+    when locExpr.value is
+        Src.Parens _ -> True
+        Src.Record _ -> True
+        Src.Update _ -> True
+        Src.Access { expression = inner } -> accessBaseIsBracketed inner
+        _ -> False
+
+
 {-| Recursively convert a Gren expression into LPT nodes.
 
 Returns the top-level nodes for this expression. The caller is responsible
@@ -264,14 +280,24 @@ insertExpression locExpr =
         Src.Access { expression = expression, accessor = accessor } ->
             insertExpression expression
                 |> Result.andThen (\nodes ->
-                    when Array.popLast nodes is
-                        Nothing -> Err "Access: empty inner expression"
-                        Just { last = lastNode, initial = initialNodes } ->
-                            when tryMapLastLeaf (\loc -> mkText loc.start (loc.value ++ "." ++ accessor)) lastNode is
-                                Just updated ->
-                                    Ok (Array.pushLast updated initialNodes)
-                                Nothing ->
-                                    Ok (Array.pushLast (lpnLeaf (SynthesizedText ("." ++ accessor))) nodes)
+                    if accessBaseIsBracketed expression then
+                        -- The accessor must be glued AFTER the base's closing
+                        -- bracket with no separator: mapping it onto the last
+                        -- text leaf would land it inside the bracket, and a
+                        -- flow sibling would get a space — which re-parses as
+                        -- applying the accessor *function* to the base.
+                        let dotNode = lpnLeaf (mkText expression.end ("." ++ accessor))
+                        in
+                        Ok [lpnNode Glue (Array.pushLast dotNode nodes)]
+                    else
+                        when Array.popLast nodes is
+                            Nothing -> Err "Access: empty inner expression"
+                            Just { last = lastNode, initial = initialNodes } ->
+                                when tryMapLastLeaf (\loc -> mkText loc.start (loc.value ++ "." ++ accessor)) lastNode is
+                                    Just updated ->
+                                        Ok (Array.pushLast updated initialNodes)
+                                    Nothing ->
+                                        Ok (Array.pushLast (lpnLeaf (SynthesizedText ("." ++ accessor))) nodes)
                 )
 
         Src.Parens expression ->
