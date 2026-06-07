@@ -461,8 +461,10 @@ transform inputValues =
     let
         addOne =
             (+) 1
+
         doubleThenIncrement =
             ((*) 2) >> addOne
+
         decrementThenHalve =
             addOne << negate << (\n -> n // 2)
     in
@@ -531,6 +533,7 @@ fold reducerFunction initialAccumulatorValue currentTreeNode =
             let
                 accumulatorAfterLeft =
                     fold reducerFunction initialAccumulatorValue leftSubtree
+
                 accumulatorAfterCurrentValue =
                     reducerFunction headValue accumulatorAfterLeft
             in
@@ -582,6 +585,7 @@ traverseDeeply rootTree =
                     let
                         leftCollected =
                             gatherNames leftSubtreeOfNames
+
                         rightCollected =
                             gatherNames rightSubtreeOfNames
                     in

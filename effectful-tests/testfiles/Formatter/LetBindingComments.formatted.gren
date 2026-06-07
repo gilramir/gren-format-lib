@@ -10,6 +10,7 @@ single x =
     let
         first =
             x + 1
+
         {- standalone single-line block comment -}
         second =
             first + 1
@@ -21,6 +22,7 @@ multi x =
     let
         first =
             x + 1
+
         {- standalone
            multi-line
            block comment -}

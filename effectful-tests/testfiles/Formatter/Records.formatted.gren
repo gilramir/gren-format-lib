@@ -30,6 +30,7 @@ distSq a b =
         -- Differences in each axis
         dx =
             a.x - b.x
+
         dy =
             a.y - b.y
     in

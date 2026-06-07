@@ -179,6 +179,7 @@ letExample input =
         firstBinding =
             computeFirstThing input withAnExtraArgument andYetAnotherArgument
                 toReachTheBoundary
+
         secondBinding =
             computeSecondThing firstBinding
     in

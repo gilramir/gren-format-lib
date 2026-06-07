@@ -9,6 +9,7 @@ circleArea radius =
     let
         pi =
             3.14159
+
         rSquared =
             radius * radius
     in
@@ -21,6 +22,7 @@ initials first last =
     let
         f =
             String.left 1 first
+
         l =
             String.left 1 last
     in

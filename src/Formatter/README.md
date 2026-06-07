@@ -913,6 +913,7 @@ circleArea radius =
     let
         pi =
             3.14159
+
         rSquared =
             radius * radius
     in
@@ -935,26 +936,46 @@ hypotenuse x y =
     square x + square y
 ```
 
-Blank lines between bindings are *gap-driven* (unlike top-level declarations,
-which always get two forced blank lines): wherever you left a gap, the formatter
-keeps one blank line, and any run of two or more blanks is normalized down to
-one; bindings you wrote with no blank between them stay tight. The formatter
-never inserts a blank where you didn't write one. A comment on its own line
-between two bindings is measured as its own line, so a comment sitting directly
-against the next binding does not introduce a blank:
+Exactly **one** blank line separates bindings — forced, just like the two blank
+lines between top-level declarations (but one, not two): whether you wrote zero
+blank lines or five, each binding gets exactly one blank above it. And just like
+a top-level function group, the unit stays together: a type signature sits
+directly on its definition, and a comment sticks to the binding below it — the
+blank goes above the comment:
 
 ```gren
+-- you wrote:
+let
+    first =
+        a
+    second : Int
+    second =
+        b
+    -- a note about third
+    third =
+        c
+in
+first + second + third
+
+-- formats to:
 let
     first =
         a
 
-    -- one authored blank above is kept as one
+    second : Int
     second =
         b
+
+    -- a note about third
     third =
         c
 in
+first + second + third
 ```
+
+Unlike the top level, a comment in a `let` never floats apart from the code: a
+blank line between a comment and the binding below it is removed, so the
+comment always joins that binding (with the forced blank above the pair).
 
 The body starts on the next line however large or small the value is — a
 multi-line construct simply continues from there:
@@ -1001,17 +1022,14 @@ bb point
 
 A function written in a `let` and one written at the top level follow the
 same core rules — type signatures (always directly above the definition, with no
-blank line between them) and the same body rule (the body always drops to the
-next line) — but the two aren't yet exactly identical. The
-difference is in the blank lines between them:
+blank line between them), the same body rule (the body always drops to the
+next line), and forced blank lines between neighbours no matter what you wrote.
+The one remaining difference is the *amount* of space:
 
-- **At the top level it's forced.** Every declaration gets exactly **two** blank
-  lines before it, no matter what you wrote — the formatter adds them even if you
-  left none.
-- **Inside a `let` it's gap-driven.** The formatter never invents a blank line;
-  it only keeps a blank where you wrote one, normalized to a single line.
-  (Bindings you wrote packed together stay packed.) Two forced blank lines would
-  feel like a lot in an indented block like a `let` body.
+- **At the top level** every declaration gets exactly **two** blank lines
+  before it.
+- **Inside a `let`** every binding gets exactly **one**. Two forced blank lines
+  would feel like a lot in an indented block like a `let` body.
 
 ---
 

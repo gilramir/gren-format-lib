@@ -10,7 +10,7 @@ sitting between two `when` cases (`insertWhenBlankLines`).
 -}
 
 import Formatter.LogicalPrintingTree exposing (LPBox(..), SyntaxType(..), lpnNode,
-    LPNode(..), lpnBox, lpnChildren, lpnLeaf, lpnMinRow, lpnMaxRow, lpnReplaceChildren)
+    LPNode(..), lpnBox, lpnChildren, lpnLeaf, lpnReplaceChildren)
 
 
 isCommentStype : SyntaxType -> Bool
@@ -237,13 +237,49 @@ isInKeyword node =
         _ -> False
 
 
+-- True if a node is an own-line comment sibling in a `let` binding span.
+-- A comment sticks to the binding below it: the blank goes above the comment
+-- run, never between the comments and the binding — mirroring how a leading
+-- comment joins its declaration's unit at the top level.
+isLetCommentNode : LPNode -> Bool
+isLetCommentNode node =
+    when lpnBox node is
+        SingleLineComment _ -> True
+        BlockComment _ -> True
+        _ -> False
+
+
+-- True if a node is a let-level type signature: the `IndentedBlock` built by
+-- `folderInsertLetDef` for `name : Type`, recognised by the synthesized `:`
+-- inside its `AcrossThenIndent`. A binding's header carries a synthesized `=`
+-- instead, so the `:` is unambiguous here.
+isLetSignature : LPNode -> Bool
+isLetSignature node =
+    when lpnBox node is
+        IndentedBlock ->
+            when Array.first (lpnChildren node) is
+                Just inner ->
+                    when lpnBox inner is
+                        AcrossThenIndent ->
+                            Array.any
+                                (\c ->
+                                    when lpnBox c is
+                                        SynthesizedText v -> v == ":"
+                                        _ -> False
+                                )
+                                (lpnChildren inner)
+                        _ -> False
+                Nothing -> False
+        _ -> False
+
+
 -- Within one node's children, find the `let … in` binding span (the nodes
 -- strictly between the direct `let` and `in` leaves) and insert a single
--- `EmptyLine` marker before any binding/comment node the author separated from
--- its predecessor with a source-row gap. Any run of blank lines normalises to
--- exactly one; adjacent bindings stay adjacent. Gaps are measured *around*
--- comment nodes (a comment alone in a gap is not a blank line), which is what
--- keeps the result idempotent.
+-- `EmptyLine` marker before every binding unit, no matter what the author
+-- wrote — mirroring the top level's forced spacing (but one blank, not two).
+-- A unit is an optional run of own-line comments, an optional type signature,
+-- and the binding itself; nothing inside a unit is separated. The first unit
+-- (directly under `let`) gets no blank.
 --
 -- Only direct children are inspected, so a nested let's own `let`/`in` markers
 -- (which live deeper in the subtree) are not seen here — those are handled when
@@ -257,53 +293,49 @@ insertBlanksInLetFlow children =
                     if isLetKeyword child then
                         { out = Array.pushLast child acc.out
                         , inLet = True
-                        , prevMaxRow = -1
+                        , prevSticky = True
                         }
                     else if isInKeyword child then
                         { out = Array.pushLast child acc.out
                         , inLet = False
-                        , prevMaxRow = -1
+                        , prevSticky = True
                         }
                     else if acc.inLet then
                         let
-                            curMin = lpnMinRow child
-                            curMax = lpnMaxRow child
-                            hasGap =
-                                acc.prevMaxRow >= 0
-                                    && curMin >= 0
-                                    && curMin > acc.prevMaxRow + 1
                             out2 =
-                                if hasGap then
+                                if acc.prevSticky then
+                                    Array.pushLast child acc.out
+                                else
                                     acc.out
                                         |> Array.pushLast (lpnLeaf EmptyLine)
                                         |> Array.pushLast child
-                                else
-                                    Array.pushLast child acc.out
                         in
                         { out = out2
                         , inLet = True
-                        , prevMaxRow =
-                            if curMax >= 0 then curMax else acc.prevMaxRow
+                        -- A comment or signature glues the next child to
+                        -- itself; after a binding, the next unit starts with
+                        -- a blank.
+                        , prevSticky = isLetCommentNode child || isLetSignature child
                         }
                     else
                         { acc | out = Array.pushLast child acc.out }
                 )
-                { out = [], inLet = False, prevMaxRow = -1 }
+                { out = [], inLet = False, prevSticky = True }
                 children
     in
     result.out
 
 
-{-| Insert single blank-line `EmptyLine` markers between `let` bindings the
-author separated with one or more blank lines, normalising any run of blanks to
-exactly one — mirroring the top level's gap-driven spacing (but always one
-blank, never the top level's two). Bindings written adjacent stay adjacent.
+{-| Insert single blank-line `EmptyLine` markers between `let` bindings —
+always exactly one, whether or not the author wrote any, mirroring the top
+level's forced spacing (but one blank, never the top level's two). A type
+signature stays glued to its definition, and a run of own-line comments stays
+glued to the binding below it, exactly like a top-level function group.
 
 Recurses over the whole tree, acting on every `let … in` binding span it finds.
 Runs *after* `Formatter.Comments`, so comment nodes already sit in the binding
-sequence as their own nodes and gaps are measured around them — see
-`insertBlanksInLetFlow`. Rebuilds via `lpnReplaceChildren` so bracket-extent
-caches survive.
+sequence as their own nodes — see `insertBlanksInLetFlow`. Rebuilds via
+`lpnReplaceChildren` so bracket-extent caches survive.
 -}
 insertLetBlankLines : LPNode -> LPNode
 insertLetBlankLines node =
