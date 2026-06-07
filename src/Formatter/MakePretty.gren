@@ -240,7 +240,23 @@ unhandled box construct.
 makePrettyResult : LPNode -> Result String String
 makePrettyResult root =
     let
-        prettyLines = Array.map makePrettyLine (lpnChildren root)
+        -- Strip trailing whitespace from each rendered root child before the
+        -- newline join. A child is one top-level item and never legitimately
+        -- ends in whitespace — vertical spacing between items comes entirely
+        -- from `EmptyLine` children, and the join supplies the separators. The
+        -- one way a child *can* end in whitespace is the artifact where a
+        -- multi-line block comment is the last node of a flow (claimed as a
+        -- declaration's trailing comment): `buildFlowDoc` appends a terminating
+        -- `hardNl` to end the comment's line — needed when another node
+        -- follows, spurious when none does — which inside the flow's `+4` nest
+        -- re-emits the indent as a trailing-whitespace line. Trimming here
+        -- removes it without disturbing the load-bearing hardNl for non-last
+        -- comments. (Multi-line string interiors are never the trailing chars
+        -- of a child — the closing `"""` is — so their spacing is untouched.)
+        prettyLines =
+            Array.map
+                (\node -> Result.map String.trimRight (makePrettyLine node))
+                (lpnChildren root)
     in
     joinResultStrings "\n" prettyLines
 

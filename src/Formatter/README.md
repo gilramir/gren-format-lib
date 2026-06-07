@@ -2010,13 +2010,15 @@ without comments has none of these issues.
    two files differing only in comment spacing can format differently — so it
    shares a border with the genuine gaps above.
 
-5. **A small, fully-triaged tail remains.** Automated testing that injects line
-   breaks into unusual spots once flagged a tail of cases; these have now been
-   sorted out. Two were real formatter bugs and are fixed: a wrapped `infix`
-   declaration that left a stray blank line below it, and a line break *inside*
-   a record type or parentheses in a signature that wrongly flipped the whole
-   signature to multi-line (only a break between the `->` parts should). What
-   is left divides cleanly:
+5. **The tail is fully triaged, with no open formatter bugs.** Automated
+   testing that injects line breaks into unusual spots once flagged a tail of
+   cases; these have all been sorted out. Three were real formatter bugs and
+   are fixed: a wrapped `infix` declaration that left a stray blank line below
+   it; a line break *inside* a record type or parentheses in a signature that
+   wrongly flipped the whole signature to multi-line (only a break between the
+   `->` parts should); and a multi-line `{- … -}` comment attached to the
+   declaration above it leaving a trailing-whitespace line behind it. What
+   remains are two known placement effects, not bugs:
    - **Blank lines around a keyword-led declaration** (`import`, `type`,
      `port`, …) can shift, because the parser records the declaration's name
      row, not its keyword row (point 1's cause). Waits on
@@ -2024,10 +2026,6 @@ without comments has none of these issues.
    - **A comment beside a position-less token** (`exposing`, the `port`/effect
      `where` keywords) can re-home when nearby spacing moves that token's row —
      the same missing-position cause as points 2 and 3.
-   - One genuine open case: a free-standing multi-line `{- … -}` comment between
-     two imports re-indents its body to follow a perturbed opening column,
-     instead of from its own structure as everywhere else. Tracked for future
-     work.
 
-   The whitespace fuzzer now marks the first two as **accepted** (with the
-   reason) so only the genuine open case is reported.
+   The whitespace fuzzer marks both of these as **accepted** (with the reason),
+   so all three of its modes now pass with nothing left to report.

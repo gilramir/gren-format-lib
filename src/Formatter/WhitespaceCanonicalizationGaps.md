@@ -580,11 +580,37 @@ Accepted (known limitations, flagged with reason, no longer fail the run):
 
 Result: `newline` PASS (0 drift, 77 accepted), `stretch` PASS (0 drift, 1
 accepted — the long-standing `EffectModuleFxWhereComment`), `indent` 1 genuine
-drift left:
-- **Open:** a free-standing multi-line `{- … -}` between two imports re-indents
-  its body to follow a perturbed opener column (MultilineBlockComments
-  gap@624), instead of from its own structure as the B fix does everywhere
-  else. The B fix doesn't reach the top-level free-floating-comment path.
-  Tracked for future work.
+drift left (fixed below).
 
-Gates after this work: effectful 315/0, idempotency 0 gaps.
+## 2026-06-07 (cont.) — the last `indent` finding closed; all three modes PASS
+
+The remaining `indent` finding (`MultilineBlockComments` gap@624) decomposed
+into two independent things, both now handled:
+
+- **Real bug — trailing-whitespace line (fixed).** A *multi-line* block comment
+  that is the last node of a flow (claimed as a declaration's trailing comment,
+  via the `columnClaim` rule — general, not import-specific; reproduced under a
+  function body too) left a trailing-whitespace line behind it. Cause:
+  `buildFlowDoc` appends a terminating `P.hardNl` after a multi-line/standalone
+  block comment (needed to end its line when another node follows, spurious
+  when none does); inside the flow's `+4` nest that final break re-emits the
+  indent. Fix: `makePrettyResult` now `String.trimRight`s each rendered root
+  child before the newline join — a root child is one top-level item and never
+  legitimately ends in whitespace (inter-item spacing is `EmptyLine` children +
+  the join), and a multi-line string's trailing char is its closing `"""`, so
+  interiors are untouched. Fixture `ClaimedMultilineComment`. Single-line
+  trailing block comments glue inline and were always clean.
+- **By design — the placement flip (fuzzer taught to recognise it).** A comment
+  indented deeper than the declaration above it is *claimed* as that
+  declaration's trailing comment (`columnClaim`: claimed iff `col >=
+  prev-line-col` AND `col > next-item-col`); at column 1 it is a standalone
+  top-level comment. That is the documented "indentation = intent" rule, so an
+  indent perturbation crossing the threshold is a placement-intent change, not
+  drift. `comment_fingerprint` gained `adjacent_claim`, returning the two
+  threshold relations for an own-line comment directly below a non-blank line;
+  a perturbation that flips either is discarded as comment-placement. (The
+  existing `claim_rel` only modelled the synth-led `=`/`|`/`|>` sub-case.)
+
+Final gates: effectful 318/0, idempotency 0 gaps, **whitespace newline PASS /
+stretch PASS / indent PASS** (all three modes green; accepted findings reported
+with reasons but non-failing).

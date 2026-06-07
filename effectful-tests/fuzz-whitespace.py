@@ -200,13 +200,49 @@ def comment_fingerprint(src):
         ref = second_col - (len(tok) + 1)
         return (comment_start - ls) >= ref
 
+    def adjacent_claim(comment_start, comment_end):
+        # The general adjacent-below column claim (Comments.gren `columnClaim`):
+        # an own-line comment *directly* below a construct (no blank line
+        # between) is claimed as that construct's trailing comment when its
+        # column is at-or-deeper than the line above AND strictly deeper than
+        # the next item's column. A whitespace perturbation that moves the
+        # comment across either threshold flips the claim — a placement intent
+        # change the formatter rightly reflects — so the variant is discarded
+        # rather than reported as drift. Returns the pair of threshold
+        # relations, or None when the claim can't apply (not own-line, no
+        # construct directly above, or a blank line above detaches it).
+        ls = src.rfind("\n", 0, comment_start) + 1
+        if src[ls:comment_start].strip() != "":
+            return None  # not own-line
+        if ls == 0:
+            return None
+        ps = src.rfind("\n", 0, ls - 1) + 1
+        prev = src[ps : ls - 1]
+        if prev.strip() == "":
+            return None  # blank line above detaches the comment
+        prev_col = len(prev) - len(prev.lstrip())
+        comment_col = comment_start - ls
+        # Next item's column: the first non-blank line at or after the comment's
+        # end (the perturbations here never touch following lines, so this is a
+        # stable reference). Default 0 (column 1) past the last item.
+        next_col = 0
+        k = src.find("\n", comment_end)
+        while k != -1:
+            le = src.find("\n", k + 1)
+            line = src[k + 1 :] if le == -1 else src[k + 1 : le]
+            if line.strip() != "":
+                next_col = len(line) - len(line.lstrip())
+                break
+            k = le
+        return (comment_col >= prev_col, comment_col > next_col)
+
     while i < n:
         two = src[i : i + 2]
         three = src[i : i + 3]
         if two == "--":
             j = src.find("\n", i)
             end = n if j == -1 else j
-            fps.append((src[i:end].rstrip(), shares_line(i), claim_rel(i)))
+            fps.append((src[i:end].rstrip(), shares_line(i), claim_rel(i), adjacent_claim(i, end)))
             i = end
             last_code = i  # a following comment shares this comment's line
             continue
@@ -223,7 +259,7 @@ def comment_fingerprint(src):
                         break
                 else:
                     i += 1
-            fps.append((src[start:i], shares_line(start), claim_rel(start)))
+            fps.append((src[start:i], shares_line(start), claim_rel(start), adjacent_claim(start, i)))
             last_code = i  # a following comment shares this comment's line
             continue
         if three == '"""':

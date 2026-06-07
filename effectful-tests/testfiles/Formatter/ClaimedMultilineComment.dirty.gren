@@ -1,0 +1,16 @@
+module ClaimedMultilineComment exposing (..)
+
+
+import Dict
+    {- this multi-line block comment is indented deeper than the import,
+       so it is claimed as the import's trailing comment; it must not
+       leave a trailing-whitespace line behind it -}
+import String
+
+
+foo =
+    1
+    {- a multi-line block comment claimed as a function body's trailing
+       comment must also leave no trailing-whitespace line -}
+bar =
+    2
