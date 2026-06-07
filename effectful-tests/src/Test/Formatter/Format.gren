@@ -238,6 +238,8 @@ expressionTests fsPerm =
         , assertPretty fsPerm "multi-line string opened mid-line aligns content to opening column" "MultilineStringInline"
         , assertPretty fsPerm "let-binding type signature is preserved; every binding drops its body to the next line" "LetBindingSignature"
         , assertPretty fsPerm "one blank line is forced between let bindings regardless of authored blanks; a comment or signature sticks to the binding below it" "LetBlankLines"
+        , assertPretty fsPerm "a wrapped infix declaration leaves no phantom row gap below it" "InfixWrapped"
+        , assertPretty fsPerm "only a break between -> parts makes a signature multi-line; breaks inside a record type or parens do not" "SignatureSegmentBreaks"
         , assertPretty fsPerm "two blank lines are forced before every top-level declaration unit (function/alias/union/port), regardless of authored blanks; the unit begins at its doc comment, else signature, else declaration" "ForcedDeclBlankLines"
         , assertPretty fsPerm "float literals round-trip (decimal stays decimal, scientific stays scientific)" "FloatLiterals"
         , assertPretty fsPerm "as-pattern inside record-field destructure keeps its parens" "RecordFieldAsPattern"

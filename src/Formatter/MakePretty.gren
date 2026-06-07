@@ -70,7 +70,8 @@ import Compiler.SourcePosition exposing (Located)
 
 import Formatter.LogicalPrintingTree exposing (LPBox(..),
     LPNode, ListBrackets(..), SyntaxType(..),
-    lpnBox, lpnChildren, lpnNode, firstRowInSubtree, lpnMaxRow, lpnLastPos)
+    lpnBox, lpnChildren, lpnNode, firstRowInSubtree, lpnMaxRow, lpnLastPos,
+    lpnBracketStart)
 import Formatter.LPTJson exposing (lptToJson)
 import Formatter.LPTHelpers exposing (binopPrecedence, binopMinPrecedence)
 
@@ -1747,8 +1748,13 @@ splitSignatureSegments nodes =
 
 -- A segment's first content row, ignoring its leading `->` (which is anchored
 -- at the *previous* segment's end, not where its own type sits). Used for
--- "signal B": if consecutive segments start on different rows the author wrote
--- the signature across lines, so it stays one-segment-per-line.
+-- "signal B" (see `segmentsBrokenAtBoundary`).
+--
+-- A segment that begins with a bracketed type (`{ … }`, `( … )`) starts where
+-- its *opening bracket* sits, not at its first inner token: the bracket has no
+-- leaf in the tree, so `firstRowInSubtree` alone would report the row of the
+-- first field — and a line break just inside the bracket would masquerade as a
+-- break between `->` segments, flipping the whole signature to multi-line.
 segContentFirstRow : Array LPNode -> Int
 segContentFirstRow seg =
     Array.foldl
@@ -1756,12 +1762,62 @@ segContentFirstRow seg =
             if isArrowLeaf node then
                 acc
             else
-                let r = firstRowInSubtree node
+                let
+                    leafRow = firstRowInSubtree node
+                    r =
+                        when lpnBracketStart node is
+                            Just open ->
+                                if leafRow < 0 then open.row else min open.row leafRow
+                            Nothing ->
+                                leafRow
                 in
                 if acc < 0 then r else min acc r
         )
         -1
         seg
+
+
+-- A segment's last content row, ignoring arrows (a following segment's `->`
+-- is anchored at THIS segment's end and lives in the next segment's array).
+segContentLastRow : Array LPNode -> Int
+segContentLastRow seg =
+    Array.foldl
+        (\node acc ->
+            if isArrowLeaf node then
+                acc
+            else
+                max acc (lpnMaxRow node)
+        )
+        -1
+        seg
+
+
+-- "Signal B" for signatures: the author wrote the signature across lines iff
+-- some segment *starts* on a row below the previous segment's *last* row —
+-- i.e. there is a line break BETWEEN two `->` parts. A break inside one
+-- segment (inside a `{ … }` record, inside `( … )` parens, or between a type
+-- and its argument) does not count: only a boundary break makes the signature
+-- multi-line, matching the documented rule.
+segmentsBrokenAtBoundary : Array (Array LPNode) -> Bool
+segmentsBrokenAtBoundary segments =
+    let
+        folded =
+            Array.foldl
+                (\seg acc ->
+                    let
+                        first = segContentFirstRow seg
+                        last = segContentLastRow seg
+                    in
+                    { broken =
+                        acc.broken
+                            || (acc.prevLast >= 0 && first >= 0 && first > acc.prevLast)
+                    , prevLast = if last >= 0 then last else acc.prevLast
+                    }
+                )
+                { broken = False, prevLast = -1 }
+                segments
+    in
+    folded.broken
 
 
 {-| Render a function/port signature with the author's one-line-vs-multi-line
@@ -1812,7 +1868,7 @@ makeSignaturePrettyDoc children =
             let
                 segments = splitSignatureSegments colonSplit.typeNodes
                 forceVertical =
-                    rowsSpanMultiple (Array.map segContentFirstRow segments)
+                    segmentsBrokenAtBoundary segments
 
                 segDocsResult =
                     traverseArray (buildFlowDoc 0) segments

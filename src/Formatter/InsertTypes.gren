@@ -9,7 +9,8 @@ import Compiler.Ast.Source as Src
 import Compiler.SourcePosition exposing (Located, Position)
 
 import Formatter.LogicalPrintingTree exposing (LPBox(..),
-    LPNode(..), ListBrackets(..), lpnBox, lpnChildren, lpnLeaf, lpnNode, lpnBracketNode)
+    LPNode(..), ListBrackets(..), lpnBox, lpnChildren, lpnLeaf, lpnNode, lpnBracketNode,
+    lpnWithBracketStart)
 import Formatter.LPTHelpers exposing
     ( mkText, mkZeroWidthText, mkTextFromLocString, resultFoldl, fixupParensChildrenNodes
     , itemsSpanRows
@@ -30,6 +31,11 @@ makeSignatureBranch locType =
         Src.TParens inParenType ->
             makeSignatureBranch inParenType
                 |> Result.andThen fixupParensChildrenNodes
+                -- Record where the `(` sits (locType.start): the paren has no
+                -- leaf of its own, so without this a type that starts with a
+                -- `(` looks like it begins at its first inner token's row.
+                -- `segContentFirstRow` reads it; see `lpnBracketStart`.
+                |> Result.map (Array.map (lpnWithBracketStart locType.start))
 
         -- e.g.:
         -- String => name = String
@@ -132,7 +138,14 @@ makeSignatureBranch locType =
                                             else
                                                 AllAcrossOrAllVertical ListCurly
                                     in
-                                    [lpnBracketNode recordBox locType.end fieldNodes]
+                                    -- `locType.start` is the opening `{`, which
+                                    -- has no leaf of its own — record it so a
+                                    -- signature segment beginning with this
+                                    -- record reads its true start row. See
+                                    -- `lpnBracketStart`.
+                                    [lpnBracketNode recordBox locType.end fieldNodes
+                                        |> lpnWithBracketStart locType.start
+                                    ]
                                 Just locVar ->
                                     -- Extensible record type: render with the
                                     -- same layout as a record update, so `|` and
@@ -146,5 +159,6 @@ makeSignatureBranch locType =
                                             }
                                         )
                                         fieldNodes
+                                        |> lpnWithBracketStart locType.start
                                     ]
                 )

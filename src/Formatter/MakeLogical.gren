@@ -679,7 +679,12 @@ processInfixDecl locInfix root =
         precNode = lpnLeaf (SynthesizedText (String.fromInt infix_.precedence))
         opNode = lpnLeaf (SynthesizedText ("(" ++ infix_.symbol ++ ")"))
         eqNode = lpnLeaf (SynthesizedText "=")
-        fnNode = lpnLeaf (SynthesizedText infix_.fn)
+        -- Anchor the trailing fn name zero-width at the declaration's end so
+        -- the OriginalRows row range covers an input decl that wraps across
+        -- rows. With every inner token synthesized, the range would otherwise
+        -- collapse to the keyword's row, and the blank-line pass would see a
+        -- phantom gap below a wrapped decl (a spurious blank on reformat).
+        fnNode = lpnLeaf (mkZeroWidthText locInfix.end infix_.fn)
         allChildren = [keywordNode, assocNode, precNode, opNode, eqNode, fnNode]
         origRow = makeOrigRows locInfix.start.row StInfixDecl allChildren
     in

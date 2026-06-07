@@ -1,0 +1,22 @@
+module SignatureSegmentBreaks exposing (..)
+
+
+-- A break inside a record type does not make the signature multi-line:
+-- only a break between the `->` parts does.
+makePoint : Int -> Int -> { x : Int, y : Int }
+makePoint x y =
+    { x = x, y = y }
+
+
+-- A break inside parens does not either.
+parened : (Int -> Int) -> Int
+parened f =
+    f 1
+
+
+-- A break between `->` parts keeps the signature one-segment-per-line.
+keptMultiLine :
+    Int
+    -> { x : Int, y : Int }
+keptMultiLine n =
+    { x = n, y = n }

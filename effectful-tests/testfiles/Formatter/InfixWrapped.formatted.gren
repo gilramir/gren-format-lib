@@ -1,0 +1,15 @@
+module InfixWrapped exposing (..)
+
+-- An infix declaration wrapped across input rows must not leave a phantom
+-- row gap below it (the row range used to collapse to the keyword's row,
+-- inserting a spurious blank before the next adjacent declaration).
+infix left 6 (+) = add
+infix left 6 (-) = sub
+
+
+add a b =
+    a
+
+
+sub a b =
+    b

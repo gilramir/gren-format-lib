@@ -278,6 +278,7 @@ type LPNode
         , maxRow : Int
         , lastBracketEnd : Maybe Position
         , bracketEndExact : Bool
+        , bracketStart : Maybe Position
         }
 
 
@@ -356,6 +357,29 @@ lpnBracketEndExact : LPNode -> Bool
 lpnBracketEndExact node =
     when node is
         LPNode r -> r.bracketEndExact
+
+
+{-| The exact source position of this container's *opening* bracket, when the
+builder recorded one (`lpnWithBracketStart`), or `Nothing`. Unlike the row/pos
+bounds this is a property of the node itself, not aggregated from children.
+
+The opening bracket has no leaf of its own in the tree, so a container whose
+first item dropped to the next input row looks like it *starts* on that row.
+`MakePretty.segContentFirstRow` uses this to read a signature segment's true
+start row (`-> { ⏎ x : Int }` begins at the `{`, not the field), so a break
+inside the braces doesn't masquerade as a break between `->` segments.
+-}
+lpnBracketStart : LPNode -> Maybe Position
+lpnBracketStart node =
+    when node is
+        LPNode r -> r.bracketStart
+
+
+{-| Record `openStart` as the node's opening-bracket position. -}
+lpnWithBracketStart : Position -> LPNode -> LPNode
+lpnWithBracketStart openStart node =
+    when node is
+        LPNode r -> LPNode { r | bracketStart = Just openStart }
 
 
 lpnLeaf : LPBox -> LPNode
@@ -443,6 +467,7 @@ lpnNode box children =
         , maxRow = merged.maxRow
         , lastBracketEnd = bracketEnd
         , bracketEndExact = bracketExact
+        , bracketStart = Nothing
         }
 
 
@@ -478,11 +503,21 @@ lpnReplaceChildren old newChildren =
     let
         rebuilt = lpnNode (lpnBox old) newChildren
     in
+    let
+        -- The opening-bracket position (like the closing one) lives on the
+        -- node, not its children, so a rebuild must carry it over.
+        withStart =
+            when lpnBracketStart old is
+                Nothing ->
+                    rebuilt
+                Just oldStart ->
+                    lpnWithBracketStart oldStart rebuilt
+    in
     when lpnLastBracketEnd old is
         Nothing ->
-            rebuilt
+            withStart
         Just oldEnd ->
-            when rebuilt is
+            when withStart is
                 LPNode r ->
                     LPNode
                         { r
