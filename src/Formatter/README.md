@@ -1373,6 +1373,52 @@ The trade-off is that a verbatim body's whitespace is *not* canonicalized — se
 the note under
 [whitespace canonicalization gaps](#a-multi-line-block-comments-body-is-kept-verbatim).
 
+#### Comments in an effect module's header
+
+The effect module header that appeared above deserves a closer look, because
+it is the one place where the *amount of space* before a comment can change
+which home the comment gets. The reason: the parser tells the formatter the
+exact position of only one thing in the whole `where { … }` block — the
+handler name (`MyCmd` below). The `where`, the braces, `command`, the `=`, and
+the `exposing` after the block carry no recorded position, so the formatter
+redraws them from scratch and cannot tell which of them a comment was next to.
+The only signal left is how close the comment sits to the handler name. Right
+next to it, it reads as a trailing remark on the name and stays with it:
+
+```gren
+-- you wrote:
+effect module MyModule where { command = MyCmd {- note -} } exposing (..)
+
+-- formats to:
+effect module MyModule where
+    { command = MyCmd {- note -}
+    } exposing (..)
+```
+
+Widen the gap — same line, nothing else changed — and the comment no longer
+reads as attached to the name, so it lands below the module line instead:
+
+```gren
+-- you wrote (only more spaces before the comment):
+effect module MyModule where { command = MyCmd      {- note -} } exposing (..)
+
+-- formats to:
+effect module MyModule where { command = MyCmd } exposing (..)
+
+{- note -}
+```
+
+The `}` itself plays no part: a far-from-the-name comment *inside* the braces
+and a comment *after* the closing brace format exactly the same way, because
+the brace is one of the pieces the formatter cannot see. Ordinary `module` and
+`port module` lines don't have this problem — everything a comment can sit
+next to there has a known position, or one the formatter can work out (in
+`module Foo exposing (…)` the `exposing` always starts right after the module
+name, so its place is known even though the parser doesn't record it; in an
+effect module the `where { … }` block of unknown width sits in between, so it
+isn't). This stays as-is until the parser records the missing positions; it is
+imperfection 2 in the [summary](#summary-known-imperfections).
+
 ### Doc comments (`{-| ... -}`)
 
 A doc comment sits directly above the declaration it documents, with no blank
@@ -1888,7 +1934,8 @@ without comments has none of these issues.
    by how close it happens to sit to the constructor. Widen the gap and it
    lands somewhere else. Every fix we've found makes something else worse, so
    this stays as-is until the parser records those positions. (Effect modules
-   are rare, so few files can hit this.)
+   are rare, so few files can hit this.) See
+   [Comments in an effect module's header](#comments-in-an-effect-modules-header).
 
 3. **Some comment placements collapse into one.** A comment beside an
    invisible symbol — `=`, `:`, `|`, an import's `as` — always snaps to one
