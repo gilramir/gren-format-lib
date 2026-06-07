@@ -1004,8 +1004,12 @@ in
 model
 ```
 
-A destructure of a constructor with a payload, or an `as`-alias, is wrapped in
-parentheses — the same two forms that take parens as function arguments:
+A binding can also unwrap a single-constructor value (`Builder bb` names the
+payload carried inside a `Builder`) or name both the whole value and a piece
+of it (`{ y } as point` binds the field `y` *and* names the whole record
+`point`). Both forms are wrapped in parentheses — the same two forms that take
+parens as function arguments (see
+[Patterns as arguments](#patterns-as-arguments) for why the parens matter):
 
 ```gren
 let
