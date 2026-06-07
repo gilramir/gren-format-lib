@@ -1801,7 +1801,7 @@ comments. They're documented here for completeness and tracked for future work.
 
 ## Summary: known imperfections
 
-Everything above describes what the formatter does. This is the short, honest
+Everything above describes what the formatter does. Here is the short
 list of what it does imperfectly, collected in one place, with pointers to the
 fuller explanations.
 
@@ -1912,7 +1912,3 @@ without comments has none of these issues.
    breaks into unusual spots still finds a number of cases where a comment
    shifts its home. Most are instances of point 4 doing its job; the rest are
    small, real attachment quirks tracked for future work.
-
-Separately — a parser limitation, not a formatting one: the current parser
-rejects constructor patterns with two or more argument sub-patterns (`Pair x y`
-in a `when` branch), so such files can't be formatted until they're parseable.
