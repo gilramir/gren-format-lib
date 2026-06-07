@@ -1830,6 +1830,47 @@ fixed, don't format files containing `).field`, `}.field`, or
 `Module.value.field`. Waiting on
 [compiler-common#27](https://github.com/gren-lang/compiler-common/issues/27).
 
+**A second bug can leave a formatted file the current compiler cannot parse.**
+A `when` branch whose record (or array) pattern is too wide for one line is
+sometimes wrapped like a record literal, with the commas and the closing brace
+lined up under the opening brace:
+
+```gren
+-- input
+merge cf ms1 ms2 =
+    when { aPopped = Array.popFirst ms1, bPopped = Array.popFirst ms2 } is
+        { aPopped = Just { first = m1, rest = ms1rest }, bPopped = Just { first = m2, rest = ms2rest } } ->
+            if dominates cf m1 m2 then
+                merge cf ms1 ms2rest
+
+            else
+                merge cf ms1rest ms2
+
+        _ ->
+            ms2
+
+-- the formatter wraps the wide pattern like this:
+        { aPopped = Just { first = m1, rest = ms1rest }
+        , bPopped = Just { first = m2, rest = ms2rest }
+        } ->
+```
+
+The current (Haskell-based) Gren compiler rejects that layout: inside a `when`
+branch it requires every continuation line of a pattern to be indented deeper
+than the pattern's first character, so compiling the formatted file fails
+with:
+
+```
+I was expecting to see a closing curly brace next. Try adding a } here?
+```
+
+The parser the formatter is built on accepts the layout, so the formatter's
+own checks pass. Depending on the surrounding code the formatter sometimes
+picks a deeper-indented wrap instead — which the compiler does accept — but
+it can pick this one. Once it has, the file cannot be compiled with the
+Haskell-based compiler until the pattern is rejoined onto one line (or its
+continuation lines indented deeper) by hand.
+
 Every other imperfection below is about *comments and blank lines*; code
 without comments has none of these issues.
 
