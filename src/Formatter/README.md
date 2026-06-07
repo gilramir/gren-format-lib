@@ -118,6 +118,7 @@ stays on one line when it fits:
 ```gren
 add : Int -> Int -> Int
 
+
 applyTwice : (a -> a) -> a -> a
 ```
 
@@ -192,21 +193,27 @@ short the body is:
 version =
     "1.0.0"
 
+
 answer =
     42
 
+
 handler =
     onClick
+
 
 double : Int -> Int
 double n =
     n * 2
 
+
 makePoint x y =
     { x = x, y = y }
 
+
 supportedLanguages =
     Array.keepIf (\lang -> Array.member lang preferred) allKnownLanguages
+
 
 label =
     when n is
@@ -422,6 +429,7 @@ to one line (when it fits):
 makePoint x y =
     { x = x, y = y }
 
+
 config =
     { name = "app"
     , version = 2
@@ -454,6 +462,7 @@ fields line up under it with `, `, and `}` closes on its own line:
 ```gren
 setOrigin pt =
     { pt | x = 0, y = 0 }
+
 
 movePoint dx dy pt =
     { pt
@@ -600,11 +609,13 @@ line — and never a mixture:
 allFlat =
     [ { name = "circle", sides = 0 }, { name = "tri", sides = 3 } ]
 
+
 onePerLine =
     [ { name = "circle", sides = 0 }
     , { name = "triangle", sides = 3 }
     , { name = "square", sides = 4 }
     ]
+
 
 allExpanded =
     [ { name = "circle"
@@ -696,6 +707,7 @@ A regular string is left as written, with its escape sequences intact:
 greeting =
     "Hello, World!"
 
+
 withEscapes =
     "line one\nline two\t!\\"
 ```
@@ -706,13 +718,28 @@ A character uses single quotes. The five special characters are always written
 as escapes; everything else is written as the plain character:
 
 ```gren
-tab            = '\t'
-newline        = '\n'
+tab =
+    '\t'
+
+
+newline =
+    '\n'
+
+
 carriageReturn =
     '\r'
-singleQuote    = '\''
-backslash      = '\\'
-letter         = 'a'
+
+
+singleQuote =
+    '\''
+
+
+backslash =
+    '\\'
+
+
+letter =
+    'a'
 ```
 
 ### Multi-line (triple-quoted) strings
@@ -727,6 +754,7 @@ message =
     """
     Hello, World!
     """
+
 
 poem =
     """
@@ -1050,8 +1078,10 @@ wrapped in parentheses so they keep binding the way you wrote them:
 setStatus statusCode (Response response) =
     Response { response | status = statusCode }
 
+
 update ({ model } as state) msg =
     state
+
 
 mapBox =
     \(Box value) -> value
@@ -1100,6 +1130,7 @@ further patterns, then `->`, then the body:
 double =
     \n -> n * 2
 
+
 add =
     \a b -> a + b
 ```
@@ -1142,6 +1173,7 @@ fits:
 ```gren
 result =
     list |> Array.map double |> Array.first
+
 
 result =
     String.toUpper <| String.append "Hello, " name
@@ -1246,6 +1278,7 @@ you wrote:
 ```gren
 foo =
     1 {- inline: stays on the value's line -}
+
 
 bar =
     { a = 1
