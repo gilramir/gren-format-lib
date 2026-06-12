@@ -1,0 +1,23 @@
+{
+    "type": "package",
+    "platform": "common",
+    "name": "gilramir/gren-format-lib",
+    "summary": "The Gren formatter library code",
+    "license": "BSD-3-Clause",
+    "version": "1.0.0",
+    "exposed-modules": [
+        "Formatter.PrettyPrinter",
+        "Formatter.InsertExpressions",
+        "Formatter.MakeLogical",
+        "Formatter.LPTJson",
+        "Formatter.MakePretty",
+        "Formatter.PExJson",
+        "Formatter.VerticalSpace"
+    ],
+    "gren-version": "0.6.0 <= v < 0.7.0",
+    "dependencies": {
+        "gilramir/gren-pretty-expressive": "2.0.0 <= v <3.0.0",
+        "gren-lang/core": "7.4.0 <= v <8.0.0",
+        "gren-lang/compiler-common": "local:../compiler-common"
+    }
+}
