@@ -1,0 +1,52 @@
+module Compiler.Parse.Context.Json exposing (encodeContext)
+
+{-| JSON encoding for the parse `Context`.
+
+@docs encodeContext
+
+-}
+
+import Json.Encode as Json
+import Array.Builder as Builder
+import Compiler.Parse.Context as Ctx
+import Compiler.SourcePosition as SP
+
+
+{-| Encode a `Ctx.Context` as a JSON value.
+
+Only the `comments` field is included; `indent` and `lineStart` are
+internal parser state and not meaningful after parsing completes.
+-}
+encodeContext : Ctx.Context -> Json.Value
+encodeContext ctx =
+    Json.object
+        [ { key = "comments", value = Json.array encodeLocatedComment (Builder.toArray ctx.comments) }
+        ]
+
+
+encodeLocatedComment : SP.Located Ctx.Comment -> Json.Value
+encodeLocatedComment loc =
+    let
+        typ =
+            when loc.value is
+                Ctx.Line _ -> "line"
+                Ctx.Block _ -> "block"
+        val =
+            when loc.value is
+                Ctx.Line s -> s
+                Ctx.Block s -> s
+    in
+    Json.object
+        [ { key = "type", value = Json.string typ }
+        , { key = "value", value = Json.string val }
+        , { key = "start", value = encodePosition loc.start }
+        , { key = "end", value = encodePosition loc.end }
+        ]
+
+
+encodePosition : SP.Position -> Json.Value
+encodePosition pos =
+    Json.object
+        [ { key = "row", value = Json.int pos.row }
+        , { key = "col", value = Json.int pos.col }
+        ]
