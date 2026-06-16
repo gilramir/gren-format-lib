@@ -6,7 +6,17 @@ the Gren formatter library. The formatter is consumed by:
 - `gren-format/` — the standalone `gren-format` CLI (primary consumer)
 - `compiler/` — the legacy `gren format` subcommand of the Haskell front-end
 
-All formatter source lives in `src/Formatter/`.
+All formatter source lives in `src/Formatter/`. The package also hosts three
+AST utility modules in `src/Compiler/`, moved here out of `compiler-common`
+because only the gren-format tooling uses them:
+
+- `Compiler.Ast.Compare` (`compareModules`) — semantic AST equality, used to
+  verify a format preserves meaning
+- `Compiler.Ast.Source.Json` (`encodeModule`) — JSON encoder for the source AST
+- `Compiler.Parse.Context.Json` (`encodeContext`) — JSON encoder for parse context
+
+All three are re-exposed by the package so the `gren-format` CLI and this
+package's `tests/` can import them (their module names are unchanged).
 
 ## Sibling repos (expected at `../`)
 
