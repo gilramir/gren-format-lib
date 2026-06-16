@@ -44,13 +44,13 @@ ctorPayload x =
 -- Nested constructors
 nestedCtor x =
     when x is
-        Just Just n -> n
+        Just (Just n) -> n
         _ -> 0
 
 -- Alias pattern
 aliasPat x =
     when x is
-        Just n as whole -> whole
+        (Just n) as whole -> whole
         _ -> Nothing
 
 -- Record pattern (shorthand)

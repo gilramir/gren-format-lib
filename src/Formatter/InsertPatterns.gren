@@ -69,8 +69,18 @@ insertPattern locPat =
                         asStart = { row = name.start.row, col = name.start.col - 3 }
                         asNode = lpnLeaf (mkZeroWidthText asStart "as")
                         nameNode = lpnLeaf (mkTextFromLocString name)
+                        -- The inner pattern needs parens when it is a
+                        -- constructor-with-payload: `(Just n) as whole` is the
+                        -- canonical form. Without parens, `Just n as whole`
+                        -- re-parses as `(Just) as n` with the new parser (Ctor
+                        -- no longer consumes args at the top level of `parser`).
+                        wrappedPatNodes =
+                            if argNeedsParens pat.value then
+                                [lpnNode ParenBlock patNodes]
+                            else
+                                patNodes
                     in
-                    patNodes ++ [asNode, nameNode]
+                    wrappedPatNodes ++ [asNode, nameNode]
                 )
 
         Src.PCtor { name = name, arg = arg } ->

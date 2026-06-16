@@ -19,7 +19,7 @@ describe wrappedValue =
 classify : Wrapped (Maybe Int) -> String
 classify wrappedValue =
     when wrappedValue is
-        Wrapped (Just intValue as innerJust) ->
+        Wrapped ((Just intValue) as innerJust) ->
             "just:"
                 ++ String.fromInt intValue
                 ++ "/"

@@ -25,10 +25,6 @@ import Formatter.InsertTypes exposing (makeSignatureBranch)
 
 
 {-| Returns True for the pipeline operators `|>` and `<|`.
-
-Both are right-associative in Gren, so `a OP b OP c` parses as `a OP (b OP c)`.
-We only flatten contiguous runs of the *same* operator to avoid mixing
-forward and backward pipes in one chain.
 -}
 isPipelineOp : String -> Bool
 isPipelineOp s =
@@ -37,43 +33,28 @@ isPipelineOp s =
 
 {-| Flatten a pipeline chain into `{ seed, steps }`.
 
-Walks the right spine of the chain to collect all `(op, body)` pairs in
-order. If the top-level expression is not a pipeline, returns the
-expression itself as the seed with an empty step list.
+The parser builds left-nested trees, so `a |> b |> c` is stored as
+`(a |> b) |> c`. We walk the left spine to collect all steps in order.
+If the top-level expression is not a pipeline, returns it as the seed with
+an empty step list.
 -}
 flattenPipeline : Src.Expression -> { seed : Src.Expression, steps : Array { op : Located String, body : Src.Expression } }
 flattenPipeline locExpr =
     when locExpr.value is
         Src.Binops { left = lhsExpr, operator = op, right = rhsExpr } ->
             if isPipelineOp op.value then
-                { seed = lhsExpr, steps = collectPipelineSteps op.value op rhsExpr [] }
+                let inner = flattenPipeline lhsExpr
+                in
+                if Array.isEmpty inner.steps then
+                    { seed = lhsExpr, steps = [{ op = op, body = rhsExpr }] }
+                else
+                    { seed = inner.seed
+                    , steps = Array.pushLast { op = op, body = rhsExpr } inner.steps
+                    }
             else
                 { seed = locExpr, steps = [] }
         _ ->
             { seed = locExpr, steps = [] }
-
-
-{-| Walk the right spine of a pipeline chain, collecting `(op, body)` pairs
-in order.
-
-Only continues collecting while the inner operator matches the outer one,
-so `a |> b <| c` does not collapse into a single chain.
--}
-collectPipelineSteps :
-    String
-    -> Located String
-    -> Src.Expression
-    -> Array { op : Located String, body : Src.Expression }
-    -> Array { op : Located String, body : Src.Expression }
-collectPipelineSteps opStr op body steps =
-    when body.value is
-        Src.Binops { left = innerLeft, operator = innerOp, right = innerRight } ->
-            if innerOp.value == opStr then
-                collectPipelineSteps opStr innerOp innerRight (Array.pushLast { op = op, body = innerLeft } steps)
-            else
-                Array.pushLast { op = op, body = body } steps
-        _ ->
-            Array.pushLast { op = op, body = body } steps
 
 
 {-| Render the body of a pipeline step.
@@ -107,11 +88,9 @@ insertStepBody outerOpStr body =
 
 
 {-| Flatten a non-pipeline binop chain into its operands and operators in source
-order. The parser nests binops on the right spine (`a + b * c` is
-`a +(b *(c))`, NOT precedence-resolved), so walking the right spine collects the
-operands and operators in the order they were written. Stops at a pipeline
-operator (mixed `|>`/`<|` is handled separately) or any non-binop, treating it as
-a single operand.
+order. The parser builds left-nested trees (`a + b + c` is `(a + b) + c`),
+so we walk the left spine to collect operands and operators in written order.
+Stops at a pipeline operator or any non-binop, treating it as a single operand.
 -}
 flattenBinop : Src.Expression -> { operands : Array Src.Expression, ops : Array (Located String) }
 flattenBinop locExpr =
@@ -120,10 +99,10 @@ flattenBinop locExpr =
             if isPipelineOp op.value then
                 { operands = [locExpr], ops = [] }
             else
-                let rest = flattenBinop rhs
+                let rest = flattenBinop lhs
                 in
-                { operands = [lhs] ++ rest.operands
-                , ops = [op] ++ rest.ops
+                { operands = rest.operands ++ [rhs]
+                , ops = rest.ops ++ [op]
                 }
         _ ->
             { operands = [locExpr], ops = [] }

@@ -81,7 +81,7 @@ nestedCtor x =
 -- Alias pattern
 aliasPat x =
     when x is
-        Just n as whole ->
+        (Just n) as whole ->
             whole
 
         _ ->
