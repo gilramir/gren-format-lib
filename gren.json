@@ -10,12 +10,10 @@
         "Compiler.Ast.Source.Json",
         "Compiler.Parse.Context.Json",
         "Formatter.PrettyPrinter",
-        "Formatter.InsertExpressions",
         "Formatter.MakeLogical",
         "Formatter.LPTJson",
         "Formatter.MakePretty",
-        "Formatter.PExJson",
-        "Formatter.VerticalSpace"
+        "Formatter.PExJson"
     ],
     "gren-version": "0.6.0 <= v < 0.7.0",
     "dependencies": {
