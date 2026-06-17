@@ -32,7 +32,7 @@ import tempfile
 import threading
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-GREN = os.path.join(HERE, "..", "..", "gren.sh")
+GREN_FORMAT = os.path.join(HERE, "..", "..", "gren-format", "gren-format.sh")
 MARKER = "{- ¤ -}"  # ¤ — unlikely to collide with real comment text
 
 # Each worker thread formats in its own project dir so concurrent `gren format`
@@ -132,7 +132,7 @@ def fmt(workdir, source):
     with open(path, "w") as f:
         f.write(source)
     r = subprocess.run(
-        [GREN, "format", "--show", path], capture_output=True, text=True
+        [GREN_FORMAT, "--show", path], capture_output=True, text=True
     )
     out = r.stdout
     if "FAILED TO PARSE" in (r.stdout + r.stderr) or "Could not format" in (

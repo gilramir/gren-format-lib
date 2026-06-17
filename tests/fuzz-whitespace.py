@@ -46,7 +46,7 @@ import tempfile
 import threading
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-GREN = os.path.join(HERE, "..", "..", "gren.sh")
+GREN_FORMAT = os.path.join(HERE, "..", "..", "gren-format", "gren-format.sh")
 
 # Each worker thread formats in its own project dir so concurrent `gren format`
 # invocations never write the same Fuzz.gren. Created lazily, reused across the
@@ -989,7 +989,7 @@ def run_format(workdir, source, flag):
     with open(path, "w") as f:
         f.write(source)
     return subprocess.run(
-        [GREN, "format", flag, path], capture_output=True, text=True
+        [GREN_FORMAT, flag, path], capture_output=True, text=True
     )
 
 
