@@ -267,7 +267,7 @@ declaration (1)? Adjust `tagGroupStarts` if needed.
 ../gren.sh format --pre-ast  src/F.gren # parsed AST + comment context as JSON
 ../gren.sh format --lpt    src/F.gren   # the Logical Printing Tree as JSON
 ../gren.sh format --pex    src/F.gren   # the PrettyExpressive Doc as JSON
-../gren.sh format --check  src/F.gren   # format, then verify ASTs still match
+../gren.sh format --show   src/F.gren   # format and print result to stdout
 ```
 `--lpt` is your best friend for a placement bug: it shows exactly where a comment
 attached and what each node's row range is.
