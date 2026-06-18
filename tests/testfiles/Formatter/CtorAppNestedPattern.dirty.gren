@@ -1,0 +1,35 @@
+module CtorAppNestedPattern exposing (..)
+
+-- Constructor application as a record-pattern field value (no parens needed)
+concat d1 d2 =
+    when { d1 = d1, d2 = d2 } is
+        { d1 = DocFail, d2 = _ } ->
+            DocFail
+
+        { d1 = DocText { string = _, width = 0 }, d2 = _ } ->
+            d2
+
+        _ ->
+            DocFail
+
+-- Redundant parens around a constructor application are removed
+unwrap x =
+    when x is
+        { value = (Just y) } ->
+            y
+
+        _ ->
+            0
+
+-- Constructor application as an array-pattern element
+firstWrapped xs =
+    when xs is
+        [ Just y ] ->
+            y
+
+        _ ->
+            0
+
+-- Constructor application destructured directly as a function argument
+unbox { contents = Box value } =
+    value

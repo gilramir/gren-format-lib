@@ -222,6 +222,7 @@ expressionTests fsPerm =
         , assertPretty fsPerm "when branch patterns" "WhenPatterns"
         , assertPretty fsPerm "named wildcard (anything) patterns keep their name" "AnythingPatterns"
         , assertPretty fsPerm "constructor-with-payload argument keeps its parens" "CtorArgPattern"
+        , assertPretty fsPerm "constructor application as a record-field value / array element needs no parens (blocked on compiler-common pattern-parser fix, see error0617.md)" "CtorAppNestedPattern"
         , assertPretty fsPerm "record field value indentation" "RecordFieldValue"
         , assertPretty fsPerm "let def body indentation" "LetDefBody"
         , assertPretty fsPerm "let destructure pattern too long to fit on one line" "LetDestructLong"
