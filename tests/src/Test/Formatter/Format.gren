@@ -28,7 +28,41 @@ tests fsPerm =
         , kitchenSinkTests fsPerm
         ]
 
-runPrettyPrinter : FileSystem.Permission -> String -> Task String { ast : Src.Module, rendered : String }
+{-| Format a test file, returning either its formatted output (with the trailing
+newline the `.formatted` fixtures carry) or a human-readable error *message*.
+
+Note the unusual shape: the error rides the **success** channel as `Err message`,
+and the task is built so it never fails through its own error channel
+(`Task.onError` below funnels even I/O failures into `Err`). That is a deliberate
+hack to dodge a limitation in our effectful test runner — read on.
+
+  WHY NOT just `Task.fail errorString`?
+
+  Our runner is `blaix/gren-effectful-tests`. When an awaited task fails, `await`
+  renders the error with `Debug.toString` (see its `Task.onError` path,
+  `src/Test/Runner/Effectful.gren`, the line `Expect.fail (Debug.toString e)`).
+  For a `String` error that is destructive: `Debug.toString` *quotes* the string
+  and escapes every real newline into the two literal characters `\` and `n`. So a
+  multi-line parse error like
+
+      9|         { d1 = DocText { string = _, width = 0 }, d2 = _ } ->
+                           ^
+      Expected character ','
+
+  collapses onto one unreadable quoted line: `" 9| ...\n          ^\nExpected..."`.
+
+  The runner can't avoid it: `await` is generic over the error type, so it can't
+  know ours is already a printable `String` and must stringify defensively. Fixing
+  it *there* would mean patching the third-party package (an `await` variant that
+  takes an `error -> String` renderer).
+
+  Instead we keep the message off the error channel entirely. Everything — file
+  read, parse, and format failures alike — becomes `Err message` in the success
+  channel, and `assertPretty` reports it with `Expect.fail message`, which prints
+  the `String` verbatim, newlines intact. (`Task.mapError` would NOT help: the
+  value stays a `String` and still meets `Debug.toString`.)
+-}
+runPrettyPrinter : FileSystem.Permission -> String -> Task String (Result String { ast : Src.Module, rendered : String })
 runPrettyPrinter fsPerm filename =
     readTestFile fsPerm filename
         |> Task.andThen
@@ -45,14 +79,18 @@ runPrettyPrinter fsPerm filename =
                             -- We need to add a newline since the file
                             -- with the expected version in it will have a
                             -- newline at the end
-                            Task.succeed { ast = ast, rendered = rendered ++ "\n" }
+                            Task.succeed (Ok { ast = ast, rendered = rendered ++ "\n" })
 
                         Err errorString ->
-                            Task.fail errorString
+                            Task.succeed (Err errorString)
 
                 Err errorString ->
-                    Task.fail <| PM.errorsToString fileContent errorString
+                    Task.succeed (Err (PM.errorsToString fileContent errorString))
         )
+        -- A genuine I/O failure (missing fixture, decode failure) would otherwise
+        -- ride the error channel and hit the same `Debug.toString` mangling, so
+        -- fold it into an `Err` value too, keeping this task error-channel-clean.
+        |> Task.onError (\ioErr -> Task.succeed (Err ioErr))
 
 readTestFile : FileSystem.Permission -> String -> Task String String
 readTestFile fsPerm filename =
@@ -78,32 +116,44 @@ assertPretty fsPerm testDescription filenameBase =
     in
     await ("pretty-printing " ++ dirtyFilename)
             (runPrettyPrinter fsPerm dirtyFilename)
-        <| \{ ast = ast1, rendered = rendered } ->
-            await ("reading expected " ++ prettyFilename) (readTestFile fsPerm prettyFilename)
-        <| \expectedFormatting ->
-            describe testDescription
-                [ test "formatting" <| \_ ->
-                    Expect.equal rendered expectedFormatting
-                        |> Expect.onFail (unifiedDiffStrings expectedFormatting rendered)
-                , test "AST equivalence" <| \_ ->
-                    when Parser.run reparser Context.empty rendered is
-                        Err errs ->
-                            Expect.fail ("Could not reparse formatted output: " ++ PM.errorsToString rendered errs)
-                        Ok { ast = ast2, payload = _ } ->
-                            when AstCompare.compareModules ast1 ast2 is
-                                Ok {} ->
-                                    Expect.pass
-                                Err explanation ->
-                                    Expect.fail ("AST mismatch: " ++ explanation)
-                , test "idempotency" <| \_ ->
-                    -- Formatting must be a fixed point: re-formatting the
-                    -- already-formatted file must reproduce the exact same
-                    -- Module and Context (so no declaration moved and no
-                    -- comment shifted). Comparing positions also catches
-                    -- blank-line churn, since an added/removed blank line
-                    -- shifts the rows of everything after it.
-                    checkIdempotent expectedFormatting
-                ]
+        <| \formatResult ->
+            when formatResult is
+                -- The formatter could not produce output (a parse or format
+                -- error). Report the message VERBATIM with `Expect.fail` so its
+                -- newlines survive — see `runPrettyPrinter`'s note on why the
+                -- message travels as a value rather than a failed task.
+                Err message ->
+                    describe testDescription
+                        [ test "formatting" <| \_ ->
+                            Expect.fail message
+                        ]
+
+                Ok { ast = ast1, rendered = rendered } ->
+                    await ("reading expected " ++ prettyFilename) (readTestFile fsPerm prettyFilename)
+                        <| \expectedFormatting ->
+                            describe testDescription
+                                [ test "formatting" <| \_ ->
+                                    Expect.equal rendered expectedFormatting
+                                        |> Expect.onFail (unifiedDiffStrings expectedFormatting rendered)
+                                , test "AST equivalence" <| \_ ->
+                                    when Parser.run reparser Context.empty rendered is
+                                        Err errs ->
+                                            Expect.fail ("Could not reparse formatted output: " ++ PM.errorsToString rendered errs)
+                                        Ok { ast = ast2, payload = _ } ->
+                                            when AstCompare.compareModules ast1 ast2 is
+                                                Ok {} ->
+                                                    Expect.pass
+                                                Err explanation ->
+                                                    Expect.fail ("AST mismatch: " ++ explanation)
+                                , test "idempotency" <| \_ ->
+                                    -- Formatting must be a fixed point: re-formatting the
+                                    -- already-formatted file must reproduce the exact same
+                                    -- Module and Context (so no declaration moved and no
+                                    -- comment shifted). Comparing positions also catches
+                                    -- blank-line churn, since an added/removed blank line
+                                    -- shifts the rows of everything after it.
+                                    checkIdempotent expectedFormatting
+                                ]
 
 
 -- Parse a source string into its Module AST and parse Context, or an error.
