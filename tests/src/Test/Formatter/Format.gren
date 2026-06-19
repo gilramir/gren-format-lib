@@ -76,32 +76,51 @@ readTestFile fsPerm filename =
             )
 
 
-assertPretty : FileSystem.Permission -> String -> String -> U.Test {}
+assertPretty : FileSystem.Permission -> String -> String -> Array (U.Test {})
 assertPretty fsPerm testDescription filenameBase =
-    U.test testDescription <| \_ ->
-        runPrettyPrinter fsPerm (filenameBase ++ ".dirty.gren")
+    let
+        dirtyFile =
+            filenameBase ++ ".dirty.gren"
+
+        formattedFile =
+            filenameBase ++ ".formatted.gren"
+    in
+    [ U.test (testDescription ++ " — formatting") <| \_ ->
+        runPrettyPrinter fsPerm dirtyFile
             |> Task.andThen
                 (\formatResult ->
                     when formatResult is
                         Err message ->
                             Task.succeed (Expect.fail message)
 
-                        Ok { ast = ast1, rendered = rendered } ->
-                            readTestFile fsPerm (filenameBase ++ ".formatted.gren")
+                        Ok { rendered } ->
+                            readTestFile fsPerm formattedFile
                                 |> Task.map
                                     (\expectedFormatting ->
-                                        Expect.all
-                                            [ \_ ->
-                                                Expect.equal rendered expectedFormatting
-                                                    |> Expect.onFail (unifiedDiffStrings expectedFormatting rendered)
-                                            , \_ ->
-                                                checkAstEquivalence ast1 rendered
-                                            , \_ ->
-                                                checkIdempotent expectedFormatting
-                                            ]
-                                            {}
+                                        Expect.equal rendered expectedFormatting
+                                            |> Expect.onFail (unifiedDiffStrings expectedFormatting rendered)
                                     )
                 )
+    , U.test (testDescription ++ " — AST equivalence") <| \_ ->
+        runPrettyPrinter fsPerm dirtyFile
+            |> Task.map
+                (\formatResult ->
+                    when formatResult is
+                        Err message ->
+                            Expect.fail message
+
+                        Ok { ast = ast1, rendered = rendered } ->
+                            checkAstEquivalence ast1 rendered
+                )
+    , U.test (testDescription ++ " — idempotency") <| \_ ->
+        readTestFile fsPerm formattedFile
+            |> Task.map checkIdempotent
+    ]
+
+
+flatTests : Array (Array (U.Test {})) -> Array (U.Test {})
+flatTests groups =
+    Array.foldl (\ts acc -> acc ++ ts) [] groups
 
 
 checkAstEquivalence : Src.Module -> String -> Expectation
@@ -221,7 +240,7 @@ importSuite fsPerm =
         , tearDownSuite = U.noTearDown
         , setUp = U.noFixture
         , tearDown = U.noTearDown
-        , tests =
+        , tests = flatTests
             [ assertPretty fsPerm "import with comments" "ImportWithComments"
             , assertPretty fsPerm "exposed operators wrapped in parens" "ExposedOperator"
             , assertPretty fsPerm "module line wraps exposing list to one indented line" "ModuleLineWrap"
@@ -239,7 +258,7 @@ expressionSuite fsPerm =
         , tearDownSuite = U.noTearDown
         , setUp = U.noFixture
         , tearDown = U.noTearDown
-        , tests =
+        , tests = flatTests
             [ assertPretty fsPerm "simple arithmetic" "SimpleArithmetic"
             , assertPretty fsPerm "when expression" "WhenExpression"
             , assertPretty fsPerm "if expression" "IfExpression"
@@ -303,7 +322,7 @@ declarationSuite fsPerm =
         , tearDownSuite = U.noTearDown
         , setUp = U.noFixture
         , tearDown = U.noTearDown
-        , tests =
+        , tests = flatTests
             [ assertPretty fsPerm "type aliases" "TypeAlias"
             , assertPretty fsPerm "union types" "TypeUnion"
             , assertPretty fsPerm "type signatures" "TypeSignature"
@@ -321,7 +340,7 @@ commentsSuite fsPerm =
         , tearDownSuite = U.noTearDown
         , setUp = U.noFixture
         , tearDown = U.noTearDown
-        , tests =
+        , tests = flatTests
             [ assertPretty fsPerm "comments in pipeliens" "CommentsPipeline"
             , assertPretty fsPerm "comments everywhere" "CommentsEverywhere"
             , assertPretty fsPerm "consecutive comments in when branch" "ConsecutiveCommentsInBranch"
@@ -374,7 +393,7 @@ kitchenSinkSuite fsPerm =
         , tearDownSuite = U.noTearDown
         , setUp = U.noFixture
         , tearDown = U.noTearDown
-        , tests =
+        , tests = flatTests
             [ assertPretty fsPerm "every AST construct in one file" "KitchenSink"
             , assertPretty fsPerm "comments at every position in one file" "KitchenComments"
             , assertPretty fsPerm "3-line block comments at every round-tripping position" "MultilineBlockComments"
