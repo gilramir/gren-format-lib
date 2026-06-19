@@ -3,15 +3,19 @@ module Main exposing (main)
 import FileSystem
 import Init
 import Node
+import Test.Unit as U
 
 import Test.Formatter.Format
-import Test.Runner.Effectful as Effectful exposing (run, describe)
 
-main : Effectful.Program a
+
+main : Node.SimpleProgram a
 main =
-    Node.defineSimpleProgram <| \env ->
-        Init.await FileSystem.initialize <| \fsPerm ->
-            run env <|
-                describe "Gren Compiler Node effectful tests"
-                    [ Test.Formatter.Format.tests fsPerm
-                    ]
+    U.runWith
+        { name = "gren-format-lib-tests"
+        , version = "1.0.0"
+        , init =
+            \done ->
+                Init.await FileSystem.initialize <| \fs ->
+                    done { fs = fs }
+        , suites = \perms -> Test.Formatter.Format.suites perms.fs
+        }

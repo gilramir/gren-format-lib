@@ -1,12 +1,11 @@
-module Test.Formatter.Format exposing (tests)
+module Test.Formatter.Format exposing (suites)
 
 import Bytes
 import Expect exposing (Expectation)
 import FileSystem
 import FileSystem.Path as Path
 import Task exposing (Task)
-import Test exposing (Test)
-import Test.Runner.Effectful as Effectful exposing (run, describe, test, await)
+import Test.Unit as U
 
 import Array.Builder as Builder
 import Compiler.Ast.Source as Src
@@ -18,142 +17,112 @@ import String.Parser.Advanced as Parser
 
 import UnifiedDiff exposing (unifiedDiffStrings)
 
-tests : FileSystem.Permission -> Effectful.Test
-tests fsPerm =
-    describe "Format"
-        [ importTests fsPerm
-        , expressionTests fsPerm
-        , declarationTests fsPerm
-        , commentsTests fsPerm
-        , kitchenSinkTests fsPerm
-        ]
 
-{-| Format a test file, returning either its formatted output (with the trailing
-newline the `.formatted` fixtures carry) or a human-readable error *message*.
+suites : FileSystem.Permission -> Array U.Suite
+suites fsPerm =
+    [ importSuite fsPerm
+    , expressionSuite fsPerm
+    , declarationSuite fsPerm
+    , commentsSuite fsPerm
+    , kitchenSinkSuite fsPerm
+    ]
 
-Note the unusual shape: the error rides the **success** channel as `Err message`,
-and the task is built so it never fails through its own error channel
-(`Task.onError` below funnels even I/O failures into `Err`). That is a deliberate
-hack to dodge a limitation in our effectful test runner — read on.
 
-  WHY NOT just `Task.fail errorString`?
+{-| Format a dirty fixture and return the result.
 
-  Our runner is `blaix/gren-effectful-tests`. When an awaited task fails, `await`
-  renders the error with `Debug.toString` (see its `Task.onError` path,
-  `src/Test/Runner/Effectful.gren`, the line `Expect.fail (Debug.toString e)`).
-  For a `String` error that is destructive: `Debug.toString` *quotes* the string
-  and escapes every real newline into the two literal characters `\` and `n`. So a
-  multi-line parse error like
-
-      9|         { d1 = DocText { string = _, width = 0 }, d2 = _ } ->
-                           ^
-      Expected character ','
-
-  collapses onto one unreadable quoted line: `" 9| ...\n          ^\nExpected..."`.
-
-  The runner can't avoid it: `await` is generic over the error type, so it can't
-  know ours is already a printable `String` and must stringify defensively. Fixing
-  it *there* would mean patching the third-party package (an `await` variant that
-  takes an `error -> String` renderer).
-
-  Instead we keep the message off the error channel entirely. Everything — file
-  read, parse, and format failures alike — becomes `Err message` in the success
-  channel, and `assertPretty` reports it with `Expect.fail message`, which prints
-  the `String` verbatim, newlines intact. (`Task.mapError` would NOT help: the
-  value stays a `String` and still meets `Debug.toString`.)
+`Task.fail` propagates genuine I/O failures (missing file) → test Errored.
+Parse and format failures ride the success channel as `Err message` and become
+`Expect.fail` in `assertPretty` → test Failed, with the message printed verbatim.
 -}
 runPrettyPrinter : FileSystem.Permission -> String -> Task String (Result String { ast : Src.Module, rendered : String })
 runPrettyPrinter fsPerm filename =
     readTestFile fsPerm filename
-        |> Task.andThen
-         (\fileContent ->
-            let
-                parser = Parser.succeed (\ast payload -> {ast = ast, payload = payload })
-                    |> Parser.keep PM.parser
-                    |> Parser.keep Parser.getPayload
-            in
-            when Parser.run parser Context.empty fileContent is
-                Ok { ast = ast, payload = payload }->
-                    when PPrint.prettyPrint ast payload is
-                        Ok rendered ->
-                            -- We need to add a newline since the file
-                            -- with the expected version in it will have a
-                            -- newline at the end
-                            Task.succeed (Ok { ast = ast, rendered = rendered ++ "\n" })
+        |> Task.map
+            (\fileContent ->
+                let
+                    parser =
+                        Parser.succeed (\ast payload -> { ast = ast, payload = payload })
+                            |> Parser.keep PM.parser
+                            |> Parser.keep Parser.getPayload
+                in
+                when Parser.run parser Context.empty fileContent is
+                    Ok { ast = ast, payload = payload } ->
+                        when PPrint.prettyPrint ast payload is
+                            Ok rendered ->
+                                Ok { ast = ast, rendered = rendered ++ "\n" }
 
-                        Err errorString ->
-                            Task.succeed (Err errorString)
+                            Err errorString ->
+                                Err errorString
 
-                Err errorString ->
-                    Task.succeed (Err (PM.errorsToString fileContent errorString))
-        )
-        -- A genuine I/O failure (missing fixture, decode failure) would otherwise
-        -- ride the error channel and hit the same `Debug.toString` mangling, so
-        -- fold it into an `Err` value too, keeping this task error-channel-clean.
-        |> Task.onError (\ioErr -> Task.succeed (Err ioErr))
+                    Err errorString ->
+                        Err (PM.errorsToString fileContent errorString)
+            )
+
 
 readTestFile : FileSystem.Permission -> String -> Task String String
 readTestFile fsPerm filename =
-    (Path.join <| Array.map Path.fromPosixString [ "testfiles", "Formatter", filename])
+    (Path.join <| Array.map Path.fromPosixString [ "testfiles", "Formatter", filename ])
         |> FileSystem.readFile fsPerm
         |> Task.mapError (\fsErr -> FileSystem.errorToString fsErr)
         |> Task.map Bytes.toString
-        |> Task.andThen (\ms ->
-            when ms is
-                Just s -> Task.succeed s
-                Nothing -> Task.fail "Failed to decode bytes"
+        |> Task.andThen
+            (\ms ->
+                when ms is
+                    Just s ->
+                        Task.succeed s
+
+                    Nothing ->
+                        Task.fail "Failed to decode bytes"
             )
 
-assertPretty : FileSystem.Permission -> String -> String -> Effectful.Test
+
+assertPretty : FileSystem.Permission -> String -> String -> U.Test {}
 assertPretty fsPerm testDescription filenameBase =
+    U.test testDescription <| \_ ->
+        runPrettyPrinter fsPerm (filenameBase ++ ".dirty.gren")
+            |> Task.andThen
+                (\formatResult ->
+                    when formatResult is
+                        Err message ->
+                            Task.succeed (Expect.fail message)
+
+                        Ok { ast = ast1, rendered = rendered } ->
+                            readTestFile fsPerm (filenameBase ++ ".formatted.gren")
+                                |> Task.map
+                                    (\expectedFormatting ->
+                                        Expect.all
+                                            [ \_ ->
+                                                Expect.equal rendered expectedFormatting
+                                                    |> Expect.onFail (unifiedDiffStrings expectedFormatting rendered)
+                                            , \_ ->
+                                                checkAstEquivalence ast1 rendered
+                                            , \_ ->
+                                                checkIdempotent expectedFormatting
+                                            ]
+                                            {}
+                                    )
+                )
+
+
+checkAstEquivalence : Src.Module -> String -> Expectation
+checkAstEquivalence ast1 rendered =
     let
-        dirtyFilename = filenameBase ++ ".dirty.gren"
-        prettyFilename = filenameBase ++ ".formatted.gren"
         reparser =
             Parser.succeed (\ast payload -> { ast = ast, payload = payload })
                 |> Parser.keep PM.parser
                 |> Parser.keep Parser.getPayload
     in
-    await ("pretty-printing " ++ dirtyFilename)
-            (runPrettyPrinter fsPerm dirtyFilename)
-        <| \formatResult ->
-            when formatResult is
-                -- The formatter could not produce output (a parse or format
-                -- error). Report the message VERBATIM with `Expect.fail` so its
-                -- newlines survive — see `runPrettyPrinter`'s note on why the
-                -- message travels as a value rather than a failed task.
-                Err message ->
-                    describe testDescription
-                        [ test "formatting" <| \_ ->
-                            Expect.fail message
-                        ]
+    when Parser.run reparser Context.empty rendered is
+        Err errs ->
+            Expect.fail ("Could not reparse formatted output: " ++ PM.errorsToString rendered errs)
 
-                Ok { ast = ast1, rendered = rendered } ->
-                    await ("reading expected " ++ prettyFilename) (readTestFile fsPerm prettyFilename)
-                        <| \expectedFormatting ->
-                            describe testDescription
-                                [ test "formatting" <| \_ ->
-                                    Expect.equal rendered expectedFormatting
-                                        |> Expect.onFail (unifiedDiffStrings expectedFormatting rendered)
-                                , test "AST equivalence" <| \_ ->
-                                    when Parser.run reparser Context.empty rendered is
-                                        Err errs ->
-                                            Expect.fail ("Could not reparse formatted output: " ++ PM.errorsToString rendered errs)
-                                        Ok { ast = ast2, payload = _ } ->
-                                            when AstCompare.compareModules ast1 ast2 is
-                                                Ok {} ->
-                                                    Expect.pass
-                                                Err explanation ->
-                                                    Expect.fail ("AST mismatch: " ++ explanation)
-                                , test "idempotency" <| \_ ->
-                                    -- Formatting must be a fixed point: re-formatting the
-                                    -- already-formatted file must reproduce the exact same
-                                    -- Module and Context (so no declaration moved and no
-                                    -- comment shifted). Comparing positions also catches
-                                    -- blank-line churn, since an added/removed blank line
-                                    -- shifts the rows of everything after it.
-                                    checkIdempotent expectedFormatting
-                                ]
+        Ok { ast = ast2, payload = _ } ->
+            when AstCompare.compareModules ast1 ast2 is
+                Ok {} ->
+                    Expect.pass
+
+                Err explanation ->
+                    Expect.fail ("AST mismatch: " ++ explanation)
 
 
 -- Parse a source string into its Module AST and parse Context, or an error.
@@ -168,14 +137,13 @@ parseModuleAndContext source =
     when Parser.run parser Context.empty source is
         Ok { ast = ast, payload = payload } ->
             Ok { ast = ast, context = payload }
+
         Err errs ->
             Err (PM.errorsToString source errs)
 
 
 -- Two parse Contexts are exactly equal when their indentation state and their
--- full comment streams (position + text) match. The `comments` field is a
--- Builder, so compare the materialised arrays rather than the builders, whose
--- spare capacity is irrelevant.
+-- full comment streams (position + text) match.
 contextsExactlyEqual : Context.Context -> Context.Context -> Bool
 contextsExactlyEqual a b =
     a.indent == b.indent
@@ -184,195 +152,236 @@ contextsExactlyEqual a b =
 
 
 {-| Idempotency check: re-format the already-formatted source and require the
-result to be **textually identical**. This is the strict gate — formatting
-must be a true fixed point.
+result to be **textually identical**. Formatting must be a true fixed point.
 
-When the text differs, we additionally compare the parsed `Module` and
-`Context` to classify the failure: a `Module`/`Context` difference means a
-declaration moved or a comment shifted; if those match but the text still
-differs, it is a pure-whitespace non-idempotency (e.g. trailing spaces) that
-the structural comparison alone would miss. Either way the unified diff is
-shown.
+When the text differs we additionally compare the parsed Module and Context to
+classify the failure: a Module/Context difference means a declaration moved or a
+comment shifted; matching Module+Context but different text means pure-whitespace
+non-idempotency. Either way the unified diff is shown.
 -}
 checkIdempotent : String -> Expectation
 checkIdempotent formatted =
     when parseModuleAndContext formatted is
         Err err ->
             Expect.fail ("Could not parse the formatted file: " ++ err)
+
         Ok first ->
             when PPrint.prettyPrint first.ast first.context is
                 Err err ->
                     Expect.fail ("Could not re-format the formatted file: " ++ err)
+
                 Ok reRendered0 ->
                     let
-                        reRendered = reRendered0 ++ "\n"
+                        reRendered =
+                            reRendered0 ++ "\n"
                     in
                     if reRendered == formatted then
                         Expect.pass
+
                     else
                         let
                             classification =
                                 when parseModuleAndContext reRendered is
                                     Err err ->
                                         "re-formatted output no longer parses: " ++ err
+
                                     Ok second ->
                                         let
-                                            moduleOk = first.ast == second.ast
-                                            contextOk = contextsExactlyEqual first.context second.context
+                                            moduleOk =
+                                                first.ast == second.ast
+
+                                            contextOk =
+                                                contextsExactlyEqual first.context second.context
                                         in
                                         if not moduleOk && not contextOk then
                                             "Module and Context differ"
+
                                         else if not moduleOk then
                                             "Module differs"
+
                                         else if not contextOk then
                                             "Context differs"
+
                                         else
                                             "whitespace only (Module and Context unchanged)"
                         in
                         Expect.fail
-                            ("Formatting is not idempotent (" ++ classification ++ ") — re-formatting the formatted output changed it:\n"
+                            ("Formatting is not idempotent ("
+                                ++ classification
+                                ++ ") — re-formatting the formatted output changed it:\n"
                                 ++ unifiedDiffStrings formatted reRendered
                             )
 
 
-importTests: FileSystem.Permission -> Effectful.Test
-importTests fsPerm =
-    describe "Import Statements"
-        [ assertPretty fsPerm "import with comments" "ImportWithComments"
-        , assertPretty fsPerm "exposed operators wrapped in parens" "ExposedOperator"
-        , assertPretty fsPerm "module line wraps exposing list to one indented line" "ModuleLineWrap"
-        , assertPretty fsPerm "module line wraps exposing list to one item per line" "ModuleLineVertical"
-        , assertPretty fsPerm "import forms: plain, alias, exposing, combined" "Imports"
-        ]
-
-expressionTests : FileSystem.Permission -> Effectful.Test
-expressionTests fsPerm =
-    describe "Expressions"
-        [ assertPretty fsPerm "simple arithmetic" "SimpleArithmetic"
-        , assertPretty fsPerm "when expression" "WhenExpression"
-        , assertPretty fsPerm "if expression" "IfExpression"
-        , assertPretty fsPerm "stacked if predicate wraps precedence-aware" "IfPredicate"
-        , assertPretty fsPerm "let expression" "LetExpression"
-        , assertPretty fsPerm "records" "Records"
-        , assertPretty fsPerm "lambdas and calls" "LambdasAndCalls"
-        , assertPretty fsPerm "function calls including wrapping" "FunctionCalls"
-        , assertPretty fsPerm "parenthesized expressions" "ParenWrapped"
-        , assertPretty fsPerm "nested containers in list" "NestedContainersInList"
-        , assertPretty fsPerm "array items that are too long to fit inline" "ArrayLongRecordItems"
-        , assertPretty fsPerm "uniform item layout: records in an array all break together or not at all" "UniformRecordArray"
-        , assertPretty fsPerm "uniform item layout: record updates couple like record literals" "UniformUpdateArray"
-        , assertPretty fsPerm "list layout follows author: one line stays inline, multi-line stays one-per-line" "ListLayoutByAuthor"
-        , assertPretty fsPerm "record + record-update layout follows author: one line inline, multi-line one-per-line" "RecordLayoutByAuthor"
-        , assertPretty fsPerm "record type (alias, extensible, annotation) layout follows author" "RecordTypeLayoutByAuthor"
-        , assertPretty fsPerm "record/array pattern layout follows author" "PatternLayoutByAuthor"
-        , assertPretty fsPerm "union variant layout follows author: one line inline, multi-line one-per-line" "UnionLayoutByAuthor"
-        , assertPretty fsPerm "pipeline layout follows author: one line inline, multi-line one-per-line" "PipelineLayoutByAuthor"
-        , assertPretty fsPerm "binop layout follows author: precedence-aware split, lowest-precedence operators break first" "BinopLayoutByAuthor"
-        , assertPretty fsPerm "when branch body indentation" "WhenBranchBody"
-        , assertPretty fsPerm "when branch patterns" "WhenPatterns"
-        , assertPretty fsPerm "named wildcard (anything) patterns keep their name" "AnythingPatterns"
-        , assertPretty fsPerm "constructor-with-payload argument keeps its parens" "CtorArgPattern"
-        , assertPretty fsPerm "constructor application as a record-field value / array element needs no parens (blocked on compiler-common pattern-parser fix, see error0617.md)" "CtorAppNestedPattern"
-        , assertPretty fsPerm "record field value indentation" "RecordFieldValue"
-        , assertPretty fsPerm "let def body indentation" "LetDefBody"
-        , assertPretty fsPerm "let destructure pattern too long to fit on one line" "LetDestructLong"
-        , assertPretty fsPerm "let destructure of a ctor-with-payload or as-alias keeps its parens" "LetDestructParens"
-        , assertPretty fsPerm "pipeline step argument indentation" "PipelineArgIndent"
-        , assertPretty fsPerm "backward pipeline (<|) treated like forward pipeline (|>)" "BackwardPipeline"
-        , assertPretty fsPerm "string escape sequences preserved" "StringEscapes"
-        , assertPretty fsPerm "string and char escape sequences in when patterns" "StringAndCharPatterns"
-        , assertPretty fsPerm "multiline (triple-quoted) strings preserved" "MultilineString"
-        , assertPretty fsPerm "lambda with record and array destructure patterns" "LambdaPatterns"
-        , assertPretty fsPerm "binary operators, negation, hex literals" "BinaryOps"
-        , assertPretty fsPerm "extensible record types in signatures and aliases" "ExtensibleRecords"
-        , assertPretty fsPerm "constructor argument that is an as-alias keeps its parens" "CtorAsPattern"
-        , assertPretty fsPerm "multi-line string opened mid-line aligns content to opening column" "MultilineStringInline"
-        , assertPretty fsPerm "let-binding type signature is preserved; every binding drops its body to the next line" "LetBindingSignature"
-        , assertPretty fsPerm "one blank line is forced between let bindings regardless of authored blanks; a comment or signature sticks to the binding below it" "LetBlankLines"
-        , assertPretty fsPerm "a wrapped infix declaration leaves no phantom row gap below it" "InfixWrapped"
-        , assertPretty fsPerm "only a break between -> parts makes a signature multi-line; breaks inside a record type or parens do not" "SignatureSegmentBreaks"
-        , assertPretty fsPerm "a multi-line block comment claimed as a declaration's trailing comment leaves no trailing-whitespace line" "ClaimedMultilineComment"
-        , assertPretty fsPerm "two blank lines are forced before every top-level declaration unit (function/alias/union/port), regardless of authored blanks; the unit begins at its doc comment, else signature, else declaration" "ForcedDeclBlankLines"
-        , assertPretty fsPerm "float literals round-trip (decimal stays decimal, scientific stays scientific)" "FloatLiterals"
-        , assertPretty fsPerm "as-pattern inside record-field destructure keeps its parens" "RecordFieldAsPattern"
-        , assertPretty fsPerm "doc comment body with non-BMP code points round-trips" "DocCommentWithEmoji"
-        , assertPretty fsPerm "record update base can be a parenthesized call" "RecordUpdateComplexBase"
-        , assertPretty fsPerm "multi-line string content escapes backslashes and embedded triple quotes" "MultilineStringContent"
-        , assertPretty fsPerm "negation of parenthesized expression keeps `-` outside the parens" "NegateParens"
-        ]
-
-declarationTests : FileSystem.Permission -> Effectful.Test
-declarationTests fsPerm =
-    describe "Declarations"
-        [ assertPretty fsPerm "type aliases" "TypeAlias"
-        , assertPretty fsPerm "union types" "TypeUnion"
-        , assertPretty fsPerm "type signatures" "TypeSignature"
-        , assertPretty fsPerm "ports" "Ports"
-        , assertPretty fsPerm "effect module where { command = ... } renders each binding as one field" "EffectModuleWhere"
-        ]
-
-commentsTests : FileSystem.Permission -> Effectful.Test
-commentsTests fsPerm =
-    describe "Comments"
-        [ assertPretty fsPerm "comments in pipeliens" "CommentsPipeline"
-        , assertPretty fsPerm "comments everywhere" "CommentsEverywhere"
-        , assertPretty fsPerm "consecutive comments in when branch" "ConsecutiveCommentsInBranch"
-        , assertPretty fsPerm "when expressions as items in a commented array are preserved" "WhenInCommentedArray"
-        , assertPretty fsPerm "type union variant comments and type-syntax positions in signatures" "TypeComments"
-        , assertPretty fsPerm "port declarations with comments in every header position" "PortComments"
-        , assertPretty fsPerm "effect module with comments around top-level decls" "EffectModuleComments"
-        , assertPretty fsPerm "module/import header keyword-gap comments" "ModuleHeaderComments"
-        , assertPretty fsPerm "array patterns, ctor patterns, and when-branch pattern comments" "PatternComments"
-        , assertPretty fsPerm "backward pipeline and operator-rhs gap comments" "PipelineAndGlueComments"
-        , assertPretty fsPerm "doc/line/block adjacency and inter-declaration comments" "EdgeCaseComments"
-        , assertPretty fsPerm "previously-mishandled comment placements (bugs A–K)" "TrickyComments"
-        , assertPretty fsPerm "standalone block comment before a non-first let binding" "LetBindingComments"
-        , assertPretty fsPerm "multiple comments sharing a top-level comment line" "AdjacentTopLevelComments"
-        , assertPretty fsPerm "own-line comment before a container's closing bracket stays inside" "BracketTrailingComments"
-        , assertPretty fsPerm "comment trailing a signature's last token canonicalizes to column 1 before the definition" "SignatureTrailingComment"
-        , assertPretty fsPerm "comment trailing the last let binding routes after `in` (not own-line, which would oscillate)" "LetInTrailingComment"
-        , assertPretty fsPerm "comment trailing a non-last let binding's value sits at the bindings-block indent" "BetweenLetBindingsComment"
-        , assertPretty fsPerm "comment after a wrapping module exposing list canonicalizes to column 1" "ModuleExposingTrailingComment"
-        , assertPretty fsPerm "comment trailing a non-last when-branch body (nested in if/let) sits between branches, no blank" "BetweenWhenBranchesComment"
-        -- Regression guards for the 2026-05-24 fuzzer-found idempotency fixes.
-        -- Each fixture reproduces a comment placement that oscillated before its
-        -- fix; the idempotency sub-test fails if that fix regresses. Each was
-        -- validated by reverting its fix and confirming the fixture goes
-        -- non-idempotent at the parent commit.
-        , assertPretty fsPerm "trailing comment after a multi-line union variant stays on the variant's last row" "UnionVariantTrailingComment"
-        , assertPretty fsPerm "own-line comment below the last union variant attaches at the variant indent" "UnionTrailingOwnLineComment"
-        , assertPretty fsPerm "overflowing trailing comment in a bracket list lays the item out as if absent" "BracketListOverflowComment"
-        , assertPretty fsPerm "comment in an empty-bracket body slot is not absorbed into the brackets" "EmptyBracketTrailingComment"
-        , assertPretty fsPerm "comments inside a record update and before its closing brace" "RecordUpdateFieldComment"
-        , assertPretty fsPerm "trailing comment on an overflowing when-branch body glues inline" "WhenBranchTrailingComment"
-        , assertPretty fsPerm "single-line comment around the arrow of a wrapping signature soft-breaks" "SignatureArrowLineComment"
-        , assertPretty fsPerm "comment after the exposing list of a vertical effect-module where block" "EffectModuleFxWhereComment"
-        , assertPretty fsPerm "comment on an item in a multi-line import exposing list" "ImportExposingMultilineComment"
-        , assertPretty fsPerm "long module-header comment that wraps the module name to a continuation row" "HeaderCommentNameWrap"
-        , assertPretty fsPerm "comment between a vertical module exposing list and the first declaration" "ModuleVerticalExposingComment"
-        , assertPretty fsPerm "canonical rendering of comments at elided-token positions" "Ambiguous"
-        , assertPretty fsPerm "canonical rendering of a comment in an effect-module where block" "AmbiguousEffectModule"
-        -- Regression guards for the 2026-06-06 column-attachment fixes. Same
-        -- methodology as above: each was validated non-idempotent at its fix's
-        -- parent commit.
-        , assertPretty fsPerm "comment trailing the then-body routes to leading the else-body" "ThenElseBoundaryComment"
-        , assertPretty fsPerm "own-line comment before a record pattern's closing brace stays inside" "RecordPatternTrailingComment"
-        , assertPretty fsPerm "trailing comment below an overflowing binop chain stays at the chain indent" "BinopChainTrailingComment"
-        , assertPretty fsPerm "trailing comment below a wrapped import stays at the continuation indent" "ImportTrailingComment"
-        , assertPretty fsPerm "trailing comments below a pipeline's last step stay at the step indent" "PipelineTrailingComment"
-        ]
+importSuite : FileSystem.Permission -> U.Suite
+importSuite fsPerm =
+    U.suite
+        { name = "Import Statements"
+        , setUpSuite = U.noSuiteFixture
+        , tearDownSuite = U.noTearDown
+        , setUp = U.noFixture
+        , tearDown = U.noTearDown
+        , tests =
+            [ assertPretty fsPerm "import with comments" "ImportWithComments"
+            , assertPretty fsPerm "exposed operators wrapped in parens" "ExposedOperator"
+            , assertPretty fsPerm "module line wraps exposing list to one indented line" "ModuleLineWrap"
+            , assertPretty fsPerm "module line wraps exposing list to one item per line" "ModuleLineVertical"
+            , assertPretty fsPerm "import forms: plain, alias, exposing, combined" "Imports"
+            ]
+        }
 
 
-kitchenSinkTests : FileSystem.Permission -> Effectful.Test
-kitchenSinkTests fsPerm =
-    describe "Kitchen sink"
-        [ assertPretty fsPerm "every AST construct in one file" "KitchenSink"
-        , assertPretty fsPerm "comments at every position in one file" "KitchenComments"
-        , assertPretty fsPerm "3-line block comments at every round-tripping position" "MultilineBlockComments"
-        , assertPretty fsPerm "3-line block comment in an effect-module where block" "MultilineEffectModule"
-        , assertPretty fsPerm "block comment body re-indented from its own structure, not the open column" "BlockCommentBodyIndent"
-        , assertPretty fsPerm "trailing comment placement (inline vs own line) is preserved, not normalized" "CommentPlacement"
-        , assertPretty fsPerm "a variety of constructs near, at, and past the 100-column page width" "PageWidth"
-        , assertPretty fsPerm "empty literal ([] / {}) as an item inside a bracketed list" "EmptyBracketInList"
-        ]
+expressionSuite : FileSystem.Permission -> U.Suite
+expressionSuite fsPerm =
+    U.suite
+        { name = "Expressions"
+        , setUpSuite = U.noSuiteFixture
+        , tearDownSuite = U.noTearDown
+        , setUp = U.noFixture
+        , tearDown = U.noTearDown
+        , tests =
+            [ assertPretty fsPerm "simple arithmetic" "SimpleArithmetic"
+            , assertPretty fsPerm "when expression" "WhenExpression"
+            , assertPretty fsPerm "if expression" "IfExpression"
+            , assertPretty fsPerm "stacked if predicate wraps precedence-aware" "IfPredicate"
+            , assertPretty fsPerm "let expression" "LetExpression"
+            , assertPretty fsPerm "records" "Records"
+            , assertPretty fsPerm "lambdas and calls" "LambdasAndCalls"
+            , assertPretty fsPerm "function calls including wrapping" "FunctionCalls"
+            , assertPretty fsPerm "parenthesized expressions" "ParenWrapped"
+            , assertPretty fsPerm "nested containers in list" "NestedContainersInList"
+            , assertPretty fsPerm "array items that are too long to fit inline" "ArrayLongRecordItems"
+            , assertPretty fsPerm "uniform item layout: records in an array all break together or not at all" "UniformRecordArray"
+            , assertPretty fsPerm "uniform item layout: record updates couple like record literals" "UniformUpdateArray"
+            , assertPretty fsPerm "list layout follows author: one line stays inline, multi-line stays one-per-line" "ListLayoutByAuthor"
+            , assertPretty fsPerm "record + record-update layout follows author: one line inline, multi-line one-per-line" "RecordLayoutByAuthor"
+            , assertPretty fsPerm "record type (alias, extensible, annotation) layout follows author" "RecordTypeLayoutByAuthor"
+            , assertPretty fsPerm "record/array pattern layout follows author" "PatternLayoutByAuthor"
+            , assertPretty fsPerm "union variant layout follows author: one line inline, multi-line one-per-line" "UnionLayoutByAuthor"
+            , assertPretty fsPerm "pipeline layout follows author: one line inline, multi-line one-per-line" "PipelineLayoutByAuthor"
+            , assertPretty fsPerm "binop layout follows author: precedence-aware split, lowest-precedence operators break first" "BinopLayoutByAuthor"
+            , assertPretty fsPerm "when branch body indentation" "WhenBranchBody"
+            , assertPretty fsPerm "when branch patterns" "WhenPatterns"
+            , assertPretty fsPerm "named wildcard (anything) patterns keep their name" "AnythingPatterns"
+            , assertPretty fsPerm "constructor-with-payload argument keeps its parens" "CtorArgPattern"
+            , assertPretty fsPerm "constructor application as a record-field value / array element needs no parens (blocked on compiler-common pattern-parser fix, see error0617.md)" "CtorAppNestedPattern"
+            , assertPretty fsPerm "record field value indentation" "RecordFieldValue"
+            , assertPretty fsPerm "let def body indentation" "LetDefBody"
+            , assertPretty fsPerm "let destructure pattern too long to fit on one line" "LetDestructLong"
+            , assertPretty fsPerm "let destructure of a ctor-with-payload or as-alias keeps its parens" "LetDestructParens"
+            , assertPretty fsPerm "pipeline step argument indentation" "PipelineArgIndent"
+            , assertPretty fsPerm "backward pipeline (<|) treated like forward pipeline (|>)" "BackwardPipeline"
+            , assertPretty fsPerm "string escape sequences preserved" "StringEscapes"
+            , assertPretty fsPerm "string and char escape sequences in when patterns" "StringAndCharPatterns"
+            , assertPretty fsPerm "multiline (triple-quoted) strings preserved" "MultilineString"
+            , assertPretty fsPerm "lambda with record and array destructure patterns" "LambdaPatterns"
+            , assertPretty fsPerm "binary operators, negation, hex literals" "BinaryOps"
+            , assertPretty fsPerm "extensible record types in signatures and aliases" "ExtensibleRecords"
+            , assertPretty fsPerm "constructor argument that is an as-alias keeps its parens" "CtorAsPattern"
+            , assertPretty fsPerm "multi-line string opened mid-line aligns content to opening column" "MultilineStringInline"
+            , assertPretty fsPerm "let-binding type signature is preserved; every binding drops its body to the next line" "LetBindingSignature"
+            , assertPretty fsPerm "one blank line is forced between let bindings regardless of authored blanks; a comment or signature sticks to the binding below it" "LetBlankLines"
+            , assertPretty fsPerm "a wrapped infix declaration leaves no phantom row gap below it" "InfixWrapped"
+            , assertPretty fsPerm "only a break between -> parts makes a signature multi-line; breaks inside a record type or parens do not" "SignatureSegmentBreaks"
+            , assertPretty fsPerm "a multi-line block comment claimed as a declaration's trailing comment leaves no trailing-whitespace line" "ClaimedMultilineComment"
+            , assertPretty fsPerm "two blank lines are forced before every top-level declaration unit (function/alias/union/port), regardless of authored blanks; the unit begins at its doc comment, else signature, else declaration" "ForcedDeclBlankLines"
+            , assertPretty fsPerm "float literals round-trip (decimal stays decimal, scientific stays scientific)" "FloatLiterals"
+            , assertPretty fsPerm "as-pattern inside record-field destructure keeps its parens" "RecordFieldAsPattern"
+            , assertPretty fsPerm "doc comment body with non-BMP code points round-trips" "DocCommentWithEmoji"
+            , assertPretty fsPerm "record update base can be a parenthesized call" "RecordUpdateComplexBase"
+            , assertPretty fsPerm "multi-line string content escapes backslashes and embedded triple quotes" "MultilineStringContent"
+            , assertPretty fsPerm "negation of parenthesized expression keeps `-` outside the parens" "NegateParens"
+            ]
+        }
 
+
+declarationSuite : FileSystem.Permission -> U.Suite
+declarationSuite fsPerm =
+    U.suite
+        { name = "Declarations"
+        , setUpSuite = U.noSuiteFixture
+        , tearDownSuite = U.noTearDown
+        , setUp = U.noFixture
+        , tearDown = U.noTearDown
+        , tests =
+            [ assertPretty fsPerm "type aliases" "TypeAlias"
+            , assertPretty fsPerm "union types" "TypeUnion"
+            , assertPretty fsPerm "type signatures" "TypeSignature"
+            , assertPretty fsPerm "ports" "Ports"
+            , assertPretty fsPerm "effect module where { command = ... } renders each binding as one field" "EffectModuleWhere"
+            ]
+        }
+
+
+commentsSuite : FileSystem.Permission -> U.Suite
+commentsSuite fsPerm =
+    U.suite
+        { name = "Comments"
+        , setUpSuite = U.noSuiteFixture
+        , tearDownSuite = U.noTearDown
+        , setUp = U.noFixture
+        , tearDown = U.noTearDown
+        , tests =
+            [ assertPretty fsPerm "comments in pipeliens" "CommentsPipeline"
+            , assertPretty fsPerm "comments everywhere" "CommentsEverywhere"
+            , assertPretty fsPerm "consecutive comments in when branch" "ConsecutiveCommentsInBranch"
+            , assertPretty fsPerm "when expressions as items in a commented array are preserved" "WhenInCommentedArray"
+            , assertPretty fsPerm "type union variant comments and type-syntax positions in signatures" "TypeComments"
+            , assertPretty fsPerm "port declarations with comments in every header position" "PortComments"
+            , assertPretty fsPerm "effect module with comments around top-level decls" "EffectModuleComments"
+            , assertPretty fsPerm "module/import header keyword-gap comments" "ModuleHeaderComments"
+            , assertPretty fsPerm "array patterns, ctor patterns, and when-branch pattern comments" "PatternComments"
+            , assertPretty fsPerm "backward pipeline and operator-rhs gap comments" "PipelineAndGlueComments"
+            , assertPretty fsPerm "doc/line/block adjacency and inter-declaration comments" "EdgeCaseComments"
+            , assertPretty fsPerm "previously-mishandled comment placements (bugs A–K)" "TrickyComments"
+            , assertPretty fsPerm "standalone block comment before a non-first let binding" "LetBindingComments"
+            , assertPretty fsPerm "multiple comments sharing a top-level comment line" "AdjacentTopLevelComments"
+            , assertPretty fsPerm "own-line comment before a container's closing bracket stays inside" "BracketTrailingComments"
+            , assertPretty fsPerm "comment trailing a signature's last token canonicalizes to column 1 before the definition" "SignatureTrailingComment"
+            , assertPretty fsPerm "comment trailing the last let binding routes after `in` (not own-line, which would oscillate)" "LetInTrailingComment"
+            , assertPretty fsPerm "comment trailing a non-last let binding's value sits at the bindings-block indent" "BetweenLetBindingsComment"
+            , assertPretty fsPerm "comment after a wrapping module exposing list canonicalizes to column 1" "ModuleExposingTrailingComment"
+            , assertPretty fsPerm "comment trailing a non-last when-branch body (nested in if/let) sits between branches, no blank" "BetweenWhenBranchesComment"
+            -- Regression guards for the 2026-05-24 fuzzer-found idempotency fixes.
+            , assertPretty fsPerm "trailing comment after a multi-line union variant stays on the variant's last row" "UnionVariantTrailingComment"
+            , assertPretty fsPerm "own-line comment below the last union variant attaches at the variant indent" "UnionTrailingOwnLineComment"
+            , assertPretty fsPerm "overflowing trailing comment in a bracket list lays the item out as if absent" "BracketListOverflowComment"
+            , assertPretty fsPerm "comment in an empty-bracket body slot is not absorbed into the brackets" "EmptyBracketTrailingComment"
+            , assertPretty fsPerm "comments inside a record update and before its closing brace" "RecordUpdateFieldComment"
+            , assertPretty fsPerm "trailing comment on an overflowing when-branch body glues inline" "WhenBranchTrailingComment"
+            , assertPretty fsPerm "single-line comment around the arrow of a wrapping signature soft-breaks" "SignatureArrowLineComment"
+            , assertPretty fsPerm "comment after the exposing list of a vertical effect-module where block" "EffectModuleFxWhereComment"
+            , assertPretty fsPerm "comment on an item in a multi-line import exposing list" "ImportExposingMultilineComment"
+            , assertPretty fsPerm "long module-header comment that wraps the module name to a continuation row" "HeaderCommentNameWrap"
+            , assertPretty fsPerm "comment between a vertical module exposing list and the first declaration" "ModuleVerticalExposingComment"
+            , assertPretty fsPerm "canonical rendering of comments at elided-token positions" "Ambiguous"
+            , assertPretty fsPerm "canonical rendering of a comment in an effect-module where block" "AmbiguousEffectModule"
+            -- Regression guards for the 2026-06-06 column-attachment fixes.
+            , assertPretty fsPerm "comment trailing the then-body routes to leading the else-body" "ThenElseBoundaryComment"
+            , assertPretty fsPerm "own-line comment before a record pattern's closing brace stays inside" "RecordPatternTrailingComment"
+            , assertPretty fsPerm "trailing comment below an overflowing binop chain stays at the chain indent" "BinopChainTrailingComment"
+            , assertPretty fsPerm "trailing comment below a wrapped import stays at the continuation indent" "ImportTrailingComment"
+            , assertPretty fsPerm "trailing comments below a pipeline's last step stay at the step indent" "PipelineTrailingComment"
+            ]
+        }
+
+
+kitchenSinkSuite : FileSystem.Permission -> U.Suite
+kitchenSinkSuite fsPerm =
+    U.suite
+        { name = "Kitchen sink"
+        , setUpSuite = U.noSuiteFixture
+        , tearDownSuite = U.noTearDown
+        , setUp = U.noFixture
+        , tearDown = U.noTearDown
+        , tests =
+            [ assertPretty fsPerm "every AST construct in one file" "KitchenSink"
+            , assertPretty fsPerm "comments at every position in one file" "KitchenComments"
+            , assertPretty fsPerm "3-line block comments at every round-tripping position" "MultilineBlockComments"
+            , assertPretty fsPerm "3-line block comment in an effect-module where block" "MultilineEffectModule"
+            , assertPretty fsPerm "block comment body re-indented from its own structure, not the open column" "BlockCommentBodyIndent"
+            , assertPretty fsPerm "trailing comment placement (inline vs own line) is preserved, not normalized" "CommentPlacement"
+            , assertPretty fsPerm "a variety of constructs near, at, and past the 100-column page width" "PageWidth"
+            , assertPretty fsPerm "empty literal ([] / {}) as an item inside a bracketed list" "EmptyBracketInList"
+            ]
+        }

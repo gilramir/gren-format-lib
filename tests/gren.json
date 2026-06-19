@@ -7,16 +7,16 @@
     "gren-version": "0.6.5",
     "dependencies": {
         "direct": {
-            "blaix/gren-effectful-tests": "6.0.0",
+            "gilramir/gren-argparse": "local:../../gren-argparse",
             "gilramir/gren-diff": "1.0.1",
             "gilramir/gren-format-lib": "local:..",
             "gilramir/gren-pretty-expressive": "2.0.1",
-            "gren-lang/core": "7.4.2",
+            "gilramir/gren-unit-node": "local:../../gren-unit-node",
             "gren-lang/compiler-common": "local:../../compiler-common",
+            "gren-lang/core": "7.4.2",
             "gren-lang/node": "6.1.0",
             "gren-lang/parser": "6.2.0",
-            "gren-lang/test": "5.0.0",
-            "gren-lang/test-runner-node": "7.0.0"
+            "gren-lang/test": "5.0.0"
         },
         "indirect": {
             "gren-lang/url": "6.0.0"
