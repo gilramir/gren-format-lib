@@ -17,5 +17,7 @@ main =
             \done ->
                 Init.await FileSystem.initialize <| \fs ->
                     done { fs = fs }
+        , globalSetUp = U.noFixture
+        , globalTearDown = U.noTearDown
         , suites = \perms -> Test.Formatter.Format.suites perms.fs
         }
