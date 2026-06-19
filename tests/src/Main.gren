@@ -3,7 +3,7 @@ module Main exposing (main)
 import FileSystem
 import Init
 import Node
-import Test.Unit as U
+import Test.Runner.UnitNode as U
 
 import Test.Formatter.Format
 

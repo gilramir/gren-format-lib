@@ -5,7 +5,7 @@ import Expect exposing (Expectation)
 import FileSystem
 import FileSystem.Path as Path
 import Task exposing (Task)
-import Test.Unit as U
+import Test.Runner.UnitNode as U
 
 import Array.Builder as Builder
 import Compiler.Ast.Source as Src
