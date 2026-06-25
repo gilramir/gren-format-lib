@@ -1,0 +1,19 @@
+module LetCommentedSignature exposing (..)
+
+
+-- A leading comment before a let-binding signature must not cause a blank line
+-- to be inserted between the signature and its definition.
+run : Int -> Int
+run n =
+    let
+        -- Halves the value.
+        half : Int -> Int
+        half x =
+            x // 2
+
+        -- Doubles the value.
+        double : Int -> Int
+        double x =
+            x * 2
+    in
+    double (half n)

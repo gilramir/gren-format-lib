@@ -257,8 +257,11 @@ isLetSignature : LPNode -> Bool
 isLetSignature node =
     when lpnBox node is
         IndentedBlock ->
-            when Array.first (lpnChildren node) is
-                Just inner ->
+            -- Comments preceding a signature are redirected inside the
+            -- IndentedBlock by Comments.insertAmongChildren, so the AcrossThenIndent
+            -- may not be the first child. Check all children.
+            Array.any
+                (\inner ->
                     when lpnBox inner is
                         AcrossThenIndent ->
                             Array.any
@@ -269,7 +272,8 @@ isLetSignature node =
                                 )
                                 (lpnChildren inner)
                         _ -> False
-                Nothing -> False
+                )
+                (lpnChildren node)
         _ -> False
 
 
