@@ -1472,13 +1472,21 @@ blockCommentDoc loc =
                                 |> Array.minimum
                                 |> Maybe.withDefault blockCommentBodyOffset
                         -- Map the base to `blockCommentBodyOffset` and keep any
-                        -- deeper internal indentation relative to it. Lines shallower
-                        -- than the base (a bare `-}`, blank lines) clamp to column 0.
+                        -- deeper internal indentation relative to it. Blank lines
+                        -- and a bare `-}` emit as-is (trimmed): `P.align` will
+                        -- place them at the `{-` column, keeping `-}` aligned
+                        -- with its opener. The formula would give them
+                        -- `blockCommentBodyOffset` extra spaces, which is wrong.
                         reindent line =
-                            let l = leadingSpaceCount line
+                            let t = String.trimLeft line
                             in
-                            String.repeat (max 0 (blockCommentBodyOffset + l - base)) " "
-                                ++ String.dropFirst l line
+                            if t == "" || t == "-}" then
+                                t
+                            else
+                                let l = leadingSpaceCount line
+                                in
+                                String.repeat (max 0 (blockCommentBodyOffset + l - base)) " "
+                                    ++ String.dropFirst l line
                     in
                     Array.foldl
                         (\line acc -> P.concat acc (P.concat P.hardNl (P.text (reindent line))))

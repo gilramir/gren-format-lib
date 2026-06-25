@@ -1,0 +1,14 @@
+module BlockCommentClosingAlign exposing (..)
+
+-- A block comment whose closing -} sits on its own line must align with the
+-- opening {-, not be shifted right by blockCommentBodyOffset.
+foo =
+    let
+        x =
+            {- first line of comment,
+               second line of comment,
+               third line of comment.
+            -}
+            42
+    in
+    x
