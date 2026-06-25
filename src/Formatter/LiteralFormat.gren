@@ -17,12 +17,18 @@ escapeStringContent s =
                 code = Char.toCode c
             in
             when code is
+                -- HT (Horizontal Tab)
                 9  -> "\\t"
+                -- LF (Line Feed)
                 10 -> "\\n"
+                -- CR (Carriage Return)
                 13 -> "\\r"
+                -- QUOTATION MARK
                 34 -> "\\\""
+                -- REVERSE SOLIDUS
                 92 -> "\\\\"
                 _  ->
+                    -- C0 control characters (code < 32); DEL (code == 127)
                     if code < 32 || code == 127 then
                         "\\u{" ++ codePointHex code ++ "}"
                     else
@@ -51,12 +57,18 @@ escapeMultilineContent s =
                 code = Char.toCode c
             in
             when code is
+                -- HT (Horizontal Tab) — preserved verbatim in triple-quoted strings
                 9  -> String.fromChar c
+                -- LF (Line Feed) — preserved verbatim
                 10 -> String.fromChar c
+                -- CR (Carriage Return) — preserved verbatim
                 13 -> String.fromChar c
+                -- QUOTATION MARK
                 34 -> "\\\""
+                -- REVERSE SOLIDUS
                 92 -> "\\\\"
                 _  ->
+                    -- C0 control characters (code < 32); DEL (code == 127)
                     if code < 32 || code == 127 then
                         "\\u{" ++ codePointHex code ++ "}"
                     else
