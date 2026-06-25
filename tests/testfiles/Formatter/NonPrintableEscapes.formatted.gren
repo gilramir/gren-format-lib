@@ -1,0 +1,18 @@
+module NonPrintableEscapes exposing (..)
+
+
+-- Non-printable ASCII control characters in string literals must be re-escaped.
+escPrefix =
+    "\u{001b}["
+
+
+nullChar =
+    "\u{0000}"
+
+
+bell =
+    "\u{0007}"
+
+
+del =
+    "\u{007f}"

@@ -11,12 +11,24 @@ import Math
 
 escapeStringContent : String -> String
 escapeStringContent s =
-    s
-        |> String.replace "\\" "\\\\"
-        |> String.replace "\"" "\\\""
-        |> String.replace "\n" "\\n"
-        |> String.replace "\r" "\\r"
-        |> String.replace "\t" "\\t"
+    let
+        escapeChar c =
+            let
+                code = Char.toCode c
+            in
+            when code is
+                9  -> "\\t"
+                10 -> "\\n"
+                13 -> "\\r"
+                34 -> "\\\""
+                92 -> "\\\\"
+                _  ->
+                    if code < 32 || code == 127 then
+                        "\\u{" ++ codePointHex code ++ "}"
+                    else
+                        String.fromChar c
+    in
+    String.foldl (\c acc -> acc ++ escapeChar c) "" s
 
 
 -- Escape content for embedding in a triple-quoted `"""..."""` literal.
@@ -33,9 +45,24 @@ escapeStringContent s =
 -- `\"\"\"`), so it also round-trips cleanly.
 escapeMultilineContent : String -> String
 escapeMultilineContent s =
-    s
-        |> String.replace "\\" "\\\\"
-        |> String.replace "\"" "\\\""
+    let
+        escapeChar c =
+            let
+                code = Char.toCode c
+            in
+            when code is
+                9  -> String.fromChar c
+                10 -> String.fromChar c
+                13 -> String.fromChar c
+                34 -> "\\\""
+                92 -> "\\\\"
+                _  ->
+                    if code < 32 || code == 127 then
+                        "\\u{" ++ codePointHex code ++ "}"
+                    else
+                        String.fromChar c
+    in
+    String.foldl (\c acc -> acc ++ escapeChar c) "" s
 
 
 charLiteralString : Char -> String
@@ -56,7 +83,7 @@ charLiteralString c =
                     if code >= 32 && code <= 126 then
                         String.fromChar c
                     else
-                        "\\u{" ++ intToHex code ++ "}"
+                        "\\u{" ++ codePointHex code ++ "}"
     in
     "'" ++ inner ++ "'"
 
@@ -87,3 +114,30 @@ intToHex n =
         hexDigit n
     else
         intToHex (n // 16) ++ hexDigit (Math.modBy 16 n)
+
+
+-- Format a code point for a `\u{...}` escape: lowercase hex, padded to 4 digits.
+-- Kept separate from intToHex (which is uppercase, unpadded) because intToHex
+-- is also used for hex integer literals where case and padding follow different rules.
+codePointHex : Int -> String
+codePointHex n =
+    let
+        hexDigitLower d =
+            when d is
+                10 -> "a"
+                11 -> "b"
+                12 -> "c"
+                13 -> "d"
+                14 -> "e"
+                15 -> "f"
+                _  -> String.fromInt d
+        toHexLower m =
+            if m < 16 then
+                hexDigitLower m
+            else
+                toHexLower (m // 16) ++ hexDigitLower (Math.modBy 16 m)
+        raw = toHexLower n
+        rawLen = String.count raw
+        pad = String.repeat (if rawLen < 4 then 4 - rawLen else 0) "0"
+    in
+    pad ++ raw
