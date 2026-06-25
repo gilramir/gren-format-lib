@@ -1,0 +1,10 @@
+module BlockCommentCloserIndented exposing (..)
+
+-- Regression: closing -} written at body indentation (l == base) was pushed
+-- three columns past {- by blockCommentBodyOffset. The fix emits -} as-is so
+-- P.align places it at the {- column.
+x =
+    {- First content line.
+       Second content line.
+       -}
+    42
