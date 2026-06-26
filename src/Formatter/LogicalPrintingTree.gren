@@ -140,17 +140,19 @@ type LPBox
     | PipelineStep
 
     -- A whole `|>`/`<|` pipeline: children are the seed node(s) followed by the
-    -- `PipelineStep` nodes. Mirrors the author-layout rule of the bracketed
-    -- containers: a pipeline written on one line stays inline when it fits
-    -- (`seed |> a |> b`), one written across rows — or one that overflows — gets
-    -- one step per line (the `PipelineStep` form above). `forceVertical` is True
-    -- when the author wrote the seed/steps across rows (signal B). The fit-based
-    -- group's broken branch is built to be byte-identical to the always-vertical
-    -- `PipelineStep` rendering, so overflow == multi-line-authored and formatting
-    -- stays a fixed point. A pipeline carrying any comment always renders through
-    -- the `PipelineStep` path (its comment-peeling / blank-line logic is intricate
-    -- and stays untouched).
-    | Pipeline { forceVertical : Bool }
+    -- `PipelineStep` nodes. `op` is `"|>"` or `"<|"`. Mirrors the author-layout
+    -- rule of the bracketed containers: a pipeline written on one line stays
+    -- inline when it fits (`seed |> a |> b`), one written across rows — or one
+    -- that overflows — gets one step per line. `forceVertical` is True when the
+    -- author wrote the seed/steps across rows (signal B). A pipeline carrying any
+    -- comment always renders through the `PipelineStep` path (its comment-peeling
+    -- / blank-line logic is intricate and stays untouched).
+    --
+    -- For `|>`: operator leads each step line (`seed\n    |> step`).
+    -- For `<|`: operator trails the seed/previous step (`seed <|\n    step`);
+    --   when the step body is a lambda, the lambda head also trails
+    --   (`seed <| \patterns ->\n    body`).
+    | Pipeline { forceVertical : Bool, op : String }
 
     -- Function body block: forces a hard newline before children, no extra nesting
     -- (the outer buildFlowDoc's P.nest 4 provides the 4-space indent).

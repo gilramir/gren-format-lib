@@ -215,9 +215,9 @@ pipelineExample collection =
 
 
 pipelineBackward collection =
-    List.foldl mergeAllItems initialSeed
-        <| List.filter shouldRetainThisItem
-        <| List.map applyTransform collection
+    List.foldl mergeAllItems initialSeed <|
+        List.filter shouldRetainThisItem <|
+        List.map applyTransform collection
 
 -- ===== binary operator chains =====
 

@@ -994,8 +994,11 @@ makePDoc box children =
             buildFlowDoc 0 children
         PipelineStep ->
             buildFlowDoc 0 children
-        Pipeline { forceVertical } ->
-            makePipelineDoc forceVertical children
+        Pipeline { forceVertical, op } ->
+            if op == "<|" then
+                makeBackwardPipelineDoc forceVertical children
+            else
+                makePipelineDoc forceVertical children
         Binop { forceVertical } ->
             makeBinopDoc forceVertical children
         BodyBlock ->
@@ -1996,6 +1999,179 @@ makePipelineDoc forceVertical children =
                                 P.concat seedDoc (P.nest grenIndent stepsInner)
                         in
                         groupUnlessForced forceVertical full
+                    )
+            )
+
+
+{-| Render a `<|` (backward) pipeline with trailing-operator style.
+
+`|>` is a leading operator: the operator starts each step line.
+`<|` is a trailing operator: the operator ends the seed/previous-step line.
+
+Comment-free, single lambda step (`seed <| \patterns -> body`):
+
+    seed <| \patterns ->
+        body
+
+Comment-free, N non-lambda steps:
+
+    seed <|
+        body1 <|
+        body2 <|
+        bodyN
+
+All step bodies land at `seed_col + 4`. Comment-bearing pipelines fall back to
+`buildFlowDoc 0` (forward-leading style) so the intricate PipelineStep
+comment-peeling logic stays untouched.
+-}
+makeBackwardPipelineDoc : Bool -> Array LPNode -> Result String (P.Doc cost)
+makeBackwardPipelineDoc forceVertical children =
+    -- Fall back to forward-leading style only for comments at step boundaries:
+    -- (1) a comment sibling directly between seed and a PipelineStep, or
+    -- (2) a trailing comment at the very end of a PipelineStep's children.
+    -- Comments nested inside the step body (e.g. in a list argument) do not
+    -- affect how the operator is placed and should not trigger the fallback.
+    let
+        stepFirstIsComment stepNode =
+            when Array.popFirst (lpnChildren stepNode) is
+                Just { first = firstChild } -> nodeIsComment firstChild
+                Nothing -> False
+
+        stepLastIsComment stepNode =
+            when Array.popLast (lpnChildren stepNode) is
+                Just { last = lastChild } -> nodeIsComment lastChild
+                Nothing -> False
+
+        hasStepBoundaryComment =
+            Array.any
+                (\n ->
+                    if isPipelineStepNode n then
+                        -- Leading comment (before <|) or trailing comment (after body).
+                        stepFirstIsComment n || stepLastIsComment n
+                    else
+                        -- Comment sibling between seed and step.
+                        nodeIsComment n
+                )
+                children
+    in
+    -- Also fall back if any step has a non-<| operator. flattenPipeline merges
+    -- mixed |>/<| chains into a single flat array; the outermost op tags the
+    -- Pipeline, but individual steps may still carry |> ops that must render
+    -- in forward-leading style.
+    let
+        stepOpIsBackward stepNode =
+            when Array.popFirst (lpnChildren stepNode) is
+                Just { first = opNode } ->
+                    when lpnBox opNode is
+                        UnbreakableText loc -> loc.value == "<|"
+                        _ -> False
+                Nothing -> False
+
+        allStepsBackward =
+            Array.all stepOpIsBackward (Array.keepIf isPipelineStepNode children)
+    in
+    if hasStepBoundaryComment || not allStepsBackward then
+        buildFlowDoc 0 children
+    else
+        let
+            seedNodes = Array.keepIf (\n -> not (isPipelineStepNode n)) children
+            stepNodes = Array.keepIf isPipelineStepNode children
+            sep = authorSep forceVertical
+        in
+        buildFlowDoc 0 seedNodes
+            |> Result.andThen (\seedDoc ->
+                -- Collect body-node lists for each step (drop leading <| op child).
+                traverseArray
+                    (\stepNode ->
+                        when Array.popFirst (lpnChildren stepNode) is
+                            Nothing ->
+                                Err "backward pipeline step has no children"
+                            Just { first = _, rest = bodyNodes } ->
+                                Ok bodyNodes
+                    )
+                    stepNodes
+                    |> Result.andThen (\allBodyNodes ->
+                        when Array.length allBodyNodes is
+                            1 ->
+                                -- Single step: check for lambda (trailing SoftIndentedBlock).
+                                when Array.first allBodyNodes is
+                                    Nothing ->
+                                        Err "backward pipeline: empty body nodes array"
+                                    Just bodyNodes ->
+                                        when Array.popLast bodyNodes is
+                                            Nothing ->
+                                                -- Non-lambda single step (empty body — shouldn't happen).
+                                                buildFlowDoc 0 bodyNodes
+                                                    |> Result.map (\bodyDoc ->
+                                                        groupUnlessForced forceVertical
+                                                            (P.concat seedDoc
+                                                                (P.concat (P.text " <|")
+                                                                    (P.nest grenIndent (P.concat sep bodyDoc))))
+                                                    )
+                                            Just { last = lastNode, initial = headNodes } ->
+                                                when lpnBox lastNode is
+                                                    SoftIndentedBlock ->
+                                                        -- Lambda: `<| \patterns ->` trails seed,
+                                                        -- lambda body breaks to seed_col + 4.
+                                                        buildFlowDocInline 0 headNodes
+                                                            |> Result.andThen (\headDoc ->
+                                                                buildFlowDoc 0 (lpnChildren lastNode)
+                                                                    |> Result.map (\bodyDoc ->
+                                                                        let
+                                                                            bodyBreak =
+                                                                                if forceVertical then
+                                                                                    P.nest grenIndent (P.concat P.hardNl bodyDoc)
+                                                                                else
+                                                                                    P.group (P.nest grenIndent (P.concat P.nl bodyDoc))
+                                                                        in
+                                                                        P.concat seedDoc
+                                                                            (P.concat (P.text " <| ")
+                                                                                (P.concat headDoc bodyBreak))
+                                                                    )
+                                                            )
+                                                    _ ->
+                                                        -- Non-lambda single step.
+                                                        buildFlowDoc 0 bodyNodes
+                                                            |> Result.map (\bodyDoc ->
+                                                                groupUnlessForced forceVertical
+                                                                    (P.concat seedDoc
+                                                                        (P.concat (P.text " <|")
+                                                                            (P.nest grenIndent (P.concat sep bodyDoc))))
+                                                            )
+                            _ ->
+                                -- Multiple steps: each body at seed_col + 4, operator
+                                -- trails the previous slot (seed or step body).
+                                traverseArray (buildFlowDoc 0) allBodyNodes
+                                    |> Result.map (\bodyDocs ->
+                                        let
+                                            nBodies = Array.length bodyDocs
+                                            stepsDoc =
+                                                Array.foldl
+                                                    (\bodyDoc { idx, doc } ->
+                                                        let
+                                                            isLast = idx == nBodies - 1
+                                                            bodyWithTrail =
+                                                                if isLast then
+                                                                    bodyDoc
+                                                                else
+                                                                    P.concat bodyDoc (P.text " <|")
+                                                            newDoc =
+                                                                if idx == 0 then
+                                                                    bodyWithTrail
+                                                                else
+                                                                    P.concat doc (P.concat sep bodyWithTrail)
+                                                        in
+                                                        { idx = idx + 1, doc = newDoc }
+                                                    )
+                                                    { idx = 0, doc = P.empty }
+                                                    bodyDocs
+                                                |> .doc
+                                        in
+                                        groupUnlessForced forceVertical
+                                            (P.concat seedDoc
+                                                (P.concat (P.text " <|")
+                                                    (P.nest grenIndent (P.concat sep stepsDoc))))
+                                    )
                     )
             )
 

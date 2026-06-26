@@ -555,10 +555,10 @@ traverseDeeply rootTree =
                     "invalid:" ++ firstNameString
 
                 else if ageInYears == 0 then
-                    String.toUpper
-                        <| String.append firstNameString
-                        <| String.append " "
-                        <| lastNameString
+                    String.toUpper <|
+                        String.append firstNameString <|
+                        String.append " " <|
+                        lastNameString
 
                 else
                     String.join " "

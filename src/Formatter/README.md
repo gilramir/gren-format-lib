@@ -1241,8 +1241,8 @@ result =
         |> Array.first
 ```
 
-When a one-line pipeline is too long, each step goes on its own line, indented 4
-spaces from the seed, with the operator leading each line:
+**`|>` (forward) pipelines** use a leading-operator style: the operator starts
+each step line, indented 4 spaces from the seed:
 
 ```gren
 result =
@@ -1252,7 +1252,28 @@ result =
         |> Array.first
 ```
 
-A comment just before a pipeline step travels with that step:
+**`<|` (backward) pipelines** use a trailing-operator style: the operator trails
+the seed (or previous step body), and the next step body goes on the next line
+indented 4 spaces from the seed:
+
+```gren
+result =
+    String.toUpper <|
+        String.append "Greetings, " <|
+        String.append name "!"
+```
+
+When the step body is a lambda, the lambda's parameter list and `->` also trail
+the `<|`, so only the lambda body breaks to the next line:
+
+```gren
+main =
+    Node.defineSimpleProgram <| \env ->
+        run env <|
+            describe "tests" [...]
+```
+
+A comment just before a `|>` pipeline step travels with that step:
 
 ```gren
 result =

@@ -1,14 +1,14 @@
 module BackwardPipeline exposing (..)
 
 
--- A backward pipeline (<|) follows the author's layout just like a forward
--- pipeline (|>). One written on a line that overflows wraps with each <| step
--- on its own line, indented +4 from the seed.
+-- A backward pipeline (<|) uses a trailing operator style: the <| operator
+-- trails the seed (or previous step), and the step body goes on the next line
+-- indented +4. One written on a line that overflows breaks this way.
 shout : String -> String
 shout name =
-    String.toUpper
-        <| String.append "Greetings and salutations, "
-        <| String.append name "!!!"
+    String.toUpper <|
+        String.append "Greetings and salutations, " <|
+        String.append name "!!!"
 
 
 -- A short backward pipeline the author wrote on one line stays inline.
@@ -21,5 +21,5 @@ five =
 -- even though it would fit on one line.
 keptVertical : String -> String
 keptVertical name =
-    String.toUpper
-        <| String.append name "!"
+    String.toUpper <|
+        String.append name "!"

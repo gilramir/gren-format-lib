@@ -440,7 +440,7 @@ insertExpression locExpr =
                             flattened.steps
                         -- Wrap the seed + steps in a single Pipeline container so the
                         -- renderer can choose inline (fits) vs one-step-per-line.
-                        |> Result.map (\allNodes -> [lpnNode (Pipeline { forceVertical = forceVertical }) allNodes])
+                        |> Result.map (\allNodes -> [lpnNode (Pipeline { forceVertical = forceVertical, op = locStringOp.value }) allNodes])
                     )
             else
                 -- Flatten the whole chain (not recurse into it) so the Binop
