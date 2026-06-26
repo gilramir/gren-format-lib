@@ -524,6 +524,22 @@ choices =
     }
 ```
 
+The same rules apply when the field belongs to a record *update*
+(`{ record | field = ... }`); there the body lines up under the field name:
+
+```gren
+withParser model =
+    { model
+        | name = "parser"
+        , parseFn = \args ->
+              if Array.length args == 0 then
+                  Ok {}
+
+              else
+                  Err WrongArity
+    }
+```
+
 ### Record types and extensible records
 
 A record *type* in a signature follows the same layout rules. An extensible

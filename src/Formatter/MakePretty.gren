@@ -1540,7 +1540,18 @@ makeRecordUpdateDoc forceVertical baseName children =
             -- to the surrounding record's column.
             let
                 fieldDoc field =
-                    buildFlowDoc grenIndent (lpnChildren field)
+                    -- A lambda field uses an IndentedBlock container so its body
+                    -- block supplies the only +4; render its flow at +0 (mirrors
+                    -- the list-item path in listItemBoxDoc). Every other field
+                    -- flows at +4. P.align then anchors continuation lines under
+                    -- the field content (see folderInsertRecordField).
+                    let
+                        flowIndent =
+                            when lpnBox field is
+                                IndentedBlock -> 0
+                                _ -> grenIndent
+                    in
+                    buildFlowDoc flowIndent (lpnChildren field)
                         |> Result.map P.align
 
                 hasComment =
