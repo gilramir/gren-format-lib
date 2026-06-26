@@ -311,7 +311,7 @@ insertExpression locExpr =
                 )
 
         Src.Record fieldArray ->
-            resultFoldl folderInsertRecordField [] fieldArray
+            resultFoldl (folderInsertRecordField True) [] fieldArray
                 |> Result.map (\fieldNodes ->
                     when Array.popFirst fieldNodes is
                         Nothing ->
@@ -354,7 +354,7 @@ insertExpression locExpr =
                     , value = recText
                     }
             in
-            resultFoldl folderInsertRecordField [] newValues
+            resultFoldl (folderInsertRecordField False) [] newValues
                 |> Result.map (\fieldNodes ->
                     when Array.popFirst fieldNodes is
                         Nothing ->
@@ -712,20 +712,60 @@ recordFieldsSpanRows fields =
 
 {-| Folder for fields of a record literal or record update.
 
-Produces one `AcrossThenIndent` node per field, holding the field name, an
-`=` separator, and the converted value nodes.
+Produces one container node per field, holding the field name, an `=`
+separator, and the converted value nodes.
+
+`blockLayout` is `True` for a record **literal** and `False` for a record
+**update**. A literal renders each field through the nest-based list-item path,
+where a field value that is itself a block-bodied construct would otherwise
+double-indent: the field's own `AcrossThenIndent` adds +4, and the value's body
+block adds a second +4. So for a literal the container box depends on the value:
+
+  - A **lambda** keeps its `\args ->` header inline on the `=` line, with its
+    body one level under the field. Its body is already a `SoftIndentedBlock`
+    (which nests +4), so the field flow is rendered at +0 (`IndentedBlock` as a
+    list item = `buildFlowDoc 0`); the body's own +4 is then the only one.
+  - An **`if`/`let`** value drops its header onto the next line (the same shape
+    `when` already produces on its own), so the construct's aligned keywords
+    (`else`, `in`) sit one level under the field. `BodyBlock` forces that drop
+    at the field's +4 with no extra nest, leaving the value's internal blocks to
+    supply their own.
+  - Every other value (including `when`, whose `AlignedFlow` already drops) uses
+    the plain `AcrossThenIndent`, which keeps short values inline and indents an
+    overflowing continuation +4.
+
+A record **update** renders its fields through the column-`align`-based
+`makeRecordUpdateDoc`, which reads each field's children directly and is
+indifferent to the container box, so it always gets the plain `AcrossThenIndent`.
 -}
-folderInsertRecordField : Src.RecordField -> Array LPNode -> Result String (Array LPNode)
-folderInsertRecordField field accNodes =
+folderInsertRecordField : Bool -> Src.RecordField -> Array LPNode -> Result String (Array LPNode)
+folderInsertRecordField blockLayout field accNodes =
     let
         fieldNameNode = lpnLeaf (mkTextFromLocString field.field)
         eqNode = lpnLeaf (SynthesizedText "=")
+        plainContainer valueNodes = lpnNode AcrossThenIndent ([fieldNameNode, eqNode] ++ valueNodes)
     in
     insertExpression field.value
         |> Result.map (\valueNodes ->
             let
-                allChildren = [fieldNameNode, eqNode] ++ valueNodes
-                container = lpnNode AcrossThenIndent allChildren
+                container =
+                    if not blockLayout then
+                        plainContainer valueNodes
+                    else
+                        when field.value.value is
+                            Src.Lambda _ ->
+                                lpnNode IndentedBlock ([fieldNameNode, eqNode] ++ valueNodes)
+
+                            Src.If _ ->
+                                lpnNode AcrossThenIndent
+                                    [fieldNameNode, eqNode, lpnNode BodyBlock valueNodes]
+
+                            Src.Let _ ->
+                                lpnNode AcrossThenIndent
+                                    [fieldNameNode, eqNode, lpnNode BodyBlock valueNodes]
+
+                            _ ->
+                                plainContainer valueNodes
             in
             Array.pushLast container accNodes
         )

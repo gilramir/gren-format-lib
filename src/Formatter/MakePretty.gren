@@ -1255,6 +1255,11 @@ listItemBoxDoc node =
             Just (Ok (P.text loc.value))
         AcrossThenIndent ->
             Just (buildFlowDoc grenIndent children)
+        IndentedBlock ->
+            -- A record field whose value is a lambda: the field flow renders at
+            -- +0 so the lambda body's SoftIndentedBlock supplies the only +4
+            -- (see folderInsertRecordField).
+            Just (buildFlowDoc 0 children)
         ParenBlock ->
             Just (makePDoc ParenBlock children)
         AllAcrossOrAllVertical _ ->

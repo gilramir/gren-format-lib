@@ -1,0 +1,34 @@
+module RecordFieldBlockValues exposing (..)
+
+
+x =
+    Wrapper
+        { usage = ""
+        , short = \v -> v + 1
+        , twoArgs = \a b -> a + b
+        , parseFn = \args ->
+            if Array.length args /= 0 then
+                Err Bad
+
+            else
+                Ok {}
+        , ifField =
+            if cond then
+                aaaaaaaaaaaaaaaaaaaa
+
+            else
+                bbbbbbbbbbbbbbbbbbbb
+        , whenField =
+            when value is
+                Foo ->
+                    aaaaaaaaaaaaaaaaa
+
+                Bar ->
+                    bbbbbbbbbbbbbbbbb
+        , letField =
+            let
+                y =
+                    1
+            in
+            y
+        }

@@ -487,6 +487,43 @@ wrapsToNextLine =
     }
 ```
 
+When the value is a **lambda**, its `\args ->` header stays on the name's line
+and the body sits 4 spaces under the field — never 8:
+
+```gren
+parser =
+    { parseFn = \args ->
+        if Array.length args == 0 then
+            Ok {}
+
+        else
+            Err WrongArity
+    }
+```
+
+A short lambda body still stays inline (`{ increment = \v -> v + 1 }`).
+
+When the value is an **`if`**, **`when`**, or **`let`**, the whole construct
+drops to the next line, so its aligned keywords (`else`, the branches, `in`)
+line up 4 spaces under the field:
+
+```gren
+choices =
+    { kind =
+        if isAdmin then
+            Admin
+
+        else
+            Guest
+    , label =
+        let
+            base =
+                "user"
+        in
+        base ++ suffix
+    }
+```
+
 ### Record types and extensible records
 
 A record *type* in a signature follows the same layout rules. An extensible

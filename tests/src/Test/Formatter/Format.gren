@@ -388,5 +388,6 @@ kitchenSinkSuite fsPerm =
             , assertPretty fsPerm "trailing comment placement (inline vs own line) is preserved, not normalized" "CommentPlacement"
             , assertPretty fsPerm "a variety of constructs near, at, and past the 100-column page width" "PageWidth"
             , assertPretty fsPerm "empty literal ([] / {}) as an item inside a bracketed list" "EmptyBracketInList"
+            , assertPretty fsPerm "block-bodied record field values: lambda inline (body +4), if/let/when dropped" "RecordFieldBlockValues"
             ]
         }
