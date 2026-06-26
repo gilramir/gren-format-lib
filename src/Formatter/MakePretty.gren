@@ -988,6 +988,9 @@ makePDoc box children =
         BlockComment _ -> Ok (commentBoxDoc box)
         AcrossThenIndent ->
             buildFlowDoc grenIndent children
+        WhenBranchPattern ->
+            buildFlowDoc grenIndent children
+                |> Result.map (\d -> P.concat d (P.text " ->"))
         IfCondition ->
             makeIfConditionDoc children
         IndentedBlock ->

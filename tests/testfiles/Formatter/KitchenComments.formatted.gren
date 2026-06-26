@@ -269,7 +269,8 @@ torturedComments primaryIntValue secondaryStringValue tertiaryBoolValue =
     in {- block comment between `in` and the body -}
     when {- inline comment between `when` and the scrutinee -} bumpedValue is
         {- inline comment between scrutinee and `is` -}
-        0 -> {- inline block between pattern and arrow -}
+        0 ->
+            {- inline block between pattern and arrow -}
             {- inline block between arrow and body -}
             "zero/" ++ guardedString
 
@@ -350,11 +351,19 @@ extremelyCommented {-c22-} {-c23-} {-c24-}
                         {-c76-}
                         {-c77-}
                         {-c78-}
-                        0 -> {-c79-} {-c80-} {-c81-} {-c82-} {-c83-} {-c84-}
+                        0 ->
+                            {-c79-}
+                            {-c80-}
+                            {-c81-}
+                            {-c82-}
+                            {-c83-}
+                            {-c84-}
                             { r | label = {-c85-} {-c86-} "zero" {-c87-}
                             } {-c88-} {-c89-}
 
-                        _ -> {-c90-} {-c91-}
+                        _ ->
+                            {-c90-}
+                            {-c91-}
                             r {-c92-}) {-c93-}
 
         {-c94-}

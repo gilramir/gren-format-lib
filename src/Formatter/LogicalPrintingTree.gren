@@ -167,6 +167,12 @@ type LPBox
     --         body
     | WhenBranch
 
+    -- Pattern nodes for one when-branch. Renders like AcrossThenIndent
+    -- (continuation lines +4) but appends " ->" directly after the last token,
+    -- so the arrow always trails the pattern on the same line — including after
+    -- the closing } of a broken record pattern.
+    | WhenBranchPattern
+
     -- Parenthesized expression: renders children with ( prefix and ) suffix
     -- using P.concat (immediate adjacency, no space). Used instead of
     -- text-modification so that bracket-rendered containers (like arrays) render

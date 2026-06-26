@@ -13,7 +13,8 @@ describe wrappedValue =
                 ++ ":"
                 ++ String.fromInt payloadInt
                 ++ "/"
-                ++ Debug.toString wholeRecord {- first trailing comment -} {- second trailing comment after an overflowing branch body -}
+                ++ Debug.toString wholeRecord {- first trailing comment -}
+                {- second trailing comment after an overflowing branch body -}
 
 
 classify : Wrapped (Maybe Int) -> String

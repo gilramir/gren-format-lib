@@ -133,6 +133,9 @@ lpBoxFields lpbox =
         WhenBranch ->
             [ { key = "type", value = Json.string "WhenBranch" } ]
 
+        WhenBranchPattern ->
+            [ { key = "type", value = Json.string "WhenBranchPattern" } ]
+
         ParenBlock ->
             [ { key = "type", value = Json.string "ParenBlock" } ]
 

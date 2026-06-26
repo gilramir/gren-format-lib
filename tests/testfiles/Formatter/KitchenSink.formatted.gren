@@ -230,10 +230,10 @@ processConfiguration
                 in
                 when chosenSink is
                     Just
-                    { kind = sinkKind
-                    , endpoint = sinkEndpoint
-                    , headers = sinkHeaders
-                    } ->
+                        { kind = sinkKind
+                        , endpoint = sinkEndpoint
+                        , headers = sinkHeaders
+                        } ->
                         if String.startsWith "https://" sinkEndpoint then
                             Ok
                                 { kind = sinkKind
@@ -508,10 +508,10 @@ fold reducerFunction initialAccumulatorValue currentTreeNode =
             reducerFunction solitaryLeafValue initialAccumulatorValue
 
         Branch
-        { label = branchLabelString
-        , attributes = branchAttributesArray
-        , children = branchChildrenArray
-        } ->
+            { label = branchLabelString
+            , attributes = branchAttributesArray
+            , children = branchChildrenArray
+            } ->
             let
                 accumulatorAfterAttributes =
                     Array.foldl
@@ -579,10 +579,10 @@ traverseDeeply rootTree =
                     childrenArray |> Array.flatMap gatherNames
 
                 Cons
-                { headValue = headPersonRecord
-                , leftSubtree = leftSubtreeOfNames
-                , rightSubtree = rightSubtreeOfNames
-                } ->
+                    { headValue = headPersonRecord
+                    , leftSubtree = leftSubtreeOfNames
+                    , rightSubtree = rightSubtreeOfNames
+                    } ->
                     let
                         leftCollected =
                             gatherNames leftSubtreeOfNames

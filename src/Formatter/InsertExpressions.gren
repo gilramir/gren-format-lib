@@ -879,49 +879,22 @@ folderInsertElseIfBranch branch accNodes =
 
 {-| Folder for branches of a `when ... is` expression.
 
-Produces one `WhenBranch` node per branch. If the body is itself a control
-construct (`if`, `let`, `when`), the body is wrapped in an `IndentedBlock`;
-otherwise the pattern, `->`, and body flow under `AcrossThenIndent`.
+Produces one `WhenBranch` node per branch. The pattern nodes go into a
+`WhenBranchPattern` child, which renders them like `AcrossThenIndent` but
+appends " ->" directly after the last token — so the arrow always trails the
+pattern on the same line, whether flat or broken. The body is always in an
+`IndentedBlock` (+4 from the branch indent).
 -}
 folderInsertWhenBranch : Src.WhenBranch -> Array LPNode -> Result String (Array LPNode)
 folderInsertWhenBranch branch accNodes =
-    let
-        arrowNode = lpnLeaf (SynthesizedText "->")
-        isComplexBody =
-            when branch.body.value is
-                Src.If _ -> True
-                Src.Let _ -> True
-                Src.When _ -> True
-                _ -> False
-    in
     insertPattern branch.pattern
         |> Result.andThen (\patNodes ->
-            if isComplexBody then
-                insertExpressionAsIndentedBlock branch.body
-                    |> Result.map (\bodyNode ->
-                        let
-                            allChildren = patNodes ++ [arrowNode, bodyNode]
-                            container = lpnNode WhenBranch allChildren
-                        in
-                        Array.pushLast container accNodes
-                    )
-            else
-                insertExpressionAsItem branch.body
-                    |> Result.map (\bodyNode ->
-                        let
-                            -- The branch body always drops onto its own line,
-                            -- indented +4, even when it would fit inline after the
-                            -- `->`. A `BodyBlock` forces the hard newline without an
-                            -- extra indent level, so the body sits at the
-                            -- AcrossThenIndent's +4 continuation column. Keeping the
-                            -- single AcrossThenIndent child under WhenBranch is what
-                            -- lets a trailing comment attach as a WhenBranch sibling
-                            -- (peelable, body stays comment-free) rather than burying
-                            -- inside the body expression.
-                            bodyAsBlock = lpnNode BodyBlock [bodyNode]
-                            branchContent = lpnNode AcrossThenIndent (patNodes ++ [arrowNode, bodyAsBlock])
-                            container = lpnNode WhenBranch [branchContent]
-                        in
-                        Array.pushLast container accNodes
-                    )
+            insertExpressionAsIndentedBlock branch.body
+                |> Result.map (\bodyNode ->
+                    let
+                        patternWithArrow = lpnNode WhenBranchPattern patNodes
+                        container = lpnNode WhenBranch [patternWithArrow, bodyNode]
+                    in
+                    Array.pushLast container accNodes
+                )
         )
