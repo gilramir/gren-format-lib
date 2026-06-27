@@ -123,10 +123,12 @@ letFirst x =
 
 
 whenExpr x =
-    when {- 19 a
-            19 b
-            19 c -}
-    x is
+    when
+        {- 19 a
+           19 b
+           19 c -}
+        x
+    is
         {- 20 a
            20 b
            20 c -}

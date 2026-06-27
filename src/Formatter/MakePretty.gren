@@ -1032,6 +1032,42 @@ makePDoc box children =
             when buildFlowDocInline 0 children is
                 Err e -> Err e
                 Ok innerDoc -> Ok (P.align innerDoc)
+        WhenFlow ->
+            -- children = [whenNode, …scrutineeNodes, isNode, IndentedBlock(branchNodes)]
+            -- Flat: "when scrutinee is" on one line.
+            -- Broken: `when` at col C, scrutinee at C+4 (with its own arg-continuation
+            -- breaks at C+8), `is` back at C, branches at C+4.
+            when Array.popLast children is
+                Nothing -> Err "WhenFlow: empty children"
+                Just { last = branchesBlock, initial = withoutBranches } ->
+                    when Array.popLast withoutBranches is
+                        Nothing -> Err "WhenFlow: missing is node"
+                        Just { last = _, initial = headerNodes } ->
+                            when Array.popFirst headerNodes is
+                                Nothing -> Err "WhenFlow: missing when node"
+                                Just { rest = scrutineeNodes } ->
+                                    buildFlowDocInline 0 withoutBranches
+                                        |> Result.andThen (\flatHeaderDoc ->
+                                            buildFlowDocInline 0 scrutineeNodes
+                                                |> Result.andThen (\scrutineeDoc ->
+                                                    buildFlowDoc 0 (lpnChildren branchesBlock)
+                                                        |> Result.map (\branchesContent ->
+                                                            let
+                                                                brokenHeaderDoc =
+                                                                    P.concat (P.text "when")
+                                                                        (P.concat
+                                                                            (P.nest grenIndent (P.concat P.hardNl scrutineeDoc))
+                                                                            (P.concat P.hardNl (P.text "is")))
+                                                                branchesDoc =
+                                                                    P.nest grenIndent (P.concat P.hardNl branchesContent)
+                                                            in
+                                                            P.align
+                                                                (P.concat
+                                                                    (P.choice brokenHeaderDoc (P.flatten flatHeaderDoc))
+                                                                    branchesDoc)
+                                                        )
+                                                )
+                                        )
         PrefixGlue prefix ->
             when buildFlowDocInline 0 children is
                 Err e -> Err e
@@ -1280,6 +1316,8 @@ listItemBoxDoc node =
         -- decision still applies.
         AlignedFlow ->
             Just (makePDoc AlignedFlow children)
+        WhenFlow ->
+            Just (makePDoc WhenFlow children)
         PrefixGlue _ ->
             Just (makePDoc (lpnBox node) children)
         Glue ->

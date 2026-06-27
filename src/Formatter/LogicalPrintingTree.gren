@@ -203,10 +203,24 @@ type LPBox
 
     -- A flow whose internal newlines are aligned to the column where the
     -- flow starts (via P.align). Used to wrap indentation-sensitive
-    -- constructs (when/is, if/then/else, let/in) so their bodies indent
+    -- constructs (if/then/else, let/in) so their bodies indent
     -- relative to the keyword's actual column, even when comments have
     -- shifted that keyword to the right.
     | AlignedFlow
+
+    -- `when … is` expression. Children are:
+    --   [whenNode, …scrutineeNodes, isNode, IndentedBlock(branchNodes)]
+    -- Flat: "when scrutinee is" on one line when it fits.
+    -- Broken: `when` then scrutinee indented +4, `is` back at the `when`
+    -- column, branches indented +4. This keeps `when` and `is` visually
+    -- paired; scrutinee arg-continuation lines land at +8, visually
+    -- distinct from branch bodies at +4.
+    --
+    --     when fn arg1           or    when fn arg1 arg2 is
+    --          arg2                        Nothing -> …
+    --     is
+    --         Nothing -> …
+    | WhenFlow
 
     -- Prefix glued (no space) to the rendered children. Used for
     -- prefix-negation `-expr` (PrefixGlue "-") and lambdas `\pat -> body`

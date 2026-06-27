@@ -150,6 +150,9 @@ lpBoxFields lpbox =
         AlignedFlow ->
             [ { key = "type", value = Json.string "AlignedFlow" } ]
 
+        WhenFlow ->
+            [ { key = "type", value = Json.string "WhenFlow" } ]
+
         PrefixGlue prefix ->
             [ { key = "type", value = Json.string "PrefixGlue" }
             , { key = "prefix", value = Json.string prefix.value }

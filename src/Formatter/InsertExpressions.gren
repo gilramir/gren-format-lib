@@ -576,14 +576,13 @@ insertExpression locExpr =
                 |> Result.andThen (\exprNodes ->
                     resultFoldl folderInsertWhenBranch [] branches
                         |> Result.map (\branchNodes ->
-                            -- Wrap the whole `when ... is + branches` in
-                            -- AlignedFlow so the branches indent relative to
-                            -- the actual column of `when` (not the abstract
-                            -- nesting level of the surrounding flow). This
-                            -- matters when preceding inline comments push
-                            -- `when` to a higher column than the surrounding
-                            -- nest would suggest.
-                            [lpnNode AlignedFlow
+                            -- WhenFlow: flat "when scrutinee is" when it fits;
+                            -- broken puts `is` back at the `when` column so the
+                            -- keyword pair is visually symmetric. Also aligns
+                            -- branches to `when`'s actual column (not the
+                            -- abstract nesting level), so preceding inline
+                            -- comments don't push branches too far right.
+                            [lpnNode WhenFlow
                                 ([whenNode] ++ exprNodes ++ [isNode, lpnNode IndentedBlock branchNodes])
                             ]
                         )
