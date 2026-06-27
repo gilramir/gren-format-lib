@@ -348,6 +348,7 @@ commentsSuite fsPerm =
             -- Regression guards for the 2026-05-24 fuzzer-found idempotency fixes.
             , assertPretty fsPerm "trailing comment after a multi-line union variant stays on the variant's last row" "UnionVariantTrailingComment"
             , assertPretty fsPerm "own-line comment below the last union variant attaches at the variant indent" "UnionTrailingOwnLineComment"
+            , assertPretty fsPerm "trailing comment on the closing `}` of a record-payload union variant stays there across reformats" "UnionRecordPayloadTrailingComment"
             , assertPretty fsPerm "overflowing trailing comment in a bracket list lays the item out as if absent" "BracketListOverflowComment"
             , assertPretty fsPerm "comment in an empty-bracket body slot is not absorbed into the brackets" "EmptyBracketTrailingComment"
             , assertPretty fsPerm "comments inside a record update and before its closing brace" "RecordUpdateFieldComment"

@@ -71,7 +71,7 @@ import Compiler.SourcePosition exposing (Located)
 import Formatter.LogicalPrintingTree exposing (LPBox(..),
     LPNode, ListBrackets(..), SyntaxType(..),
     lpnBox, lpnChildren, lpnNode, firstRowInSubtree, lpnMaxRow, lpnLastPos,
-    lpnBracketStart)
+    lpnLastBracketEnd, lpnBracketStart)
 import Formatter.LPTJson exposing (lptToJson)
 import Formatter.LPTHelpers exposing (binopPrecedence, binopMinPrecedence)
 
@@ -356,20 +356,38 @@ makeUnionBodyVertical nodes =
                                         Err e -> Err e
                                         Ok childDoc ->
                                             Ok { docs = Array.pushLast childDoc acc.docs
-                                               -- The row of the variant's last *token*, not the
-                                               -- subtree's max row: a variant carrying a multi-line
-                                               -- block comment has a max row past its last token,
-                                               -- but a comment trailing the variant shares the last
-                                               -- token's row. (And not the first row — a multi-row
-                                               -- variant's trailing comment would then look like a
-                                               -- different row.) A mismatched row pushes the comment
-                                               -- onto its own line, one row below and dedented from
-                                               -- the variant, where it escapes to a top-level comment
-                                               -- on reparse (non-idempotent).
+                                               -- Use the later of the last *positioned token* row and
+                                               -- the last *bracket end* row. The last token row alone
+                                               -- is wrong when the variant ends with a record payload:
+                                               -- the closing `}` is not a positioned token, so
+                                               -- `lpnLastPos` returns the last field value (one row
+                                               -- above `}` when multi-line). A trailing comment on the
+                                               -- `}` line would then fail the `row == prevRow` test and
+                                               -- be placed on its own line, shifting it one row down on
+                                               -- each reformat (non-idempotent). Adding the bracket
+                                               -- end row — set precisely by `lpnBracketNode` from the
+                                               -- parser's `locType.end` — covers that case without
+                                               -- over-counting from multi-line block comments, whose
+                                               -- end row widens `maxRow` but not `lastBracketEnd`.
                                                , prevRow =
-                                                    lpnLastPos node
-                                                        |> Maybe.map (\p -> p.row)
-                                                        |> Maybe.withDefault (firstRowInSubtree node)
+                                                    let
+                                                        tokenRow =
+                                                            lpnLastPos node
+                                                                |> Maybe.map (\p -> p.row)
+                                                                |> Maybe.withDefault -1
+
+                                                        bracketRow =
+                                                            lpnLastBracketEnd node
+                                                                |> Maybe.map (\p -> p.row)
+                                                                |> Maybe.withDefault -1
+
+                                                        maxR =
+                                                            max tokenRow bracketRow
+                                                    in
+                                                    if maxR >= 0 then
+                                                        maxR
+                                                    else
+                                                        firstRowInSubtree node
                                                }
                 )
                 (Ok { docs = [], prevRow = -1 })
