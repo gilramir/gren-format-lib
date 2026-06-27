@@ -24,7 +24,6 @@ found.
 
 import argparse
 import concurrent.futures
-import difflib
 import os
 import subprocess
 import sys
@@ -126,65 +125,80 @@ def gap_indices(src):
     return gaps
 
 
-def fmt(workdir, source):
-    """Format `source`; return the output string, or None on parse/format error."""
+def run_show(workdir, source):
+    """Write `source` to the worker's Fuzz.gren and run --show. Returns the
+    subprocess result."""
     path = os.path.join(workdir, "src", "Fuzz.gren")
     with open(path, "w") as f:
         f.write(source)
-    r = subprocess.run(
+    return subprocess.run(
         [GREN_FORMAT, "--show", path], capture_output=True, text=True
     )
-    out = r.stdout
-    if "FAILED TO PARSE" in (r.stdout + r.stderr) or "Could not format" in (
-        r.stdout + r.stderr
-    ):
-        return None
-    if out.strip() == "":
-        return None
-    return out
+
+
+def all_gaps_variant(src, gaps):
+    """Insert MARKER into every gap simultaneously."""
+    parts = []
+    prev = 0
+    for g in gaps:
+        parts.append(src[prev:g])
+        parts.append(" " + MARKER)
+        prev = g
+    parts.append(src[prev:])
+    return "".join(parts)
+
+
+def fast_check(base, src, gaps):
+    """Insert MARKER into all gaps at once and run --show.
+
+    Returns:
+      "ok"         — idempotent (file is clean, no per-gap work needed)
+      "parse-fail" — all-at-once variant didn't parse (fall back to per-gap)
+      "fail"       — non-idempotent or other error (fall back to per-gap)
+    """
+    workdir = worker_workdir(base)
+    r = run_show(workdir, all_gaps_variant(src, gaps))
+    blob = r.stdout + r.stderr
+    if "FAILED TO PARSE" in blob or "Could not format" in blob:
+        return "parse-fail"
+    if r.returncode != 0 or not r.stdout.strip():
+        return "fail"
+    return "ok"
 
 
 def check_gap(base, src, g):
-    """Insert the marker at gap `g`, format twice, classify the outcome.
+    """Insert the marker at gap `g` only, run --show, classify the outcome.
+    Used in the slow path when fast_check did not return "ok".
     Runs on a pool worker; uses that worker's isolated project dir."""
     workdir = worker_workdir(base)
-    variant = src[:g] + " " + MARKER + src[g:]
-    once = fmt(workdir, variant)
-    if once is None:
-        return ("skip", g, "", "")
-    twice = fmt(workdir, once)
-    if twice is None:
-        return ("bug", g, "re-format failed", once, "")
-    if once != twice:
-        return ("bug", g, "not idempotent", once, twice)
-    return ("ok", g, "", "")
+    r = run_show(workdir, src[:g] + " " + MARKER + src[g:])
+    blob = r.stdout + r.stderr
+    if "FAILED TO PARSE" in blob or "Could not format" in blob:
+        return ("skip", g, "")
+    if r.returncode != 0 or not r.stdout.strip():
+        return ("bug", g, r.stderr.strip())
+    return ("ok", g, "")
 
 
-def check_file(base, pool, path, verbose=False):
-    src = open(path).read()
-    gaps = gap_indices(src)
+def report_slow_path(base, pool, path, src, gaps, verbose):
+    """Per-gap fallback for a file that failed the fast check. Returns bug count."""
     name = os.path.basename(path)
-    # ex.map preserves input order, so reporting stays deterministic.
     results = list(pool.map(lambda g: check_gap(base, src, g), gaps))
     bugs, skipped = [], 0
     for r in results:
         if r[0] == "skip":
             skipped += 1
         elif r[0] == "bug":
-            _, g, why, once, twice = r
-            bugs.append((g, why, once, twice))
+            _, g, detail = r
+            bugs.append((g, detail))
     status = "OK " if not bugs else "BUG"
     print(f"{status} {name}: {len(gaps)} gaps, {skipped} skipped (parser), {len(bugs)} non-idempotent")
-    for g, why, once, twice in bugs:
-        # show the source line where the comment was inserted
+    for g, detail in bugs:
         line = src.count("\n", 0, g) + 1
         ctx = (src[max(0, g - 20) : g] + "⟨here⟩" + src[g : g + 20]).replace("\n", "⏎")
-        print(f"      gap at line {line} ({why}): …{ctx}…")
-        if verbose:
-            diff = difflib.unified_diff(
-                once.splitlines(), twice.splitlines(), "format¹", "format²", lineterm=""
-            )
-            for dl in list(diff)[:14]:
+        print(f"      gap at line {line}: …{ctx}…")
+        if verbose and detail:
+            for dl in detail.splitlines()[:20]:
                 print("        " + dl)
     return len(bugs)
 
@@ -202,11 +216,28 @@ def main(argv):
         files = sorted(
             os.path.join(d, f) for f in os.listdir(d) if f.endswith(".formatted.gren")
         )
+
+    # Precompute gaps (pure Python, no subprocesses).
+    file_data = [(path, open(path).read()) for path in files]
+    file_data = [(path, src, gap_indices(src)) for path, src in file_data]
+
     total = 0
     with tempfile.TemporaryDirectory() as base:
         with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
-            for path in files:
-                total += check_file(base, pool, path, verbose=args.v)
+            # Phase 1: fast check — all files in parallel, one --show call each.
+            fast_outcomes = list(pool.map(
+                lambda t: fast_check(base, t[1], t[2]),
+                file_data,
+            ))
+
+            # Phase 2: report results; fall back to per-gap for any failures.
+            for (path, src, gaps), fast in zip(file_data, fast_outcomes):
+                name = os.path.basename(path)
+                if fast == "ok":
+                    print(f"OK  {name}: {len(gaps)} gaps, 0 skipped (parser), 0 non-idempotent")
+                else:
+                    total += report_slow_path(base, pool, path, src, gaps, args.v)
+
     print(f"\n{'FAIL' if total else 'PASS'}: {total} non-idempotent gap(s)")
     return 1 if total else 0
 
