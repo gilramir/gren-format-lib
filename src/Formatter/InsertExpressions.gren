@@ -429,7 +429,7 @@ insertExpression locExpr =
                                                 when Array.popFirst bodyNodes is
                                                     Just { first = onlyNode, rest = [] } ->
                                                         when lpnBox onlyNode is
-                                                            AcrossThenIndent -> lpnChildren onlyNode
+                                                            AcrossThenIndent _ -> lpnChildren onlyNode
                                                             _ -> bodyNodes
                                                     _ -> bodyNodes
                                         in
@@ -470,7 +470,15 @@ insertExpression locExpr =
                     resultFoldl folderInsertExprAsArgItem fnNodes argsExprs
                         -- AcrossThenIndent: overflow arguments indent +4 from the function name,
                         -- keeping them visually distinct from the surrounding context.
-                        |> Result.map (\allNodes -> [lpnNode AcrossThenIndent allNodes])
+                        |> Result.map (\allNodes ->
+                            let
+                                forceVertical =
+                                    itemsSpanRows
+                                        ([ { start = fnExpr.start, end = fnExpr.end } ]
+                                            ++ Array.map (\a -> { start = a.start, end = a.end }) argsExprs)
+                            in
+                            [lpnNode (AcrossThenIndent { forceVertical = forceVertical }) allNodes]
+                        )
                 )
 
         Src.Lambda { patterns = patterns, body = body } ->
@@ -512,20 +520,27 @@ insertExpression locExpr =
                                 Src.When _ -> True
                                 _ -> False
 
+                        lastPatternEndRow =
+                            Array.last patterns
+                                |> Maybe.map (\p -> p.end.row)
+                                |> Maybe.withDefault locExpr.start.row
+                        lambdaBodyForceVertical = body.start.row > lastPatternEndRow
+                        bodyBox = if lambdaBodyForceVertical then IndentedBlock else SoftIndentedBlock
+
                         bodyBlockResult =
                             if isBlockBody then
                                 insertExpression body
-                                    |> Result.map (\bodyNodes -> lpnNode SoftIndentedBlock bodyNodes)
+                                    |> Result.map (\bodyNodes -> lpnNode bodyBox bodyNodes)
                             else
                                 insertExpressionAsItem body
-                                    |> Result.map (\bodyNode -> lpnNode SoftIndentedBlock [bodyNode])
+                                    |> Result.map (\bodyNode -> lpnNode bodyBox [bodyNode])
                     in
                     bodyBlockResult
                         |> Result.map (\bodyBlock ->
                             -- Bundle the `->` with the patterns so the body is
                             -- the only thing that can break to a new line.
                             let
-                                patsWithArrow = lpnNode AcrossThenIndent (updatedPatNodes ++ [arrowNode])
+                                patsWithArrow = lpnNode (AcrossThenIndent { forceVertical = False }) (updatedPatNodes ++ [arrowNode])
                             in
                             [patsWithArrow, bodyBlock]
                         )
@@ -553,7 +568,9 @@ insertExpression locExpr =
                     in
                     insertExpression firstBranch.test
                         |> Result.andThen (\testNodes ->
-                            let condNode = lpnNode IfCondition ([ifNode] ++ testNodes ++ [thenNode])
+                            let
+                                condForceVertical = firstBranch.test.start.row > locExpr.start.row
+                                condNode = lpnNode (IfCondition { forceVertical = condForceVertical }) ([ifNode] ++ testNodes ++ [thenNode])
                             in
                             insertExpressionAsIndentedBlock firstBranch.body
                                 |> Result.andThen (\bodyNode ->
@@ -582,7 +599,9 @@ insertExpression locExpr =
                             -- branches to `when`'s actual column (not the
                             -- abstract nesting level), so preceding inline
                             -- comments don't push branches too far right.
-                            [lpnNode WhenFlow
+                            let whenForceVertical = expression.start.row > locExpr.start.row
+                            in
+                            [lpnNode (WhenFlow { forceVertical = whenForceVertical })
                                 ([whenNode] ++ exprNodes ++ [isNode, lpnNode IndentedBlock branchNodes])
                             ]
                         )
@@ -629,7 +648,7 @@ insertExpressionAsItem locExpr =
                     if Array.isEmpty rest then
                         Ok onlyNode
                     else
-                        Ok (lpnNode AcrossThenIndent nodes)
+                        Ok (lpnNode (AcrossThenIndent { forceVertical = False }) nodes)
         )
 
 
@@ -739,7 +758,7 @@ folderInsertRecordField field accNodes =
     let
         fieldNameNode = lpnLeaf (mkTextFromLocString field.field)
         eqNode = lpnLeaf (SynthesizedText "=")
-        plainContainer valueNodes = lpnNode AcrossThenIndent ([fieldNameNode, eqNode] ++ valueNodes)
+        plainContainer valueNodes = lpnNode (AcrossThenIndent { forceVertical = False }) ([fieldNameNode, eqNode] ++ valueNodes)
     in
     insertExpression field.value
         |> Result.map (\valueNodes ->
@@ -750,12 +769,19 @@ folderInsertRecordField field accNodes =
                             lpnNode IndentedBlock ([fieldNameNode, eqNode] ++ valueNodes)
 
                         Src.If _ ->
-                            lpnNode AcrossThenIndent
+                            lpnNode (AcrossThenIndent { forceVertical = False })
                                 [fieldNameNode, eqNode, lpnNode BodyBlock valueNodes]
 
                         Src.Let _ ->
-                            lpnNode AcrossThenIndent
+                            lpnNode (AcrossThenIndent { forceVertical = False })
                                 [fieldNameNode, eqNode, lpnNode BodyBlock valueNodes]
+
+                        Src.When _ ->
+                            if field.value.start.row > field.field.start.row then
+                                lpnNode (AcrossThenIndent { forceVertical = False })
+                                    [fieldNameNode, eqNode, lpnNode BodyBlock valueNodes]
+                            else
+                                plainContainer valueNodes
 
                         _ ->
                             plainContainer valueNodes
@@ -794,7 +820,7 @@ folderInsertLetDef locDef accNodes =
                                     let
                                         colonNode = lpnLeaf (SynthesizedText ":")
                                         sigChildren = [nameNode, colonNode] ++ sigTypeNodes
-                                        sigContainer = lpnNode IndentedBlock [lpnNode AcrossThenIndent sigChildren]
+                                        sigContainer = lpnNode IndentedBlock [lpnNode (AcrossThenIndent { forceVertical = False }) sigChildren]
                                     in
                                     Array.pushLast sigContainer accNodes
                                 )
@@ -806,7 +832,7 @@ folderInsertLetDef locDef accNodes =
                             insertExpression def.body
                                 |> Result.map (\bodyNodes ->
                                     let
-                                        header = lpnNode AcrossThenIndent ([nameNode] ++ argsNodes ++ [eqNode])
+                                        header = lpnNode (AcrossThenIndent { forceVertical = False }) ([nameNode] ++ argsNodes ++ [eqNode])
                                         -- Same rule as the top-level (processFunctionBody):
                                         -- the body always drops to the next line
                                         -- (IndentedBlock = forced hardNl).
@@ -851,6 +877,15 @@ folderInsertLetDef locDef accNodes =
 
 Emits two sibling nodes per branch: an `IfCondition` containing
 `else if <test> then`, followed by an `IndentedBlock` for the branch body.
+
+Layout detection: the condition is treated as *stacked* (on its own line under
+`else if`) when `branch.test.start.row > prevEnd.row + 2`.  `prevEnd` is taken
+from the previous body's closing-bracket position (`lpnLastBracketEnd`), falling
+back to its last positioned token (`lpnLastPos`).  The bracket-end is used
+because the closing `}` / `]` is not itself a positioned token yet it occupies a
+row: without this, a multi-line record body underreports its last row by one and
+the `+ 2` guard fires incorrectly, stacking an `else if` that the author wrote
+flat.
 -}
 folderInsertElseIfBranch : Src.IfBranch -> Array LPNode -> Result String (Array LPNode)
 folderInsertElseIfBranch branch accNodes =
@@ -862,14 +897,20 @@ folderInsertElseIfBranch branch accNodes =
         -- position-less, the comment can't enter the condition and drifts.)
         prevEnd =
             Array.last accNodes
-                |> Maybe.andThen lpnLastPos
+                |> Maybe.andThen (\last ->
+                    when lpnLastBracketEnd last is
+                        Just pos -> Just pos
+                        Nothing -> lpnLastPos last
+                )
                 |> Maybe.withDefault branch.test.start
         elseIfNode = lpnLeaf (mkZeroWidthText prevEnd "else if")
         thenNode = lpnLeaf (SynthesizedText "then")
     in
     insertExpression branch.test
         |> Result.andThen (\testNodes ->
-            let condNode = lpnNode IfCondition ([elseIfNode] ++ testNodes ++ [thenNode])
+            let
+                condForceVertical = branch.test.start.row > prevEnd.row + 2
+                condNode = lpnNode (IfCondition { forceVertical = condForceVertical }) ([elseIfNode] ++ testNodes ++ [thenNode])
             in
             insertExpressionAsIndentedBlock branch.body
                 |> Result.map (\bodyNode -> accNodes ++ [condNode, bodyNode])

@@ -7,5 +7,4 @@ module PipelineArgIndent exposing (..)
 foo nodes newItemKey newValue firstExistingKey originalFirstLinkEntry =
     nodes
         |> Dict.set newItemKey newValue
-        |> Dict.set firstExistingKey
-            (buildUpdatedLinkNodeFromOriginal originalFirstLinkEntry newItemKey)
+        |> Dict.set firstExistingKey (buildUpdatedLinkNodeFromOriginal originalFirstLinkEntry newItemKey)

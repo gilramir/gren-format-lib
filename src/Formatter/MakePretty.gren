@@ -27,9 +27,9 @@ list — and each surrounding context renders them slightly differently.
 A handful of techniques carry the load:
 
   - **Unflattenability via `hardNl`.** A `--` line comment consumes the
-    rest of its source line, so any `P.group` it appears in *must*
+    rest of its source line, so any `R.group` it appears in *must*
     resolve to the multi-line branch. Rendering a `SingleLineComment`
-    as `--text` followed by `P.hardNl` makes any enclosing group
+    as `--text` followed by `R.hardNl` makes any enclosing group
     unflatten-able by construction.
 
   - **Trailing vs. leading by row comparison.** Inside `buildFlowDoc` we
@@ -79,104 +79,9 @@ import Formatter.Strings exposing
     ( joinResultStrings
     )
 
-import PrettyExpressive as P
-import PrettyExpressive exposing (Doc(..))
-import PrettyExpressive.Builder as B
-
-costFactory : P.CostFactory P.DefaultCostTuple
-costFactory =
-    P.defaultCostFactory { pageWidth = 80, computationWidth = Just 100 }
+import Formatter.Render as R exposing (Doc)
 
 
-{-| Walk a Doc tree and wrap post-newline sub-documents in `P.share`.
-
-The optimisation target: every `DocConcat { a = newline, b = item }` —
-i.e. anywhere a (soft or hard) newline is immediately followed by some
-sub-document. Both newline variants reset the resolver's column to `i`
-(hardNl always; soft `nl` does too in its broken branch), so the inner
-`item` is evaluated at `(i, i)` regardless of the incoming column.
-
-Why this matters: `processConcat` iterates over every Pareto-optimal
-measure of the prefix accumulator and re-resolves the right-hand operand
-at each measure's `.last`. When the right-hand operand starts with a
-newline, the post-newline `item`'s evaluation position is
-column-invariant — every prefix measure resolves `item` at the *same*
-`(i, i)`. Wrapping `item` in `P.share` makes the first such resolution
-populate the renderer's memo cache and every subsequent resolution
-short-circuit to a cache hit. Without sharing, the renderer re-walks
-`item` once per prefix measure.
-
-Patterns this catches:
-
-  - `buildFlowDoc`'s flowSep `group(nl item)` (the choice's broken
-    branch is `concat nl item`, recursively reached via DocChoice).
-  - `indentedBlockRule.wrap = nest n (concat hardNl content)`.
-  - `bodyBlockRule.wrap = concat hardNl content`.
-  - `softIndentedBlockRule.wrap = group (nest n (concat nl content))`.
-
-`P.share` requires a fresh id per invocation, threaded through
-`B.Builder`. The walker uses `B.map` / `B.andThen` to plumb the id
-counter through the recursive descent. Leaves and renderer-internal
-nodes (DocText, DocNewline, DocFail, DocContext, DocBlank, DocEvaled)
-return unchanged via `B.return`.
-
-The flat branch of a DocChoice is recursed into normally but its inner
-post-newline items are not specially shared by the choice case itself —
-the generic `DocConcat { a = newline, b = item }` arm below still fires
-for them, but only when the renderer reaches them through a column
-that lines up across prefix measures (rare for flat branches, since
-their item resolves at `m.last + 1`).
--}
-insertShares : P.Doc cost -> B.Builder (P.Doc cost)
-insertShares d =
-    when d is
-        DocConcat { a = DocNewline maybeFlat, b = item } ->
-            -- The most common shape we want to share. Recurse into `item`
-            -- first so any nested concat-newline patterns inside `item`
-            -- also get their items shared, then wrap the whole item in
-            -- `P.share` and reattach the original newline.
-            insertShares item
-                |> B.andThen P.share
-                |> B.map (\sharedItem -> P.concat (DocNewline maybeFlat) sharedItem)
-
-        DocChoice { a = brokenBranch, b = flatBranch } ->
-            -- Recurse into both branches. If `brokenBranch` is a
-            -- `DocConcat { newline, item }`, the arm above will fire on
-            -- recursion and share its item.
-            insertShares brokenBranch
-                |> B.andThen (\newBroken ->
-                    insertShares flatBranch
-                        |> B.map (\newFlat -> P.choice newBroken newFlat)
-                )
-
-        DocConcat { a = a, b = b } ->
-            insertShares a
-                |> B.andThen (\newA ->
-                    insertShares b
-                        |> B.map (\newB -> P.concat newA newB)
-                )
-
-        DocNest { indent = indent, doc = inner } ->
-            insertShares inner |> B.map (P.nest indent)
-
-        DocAlign inner ->
-            insertShares inner |> B.map P.align
-
-        DocReset inner ->
-            insertShares inner |> B.map P.reset
-
-        DocAddCost { cost = c, doc = inner } ->
-            insertShares inner |> B.map (P.addCost c)
-
-        DocShared _ ->
-            -- Already shared; pass through to avoid double-sharing.
-            B.return d
-
-        _ ->
-            -- Leaves (DocText, DocNewline, DocFail) and renderer-internal
-            -- nodes (DocContext, DocBlank, DocEvaled, DocTwoColumns): no
-            -- child docs to walk into, nothing to share.
-            B.return d
 
 -- How many spaces we indent
 grenIndent : Int
@@ -196,17 +101,17 @@ grenIndent =
 -- forced vertical (so an enclosing `name = body` group can't collapse a
 -- multi-line construct back onto one line), otherwise a soft break that
 -- flattens to a space when the whole thing fits.
-authorSep : Bool -> P.Doc cost
+authorSep : Bool -> Doc
 authorSep forceVertical =
-    if forceVertical then P.hardNl else P.nl
+    if forceVertical then R.hardNl else R.nl
 
 
 -- Wrap an author-layout doc: grouped (so the optimizer picks flat-or-broken by
 -- fit) unless forced vertical, in which case it is returned as-is and its hard
 -- breaks always fire.
-groupUnlessForced : Bool -> P.Doc cost -> P.Doc cost
+groupUnlessForced : Bool -> Doc -> Doc
 groupUnlessForced forceVertical full =
-    if forceVertical then full else P.group full
+    if forceVertical then full else R.group full
 
 
 -- True if the rows are not all equal — i.e. the items they came from span more
@@ -263,9 +168,7 @@ makePrettyResult root =
 makePrettyLine : LPNode -> Result String String
 makePrettyLine node =
     makePrettyLineDoc node
-        |> Result.andThen (\doc ->
-            genericRenderResult (P.prettyFormat costFactory (insertShares doc))
-        )
+        |> Result.map R.render
 
 
 -- True if the node is a line or block comment. (Doc comments are their own
@@ -297,7 +200,7 @@ splitLeadingComments nodes =
         |> (\r -> { leading = r.leading, rest = r.rest })
 
 
-makeUnionBodyDoc : Array LPNode -> Result String (P.Doc cost)
+makeUnionBodyDoc : Array LPNode -> Result String Doc
 makeUnionBodyDoc nodes =
     let
         hasComment = Array.any nodeIsComment nodes
@@ -306,7 +209,7 @@ makeUnionBodyDoc nodes =
         -- one-variant-per-line; one written on a single line is fit-based
         -- (`= A | B | C` inline when it fits, one-per-line on overflow). Mirrors
         -- the record/list rule, with the fit-based↔vertical group built so the
-        -- broken form is byte-identical to the always-vertical (P.vcat) form.
+        -- broken form is byte-identical to the always-vertical (R.vcat) form.
         variantsSpanRows =
             rowsSpanMultiple (Array.map firstRowInSubtree variantNodes)
     in
@@ -315,13 +218,13 @@ makeUnionBodyDoc nodes =
     else
         traverseArray (\n -> buildFlowDoc 0 (lpnChildren n)) variantNodes
             |> Result.map (\docs ->
-                P.group (P.foldDoc (\a b -> P.concat a (P.concat P.nl b)) docs)
+                R.group (R.foldDoc (\a b -> R.concat a (R.concat R.nl b)) docs)
             )
 
 
--- Always-vertical union body: one variant per line via P.vcat, with comments
+-- Always-vertical union body: one variant per line via R.vcat, with comments
 -- placed inline after the variant they trail or on their own line otherwise.
-makeUnionBodyVertical : Array LPNode -> Result String (P.Doc cost)
+makeUnionBodyVertical : Array LPNode -> Result String Doc
 makeUnionBodyVertical nodes =
     let
         placeComment row commentDoc acc =
@@ -330,7 +233,7 @@ makeUnionBodyVertical nodes =
                     Ok { docs = [commentDoc], prevRow = row }
                 Just { last = lastDoc, initial = initDocs } ->
                     if row == acc.prevRow then
-                        Ok { docs = Array.pushLast (P.concat lastDoc (P.concat (P.text " ") commentDoc)) initDocs
+                        Ok { docs = Array.pushLast (R.concat lastDoc (R.concat (R.text " ") commentDoc)) initDocs
                            , prevRow = row
                            }
                     else
@@ -395,14 +298,14 @@ makeUnionBodyVertical nodes =
     in
     when result is
         Err e -> Err e
-        Ok state -> Ok (P.vcat state.docs)
+        Ok state -> Ok (R.vcat state.docs)
 
 
-makeTypeBodyDoc : Array LPNode -> Result String (P.Doc cost)
+makeTypeBodyDoc : Array LPNode -> Result String (Doc)
 makeTypeBodyDoc typeNodes =
     when Array.popFirst typeNodes is
         Nothing ->
-            Ok P.empty
+            Ok R.empty
         Just { first = onlyNode, rest = rest } ->
             if Array.isEmpty rest then
                 -- Render the single body node as-is. A record body now carries
@@ -435,32 +338,32 @@ type NextSeparator
 --   `bypassAlreadyTerminated = True` means the wrap is skipped when the
 --     previous item ended its own line (no extra separator needed).
 --   `nextSep` is the separator state to set after rendering this block.
-type alias BlockRule cost =
-    { wrap : P.Doc cost -> P.Doc cost
+type alias BlockRule =
+    { wrap : Doc -> Doc
     , bypassAlreadyTerminated : Bool
     , nextSep : NextSeparator
     }
 
 
-indentedBlockRule : BlockRule cost
+indentedBlockRule : BlockRule
 indentedBlockRule =
-    { wrap = \c -> P.nest grenIndent (P.concat P.hardNl c)
+    { wrap = \c -> R.nest grenIndent (R.concat R.hardNl c)
     , bypassAlreadyTerminated = False
     , nextSep = HardNl
     }
 
 
-bodyBlockRule : BlockRule cost
+bodyBlockRule : BlockRule
 bodyBlockRule =
-    { wrap = \c -> P.concat P.hardNl c
+    { wrap = \c -> R.concat R.hardNl c
     , bypassAlreadyTerminated = True
     , nextSep = FlowSep
     }
 
 
-softIndentedBlockRule : BlockRule cost
+softIndentedBlockRule : BlockRule
 softIndentedBlockRule =
-    { wrap = \c -> P.group (P.nest grenIndent (P.concat P.nl c))
+    { wrap = \c -> R.group (R.nest grenIndent (R.concat R.nl c))
     , bypassAlreadyTerminated = False
     , nextSep = FlowSep
     }
@@ -468,14 +371,14 @@ softIndentedBlockRule =
 
 -- Join a block's child doc onto the accumulator, honoring the rule's
 -- FirstItem / AlreadyTerminated bypasses.
-joinBlock : BlockRule cost -> NextSeparator -> P.Doc cost -> P.Doc cost -> P.Doc cost
+joinBlock : BlockRule -> NextSeparator -> Doc -> Doc -> Doc
 joinBlock rule sep accDoc childDoc =
     when sep is
         FirstItem ->
             childDoc
         AlreadyTerminated ->
             if rule.bypassAlreadyTerminated then
-                P.concat accDoc childDoc
+                R.concat accDoc childDoc
             else
                 -- The previous item (a comment) already ended its line with a
                 -- hardNl, so applying the normal wrap — which begins with its own
@@ -488,11 +391,11 @@ joinBlock rule sep accDoc childDoc =
                 -- non-bypass rules (IndentedBlock, SoftIndentedBlock) both nest by
                 -- exactly grenIndent, so this matches their broken form minus the
                 -- spurious blank line.
-                P.concat accDoc
-                    (P.nest grenIndent
-                        (P.concat (P.text (String.repeat grenIndent " ")) childDoc))
+                R.concat accDoc
+                    (R.nest grenIndent
+                        (R.concat (R.text (String.repeat grenIndent " ")) childDoc))
         _ ->
-            P.concat accDoc (rule.wrap childDoc)
+            R.concat accDoc (rule.wrap childDoc)
 
 
 -- Peel a run of trailing single-line comments off the end of a block's
@@ -517,7 +420,7 @@ joinBlock rule sep accDoc childDoc =
 --
 -- Either way, block comments may be chained freely and a multi-line block
 -- comment is left in place (it legitimately breaks the line).
-peelTrailingComments : Bool -> Array LPNode -> { bodyNodes : Array LPNode, trailingCommentDoc : P.Doc cost }
+peelTrailingComments : Bool -> Array LPNode -> { bodyNodes : Array LPNode, trailingCommentDoc : Doc }
 peelTrailingComments peelLineComments nodes =
     let
         go remaining accDoc sawLineComment =
@@ -527,7 +430,7 @@ peelTrailingComments peelLineComments nodes =
                         keep = { bodyNodes = remaining, trailingCommentDoc = accDoc }
                         glue newSawLineComment =
                             go initChildren
-                                (P.concat (P.text " ") (P.concat (commentNodeDoc lastChild) accDoc))
+                                (R.concat (R.text " ") (R.concat (commentNodeDoc lastChild) accDoc))
                                 newSawLineComment
                     in
                     when lpnBox lastChild is
@@ -540,32 +443,32 @@ peelTrailingComments peelLineComments nodes =
                 Nothing ->
                     { bodyNodes = remaining, trailingCommentDoc = accDoc }
     in
-    go nodes P.empty False
+    go nodes R.empty False
 
 
 -- Render a body-block child (BodyBlock) inside buildFlowDoc's
 -- fold: peel its trailing inline comments, render the body via `renderBlockNode`,
 -- then glue the comments back onto the result. Shared by both arms.
 renderBodyBlockNode :
-    BlockRule cost
-    -> { doc : P.Doc cost, prevRow : Int, prevElided : Bool, separator : NextSeparator }
+    BlockRule
+    -> { doc : Doc, prevRow : Int, prevElided : Bool, separator : NextSeparator }
     -> Array LPNode
-    -> Result String { doc : P.Doc cost, prevRow : Int, prevElided : Bool, separator : NextSeparator }
+    -> Result String { doc : Doc, prevRow : Int, prevElided : Bool, separator : NextSeparator }
 renderBodyBlockNode rule acc nodeChildren =
     let
         { bodyNodes, trailingCommentDoc } = peelTrailingComments True nodeChildren
     in
     renderBlockNode rule acc bodyNodes
-        |> Result.map (\r -> { r | doc = P.concat r.doc trailingCommentDoc })
+        |> Result.map (\r -> { r | doc = R.concat r.doc trailingCommentDoc })
 
 
 -- Render a block-style child node inside buildFlowDoc's fold: recurse
 -- into the children, then join via joinBlock and produce the next acc.
 renderBlockNode :
-    BlockRule cost
-    -> { doc : P.Doc cost, prevRow : Int, prevElided : Bool, separator : NextSeparator }
+    BlockRule
+    -> { doc : Doc, prevRow : Int, prevElided : Bool, separator : NextSeparator }
     -> Array LPNode
-    -> Result String { doc : P.Doc cost, prevRow : Int, prevElided : Bool, separator : NextSeparator }
+    -> Result String { doc : Doc, prevRow : Int, prevElided : Bool, separator : NextSeparator }
 renderBlockNode rule acc nodeChildren =
     buildFlowDoc 0 nodeChildren
         |> Result.map (\childrenDoc ->
@@ -585,9 +488,9 @@ renderBlockNode rule acc nodeChildren =
   - Either way, the comment appends hardNl so the next item always starts
     on a fresh line — indicated by `AlreadyTerminated` for the next item.
 -}
-buildFlowDoc : Int -> Array LPNode -> Result String (P.Doc cost)
+buildFlowDoc : Int -> Array LPNode -> Result String Doc
 buildFlowDoc indent nodes =
-    buildFlowDocImpl indent False nodes
+    buildFlowDocImpl indent False False nodes
 
 
 -- Like `buildFlowDoc`, but for a flow that continues on the *same line* as a
@@ -595,9 +498,14 @@ buildFlowDoc indent nodes =
 -- the body of a `( … )`). A leading single-line block comment there is part
 -- of that line and stays inline, rather than being treated as a standalone
 -- own-line comment that forces a break.
-buildFlowDocInline : Int -> Array LPNode -> Result String (P.Doc cost)
+buildFlowDocInline : Int -> Array LPNode -> Result String Doc
 buildFlowDocInline indent nodes =
-    buildFlowDocImpl indent True nodes
+    buildFlowDocImpl indent True False nodes
+
+
+buildFlowDocBroken : Int -> Array LPNode -> Result String Doc
+buildFlowDocBroken indent nodes =
+    buildFlowDocImpl indent False True nodes
 
 
 -- `inlineStart` says whether the first node of this flow continues a line the
@@ -606,19 +514,22 @@ buildFlowDocInline indent nodes =
 -- context such as a `let` binding) it is standalone and forces the following
 -- token onto its own line at the correct column. Multi-line block comments
 -- always force the break regardless.
-buildFlowDocImpl : Int -> Bool -> Array LPNode -> Result String (P.Doc cost)
-buildFlowDocImpl indent inlineStart nodes =
+buildFlowDocImpl : Int -> Bool -> Bool -> Array LPNode -> Result String Doc
+buildFlowDocImpl indent inlineStart brokenFlow nodes =
     let
         -- separator: either "same line with space" or "new line with indent"
         flowSep accDoc nextDoc =
-            P.concat accDoc (P.group (P.concat P.nl nextDoc))
+            if brokenFlow then
+                R.concat accDoc (R.concat R.hardNl nextDoc)
+            else
+                R.concat accDoc (R.group (R.concat R.nl nextDoc))
 
         joinDoc sep accDoc itemDoc =
             when sep is
                 FirstItem        -> itemDoc
                 FlowSep          -> flowSep accDoc itemDoc
-                HardNl           -> P.concat (P.concat accDoc P.hardNl) itemDoc
-                AlreadyTerminated -> P.concat accDoc itemDoc
+                HardNl           -> R.concat (R.concat accDoc R.hardNl) itemDoc
+                AlreadyTerminated -> R.concat accDoc itemDoc
 
         foldResult =
             Array.foldl
@@ -642,7 +553,7 @@ buildFlowDocImpl indent inlineStart nodes =
                                                     -- Previous comment already ended its line with hardNl;
                                                     -- concatenate directly to avoid a blank line between
                                                     -- consecutive comments.
-                                                    P.concat acc.doc commentText
+                                                    R.concat acc.doc commentText
                                                 _ ->
                                                     if loc.start.row == acc.prevRow || acc.prevElided then
                                                         -- Same row as preceding item: attach with a SOFT
@@ -666,12 +577,12 @@ buildFlowDocImpl indent inlineStart nodes =
                                                         -- though it fits beside the (wrapped) token. Soft-gluing
                                                         -- whenever it trails an elided token keeps the glue-when-
                                                         -- it-fits rendering stable across reformats.
-                                                        P.concat acc.doc (P.group (P.concat P.nl commentText))
+                                                        R.concat acc.doc (R.group (R.concat R.nl commentText))
                                                     else
                                                         -- Different row: force a line break before the comment
-                                                        P.concat acc.doc (P.concat P.hardNl commentText)
+                                                        R.concat acc.doc (R.concat R.hardNl commentText)
                                     in
-                                    Ok { doc = P.concat docWithComment P.hardNl
+                                    Ok { doc = R.concat docWithComment R.hardNl
                                        , prevRow = loc.start.row
                                        , prevElided = False
                                        , separator = AlreadyTerminated
@@ -702,14 +613,14 @@ buildFlowDocImpl indent inlineStart nodes =
                                                     FirstItem ->
                                                         commentText
                                                     AlreadyTerminated ->
-                                                        P.concat acc.doc commentText
+                                                        R.concat acc.doc commentText
                                                     _ ->
                                                         if loc.start.row == acc.prevRow then
-                                                            P.concat acc.doc (P.concat (P.text " ") commentText)
+                                                            R.concat acc.doc (R.concat (R.text " ") commentText)
                                                         else
-                                                            P.concat acc.doc (P.concat P.hardNl commentText)
+                                                            R.concat acc.doc (R.concat R.hardNl commentText)
                                         in
-                                        Ok { doc = P.concat docWithComment P.hardNl
+                                        Ok { doc = R.concat docWithComment R.hardNl
                                            , prevRow = loc.start.row
                                            , prevElided = False
                                            , separator = AlreadyTerminated
@@ -742,7 +653,7 @@ buildFlowDocImpl indent inlineStart nodes =
                                     -- Peel a single leading line/block comment
                                     -- off the step so it renders at the step's
                                     -- own nesting level rather than inside the
-                                    -- extra P.nest grenIndent applied to the
+                                    -- extra R.nest grenIndent applied to the
                                     -- args. This keeps the comment and `|>` at
                                     -- the same column, while continuation args
                                     -- are indented +4 from `|>`. Always force a
@@ -775,8 +686,8 @@ buildFlowDocImpl indent inlineStart nodes =
                                             in
                                             { commentDoc =
                                                 Array.foldl
-                                                    (\c cdoc -> P.concat cdoc (P.concat (commentNodeDoc c) P.hardNl))
-                                                    P.empty
+                                                    (\c cdoc -> R.concat cdoc (R.concat (commentNodeDoc c) R.hardNl))
+                                                    R.empty
                                                     leading
                                             , withoutLeading = rest
                                             , hasComment = not (Array.isEmpty leading)
@@ -788,17 +699,17 @@ buildFlowDocImpl indent inlineStart nodes =
                                                     if nodeIsComment lastChild then
                                                         { stepChildren = initChildren
                                                         , trailingCommentDoc =
-                                                            P.concat (P.text " ") (commentNodeDoc lastChild)
+                                                            R.concat (R.text " ") (commentNodeDoc lastChild)
                                                         , hasTrailing = True
                                                         }
                                                     else
                                                         { stepChildren = withoutLeading
-                                                        , trailingCommentDoc = P.empty
+                                                        , trailingCommentDoc = R.empty
                                                         , hasTrailing = False
                                                         }
                                                 Nothing ->
                                                     { stepChildren = withoutLeading
-                                                    , trailingCommentDoc = P.empty
+                                                    , trailingCommentDoc = R.empty
                                                     , hasTrailing = False
                                                     }
                                     in
@@ -811,11 +722,11 @@ buildFlowDocImpl indent inlineStart nodes =
                                                 blankLinePrefix =
                                                     when acc.separator is
                                                         HardNl ->
-                                                            if hasComment then P.text "\n" else P.empty
+                                                            if hasComment then R.text "\n" else R.empty
                                                         _ ->
-                                                            P.empty
+                                                            R.empty
                                                 -- commentDoc (if any) fires at step level; childrenDoc
-                                                -- (|> and args) is wrapped in P.nest grenIndent so
+                                                -- (|> and args) is wrapped in R.nest grenIndent so
                                                 -- continuation args break at |>-column + 4. The
                                                 -- trailingCommentDoc (if any) is glued onto the end of
                                                 -- the children with a leading space — it lives inside
@@ -823,15 +734,15 @@ buildFlowDocImpl indent inlineStart nodes =
                                                 -- so the next step's leading hardNl is the one that
                                                 -- ends the line and re-establishes the outer indent.
                                                 indentedDoc =
-                                                    P.concat blankLinePrefix
-                                                        (P.nest grenIndent
-                                                            (P.concat P.hardNl
-                                                                (P.concat commentDoc
-                                                                    (P.concat childrenDoc trailingCommentDoc))))
+                                                    R.concat blankLinePrefix
+                                                        (R.nest grenIndent
+                                                            (R.concat R.hardNl
+                                                                (R.concat commentDoc
+                                                                    (R.concat childrenDoc trailingCommentDoc))))
                                                 newDoc =
                                                     when acc.separator is
-                                                        FirstItem -> P.concat commentDoc (P.concat childrenDoc trailingCommentDoc)
-                                                        _         -> P.concat acc.doc indentedDoc
+                                                        FirstItem -> R.concat commentDoc (R.concat childrenDoc trailingCommentDoc)
+                                                        _         -> R.concat acc.doc indentedDoc
                                             in
                                             Ok { doc = newDoc
                                                , prevRow = -1
@@ -868,11 +779,11 @@ buildFlowDocImpl indent inlineStart nodes =
                                         Err e -> Err e
                                         Ok bodyDoc ->
                                             let
-                                                childrenDoc = P.concat bodyDoc trailingCommentDoc
+                                                childrenDoc = R.concat bodyDoc trailingCommentDoc
                                                 -- Always blank-separate consecutive branches,
                                                 -- regardless of whether either body is multi-line.
                                                 blankOrNewline =
-                                                    P.concat (P.text "\n") P.hardNl
+                                                    R.concat (R.text "\n") R.hardNl
                                                 newDoc =
                                                     when acc.separator is
                                                         FirstItem -> childrenDoc
@@ -880,8 +791,8 @@ buildFlowDocImpl indent inlineStart nodes =
                                                         -- line with hardNl, so attach the branch
                                                         -- directly to avoid inserting an extra blank
                                                         -- line between the comment and its pattern.
-                                                        AlreadyTerminated -> P.concat acc.doc childrenDoc
-                                                        _         -> P.concat acc.doc (P.concat blankOrNewline childrenDoc)
+                                                        AlreadyTerminated -> R.concat acc.doc childrenDoc
+                                                        _         -> R.concat acc.doc (R.concat blankOrNewline childrenDoc)
                                             in
                                             Ok { doc = newDoc
                                                , prevRow = -1
@@ -895,14 +806,14 @@ buildFlowDocImpl indent inlineStart nodes =
                                 EmptyLine ->
                                     -- A blank-line marker between `let` bindings,
                                     -- inserted by `VerticalSpace.insertLetBlankLines`.
-                                    -- Emit one raw "\n" (not P.hardNl, which would
+                                    -- Emit one raw "\n" (not R.hardNl, which would
                                     -- re-emit indentation and leave trailing whitespace
                                     -- on the blank line — cf. the WhenBranch/PipelineStep
                                     -- blanks). The following binding's IndentedBlock
                                     -- supplies its own leading hardNl, so each EmptyLine
                                     -- nets exactly one blank line. Keep separator = HardNl
                                     -- so that binding still wraps onto its own line.
-                                    Ok { doc = P.concat acc.doc (P.text "\n")
+                                    Ok { doc = R.concat acc.doc (R.text "\n")
                                        , prevRow = -1
                                        , prevElided = False
                                        , separator = HardNl
@@ -943,12 +854,12 @@ buildFlowDocImpl indent inlineStart nodes =
                                                , separator = FlowSep
                                                }
                 )
-                (Ok { doc = P.empty, prevRow = -1, prevElided = False, separator = FirstItem })
+                (Ok { doc = R.empty, prevRow = -1, prevElided = False, separator = FirstItem })
                 nodes
     in
     when foldResult is
         Err e -> Err e
-        Ok state -> Ok (P.nest indent state.doc)
+        Ok state -> Ok (R.nest indent state.doc)
 
 
 
@@ -961,17 +872,11 @@ isDocCommentNode node =
         DocComment _ -> True
         _ -> False
 
-genericRenderResult : Maybe String -> Result String String
-genericRenderResult maybeFormatted =
-    when maybeFormatted is
-        Just s -> Ok s
-        Nothing -> Err "Failed to pretty-print"
-
-makePDoc : LPBox -> Array LPNode -> Result String (P.Doc cost)
+makePDoc : LPBox -> Array LPNode -> Result String Doc
 makePDoc box children =
     when box is
-        UnbreakableText locs -> Ok (P.text locs.value)
-        SynthesizedText s -> Ok (P.text s)
+        UnbreakableText locs -> Ok (R.text locs.value)
+        SynthesizedText s -> Ok (R.text s)
         AllAcrossOrAllVertical bracket ->
             makeAllAcrossOrAllVertical bracket children
         AlwaysVertical bracket ->
@@ -988,29 +893,32 @@ makePDoc box children =
             let bs = bracketStrings loc.value
             in
             if Array.isEmpty children then
-                Ok (P.text bs.empty)
+                Ok (R.text bs.empty)
             else
                 let
                     commentDocs = Array.map commentNodeDoc children
                     body =
                         Array.foldl
                             (\d acc ->
-                                if acc == P.empty then d
-                                else P.concat acc (P.concat (P.text " ") d)
+                                if acc == R.empty then d
+                                else R.concat acc (R.concat (R.text " ") d)
                             )
-                            P.empty
+                            R.empty
                             commentDocs
                 in
-                Ok (P.concat (P.text bs.open) (P.concat body (P.concat (P.text " ") (P.text bs.close))))
+                Ok (R.concat (R.text bs.open) (R.concat body (R.concat (R.text " ") (R.text bs.close))))
         SingleLineComment locs -> Ok (lineComment locs.value)
         BlockComment _ -> Ok (commentBoxDoc box)
-        AcrossThenIndent ->
-            buildFlowDoc grenIndent children
+        AcrossThenIndent { forceVertical } ->
+            if forceVertical then
+                buildFlowDocBroken grenIndent children
+            else
+                buildFlowDoc grenIndent children
         WhenBranchPattern ->
             buildFlowDoc grenIndent children
-                |> Result.map (\d -> P.concat d (P.text " ->"))
-        IfCondition ->
-            makeIfConditionDoc children
+                |> Result.map (\d -> R.concat d (R.text " ->"))
+        IfCondition { forceVertical } ->
+            makeIfConditionDoc forceVertical children
         IndentedBlock ->
             buildFlowDoc 0 children
         PipelineStep ->
@@ -1031,7 +939,7 @@ makePDoc box children =
         ParenBlock ->
             when buildFlowDocInline 0 children is
                 Err e -> Err e
-                Ok innerDoc -> Ok (P.concat (P.text "(") (P.concat innerDoc (P.text ")")))
+                Ok innerDoc -> Ok (R.concat (R.text "(") (R.concat innerDoc (R.text ")")))
         OpAndRhs ->
             when Array.popFirst children is
                 Just { first = opNode, rest = rhsNodes } ->
@@ -1039,22 +947,18 @@ makePDoc box children =
                         UnbreakableText opLoc ->
                             when buildFlowDocInline 0 rhsNodes is
                                 Err e -> Err e
-                                Ok rhsDoc -> Ok (P.concat (P.text (opLoc.value ++ " ")) rhsDoc)
+                                Ok rhsDoc -> Ok (R.concat (R.text (opLoc.value ++ " ")) rhsDoc)
                         SynthesizedText opStr ->
                             when buildFlowDocInline 0 rhsNodes is
                                 Err e -> Err e
-                                Ok rhsDoc -> Ok (P.concat (P.text (opStr ++ " ")) rhsDoc)
+                                Ok rhsDoc -> Ok (R.concat (R.text (opStr ++ " ")) rhsDoc)
                         _ -> Err "OpAndRhs: first child must be a text operator"
                 Nothing -> Err "OpAndRhs: empty children"
         AlignedFlow ->
             when buildFlowDocInline 0 children is
                 Err e -> Err e
-                Ok innerDoc -> Ok (P.align innerDoc)
-        WhenFlow ->
-            -- children = [whenNode, …scrutineeNodes, isNode, IndentedBlock(branchNodes)]
-            -- Flat: "when scrutinee is" on one line.
-            -- Broken: `when` at col C, scrutinee at C+4 (with its own arg-continuation
-            -- breaks at C+8), `is` back at C, branches at C+4.
+                Ok innerDoc -> Ok (R.align innerDoc)
+        WhenFlow { forceVertical } ->
             when Array.popLast children is
                 Nothing -> Err "WhenFlow: empty children"
                 Just { last = branchesBlock, initial = withoutBranches } ->
@@ -1071,25 +975,25 @@ makePDoc box children =
                                                     buildFlowDoc 0 (lpnChildren branchesBlock)
                                                         |> Result.map (\branchesContent ->
                                                             let
-                                                                brokenHeaderDoc =
-                                                                    P.concat (P.text "when")
-                                                                        (P.concat
-                                                                            (P.nest grenIndent (P.concat P.hardNl scrutineeDoc))
-                                                                            (P.concat P.hardNl (P.text "is")))
+                                                                headerDoc =
+                                                                    if forceVertical then
+                                                                        R.concat (R.text "when")
+                                                                            (R.concat
+                                                                                (R.nest grenIndent (R.concat R.hardNl scrutineeDoc))
+                                                                                (R.concat R.hardNl (R.text "is")))
+                                                                    else
+                                                                        flatHeaderDoc
                                                                 branchesDoc =
-                                                                    P.nest grenIndent (P.concat P.hardNl branchesContent)
+                                                                    R.nest grenIndent (R.concat R.hardNl branchesContent)
                                                             in
-                                                            P.align
-                                                                (P.concat
-                                                                    (P.choice brokenHeaderDoc (P.flatten flatHeaderDoc))
-                                                                    branchesDoc)
+                                                            R.align (R.concat headerDoc branchesDoc)
                                                         )
                                                 )
                                         )
         PrefixGlue prefix ->
             when buildFlowDocInline 0 children is
                 Err e -> Err e
-                Ok innerDoc -> Ok (P.concat (P.text prefix.value) innerDoc)
+                Ok innerDoc -> Ok (R.concat (R.text prefix.value) innerDoc)
         Glue ->
             -- Children concatenated with no separator (a postfix accessor
             -- glued after a bracketed base). Each child renders on its own
@@ -1102,27 +1006,27 @@ makePDoc box children =
                         Ok accDoc ->
                             when buildFlowDocInline 0 [child] is
                                 Err e -> Err e
-                                Ok childDoc -> Ok (P.concat accDoc childDoc)
+                                Ok childDoc -> Ok (R.concat accDoc childDoc)
                 )
-                (Ok P.empty)
+                (Ok R.empty)
                 children
         MultilineString located ->
             let
-                tripleQuote = P.text "\"\"\""
+                tripleQuote = R.text "\"\"\""
                 contentDoc =
                     Array.foldl
-                        (\line acc -> P.concat acc (P.concat P.hardNl (P.text line)))
+                        (\line acc -> R.concat acc (R.concat R.hardNl (R.text line)))
                         tripleQuote
                         located.value
             in
-            -- Wrap the whole doc in P.align so internal hardNls land at the
+            -- Wrap the whole doc in R.align so internal hardNls land at the
             -- column where the opening `"""` is printed, rather than at the
             -- surrounding nest level. Gren's parser requires every content
             -- line AND the closing `"""` to be at the same column as the
             -- opening — without align, an opening that lands past the nest
             -- (because preceding tokens consumed columns) produces output
             -- that fails to re-parse.
-            Ok (P.align (P.concat contentDoc (P.concat P.hardNl tripleQuote)))
+            Ok (R.align (R.concat contentDoc (R.concat R.hardNl tripleQuote)))
         unexpected -> Err ("makePDoc: unexpected box type:\n" ++ lptToJson (lpnNode unexpected children))
 
 
@@ -1131,21 +1035,16 @@ makePDoc box children =
 -- If any child is a SingleLineComment, delegates to listBoxesWithBrackets,
 -- which always produces a multi-line layout (a line comment cannot live
 -- inside a flat group). Otherwise the pretty-printer chooses flat or
--- one-item-per-line via the `P.group` in exposingListWithBrackets. (Callers
+-- one-item-per-line via the `R.group` in exposingListWithBrackets. (Callers
 -- that want an unconditional vertical layout use `AlwaysVertical`, which routes
 -- through listBoxesWithBrackets instead.)
-makeAllAcrossOrAllVertical : ListBrackets -> Array LPNode -> Result String (P.Doc cost)
+makeAllAcrossOrAllVertical : ListBrackets -> Array LPNode -> Result String Doc
 makeAllAcrossOrAllVertical brackets children =
     let
         bs = bracketStrings brackets
         hasComment = Array.any nodeIsComment children
     in
-    if isUniformRecordArray brackets children then
-        -- Uniform item layout for an array of record literals: a comment
-        -- among the items rules out the flat form, exactly as in the
-        -- generic path below.
-        uniformRecordArrayDoc { allowFlat = not hasComment } children
-    else if hasComment then
+    if hasComment then
         listBoxesWithBrackets bs.open bs.close children
     else
         traverseArray makeListItemDoc children
@@ -1153,123 +1052,6 @@ makeAllAcrossOrAllVertical brackets children =
                 exposingListWithBrackets bs.open bs.close bs.empty itemDocs
             )
 
-
-{-| Does this bracketed literal get the *uniform item layout* treatment?
-
-True for a `[ ... ]` array whose items are all record literals or record
-updates. Such an array renders via `uniformRecordArrayDoc`, which couples
-the items' flat-vs-expanded decision so that no record ever breaks across
-lines while a sibling stays inline. Comments among the items don't
-disqualify the array — they ride along in the vertical forms.
--}
-isUniformRecordArray : ListBrackets -> Array LPNode -> Bool
-isUniformRecordArray brackets children =
-    when brackets is
-        ListSquare ->
-            let
-                items = Array.keepIf (\n -> not (nodeIsComment n)) children
-            in
-            Array.length items > 0
-                && Array.all
-                    (\n ->
-                        when lpnBox n is
-                            AllAcrossOrAllVertical ListCurly -> True
-                            AlwaysVertical ListCurly -> True
-                            RecordUpdate _ -> True
-                            _ -> False
-                    )
-                    items
-
-        _ ->
-            False
-
-
-{-| Uniform item layout for an array of record literals and/or record
-updates (see the README's "uniform item layout" section): every record
-breaks the same way, so the array reads uniformly. The doc offers at most
-three shapes:
-
-  1. everything flat on one line — `[ { a = 1 }, { b = 2 } ]`
-  2. vertical array, every record flat — one record per line
-  3. vertical array, every record expanded — one field per line
-
-and PrettyExpressive picks the cheapest that fits. There is deliberately
-*no* shape where one record is expanded and a sibling is flat.
-
-Idempotency rests on each shape being a fixed point under reparse:
-
-  - Shape 1 reparses with no author breaks and re-fits, so it re-renders flat.
-  - Shape 2 reparses as an author-vertical array of flat records
-    (`AlwaysVertical ListSquare`, items `AllAcrossOrAllVertical ListCurly`),
-    which lands back here with `allowFlat = False` and the same
-    shape-2-vs-shape-3 cost comparison.
-  - Shape 3 reparses with every record author-broken
-    (`AlwaysVertical ListCurly`), whose docs contain `hardNl`; flattening
-    them yields `failDoc`, so shapes 1 and 2 self-destruct (`concat`
-    propagates failure, `choice` drops failing branches) and only shape 3
-    remains.
-
-That last mechanism also handles the trigger direction for free: an
-author-broken record — or one that can't be flat at all (a comment inside
-it, a multiline string) — invalidates every branch that would keep any
-sibling inline, forcing the whole array to shape 3 with no explicit check.
-
-`allowFlat` is False when the array was authored vertical (its verticality
-is preserved, as everywhere else) or when a comment sits among the items.
--}
-uniformRecordArrayDoc : { allowFlat : Bool } -> Array LPNode -> Result String (P.Doc cost)
-uniformRecordArrayDoc { allowFlat } children =
-    let
-        bs = bracketStrings ListSquare
-
-        verticalResult =
-            Result.map2 P.choice
-                (listBoxesWithBracketsUsing flatUniformItemDoc bs.open bs.close children)
-                (listBoxesWithBracketsUsing expandedUniformItemDoc bs.open bs.close children)
-    in
-    if allowFlat then
-        Result.map2
-            (\itemDocs vertical ->
-                P.choice
-                    (P.flatten (exposingListWithBrackets bs.open bs.close bs.empty itemDocs))
-                    vertical
-            )
-            (traverseArray makeListItemDoc children)
-            verticalResult
-    else
-        verticalResult
-
-
-{-| Render a uniform-array record item forced flat. An item that cannot be
-flat (an author-broken record's `hardNl`, a comment inside it) flattens to
-`failDoc`, which invalidates the whole containing branch — exactly the
-degeneration the uniform layout wants.
--}
-flatUniformItemDoc : LPNode -> Maybe (Result String (P.Doc cost))
-flatUniformItemDoc node =
-    listItemBoxDoc node
-        |> Maybe.map (Result.map P.flatten)
-
-
-{-| Render a uniform-array record item forced expanded (one field per
-line), regardless of how it was authored. The `P.nest 2` matches
-`listItemBoxDoc`'s handling of nested vertical literals, aligning the
-record's continuation lines under its own first field. A record update is
-forced expanded by rendering it with `forceVertical = True` — the exact doc
-an author-broken update produces, which is what keeps the expanded shape a
-fixed point under reparse.
--}
-expandedUniformItemDoc : LPNode -> Maybe (Result String (P.Doc cost))
-expandedUniformItemDoc node =
-    when lpnBox node is
-        AllAcrossOrAllVertical ListCurly ->
-            Just (listBoxesForBracket ListCurly (lpnChildren node) |> Result.map (P.nest 2))
-
-        RecordUpdate { name } ->
-            Just (makeRecordUpdateDoc True name.value (lpnChildren node))
-
-        _ ->
-            listItemBoxDoc node
 
 
 -- Map a Result-producing builder over each element, collecting the Ok values
@@ -1305,15 +1087,15 @@ bracketStrings brackets =
 -- nested +2 — the width of the enclosing "[ " / ", " prefix — so its own
 -- continuation lines align under its first element rather than the enclosing
 -- list's items.
-listItemBoxDoc : LPNode -> Maybe (Result String (P.Doc cost))
+listItemBoxDoc : LPNode -> Maybe (Result String Doc)
 listItemBoxDoc node =
     let
         children = lpnChildren node
     in
     when lpnBox node is
         UnbreakableText loc ->
-            Just (Ok (P.text loc.value))
-        AcrossThenIndent ->
+            Just (Ok (R.text loc.value))
+        AcrossThenIndent _ ->
             Just (buildFlowDoc grenIndent children)
         IndentedBlock ->
             -- A record field whose value is a lambda: the field flow renders at
@@ -1323,9 +1105,9 @@ listItemBoxDoc node =
         ParenBlock ->
             Just (makePDoc ParenBlock children)
         AllAcrossOrAllVertical _ ->
-            Just (makePDoc (lpnBox node) children |> Result.map (P.nest 2))
+            Just (makePDoc (lpnBox node) children |> Result.map (R.nest 2))
         AlwaysVertical bracket ->
-            Just (listBoxesForBracket bracket children |> Result.map (P.nest 2))
+            Just (listBoxesForBracket bracket children |> Result.map (R.nest 2))
         RecordUpdate { name, forceVertical } ->
             Just (makeRecordUpdateDoc forceVertical name.value children)
         -- An inline `when ... is`, a prefix-glued expr (`-1`), an empty literal
@@ -1334,8 +1116,8 @@ listItemBoxDoc node =
         -- decision still applies.
         AlignedFlow ->
             Just (makePDoc AlignedFlow children)
-        WhenFlow ->
-            Just (makePDoc WhenFlow children)
+        WhenFlow _ ->
+            Just (makePDoc (lpnBox node) children)
         PrefixGlue _ ->
             Just (makePDoc (lpnBox node) children)
         Glue ->
@@ -1352,29 +1134,29 @@ listItemBoxDoc node =
             Nothing
 
 
-makeListItemDoc : LPNode -> Result String (P.Doc cost)
+makeListItemDoc : LPNode -> Result String Doc
 makeListItemDoc node =
     when listItemBoxDoc node is
         Just result -> result
         Nothing -> Err ("makeListItemDoc: unexpected box type:\n" ++ lptToJson node)
 
-exposingListWithBrackets : String -> String -> String -> Array (P.Doc cost) -> P.Doc cost
+exposingListWithBrackets : String -> String -> String -> Array Doc -> Doc
 exposingListWithBrackets open close empty items =
     when Array.popFirst items is
         Nothing ->
-            P.text empty
+            R.text empty
         Just { first, rest } ->
             let
-                firstDoc = P.concat (P.text open) first
-                restDocs = Array.map (\d -> P.concat (P.text ", ") d) rest
+                firstDoc = R.concat (R.text open) first
+                restDocs = Array.map (\d -> R.concat (R.text ", ") d) rest
                 allDocs  = [ firstDoc ] ++ restDocs
                 joined =
-                    P.foldDoc
-                        (\a b -> P.concat a (P.concat P.breakDoc b))
+                    R.foldDoc
+                        (\a b -> R.concat a (R.concat R.breakDoc b))
                         allDocs
             in
-            P.group
-                (P.concat joined (P.concat P.nl (P.text close)))
+            R.group
+                (R.concat joined (R.concat R.nl (R.text close)))
 
 
 {-| Render a module/import `exposing ( ... )` list, coupling its "drop to the
@@ -1387,53 +1169,53 @@ The leading break (the drop) is baked into the *same* group as the item breaks,
 so a single fit decision drives both. The returned doc starts with that leading
 break (a space when flat, a newline when broken), so the caller glues it directly
 after `exposing` rather than adding its own flow separator. The +4 indentation
-comes from the enclosing flow's `P.nest`, so no nest is added here.
+comes from the enclosing flow's `R.nest`, so no nest is added here.
 
 A comment among the items forces the vertical form (with no flat alternative),
 matching the always-vertical comment-aware list rendering.
 -}
-makeExposingListDoc : Array LPNode -> Result String (P.Doc cost)
+makeExposingListDoc : Array LPNode -> Result String Doc
 makeExposingListDoc children =
     if Array.any nodeIsComment children then
         listBoxesWithBrackets "( " ")" children
-            |> Result.map (\body -> P.concat P.hardNl body)
+            |> Result.map (\body -> R.concat R.hardNl body)
     else
         traverseArray makeListItemDoc children
             |> Result.map (\itemDocs ->
                 when Array.popFirst itemDocs is
                     Nothing ->
-                        P.text " ()"
+                        R.text " ()"
                     Just { first = firstItem, rest = restItems } ->
                         let
-                            firstSeg = P.concat (P.text "( ") firstItem
+                            firstSeg = R.concat (R.text "( ") firstItem
                             restSegs =
                                 Array.map
-                                    (\d -> P.concat P.breakDoc (P.concat (P.text ", ") d))
+                                    (\d -> R.concat R.breakDoc (R.concat (R.text ", ") d))
                                     restItems
                             body =
-                                Array.foldl (\seg acc -> P.concat acc seg) firstSeg restSegs
+                                Array.foldl (\seg acc -> R.concat acc seg) firstSeg restSegs
                             full =
-                                P.concat body (P.concat P.nl (P.text ")"))
+                                R.concat body (R.concat R.nl (R.text ")"))
                         in
-                        P.group (P.concat P.nl full)
+                        R.group (R.concat R.nl full)
             )
 
 
 -- Render a comment box as just the source text it would produce: `--xxx`
 -- for a SingleLineComment, `{-xxx-}` for a BlockComment, `{-|xxx-}` for a
--- DocComment. Returns P.empty for non-comment boxes; callers should only
+-- DocComment. Returns R.empty for non-comment boxes; callers should only
 -- pass a comment box.
 --
 -- A block comment whose body spans multiple lines is rendered with
 -- `blockCommentDoc` so it is laid out (and re-indented) properly instead of
 -- being smuggled through as flat text with embedded newlines.
-commentBoxDoc : LPBox -> P.Doc cost
+commentBoxDoc : LPBox -> Doc
 commentBoxDoc box =
     when box is
-        SingleLineComment loc -> P.text ("--" ++ loc.value)
+        SingleLineComment loc -> R.text ("--" ++ loc.value)
         BlockComment loc -> blockCommentDoc loc
-        DocComment loc -> P.text ("{-|" ++ loc.value ++ "-}")
-        _ -> P.empty
+        DocComment loc -> R.text ("{-|" ++ loc.value ++ "-}")
+        _ -> R.empty
 
 
 -- True if a comment body spans more than one source line.
@@ -1461,14 +1243,14 @@ leadingSpaceCount s =
 
 -- Render a block comment. A single-line body is emitted verbatim as flat
 -- text. A multi-line body is split into physical lines, joined with
--- `P.hardNl`, and wrapped in `P.align`:
+-- `R.hardNl`, and wrapped in `R.align`:
 --
 --   * The internal `hardNl`s make the doc unflattenable, so any enclosing
---     `P.group` is forced to its multi-line branch (a 3-line comment no
+--     `R.group` is forced to its multi-line branch (a 3-line comment no
 --     longer collapses a whole construct onto one line).
 --   * Continuation lines are re-indented from a canonical anchor derived
 --     *only from the body's own structure* — the smallest leading indent
---     among the content lines maps to `blockCommentBodyOffset`. `P.align`
+--     among the content lines maps to `blockCommentBodyOffset`. `R.align`
 --     then shifts the whole block under wherever the `{-` now prints. This
 --     is whitespace-canonical: it no longer reads the input `{-` column
 --     (`loc.start.col`), so perturbing the surrounding whitespace cannot
@@ -1481,17 +1263,17 @@ leadingSpaceCount s =
 -- is kept verbatim — absolute columns, untouched — and only the `{-` moves.
 -- That opener-alone form is the explicit, text-derived signal for "do not
 -- re-indent my comment body" (see the verbatim branch below).
-blockCommentDoc : Located String -> P.Doc cost
+blockCommentDoc : Located String -> Doc
 blockCommentDoc loc =
     if not (isMultiLineCommentValue loc.value) then
-        P.text ("{-" ++ loc.value ++ "-}")
+        R.text ("{-" ++ loc.value ++ "-}")
     else
         let
             fullText = "{-" ++ loc.value ++ "-}"
         in
         when Array.popFirst (String.split "\n" fullText) is
             Nothing ->
-                P.text fullText
+                R.text fullText
             Just { first = firstLine, rest = contLines } ->
                 let
                     -- The body's base column: the smallest leading-space count
@@ -1527,11 +1309,11 @@ blockCommentDoc loc =
                     let
                         contDoc =
                             Array.foldl
-                                (\line acc -> P.concat acc (P.concat P.hardNl (P.text line)))
-                                P.empty
+                                (\line acc -> R.concat acc (R.concat R.hardNl (R.text line)))
+                                R.empty
                                 contLines
                     in
-                    P.concat (P.text "{-") (P.reset contDoc)
+                    R.concat (R.text "{-") (R.reset contDoc)
                 else
                     let
                         base =
@@ -1540,7 +1322,7 @@ blockCommentDoc loc =
                                 |> Maybe.withDefault blockCommentBodyOffset
                         -- Map the base to `blockCommentBodyOffset` and keep any
                         -- deeper internal indentation relative to it. Blank lines
-                        -- and a bare `-}` emit as-is (trimmed): `P.align` will
+                        -- and a bare `-}` emit as-is (trimmed): `R.align` will
                         -- place them at the `{-` column, keeping `-}` aligned
                         -- with its opener. The formula would give them
                         -- `blockCommentBodyOffset` extra spaces, which is wrong.
@@ -1556,28 +1338,28 @@ blockCommentDoc loc =
                                     ++ String.dropFirst l line
                     in
                     Array.foldl
-                        (\line acc -> P.concat acc (P.concat P.hardNl (P.text (reindent line))))
-                        (P.text firstLine)
+                        (\line acc -> R.concat acc (R.concat R.hardNl (R.text (reindent line))))
+                        (R.text firstLine)
                         contLines
-                        |> P.align
+                        |> R.align
 
 
 -- LPNode-form of commentBoxDoc.
-commentNodeDoc : LPNode -> P.Doc cost
+commentNodeDoc : LPNode -> Doc
 commentNodeDoc node = commentBoxDoc (lpnBox node)
 
 
 -- Render a SingleLineComment's source text followed by a hardNl. The hardNl
 -- makes the comment unflatten-able: a `--` consumes the rest of its line, so
--- any P.group containing one is forced into the broken layout. Use this
+-- any R.group containing one is forced into the broken layout. Use this
 -- whenever the comment may be followed by more content in the surrounding
 -- doc array.
-lineComment : String -> P.Doc cost
+lineComment : String -> Doc
 lineComment s =
-    P.concat (P.text ("--" ++ s)) P.hardNl
+    R.concat (R.text ("--" ++ s)) R.hardNl
 
 
-makeRecordUpdateDoc : Bool -> String -> Array LPNode -> Result String (P.Doc cost)
+makeRecordUpdateDoc : Bool -> String -> Array LPNode -> Result String Doc
 makeRecordUpdateDoc forceVertical baseName children =
     -- Skip any leading comment children so we can find the actual first field
     -- (the comment-bearing children get rendered as their own lines below).
@@ -1587,14 +1369,14 @@ makeRecordUpdateDoc forceVertical baseName children =
     when Array.popFirst fields is
         Nothing ->
             when Array.popFirst commentsBefore is
-                Nothing -> Ok (P.text ("{ " ++ baseName ++ " }"))
+                Nothing -> Ok (R.text ("{ " ++ baseName ++ " }"))
                 Just _ ->
-                    Ok (P.vcat
-                        ([P.text ("{ " ++ baseName)]
-                        ++ Array.map (\c -> P.concat (P.text "    ") (commentNodeDoc c)) commentsBefore
-                        ++ [P.text "}"]))
+                    Ok (R.vcat
+                        ([R.text ("{ " ++ baseName)]
+                        ++ Array.map (\c -> R.concat (R.text "    ") (commentNodeDoc c)) commentsBefore
+                        ++ [R.text "}"]))
         Just { first = firstField, rest = restFields } ->
-            -- Wrap each field's flow with P.align so that when the field value
+            -- Wrap each field's flow with R.align so that when the field value
             -- itself spans multiple lines (e.g. a nested record update), the
             -- continuation lines start at the column where the field content
             -- begins (just after the "    | " / "    , " prefix), giving a
@@ -1605,7 +1387,7 @@ makeRecordUpdateDoc forceVertical baseName children =
                     -- A lambda field uses an IndentedBlock container so its body
                     -- block supplies the only +4; render its flow at +0 (mirrors
                     -- the list-item path in listItemBoxDoc). Every other field
-                    -- flows at +4. P.align then anchors continuation lines under
+                    -- flows at +4. R.align then anchors continuation lines under
                     -- the field content (see folderInsertRecordField).
                     let
                         flowIndent =
@@ -1614,7 +1396,7 @@ makeRecordUpdateDoc forceVertical baseName children =
                                 _ -> grenIndent
                     in
                     buildFlowDoc flowIndent (lpnChildren field)
-                        |> Result.map P.align
+                        |> Result.map R.align
 
                 hasComment =
                     not (Array.isEmpty commentsBefore)
@@ -1628,13 +1410,13 @@ makeRecordUpdateDoc forceVertical baseName children =
                 -- inline form).
                 let
                     leadingCommentLines =
-                        Array.map (\c -> P.concat (P.text "    ") (commentNodeDoc c)) commentsBefore
+                        Array.map (\c -> R.concat (R.text "    ") (commentNodeDoc c)) commentsBefore
                 in
                 when fieldDoc firstField is
                     Err e -> Err e
                     Ok firstFieldDoc ->
                         let
-                            firstLine = P.concat (P.text "    | ") firstFieldDoc
+                            firstLine = R.concat (R.text "    | ") firstFieldDoc
                             restResult =
                                 Array.foldl
                                     (\field accResult ->
@@ -1642,12 +1424,12 @@ makeRecordUpdateDoc forceVertical baseName children =
                                             Err e -> Err e
                                             Ok docs ->
                                                 if nodeIsComment field then
-                                                    Ok (Array.pushLast (P.concat (P.text "    ") (commentNodeDoc field)) docs)
+                                                    Ok (Array.pushLast (R.concat (R.text "    ") (commentNodeDoc field)) docs)
                                                 else
                                                     when fieldDoc field is
                                                         Err e -> Err e
                                                         Ok d ->
-                                                            Ok (Array.pushLast (P.concat (P.text "    , ") d) docs)
+                                                            Ok (Array.pushLast (R.concat (R.text "    , ") d) docs)
                                     )
                                     (Ok (leadingCommentLines ++ [firstLine]))
                                     restFields
@@ -1655,7 +1437,7 @@ makeRecordUpdateDoc forceVertical baseName children =
                         when restResult is
                             Err e -> Err e
                             Ok fieldLines ->
-                                Ok (P.vcat ([P.text ("{ " ++ baseName)] ++ fieldLines ++ [P.text "}"]))
+                                Ok (R.vcat ([R.text ("{ " ++ baseName)] ++ fieldLines ++ [R.text "}"]))
             else
                 -- Fit-based form (no comments, author wrote it on one line): a
                 -- group whose flat rendering is `{ base | a = 1, b = 2 }` and
@@ -1673,19 +1455,19 @@ makeRecordUpdateDoc forceVertical baseName children =
                         traverseArray fieldDoc restFields
                             |> Result.map (\restDocs ->
                                 let
-                                    firstSeg = P.concat (P.text "| ") firstFieldDoc
+                                    firstSeg = R.concat (R.text "| ") firstFieldDoc
                                     restSegs =
                                         Array.map
-                                            (\d -> P.concat P.breakDoc (P.concat (P.text ", ") d))
+                                            (\d -> R.concat R.breakDoc (R.concat (R.text ", ") d))
                                             restDocs
-                                    fieldsInner = Array.foldl (\seg acc -> P.concat acc seg) firstSeg restSegs
-                                    fieldsPart = P.nest grenIndent (P.concat P.nl fieldsInner)
+                                    fieldsInner = Array.foldl (\seg acc -> R.concat acc seg) firstSeg restSegs
+                                    fieldsPart = R.nest grenIndent (R.concat R.nl fieldsInner)
                                     inner =
-                                        P.concat
-                                            (P.text ("{ " ++ baseName))
-                                            (P.concat fieldsPart (P.concat P.nl (P.text "}")))
+                                        R.concat
+                                            (R.text ("{ " ++ baseName))
+                                            (R.concat fieldsPart (R.concat R.nl (R.text "}")))
                                 in
-                                P.group inner
+                                R.group inner
                             )
 
 
@@ -1695,13 +1477,13 @@ resolving it to a string.
 Dispatches on the node's `OriginalRows` `SyntaxType` (type aliases, type
 unions, and the comment variants take dedicated builders; everything else
 flows through `makeFlowIndentableDoc`). `EmptyLine` nodes produce
-`P.empty`. Any other top-level box is an `Err` — only root children are
+`R.empty`. Any other top-level box is an `Err` — only root children are
 valid input.
 
 Exposed for `Formatter.PExJson`, which serialises the per-declaration `Doc`
 tree to JSON for the `--pex` debug flag.
 -}
-makePrettyLineDoc : LPNode -> Result String (P.Doc P.DefaultCostTuple)
+makePrettyLineDoc : LPNode -> Result String Doc
 makePrettyLineDoc node =
     let
         children = lpnChildren node
@@ -1720,7 +1502,7 @@ makePrettyLineDoc node =
                 StImport -> makeExposingLineDoc children
                 _ -> makeFlowIndentableDoc children
         EmptyLine ->
-            Ok P.empty
+            Ok R.empty
         _ ->
             Err "Unexpected item in LPTree root children"
 
@@ -1737,7 +1519,7 @@ its own line but still flat" form, and never a break inside the header itself.
 Anything that doesn't match (a `(..)` wildcard, an effect-module `where` block, a
 comment in the header) falls back to the generic flow.
 -}
-makeExposingLineDoc : Array LPNode -> Result String (P.Doc P.DefaultCostTuple)
+makeExposingLineDoc : Array LPNode -> Result String Doc
 makeExposingLineDoc children =
     when Array.popLast children is
         Just { last = lastNode, initial = headerNodes } ->
@@ -1766,11 +1548,11 @@ makeExposingLineDoc children =
                                     -- point inside the header, so the only break is the
                                     -- exposing list's coupled drop.
                                     headerDoc =
-                                        P.foldDoc
-                                            (\a b -> P.concat a (P.concat (P.text " ") b))
+                                        R.foldDoc
+                                            (\a b -> R.concat a (R.concat (R.text " ") b))
                                             headerDocs
                                 in
-                                P.concat headerDoc (P.nest grenIndent listDoc)
+                                R.concat headerDoc (R.nest grenIndent listDoc)
                             )
                     )
             else
@@ -1779,7 +1561,7 @@ makeExposingLineDoc children =
             makeFlowIndentableDoc children
 
 
-makeFlowIndentableDoc : Array LPNode -> Result String (P.Doc P.DefaultCostTuple)
+makeFlowIndentableDoc : Array LPNode -> Result String Doc
 makeFlowIndentableDoc children =
     let
         { leading, rest } = splitLeadingComments children
@@ -1792,7 +1574,7 @@ makeFlowIndentableDoc children =
             if Array.isEmpty commentDocs then
                 flowDoc
             else
-                P.concat (P.vcat commentDocs) (P.concat P.hardNl flowDoc)
+                R.concat (R.vcat commentDocs) (R.concat R.hardNl flowDoc)
         )
 
 
@@ -1934,7 +1716,7 @@ one-segment-per-line. Both the overflow form and the multi-line form are:
         -> AnotherType
         -> ResultType
 
-The fit-based `P.group`'s broken branch is byte-identical to the forced-vertical
+The fit-based `R.group`'s broken branch is byte-identical to the forced-vertical
 form (same `nl` separators), so overflow == author-multi-line and formatting is
 a fixed point.
 
@@ -1942,7 +1724,7 @@ Comment-bearing signatures fall back to the original fill renderer: the
 all-or-nothing break points have no stable anchor for a trailing comment, and
 the existing fill path already keeps arrow-comment placement idempotent.
 -}
-makeSignaturePrettyDoc : Array LPNode -> Result String (P.Doc P.DefaultCostTuple)
+makeSignaturePrettyDoc : Array LPNode -> Result String Doc
 makeSignaturePrettyDoc children =
     if Array.any subtreeHasComment children then
         makeFlowIndentableDoc children
@@ -1982,15 +1764,15 @@ makeSignaturePrettyDoc children =
                             let
                                 bodyInner =
                                     when Array.popFirst segDocs is
-                                        Nothing -> P.empty
+                                        Nothing -> R.empty
                                         Just { first = d0, rest = ds } ->
                                             Array.foldl
-                                                (\d acc -> P.concat acc (P.concat P.nl d))
+                                                (\d acc -> R.concat acc (R.concat R.nl d))
                                                 d0
                                                 ds
                                 full =
-                                    P.concat headerDoc
-                                        (P.nest grenIndent (P.concat P.nl bodyInner))
+                                    R.concat headerDoc
+                                        (R.nest grenIndent (R.concat R.nl bodyInner))
                             in
                             groupUnlessForced forceVertical full
                         )
@@ -2015,13 +1797,13 @@ written across rows, or one that overflows, gets one step per line:
         |> step1
         |> step2
 
-The fit-based `P.group`'s broken branch and the forced-vertical form are the
+The fit-based `R.group`'s broken branch and the forced-vertical form are the
 *same* doc (just grouped vs not), so overflow == author-multi-line and formatting
 is a fixed point. A pipeline carrying any comment always renders through the
 existing `PipelineStep` path (`buildFlowDoc 0 children`), whose comment-peeling
 and blank-line logic stays untouched.
 -}
-makePipelineDoc : Bool -> Array LPNode -> Result String (P.Doc cost)
+makePipelineDoc : Bool -> Array LPNode -> Result String Doc
 makePipelineDoc forceVertical children =
     if Array.any subtreeHasComment children then
         -- Comment-bearing pipeline: the intricate per-step comment handling
@@ -2051,11 +1833,11 @@ makePipelineDoc forceVertical children =
                             -- Each step on its own line, indented +grenIndent from the seed.
                             stepsInner =
                                 Array.foldl
-                                    (\d acc -> P.concat acc (P.concat sep d))
-                                    P.empty
+                                    (\d acc -> R.concat acc (R.concat sep d))
+                                    R.empty
                                     stepDocs
                             full =
-                                P.concat seedDoc (P.nest grenIndent stepsInner)
+                                R.concat seedDoc (R.nest grenIndent stepsInner)
                         in
                         groupUnlessForced forceVertical full
                     )
@@ -2083,7 +1865,7 @@ All step bodies land at `seed_col + 4`. Comment-bearing pipelines fall back to
 `buildFlowDoc 0` (forward-leading style) so the intricate PipelineStep
 comment-peeling logic stays untouched.
 -}
-makeBackwardPipelineDoc : Bool -> Array LPNode -> Result String (P.Doc cost)
+makeBackwardPipelineDoc : Bool -> Array LPNode -> Result String Doc
 makeBackwardPipelineDoc forceVertical children =
     -- Fall back to forward-leading style only for comments at step boundaries:
     -- (1) a comment sibling directly between seed and a PipelineStep, or
@@ -2163,9 +1945,9 @@ makeBackwardPipelineDoc forceVertical children =
                                                 buildFlowDoc 0 bodyNodes
                                                     |> Result.map (\bodyDoc ->
                                                         groupUnlessForced forceVertical
-                                                            (P.concat seedDoc
-                                                                (P.concat (P.text " <|")
-                                                                    (P.nest grenIndent (P.concat sep bodyDoc))))
+                                                            (R.concat seedDoc
+                                                                (R.concat (R.text " <|")
+                                                                    (R.nest grenIndent (R.concat sep bodyDoc))))
                                                     )
                                             Just { last = lastNode, initial = headNodes } ->
                                                 when lpnBox lastNode is
@@ -2179,13 +1961,13 @@ makeBackwardPipelineDoc forceVertical children =
                                                                         let
                                                                             bodyBreak =
                                                                                 if forceVertical then
-                                                                                    P.nest grenIndent (P.concat P.hardNl bodyDoc)
+                                                                                    R.nest grenIndent (R.concat R.hardNl bodyDoc)
                                                                                 else
-                                                                                    P.group (P.nest grenIndent (P.concat P.nl bodyDoc))
+                                                                                    R.group (R.nest grenIndent (R.concat R.nl bodyDoc))
                                                                         in
-                                                                        P.concat seedDoc
-                                                                            (P.concat (P.text " <| ")
-                                                                                (P.concat headDoc bodyBreak))
+                                                                        R.concat seedDoc
+                                                                            (R.concat (R.text " <| ")
+                                                                                (R.concat headDoc bodyBreak))
                                                                     )
                                                             )
                                                     _ ->
@@ -2193,9 +1975,9 @@ makeBackwardPipelineDoc forceVertical children =
                                                         buildFlowDoc 0 bodyNodes
                                                             |> Result.map (\bodyDoc ->
                                                                 groupUnlessForced forceVertical
-                                                                    (P.concat seedDoc
-                                                                        (P.concat (P.text " <|")
-                                                                            (P.nest grenIndent (P.concat sep bodyDoc))))
+                                                                    (R.concat seedDoc
+                                                                        (R.concat (R.text " <|")
+                                                                            (R.nest grenIndent (R.concat sep bodyDoc))))
                                                             )
                             _ ->
                                 -- Multiple steps: each body at seed_col + 4, operator
@@ -2213,23 +1995,23 @@ makeBackwardPipelineDoc forceVertical children =
                                                                 if isLast then
                                                                     bodyDoc
                                                                 else
-                                                                    P.concat bodyDoc (P.text " <|")
+                                                                    R.concat bodyDoc (R.text " <|")
                                                             newDoc =
                                                                 if idx == 0 then
                                                                     bodyWithTrail
                                                                 else
-                                                                    P.concat doc (P.concat sep bodyWithTrail)
+                                                                    R.concat doc (R.concat sep bodyWithTrail)
                                                         in
                                                         { idx = idx + 1, doc = newDoc }
                                                     )
-                                                    { idx = 0, doc = P.empty }
+                                                    { idx = 0, doc = R.empty }
                                                     bodyDocs
                                                 |> .doc
                                         in
                                         groupUnlessForced forceVertical
-                                            (P.concat seedDoc
-                                                (P.concat (P.text " <|")
-                                                    (P.nest grenIndent (P.concat sep stepsDoc))))
+                                            (R.concat seedDoc
+                                                (R.concat (R.text " <|")
+                                                    (R.nest grenIndent (R.concat sep stepsDoc))))
                                     )
                     )
             )
@@ -2260,24 +2042,8 @@ flattenBinopNodes children =
                     { operands = [children], ops = [] }
 
 
-{-| Render an `if` / `else if` condition: the children are `[if, …condition…,
-then]`. Either it all fits on one line —
-
-    if cond then
-
-— or, when it doesn't, the condition drops to its own indented line and `then`
-goes on a line flush with `if`:
-
-    if
-        cond
-    then
-
-The flat branch is fully flattened (`P.flatten` on the condition), so the choice
-is genuinely all-on-one-line vs. the stacked form — the optimizer can't pick a
-middle shape where the condition wraps but `then` stays glued to its last line.
--}
-makeIfConditionDoc : Array LPNode -> Result String (P.Doc cost)
-makeIfConditionDoc children =
+makeIfConditionDoc : Bool -> Array LPNode -> Result String Doc
+makeIfConditionDoc forceVertical children =
     when Array.popFirst children is
         Nothing ->
             Err "if condition: no nodes"
@@ -2290,58 +2056,23 @@ makeIfConditionDoc children =
                         |> Result.andThen (\ifDoc ->
                             makePDoc (lpnBox thenNode) (lpnChildren thenNode)
                                 |> Result.andThen (\thenDoc ->
-                                    makePredicateDoc condNodes
+                                    (if forceVertical then buildFlowDoc 0 condNodes else buildFlowDocInline 0 condNodes)
                                         |> Result.map (\condDoc ->
-                                            let
-                                                flat =
-                                                    P.concat ifDoc
-                                                        (P.concat (P.text " ")
-                                                            (P.concat (P.flatten condDoc)
-                                                                (P.concat (P.text " ") thenDoc)))
-                                                stacked =
-                                                    P.concat ifDoc
-                                                        (P.concat
-                                                            (P.nest grenIndent (P.concat P.hardNl condDoc))
-                                                            (P.concat P.hardNl thenDoc))
-                                            in
-                                            P.choice stacked flat
+                                            if forceVertical then
+                                                R.concat ifDoc
+                                                    (R.concat
+                                                        (R.nest grenIndent (R.concat R.hardNl condDoc))
+                                                        (R.concat R.hardNl thenDoc))
+                                            else
+                                                R.concat ifDoc
+                                                    (R.concat (R.text " ")
+                                                        (R.concat condDoc
+                                                            (R.concat (R.text " ") thenDoc)))
                                         )
                                 )
                         )
 
 
-{-| Render an `if` / `else if` predicate for the stacked form.
-
-A binop predicate wraps the **precedence-aware** way — the same layout binops
-use everywhere else: it breaks only at the lowest-precedence operators, one
-operator-led group per line, indented +4 from the predicate's first line —
-
-    if
-        userIsActive
-            && accountHasCredit
-            && not isSuspended
-    then
-
-The predicate is rendered with `forceVertical = False` regardless of the
-author's layout: the fit decision belongs to the surrounding `if … then`
-choice, which is all-or-nothing, and a forced `hardNl` here would make the
-flat arm unflattenable. Any other predicate shape (a call, a comparison) is
-laid out by the ordinary flow renderer.
--}
-makePredicateDoc : Array LPNode -> Result String (P.Doc cost)
-makePredicateDoc condNodes =
-    when Array.first condNodes is
-        Just only ->
-            if Array.length condNodes == 1 then
-                when lpnBox only is
-                    Binop _ ->
-                        makeBinopDoc False (lpnChildren only)
-                    _ ->
-                        buildFlowDoc 0 condNodes
-            else
-                buildFlowDoc 0 condNodes
-        Nothing ->
-            buildFlowDoc 0 condNodes
 
 
 -- The text of an operator leaf node (`UnbreakableText` / `SynthesizedText`).
@@ -2363,14 +2094,14 @@ line), keeping tighter-binding sub-terms inline:
         + bonusPoints * multiplier
         - penaltyAmount
 
-The fit-based `P.group` and the forced-vertical form share the broken doc (fit
-uses `P.nl`, forced uses `P.hardNl` so an outer `name = body` group can't collapse
+The fit-based `R.group` and the forced-vertical form share the broken doc (fit
+uses `R.nl`, forced uses `R.hardNl` so an outer `name = body` group can't collapse
 a multi-line chain), so overflow == author-multi-line and formatting is a fixed
 point. A chain carrying any comment falls back to the `OpAndRhs` fill renderer
 (`buildFlowDoc grenIndent children`), so wrapped operators indent +4 like the
 precedence-aware form.
 -}
-makeBinopDoc : Bool -> Array LPNode -> Result String (P.Doc cost)
+makeBinopDoc : Bool -> Array LPNode -> Result String Doc
 makeBinopDoc forceVertical children =
     if Array.any subtreeHasComment children then
         -- Comment-bearing chain: fall back to the fill renderer. Use a +4
@@ -2384,7 +2115,7 @@ makeBinopDoc forceVertical children =
         in
         when Array.popFirst flat.operands is
             Nothing ->
-                Ok P.empty
+                Ok R.empty
             Just { first = operand0Nodes, rest = restOperands } ->
                 if Array.isEmpty flat.ops then
                     buildFlowDoc 0 operand0Nodes
@@ -2410,11 +2141,11 @@ makeBinopDoc forceVertical children =
 -- (higher-precedence) operators join their operands inline within a group. This
 -- is the render-side twin of `InsertExpressions.binopForceVertical`, which
 -- groups the operand *ranges* the same way to decide the forced-vertical flag.
-assembleBinopGroups : Bool -> Int -> Array (P.Doc cost) -> Array LPNode -> P.Doc cost
+assembleBinopGroups : Bool -> Int -> Array Doc -> Array LPNode -> Doc
 assembleBinopGroups forceVertical minPrec operandDocs ops =
     let
         firstDoc =
-            Array.first operandDocs |> Maybe.withDefault P.empty
+            Array.first operandDocs |> Maybe.withDefault R.empty
         -- Pair each operator with the operand doc that follows it.
         paired =
             Array.map2
@@ -2445,8 +2176,8 @@ assembleBinopGroups forceVertical minPrec operandDocs ops =
                     else
                         { acc
                             | curDoc =
-                                P.concat acc.curDoc
-                                    (P.concat (P.text (" " ++ opNodeText pair.op ++ " ")) pair.nextDoc)
+                                R.concat acc.curDoc
+                                    (R.concat (R.text (" " ++ opNodeText pair.op ++ " ")) pair.nextDoc)
                         }
                 )
                 { firstGroup = firstDoc
@@ -2464,28 +2195,28 @@ assembleBinopGroups forceVertical minPrec operandDocs ops =
         restInner =
             Array.foldl
                 (\seg acc ->
-                    P.concat acc
-                        (P.concat sep (P.concat (P.text (seg.sep ++ " ")) seg.doc))
+                    R.concat acc
+                        (R.concat sep (R.concat (R.text (seg.sep ++ " ")) seg.doc))
                 )
-                P.empty
+                R.empty
                 segments
         full =
-            P.concat state.firstGroup (P.nest grenIndent restInner)
+            R.concat state.firstGroup (R.nest grenIndent restInner)
     in
     groupUnlessForced forceVertical full
 
 
-makeTypeAliasPrettyDoc : Array LPNode -> Result String (P.Doc P.DefaultCostTuple)
+makeTypeAliasPrettyDoc : Array LPNode -> Result String Doc
 makeTypeAliasPrettyDoc =
     renderHeaderIndentedBodyDoc "type alias declaration is empty" makeTypeBodyDoc
 
 
-makeTypeUnionPrettyDoc : Array LPNode -> Result String (P.Doc P.DefaultCostTuple)
+makeTypeUnionPrettyDoc : Array LPNode -> Result String Doc
 makeTypeUnionPrettyDoc =
     renderHeaderIndentedBodyDoc "type declaration is empty" makeUnionBodyDoc
 
 
-renderHeaderIndentedBodyDoc : String -> (Array LPNode -> Result String (P.Doc P.DefaultCostTuple)) -> Array LPNode -> Result String (P.Doc P.DefaultCostTuple)
+renderHeaderIndentedBodyDoc : String -> (Array LPNode -> Result String Doc) -> Array LPNode -> Result String Doc
 renderHeaderIndentedBodyDoc emptyError buildBody children =
     when Array.popLast children is
         Nothing ->
@@ -2495,7 +2226,7 @@ renderHeaderIndentedBodyDoc emptyError buildBody children =
                 |> Result.andThen (\headerDoc ->
                     buildBody (lpnChildren bodyBlock)
                         |> Result.map (\bodyDoc ->
-                            P.concat headerDoc (P.nest grenIndent (P.concat P.hardNl bodyDoc))
+                            R.concat headerDoc (R.nest grenIndent (R.concat R.hardNl bodyDoc))
                         )
                 )
 
@@ -2506,7 +2237,7 @@ renderHeaderIndentedBodyDoc emptyError buildBody children =
 -- e.g. `{- a -} {- b -}` on one line. So render every comment child: join two
 -- block comments on the same row with a space, otherwise with a hardNl, and
 -- always break after a `--` line comment (which consumes the rest of its line).
-makeCommentLineDoc_ : Array LPNode -> Result String (P.Doc P.DefaultCostTuple)
+makeCommentLineDoc_ : Array LPNode -> Result String Doc
 makeCommentLineDoc_ children =
     let
         commentInfo node =
@@ -2535,11 +2266,11 @@ makeCommentLineDoc_ children =
                                     let
                                         separator =
                                             if acc.prevLine || info.row /= acc.prevRow then
-                                                P.hardNl
+                                                R.hardNl
                                             else
-                                                P.text " "
+                                                R.text " "
                                     in
-                                    Ok { doc = Just (P.concat prevDoc (P.concat separator commentDoc))
+                                    Ok { doc = Just (R.concat prevDoc (R.concat separator commentDoc))
                                        , prevRow = info.row
                                        , prevLine = info.isLine
                                        }
@@ -2555,18 +2286,13 @@ makeCommentLineDoc_ children =
 
 -- `listBoxesWithBrackets` keyed by a `ListBrackets` value rather than explicit
 -- open/close strings — the shape every nested always-vertical literal needs.
-listBoxesForBracket : ListBrackets -> Array LPNode -> Result String (P.Doc cost)
+listBoxesForBracket : ListBrackets -> Array LPNode -> Result String Doc
 listBoxesForBracket bracket nodes =
-    if isUniformRecordArray bracket nodes then
-        -- An author-vertical array of record literals: stay vertical, but
-        -- couple the records' flat-vs-expanded decision (uniform item layout).
-        uniformRecordArrayDoc { allowFlat = False } nodes
-    else
-        let bs = bracketStrings bracket
-        in listBoxesWithBrackets bs.open bs.close nodes
+    let bs = bracketStrings bracket
+    in listBoxesWithBrackets bs.open bs.close nodes
 
 
-listBoxesWithBrackets : String -> String -> Array LPNode -> Result String (P.Doc cost)
+listBoxesWithBrackets : String -> String -> Array LPNode -> Result String Doc
 listBoxesWithBrackets open close nodes =
     listBoxesWithBracketsUsing listItemBoxDoc open close nodes
 
@@ -2576,7 +2302,7 @@ listBoxesWithBrackets open close nodes =
 -- record-array layout uses this to build the same comment-aware vertical
 -- structure twice — once with every record forced flat, once with every
 -- record forced expanded — and offer the pair as a single choice.
-listBoxesWithBracketsUsing : (LPNode -> Maybe (Result String (P.Doc cost))) -> String -> String -> Array LPNode -> Result String (P.Doc cost)
+listBoxesWithBracketsUsing : (LPNode -> Maybe (Result String Doc)) -> String -> String -> Array LPNode -> Result String Doc
 listBoxesWithBracketsUsing itemRenderer open close nodes =
     let
         -- Reuse the shared list-item dispatch, tagging each rendered doc with its
@@ -2625,7 +2351,7 @@ listBoxesWithBracketsUsing itemRenderer open close nodes =
                                                     Nothing ->
                                                         { doc = commentDoc, isComment = True }
                                                     Just e ->
-                                                        { doc = P.concat e.doc (P.group (P.concat P.nl commentDoc))
+                                                        { doc = R.concat e.doc (R.group (R.concat R.nl commentDoc))
                                                         , isComment = False
                                                         }
                                         in
@@ -2692,9 +2418,9 @@ listBoxesWithBracketsUsing itemRenderer open close nodes =
                                         let
                                             prefixedDoc =
                                                 if acc.seenText then
-                                                    P.concat (P.text ", ") doc
+                                                    R.concat (R.text ", ") doc
                                                 else
-                                                    P.concat (P.text open) doc
+                                                    R.concat (R.text open) doc
                                         in
                                         { result = acc.result ++ [ prefixedDoc ]
                                         , seenText = True
@@ -2703,8 +2429,8 @@ listBoxesWithBracketsUsing itemRenderer open close nodes =
                                 { result = [], seenText = False }
                                 allLineDocs
                     in
-                    result ++ [ P.text close ]
+                    result ++ [ R.text close ]
             in
-            Ok (P.vcat prefixed)
+            Ok (R.vcat prefixed)
 
 

@@ -81,7 +81,4 @@ combined =
 
 -- Long binary expression that wraps
 longExpr =
-    someLongVariableName
-        + anotherLongVariableName
-        + yetAnotherLongVariableName
-        + stillMoreLong
+    someLongVariableName + anotherLongVariableName + yetAnotherLongVariableName + stillMoreLong

@@ -71,5 +71,4 @@ singleUpdate model =
             Err Bad
 
         else
-            Ok {}
-    }
+            Ok {} }

@@ -604,14 +604,14 @@ insertAmongChildren commentNode row col children =
 isAcrossThenIndentNode : LPNode -> Bool
 isAcrossThenIndentNode node =
     when lpnBox node is
-        AcrossThenIndent -> True
+        AcrossThenIndent _ -> True
         _ -> False
 
 
 isIfConditionNode : LPNode -> Bool
 isIfConditionNode node =
     when lpnBox node is
-        IfCondition -> True
+        IfCondition _ -> True
         _ -> False
 
 
@@ -921,8 +921,8 @@ appendTrailingComment commentNode col node =
         -- block indent like any interior own-line comment.
         isIndentingFlowBox flowNode =
             when lpnBox flowNode is
-                AcrossThenIndent -> True
-                IfCondition -> True
+                AcrossThenIndent _ -> True
+                IfCondition _ -> True
                 _ -> False
 
         shouldDescend descNode =

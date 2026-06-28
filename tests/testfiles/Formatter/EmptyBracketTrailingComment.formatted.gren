@@ -1,11 +1,6 @@
 module EmptyBracketTrailingComment exposing (..)
 
 
-processItems :
-    Array String
-    -> Dict String Int
-    -> (String -> Bool)
-    -> Array String
-    -> Result String (Array String)
+processItems : Array String -> Dict String Int -> (String -> Bool) -> Array String -> Result String (Array String)
 processItems items dict pred fallback =
     [] {- comment occupying the empty-array body slot -}

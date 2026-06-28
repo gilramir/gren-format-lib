@@ -1,5 +1,4 @@
-effect module TrickyComments where {- c1 -}
-    { command = TrickyCmd {- c2 -}
+effect module TrickyComments where {- c1 -} { command = TrickyCmd {- c2 -}
     , subscription = TrickySub {- c3 -}
     } exposing (..)
 
@@ -90,8 +89,7 @@ sigToDef x =
 -- variable as a `Located String`, so its subtree's first position
 -- starts at the variable's column and the comment can descend into
 -- the RecordUpdate and land between the base and the first field.
-extensibleSig :
-    { a
+extensibleSig : { a
         {- between extension var and pipe -}
         | foo : Int
         , bar : String

@@ -106,7 +106,7 @@ makeSignatureBranch locType =
                                 nameNode = lpnLeaf (mkTextFromLocString field.field)
                                 colonNode = lpnLeaf (SynthesizedText ":")
                                 allChildren = [nameNode, colonNode] ++ typeNodes
-                                itemContainer = lpnNode AcrossThenIndent allChildren
+                                itemContainer = lpnNode (AcrossThenIndent { forceVertical = False }) allChildren
                             in
                             Array.pushLast itemContainer accNodes
                         )

@@ -7,9 +7,7 @@ module MultilineStringInline exposing (..)
 -- the output with "Multi-line string lines are not indented equally".
 explain : String -> String
 explain errorMessage =
-    "prefix "
-        ++ errorMessage
-        ++ """
-           line one of the body
-           line two of the body
-           """
+    "prefix " ++ errorMessage ++ """
+                                 line one of the body
+                                 line two of the body
+                                 """

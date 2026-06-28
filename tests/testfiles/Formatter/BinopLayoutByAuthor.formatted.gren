@@ -9,27 +9,17 @@ inlineFits =
 -- Author wrote it on one line but it overflows: breaks only at the lowest
 -- precedence operators, keeping tighter sub-terms (here `*`) inline.
 mixedOverflow =
-    baseScoreValue
-        + bonusPointsEarned * difficultyMultiplier
-        - penaltyDeduction
-        + streakBonusAmount * weightFactor
+    baseScoreValue + bonusPointsEarned * difficultyMultiplier - penaltyDeduction + streakBonusAmount * weightFactor
 
 
 -- Uniform precedence overflowing: one operator per line.
 concatOverflow =
-    "Order "
-        ++ orderIdentifier
-        ++ " for "
-        ++ customerName
-        ++ " totalling "
-        ++ formattedAmount
+    "Order " ++ orderIdentifier ++ " for " ++ customerName ++ " totalling " ++ formattedAmount
 
 
 -- Three precedence levels: breaks at the lowest (||), keeps && and == groups inline.
 threeLevels =
-    alphaController
-        || betaController && gammaController == deltaController
-        || epsilonController
+    alphaController || betaController && gammaController == deltaController || epsilonController
 
 
 -- Author wrote it across rows: kept split even though it would fit.

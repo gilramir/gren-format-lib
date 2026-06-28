@@ -3,10 +3,7 @@ module LetDestructLong exposing (..)
 
 longPattern =
     let
-        { veryLongFieldNameAlpha = aliasAlpha
-        , veryLongFieldNameBeta = aliasBeta
-        , veryLongFieldNameGamma = aliasGamma
-        } =
+        { veryLongFieldNameAlpha = aliasAlpha, veryLongFieldNameBeta = aliasBeta, veryLongFieldNameGamma = aliasGamma } =
             someFunction arg1 arg2
     in
     aliasAlpha + aliasBeta + aliasGamma

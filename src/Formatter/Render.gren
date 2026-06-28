@@ -1,0 +1,190 @@
+module Formatter.Render exposing
+    ( Doc
+    , empty, text, concat, hardNl, nl, breakDoc, nest, align, reset
+    , group, flatten, choice, vcat, foldDoc, share, addCost
+    , render
+    )
+
+{-| Simple custom Doc type and renderer for the Gren formatter.
+
+`Group` always renders flat (no page-width optimizer), so every `group`
+call makes its content stay on one line. `HardNl` always forces a newline.
+`Nl` is a soft break: a space in flat context, a newline in normal context.
+`BreakDoc` is a soft break that emits nothing when flat.
+-}
+
+
+type Doc
+    = Empty
+    | Text String
+    | Concat { a : Doc, b : Doc }
+    | HardNl
+    | Nl
+    | BreakDoc
+    | Nest { n : Int, doc : Doc }
+    | Align Doc
+    | Reset Doc
+    | Group Doc
+    | Fail
+
+
+empty : Doc
+empty =
+    Empty
+
+
+text : String -> Doc
+text s =
+    if String.isEmpty s then Empty else Text s
+
+
+concat : Doc -> Doc -> Doc
+concat a b =
+    when { a = a, b = b } is
+        { a = Empty } -> b
+        { b = Empty } -> a
+        _ -> Concat { a = a, b = b }
+
+
+hardNl : Doc
+hardNl =
+    HardNl
+
+
+nl : Doc
+nl =
+    Nl
+
+
+breakDoc : Doc
+breakDoc =
+    BreakDoc
+
+
+nest : Int -> Doc -> Doc
+nest n d =
+    if n == 0 then d else Nest { n = n, doc = d }
+
+
+align : Doc -> Doc
+align d =
+    Align d
+
+
+reset : Doc -> Doc
+reset d =
+    Reset d
+
+
+{-| Group always renders flat (no page-width test). -}
+group : Doc -> Doc
+group d =
+    Group d
+
+
+{-| flatten = group (render flat). With no optimizer, same as group. -}
+flatten : Doc -> Doc
+flatten d =
+    Group d
+
+
+{-| choice always picks the first (preferred) argument. -}
+choice : Doc -> Doc -> Doc
+choice a _ =
+    a
+
+
+{-| No-op: sharing was a PrettyExpressive optimization. -}
+share : Doc -> Doc
+share d =
+    d
+
+
+{-| No-op: cost was a PrettyExpressive optimization. -}
+addCost : a -> Doc -> Doc
+addCost _ d =
+    d
+
+
+vcat : Array Doc -> Doc
+vcat docs =
+    when Array.popFirst docs is
+        Nothing ->
+            Empty
+
+        Just { first, rest } ->
+            Array.foldl (\d acc -> Concat { a = acc, b = Concat { a = HardNl, b = d } }) first rest
+
+
+foldDoc : (Doc -> Doc -> Doc) -> Array Doc -> Doc
+foldDoc f docs =
+    when Array.popFirst docs is
+        Nothing ->
+            Empty
+
+        Just { first, rest } ->
+            Array.foldl (\d acc -> f acc d) first rest
+
+
+-- Renderer state
+type alias State =
+    { indent : Int
+    , col : Int
+    , buf : String
+    }
+
+
+renderState : State -> Bool -> Doc -> State
+renderState state flat doc =
+    when doc is
+        Empty ->
+            state
+
+        Text s ->
+            { state | col = state.col + String.count s, buf = state.buf ++ s }
+
+        Concat { a, b } ->
+            renderState (renderState state flat a) flat b
+
+        HardNl ->
+            let pad = String.repeat state.indent " "
+            in { state | col = state.indent, buf = state.buf ++ "\n" ++ pad }
+
+        Nl ->
+            if flat then
+                { state | col = state.col + 1, buf = state.buf ++ " " }
+            else
+                let pad = String.repeat state.indent " "
+                in { state | col = state.indent, buf = state.buf ++ "\n" ++ pad }
+
+        BreakDoc ->
+            if flat then
+                state
+            else
+                let pad = String.repeat state.indent " "
+                in { state | col = state.indent, buf = state.buf ++ "\n" ++ pad }
+
+        Nest { n, doc = inner } ->
+            let innerState = renderState { state | indent = state.indent + n } flat inner
+            in { innerState | indent = state.indent }
+
+        Align inner ->
+            let innerState = renderState { state | indent = state.col } flat inner
+            in { innerState | indent = state.indent }
+
+        Reset inner ->
+            let innerState = renderState { state | indent = 0 } flat inner
+            in { innerState | indent = state.indent }
+
+        Group inner ->
+            -- Group always renders flat (no page-width optimizer)
+            renderState state True inner
+
+        Fail ->
+            -- No-op (no optimizer to propagate failure to)
+            state
+
+
+render : Doc -> String
+render doc =
+    (renderState { indent = 0, col = 0, buf = "" } False doc).buf

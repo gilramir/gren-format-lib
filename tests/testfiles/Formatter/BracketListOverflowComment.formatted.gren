@@ -3,7 +3,5 @@ module BracketListOverflowComment exposing (..)
 
 longArrayTrailing =
     [ shortFirstItem
-    , buildSomethingFrom firstArgumentValue secondArgumentValue
-        thirdArgumentValue fourthArgValue
-    {- trailing comment on the last, overflowing item -}
+    , buildSomethingFrom firstArgumentValue secondArgumentValue thirdArgumentValue fourthArgValue {- trailing comment on the last, overflowing item -}
     ]

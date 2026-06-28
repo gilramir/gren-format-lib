@@ -1,12 +1,10 @@
 module LetInTrailingComment exposing (..)
 
 
-foldOverAttributes reducerFunction initialAccumulatorValue branchAttributesArray
-        =
+foldOverAttributes reducerFunction initialAccumulatorValue branchAttributesArray =
     let
         accumulatorAfterAttributes =
-            Array.foldl reducerFunction initialAccumulatorValue
-                branchAttributesArrayValueHere
+            Array.foldl reducerFunction initialAccumulatorValue branchAttributesArrayValueHere
     in {- trailing the last binding, before in -}
     accumulatorAfterAttributes
 
@@ -14,8 +12,7 @@ foldOverAttributes reducerFunction initialAccumulatorValue branchAttributesArray
 withTrailingLineComment someArgumentValue =
     let
         firstComputedResult =
-            computeSomethingReasonablyLong someArgumentValue
-                secondArgumentValueHere thirdArgumentValue
+            computeSomethingReasonablyLong someArgumentValue secondArgumentValueHere thirdArgumentValue
     in
     -- trailing line comment
     firstComputedResult

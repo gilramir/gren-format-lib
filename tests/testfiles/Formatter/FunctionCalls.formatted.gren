@@ -8,16 +8,14 @@ short =
 
 -- Long call: overflow args indented +4 from function name
 long =
-    someFunction firstLongArgument secondLongArgument thirdLongArgument
-        fourthLongArgument fifthLongArgument
+    someFunction firstLongArgument secondLongArgument thirdLongArgument fourthLongArgument fifthLongArgument
 
 
 -- Call inside let binding: overflow args indented +4 from function name
 inLet =
     let
         x =
-            someFunction firstLongArgument secondLongArgument thirdLongArgument
-                fourthLongArgument extraLongArg
+            someFunction firstLongArgument secondLongArgument thirdLongArgument fourthLongArgument extraLongArg
     in
     x
 

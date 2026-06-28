@@ -1,6 +1,4 @@
-module
-    {- this is a deliberately long module-header comment meant to push the module name onto a continuation row past the hundred character width -}
-    HeaderCommentNameWrap exposing (..)
+module {- this is a deliberately long module-header comment meant to push the module name onto a continuation row past the hundred character width -} HeaderCommentNameWrap exposing (..)
 
 
 foo =

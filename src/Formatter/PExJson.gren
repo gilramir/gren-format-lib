@@ -1,27 +1,16 @@
 module Formatter.PExJson exposing (lptToPexJson)
 
-{-| Routine for creating JSON
+{-| Stub: the PrettyExpressive Doc is no longer used; return an empty array.
 
 @docs lptToPexJson
 -}
 
-import Formatter.LogicalPrintingTree exposing (LPNode, lpnChildren)
-import Formatter.MakePretty exposing (makePrettyLineDoc)
-import PrettyExpressive.Json as PexJson
+import Formatter.LogicalPrintingTree exposing (LPNode)
 
 
-{-| Create the JSON representation of the Pretty Expressiv Doc
-for this Logical Printing Tree
+{-| Return an empty JSON array. The --pex flag is no longer meaningful
+since MakePretty now uses Formatter.Render rather than PrettyExpressive.
 -}
 lptToPexJson : LPNode -> Result String String
-lptToPexJson root =
-    Array.foldl
-        (\node acc ->
-            acc |> Result.andThen (\items ->
-                makePrettyLineDoc node
-                    |> Result.map (\doc -> Array.pushLast (PexJson.docToJson doc) items)
-            )
-        )
-        (Ok [])
-        (lpnChildren root)
-        |> Result.map (\items -> "[" ++ String.join "," items ++ "]")
+lptToPexJson _ =
+    Ok "[]"

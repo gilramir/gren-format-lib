@@ -6,9 +6,7 @@ module BackwardPipeline exposing (..)
 -- indented +4. One written on a line that overflows breaks this way.
 shout : String -> String
 shout name =
-    String.toUpper <|
-        String.append "Greetings and salutations, " <|
-        String.append name "!!!"
+    String.toUpper <| String.append "Greetings and salutations, " <| String.append name "!!!"
 
 
 -- A short backward pipeline the author wrote on one line stays inline.

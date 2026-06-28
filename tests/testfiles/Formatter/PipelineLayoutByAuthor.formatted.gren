@@ -8,10 +8,7 @@ inlineFits =
 
 -- Author wrote it on one line but it overflows: one step per line.
 overflows =
-    someInitialCollection
-        |> List.map transformEachElement
-        |> List.keepIf passesPredicate
-        |> List.first
+    someInitialCollection |> List.map transformEachElement |> List.keepIf passesPredicate |> List.first
 
 
 -- Author wrote it across rows: kept one step per line even though it fits.

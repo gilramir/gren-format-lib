@@ -1,11 +1,7 @@
 module SignatureTrailingComment exposing (..)
 
 
-fold :
-    (a -> accumulatorValue -> accumulatorValue)
-    -> accumulatorValue
-    -> Tree a
-    -> accumulatorValue
+fold : (a -> accumulatorValue -> accumulatorValue) -> accumulatorValue -> Tree a -> accumulatorValue
 {- trailing a long wrapping signature -}
 fold reducerFunction initialAccumulatorValue currentTreeNode =
     currentTreeNode
@@ -17,25 +13,13 @@ afterRecordClose =
     { a = 1, b = "x" }
 
 
-withLineComment :
-    Int
-    -> Int
-    -> Int
-    -> Int
-    -> Int
-    -> Int
-    -> Int
-    -> Int
-    -> Int
-    -> Int
-    -> Int
+withLineComment : Int -> Int -> Int -> Int -> Int -> Int -> Int -> Int -> Int -> Int -> Int
 -- trailing single-line comment
 withLineComment a b c d e f g h i j =
     a
 
 
-insideRecordType :
-    { a : Int {- inside the record type, before its close -}
+insideRecordType : { a : Int {- inside the record type, before its close -}
     }
 insideRecordType =
     { a = 1 }

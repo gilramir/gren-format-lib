@@ -176,7 +176,7 @@ processModuleLine modAst root =
                                 labelStart = { row = locName.start.row, col = labelCol }
                                 eqStart = { row = locName.start.row, col = eqCol }
                             in
-                            lpnNode AcrossThenIndent
+                            lpnNode (AcrossThenIndent { forceVertical = False })
                                 [ lpnLeaf (mkZeroWidthText labelStart label)
                                 , lpnLeaf (mkZeroWidthText eqStart "=")
                                 , lpnLeaf (mkTextFromLocString locName)
@@ -492,7 +492,7 @@ processVariantNode locVariant accNodes =
     in
     when locVariant.value.payload is
         Nothing ->
-            Ok (Array.pushLast (lpnNode AcrossThenIndent [prefixNode, nameNode]) accNodes)
+            Ok (Array.pushLast (lpnNode (AcrossThenIndent { forceVertical = False }) [prefixNode, nameNode]) accNodes)
         Just payloadType ->
             makeSignatureBranch payloadType
                 |> Result.map (\payloadNodes ->
@@ -502,7 +502,7 @@ processVariantNode locVariant accNodes =
                     -- the same column as the `|`).
                     let payloadBlock = lpnNode SoftIndentedBlock payloadNodes
                     in
-                    Array.pushLast (lpnNode AcrossThenIndent [prefixNode, nameNode, payloadBlock]) accNodes
+                    Array.pushLast (lpnNode (AcrossThenIndent { forceVertical = False }) [prefixNode, nameNode, payloadBlock]) accNodes
                 )
 
 
@@ -575,7 +575,7 @@ processFunctionBody modVal root =
             insertExpression modVal.body
                 |> Result.map (\bodyNodes ->
                     let
-                        header = lpnNode AcrossThenIndent ([nameNode] ++ argsNodes ++ [eqNode])
+                        header = lpnNode (AcrossThenIndent { forceVertical = False }) ([nameNode] ++ argsNodes ++ [eqNode])
                         bodyWrapper = lpnNode BodyBlock bodyNodes
                         allChildren = [header, bodyWrapper]
                     in

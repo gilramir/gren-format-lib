@@ -1,5 +1,4 @@
-effect module AmbiguousEffectModule where
-    {- authored between `command` and `=` -} { command = MyCmd } exposing (..)
+effect module AmbiguousEffectModule where {- authored between `command` and `=` -} { command = MyCmd } exposing (..)
 
 -- Companion to Ambiguous.dirty.gren for the elided-token `where`-block case,
 -- which needs an effect-module header. See the "Comments at elided-token

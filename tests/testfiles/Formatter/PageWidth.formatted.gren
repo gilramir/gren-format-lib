@@ -8,35 +8,19 @@ module PageWidth exposing (..)
 
 
 -- arrow chain that runs to about column 100
-signatureNear :
-    ArgumentTypeAlpha
-    -> ArgumentTypeBeta
-    -> ArgumentTypeGamma
-    -> ResultTypeDelta
+signatureNear : ArgumentTypeAlpha -> ArgumentTypeBeta -> ArgumentTypeGamma -> ResultTypeDelta
 signatureNear a b c =
     a
 
 
 -- arrow chain that runs well past 100
-signaturePast :
-    ArgumentTypeAlpha
-    -> ArgumentTypeBeta
-    -> ArgumentTypeGamma
-    -> ArgumentTypeDelta
-    -> ArgumentTypeEpsilon
-    -> ResultType
+signaturePast : ArgumentTypeAlpha -> ArgumentTypeBeta -> ArgumentTypeGamma -> ArgumentTypeDelta -> ArgumentTypeEpsilon -> ResultType
 signaturePast a b c d e =
     a
 
 
 -- a record in a type signature, near the boundary
-signatureRecord :
-    { fieldAlpha : Int
-    , fieldBeta : String
-    , fieldGamma : Bool
-    , fieldDelta : Float
-    }
-    -> Result
+signatureRecord : { fieldAlpha : Int, fieldBeta : String, fieldGamma : Bool, fieldDelta : Float } -> Result
 signatureRecord r =
     r
 
@@ -45,62 +29,39 @@ signatureRecord r =
 
 -- call that fits just under 100
 callNear =
-    functionUnderTest firstArgumentValue secondArgumentValue thirdArgumentValue
-        fourthArg
+    functionUnderTest firstArgumentValue secondArgumentValue thirdArgumentValue fourthArg
 
 
 -- call that overflows past 100
 callPast =
-    functionUnderTest firstArgumentValue secondArgumentValue thirdArgumentValue
-        fourthArgumentValue fifthArgumentValue
+    functionUnderTest firstArgumentValue secondArgumentValue thirdArgumentValue fourthArgumentValue fifthArgumentValue
 
 
 -- nested calls overflowing
 callNested =
-    outerFunction (innerFunction argumentOne argumentTwo argumentThree)
-        (anotherInner argumentFour argumentFive)
+    outerFunction (innerFunction argumentOne argumentTwo argumentThree) (anotherInner argumentFour argumentFive)
 
 -- ===== Records =====
 
 
 -- record literal near the boundary
 recordNear =
-    { alpha = valueAlpha
-    , beta = valueBeta
-    , gamma = valueGamma
-    , delta = valueDelta
-    }
+    { alpha = valueAlpha, beta = valueBeta, gamma = valueGamma, delta = valueDelta }
 
 
 -- record literal past the boundary
 recordPast =
-    { alpha = valueAlpha
-    , beta = valueBeta
-    , gamma = valueGamma
-    , delta = valueDelta
-    , epsilon = valueEpsilon
-    , zeta = 0
-    }
+    { alpha = valueAlpha, beta = valueBeta, gamma = valueGamma, delta = valueDelta, epsilon = valueEpsilon, zeta = 0 }
 
 
 -- record update past the boundary
 recordUpdate existingRecord =
-    { existingRecord
-        | fieldOne = replacementOne
-        , fieldTwo = replacementTwo
-        , fieldThree = replacementThree
-    }
+    { existingRecord | fieldOne = replacementOne, fieldTwo = replacementTwo, fieldThree = replacementThree }
 
 
 -- nested record past the boundary
 recordNested =
-    { outer =
-        { innerAlpha = valueAlpha
-        , innerBeta = valueBeta
-        , innerGamma = valueGamma
-        , innerDelta = valueDelta
-        }
-    }
+    { outer = { innerAlpha = valueAlpha, innerBeta = valueBeta, innerGamma = valueGamma, innerDelta = valueDelta } }
 
 -- ===== if / then / else =====
 
@@ -116,13 +77,7 @@ ifShort x =
 
 -- long predicate reaching past 100
 ifLong x =
-    if
-        conditionOne x
-            && conditionTwo x
-            && conditionThree x
-            && conditionFour x
-            && conditionFive x
-    then
+    if conditionOne x && conditionTwo x && conditionThree x && conditionFour x && conditionFive x then
         trueBranchResult
 
     else
@@ -149,8 +104,7 @@ whenExample value =
             combineThemTogether fieldAlpha fieldBeta withExtraContext
 
         SecondConstructor fieldAlpha ->
-            handleTheSecondConstructorCaseWithARatherLongFunctionName fieldAlpha
-                here
+            handleTheSecondConstructorCaseWithARatherLongFunctionName fieldAlpha here
 
         ThirdConstructor ->
             defaultResultValue
@@ -163,10 +117,7 @@ whenExample value =
 whenRecord value =
     when value is
         Wrapped innerValue ->
-            { resultAlpha = innerValue
-            , resultBeta = computeBeta innerValue
-            , resultGamma = 0
-            }
+            { resultAlpha = innerValue, resultBeta = computeBeta innerValue, resultGamma = 0 }
 
         Empty ->
             { resultAlpha = 0, resultBeta = 0, resultGamma = 0 }
@@ -177,8 +128,7 @@ whenRecord value =
 letExample input =
     let
         firstBinding =
-            computeFirstThing input withAnExtraArgument andYetAnotherArgument
-                toReachTheBoundary
+            computeFirstThing input withAnExtraArgument andYetAnotherArgument toReachTheBoundary
 
         secondBinding =
             computeSecondThing firstBinding
@@ -191,79 +141,43 @@ letDestructure pair =
         { leftComponent, rightComponent } =
             pair
     in
-    leftComponent
-        ++ rightComponent
-        ++ someTrailingValueToPushThisParticularLineOutTowardOneHundredColumns
+    leftComponent ++ rightComponent ++ someTrailingValueToPushThisParticularLineOutTowardOneHundredColumns
 
 -- ===== lambdas =====
 
 
 lambdaExample collection =
-    List.map
-        (\eachElement ->
-            transformElement eachElement withContextArgument andMore
-                intoTheResultType) collection
+    List.map (\eachElement -> transformElement eachElement withContextArgument andMore intoTheResultType) collection
 
 -- ===== pipelines =====
 
 
 pipelineExample collection =
-    collection
-        |> List.map transformEachIndividualItem
-        |> List.filter retainTheGoodOnesOnly
-        |> List.foldl mergeItems start
+    collection |> List.map transformEachIndividualItem |> List.filter retainTheGoodOnesOnly |> List.foldl mergeItems start
 
 
 pipelineBackward collection =
-    List.foldl mergeAllItems initialSeed <|
-        List.filter shouldRetainThisItem <|
-        List.map applyTransform collection
+    List.foldl mergeAllItems initialSeed <| List.filter shouldRetainThisItem <| List.map applyTransform collection
 
 -- ===== binary operator chains =====
 
 
 binopChain =
-    operandOne
-        + operandTwo
-        + operandThree
-        + operandFour
-        + operandFive
-        + operandSix
-        + operandSeven
-        + operandEight
+    operandOne + operandTwo + operandThree + operandFour + operandFive + operandSix + operandSeven + operandEight
 
 
 binopMixed =
-    valueA
-        ++ valueB
-        ++ valueC
-        ++ valueD
-        ++ valueE
-        ++ valueF
-        ++ valueG
-        ++ valueH
-        ++ valueI
-        ++ valueJ
-        ++ valueK
+    valueA ++ valueB ++ valueC ++ valueD ++ valueE ++ valueF ++ valueG ++ valueH ++ valueI ++ valueJ ++ valueK
 
 -- ===== arrays =====
 
 
 arrayPast =
-    [ elementValueOne
-    , elementValueTwo
-    , elementValueThree
-    , elementValueFour
-    , elementValueFive
-    , elementValueSix
-    ]
+    [ elementValueOne, elementValueTwo, elementValueThree, elementValueFour, elementValueFive, elementValueSix ]
 
 
 arrayOfRecords =
-    [ { idField = 1, nameField = "first" }
-    , { idField = 2, nameField = "second" }
-    , { idField = 3, nameField = "x" }
-    ]
+    [ { idField = 1, nameField = "first" }, { idField = 2, nameField = "second" }, { idField = 3, nameField = "x" } ]
 
 -- ===== unbreakable tokens that exceed the width =====
 
@@ -284,31 +198,18 @@ multilineStringExample =
 
 type LongUnion
     = VariantAlpha ArgumentTypeOne ArgumentTypeTwo
-    | VariantBeta
-        ArgumentTypeOne ArgumentTypeTwo ArgumentTypeThree ArgumentTypeFour
-        ArgumentTypeFive ArgumentTypeSix
+    | VariantBeta ArgumentTypeOne ArgumentTypeTwo ArgumentTypeThree ArgumentTypeFour ArgumentTypeFive ArgumentTypeSix
     | VariantGamma
 
 
 type alias LongAlias =
-    { fieldAlpha : Int
-    , fieldBeta : String
-    , fieldGamma : Bool
-    , fieldDelta : Float
-    , fieldEpsilon : Char
-    , fieldZeta : Int
-    }
+    { fieldAlpha : Int, fieldBeta : String, fieldGamma : Bool, fieldDelta : Float, fieldEpsilon : Char, fieldZeta : Int }
 
 -- ===== comment variety near the boundary =====
 
 
 {-| A doc comment on a function whose signature below also approaches the width. -}
-documentedFunction :
-    ArgumentTypeAlpha
-    -> ArgumentTypeBeta
-    -> ArgumentTypeGamma
-    -> ArgumentTypeDelta
-    -> Result
+documentedFunction : ArgumentTypeAlpha -> ArgumentTypeBeta -> ArgumentTypeGamma -> ArgumentTypeDelta -> Result
 documentedFunction a b c d =
     a
 
@@ -323,9 +224,7 @@ trailingBlock =
 
 
 inlineBlockComment =
-    partOne
-        ++ {- a small inline comment -} partTwo
-        ++ partThree ++ partFour ++ partFive ++ partSix ++ partSeven
+    partOne ++ {- a small inline comment -} partTwo ++ partThree ++ partFour ++ partFive ++ partSix ++ partSeven
 
 
 -- a multi-line block comment whose body sits near the boundary
@@ -336,7 +235,6 @@ multilineBlockComment =
 
 
 recordWithFieldComments =
-    { alpha = 1
-    -- a trailing comment on a field that extends the line out beyond one hundred columns total
+    { alpha = 1 -- a trailing comment on a field that extends the line out beyond one hundred columns total
     , beta = 2
     }

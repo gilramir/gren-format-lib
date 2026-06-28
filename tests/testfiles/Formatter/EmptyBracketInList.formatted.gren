@@ -15,11 +15,4 @@ emptyRecordItems =
 
 -- empty items forced into the vertical layout
 verticalWithEmpty =
-    [ [ firstLongElementName
-      , secondLongElementName
-      , thirdLongElementName
-      , fourthElementName
-      ]
-    , []
-    , [ x ]
-    ]
+    [ [ firstLongElementName, secondLongElementName, thirdLongElementName, fourthElementName ], [], [ x ] ]

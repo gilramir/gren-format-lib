@@ -8,23 +8,9 @@ compact =
 
 -- Field value too long to fit inline: wraps to next line, indented +4
 wrapsToNextLine =
-    { model =
-        { model
-            | searchLang = lang
-            , searchText = ""
-            , suggestionDropdownState = AutoDropdown.initialState
-        }
-    , command = Cmd.none
-    }
+    { model = { model | searchLang = lang, searchText = "", suggestionDropdownState = AutoDropdown.initialState }, command = Cmd.none }
 
 
 -- Nested record update with even longer field value
 deeplyNested =
-    { model =
-        { newCacheModel
-            | suggestions = results.results
-            , suggestionDropdownState =
-                  { model.suggestionDropdownState | isOpen = hasSuggestions }
-        }
-    , command = Cmd.none
-    }
+    { model = { newCacheModel | suggestions = results.results, suggestionDropdownState = { model.suggestionDropdownState | isOpen = hasSuggestions } }, command = Cmd.none }

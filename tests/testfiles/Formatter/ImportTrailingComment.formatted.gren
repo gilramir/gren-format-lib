@@ -1,7 +1,6 @@
 module ImportTrailingComment exposing (..)
 
-import Array exposing {- block comment between Array and exposing -} ( Array )
-    {- trailing the import -}
+import Array exposing {- block comment between Array and exposing -} ( Array ) {- trailing the import -}
 import Dict
 
 

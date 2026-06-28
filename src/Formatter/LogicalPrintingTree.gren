@@ -67,7 +67,7 @@ type LPBox
     --
     --     foo bar baz
     --         qux quux         -- continuation indented +4
-    | AcrossThenIndent
+    | AcrossThenIndent { forceVertical : Bool }
 
     -- Like AcrossThenIndent but with 2× the indent on continuation lines.
     -- Used for if/else if conditions so their continuations are more indented
@@ -76,7 +76,7 @@ type LPBox
     --     if longCondition
     --             && more then   -- condition wraps at +8
     --         body               -- body at +4
-    | IfCondition
+    | IfCondition { forceVertical : Bool }
 
     -- Lists with surrounding brackets — fits on one line if it can,
     -- otherwise breaks every item to its own line.
@@ -220,7 +220,7 @@ type LPBox
     --          arg2                        Nothing -> …
     --     is
     --         Nothing -> …
-    | WhenFlow
+    | WhenFlow { forceVertical : Bool }
 
     -- Prefix glued (no space) to the rendered children. Used for
     -- prefix-negation `-expr` (PrefixGlue "-") and lambdas `\pat -> body`

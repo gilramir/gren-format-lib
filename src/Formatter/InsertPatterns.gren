@@ -148,7 +148,7 @@ insertPatternAsItem locPat =
                     if Array.isEmpty rest then
                         Ok onlyNode
                     else
-                        Ok (lpnNode AcrossThenIndent nodes)
+                        Ok (lpnNode (AcrossThenIndent { forceVertical = False }) nodes)
         )
 
 
@@ -235,5 +235,5 @@ folderInsertPRecordField field accNodes =
                                 _ ->
                                     aliasNode
                     in
-                    Array.pushLast (lpnNode AcrossThenIndent [fieldNode, eqNode, wrappedAliasNode]) accNodes
+                    Array.pushLast (lpnNode (AcrossThenIndent { forceVertical = False }) [fieldNode, eqNode, wrappedAliasNode]) accNodes
                 )

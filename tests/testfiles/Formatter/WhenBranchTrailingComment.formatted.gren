@@ -9,19 +9,11 @@ describe : Wrapped { tagString : String, payloadInt : Int } -> String
 describe wrappedValue =
     when wrappedValue is
         Wrapped ({ tagString, payloadInt } as wholeRecord) ->
-            tagString
-                ++ ":"
-                ++ String.fromInt payloadInt
-                ++ "/"
-                ++ Debug.toString wholeRecord {- first trailing comment -}
-                {- second trailing comment after an overflowing branch body -}
+            tagString ++ ":" ++ String.fromInt payloadInt ++ "/" ++ Debug.toString wholeRecord {- first trailing comment -} {- second trailing comment after an overflowing branch body -}
 
 
 classify : Wrapped (Maybe Int) -> String
 classify wrappedValue =
     when wrappedValue is
         Wrapped ((Just intValue) as innerJust) ->
-            "just:"
-                ++ String.fromInt intValue
-                ++ "/"
-                ++ Debug.toString innerJust
+            "just:" ++ String.fromInt intValue ++ "/" ++ Debug.toString innerJust

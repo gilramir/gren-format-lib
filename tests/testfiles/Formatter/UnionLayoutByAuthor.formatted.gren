@@ -16,9 +16,4 @@ type WithPayloads
 
 
 type Overflows
-    = AlphaVariant
-    | BetaVariant
-    | GammaVariant
-    | DeltaVariant
-    | EpsilonVariant
-    | ZetaVariant
+    = AlphaVariant | BetaVariant | GammaVariant | DeltaVariant | EpsilonVariant | ZetaVariant

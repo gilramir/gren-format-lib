@@ -14,12 +14,7 @@ applyTwice f x =
 
 
 -- Long one-line signature breaks to one segment per line, each `->` leading its line
-processItems :
-    Array String
-    -> Dict String Int
-    -> (String -> Bool)
-    -> Array String
-    -> Result String (Array String)
+processItems : Array String -> Dict String Int -> (String -> Bool) -> Array String -> Result String (Array String)
 processItems items dict pred fallback =
     []
 

@@ -263,7 +263,7 @@ isLetSignature node =
             Array.any
                 (\inner ->
                     when lpnBox inner is
-                        AcrossThenIndent ->
+                        AcrossThenIndent _ ->
                             Array.any
                                 (\c ->
                                     when lpnBox c is
@@ -355,7 +355,7 @@ insertLetBlankLines node =
 isElseIfCondition : LPNode -> Bool
 isElseIfCondition node =
     when lpnBox node is
-        IfCondition ->
+        IfCondition _ ->
             when Array.popFirst (lpnChildren node) is
                 Just { first = firstChild } ->
                     when lpnBox firstChild is

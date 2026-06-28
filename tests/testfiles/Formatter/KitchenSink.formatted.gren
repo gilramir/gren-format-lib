@@ -1,16 +1,4 @@
-port module KitchenSink exposing
-    ( Tree(..)
-    , Result
-    , Container
-    , Configuration
-    , initialContainer
-    , processConfiguration
-    , transform
-    , fold
-    , traverseDeeply
-    , port_out_message
-    , port_in_message
-    )
+port module KitchenSink exposing ( Tree(..), Result, Container, Configuration, initialContainer, processConfiguration, transform, fold, traverseDeeply, port_out_message, port_in_message )
 
 {-| A kitchen-sink module that exercises every Gren construct the formatter
     should know about. This module is intentionally over-stuffed and silly —
@@ -32,13 +20,7 @@ port module KitchenSink exposing
 
 import Array exposing ( Array )
 import Dict
-import Json.Decode as Decode exposing
-    ( Decoder
-    , decodeString
-    , field
-    , int
-    , string
-    )
+import Json.Decode as Decode exposing ( Decoder, decodeString, field, int, string )
 import Json.Encode as Encode
 import Math
 import Result.Extra as ResultExtra
@@ -70,11 +52,7 @@ port port_in_message : (String -> msg) -> Sub msg
 type Tree a
     = Empty
     | Leaf a
-    | Branch
-        { label : String
-        , attributes : Array { attrName : String, attrValueAsString : String }
-        , children : Array (Tree a)
-        }
+    | Branch { label : String, attributes : Array { attrName : String, attrValueAsString : String }, children : Array (Tree a) }
     | Cons { headValue : a, leftSubtree : Tree a, rightSubtree : Tree a }
 
 
@@ -92,46 +70,22 @@ type alias HasIdentifier r =
 
 
 type alias Container =
-    HasIdentifier
-    { payload : String
-    , flags :
-        { isReady : Bool
-        , isVerified : Bool
-        , isPersisted : Bool
-        , isShadowBanned : Bool
-        , isQuarantined : Bool
-        }
-    , nestedConfiguration :
-        { retryCount : Int
-        , exponentialBackoffMillis : Int
-        , jitterMillis : Int
-        , maxAttempts : Int
-        }
-    , recentMessages : Array
-        { author : String
-        , timestampMillis : Int
-        , body : String
-        , replyToIdentifier : Maybe String
-        }
+    HasIdentifier { payload : String
+    , flags : { isReady : Bool, isVerified : Bool, isPersisted : Bool, isShadowBanned : Bool, isQuarantined : Bool }
+    , nestedConfiguration : { retryCount : Int, exponentialBackoffMillis : Int, jitterMillis : Int, maxAttempts : Int }
+    , recentMessages : Array { author : String, timestampMillis : Int, body : String, replyToIdentifier : Maybe String }
     }
 
 
 {-| A configuration record with deeply nested option groups. -}
 type alias Configuration =
-    { tracing :
-        { isEnabled : Bool
-        , sinks : Array
-            { kind : String
-            , endpoint : String
-            , headers : Array { headerName : String, headerValue : String }
-            }
+    { tracing : { isEnabled : Bool
+        , sinks : Array { kind : String, endpoint : String, headers : Array { headerName : String, headerValue : String } }
         }
-    , scheduler :
-        { defaultTickMillis : Int
+    , scheduler : { defaultTickMillis : Int
         , overrides : Array { lane : String, tickMillis : Int, priority : Int }
         }
-    , featureFlags : Array
-        { flagName : String, isOn : Bool, rolloutPercent : Int }
+    , featureFlags : Array { flagName : String, isOn : Bool, rolloutPercent : Int }
     }
 
 
@@ -170,86 +124,33 @@ multiLineLicenseBanner =
 {-| Construct an initial container with a long, mostly-static record literal. -}
 initialContainer : String -> Int -> Container
 initialContainer identifierArgument generatedAtMillisArgument =
-    { identifier = identifierArgument
-    , generatedAtMillis = generatedAtMillisArgument
-    , payload = ""
-    , flags =
-        { isReady = False
-        , isVerified = False
-        , isPersisted = False
-        , isShadowBanned = False
-        , isQuarantined = False
-        }
-    , nestedConfiguration =
-        { retryCount = 0
-        , exponentialBackoffMillis = 100
-        , jitterMillis = 25
-        , maxAttempts = 5
-        }
-    , recentMessages = []
-    }
+    { identifier = identifierArgument, generatedAtMillis = generatedAtMillisArgument, payload = "", flags = { isReady = False, isVerified = False, isPersisted = False, isShadowBanned = False, isQuarantined = False }, nestedConfiguration = { retryCount = 0, exponentialBackoffMillis = 100, jitterMillis = 25, maxAttempts = 5 }, recentMessages = [] }
 
 
 {-| Demonstrates a heavily-nested let / when / if, with record destructuring,
     record update, pipelines, function composition, and lambdas. -}
 processConfiguration : Configuration -> Container -> Result String Container
-processConfiguration
-        { tracing = tracingSection
-        , scheduler = schedulerSection
-        , featureFlags = featureFlagDefinitions
-        } ({ identifier, flags, nestedConfiguration } as incomingContainer) =
+processConfiguration { tracing = tracingSection, scheduler = schedulerSection, featureFlags = featureFlagDefinitions } ({ identifier, flags, nestedConfiguration } as incomingContainer) =
     let
         tracingDecision =
-            if
-                tracingSection.isEnabled
-                    && Array.length tracingSection.sinks > 0
-            then
+            if tracingSection.isEnabled && Array.length tracingSection.sinks > 0 then
                 let
                     chosenSink =
                         tracingSection.sinks
-                            |> Array.keepIf
-                                (\{ kind, endpoint } ->
-                                    not (String.isEmpty endpoint)
-                                        && kind /= "noop")
-                            |> Array.map
-                                (\sinkConfig ->
-                                    { sinkConfig
-                                        | endpoint =
-                                              String.trim sinkConfig.endpoint
-                                        , kind = String.toLower sinkConfig.kind
-                                        , headers =
-                                              Array.map
-                                                  (\headerEntry ->
-                                                      { headerEntry | headerName
-                                                          =
-                                                          String.toLower
-                                                              headerEntry.headerName
-                                                      }) sinkConfig.headers
-                                    })
+                            |> Array.keepIf (\{ kind, endpoint } -> not (String.isEmpty endpoint) && kind /= "noop")
+                            |> Array.map (\sinkConfig -> { sinkConfig | endpoint = String.trim sinkConfig.endpoint, kind = String.toLower sinkConfig.kind, headers = Array.map (\headerEntry -> { headerEntry | headerName = String.toLower headerEntry.headerName }) sinkConfig.headers })
                             |> Array.first
                 in
                 when chosenSink is
-                    Just
-                        { kind = sinkKind
-                        , endpoint = sinkEndpoint
-                        , headers = sinkHeaders
-                        } ->
+                    Just { kind = sinkKind, endpoint = sinkEndpoint, headers = sinkHeaders } ->
                         if String.startsWith "https://" sinkEndpoint then
-                            Ok
-                                { kind = sinkKind
-                                , endpoint = sinkEndpoint
-                                , header_count = Array.length sinkHeaders
-                                }
+                            Ok { kind = sinkKind, endpoint = sinkEndpoint, header_count = Array.length sinkHeaders }
 
                         else if String.startsWith "http://" sinkEndpoint then
-                            Err
-                                ("refusing to use plaintext sink: "
-                                    ++ sinkEndpoint)
+                            Err ("refusing to use plaintext sink: " ++ sinkEndpoint)
 
                         else
-                            Err
-                                ("unknown scheme in tracing sink endpoint: "
-                                    ++ sinkEndpoint)
+                            Err ("unknown scheme in tracing sink endpoint: " ++ sinkEndpoint)
 
                     Nothing ->
                         Err "tracing enabled but no usable sinks configured"
@@ -263,35 +164,25 @@ processConfiguration
                     schedulerSection.defaultTickMillis
 
                 [ singleOverride ] ->
-                    Math.max schedulerSection.defaultTickMillis
-                        singleOverride.tickMillis
+                    Math.max schedulerSection.defaultTickMillis singleOverride.tickMillis
 
                 _ ->
                     schedulerSection.overrides
                         |> Array.map .tickMillis
-                        |> Array.foldl Math.max
-                            schedulerSection.defaultTickMillis
+                        |> Array.foldl Math.max schedulerSection.defaultTickMillis
 
         rolloutDecision flagName =
             featureFlagDefinitions
-                |> Array.findFirst
-                    (\{ flagName = candidateFlagName } ->
-                        candidateFlagName == flagName)
-                |> Maybe.map
-                    (\{ isOn, rolloutPercent } -> isOn && rolloutPercent >= 50)
+                |> Array.findFirst (\{ flagName = candidateFlagName } -> candidateFlagName == flagName)
+                |> Maybe.map (\{ isOn, rolloutPercent } -> isOn && rolloutPercent >= 50)
                 |> Maybe.withDefault False
 
         updateFlagsForConfigDecision currentFlags =
             { currentFlags
                 | isReady = currentFlags.isReady || rolloutDecision "auto-ready"
-                , isVerified =
-                      currentFlags.isVerified
-                          && not (rolloutDecision "always-unverified")
+                , isVerified = currentFlags.isVerified && not (rolloutDecision "always-unverified")
                 , isPersisted = rolloutDecision "persist-on-config"
-                , isShadowBanned =
-                      currentFlags.isShadowBanned
-                          || (rolloutDecision "shadow-everyone"
-                              && not (rolloutDecision "shadow-bypass"))
+                , isShadowBanned = currentFlags.isShadowBanned || (rolloutDecision "shadow-everyone" && not (rolloutDecision "shadow-bypass"))
                 , isQuarantined = currentFlags.isQuarantined
             }
     in
@@ -301,42 +192,20 @@ processConfiguration
                 updatedContainer =
                     { incomingContainer
                         | flags = updateFlagsForConfigDecision flags
-                        , nestedConfiguration =
-                              { nestedConfiguration
-                                  | exponentialBackoffMillis =
-                                        Math.max
-                                            nestedConfiguration.exponentialBackoffMillis
-                                            schedulerDecision
-                                  , jitterMillis =
-                                        nestedConfiguration.jitterMillis
-                                            + (schedulerDecision // 10)
+                        , nestedConfiguration = { nestedConfiguration
+                                  | exponentialBackoffMillis = Math.max nestedConfiguration.exponentialBackoffMillis schedulerDecision
+                                  , jitterMillis = nestedConfiguration.jitterMillis + (schedulerDecision // 10)
                                   , maxAttempts =
-                                        if
-                                            rolloutDecision "aggressive-retry"
-                                        then
+                                        if rolloutDecision "aggressive-retry" then
                                             nestedConfiguration.maxAttempts * 2
 
                                         else
                                             nestedConfiguration.maxAttempts
                               }
-                        , payload =
-                              String.join " | "
-                                  [ identifier
-                                  , tracingSummary.kind
-                                  , String.fromInt schedulerDecision
-                                  , String.fromInt tracingSummary.header_count
-                                  ]
+                        , payload = String.join " | " [ identifier, tracingSummary.kind, String.fromInt schedulerDecision, String.fromInt tracingSummary.header_count ]
                     }
             in
-            { ok = Just updatedContainer
-            , err = Nothing
-            , annotations =
-                [ { source = "processConfiguration"
-                  , severity = 0
-                  , message = "ok"
-                  }
-                ]
-            }
+            { ok = Just updatedContainer, err = Nothing, annotations = [ { source = "processConfiguration", severity = 0, message = "ok" } ] }
                 |> Ok
 
         Err errorMessageForTracing ->
@@ -348,14 +217,11 @@ processConfiguration
     values are themselves record updates — all appearing inside lambdas,
     let bindings, if/then/else branches, and when branches. -}
 applyOverlays : Int -> Bool -> Container -> Container
-applyOverlays leadingOverridePriority tracingIsEnabled
-        ({ flags, nestedConfiguration } as startingContainer) =
+applyOverlays leadingOverridePriority tracingIsEnabled ({ flags, nestedConfiguration } as startingContainer) =
     let
         -- Single-field update bound to a name in let.
         containerWithBumpedTimestamp =
-            { startingContainer | generatedAtMillis =
-                startingContainer.generatedAtMillis + 1
-            }
+            { startingContainer | generatedAtMillis = startingContainer.generatedAtMillis + 1 }
 
         -- Single-field update inside a let that uses an if/then/else for the new field value.
         containerWithConditionallyTrimmedPayload =
@@ -364,33 +230,17 @@ applyOverlays leadingOverridePriority tracingIsEnabled
                     String.left 80 startingContainer.payload ++ "…"
 
                 else
-                    startingContainer.payload
-            }
+                    startingContainer.payload }
 
         -- A lambda whose body is a multi-field update; one of the field
         -- values is itself a multi-field record update inline.
         applyTracingDecision =
             \receivedContainer ->
                 if tracingIsEnabled then
-                    { receivedContainer
-                        | identifier =
-                              receivedContainer.identifier ++ "+tracing"
-                        , payload = "tracing=on"
-                        , flags =
-                              { flags
-                                  | isReady = True
-                                  , isVerified = True
-                                  , isShadowBanned = False
-                              }
-                    }
+                    { receivedContainer | identifier = receivedContainer.identifier ++ "+tracing", payload = "tracing=on", flags = { flags | isReady = True, isVerified = True, isShadowBanned = False } }
 
                 else
-                    { receivedContainer
-                        | identifier =
-                              receivedContainer.identifier ++ "-tracing"
-                        , flags =
-                              { flags | isReady = False, isVerified = False }
-                    }
+                    { receivedContainer | identifier = receivedContainer.identifier ++ "-tracing", flags = { flags | isReady = False, isVerified = False } }
 
         -- When-branch arms produce updates of different shapes. The wildcard
         -- arm contains updates that are deeply nested: a multi-field update
@@ -401,57 +251,37 @@ applyOverlays leadingOverridePriority tracingIsEnabled
             when leadingOverridePriority is
                 0 ->
                     -- Single-field update whose value is itself a single-field update.
-                    { containerWithConditionallyTrimmedPayload | flags =
-                        { flags | isQuarantined = True }
-                    }
+                    { containerWithConditionallyTrimmedPayload | flags = { flags | isQuarantined = True } }
 
                 1 ->
                     -- Multi-field update with two simple scalar values.
-                    { containerWithConditionallyTrimmedPayload
-                        | identifier = startingContainer.identifier ++ "/p1"
-                        , payload = "priority=1"
-                    }
+                    { containerWithConditionallyTrimmedPayload | identifier = startingContainer.identifier ++ "/p1", payload = "priority=1" }
 
                 _ ->
                     { containerWithConditionallyTrimmedPayload
-                        | nestedConfiguration =
-                              { nestedConfiguration
+                        | nestedConfiguration = { nestedConfiguration
                                   | retryCount = leadingOverridePriority
-                                  , exponentialBackoffMillis =
-                                        nestedConfiguration.exponentialBackoffMillis
-                                            * 2
+                                  , exponentialBackoffMillis = nestedConfiguration.exponentialBackoffMillis * 2
                                   , jitterMillis =
                                         if leadingOverridePriority > 10 then
-                                            nestedConfiguration.jitterMillis
-                                                * 3
+                                            nestedConfiguration.jitterMillis * 3
 
                                         else
                                             nestedConfiguration.jitterMillis + 1
-                                  , maxAttempts =
-                                        Math.max nestedConfiguration.maxAttempts
-                                            leadingOverridePriority
+                                  , maxAttempts = Math.max nestedConfiguration.maxAttempts leadingOverridePriority
                               }
-                        , flags =
-                              { flags
+                        , flags = { flags
                                   | isPersisted = leadingOverridePriority > 5
                                   , isQuarantined = leadingOverridePriority < 0
-                                  , isShadowBanned =
-                                        leadingOverridePriority > 100
+                                  , isShadowBanned = leadingOverridePriority > 100
                               }
-                        , payload =
-                              "priority="
-                                  ++ String.fromInt leadingOverridePriority
+                        , payload = "priority=" ++ String.fromInt leadingOverridePriority
                     }
     in
     -- A pipeline whose intermediate steps each thread through an update lambda.
     adjustForLeadingOverridePriority
         |> applyTracingDecision
-        |>
-            (\penultimateContainer ->
-                { penultimateContainer | generatedAtMillis =
-                    penultimateContainer.generatedAtMillis
-                        + leadingOverridePriority
-                })
+        |> (\penultimateContainer -> { penultimateContainer | generatedAtMillis = penultimateContainer.generatedAtMillis + leadingOverridePriority })
 
 
 {-| Pipelines (both directions), function composition (both directions),
@@ -471,17 +301,13 @@ transform inputValues =
     inputValues
         |> Array.map (doubleThenIncrement >> decrementThenHalve)
         |> Array.keepIf (\n -> n > -10 && n < 10000)
-        |> Array.map
-            (\n ->
-                if Math.modBy 2 n == 0 then
+        |> Array.map (\n -> if Math.modBy 2 n == 0 then
                     n * n
 
                 else
                     -n)
         |> Array.foldl (+) 0
-        |>
-            (\result ->
-                if result < 0 then
+        |> (\result -> if result < 0 then
                     -result
 
                 else
@@ -494,11 +320,7 @@ transform inputValues =
     aggressively it can collapse them. Uses long argument names to push lines
     near the 100-char threshold; the body intentionally has lines over 150
     chars before formatting. -}
-fold :
-    (a -> accumulatorValue -> accumulatorValue)
-    -> accumulatorValue
-    -> Tree a
-    -> accumulatorValue
+fold : (a -> accumulatorValue -> accumulatorValue) -> accumulatorValue -> Tree a -> accumulatorValue
 fold reducerFunction initialAccumulatorValue currentTreeNode =
     when currentTreeNode is
         Empty ->
@@ -507,28 +329,12 @@ fold reducerFunction initialAccumulatorValue currentTreeNode =
         Leaf solitaryLeafValue ->
             reducerFunction solitaryLeafValue initialAccumulatorValue
 
-        Branch
-            { label = branchLabelString
-            , attributes = branchAttributesArray
-            , children = branchChildrenArray
-            } ->
+        Branch { label = branchLabelString, attributes = branchAttributesArray, children = branchChildrenArray } ->
             let
                 accumulatorAfterAttributes =
-                    Array.foldl
-                        (\{ attrName = nameOfAttribute
-                            , attrValueAsString = valueOfAttributeAsString
-                            } accumulatedSoFar ->
-                            reducerFunction
-                                (Debug.todo "fold attribute"
-                                    :: nameOfAttribute
-                                    :: valueOfAttributeAsString
-                                    :: []) accumulatedSoFar)
-                        initialAccumulatorValue branchAttributesArray
+                    Array.foldl (\{ attrName = nameOfAttribute, attrValueAsString = valueOfAttributeAsString } accumulatedSoFar -> reducerFunction (Debug.todo "fold attribute" :: nameOfAttribute :: valueOfAttributeAsString :: []) accumulatedSoFar) initialAccumulatorValue branchAttributesArray
             in
-            Array.foldl
-                (\childTreeNode innerAccumulator ->
-                    fold reducerFunction innerAccumulator childTreeNode)
-                accumulatorAfterAttributes branchChildrenArray
+            Array.foldl (\childTreeNode innerAccumulator -> fold reducerFunction innerAccumulator childTreeNode) accumulatorAfterAttributes branchChildrenArray
 
         Cons { headValue, leftSubtree, rightSubtree } ->
             let
@@ -543,29 +349,19 @@ fold reducerFunction initialAccumulatorValue currentTreeNode =
 
 {-| Demonstrates lambdas with destructuring patterns, as-patterns, qualified
     constructors, negation, parens, and a backward-pipeline chain. -}
-traverseDeeply :
-    Tree { firstNameString : String, lastNameString : String, ageInYears : Int }
-    -> Array String
+traverseDeeply : Tree { firstNameString : String, lastNameString : String, ageInYears : Int } -> Array String
 traverseDeeply rootTree =
     let
         formatPersonRecord =
-            \({ firstNameString, lastNameString, ageInYears } as personRecord)
-                ->
+            \({ firstNameString, lastNameString, ageInYears } as personRecord) ->
                 if ageInYears < 0 then
                     "invalid:" ++ firstNameString
 
                 else if ageInYears == 0 then
-                    String.toUpper <|
-                        String.append firstNameString <|
-                        String.append " " <|
-                        lastNameString
+                    String.toUpper <| String.append firstNameString <| String.append " " <| lastNameString
 
                 else
-                    String.join " "
-                        [ firstNameString
-                        , lastNameString
-                        , "(" ++ String.fromInt ageInYears ++ ")"
-                        ]
+                    String.join " " [ firstNameString, lastNameString, "(" ++ String.fromInt ageInYears ++ ")" ]
 
         gatherNames currentTree =
             when currentTree is
@@ -578,11 +374,7 @@ traverseDeeply rootTree =
                 Branch { children = childrenArray } ->
                     childrenArray |> Array.flatMap gatherNames
 
-                Cons
-                    { headValue = headPersonRecord
-                    , leftSubtree = leftSubtreeOfNames
-                    , rightSubtree = rightSubtreeOfNames
-                    } ->
+                Cons { headValue = headPersonRecord, leftSubtree = leftSubtreeOfNames, rightSubtree = rightSubtreeOfNames } ->
                     let
                         leftCollected =
                             gatherNames leftSubtreeOfNames
@@ -590,9 +382,7 @@ traverseDeeply rootTree =
                         rightCollected =
                             gatherNames rightSubtreeOfNames
                     in
-                    [ formatPersonRecord headPersonRecord ]
-                        ++ leftCollected
-                        ++ rightCollected
+                    [ formatPersonRecord headPersonRecord ] ++ leftCollected ++ rightCollected
     in
     gatherNames rootTree
         |> Array.map String.trim
@@ -612,9 +402,7 @@ classifyTree tree =
             String.append "leaf:" (Debug.toString wholeLeafNode)
 
         Branch ({ label } as wholeBranchPayload) ->
-            String.append "branch:" label
-                ++ "/"
-                ++ Debug.toString wholeBranchPayload
+            String.append "branch:" label ++ "/" ++ Debug.toString wholeBranchPayload
 
         Cons { leftSubtree = Empty, rightSubtree = Empty } ->
             "single-cons"
@@ -626,14 +414,8 @@ classifyTree tree =
 -- Exercises literal patterns (Int / Char / String), qualified-constructor
 -- patterns, multi-element array patterns, let-destructure bindings, and
 -- qualified types in signatures.
-interpretMicroCommand :
-    Decode.Decoder Int
-    -> String
-    -> Array Char
-    -> Maybe Int
-    -> { handled : Bool, replyCode : Int }
-interpretMicroCommand decoderForPayload commandText commandCharacters
-        optionalRetryHint =
+interpretMicroCommand : Decode.Decoder Int -> String -> Array Char -> Maybe Int -> { handled : Bool, replyCode : Int }
+interpretMicroCommand decoderForPayload commandText commandCharacters optionalRetryHint =
     let
         -- let-destructure (Destruct binding) splits a static record into two
         -- locally-bound names without going through a fresh name first.
@@ -689,10 +471,7 @@ interpretMicroCommand decoderForPayload commandText commandCharacters
                         _ ->
                             fallbackReplyCode
     in
-    { handled = codeFromCharacterArray > 0
-    , replyCode =
-        codeFromCharacterArray + codeFromCommandText + codeFromRetryHint
-    }
+    { handled = codeFromCharacterArray > 0, replyCode = codeFromCharacterArray + codeFromCommandText + codeFromRetryHint }
 
 
 -- Operator section / partial application of binops, used inside a pipeline.
@@ -707,15 +486,8 @@ sumOfSquaredOddIntegersUpTo upperBoundInclusive =
 -- Infix usage with mixed precedence, deliberately overflowing 150 columns
 -- before formatting:
 overflowingMathExpression : Int -> Int -> Int -> Int -> Int
-overflowingMathExpression alphaCoefficient betaCoefficient gammaCoefficient
-        deltaCoefficient =
-    alphaCoefficient * betaCoefficient
-        + gammaCoefficient * deltaCoefficient
-        - (alphaCoefficient
-            + betaCoefficient
-            + gammaCoefficient
-            + deltaCoefficient) * 2
-        + 0xCAFEBABE
+overflowingMathExpression alphaCoefficient betaCoefficient gammaCoefficient deltaCoefficient =
+    alphaCoefficient * betaCoefficient + gammaCoefficient * deltaCoefficient - (alphaCoefficient + betaCoefficient + gammaCoefficient + deltaCoefficient) * 2 + 0xCAFEBABE
 
 
 -- An if/else-if/else chain that should each break to its own line.

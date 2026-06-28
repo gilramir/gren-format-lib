@@ -17,7 +17,6 @@
     ],
     "gren-version": "0.6.0 <= v < 0.7.0",
     "dependencies": {
-        "gilramir/gren-pretty-expressive": "2.0.0 <= v <3.0.0",
         "gren-lang/core": "7.4.0 <= v <8.0.0",
         "gren-lang/compiler-common": "local:../compiler-common"
     }

@@ -81,11 +81,15 @@ lpBoxFields lpbox =
             , { key = "startCol", value = Json.int loc.start.col }
             ]
 
-        AcrossThenIndent ->
-            [ { key = "type", value = Json.string "AcrossThenIndent" } ]
+        AcrossThenIndent { forceVertical } ->
+            [ { key = "type", value = Json.string "AcrossThenIndent" }
+            , { key = "forceVertical", value = Json.bool forceVertical }
+            ]
 
-        IfCondition ->
-            [ { key = "type", value = Json.string "IfCondition" } ]
+        IfCondition { forceVertical } ->
+            [ { key = "type", value = Json.string "IfCondition" }
+            , { key = "forceVertical", value = Json.bool forceVertical }
+            ]
 
         AllAcrossOrAllVertical brackets ->
             [ { key = "type", value = Json.string "AllAcrossOrAllVertical" }
@@ -150,8 +154,10 @@ lpBoxFields lpbox =
         AlignedFlow ->
             [ { key = "type", value = Json.string "AlignedFlow" } ]
 
-        WhenFlow ->
-            [ { key = "type", value = Json.string "WhenFlow" } ]
+        WhenFlow { forceVertical } ->
+            [ { key = "type", value = Json.string "WhenFlow" }
+            , { key = "forceVertical", value = Json.bool forceVertical }
+            ]
 
         PrefixGlue prefix ->
             [ { key = "type", value = Json.string "PrefixGlue" }

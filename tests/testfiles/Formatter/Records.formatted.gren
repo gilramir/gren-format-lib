@@ -1,12 +1,4 @@
-module Records exposing
-    ( makePoint
-    , movePoint
-    , distSq
-    , singleton
-    , makeOrigin
-    , scalePoint
-    , firstX
-    )
+module Records exposing ( makePoint, movePoint, distSq, singleton, makeOrigin, scalePoint, firstX )
 
 {- Record creation, access, and update -}
 

@@ -3,13 +3,7 @@ module IfPredicate exposing (..)
 
 -- A long single-precedence predicate breaks at every operator
 gate userIsActive accountHasCredit isSuspended withinQuota verified =
-    if
-        userIsActive
-            && accountHasCredit
-            && not isSuspended
-            && withinQuota
-            && verified
-    then
+    if userIsActive && accountHasCredit && not isSuspended && withinQuota && verified then
         "dashboard"
 
     else
@@ -18,10 +12,7 @@ gate userIsActive accountHasCredit isSuspended withinQuota verified =
 
 -- Mixed precedences break only at the loosest operators
 inWindow lowerBound upperBound candidateValue toleranceMargin =
-    if
-        lowerBound - toleranceMargin <= candidateValue
-            && candidateValue <= upperBound + toleranceMargin
-    then
+    if lowerBound - toleranceMargin <= candidateValue && candidateValue <= upperBound + toleranceMargin then
         "inside"
 
     else
@@ -33,10 +24,7 @@ classify totalRequestCount failedRequestCount slowRequestCount maximumAllowed =
     if totalRequestCount > maximumAllowed then
         "overloaded"
 
-    else if
-        failedRequestCount * 100 > totalRequestCount * 5
-            && slowRequestCount * 100 > totalRequestCount * 20
-    then
+    else if failedRequestCount * 100 > totalRequestCount * 5 && slowRequestCount * 100 > totalRequestCount * 20 then
         "degraded"
 
     else

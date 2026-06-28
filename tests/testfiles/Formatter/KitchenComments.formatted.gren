@@ -61,9 +61,7 @@ processOrder ({ identifier, items, appliedDiscounts, flags } as inboundCart) =
         runningSubtotalCents =
             items
                 -- comment between the seed and the first pipeline step
-                |> Array.map
-                    (\{ quantity, unitPriceCents } ->
-                        quantity * unitPriceCents)
+                |> Array.map (\{ quantity, unitPriceCents } -> quantity * unitPriceCents)
 
                 {- block comment between two pipeline steps -}
                 |> Array.foldl (+) 0
@@ -96,12 +94,10 @@ processOrder ({ identifier, items, appliedDiscounts, flags } as inboundCart) =
                 -- two or more: stack them multiplicatively
                 _ ->
                     appliedDiscounts
-                        |> Array.foldl
-                            (\{ basisPoints }
+                        |> Array.foldl (\{ basisPoints }
                                 -- comment inside a destructuring lambda head
                                 accumulatingFactor ->
-                                accumulatingFactor
-                                    * (1.0 - (toFloat basisPoints / 10000.0)))
+                                accumulatingFactor * (1.0 - (toFloat basisPoints / 10000.0)))
                             -- comment before the second argument to Array.foldl
                             1.0
 
@@ -161,9 +157,9 @@ summariseCart ({ identifier, items, flags } as inboundCart) =
         -- comment leading into a deeply-nested let binding
         formatLine =
             \({ sku, quantity, unitPriceCents } as wholeItem) ->
-            -- comment inside a lambda body
-                String.join " "
-                    -- inline comment after the function being called
+                -- comment inside a lambda body
+                String.join
+                    " " -- inline comment after the function being called
                     -- comment before the first argument-item of join
                     [ sku
                     -- comment between arguments
@@ -179,9 +175,8 @@ summariseCart ({ identifier, items, flags } as inboundCart) =
         |> Array.map formatLine
 
         -- comment before a pipeline step containing a record update
-        |> Array.map
-            (\formattedItemLine ->
-            -- comment inside a single-arg lambda body
+        |> Array.map (\formattedItemLine ->
+                -- comment inside a single-arg lambda body
                 "- " ++ formattedItemLine)
 
         {- comment between two pipeline steps using block-comment style -}
@@ -209,17 +204,12 @@ reprice rawMultiplier ({ items, flags } as inboundCart) =
     -- the actual record update happens here
     { inboundCart
         -- comment before the first updated field
-        | items =
-              items
-                  |> Array.map
-                      (\itemRecord ->
-                      -- comment leading into a nested record update inside a pipeline step
+        | items = items
+                  |> Array.map (\itemRecord ->
+                          -- comment leading into a nested record update inside a pipeline step
                           { itemRecord
                               -- comment before the first updated field of a NESTED record update
-                              | unitPriceCents =
-                                    round
-                                        (toFloat itemRecord.unitPriceCents
-                                            * clampedMultiplier)
+                              | unitPriceCents = round (toFloat itemRecord.unitPriceCents * clampedMultiplier)
                               -- comment between two updated fields of a nested update
                               , quantity = itemRecord.quantity
                           })
@@ -254,14 +244,13 @@ torturedComments primaryIntValue secondaryStringValue tertiaryBoolValue =
             primaryIntValue {- inline block between binop operands -} + 1
 
         guardedString =
-            if
-                {- inline block between `if` and condition -}
-                tertiaryBoolValue
-            then
+            if {- inline block between `if` and condition -} tertiaryBoolValue then
                 {- inline block between condition and `then` -}
                 -- comment between then and body
-                String.append secondaryStringValue
-                    {- block comment between function and its argument -} "!"
+                String.append
+                    secondaryStringValue
+                    {- block comment between function and its argument -}
+                    "!"
 
             else
                 {- block comment between `else` and body -}
@@ -281,27 +270,27 @@ torturedComments primaryIntValue secondaryStringValue tertiaryBoolValue =
 
         otherwiseAnyValue ->
             String.append
-                {- comment between an arg and the next arg in a call -} "many/"
+                {- comment between an arg and the next arg in a call -}
+                "many/"
                 {- another comment in the gap between arguments -}
-                (String.append guardedString {- yet another inter-arg comment -}
+                (String.append
+                    guardedString
+                    {- yet another inter-arg comment -}
                     (String.fromInt otherwiseAnyValue))
 
 
 {-| EXTREME case: one function that uses let, when, if, record destructuring,
     record updating, and pipelines — with a multi-line `{- -}` comment crammed
     into every whitespace position between tokens. -}
-extremelyCommented : {-c1-} {-c2-} {-c3-}
-    { score : {-c4-} {-c5-} Int {-c6-}
+extremelyCommented : {-c1-} {-c2-} {-c3-} { score : {-c4-} {-c5-} Int {-c6-}
     {-c7-}
     , label : {-c8-} {-c9-} String {-c10-}
-    } -> {-c11-} {-c12-} {-c13-}
-    { score : {-c14-} {-c15-} Int {-c16-}
+    } -> {-c11-} {-c12-} {-c13-} { score : {-c14-} {-c15-} Int {-c16-}
     {-c17-}
     , label : {-c18-} {-c19-} String {-c20-}
     }
 {-c21-}
-extremelyCommented {-c22-} {-c23-} {-c24-}
-        ({ score {-c25-}
+extremelyCommented {-c22-} {-c23-} {-c24-} ({ score {-c25-}
         {-c26-}
         , label {-c27-}
         } {-c28-} {-c29-} as wholeRecord) = {-c30-} {-c31-} {-c32-}
@@ -323,12 +312,11 @@ extremelyCommented {-c22-} {-c23-} {-c24-}
     wholeRecord
         {-c48-}
         {-c49-}
-        |> {-c50-} {-c51-}
-            (\{-c52-} r -> {-c53-} {-c54-} {-c55-}
-                if
-                    {-c56-}
-                    bumpedScore {-c57-} > {-c58-} 0
-                then
+        |> {-c50-} {-c51-} (\{-c52-} r ->
+                {-c53-}
+                {-c54-}
+                {-c55-}
+                if {-c56-} bumpedScore {-c57-} > {-c58-} 0 then
                     {-c59-}
                     {-c60-}
                     {-c61-}
@@ -371,21 +359,18 @@ extremelyCommented {-c22-} {-c23-} {-c24-}
 
 
 {-| Pick the best discount from a list of candidate codes. -}
-bestDiscount : Array { code : String, basisPoints : Int } ->
-    -- comment after one parameter type
+bestDiscount : Array { code : String, basisPoints : Int } -> -- comment after one parameter type
     Maybe { code : String, basisPoints : Int }
 bestDiscount candidateDiscounts =
     candidateDiscounts
         -- comment leading into a long pipeline
-        |> Array.keepIf
-            (\{ basisPoints } ->
-            -- comment inside the lambda body of a keepIf step
+        |> Array.keepIf (\{ basisPoints } ->
+                -- comment inside the lambda body of a keepIf step
                 basisPoints > 0 && basisPoints <= 5000)
 
         {- two-step block-comment narration begins -}
-        |> Array.foldl
-            (\candidate currentBest ->
-            -- comment inside a fold reducer lambda
+        |> Array.foldl (\candidate currentBest ->
+                -- comment inside a fold reducer lambda
                 when currentBest is
                     -- comment before the first when-branch arm
                     Nothing ->
