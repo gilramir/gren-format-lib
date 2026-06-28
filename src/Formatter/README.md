@@ -7,76 +7,77 @@ leaves alone, and why.
 
 ## Background
 
-Some code formatters impose a single "correct" style: you write your code
-however you like, run the formatter, and it rewrites everything into one fixed
-shape. The Gren formatter is different. For many constructs it
-**follows your layout choices** instead of overriding them.
+The Gren formatter has one central idea: **your line breaks are your layout
+decisions.** Write something on one line and it stays on one line. Put a line
+break between items and the formatter keeps them on separate lines, normalizing
+to one item per line.
 
-The guiding rules are:
+There is **no page width.** The formatter never wraps a long line. A function
+call with five arguments all on one row stays on one line no matter how wide it
+is. A type signature written as one long line stays that way. If you want
+something to break, put a line break in it.
 
-1. **If it fits on one line, and you wrote it on one line, it stays on one
-   line.** The page is 80 columns wide. Short things stay short. (One fixed
-   exception: a binding's body always starts on its own line, however short —
-   see [Function body](#function-body).)
+The three core rules:
 
-2. **If you spread something across several lines, the formatter keeps it
-   spread** — one item per line — even if it *would* have fit on one line. The
-   formatter reads a line break between two items as a signal that you wanted
-   the vertical shape, and it respects that.
+1. **One row → one line.** If you wrote a construct on a single row, the
+   formatter keeps it on one line. Width is irrelevant.
 
-3. **If something is too long to fit on one line, the formatter breaks it** —
-   and when it breaks, it goes *all the way*: every item on its own line. There
-   is no "some items on this line, some on the next" half-and-half shape
-   (with one deliberate exception: function call arguments, which fill the line).
+2. **Multiple rows → one item per line.** If you put a line break between any
+   two items of a construct, the formatter keeps every item on its own line.
+   There is no "some items here, some there" shape — a line break anywhere
+   means every item gets its own line.
 
-4. **The formatter never changes what your code means.** It only moves
-   whitespace around. It never rewrites an expression, reorders anything, or
-   edits the text inside a comment or a string.
+3. **The formatter never changes what your code means.** It only moves
+   whitespace. It never rewrites an expression, reorders anything, or edits
+   text inside a comment or string.
 
-5. **Formatting is stable.** Running the formatter on already-formatted code
-   produces exactly the same code back. Formatting twice is the same as
-   formatting once. (See [Idempotency](#idempotency) at the end.)
+4. **Formatting is stable.** Running the formatter on already-formatted code
+   produces the same code back. Format once or ten times — same result.
 
-So when you see a construct described below as following "your layout," it means
-this: write it on one line to get the compact form, or put a line break between
-its items to get the one-per-line form. Both are valid; the formatter keeps
-whichever you chose (collapsing the compact one only if it's too wide to fit).
+A few things are **always fixed**, regardless of how you wrote them:
 
-A few rules that apply everywhere:
-
+- A binding's value always starts on its own line (see
+  [Function body](#function-body)).
+- A `when` branch body always starts on its own line.
+- An `if` branch body always starts on its own line.
+- A blank line always separates `else`/`else if` from the branch above it.
+- Two blank lines always precede every top-level declaration.
+- One blank line always separates `let` bindings.
+- A type alias always puts the aliased type on its own line.
+- A custom type always puts the variant list on its own line(s).
 - **Indentation is 4 spaces.** Always spaces, never tabs.
-- **The target page width is 80 columns.**
-- The style descends from the [Elm Style Guide](https://elm-lang.org/docs/style-guide)
-  and [elm-format](https://github.com/avh4/elm-format), tuned to keep diffs
-  between commits small.
+
+Everything else follows your layout choices.
 
 ---
 
 ## Module declaration
 
-The `module` line stays on one line when the whole thing fits. The `exposing`
-list is written with a space just inside each parenthesis:
+The `module` line always collapses to a single flat line, regardless of how
+you wrote it. The exposing list uses spaces inside the parentheses:
 
 ```gren
-module MyApp exposing ( Model, Msg, init, update )
+module MyApp exposing ( Model, Msg, init, update, view, subscriptions )
 ```
 
-The list is **all-or-nothing**: when the line is too long, the keyword stays put
-and every export goes on its own line, with `, ` before each one after the first
-and the closing `)` alone on the last line.
+If you write the exposing list across rows, it collapses:
 
 ```gren
+-- you wrote:
 module MyApp exposing
     ( Model
     , Msg
     , init
-    , update
-    , view
-    , subscriptions
     )
+
+-- formats to:
+module MyApp exposing ( Model, Msg, init )
 ```
 
-The wildcard form `exposing (..)` is left exactly as written.
+The wildcard `exposing (..)` is left exactly as written.
+
+When the exposing list contains a comment, it can no longer collapse and falls
+back to the generic flow layout, staying multi-line.
 
 ---
 
@@ -88,106 +89,92 @@ A plain import stays on one line:
 import Array
 ```
 
-An alias uses `as`, and an `exposing` list follows the same all-or-nothing shape
-as the module line — all on one line, or one export per line:
+An alias uses `as`, and an exposing list always collapses to one flat line —
+same as the module declaration:
 
 ```gren
--- fits on one line
 import String exposing ( fromInt, toInt )
 
--- alias and exposing together
 import Array.Extra as AE exposing ( filterMap, unique )
 
--- too long: the keyword stays, every export gets its own line
-import MyModule exposing
-    ( AlphaType
-    , BetaType
-    , gammaFunction
-    , deltaFunction
-    , epsilonValue
-    )
+-- stays on one line even when long
+import MyModule exposing ( AlphaType, BetaType, gammaFunction, deltaFunction, epsilonValue )
 ```
 
 ---
 
 ## Type signatures
 
-A type signature follows your layout, just like a list. Written on one line, it
-stays on one line when it fits:
+A type signature follows your layout.
+
+Written on one line, it stays on one line — however long it is:
 
 ```gren
 add : Int -> Int -> Int
 
-
-applyTwice : (a -> a) -> a -> a
+processItems : Array String -> Dict String Int -> (String -> Bool) -> Array String -> Result String (Array String)
 ```
 
-When a one-line signature is too long, it breaks into an **all-or-nothing**
-shape: the `:` moves to the end of the first line, and every `->`-separated part
-goes on its own line, indented 4 spaces, with the `->` leading each line:
+Written across rows, it stays across rows. The canonical multi-line shape puts
+each `->` segment on its own line, with `->` leading each continuation:
 
 ```gren
 processItems :
     Array String
     -> Dict String Int
     -> (String -> Bool)
-    -> Array String
     -> Result String (Array String)
 ```
 
-If you *wrote* the signature across several lines, the formatter keeps it that
-way even when it would have fit on one line:
+If you wrote it across rows and it would fit on one line, it stays multi-line:
 
 ```gren
--- kept multi-line because that's how it was written
 keptMultiLine :
     Int
     -> Int
     -> Int
 ```
 
-A line break right after the `:` with everything else still on one line does
-not count — only a break *between* the `->` parts makes it multi-line.
+The multi-line shape triggers when any `->` separator appears on a different
+row than the one before it. A line break right after the `:` with the rest
+still on one line is not enough — the break must fall between `->` segments.
 
-One exception: a signature that contains a comment fills the entire row,
-wrapping to the next line as neeed, because otherwise the the formatting
-would change between iterations, as the formatter can't attach the comment
-correctly. So instead of each `->` part going on its own line,the parts pack
-onto a line and wrap only when they run out of room, with the comment left inline:
-
-```gren
-update : Msg -> Model -> {- returns new state -} Result Error Model -> Cmd Msg
-    -> Thing
-```
+A signature containing a comment cannot be split segment-by-segment; it falls
+back to filling the flow and wrapping at word boundaries.
 
 ---
 
 ## Function application
 
-When you call a function, the arguments go on the same line as the function
-name. If they don't all fit, the overflow continues on the next line, indented
-4 spaces from the function name. Arguments **fill** the line — this is the one
-place there is no "one item per line" shape:
+A function call follows your layout.
+
+Written on one line, all arguments stay on that line:
 
 ```gren
--- fits on one line
 result =
     foo a b c
 
--- overflows: the extra arguments wrap, indented +4 from the function name
 result =
-    someFunction firstLongArgument secondLongArgument thirdLongArgument
-        fourthLongArgument fifthLongArgument
+    someFunction firstLongArg secondLongArg thirdLongArg fourthLongArg fifthLongArg
+```
+
+Written across rows, arguments stay across rows, each indented 4 spaces from
+the function name:
+
+```gren
+result =
+    someFunction
+        firstLongArg
+        secondLongArg
+        thirdLongArg
 ```
 
 ---
 
 ## Function body
 
-A binding's body **always** goes on the next line, indented 4 spaces from
-`name args =`. There is one rule for every binding — a function, a plain
-value, a `let` binding, a `let` destructure — with no inline form, however
-short the body is:
+A binding's value **always** goes on the next line, indented 4 spaces from
+`name args =`. There is no inline form, however short the body:
 
 ```gren
 version =
@@ -198,10 +185,6 @@ answer =
     42
 
 
-handler =
-    onClick
-
-
 double : Int -> Int
 double n =
     n * 2
@@ -209,33 +192,18 @@ double n =
 
 makePoint x y =
     { x = x, y = y }
-
-
-supportedLanguages =
-    Array.keepIf (\lang -> Array.member lang preferred) allKnownLanguages
-
-
-label =
-    when n is
-        1 ->
-            "one"
-
-        _ ->
-            "other"
 ```
 
-This is deliberate uniformity: nothing about the body's shape — literal,
-variable, call, or multi-line construct — changes where it goes, so adding a
-single argument or wrapping a value in a call never reshuffles the line.
+This uniformity means adding an argument or wrapping a value in a call never
+reshuffles the line where the body sits.
 
 ---
 
 ## Blank lines between declarations
 
 Two blank lines always appear before every top-level declaration — functions,
-type aliases, custom types, and ports alike. This is **not** gap-driven: it
-doesn't matter whether you wrote zero, one, or five blank lines, you get exactly
-two. This gives each declaration clear, uniform breathing room:
+type aliases, custom types, and ports alike. This is unconditional: whether you
+wrote zero blank lines or five, you get exactly two.
 
 ```gren
 double : Int -> Int
@@ -248,11 +216,11 @@ square n =
     n * n
 ```
 
-The two blank lines go before the *beginning* of the whole declaration. The
-beginning is any comment directly above it (with no blank line in between);
-otherwise its type signature if it has one; otherwise the declaration itself. So
-the leading comment(s), signature, and definition stay together as a unit, with
-the two blanks above the topmost line:
+The two blank lines go before the *beginning* of the whole declaration unit.
+The unit begins with any comment directly above it (with no blank line in
+between); otherwise with its type signature; otherwise with the declaration
+itself. So a leading comment, signature, and definition stay together, with the
+two blank lines above the topmost line:
 
 ```gren
 {-| Doubles its argument. -}
@@ -261,39 +229,16 @@ double n =
     n * 2
 ```
 
-Any kind of comment counts — a `--` line comment, a `{- -}` block comment, or a
-`{-| -}` doc comment — and a stack of them all join the unit, as long as each
-sits directly above the next with no blank line between:
-
-```gren
--- a plain note
--- a second line, also part of the block
-squareArea : Int -> Int
-squareArea side =
-    side * side
-```
-
-A type signature and its definition always sit on adjacent lines, with **no**
-blank line between them. If you write one, the formatter removes it — the two
-blank lines belong *above* the topmost line of the unit (a leading comment, or
-the signature), never between the signature and its definition.
-
-A comment written directly above a declaration (no blank line between them) is
-treated as belonging to it — the two blank lines go *above* the comment, not
-between the comment and the declaration. This is what "attaches" a comment: put
-it on the line directly above the signature (or the declaration), and they stay
-joined.
-
-A comment separated from a function by a blank line is treated as "floating"
-(not attached to anything) and keeps a single blank line before it. The function
-below still gets its usual two blank lines, so the comment sits apart from both:
+A comment separated from a function by a blank line is treated as floating —
+the comment keeps the one blank line you wrote, and the function still gets its
+two blank lines below:
 
 ```gren
 double : Int -> Int
 double n =
     n * 2
 
--- A floating note, kept at arm's length from square below
+-- A floating note, kept at arm's length
 
 
 square : Int -> Int
@@ -305,14 +250,8 @@ square n =
 
 ## Type aliases
 
-A `type alias` always takes two lines — the header, then the aliased type
-indented 4 spaces — even if the whole thing would fit on one line:
-
-```gren
-type alias Id = Int
-```
-
-becomes
+A `type alias` always puts the aliased type on its own line, indented 4
+spaces, even when the whole thing would fit on one line:
 
 ```gren
 type alias Id =
@@ -320,8 +259,7 @@ type alias Id =
 ```
 
 When the aliased type is a record, it follows your layout exactly like a record
-value (see [Records](#records)): on one line if you wrote it that way and it
-fits, otherwise one field per line.
+value (see [Records](#records)):
 
 ```gren
 type alias Point =
@@ -339,16 +277,19 @@ type alias Model =
 
 ## Custom types
 
-A custom type (`type`) puts its name on the first line and the variants on the
-next, after `=`, with `|` before each one. The variants follow your layout:
-written on one line they stay inline when they fit; written across rows — or when
-they overflow — each variant goes on its own line:
+A custom type always puts the variant list on the line(s) after the name.
+The variants themselves follow your layout.
+
+Written on one line, the variants stay on one line:
 
 ```gren
 type Color
     = Red | Green | Blue
+```
 
+Written across rows, each variant goes on its own line:
 
+```gren
 type Direction
     = North
     | South
@@ -364,7 +305,7 @@ type Maybe a
     | Just a
 ```
 
-A variant's payload sits on the same line as the variant name, space-separated:
+A variant's payload sits on the same line as the variant name:
 
 ```gren
 type Shape
@@ -376,7 +317,7 @@ type Shape
 
 ## Ports
 
-A port is written on one line: the `port` keyword, the name, `:`, and the type:
+A port stays on one line when you wrote it that way:
 
 ```gren
 port outgoing : String -> Cmd msg
@@ -384,15 +325,13 @@ port outgoing : String -> Cmd msg
 port incoming : (String -> msg) -> Sub msg
 ```
 
-A long port type follows the same all-or-nothing rule as a function signature —
-the `:` moves to the end of the first line, and each `->` part goes on its own
-line:
+When the type is written across rows, it follows the same layout as a
+multi-line type signature — each `->` segment on its own line:
 
 ```gren
 port sendThings :
     VeryLongArgumentType
     -> AnotherArgumentType
-    -> ResultOfSending
     -> Cmd msg
 ```
 
@@ -400,9 +339,7 @@ port sendThings :
 
 ## Infix operator declarations
 
-An `infix` declaration is written on one line: the keyword, the associativity
-(`left`, `right`, or `non`), the precedence, the operator in parentheses, `=`,
-and the function that implements it:
+An `infix` declaration is always written on one line:
 
 ```gren
 infix right 5 (++) = append
@@ -416,54 +353,55 @@ infix right 5 (++) = append
 
 An empty record is always `{}`.
 
-A record follows your layout:
-
-- Written on one line and it fits → stays inline: `{ x = x, y = y }`.
-- Written on one line but too long → one field per line.
-- Written across rows → one field per line, even if it would have fit.
-
-A record with only one field has no "between fields" gap, so it always collapses
-to one line (when it fits):
+A record follows your layout. Written on one line:
 
 ```gren
-makePoint x y =
-    { x = x, y = y }
-
-
-config =
-    { name = "app"
-    , version = 2
-    }
+{ x = 1, y = 2 }
 ```
 
-The one-field-per-line shape puts `{` and the first field on the first line, a
-`, ` before each later field, and `}` alone on the last line. A record passed as
-a function argument follows the same rule:
+Written across rows (one or more fields on their own line), every field gets
+its own line. The canonical shape puts `{` and the first field on the first
+line, `, ` before each later field, and `}` alone on the last line:
 
 ```gren
-firstX =
-    distSq { x = 0, y = 0 } { x = 1, y = 0 }
+{ x = 1
+, y = 2
+}
+```
+
+If some fields were on one line and others were on separate lines, the
+formatter normalizes to fully vertical:
+
+```gren
+-- you wrote:
+{ a = 1, b = 2
+, c = 3
+}
+
+-- formats to:
+{ a = 1
+, b = 2
+, c = 3
+}
 ```
 
 ### Record updates
 
-An empty-style update or a single-field update stays inline when it fits:
+A single-field update stays inline when you wrote it that way:
 
 ```gren
 withDefault r =
     { r | x = 0 }
 ```
 
-A two-or-more-field update follows your layout, like a record value. Inline it
-reads `{ base | a = 1, b = 2 }`. When it breaks, the base name stays on the first
-line after `{`, the first field goes on the next line with a `| ` prefix, later
-fields line up under it with `, `, and `}` closes on its own line:
+A multi-field update follows your layout:
 
 ```gren
+-- flat:
 setOrigin pt =
     { pt | x = 0, y = 0 }
 
-
+-- vertical:
 movePoint dx dy pt =
     { pt
         | x = pt.x + dx
@@ -473,22 +411,8 @@ movePoint dx dy pt =
 
 ### Record field values
 
-A field value that fits stays on the same line as its name. One that's too long
-drops to the next line, indented 4 spaces:
-
-```gren
-wrapsToNextLine =
-    { model =
-        { model
-            | searchLang = lang
-            , searchText = ""
-        }
-    , command = Cmd.none
-    }
-```
-
-When the value is a **lambda**, its `\args ->` header stays on the name's line
-and the body sits 4 spaces under the field — never 8:
+A field value that is itself a **lambda** keeps the `\args ->` header on the
+name's line; the body goes on its own line 4 spaces under the field — never 8:
 
 ```gren
 parser =
@@ -498,14 +422,19 @@ parser =
 
         else
             Err WrongArity
+    , label = "parser"
     }
 ```
 
-A short lambda body still stays inline (`{ increment = \v -> v + 1 }`).
+A short lambda body stays inline:
 
-When the value is an **`if`**, **`when`**, or **`let`**, the whole construct
-drops to the next line, so its aligned keywords (`else`, the branches, `in`)
-line up 4 spaces under the field:
+```gren
+{ increment = \v -> v + 1 }
+```
+
+When the field value is an **`if`**, **`when`**, or **`let`**, those
+constructs drop to the next line so their aligned keywords line up 4 spaces
+under the field name:
 
 ```gren
 choices =
@@ -524,8 +453,7 @@ choices =
     }
 ```
 
-The same rules apply when the field belongs to a record *update*
-(`{ record | field = ... }`); there the body lines up under the field name:
+The same rules apply in record updates:
 
 ```gren
 withParser model =
@@ -543,14 +471,13 @@ withParser model =
 ### Record types and extensible records
 
 A record *type* in a signature follows the same layout rules. An extensible
-record type `{ r | field : Type }` keeps the base variable and `|` with the
-first field:
+record type `{ r | field : Type }` follows your layout for its fields:
 
 ```gren
--- fits on one line
+-- flat:
 getName : { r | name : String } -> String
 
--- breaks: the base variable rides with the first field, the rest align under it
+-- vertical:
 getInfo :
     { record
         | firstNameField : String
@@ -566,23 +493,15 @@ getInfo :
 
 An empty array is always `[]`.
 
-A non-empty array is **all-or-nothing**: either everything fits on one line, or
-every item goes on its own line. There is no partial wrapping, and your layout
-chooses between the two:
-
-- Items on one line that fit → stay on one line.
-- Items on one line that are too long → one per line.
-- Items spread across rows (even several per line, like `[ 1, 2\n, 3, 4 ]`) →
-  one per line, regardless of fit.
-
-The flat form has a space just inside the brackets:
+A non-empty array follows your layout. Written on one line:
 
 ```gren
 [ 1, 2, 3 ]
 ```
 
-The vertical form puts `[` and the first item together, a `, ` before each later
-item, and `]` alone on the last line:
+Written across rows, every item goes on its own line. The canonical shape
+puts `[` and the first item together, `, ` before each later item, and `]`
+alone on the last line:
 
 ```gren
 [ "first"
@@ -591,27 +510,20 @@ item, and `]` alone on the last line:
 ]
 ```
 
-Records inside an array stay inline as long as every one of them fits on its
-own line (see "Uniform item layout" below — they break all together or not at
-all):
+If items were spread across rows in any arrangement — some together, some
+separate — the formatter normalizes to one item per line:
 
 ```gren
-[ { label = "first", value = 1 }
-, { label = "second", value = 2 }
+-- you wrote:
+[ 1, 2
+, 3, 4
 ]
-```
 
-When an item is itself a record (or array) that has to break, its inner lines are
-indented 2 extra spaces, so its fields line up under its own `{` rather than
-under the array's `, `:
-
-```gren
-[ { veryLongFieldNameAlpha = valueAlpha
-  , veryLongFieldNameBeta = valueBeta
-  }
-, { veryLongFieldNameAlpha = valueAlpha2
-  , veryLongFieldNameBeta = valueBeta2
-  }
+-- formats to:
+[ 1
+, 2
+, 3
+, 4
 ]
 ```
 
@@ -624,131 +536,8 @@ A comment between items forces the vertical layout and sits between the items:
 ]
 ```
 
-### Uniform item layout (arrays of records)
-
-An array whose items are all record literals or record updates (in any
-mixture) formats every record the same way: if **any** record is broken
-across multiple lines — whether because you wrote it that way, because it is
-too wide to fit, or because a comment inside it forces a break — then **all**
-of them break, so the array reads uniformly.
-You never get a short record on one line next to a sibling spread across
-several:
-
-```gren
-[ { name = "circle", sides = 0 }
-, { name = "triangle"
-  , sides = 3
-  }
-]
-```
-
-becomes
-
-```gren
-[ { name = "circle"
-  , sides = 0
-  }
-, { name = "triangle"
-  , sides = 3
-  }
-]
-```
-
-Concretely, such an array takes exactly one of three shapes — everything flat
-on one line, one flat record per line, or every record expanded one field per
-line — and never a mixture:
-
-```gren
-allFlat =
-    [ { name = "circle", sides = 0 }, { name = "tri", sides = 3 } ]
-
-
-onePerLine =
-    [ { name = "circle", sides = 0 }
-    , { name = "triangle", sides = 3 }
-    , { name = "square", sides = 4 }
-    ]
-
-
-allExpanded =
-    [ { name = "circle"
-      , sides = 0
-      }
-    , { name = "a triangle with a very long name that overflows the page width"
-      , sides = 3
-      }
-    ]
-```
-
-Note the `circle` record in the last example: it would fit flat, but its
-sibling can't, so it expands too.
-
-The usual author-layout rules still pick which shapes are on the table: an
-array you wrote on one line may use any of the three, an array you wrote
-vertically never collapses back to one line, and an author-broken (or
-comment-bearing) record rules out both flat shapes. Width then chooses the
-first shape of the remaining ones that fits.
-
-Record updates couple exactly like literals (each kind keeps its own
-vertical style — an expanded update puts `| field` lines under the base and
-its `}` at the item column). Here one update is too wide to stay flat, so
-its fitting sibling expands with it:
-
-```gren
-updatesWide =
-    [ { base | name = "a circle with a very very long name that overflows the page width limit", sides = 0 }
-    , { base | name = "tri", sides = 3 }
-    ]
-```
-
-becomes
-
-```gren
-updatesWide =
-    [ { base
-        | name =
-              "a circle with a very very long name that overflows the page width limit"
-        , sides = 0
-    }
-    , { base
-        | name = "tri"
-        , sides = 3
-    }
-    ]
-```
-
-Why this is stable across reformats (the earlier blocker for this rule): each
-shape reparses to a state that reproduces exactly that shape. A
-width-expanded record is indistinguishable from an author-broken one on the
-second pass — but that no longer matters, because both force the same
-all-expanded shape. There is no per-item width decision left to disagree
-between passes.
-
-#### Outside the rule: mixed arrays
-
-The rule applies only when *every* item of the array is a record literal or
-record update. An array that mixes records with anything else — a function
-call, a name, a nested array — keeps the per-item behavior described earlier
-in this section: each item decides its own shape, so a broken record can sit
-next to an inline one. The `makeShape` call here disqualifies the array, and
-the `tri` record stays inline even though its sibling is expanded:
-
-```gren
-mixed = [ { name = "circle"
-      , sides = 0 }, { name = "tri", sides = 3 }, makeShape "square" 4 ]
-```
-
-becomes
-
-```gren
-mixed =
-    [ { name = "circle"
-      , sides = 0
-      }
-    , { name = "tri", sides = 3 }
-    , makeShape "square" 4
-    ]
-```
+Records and arrays inside an array each decide their own layout independently,
+following the same author-layout rules.
 
 ---
 
@@ -767,115 +556,73 @@ withEscapes =
 
 ### Character literals
 
-A character uses single quotes. The five special characters are always written
-as escapes; everything else is written as the plain character:
+A character uses single quotes. Five special characters are always written as
+escapes; everything else is written as the plain character:
 
 ```gren
-tab =
-    '\t'
-
-
-newline =
-    '\n'
-
-
-carriageReturn =
-    '\r'
-
-
-singleQuote =
-    '\''
-
-
-backslash =
-    '\\'
-
-
-letter =
-    'a'
+tab = '\t'
+newline = '\n'
+carriageReturn = '\r'
+singleQuote = '\''
+backslash = '\\'
+letter = 'a'
 ```
 
 ### Multi-line (triple-quoted) strings
 
-A `"""` string always stays in triple-quoted form. The opening `"""` sits where
-the string begins — on its own line under a `name =`, or on its own indented line
-when the string is a nested sub-expression — the content lines sit at that same
-indentation, and the closing `"""` goes on its own line there too:
+A `"""` string always stays in triple-quoted form. The opening `"""` sits at
+the binding's body column, and the content lines and closing `"""` sit at that
+same indentation:
 
 ```gren
 message =
     """
     Hello, World!
     """
-
-
-poem =
-    """
-    line one
-    line two
-    line three
-    """
 ```
 
-The content lines are re-indented to line up with the `"""` delimiters, no matter
-how much leading whitespace the original had. This is safe because Gren gives
-these strings *text-block* semantics: the column of the closing `"""` defines a
-common indent that the parser strips from every line before it ever reaches the
-formatter (which is why every content line must be indented at least that far).
-That stripped indent is not part of the string's value, so re-placing the block
-doesn't change the program.
-
-Two consequences:
-
-- **The whole block moves to its canonical column.** An over-indented source
-  block is pulled back in:
-
-  ```gren
-  -- written like this …            … is formatted to this
-  value =                           value =
-              """                        """
-              Hello                      Hello
-              World                      World
-              """                        """
-  ```
-
-- **Indentation *relative* to the block is preserved; only the common indent in
-  front of it changes, and the line text itself never does.** A line indented
-  further than its neighbours stays further in, wherever the block lands:
-
-  ```gren
-  greeting =
-      let
-          banner =
-              """
-              top
-                  nested
-              bottom
-              """
-      in
-      banner
-  ```
+Content lines are re-indented to line up with the `"""` delimiters. This is
+safe because Gren strips the closing delimiter's column from every content line
+before the formatter sees them; only relative indentation within the block is
+preserved.
 
 ---
 
 ## If expressions
 
-Every branch body starts on the next line, indented 4 spaces. There is no inline
-form, even for a one-word body. `else` lines up with `if`.
+The `if … then` header follows your layout.
 
-A single blank line always separates a branch body from the `else` or `else if`
-that follows it, to keep the branches visually distinct. This is unconditional:
-you get exactly one blank line there no matter how many (or how few) you wrote.
+Written on one line — condition on the same row as `if` — it stays on one
+line:
 
 ```gren
-if n > 0 then
+if x > 0 then
     "positive"
 
 else
     "non-positive"
 ```
 
-`else if` is written as one unit, on one line with its condition:
+Written across rows — condition on a different row from `if` — it stacks: `if`
+on its own line, the condition indented 4, `then` flush with `if`:
+
+```gren
+if
+    x > 0
+then
+    "positive"
+
+else
+    "non-positive"
+```
+
+The condition itself follows author layout too — a multi-line binop predicate
+uses the precedence-aware breaks described in
+[Binary operators](#binary-operators).
+
+Branch bodies **always** go on the next line, indented 4 spaces — even a
+one-word body. `else` always lines up with `if`. A single blank line always
+separates a branch body from the `else` or `else if` that follows it:
 
 ```gren
 if n < 0 then
@@ -888,55 +635,32 @@ else
     "positive"
 ```
 
-When the whole `if … then` doesn't fit on one line, it stacks: `if` goes on its
-own line, the predicate drops to the next line indented 4 spaces, and `then` goes
-on its own line flush with `if`. The branch body then follows, indented 4 spaces
-under `then`.
-
-The predicate itself wraps the **precedence-aware** way — the same layout
-binops use everywhere else in Gren: it breaks only at the lowest-precedence
-operators, one operator-led group per line, indented one more level:
-
-```gren
-if
-    userIsActive
-        && accountHasCredit
-        && not isSuspended
-        && withinQuota
-        && verified
-then
-    showDashboard x
-
-else
-    showLoginPage x
-```
-
-Tighter-binding sub-terms stay together on a line — only the loosest operators
-split:
-
-```gren
-if
-    lowerBound - toleranceMargin <= candidateValue
-        && candidateValue <= upperBound + toleranceMargin
-then
-    "inside"
-
-else
-    "outside"
-```
-
-It's all-or-nothing at the `if … then` level: either the whole thing fits on one
-line, or it takes the stacked form above — there's no in-between where the
-predicate wraps but `then` stays glued to its last line. The same applies to
-`else if`.
-
 ---
 
 ## When expressions
 
-A branch body always goes on the next line, indented 4 spaces from the pattern —
-even a tiny one that would fit beside the `->` — and a blank line always
-separates one branch from the next:
+A `when … is` header follows your layout, like `if`:
+
+Written on one line — scrutinee on the same row as `when`:
+
+```gren
+when msg is
+    Increment ->
+        model + 1
+```
+
+Written across rows — scrutinee on a different row from `when`:
+
+```gren
+when
+    msg
+is
+    Increment ->
+        model + 1
+```
+
+Branch bodies **always** go on the next line, indented 4 spaces from the
+pattern. A blank line always separates one branch from the next:
 
 ```gren
 when n is
@@ -950,9 +674,7 @@ when n is
         "other"
 ```
 
-The blank line is uniform: it doesn't matter whether a body is a single value or
-a multi-line block — a branch whose body is a record just looks taller, with the
-same blank line before the next branch:
+The blank line is uniform regardless of whether a body is short or multi-line:
 
 ```gren
 when msg is
@@ -967,9 +689,9 @@ when msg is
         }
 ```
 
-A `--` comment written on its own line between two cases is treated as belonging
-to the following case: it keeps the blank line above it (separating it from the
-previous case) and stays attached to the case below, with no blank between:
+A `--` comment on its own line between two branches belongs to the branch
+below it: the blank line goes above the comment, and the comment stays
+attached to the branch with no blank line between them:
 
 ```gren
 when n is
@@ -986,8 +708,7 @@ when n is
 ## Let expressions
 
 `let` and `in` line up at the same indentation. Bindings are indented 4 spaces
-under `let`, and the result expression starts on the line after `in`, back at the
-`let`/`in` level:
+under `let`, and the result expression starts on the line after `in`:
 
 ```gren
 circleArea radius =
@@ -1001,11 +722,8 @@ circleArea radius =
     pi * rSquared
 ```
 
-A binding follows the same body rule as a top-level declaration (see [Function
-body](#function-body)): the value always drops to the next line, indented 4
-more spaces — no inline form, however short. Arguments and a type signature
-make no difference. A type signature goes on the line directly above the
-definition with no blank line between them, exactly like a top-level function.
+A binding's value always drops to the next line, indented 4 more spaces.
+Arguments and a type signature make no difference:
 
 ```gren
 hypotenuse x y =
@@ -1017,28 +735,11 @@ hypotenuse x y =
     square x + square y
 ```
 
-Exactly **one** blank line separates bindings — forced, just like the two blank
-lines between top-level declarations (but one, not two): whether you wrote zero
-blank lines or five, each binding gets exactly one blank above it. And just like
-a top-level function group, the unit stays together: a type signature sits
-directly on its definition, and a comment sticks to the binding below it — the
-blank goes above the comment:
+Exactly **one** blank line always separates bindings, regardless of how many
+you wrote. A type signature sits directly on its definition. A comment sticks
+to the binding below it — the blank goes above the comment:
 
 ```gren
--- you wrote:
-let
-    first =
-        a
-    second : Int
-    second =
-        b
-    -- a note about third
-    third =
-        c
-in
-first + second + third
-
--- formats to:
 let
     first =
         a
@@ -1054,28 +755,11 @@ in
 first + second + third
 ```
 
-Unlike the top level, a comment in a `let` never floats apart from the code: a
-blank line between a comment and the binding below it is removed, so the
-comment always joins that binding (with the forced blank above the pair).
+Unlike at the top level, a comment in a `let` never floats apart from the
+binding below it — a blank line between a comment and the binding it precedes
+is removed.
 
-The body starts on the next line however large or small the value is — a
-multi-line construct simply continues from there:
-
-```gren
-complexBody =
-    let
-        command =
-            if condition then
-                doThis
-
-            else
-                doThat
-    in
-    command
-```
-
-You can destructure on the left of a binding with the same record/array pattern
-syntax used elsewhere; the body drops to the next line all the same:
+You can destructure on the left of a binding:
 
 ```gren
 let
@@ -1085,12 +769,8 @@ in
 model
 ```
 
-A binding can also unwrap a single-constructor value (`Builder bb` names the
-payload carried inside a `Builder`) or name both the whole value and a piece
-of it (`{ y } as point` binds the field `y` *and* names the whole record
-`point`). Both forms are wrapped in parentheses — the same two forms that take
-parens as function arguments (see
-[Patterns as arguments](#patterns-as-arguments) for why the parens matter):
+A single-constructor unwrap or `as`-alias in a binding is wrapped in
+parentheses:
 
 ```gren
 let
@@ -1103,29 +783,16 @@ in
 bb point
 ```
 
-### Why `let` functions aren't formatted *exactly* like top-level ones
-
-A function written in a `let` and one written at the top level follow the
-same core rules — type signatures (always directly above the definition, with no
-blank line between them), the same body rule (the body always drops to the
-next line), and forced blank lines between neighbours no matter what you wrote.
-The one remaining difference is the *amount* of space:
-
-- **At the top level** every declaration gets exactly **two** blank lines
-  before it.
-- **Inside a `let`** every binding gets exactly **one**. Two forced blank lines
-  would feel like a lot in an indented block like a `let` body.
-
 ---
 
 ## Patterns as arguments
 
-Wherever patterns sit side by side as space-separated arguments — a top-level
-function definition, a `let` definition, or a lambda — two pattern forms are
-wrapped in parentheses so they keep binding the way you wrote them:
+Wherever patterns appear side by side as space-separated arguments — in a
+function definition, a `let` definition, or a lambda — two forms are wrapped
+in parentheses:
 
-- a **constructor applied to a payload**, e.g. `(Response response)`;
-- an **`as`-alias**, e.g. `({ x, y } as point)`.
+- A **constructor applied to a payload**, e.g. `(Response response)`
+- An **`as`-alias**, e.g. `({ x, y } as point)`
 
 ```gren
 setStatus statusCode (Response response) =
@@ -1142,42 +809,17 @@ mapBox =
 
 A bare constructor with no payload (`Nothing`) takes no parentheses.
 
-The parentheses matter because a constructor's payload parses greedily: in
-`setStatus statusCode Response response` the parser reads `response` as the
-payload of `Response`, not as a separate argument. With nested constructors
-the greediness changes the grouping outright:
-
-```gren
-wrap (Just Nothing) x = ...   -- two arguments: (Just Nothing) and x
-wrap Just Nothing x = ...     -- ONE argument: Just (Nothing x)
-```
-
-The same parens are written around a constructor's payload when that payload
-is itself a constructor with a payload — everywhere patterns appear, including
-`when` branches. A `when` branch holds just one pattern, so `Just Just n`
-would mean the same thing as `Just (Just n)`, but the formatter always writes
-the parens so the nesting stays visible:
-
-```gren
-unwrapTwice x =
-    when x is
-        Just (Just n) ->
-            n
-
-        _ ->
-            0
-```
-
-The parens around an `as`-alias likewise keep the binding explicit: in
-`update ({ model } as state) msg`, `state` visibly names the record pattern
-and nothing more.
+The parentheses matter because a constructor's payload parses greedily: without
+them, `setStatus statusCode Response response` reads `response` as the payload
+of `Response`, not as a separate argument.
 
 ---
 
 ## Lambdas
 
-A lambda starts with `\` directly before the first pattern (no space), then any
-further patterns, then `->`, then the body:
+A lambda's body follows your layout.
+
+Written on one line — body on the same row as `->`:
 
 ```gren
 double =
@@ -1188,6 +830,14 @@ add =
     \a b -> a + b
 ```
 
+Written across rows — body on a different row from `->`:
+
+```gren
+transform =
+    \veryLongParameterName ->
+        veryLongParameterName * 2
+```
+
 Passed as an argument, a lambda is wrapped in parentheses:
 
 ```gren
@@ -1195,54 +845,24 @@ doubleAll =
     Array.map (\n -> n * 2) nums
 ```
 
-Patterns can be variables, record destructures, or array destructures:
-
-```gren
-Array.map (\{ start, end } -> end - start) ranges
-
-Array.foldl (\{ value } acc -> acc + value) 0 items
-```
-
-When the lambda doesn't fit, the body wraps to the next line indented 4 spaces
-from the `\`. The `->` always stays at the end of the parameter line:
-
-```gren
-transform =
-    \veryLongParameterName ->
-        veryLongParameterName * 2 + someOtherValue + anotherValue
-```
-
 ---
 
 ## Pipelines
 
-Both `|>` (forward) and `<|` (backward) are pipeline operators. A run of the
-*same* operator is treated as one pipeline; a chain that mixes `|>` and `<|` is
-not merged into one.
+Both `|>` (forward) and `<|` (backward) pipelines follow your layout. A run
+of the *same* operator is treated as one pipeline.
 
-A pipeline follows your layout. Written on one line, it stays on one line when it
-fits:
+Written on one line, a pipeline stays on one line:
 
 ```gren
 result =
     list |> Array.map double |> Array.first
-
-
-result =
-    String.toUpper <| String.append "Hello, " name
 ```
 
-Written across rows, it stays one step per line even if it would have fit:
+Written across rows, each step stays on its own line.
 
-```gren
-result =
-    list
-        |> Array.map double
-        |> Array.first
-```
-
-**`|>` (forward) pipelines** use a leading-operator style: the operator starts
-each step line, indented 4 spaces from the seed:
+**`|>` pipelines** use a leading-operator style, each step indented 4 spaces
+from the seed:
 
 ```gren
 result =
@@ -1252,9 +872,8 @@ result =
         |> Array.first
 ```
 
-**`<|` (backward) pipelines** use a trailing-operator style: the operator trails
-the seed (or previous step body), and the next step body goes on the next line
-indented 4 spaces from the seed:
+**`<|` pipelines** use a trailing-operator style, each step body indented 4
+spaces from the seed:
 
 ```gren
 result =
@@ -1263,17 +882,18 @@ result =
         String.append name "!"
 ```
 
-When the step body is a lambda, the lambda's parameter list and `->` also trail
-the `<|`, so only the lambda body breaks to the next line:
+When a `<|` step body is a lambda, the `<|` trails the preceding step and the
+lambda sits on the next line, indented +4 from the pipeline seed. The lambda
+body is indented another +4:
 
 ```gren
 main =
-    Node.defineSimpleProgram <| \env ->
-        run env <|
-            describe "tests" [...]
+    Node.defineSimpleProgram <|
+        \env ->
+            run env
 ```
 
-A comment just before a `|>` pipeline step travels with that step:
+A comment just before a `|>` step travels with that step:
 
 ```gren
 result =
@@ -1287,31 +907,33 @@ result =
 
 ## Binary operators
 
-A chain of operators (`a + b`, `x && y`, `s ++ t`) follows your layout. Written
-on one line, it stays inline when it fits:
+A chain of operators follows your layout.
+
+Written on one line, it stays on one line:
 
 ```gren
 area =
     width * height + margin
+
+greeting =
+    "Hello, " ++ firstName ++ " " ++ lastName
 ```
 
-When a one-line chain is too long — or you wrote it across rows — it breaks in a
-**precedence-aware** way: it only breaks at the operators that bind *loosest*,
-and keeps the tighter-binding parts together on a line. (Precedence is the usual
-arithmetic idea: `*` binds tighter than `+`, `&&` tighter than `||`, and so on.)
+Written across rows, it breaks at the **lowest-precedence operators** in the
+chain, keeping tighter-binding sub-terms together. The operator leads each
+continuation line, indented 4 spaces from the seed:
 
 ```gren
 score =
     baseScore
         + bonusPoints * multiplier
         - penaltyAmount
-        + streakBonus * weight
 ```
 
-Notice `bonusPoints * multiplier` stays on one line: the chain split at `+` and
-`-` (the loosest operators here), and the `*` parts came along for the ride.
+`bonusPoints * multiplier` stays together because `*` binds tighter than `+`
+and `-`.
 
-When every operator has the same precedence, the chain breaks at all of them:
+When every operator has the same precedence, all of them split:
 
 ```gren
 greeting =
@@ -1321,7 +943,7 @@ greeting =
         ++ lastName
 ```
 
-With three or more precedence levels, only the loosest level splits:
+With multiple precedence levels, only the loosest splits:
 
 ```gren
 eligible =
@@ -1330,24 +952,23 @@ eligible =
         || isOwner
 ```
 
-One situation keeps the older fill-style wrapping instead of this shape: a
-chain that contains a comment (`a + {- note -} b`). A stacked `if`/`else if`
-predicate uses this same precedence-aware layout (see
+A chain with a comment in it uses the fill-style flow renderer instead of the
+precedence-aware one (the comment can't be reordered to fit the structure).
+
+The same precedence-aware layout applies to a stacked `if` condition (see
 [If expressions](#if-expressions)).
 
 ---
 
 ## Comments
 
-The formatter **never changes the text of a comment.** It only decides where the
-comment sits relative to the code around it. This section covers how it makes
-that decision, and a few spots where the decision is genuinely hard.
+The formatter **never changes the text of a comment.** It only decides where
+the comment sits relative to the code around it.
 
 ### Where you put a comment is meaningful
 
-Whether a comment **shares a line with the code before it** or **sits on its own
-line** is treated as a real, deliberate choice — the formatter keeps whichever
-you wrote:
+Whether a comment **shares a line with the code before it** or **sits on its
+own line** is kept as written:
 
 ```gren
 foo =
@@ -1360,17 +981,6 @@ bar =
     }
 ```
 
-A practical consequence: adding or removing the line break between a comment and
-the token next to it genuinely changes your program's layout, so the two
-versions are different inputs that format differently. This is intended — the
-comment's position carries meaning.
-
-(There are a few deliberate exceptions where a comment *is* moved, each covered
-later in this section: a too-wide line drops its trailing comment to the next
-line, a comment at the end of a signature or module line moves to the left
-margin, and a comment beside an invisible symbol like `=` or `as` snaps to one
-side of it.)
-
 ### Single-line comments (`--`)
 
 A `--` comment on a line of code stays on that line:
@@ -1382,12 +992,12 @@ import Dict exposing
     )
 ```
 
-A `--` comment on its own line stays on its own line, indented to match the code
-around it:
+A `--` comment on its own line stays on its own line, indented to match the
+code around it:
 
 ```gren
 foo a =
-    -- before the first line of the body
+    -- before the body
     a * 100
 ```
 
@@ -1400,12 +1010,9 @@ foo a =
     a * {- inline note -} 100
 ```
 
-A block comment whose body spans several lines forces the construct around it to
-break vertically (it can't be collapsed onto one line). When the comment's text
-starts on the same line as the `{-`, the body lines are re-indented to line up
-neatly under the `{-`, while keeping the comment's own internal shape (relative
-indentation, lists, little diagrams) — no matter how the body was indented in
-the input:
+A block comment whose body spans several lines forces the construct around it
+to break vertically. When the comment's text starts on the same line as `{-`,
+the body lines are re-indented to line up under the `{-`:
 
 ```gren
 value =
@@ -1416,68 +1023,16 @@ value =
         |> process
 ```
 
-The re-anchoring works from the body's *own structure*: its shallowest line is
-lined up under the `{-` (just past the `{- ` prefix), and any line the author
-indented deeper than that stays deeper by the same amount. The body's
-*absolute* input columns are irrelevant, so sloppy or accidental indentation is
-cleaned up. Both of these inputs — body flush against the margin, or pushed
-far right —
+The re-anchoring uses the body's *own structure*: its shallowest line aligns
+just past the `{- ` prefix, and deeper lines stay deeper by the same relative
+amount. Sloppy or accidental input indentation is cleaned up.
+
+**Want the body kept verbatim? Put `{-` alone on its first line.** That is
+the signal for *verbatim mode*: every body line keeps its exact columns. Only
+the `{-` itself moves. This protects ASCII art and hand-aligned tables:
 
 ```gren
--- one author wrote:
-total =
-    items
-        {- sums the visible items;
-   hidden items are skipped,
-       and this deeper line stays deeper. -}
-        |> sum
-
--- another wrote:
-total =
-    items
-        {- sums the visible items;
-                  hidden items are skipped,
-                      and this deeper line stays deeper. -}
-        |> sum
-```
-
-format to the same thing:
-
-```gren
-total =
-    items
-        {- sums the visible items;
-           hidden items are skipped,
-               and this deeper line stays deeper. -}
-        |> sum
-```
-
-The same applies when the comment sits somewhere that itself moves — say,
-embedded in an effect module's `where` block, which the formatter reflows. The
-body follows the `{-` to its new home and lines up there:
-
-```gren
--- you wrote:
-effect module MyModule where { command {- a
-   b
-   c -} = MyCmd } exposing (..)
-
--- formats to:
-effect module MyModule where
-    {- a
-       b
-       c -}
-    { command = MyCmd } exposing (..)
-```
-
-**Want the body left completely untouched? Put the `{-` alone on its first
-line.** That is the signal for *verbatim mode*: every body line keeps its
-exact column — hand-drawn ASCII art, tables, or any carefully-aligned block
-survives formatting untouched. Only the `{-` itself moves, to the construct's
-indent:
-
-```gren
--- you wrote (the {- alone on its line; the body hand-aligned):
+-- you wrote (the {- alone on its line):
 config =
         {-
       this body is kept verbatim
@@ -1487,7 +1042,7 @@ config =
 -}
         42
 
--- the formatter produces (only the {- moved — to column 4; no body text moved):
+-- formats to (only the {- moved to column 4; body untouched):
 config =
     {-
       this body is kept verbatim
@@ -1498,21 +1053,14 @@ config =
     42
 ```
 
-The trade-off is that a verbatim body's whitespace is *not* canonicalized — see
-the note under
-[whitespace canonicalization gaps](#a-multi-line-block-comments-body-is-kept-verbatim).
-
 #### Comments in an effect module's header
 
-The effect module header that appeared above deserves a closer look, because
-it is the one place where the *amount of space* before a comment can change
-which home the comment gets. The reason: the parser tells the formatter the
-exact position of only one thing in the whole `where { … }` block — the
-handler name (`MyCmd` below). The `where`, the braces, `command`, the `=`, and
-the `exposing` after the block carry no recorded position, so the formatter
-redraws them from scratch and cannot tell which of them a comment was next to.
-The only signal left is how close the comment sits to the handler name. Right
-next to it, it reads as a trailing remark on the name and stays with it:
+An effect module's `where { … }` block — the `where`, the braces, the field
+name, the `=` — carries no position information from the parser. Only the
+handler name (e.g. `MyCmd`) has a known position. A comment's placement is
+therefore judged by how close it sits to that name.
+
+Right next to the name, the comment stays with it:
 
 ```gren
 -- you wrote:
@@ -1524,8 +1072,7 @@ effect module MyModule where
     } exposing (..)
 ```
 
-Widen the gap — same line, nothing else changed — and the comment no longer
-reads as attached to the name, so it lands below the module line instead:
+Wider spacing severs the link and the comment lands below the module line:
 
 ```gren
 -- you wrote (only more spaces before the comment):
@@ -1537,20 +1084,9 @@ effect module MyModule where { command = MyCmd } exposing (..)
 {- note -}
 ```
 
-The `}` itself plays no part: a far-from-the-name comment *inside* the braces
-and a comment *after* the closing brace format exactly the same way, because
-the brace is one of the pieces the formatter cannot see. Ordinary `module` and
-`port module` lines don't have this problem — everything a comment can sit
-next to there has a known position, or one the formatter can work out (in
-`module Foo exposing (…)` the `exposing` always starts right after the module
-name, so its place is known even though the parser doesn't record it; in an
-effect module the `where { … }` block of unknown width sits in between, so it
-isn't). This stays as-is until the parser records the missing positions; it is
-imperfection 2 in the [summary](#summary-known-imperfections).
-
 ### Doc comments (`{-| ... -}`)
 
-A doc comment sits directly above the declaration it documents, with no blank
+A doc comment sits directly above the declaration it documents with no blank
 line between them. A module doc comment comes right after the module line:
 
 ```gren
@@ -1569,8 +1105,8 @@ foo n =
 
 ### Blank lines around comments
 
-Whether a comment touches the declaration below it mirrors your source. Write
-them together and they stay together:
+A comment directly above a declaration stays attached — no blank line between
+them:
 
 ```gren
 -- about foo
@@ -1578,18 +1114,11 @@ foo =
     1
 ```
 
-Leave a blank line and they stay apart — the comment stands on its own, and
-the gap is sized by the usual blank-line rules (so a single blank before a
-top-level declaration grows to the standard two):
+A comment separated from the code below it by a blank line stays separate. The
+blank line is preserved, and the code below still gets its normal two blank
+lines:
 
 ```gren
--- you wrote:
--- a loose remark
-
-foo =
-    1
-
--- formats to:
 -- a loose remark
 
 
@@ -1599,98 +1128,33 @@ foo =
 
 ### A comment at the *end* of something
 
-Suppose a declaration ends with a long, wrapped expression, and the next line
-is a comment. Does the comment belong to the code above it, or to whatever
-comes next? The formatter reads your **indentation** as the answer: indented
-like the code above it, the comment belongs to that code and stays there; at
-the left margin, it introduces what comes next and stays at the margin. Both
-versions of this file are left exactly as written:
+A comment's **indentation** determines which declaration it belongs to. Indented
+like the code above it, it belongs to that code and stays there. At the left
+margin, it introduces what comes next:
 
 ```gren
--- indented: the comment is part of the chain above it
+-- indented: part of the chain above
 total =
     leftComponent
         ++ rightComponent
-        ++ aTrailingValueThatPushesThisLineOutPastTheEightyColumnLimit
+        ++ trailingValue
         {- still part of the chain -}
 ```
 
 ```gren
--- at the margin: the comment introduces whatever comes next
+-- at the margin: belongs to whatever comes next
 total =
     leftComponent
         ++ rightComponent
-        ++ aTrailingValueThatPushesThisLineOutPastTheEightyColumnLimit
-{- about whatever comes next -}
+        ++ trailingValue
+{- about the next declaration -}
 ```
 
-The same choice is available after a pipeline's last step, a wrapped import —
-the end of any multi-line declaration. After the last variant of a custom
-type, it is what keeps a `-- ^` doc note attached to its variant — indented
-like the variants (lining up with the `|` counts as indented), it stays put:
+A blank line always cuts the comment loose regardless of indentation.
 
-```gren
-type Doc
-    = DocText String
-    -- ^ A literal string.
-    | DocShared Int
-    -- ^ A sub-document marked for memoization.
-```
-
-A blank line between the code and the comment always cuts the comment loose,
-no matter how it's indented. It moves to the margin and attaches to what
-follows:
-
-```gren
--- you wrote (indented, but with a blank line in between):
-total =
-    leftComponent
-        ++ aTrailingValueThatPushesThisLineOutPastTheEightyColumnLimit
-
-        {- detached by the blank line -}
-next =
-    2
-
--- formats to:
-total =
-    leftComponent
-        ++ aTrailingValueThatPushesThisLineOutPastTheEightyColumnLimit
-
-
-{- detached by the blank line -}
-next =
-    2
-```
-
-What about a comment at the end of the *last line itself*, instead of on its
-own line? It stays right there if the line has room:
-
-```gren
-limit =
-    100 {- a short note -}
-```
-
-If the line would run past the page width, the comment drops to its own line,
-indented with the code it ends — the first form above:
-
-```gren
--- you wrote (one line, too wide):
-total =
-    leftComponent
-        ++ aTrailingValueThatPushesThisLineOutPastTheEightyColumnLimit {- this trailing note is far too long to stay on that line -}
-
--- formats to:
-total =
-    leftComponent
-        ++ aTrailingValueThatPushesThisLineOutPastTheEightyColumnLimit
-        {- this trailing note is far too long to stay on that line -}
-```
-
-Two spots are handled more simply: a comment at the end of a **type
-signature** or of the **module line** always moves to the left margin, even
-when it would have fit. A comment below a signature reads as introducing the
-definition anyway, and the margin is the one spot that reads the same whether
-or not the line had room:
+Two spots are handled specially: a comment at the end of a **type signature**
+or the **module line** always moves to the left margin, even when it would
+have fit inline:
 
 ```gren
 -- you wrote:
@@ -1705,101 +1169,39 @@ foo n =
     n
 ```
 
-By contrast, a comment that is genuinely *inside* a construct stays inside it. A
-comment before a closing bracket stays in the container:
-
-```gren
-[ 1
-, 2 {- a note -}
-]
-```
-
 ### A trailing comment on a `when` branch body
 
-A block comment written at the end of a `when` branch body is given special
-handling so it stays on a stable row, in one of two ways depending on whether
-another branch follows.
-
-If it's the **last** branch, the comment is glued to the body's last line — even
-when that runs the line past the page width:
+A block comment at the end of a `when` branch body attaches to the body's
+last line, staying inline — regardless of whether another branch follows:
 
 ```gren
 describe x =
     when x is
-        Wrapped value ->
-            firstComponent
-                ++ secondComponent
-                ++ thirdComponentThatPushesThisPastEighty {- a trailing note that runs well past the page width here -}
+        Foo ->
+            someValue {- trailing note -}
+
+        Bar ->
+            otherValue
 ```
 
-If **another branch follows**, the comment is lifted onto its own line at the
-branch (pattern) indent — lined up with the patterns, *not* with the body — so it
-reads as belonging between the two branches:
+### When the formatter can't tell what you meant
 
-```gren
-describe x =
-    when x is
-        Wrapped value ->
-            firstComponent
-                ++ secondComponent
-                ++ thirdComponentThatPushesThisPastEighty
-        {- a trailing note that runs well past the page width here -}
+Some tokens — `=`, `:`, `|`, an import's `as` and alias name — are parsed and
+then discarded, leaving no position in the AST. A comment beside one of these
+is always placed on **one canonical side**, so two programs that differ only in
+which side of such a token a comment sits on format to the *same* output.
 
-        _ ->
-            "other"
-```
-
-The comment stays with the branch it trails; the usual blank line then separates
-that branch from the next.
-
-Either way the comment lands somewhere it stays put on every later format.
-
-**Why two different rules instead of one?** It's tempting to just glue the comment
-to the body's last line in every branch. That works for the last branch and for
-simple bodies, but for a non-last branch the comment wouldn't stay put:
-
-- When a non-last branch's body is itself multi-line — an `if`, a `let`, or a
-  long wrapped expression — there's no single clean last line to glue onto. The
-  comment would land deep inside the body, where it reads as sitting *between*
-  the branches — so the next run of the formatter would move it, and it would
-  creep on every run. The between-branches position (aligned with the patterns)
-  is the one spot it stays put, so the formatter puts every non-last branch's
-  trailing comment there, uniformly.
-- The last branch has no following branch to sit above. A comment lifted there
-  would fall all the way out to the left margin and read as a free-floating
-  top-level comment, detached from the branch it annotates — so it's glued to
-  the body's last line instead, which (with nothing after it) stays put.
-
-This anchoring is specific to `when` branches, which have those two stable homes
-(between branches, or the last branch's body line). A trailing comment on a plain
-function body has a different stable home — its own line at the body's inner
-indent, as described in
-[A comment at the end of something](#a-comment-at-the-end-of-something) above.
-
-### When the formatter genuinely can't tell what you meant
-
-Some pieces of Gren syntax — `=`, `:`, `|`, and an import's `as` keyword and
-alias name — are recognized by the parser and then **thrown away**. They leave
-no trace in the parsed program. If you put a comment right next to one of
-these, the formatter can see the comment is *somewhere in that gap*, but it has
-no way to know which side of the (now-invisible) symbol you meant it to be on.
-
-Rather than guess, the formatter picks **one** canonical spot and always renders
-the comment there. So two programs that differ only in which side of one of these
-symbols a comment sits on will format to the *same* output. In each case below,
-*either* input on the left becomes the single form on the right.
-
-A comment around a signature's `:` always lands **after** the `:`:
+A comment around a signature's `:` always lands **after** it:
 
 ```gren
 foo {- c -} : Int          -->   foo : {- c -} Int
 foo : {- c -} Int          -->   foo : {- c -} Int
 ```
 
-A comment around a definition's `=` always lands **after** the `=`:
+A comment around a definition's `=` always lands **after** it:
 
 ```gren
--- both of these inputs:
+-- both of these:
 foo {- c -} = 42
 foo = {- c -} 42
 
@@ -1808,11 +1210,10 @@ foo = {- c -}
     42
 ```
 
-A comment around a union `|` always lands **after the variant before it** (so if
-you wrote it after the `|`, it moves up to the end of the previous variant):
+A comment around a union `|` always lands **after the variant before it**:
 
 ```gren
--- both of these inputs:
+-- both of these:
 type T = A {- c -} | B
 type T = A | {- c -} B
 
@@ -1822,11 +1223,10 @@ type T
     | B
 ```
 
-A comment around an import's `as` (or around the alias name after it) always
-lands **before the `as`**:
+A comment around an import's `as` always lands **before** it:
 
 ```gren
--- both of these inputs:
+-- both of these:
 import Foo {- c -} as Bar
 import Foo as {- c -} Bar
 
@@ -1834,272 +1234,84 @@ import Foo as {- c -} Bar
 import Foo {- c -} as Bar
 ```
 
-So if you write one of the left-hand forms, expect the formatter to rewrite it
-to the right-hand one. These spots are the one exception to the formatter's
-faithfulness to your comment placement — and they're unavoidable, because the
-information simply isn't there in the parsed program.
-
 ---
 
 ## Idempotency
 
-"Idempotent" is the promise that **formatting already-formatted
-code gives you back exactly the same code.** Format once or format ten times —
-same result.
+Formatting already-formatted code produces exactly the same code back. Format
+once or ten times — same result.
 
-The formatter holds to this everywhere we can measure. A torture test
-(`effectful-tests/fuzz-idempotency.py`) inserts a block comment into *every*
-gap between tokens of every test file, formats twice, and requires the two
-outputs to be byte-identical; it currently finds **zero** comment placements
-that fail this.
-
-The historically hard case was a comment at the end of a long, wrapped
-expression — early versions would put it one place on the first format and
-nudge it on the second. That's solved by reading the comment's indentation as
-its attachment (see
-[A comment at the end of something](#a-comment-at-the-end-of-something)):
-wherever the first format puts the comment, its indentation says exactly the
-same thing to every later format, so it never moves again.
-
-If you ever catch the formatter producing a different result the second time
-it runs on the same file, that's a bug — please report it with the file that
-triggers it.
+A torture test inserts a block comment into every inter-token gap of every
+fixture file, formats twice, and requires byte-identical output. It currently
+finds **zero** non-idempotent gaps across the whole test corpus.
 
 ---
 
-## Known limitations: whitespace canonicalization gaps
+## Known limitations
 
-There's a stronger promise the formatter *tries* to keep but doesn't fully reach:
-that the output depends only on what your code *means*, not on the incoming
-spacing. In other words, if you take a file and mangle its blank lines and
-indentation **without** changing what it parses to, re-formatting *should* give
-byte-identical output.
+### A compiler bug with postfix field access
 
-This holds for the vast majority of code. The remaining gaps are all
-about comments and blank lines — not about regular code. There are two main
-families.
-
-(One related behavior is deliberate, not a gap: changing a comment's
-*indentation* can change which code it attaches to — indented under the code
-above it, it belongs to that code; at the margin, it belongs to what follows.
-That's the formatter reading your layout as intent, not noise; see
-[A comment at the end of something](#a-comment-at-the-end-of-something).)
-
-### Blank lines near a comment-and-declaration pair
-
-When a comment documents a declaration, the formatter decides whether to keep a
-blank line between them by looking at row positions in your source. A line break
-injected *inside* the declaration's head can shift that decision, so the blank
-line is sometimes added or dropped.
-
-For example, write a comment directly above an import and they stay together —
-no blank line:
-
-```gren
--- you write:
--- uses Array
-import Array
-
--- formats to (unchanged):
--- uses Array
-import Array
-```
-
-Now write the *same* import with its `import` keyword on its own line, above the
-module name — identical to the parser. This time the formatter inserts a blank
-line, detaching the comment (and the import still rejoins on one line in the
-output):
-
-```gren
--- you write (the import head spans two rows now):
--- uses Array
-import
-    Array
-
--- formats to:
--- uses Array
-
-import Array
-```
-
-The root cause is upstream, in the parser:
-[gren-lang/compiler-common#25](https://github.com/gren-lang/compiler-common/issues/25)
-— "The wrong row number is assigned to `import`, `type`, `type alias`, and
-`port` in the AST". When one of those keywords is separated from its name by a
-line break, the parser records the wrong line number for the declaration. The
-formatter trusts that number when checking whether the comment sits directly
-above the declaration, so the check wrongly concludes they're a line apart and
-inserts the blank. Once #25 is fixed, the formatter can get this right.
-
-### A multi-line block comment's body is kept verbatim
-
-This one is intentional, not a defect — but it is a whitespace-canonicalization
-gap of the same kind (two inputs differing only in whitespace can format
-differently). As described in the **Block comments** section above, when a
-multi-line `{- ... -}` comment starts with the `{-` **alone on its first
-line**, the formatter leaves the body **exactly as written**, column for
-column, rather than re-indenting it. That protects ASCII art and hand-aligned
-blocks. (The mode is decided only by the comment's own text — whether the
-opener's line carries content — so whitespace *around* the comment can never
-flip it.)
-
-The consequence is that the body's leading whitespace is no longer canonicalized:
-two inputs that differ only in how far the body is indented format to two
-different outputs.
-
-```gren
--- one author wrote:
-x =
-    {-
-       diagram line
-    -}
-    1
-
--- another indented the body further:
-x =
-    {-
-              diagram line
-    -}
-    1
-```
-
-Both are left untouched, so they stay different. (Formatting is still
-idempotent — each output formats back to itself — and the comment's meaning is
-unchanged; it's only that the body indentation you chose is preserved rather than
-normalized.) This is the deliberate trade for not mangling the alignment
-of text within the comment.
-
-None of these change the meaning of your code, and none affect code without
-comments. They're documented here for completeness and tracked for future work.
-
----
-
-## Summary: known imperfections
-
-Everything above describes what the formatter does. Here is the short
-list of what it does imperfectly, collected in one place, with pointers to the
-fuller explanations.
-
-First, the two core promises: the formatter **never changes what your code
-means**, and formatting is **stable** — format a file once or ten times and
-you get the same bytes ([Idempotency](#idempotency)).
-
-**One open bug currently breaks the first promise.** Field access written
-directly after a closing bracket or a qualified name —
+Field access written directly after a closing bracket or a qualified name —
 
 ```gren
 (getUser model).name
 { x = 1 }.x
-{ r | x = 1 }.x
 Config.default.timeout
 ```
 
 — is formatted with a space before the dot (`(getUser model) .name`). That
 space changes the meaning: it applies the accessor *function* `.name` to the
-value instead of reading its field, and the formatted file no longer
-compiles ("This value is not a function, but it was given 1 argument"). The
-cause is in the parser the formatter is built on: it reads both spellings as
-the same expression, so the formatter cannot see the difference — and for the
-same reason the AST-equivalence safety check passes. Until the parser is
-fixed, don't format files containing `).field`, `}.field`, or
-`Module.value.field`. Waiting on
+value instead of reading its field, and the formatted file no longer compiles.
+The cause is in the parser: it reads both spellings as the same expression.
+Until the parser is fixed, avoid formatting files that contain `).field`,
+`}.field`, or `Module.value.field`. Tracking:
 [compiler-common#27](https://github.com/gren-lang/compiler-common/issues/27).
 
-**A second bug can leave a formatted file the current compiler cannot parse.**
-A `when` branch whose record (or array) pattern is too wide for one line is
-sometimes wrapped like a record literal, with the commas and the closing brace
-lined up under the opening brace:
+### Wide `when` branch patterns
+
+A `when` branch whose record (or array) pattern is too wide to fit on one line
+can wrap in a way the Haskell-based Gren compiler rejects:
 
 ```gren
--- input
-merge cf ms1 ms2 =
-    when { aPopped = Array.popFirst ms1, bPopped = Array.popFirst ms2 } is
-        { aPopped = Just { first = m1, rest = ms1rest }, bPopped = Just { first = m2, rest = ms2rest } } ->
-            if dominates cf m1 m2 then
-                merge cf ms1 ms2rest
-
-            else
-                merge cf ms1rest ms2
-
-        _ ->
-            ms2
-
--- the formatter wraps the wide pattern like this:
+-- the formatter may produce:
         { aPopped = Just { first = m1, rest = ms1rest }
         , bPopped = Just { first = m2, rest = ms2rest }
         } ->
 ```
 
-The current (Haskell-based) Gren compiler rejects that layout: inside a `when`
-branch it requires every continuation line of a pattern to be indented deeper
-than the pattern's first character, so compiling the formatted file fails
-with:
+The Haskell compiler requires every continuation line of a pattern to be
+indented deeper than the pattern's first character, and this layout doesn't
+satisfy that. Compiling the formatted file may fail with "I was expecting to
+see a closing curly brace next." Rejoin the pattern onto one line by hand
+until this is resolved.
 
-```
-I was expecting to see a closing curly brace next. Try adding a } here?
-```
+### Comment placement near invisible tokens
 
-The parser the formatter is built on accepts the layout, so the formatter's
-own checks pass. Depending on the surrounding code the formatter sometimes
-picks a deeper-indented wrap instead — which the compiler does accept — but
-it can pick this one. Once it has, the file cannot be compiled with the
-Haskell-based compiler until the pattern is rejoined onto one line (or its
-continuation lines indented deeper) by hand.
+As described in [When the formatter can't tell what you meant](#when-the-formatter-genuinely-cant-tell-what-you-meant), a comment beside `=`, `:`, `|`, or an import's `as` always snaps to one
+canonical side. Two different intents produce the same output.
 
-Every other imperfection below is about *comments and blank lines*; code
-without comments has none of these issues.
+A comment at the end of a type signature or module line always moves to the
+left margin, even when it would have fit.
 
-1. **A line break inside a declaration's head can flip a blank line.** Write
-   `import` on one line and the module name on the next, with a comment above,
-   and a blank line wrongly appears between the comment and the import. The
-   cause is a parser bug — it records the wrong line number for the keyword —
-   so this waits on
-   [compiler-common#25](https://github.com/gren-lang/compiler-common/issues/25).
-   See [Blank lines near a comment-and-declaration pair](#blank-lines-near-a-comment-and-declaration-pair).
+### A line break inside a declaration's head
 
-2. **Comments near an effect module's `where { … }` block can move when
-   spacing changes.** Everything after the block's last constructor — the `}`,
-   the `exposing` — is invisible to the formatter, so a comment there attaches
-   by how close it happens to sit to the constructor. Widen the gap and it
-   lands somewhere else. Every fix we've found makes something else worse, so
-   this stays as-is until the parser records those positions. (Effect modules
-   are rare, so few files can hit this.) See
-   [Comments in an effect module's header](#comments-in-an-effect-modules-header).
+A line break *inside* a declaration's keyword (e.g. `import` on one line,
+the module name on the next) can cause a blank line to appear between a
+comment and that declaration. The root cause is a parser bug that records the
+wrong line number for keyword-led declarations:
+[compiler-common#25](https://github.com/gren-lang/compiler-common/issues/25).
 
-3. **Some comment placements collapse into one.** A comment beside an
-   invisible symbol — `=`, `:`, `|`, an import's `as` — always snaps to one
-   chosen side, because the formatter cannot tell which side you meant. Two
-   different intents produce the same output. See
-   [When the formatter genuinely can't tell what you meant](#when-the-formatter-genuinely-cant-tell-what-you-meant).
-   Relatedly, a comment at the end of a type signature or the module line
-   always moves to the left margin, even when it would have fit where you
-   wrote it.
+### Comments near an effect module's `where` block
 
-4. **Spacing around comments is treated as intent, so changing it changes the
-   output.** Inline or on its own line, indented or at the margin, blank line
-   or none — the formatter keeps whichever you wrote
-   ([A comment at the end of something](#a-comment-at-the-end-of-something)).
-   The same goes for a verbatim comment body (`{-` alone on its line): its
-   hand-alignment is preserved, never tidied. This is a feature, but it means
-   two files differing only in comment spacing can format differently — so it
-   shares a border with the genuine gaps above.
+As described in [Comments in an effect module's header](#comments-in-an-effect-modules-header),
+a comment's placement near the `where { … }` block is determined by proximity
+to the handler name. Changing the spacing can change where the comment ends up.
+This stays as-is until the parser records positions for the missing tokens.
 
-5. **The tail is fully triaged, with no open formatter bugs.** Automated
-   testing that injects line breaks into unusual spots once flagged a tail of
-   cases; these have all been sorted out. Three were real formatter bugs and
-   are fixed: a wrapped `infix` declaration that left a stray blank line below
-   it; a line break *inside* a record type or parentheses in a signature that
-   wrongly flipped the whole signature to multi-line (only a break between the
-   `->` parts should); and a multi-line `{- … -}` comment attached to the
-   declaration above it leaving a trailing-whitespace line behind it. What
-   remains are two known placement effects, not bugs:
-   - **Blank lines around a keyword-led declaration** (`import`, `type`,
-     `port`, …) can shift, because the parser records the declaration's name
-     row, not its keyword row (point 1's cause). Waits on
-     [compiler-common#25](https://github.com/gren-lang/compiler-common/issues/25).
-   - **A comment beside a position-less token** (`exposing`, the `port`/effect
-     `where` keywords) can re-home when nearby spacing moves that token's row —
-     the same missing-position cause as points 2 and 3.
+### Verbatim block comment bodies
 
-   The whitespace fuzzer marks both of these as **accepted** (with the reason),
-   so all three of its modes now pass with nothing left to report.
+When a multi-line block comment opens with `{-` alone on its first line, the
+body is kept verbatim — columns are not canonicalized. Two inputs that differ
+only in the body's indentation format to two different outputs. This is
+deliberate (it protects ASCII art and aligned tables), but it means this class
+of comment is not whitespace-canonical.
