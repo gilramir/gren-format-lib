@@ -8,8 +8,8 @@ used to rewrite the text on the deepest leaf of a subtree.
 
 import Compiler.SourcePosition exposing (Located, Position)
 
-import Formatter.LogicalPrintingTree exposing (LPBox(..),
-    LPNode(..), lpnBox, lpnChildren, lpnLeaf, lpnNode)
+import Formatter.LogicalPrintingTree exposing (LPBox(..), ListBrackets(..),
+    LPNode(..), lpnBox, lpnChildren, lpnLeaf, lpnNode, lpnBracketNode)
 
 
 mkText : Position -> String -> LPBox
@@ -74,6 +74,37 @@ itemsSpanRows items =
         { prevEndRow = -1, spans = False }
         items
         |> .spans
+
+
+{-| Build a bracketed container node (record/array literal, record/array
+pattern) from its already-built item nodes, applying the author-layout box
+choice in one place.
+
+  - No items → `empty`, the caller's own empty-bracket leaf (`EmptyBracketed`
+    for literals, a `{}`/`[]` text leaf for patterns). The empty form genuinely
+    differs per caller, so it stays a parameter.
+  - Some items → an `lpnBracketNode` whose box is `AlwaysVertical` when the
+    author wrote the items across rows (`spans`, from `itemsSpanRows`), else
+    `AllAcrossOrAllVertical` (inline unless it carries a comment). `closeEnd` is
+    the closing bracket's source position, registered so an own-line comment
+    before the close stays inside the container.
+
+This is the single home of the one-line-vs-multi-row box choice the bracketed
+containers share. (Record *updates* use the `RecordUpdate` box and record
+*types* additionally record an opening-bracket position, so they build their
+nodes directly rather than through here.)
+-}
+authoredBracketList : ListBrackets -> Bool -> Position -> LPNode -> Array LPNode -> LPNode
+authoredBracketList brackets spans closeEnd empty itemNodes =
+    when Array.popFirst itemNodes is
+        Nothing ->
+            empty
+
+        Just _ ->
+            lpnBracketNode
+                (if spans then AlwaysVertical brackets else AllAcrossOrAllVertical brackets)
+                closeEnd
+                itemNodes
 
 
 {-| Precedence of a binary operator, used to lay out a binop chain by breaking

@@ -17,7 +17,7 @@ import Formatter.LogicalPrintingTree exposing (LPBox(..),
 import Formatter.LPTHelpers exposing
     ( mkText, mkZeroWidthText, mkTextFromLocString, resultFoldl
     , tryMapFirstLeaf, tryMapLastLeaf, fixupParensChildrenNodes
-    , itemsSpanRows, binopPrecedence, binopMinPrecedence
+    , itemsSpanRows, authoredBracketList, binopPrecedence, binopMinPrecedence
     )
 import Formatter.LiteralFormat exposing (charLiteralString, escapeStringContent, escapeMultilineContent, intToHex)
 import Formatter.InsertPatterns exposing (argNeedsParens, folderInsertPattern, insertPattern)
@@ -287,50 +287,25 @@ insertExpression locExpr =
                         Just _ -> Ok [lpnBracketNode ParenBlock locExpr.end nodes])
 
         Src.ArrayLiteral exprArray ->
-            resultFoldl folderInsertExprAsArgItem [] exprArray
+            -- The author's layout decides the list shape (see `authoredBracketList`):
+            -- items across rows stay one-per-line, items on one row stay inline.
+            -- `locExpr.end` is the `]`; the empty form is an `EmptyBracketed` `[]`.
+            resultFoldl folderInsertExprAsItem [] exprArray
                 |> Result.map (\itemNodes ->
-                    when Array.popFirst itemNodes is
-                        Nothing ->
-                            [lpnLeaf (EmptyBracketed { start = locExpr.start, end = locExpr.end, value = ListSquare })]
-                        Just _ ->
-                            -- The author's layout decides the list shape: if the
-                            -- items were written across multiple rows, keep them
-                            -- one-per-line (`AlwaysVertical`); if they were on one
-                            -- row, keep them inline (`AllAcrossOrAllVertical`,
-                            -- which renders flat unless it carries a comment).
-                            -- `locExpr.end` is the `]`, so a comment on its own
-                            -- line before the `]` stays inside the array.
-                            let
-                                listBox =
-                                    if itemsSpanRows exprArray then
-                                        AlwaysVertical ListSquare
-                                    else
-                                        AllAcrossOrAllVertical ListSquare
-                            in
-                            [lpnBracketNode listBox locExpr.end itemNodes]
+                    [ authoredBracketList ListSquare (itemsSpanRows exprArray) locExpr.end
+                        (lpnLeaf (EmptyBracketed { start = locExpr.start, end = locExpr.end, value = ListSquare }))
+                        itemNodes
+                    ]
                 )
 
         Src.Record fieldArray ->
+            -- Like array literals; `locExpr.end` is the `}`, empty form `{}`.
             resultFoldl folderInsertRecordField [] fieldArray
                 |> Result.map (\fieldNodes ->
-                    when Array.popFirst fieldNodes is
-                        Nothing ->
-                            [lpnLeaf (EmptyBracketed { start = locExpr.start, end = locExpr.end, value = ListCurly })]
-                        Just _ ->
-                            -- Like array literals, the author's layout chooses the
-                            -- shape: fields written on one line stay inline
-                            -- (regardless of width); fields the author
-                            -- spread across rows stay one-per-line.
-                            -- `locExpr.end` is the `}`, so a comment on its own
-                            -- line before the `}` stays inside the record.
-                            let
-                                recordBox =
-                                    if recordFieldsSpanRows fieldArray then
-                                        AlwaysVertical ListCurly
-                                    else
-                                        AllAcrossOrAllVertical ListCurly
-                            in
-                            [lpnBracketNode recordBox locExpr.end fieldNodes]
+                    [ authoredBracketList ListCurly (recordFieldsSpanRows fieldArray) locExpr.end
+                        (lpnLeaf (EmptyBracketed { start = locExpr.start, end = locExpr.end, value = ListCurly }))
+                        fieldNodes
+                    ]
                 )
 
         Src.Update { record = record, newValues = newValues } ->
@@ -467,7 +442,7 @@ insertExpression locExpr =
         Src.Call { fn = fnExpr, args = argsExprs } ->
             insertExpression fnExpr
                 |> Result.andThen (\fnNodes ->
-                    resultFoldl folderInsertExprAsArgItem fnNodes argsExprs
+                    resultFoldl folderInsertExprAsItem fnNodes argsExprs
                         -- AcrossThenIndent: overflow arguments indent +4 from the function name,
                         -- keeping them visually distinct from the surrounding context.
                         |> Result.map (\allNodes ->
@@ -653,35 +628,15 @@ insertExpressionAsItem locExpr =
         )
 
 
-{-| Folder for function-call arguments.
-
-Produces an `LPNode` per expression and converts `AlwaysVertical` /
-`RecordUpdate` top-level nodes to `AllAcrossOrAllVertical` so that records
-used as arguments can remain inline when they fit.
--}
-folderInsertExprAsArgItem : Src.Expression -> Array LPNode -> Result String (Array LPNode)
-folderInsertExprAsArgItem expr accNodes =
+{-| `resultFoldl` folder that builds one `LPNode` per expression (via
+`insertExpressionAsItem`) and appends it. Used for array-literal items and
+function-call arguments alike: every container literal now derives its
+inline-vs-vertical shape from the author's layout, so an argument needs no
+position-specific rewriting. -}
+folderInsertExprAsItem : Src.Expression -> Array LPNode -> Result String (Array LPNode)
+folderInsertExprAsItem expr accNodes =
     insertExpressionAsItem expr
-        |> Result.map (\node -> Array.pushLast (convertForArg node) accNodes)
-
-
-{-| Hook for adjusting a node when it appears as a function-call argument or
-list item.
-
-Every container literal — list, record, and record update — now derives its
-inline-vs-vertical shape from the author's layout (`Src.ArrayLiteral`,
-`Src.Record`, `Src.Update`), so a one-line-authored container already renders
-inline and nothing needs rewriting for the argument position. The only
-remaining work is to recurse through `ParenBlock` in case a future rule wants to
-reach the parenthesized form. (This hook is now nearly an identity function —
-see the standalone review's step 3 for collapsing it.)
--}
-convertForArg : LPNode -> LPNode
-convertForArg node =
-    when lpnBox node is
-        ParenBlock ->
-            lpnNode ParenBlock (Array.map convertForArg (lpnChildren node))
-        _ -> node
+        |> Result.map (\node -> Array.pushLast node accNodes)
 
 
 {-| Wrap an expression as a single `IndentedBlock` node.

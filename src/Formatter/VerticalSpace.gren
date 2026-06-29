@@ -341,12 +341,21 @@ Runs *after* `Formatter.Comments`, so comment nodes already sit in the binding
 sequence as their own nodes — see `insertBlanksInLetFlow`. Rebuilds via
 `lpnReplaceChildren` so bracket-extent caches survive.
 -}
+-- Recurse over the whole tree, applying a per-flow blank-line `transform` to
+-- every node's child sequence bottom-up. Rebuilds each node via
+-- `lpnReplaceChildren` so bracket-extent caches survive. The three
+-- blank-line passes (`let`, `if`, `when`) differ only in `transform`.
+mapFlows : (Array LPNode -> Array LPNode) -> LPNode -> LPNode
+mapFlows transform node =
+    let
+        recursed = Array.map (mapFlows transform) (lpnChildren node)
+    in
+    lpnReplaceChildren node (transform recursed)
+
+
 insertLetBlankLines : LPNode -> LPNode
 insertLetBlankLines node =
-    let
-        recursed = Array.map insertLetBlankLines (lpnChildren node)
-    in
-    lpnReplaceChildren node (insertBlanksInLetFlow recursed)
+    mapFlows insertBlanksInLetFlow node
 
 
 -- True if a node is an `else if` condition: an `IfCondition` whose first leaf
@@ -455,10 +464,7 @@ between-branch comment is already a sibling among the branch nodes. Rebuilds via
 -}
 insertWhenBlankLines : LPNode -> LPNode
 insertWhenBlankLines node =
-    let
-        recursed = Array.map insertWhenBlankLines (lpnChildren node)
-    in
-    lpnReplaceChildren node (insertBlanksInWhenFlow recursed)
+    mapFlows insertBlanksInWhenFlow node
 
 
 {-| Insert a single blank-line `EmptyLine` marker before every `else if` and
@@ -473,7 +479,4 @@ survive.
 -}
 insertIfBlankLines : LPNode -> LPNode
 insertIfBlankLines node =
-    let
-        recursed = Array.map insertIfBlankLines (lpnChildren node)
-    in
-    lpnReplaceChildren node (insertBlanksInIfFlow recursed)
+    mapFlows insertBlanksInIfFlow node

@@ -12,7 +12,7 @@ import Compiler.SourcePosition exposing (Located, Position)
 
 import Formatter.LogicalPrintingTree exposing (LPBox(..),
     LPNode(..), ListBrackets(..), lpnBox, lpnChildren, lpnLeaf, lpnNode, lpnBracketNode)
-import Formatter.LPTHelpers exposing (mkText, mkZeroWidthText, mkTextFromLocString, resultFoldl, itemsSpanRows)
+import Formatter.LPTHelpers exposing (mkText, mkZeroWidthText, mkTextFromLocString, resultFoldl, itemsSpanRows, authoredBracketList)
 import Formatter.LiteralFormat exposing (charLiteralString, escapeStringContent, intToHex)
 
 
@@ -26,34 +26,27 @@ insertPattern locPat =
             Ok [lpnLeaf (mkText locPat.start ("_" ++ name))]
 
         Src.PRecord fields ->
-            when Array.popFirst fields is
-                Nothing ->
-                    Ok [lpnLeaf (mkText locPat.start "{}")]
-                Just _ ->
-                    let
-                        -- Signal B: a field spans from its name to the end of its
-                        -- sub-pattern (or the name itself for a bare `{ x }`).
-                        spans =
-                            itemsSpanRows
-                                (Array.map
-                                    (\f ->
-                                        { start = f.field.start
-                                        , end = Maybe.map .end f.pattern |> Maybe.withDefault f.field.end
-                                        }
-                                    )
-                                    fields
-                                )
-                        box = if spans then AlwaysVertical ListCurly else AllAcrossOrAllVertical ListCurly
-                    in
-                    resultFoldl folderInsertPRecordField [] fields
-                        -- Register the closing `}` (locPat.end) so an own-line
-                        -- comment between the last field and the close is
-                        -- classified as *inside* the pattern (and stays there),
-                        -- matching record literals. With only the last field's
-                        -- end as an inexact bracket end, such a comment fell
-                        -- past the pattern's row range on reparse and re-glued
-                        -- after the `}` (non-idempotent).
-                        |> Result.map (\fieldNodes -> [lpnBracketNode box locPat.end fieldNodes])
+            let
+                -- Signal B: a field spans from its name to the end of its
+                -- sub-pattern (or the name itself for a bare `{ x }`).
+                spans =
+                    itemsSpanRows
+                        (Array.map
+                            (\f ->
+                                { start = f.field.start
+                                , end = Maybe.map .end f.pattern |> Maybe.withDefault f.field.end
+                                }
+                            )
+                            fields
+                        )
+            in
+            resultFoldl folderInsertPRecordField [] fields
+                -- `locPat.end` registers the closing `}` so an own-line comment
+                -- between the last field and the close stays *inside* the pattern
+                -- (matching record literals); the empty form is a `{}` text leaf.
+                |> Result.map (\fieldNodes ->
+                    [authoredBracketList ListCurly spans locPat.end (lpnLeaf (mkText locPat.start "{}")) fieldNodes]
+                )
 
         Src.PAlias { pattern = pat, name = name } ->
             insertPattern pat
@@ -104,26 +97,12 @@ insertPattern locPat =
                         |> Result.map (\argNode -> [ctorNode, parenCtorArg argPat argNode])
 
         Src.PArray patterns ->
-            let
-                box =
-                    if itemsSpanRows patterns then
-                        AlwaysVertical ListSquare
-                    else
-                        AllAcrossOrAllVertical ListSquare
-            in
+            -- `locPat.end` registers the closing `]` so a trailing comment
+            -- classifies by the bracket's real position (not the last item's end
+            -- + slack); the empty form is a `[]` text leaf. Matches PRecord above.
             resultFoldl folderInsertPatternAsItem [] patterns
                 |> Result.map (\itemNodes ->
-                    when Array.popFirst itemNodes is
-                        Nothing ->
-                            [lpnLeaf (mkText locPat.start "[]")]
-                        Just _ ->
-                            -- Register the closing `]` (locPat.end) so a
-                            -- trailing comment classifies as inside/outside by
-                            -- the bracket's real position, not the last item's
-                            -- end + 2-column slack — the slack made the
-                            -- attachment flip with incoming gap widths.
-                            -- Matches PRecord above.
-                            [lpnBracketNode box locPat.end itemNodes]
+                    [authoredBracketList ListSquare (itemsSpanRows patterns) locPat.end (lpnLeaf (mkText locPat.start "[]")) itemNodes]
                 )
 
         Src.PChr c ->
