@@ -53,31 +53,29 @@ Everything else follows your layout choices.
 
 ## Module declaration
 
-The `module` line always collapses to a single flat line, regardless of how
-you wrote it. The exposing list uses spaces inside the parentheses:
+The `module` line follows your layout for the exposing list. Written on one
+line, it stays on one line:
 
 ```gren
 module MyApp exposing ( Model, Msg, init, update, view, subscriptions )
 ```
 
-If you write the exposing list across rows, it collapses:
+Written across rows, each item gets its own line:
 
 ```gren
--- you wrote:
 module MyApp exposing
     ( Model
     , Msg
     , init
+    , update
+    , view
+    , subscriptions
     )
-
--- formats to:
-module MyApp exposing ( Model, Msg, init )
 ```
 
-The wildcard `exposing (..)` is left exactly as written.
+The wildcard `exposing (..)` is always written as `(..)` on the module line.
 
-When the exposing list contains a comment, it can no longer collapse and falls
-back to the generic flow layout, staying multi-line.
+When the exposing list contains a comment, it is always kept vertical.
 
 ---
 
@@ -89,16 +87,22 @@ A plain import stays on one line:
 import Array
 ```
 
-An alias uses `as`, and an exposing list always collapses to one flat line —
-same as the module declaration:
+An alias uses `as`. An exposing list follows your layout — flat if you wrote
+it flat, vertical if you wrote it across rows:
 
 ```gren
+-- flat:
 import String exposing ( fromInt, toInt )
 
 import Array.Extra as AE exposing ( filterMap, unique )
 
--- stays on one line even when long
-import MyModule exposing ( AlphaType, BetaType, gammaFunction, deltaFunction, epsilonValue )
+-- vertical:
+import Dict exposing
+    ( Dict
+    , empty
+    , fromArray
+    , get
+    )
 ```
 
 ---
