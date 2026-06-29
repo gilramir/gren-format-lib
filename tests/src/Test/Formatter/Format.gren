@@ -229,6 +229,7 @@ importSuite fsPerm =
             , assertPretty fsPerm "import forms: plain, alias, exposing, combined" "Imports"
             , assertPretty fsPerm "exposing lists: flat stays flat, vertical stays vertical" "ExposingListLayoutByAuthor"
             , assertPretty fsPerm "<| lambda body indents +4 per level, not +8" "BackwardPipelineLambda"
+            , assertPretty fsPerm "when/if/let inside parens: paren-block layout matching elm-format" "ParenBlock"
             ]
         }
 

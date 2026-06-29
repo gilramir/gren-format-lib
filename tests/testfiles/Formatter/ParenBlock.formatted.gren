@@ -1,0 +1,45 @@
+module ParenBlock exposing (..)
+
+
+-- when inside parens: branches at ( + 2, ) on own line
+a x =
+    List.length x + (when x is
+                      Just _ ->
+                          1
+
+                      Nothing ->
+                          0
+                    )
+
+
+-- if/else inside parens: bodies at ( + 2, ) on own line
+b x =
+    1 + (if x then
+          2
+
+         else
+          3
+        )
+
+
+-- else-if chain inside parens
+c x =
+    1 + (if x == 1 then
+          "one"
+
+         else if x == 2 then
+          "two"
+
+         else
+          "other"
+        )
+
+
+-- let inside parens: bindings at ( + 2, in/body at ( + 1, ) on own line
+d x =
+    1 + (let
+          y =
+              2
+         in
+         y + x
+        )

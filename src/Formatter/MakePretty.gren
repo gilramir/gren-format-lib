@@ -933,9 +933,7 @@ makePDoc box children =
         SoftIndentedBlock ->
             buildFlowDoc 0 children
         ParenBlock ->
-            when buildFlowDocInline 0 children is
-                Err e -> Err e
-                Ok innerDoc -> Ok (R.concat (R.text "(") (R.concat innerDoc (R.text ")")))
+            makeParenBlockDoc children
         OpAndRhs ->
             when Array.popFirst children is
                 Just { first = opNode, rest = rhsNodes } ->
@@ -955,37 +953,7 @@ makePDoc box children =
                 Err e -> Err e
                 Ok innerDoc -> Ok (R.align innerDoc)
         WhenFlow { forceVertical } ->
-            when Array.popLast children is
-                Nothing -> Err "WhenFlow: empty children"
-                Just { last = branchesBlock, initial = withoutBranches } ->
-                    when Array.popLast withoutBranches is
-                        Nothing -> Err "WhenFlow: missing is node"
-                        Just { last = _, initial = headerNodes } ->
-                            when Array.popFirst headerNodes is
-                                Nothing -> Err "WhenFlow: missing when node"
-                                Just { rest = scrutineeNodes } ->
-                                    buildFlowDocInline 0 withoutBranches
-                                        |> Result.andThen (\flatHeaderDoc ->
-                                            buildFlowDocInline 0 scrutineeNodes
-                                                |> Result.andThen (\scrutineeDoc ->
-                                                    buildFlowDoc 0 (lpnChildren branchesBlock)
-                                                        |> Result.map (\branchesContent ->
-                                                            let
-                                                                headerDoc =
-                                                                    if forceVertical then
-                                                                        R.concat (R.text "when")
-                                                                            (R.concat
-                                                                                (R.nest grenIndent (R.concat R.hardNl scrutineeDoc))
-                                                                                (R.concat R.hardNl (R.text "is")))
-                                                                    else
-                                                                        flatHeaderDoc
-                                                                branchesDoc =
-                                                                    R.nest grenIndent (R.concat R.hardNl branchesContent)
-                                                            in
-                                                            R.align (R.concat headerDoc branchesDoc)
-                                                        )
-                                                )
-                                        )
+            makeWhenFlowDoc forceVertical grenIndent children
         PrefixGlue prefix ->
             when buildFlowDocInline 0 children is
                 Err e -> Err e
@@ -2456,6 +2424,161 @@ listBoxesWithBracketsUsing itemRenderer open close nodes =
                     result ++ [ R.text close ]
             in
             Ok (R.vcat prefixed)
+
+
+makeWhenFlowDoc : Bool -> Int -> Array LPNode -> Result String Doc
+makeWhenFlowDoc forceVertical branchNest children =
+    when Array.popLast children is
+        Nothing ->
+            Err "WhenFlow: empty children"
+
+        Just { last = branchesBlock, initial = withoutBranches } ->
+            when Array.popLast withoutBranches is
+                Nothing ->
+                    Err "WhenFlow: missing is node"
+
+                Just { last = _, initial = headerNodes } ->
+                    when Array.popFirst headerNodes is
+                        Nothing ->
+                            Err "WhenFlow: missing when node"
+
+                        Just { rest = scrutineeNodes } ->
+                            buildFlowDocInline 0 withoutBranches
+                                |> Result.andThen (\flatHeaderDoc ->
+                                    buildFlowDocInline 0 scrutineeNodes
+                                        |> Result.andThen (\scrutineeDoc ->
+                                            buildFlowDoc 0 (lpnChildren branchesBlock)
+                                                |> Result.map (\branchesContent ->
+                                                    let
+                                                        headerDoc =
+                                                            if forceVertical then
+                                                                R.concat (R.text "when")
+                                                                    (R.concat
+                                                                        (R.nest grenIndent (R.concat R.hardNl scrutineeDoc))
+                                                                        (R.concat R.hardNl (R.text "is")))
+                                                            else
+                                                                flatHeaderDoc
+
+                                                        branchesDoc =
+                                                            R.nest branchNest (R.concat R.hardNl branchesContent)
+                                                    in
+                                                    R.align (R.concat headerDoc branchesDoc)
+                                                )
+                                        )
+                                )
+
+
+{-| Render a ParenBlock: inline for simple expressions, paren-block layout for
+block-style content (when, if, let).  Block layout matches elm-format:
+
+    x + (when y is        -- "when" immediately after "("
+              Just n ->   -- branches at "(" + 2
+                  n
+          )               -- ")" on its own line at "(" column
+-}
+makeParenBlockDoc : Array LPNode -> Result String Doc
+makeParenBlockDoc children =
+    let
+        inline =
+            when buildFlowDocInline 0 children is
+                Err e ->
+                    Err e
+
+                Ok innerDoc ->
+                    Ok (R.concat (R.text "(") (R.concat innerDoc (R.text ")")))
+    in
+    when Array.first children is
+        Nothing ->
+            Ok (R.text "()")
+
+        Just first ->
+            when lpnBox first is
+                WhenFlow { forceVertical } ->
+                    makeWhenFlowDoc forceVertical 1 (lpnChildren first)
+                        |> Result.map (\whenDoc ->
+                            R.align
+                                (R.concat (R.text "(")
+                                    (R.concat whenDoc
+                                        (R.concat R.hardNl (R.text ")"))))
+                        )
+
+                IfCondition _ ->
+                    makeBlockInParenDoc children
+
+                UnbreakableText loc ->
+                    if loc.value == "let" then
+                        makeBlockInParenDoc children
+                    else
+                        inline
+
+                _ ->
+                    inline
+
+
+{-| Render if/else and let expressions inside a ParenBlock using the
+paren-block layout: keyword at "("+1, bodies at "("+2, ")" at "(" column.
+-}
+makeBlockInParenDoc : Array LPNode -> Result String Doc
+makeBlockInParenDoc children =
+    Array.foldl
+        (\node accResult ->
+            when accResult is
+                Err e ->
+                    Err e
+
+                Ok { doc, isFirst } ->
+                    let
+                        appendDoc d =
+                            if isFirst then
+                                Ok { doc = d, isFirst = False }
+                            else
+                                Ok { doc = R.concat doc d, isFirst = False }
+                    in
+                    when lpnBox node is
+                        IndentedBlock ->
+                            buildFlowDoc 0 (lpnChildren node)
+                                |> Result.andThen (\bodyDoc ->
+                                    appendDoc (R.nest 2 (R.concat R.hardNl bodyDoc))
+                                )
+
+                        BodyBlock ->
+                            buildFlowDoc 0 (lpnChildren node)
+                                |> Result.andThen (\bodyDoc ->
+                                    appendDoc (R.nest 1 (R.concat R.hardNl bodyDoc))
+                                )
+
+                        EmptyLine ->
+                            appendDoc (R.text "\n")
+
+                        SynthesizedText s ->
+                            appendDoc (R.nest 1 (R.concat R.hardNl (R.text s)))
+
+                        IfCondition _ ->
+                            makePDoc (lpnBox node) (lpnChildren node)
+                                |> Result.andThen (\nodeDoc ->
+                                    if isFirst then
+                                        appendDoc nodeDoc
+                                    else
+                                        appendDoc (R.nest 1 (R.concat R.hardNl nodeDoc))
+                                )
+
+                        _ ->
+                            makePDoc (lpnBox node) (lpnChildren node)
+                                |> Result.andThen (\nodeDoc ->
+                                    if isFirst then
+                                        appendDoc nodeDoc
+                                    else
+                                        appendDoc (R.concat R.hardNl nodeDoc)
+                                )
+        )
+        (Ok { doc = R.empty, isFirst = True })
+        children
+        |> Result.map (\{ doc } ->
+            R.align
+                (R.concat (R.text "(")
+                    (R.concat doc
+                        (R.concat R.hardNl (R.text ")"))))
+        )
 
 
 {-| Serialize the Render.Doc tree for each top-level declaration to a JSON
