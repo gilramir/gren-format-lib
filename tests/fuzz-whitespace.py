@@ -18,11 +18,15 @@ as fuzz-idempotency.py). Perturbations come in modes:
   stretch  — every same-line gap is widened to a varying number of spaces.
              (newline gaps are left alone)   [should be 100% AST-safe]
   indent   — per gap: push one newline gap's continuation line deeper.
-  newline  — per gap: inject "\n" + deep indentation into one gap at a time
-             (isolates which gaps survive a hard break).
+
+Note: a "newline" mode (injecting a hard line-break into a same-line gap) was
+removed because the formatter is author-layout-driven: a newline between tokens
+IS a meaningful layout signal (e.g. it flips a list from inline to vertical), so
+the premise that format(perturbed) == format(original) does not hold and the
+mode was testing the wrong thing.
 
 Usage:
-    ./fuzz-whitespace.py [--mode stretch|indent|newline] [-v] [FILE ...]
+    ./fuzz-whitespace.py [--mode stretch|indent] [-v] [FILE ...]
 Defaults to mode=stretch over all testfiles/Formatter/*.dirty.gren.
 A perturbation that fails to PARSE or changes the AST is reported as
 "ast-changed" (the perturbation was illegal, not necessarily a formatter bug).
@@ -134,12 +138,6 @@ def gap_runs(src):
         prev_code = True
         i += 1
     return runs
-
-
-def col_of(src, idx):
-    """0-based column of idx (chars since the last newline)."""
-    nl = src.rfind("\n", 0, idx)
-    return idx - (nl + 1)
 
 
 def comment_fingerprint(src):
@@ -958,21 +956,6 @@ def perturb_indent(src, runs):
     return variants
 
 
-def perturb_newline_gap(src, runs):
-    """Per-gap: yield one variant per same-line gap, where that gap becomes a
-    hard newline indented one step deeper than the current line. Returns a list
-    of (label, variant)."""
-    variants = []
-    for k, (s, e) in enumerate(runs):
-        run = src[s:e]
-        if "\n" in run:
-            continue
-        indent = col_of(src, s)
-        variant = src[:s] + "\n" + " " * (indent + 4) + src[e:]
-        variants.append((f"gap@{s}", variant))
-    return variants
-
-
 # ---- harness ---------------------------------------------------------------
 
 
@@ -1145,10 +1128,8 @@ def check_file(base, pool, path, mode, verbose):
 
     if mode == "stretch":
         variants = [("stretch", v) for v in perturb_stretch(src, runs)]
-    elif mode == "indent":
-        variants = perturb_indent(src, runs)
     else:
-        variants = perturb_newline_gap(src, runs)
+        variants = perturb_indent(src, runs)
 
     # pool.map preserves input order, so reporting stays deterministic.
     results = list(
@@ -1188,7 +1169,7 @@ def check_file(base, pool, path, mode, verbose):
 
 def main(argv):
     ap = argparse.ArgumentParser()
-    ap.add_argument("--mode", choices=["stretch", "indent", "newline"], default="stretch")
+    ap.add_argument("--mode", choices=["stretch", "indent"], default="stretch")
     ap.add_argument("-v", action="store_true")
     ap.add_argument("-j", "--jobs", type=int, default=2, help="concurrent `gren format`s (default 2)")
     ap.add_argument("files", nargs="*")

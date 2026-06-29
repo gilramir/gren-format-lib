@@ -97,7 +97,8 @@ Perturbs inter-token whitespace and requires `format(perturbed) == format(origin
 
 ```bash
 cd gren-format-lib/tests
-python3 fuzz-whitespace.py --mode newline   # modes: stretch | indent | newline
+python3 fuzz-whitespace.py                 # default: stretch mode
+python3 fuzz-whitespace.py --mode indent   # modes: stretch | indent
 python3 fuzz-whitespace.py -j 12           # parallelise
 ```
 
