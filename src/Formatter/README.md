@@ -896,6 +896,43 @@ result =
         |> Array.first
 ```
 
+When a `|>` step's last argument is a multi-line lambda (body written on a
+different row from `->`, so wrapped in parentheses), the lambda sits on its own
+line indented +4 from the `|>`. The body is indented a further +4, and `)` closes
+at the same column as `(`:
+
+```gren
+result =
+    Time.now
+        |> Task.andThen
+            (\start ->
+                doWork start
+            )
+```
+
+This applies at every nesting level:
+
+```gren
+result =
+    Time.now
+        |> Task.andThen
+            (\start ->
+                lifecycle start
+                    |> Task.andThen
+                        (\outcome ->
+                            Task.succeed outcome
+                        )
+            )
+```
+
+A single-line lambda (body on the same row as `->`) stays inline:
+
+```gren
+result =
+    list
+        |> Array.map (\n -> n * 2)
+```
+
 **`<|` pipelines** use a trailing-operator style, each step body indented 4
 spaces from the seed:
 
