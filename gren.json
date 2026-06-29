@@ -12,8 +12,7 @@
         "Formatter.PrettyPrinter",
         "Formatter.MakeLogical",
         "Formatter.LPTJson",
-        "Formatter.MakePretty",
-        "Formatter.PExJson"
+        "Formatter.MakePretty"
     ],
     "gren-version": "0.6.0 <= v < 0.7.0",
     "dependencies": {

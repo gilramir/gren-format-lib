@@ -1,18 +1,13 @@
 module Formatter.MakePretty exposing
     ( makePrettyResult
-    , makePrettyLineDoc
     )
 
 {-| Render a Logical Printing Tree to its final formatted source string.
 
-Each `LPBox` constructor maps to a `PrettyExpressive` `Doc` via `makePDoc`,
-and the resulting `Doc` is resolved against an 80-column page width with a
-4-space indent. `makePrettyResult` is the main entry point used by the
-`gren format` CLI; `makePrettyLineDoc` exposes the unresolved per-root-child
-`Doc` for the `--pex` debug flag.
-
-Unhandled box types surface as `Err` rather than silently falling back, so
-every supported construct must have an explicit case in `makePDoc`.
+Each `LPBox` constructor maps to a `Formatter.Render` `Doc` via `makePDoc`.
+`makePrettyResult` is the main entry point. Unhandled box types surface as
+`Err` rather than silently falling back, so every supported construct must
+have an explicit case in `makePDoc`.
 
 # Comments
 
@@ -62,7 +57,6 @@ A handful of techniques carry the load:
     `StSingleLineComment` / `StBlockComment` / `StDocComment`;
     `makePrettyLineDoc` dispatches them to a dedicated builder.
 
-@docs makePrettyLineDoc
 @docs makePrettyResult
 -}
 
@@ -1496,8 +1490,8 @@ flows through `makeFlowIndentableDoc`). `EmptyLine` nodes produce
 `R.empty`. Any other top-level box is an `Err` — only root children are
 valid input.
 
-Exposed for `Formatter.PExJson`, which serialises the per-declaration `Doc`
-tree to JSON for the `--pex` debug flag.
+Build the `Doc` for one root child without rendering it. Used internally
+by `makePrettyLine` (via `makePrettyResult`) to render each top-level node.
 -}
 makePrettyLineDoc : LPNode -> Result String Doc
 makePrettyLineDoc node =

@@ -1,7 +1,7 @@
 module Formatter.Render exposing
     ( Doc
     , empty, text, concat, hardNl, nl, breakDoc, nest, align, reset
-    , group, flatten, choice, vcat, foldDoc, share, addCost
+    , group, vcat, foldDoc
     , render
     )
 
@@ -80,30 +80,6 @@ reset d =
 group : Doc -> Doc
 group d =
     Group d
-
-
-{-| flatten = group (render flat). With no optimizer, same as group. -}
-flatten : Doc -> Doc
-flatten d =
-    Group d
-
-
-{-| choice always picks the first (preferred) argument. -}
-choice : Doc -> Doc -> Doc
-choice a _ =
-    a
-
-
-{-| No-op: sharing was a PrettyExpressive optimization. -}
-share : Doc -> Doc
-share d =
-    d
-
-
-{-| No-op: cost was a PrettyExpressive optimization. -}
-addCost : a -> Doc -> Doc
-addCost _ d =
-    d
 
 
 vcat : Array Doc -> Doc
