@@ -1,0 +1,29 @@
+module ExposingListLayoutByAuthor exposing
+    ( Alpha
+    , Beta
+    , Gamma
+    )
+
+-- Flat import: stays flat
+import Array exposing ( Array )
+
+-- Vertical import: stays vertical, one item per line
+import Dict exposing
+    ( Dict
+    , empty
+    , fromArray
+    , get
+    )
+
+-- Vertical import with alias: stays vertical
+import Array.Extra as AE exposing
+    ( filterMap
+    , unique
+    )
+
+-- Flat import with alias: stays flat
+import String.Extra as SE exposing ( toTitleCase, underscored )
+
+alpha = 1
+beta = 2
+gamma = 3

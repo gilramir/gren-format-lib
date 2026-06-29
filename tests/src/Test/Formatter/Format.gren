@@ -227,6 +227,7 @@ importSuite fsPerm =
             , assertPretty fsPerm "module line wraps exposing list to one indented line" "ModuleLineWrap"
             , assertPretty fsPerm "module line wraps exposing list to one item per line" "ModuleLineVertical"
             , assertPretty fsPerm "import forms: plain, alias, exposing, combined" "Imports"
+            , assertPretty fsPerm "exposing lists: flat stays flat, vertical stays vertical" "ExposingListLayoutByAuthor"
             ]
         }
 
