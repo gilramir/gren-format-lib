@@ -925,6 +925,27 @@ result =
             )
 ```
 
+When the step has arguments after the lambda, they each land on their own line at
+the same column as the opening `(`:
+
+```gren
+passed =
+    sr.results
+        |> Array.foldl
+            (\r acc ->
+                if isFailed r.outcome || isErrored r.outcome then
+                    acc
+
+                else
+                    acc + 1
+            )
+            0
+```
+
+**Your row placement is the choice.** The formatter uses the multi-line form when
+the lambda body starts on a different row from `->`, and the inline form when the
+body is on the same row.
+
 A single-line lambda (body on the same row as `->`) stays inline:
 
 ```gren
@@ -932,6 +953,21 @@ result =
     list
         |> Array.map (\n -> n * 2)
 ```
+
+So to get the multi-line form, put the body on the next row — even if the rest of
+the lambda is otherwise on one line:
+
+```gren
+-- body on the next row from ->: formatter uses the multi-line form
+sr.results
+    |> Array.foldl (\r acc ->
+        if isFailed r.outcome || isErrored r.outcome then
+            acc
+        else
+            acc + 1) 0
+```
+
+Formats to the canonical multi-line form shown above.
 
 **`<|` pipelines** use a trailing-operator style, each step body indented 4
 spaces from the seed:
