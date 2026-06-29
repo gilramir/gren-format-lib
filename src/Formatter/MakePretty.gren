@@ -1964,8 +1964,7 @@ makeBackwardPipelineDoc forceVertical children =
                                             Just { last = lastNode, initial = headNodes } ->
                                                 when lpnBox lastNode is
                                                     SoftIndentedBlock ->
-                                                        -- Lambda: `<| \patterns ->` trails seed,
-                                                        -- lambda body breaks to seed_col + 4.
+                                                        -- Lambda: body on same row as `->`, may stay inline.
                                                         buildFlowDocInline 0 headNodes
                                                             |> Result.andThen (\headDoc ->
                                                                 buildFlowDoc 0 (lpnChildren lastNode)
@@ -1980,6 +1979,19 @@ makeBackwardPipelineDoc forceVertical children =
                                                                         R.concat seedDoc
                                                                             (R.concat (R.text " <| ")
                                                                                 (R.concat headDoc bodyBreak))
+                                                                    )
+                                                            )
+                                                    IndentedBlock ->
+                                                        -- Lambda: body on a different row from `->`,
+                                                        -- always hard-break to seed_col + 4.
+                                                        buildFlowDocInline 0 headNodes
+                                                            |> Result.andThen (\headDoc ->
+                                                                buildFlowDoc 0 (lpnChildren lastNode)
+                                                                    |> Result.map (\bodyDoc ->
+                                                                        R.concat seedDoc
+                                                                            (R.concat (R.text " <| ")
+                                                                                (R.concat headDoc
+                                                                                    (R.nest grenIndent (R.concat R.hardNl bodyDoc))))
                                                                     )
                                                             )
                                                     _ ->

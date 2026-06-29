@@ -1,0 +1,8 @@
+module BackwardPipelineLambda exposing (main)
+
+import Task
+
+main =
+    Task.succeed 1 <| \x ->
+            Task.succeed 2 <| \y ->
+                    Task.succeed (x + y)
