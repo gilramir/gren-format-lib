@@ -486,9 +486,18 @@ renderBlockNode rule acc nodeChildren =
 
 {-| Build the Doc for a pipeline step's children (the `|> func args...` part).
 
-When the last child is a multi-line lambda ParenBlock (`isMultilineLambdaParenBlock`),
+When ANY child is a multi-line lambda ParenBlock (`isMultilineLambdaParenBlock`),
 breaks it onto a new line so the body aligns under `(` rather than the ambient
-pipeline indent:
+pipeline indent.  Any arguments that follow the lambda also each land on their own
+line at the same `(` column:
+
+    |> Array.foldl
+        (\r acc ->
+            body
+        )
+        0
+
+When the lambda is the last arg (no suffix), the trailing `)` closes the step:
 
     |> Task.andThen
         (\start ->
@@ -502,22 +511,58 @@ path in `makePipelineDoc` (comment-free path) — both wrap the result in an out
 -}
 buildStepChildrenDoc : Array LPNode -> Result String Doc
 buildStepChildrenDoc stepChildren =
-    when Array.popLast stepChildren is
-        Just { last = lastChild, initial = preamble } ->
-            if isMultilineLambdaParenBlock lastChild then
-                buildFlowDocInline 0 preamble
-                    |> Result.andThen (\preambleDoc ->
-                        makeMultilineLambdaArgDoc (lpnChildren lastChild)
-                            |> Result.map (\lambdaDoc ->
-                                R.concat preambleDoc
-                                    (R.nest grenIndent (R.concat R.hardNl lambdaDoc))
-                            )
-                    )
-            else
-                buildFlowDoc grenIndent stepChildren
-
+    let
+        -- Scan left-to-right for the first multiline lambda ParenBlock.
+        -- Accumulator: { preamble, lambdaAndSuffix }
+        -- Before the lambda is found: preamble grows.
+        -- After the lambda is found: lambdaAndSuffix.suffix grows.
+        splitResult =
+            Array.foldl
+                (\node acc ->
+                    when acc.lambdaAndSuffix is
+                        Just state ->
+                            { acc
+                                | lambdaAndSuffix = Just { state | suffix = Array.pushLast node state.suffix }
+                            }
+                        Nothing ->
+                            if isMultilineLambdaParenBlock node then
+                                { preamble = acc.preamble
+                                , lambdaAndSuffix = Just { lambda = node, suffix = [] }
+                                }
+                            else
+                                { acc | preamble = Array.pushLast node acc.preamble }
+                )
+                { preamble = [], lambdaAndSuffix = Nothing }
+                stepChildren
+    in
+    when splitResult.lambdaAndSuffix is
         Nothing ->
             buildFlowDoc grenIndent stepChildren
+
+        Just { lambda, suffix } ->
+            buildFlowDocInline 0 splitResult.preamble
+                |> Result.andThen (\preambleDoc ->
+                    makeMultilineLambdaArgDoc (lpnChildren lambda)
+                        |> Result.andThen (\lambdaDoc ->
+                            let
+                                lambdaPart =
+                                    R.nest grenIndent (R.concat R.hardNl lambdaDoc)
+                            in
+                            if Array.isEmpty suffix then
+                                Ok (R.concat preambleDoc lambdaPart)
+                            else
+                                -- Use buildFlowDoc 0 so AlreadyTerminated tracks
+                                -- correctly across comments in the suffix (avoids
+                                -- a double hardNl when a SingleLineComment precedes
+                                -- the last arg).
+                                buildFlowDoc 0 suffix
+                                    |> Result.map (\suffixDoc ->
+                                        R.concat preambleDoc
+                                            (R.concat lambdaPart
+                                                (R.nest grenIndent (R.concat R.hardNl suffixDoc)))
+                                    )
+                        )
+                )
 
 
 -- Render a `PipelineStep` child inside buildFlowDoc's fold.
@@ -528,13 +573,17 @@ buildStepChildrenDoc stepChildren =
 -- while continuation args are indented +4 from `|>`. Always force a hardNl
 -- after the comment so `|>` starts on the next line.
 --
--- Also peel a single trailing line/block comment off the END of the step.
--- Letting buildFlowDoc emit it would put the terminating hardNl at the
--- +grenIndent continuation-arg level (= base + 2 * grenIndent), which leaves the
--- next step's leading hardNl producing a blank line at that over-indented level.
--- Render the trailing comment ourselves, glued to the last arg with a space, and
--- let the next step's leading hardNl handle line termination at the correct
--- outer indent.
+-- Also peel ALL trailing inline block comments and at most one trailing
+-- line comment off the END of the step.  Letting buildFlowDoc emit them
+-- would put the terminating hardNl at the +grenIndent continuation-arg
+-- level (= base + 2 * grenIndent), which leaves the next step's leading
+-- hardNl producing a blank line at that over-indented level.  When a
+-- multiline-lambda suffix feature places those comments into the suffix
+-- they would land on their own line instead of inline — triggering a
+-- context-idempotency gap.  We use peelTrailingComments (which already
+-- handles the multi-comment case) so the suffix is always free of
+-- trailing inline comments; the next step's leading hardNl handles line
+-- termination at the correct outer indent.
 renderPipelineStepNode : FlowAcc -> Array LPNode -> Result String FlowAcc
 renderPipelineStepNode acc nodeChildren =
     let
@@ -558,25 +607,12 @@ renderPipelineStepNode acc nodeChildren =
             , hasComment = not (Array.isEmpty leading)
             }
 
-        { stepChildren, trailingCommentDoc, hasTrailing } =
-            when Array.popLast withoutLeading is
-                Just { last = lastChild, initial = initChildren } ->
-                    if nodeIsComment lastChild then
-                        { stepChildren = initChildren
-                        , trailingCommentDoc =
-                            R.concat (R.text " ") (commentNodeDoc lastChild)
-                        , hasTrailing = True
-                        }
-                    else
-                        { stepChildren = withoutLeading
-                        , trailingCommentDoc = R.empty
-                        , hasTrailing = False
-                        }
-                Nothing ->
-                    { stepChildren = withoutLeading
-                    , trailingCommentDoc = R.empty
-                    , hasTrailing = False
-                    }
+        peeled =
+            peelTrailingComments True withoutLeading
+        stepChildren =
+            peeled.bodyNodes
+        trailingCommentDoc =
+            peeled.trailingCommentDoc
     in
     when buildStepChildrenDoc stepChildren is
         Err e -> Err e

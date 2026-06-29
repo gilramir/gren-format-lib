@@ -43,3 +43,18 @@ multiParamCase =
 withPrefixArg =
     items
         |> Dict.map "key" (\v -> v + 1)
+
+
+-- Multi-line lambda with a suffix argument: lambda and suffix each land on
+-- their own line at the same column as the opening paren.
+withSuffixArg =
+    sr.results
+        |> Array.foldl
+            (\r acc ->
+                if isFailed r.outcome then
+                    acc
+
+                else
+                    acc + 1
+            )
+            0
