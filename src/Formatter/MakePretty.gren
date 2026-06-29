@@ -332,6 +332,19 @@ type NextSeparator
     | AlreadyTerminated
 
 
+-- The accumulator threaded through `buildFlowDocImpl`'s fold (and the per-box
+-- node renderers it delegates to): the doc built so far, the source row of the
+-- previous positioned leaf (`-1` if none), whether that leaf was an elided `->`
+-- (see the `prevElided` note in the fold), and the separator to apply before the
+-- next item.
+type alias FlowAcc =
+    { doc : Doc
+    , prevRow : Int
+    , prevElided : Bool
+    , separator : NextSeparator
+    }
+
+
 -- Layout rule for a block-style child (IndentedBlock, BodyBlock, etc.):
 --   `wrap` decorates the child doc (indenting, hardNl-prefixing, grouping…).
 --   `bypassAlreadyTerminated = True` means the wrap is skipped when the
@@ -448,11 +461,7 @@ peelTrailingComments peelLineComments nodes =
 -- Render a body-block child (BodyBlock) inside buildFlowDoc's
 -- fold: peel its trailing inline comments, render the body via `renderBlockNode`,
 -- then glue the comments back onto the result. Shared by both arms.
-renderBodyBlockNode :
-    BlockRule
-    -> { doc : Doc, prevRow : Int, prevElided : Bool, separator : NextSeparator }
-    -> Array LPNode
-    -> Result String { doc : Doc, prevRow : Int, prevElided : Bool, separator : NextSeparator }
+renderBodyBlockNode : BlockRule -> FlowAcc -> Array LPNode -> Result String FlowAcc
 renderBodyBlockNode rule acc nodeChildren =
     let
         { bodyNodes, trailingCommentDoc } = peelTrailingComments True nodeChildren
@@ -463,11 +472,7 @@ renderBodyBlockNode rule acc nodeChildren =
 
 -- Render a block-style child node inside buildFlowDoc's fold: recurse
 -- into the children, then join via joinBlock and produce the next acc.
-renderBlockNode :
-    BlockRule
-    -> { doc : Doc, prevRow : Int, prevElided : Bool, separator : NextSeparator }
-    -> Array LPNode
-    -> Result String { doc : Doc, prevRow : Int, prevElided : Bool, separator : NextSeparator }
+renderBlockNode : BlockRule -> FlowAcc -> Array LPNode -> Result String FlowAcc
 renderBlockNode rule acc nodeChildren =
     buildFlowDoc 0 nodeChildren
         |> Result.map (\childrenDoc ->
@@ -477,6 +482,197 @@ renderBlockNode rule acc nodeChildren =
             , separator = rule.nextSep
             }
         )
+
+
+-- Render a `PipelineStep` child inside buildFlowDoc's fold.
+--
+-- Peel a single leading line/block comment off the step so it renders at the
+-- step's own nesting level rather than inside the extra R.nest grenIndent
+-- applied to the args. This keeps the comment and `|>` at the same column,
+-- while continuation args are indented +4 from `|>`. Always force a hardNl
+-- after the comment so `|>` starts on the next line.
+--
+-- Also peel a single trailing line/block comment off the END of the step.
+-- Letting buildFlowDoc emit it would put the terminating hardNl at the
+-- +grenIndent continuation-arg level (= base + 2 * grenIndent), which leaves the
+-- next step's leading hardNl producing a blank line at that over-indented level.
+-- Render the trailing comment ourselves, glued to the last arg with a space, and
+-- let the next step's leading hardNl handle line termination at the correct
+-- outer indent.
+renderPipelineStepNode : FlowAcc -> Array LPNode -> Result String FlowAcc
+renderPipelineStepNode acc nodeChildren =
+    let
+        { commentDoc, withoutLeading, hasComment } =
+            -- Peel ALL leading comments, not just the first. Each
+            -- renders own-line at the step's own column (the outer
+            -- nest), so `|>` is the first token after them at that
+            -- same column. Leaving a second leading comment inside
+            -- `childrenDoc` (which carries an inner `nest grenIndent`)
+            -- would let its own-line break push `|>` one level deeper
+            -- — an inconsistent `|>` indent that varies with how many
+            -- comments precede the step.
+            let { leading, rest } = splitLeadingComments nodeChildren
+            in
+            { commentDoc =
+                Array.foldl
+                    (\c cdoc -> R.concat cdoc (R.concat (commentNodeDoc c) R.hardNl))
+                    R.empty
+                    leading
+            , withoutLeading = rest
+            , hasComment = not (Array.isEmpty leading)
+            }
+
+        { stepChildren, trailingCommentDoc, hasTrailing } =
+            when Array.popLast withoutLeading is
+                Just { last = lastChild, initial = initChildren } ->
+                    if nodeIsComment lastChild then
+                        { stepChildren = initChildren
+                        , trailingCommentDoc =
+                            R.concat (R.text " ") (commentNodeDoc lastChild)
+                        , hasTrailing = True
+                        }
+                    else
+                        { stepChildren = withoutLeading
+                        , trailingCommentDoc = R.empty
+                        , hasTrailing = False
+                        }
+                Nothing ->
+                    { stepChildren = withoutLeading
+                    , trailingCommentDoc = R.empty
+                    , hasTrailing = False
+                    }
+    in
+    when buildFlowDoc grenIndent stepChildren is
+        Err e -> Err e
+        Ok childrenDoc ->
+            let
+                -- Only add a blank line before a commented step if it
+                -- follows another PipelineStep (separator = HardNl).
+                blankLinePrefix =
+                    when acc.separator is
+                        HardNl ->
+                            if hasComment then R.text "\n" else R.empty
+                        _ ->
+                            R.empty
+                -- commentDoc (if any) fires at step level; childrenDoc
+                -- (|> and args) is wrapped in R.nest grenIndent so
+                -- continuation args break at |>-column + 4. The
+                -- trailingCommentDoc (if any) is glued onto the end of
+                -- the children with a leading space — it lives inside
+                -- the same inner nest, but with NO trailing hardNl,
+                -- so the next step's leading hardNl is the one that
+                -- ends the line and re-establishes the outer indent.
+                indentedDoc =
+                    R.concat blankLinePrefix
+                        (R.nest grenIndent
+                            (R.concat R.hardNl
+                                (R.concat commentDoc
+                                    (R.concat childrenDoc trailingCommentDoc))))
+                newDoc =
+                    when acc.separator is
+                        FirstItem -> R.concat commentDoc (R.concat childrenDoc trailingCommentDoc)
+                        _         -> R.concat acc.doc indentedDoc
+            in
+            Ok { doc = newDoc
+               , prevRow = -1
+               , prevElided = False
+               , separator = HardNl
+               }
+
+
+-- Render a `WhenBranch` child inside buildFlowDoc's fold.
+--
+-- Peel *all* trailing block comments off the END of the branch and glue them
+-- inline to the body with a space, rather than letting buildFlowDoc place them.
+-- Left in the flow a trailing block comment rides a soft break, so it drops onto
+-- its own line at the branch indent — one row *below* the body's last token, and
+-- dedented. On reparse that row sits past the declaration's range and the
+-- comment escapes to a top-level comment (column 1), non-idempotently. Gluing
+-- keeps it on the body's last row, inside the branch, across reformats. A
+-- trailing `--` is left in place (peelLineComments = False) — its own soft-break
+-- handling keeps it stable. The next branch's leading hardNl terminates the line.
+renderWhenBranchNode : FlowAcc -> Array LPNode -> Result String FlowAcc
+renderWhenBranchNode acc nodeChildren =
+    let
+        { bodyNodes, trailingCommentDoc } =
+            peelTrailingComments False nodeChildren
+    in
+    when buildFlowDoc 0 bodyNodes is
+        Err e -> Err e
+        Ok bodyDoc ->
+            let
+                childrenDoc = R.concat bodyDoc trailingCommentDoc
+                -- Always blank-separate consecutive branches,
+                -- regardless of whether either body is multi-line.
+                blankOrNewline =
+                    R.concat (R.text "\n") R.hardNl
+                newDoc =
+                    when acc.separator is
+                        FirstItem -> childrenDoc
+                        -- A preceding comment has already ended its
+                        -- line with hardNl, so attach the branch
+                        -- directly to avoid inserting an extra blank
+                        -- line between the comment and its pattern.
+                        AlreadyTerminated -> R.concat acc.doc childrenDoc
+                        _         -> R.concat acc.doc (R.concat blankOrNewline childrenDoc)
+            in
+            Ok { doc = newDoc
+               , prevRow = -1
+               , prevElided = False
+               , separator = FlowSep
+               }
+
+
+-- Render a `SingleLineComment` child inside buildFlowDoc's fold. A comment on
+-- the same row as the preceding item (or one trailing an elided `->`) glues with
+-- a soft break; on a different row it forces an own-line break. Either way it
+-- ends its line with a hardNl so the next item starts fresh (`AlreadyTerminated`).
+renderSingleLineCommentNode : FlowAcc -> LPBox -> Located String -> FlowAcc
+renderSingleLineCommentNode acc box loc =
+    let
+        commentText = commentBoxDoc box
+        docWithComment =
+            when acc.separator is
+                FirstItem ->
+                    commentText
+                AlreadyTerminated ->
+                    -- Previous comment already ended its line with hardNl;
+                    -- concatenate directly to avoid a blank line between
+                    -- consecutive comments.
+                    R.concat acc.doc commentText
+                _ ->
+                    if loc.start.row == acc.prevRow || acc.prevElided then
+                        -- Same row as preceding item: attach with a SOFT
+                        -- break — a space in flat context, otherwise its own
+                        -- line. A hard space would give the flow no break
+                        -- point here, forcing an *earlier* break (e.g. before
+                        -- an elided `->`) so the comment trails a token that
+                        -- moved down. Whether that earlier token then renders
+                        -- on row N or N+1 flips the comment's own input row on
+                        -- reparse, oscillating between layouts. The soft break
+                        -- keeps the preceding token in place and moves only the
+                        -- comment, which is stable across reformats.
+                        --
+                        -- `prevElided` also takes this branch: a comment that
+                        -- directly trails a zero-width elided token (`->`, `:`,
+                        -- `=`, …) is anchored at that token's *left-neighbour*
+                        -- row, not where the token renders. If the token wraps
+                        -- onto its own continuation line, the comment's own row
+                        -- no longer equals that anchor — so a pure row test
+                        -- would flip it to its own line on the next format even
+                        -- though it fits beside the (wrapped) token. Soft-gluing
+                        -- whenever it trails an elided token keeps the glue-when-
+                        -- it-fits rendering stable across reformats.
+                        R.concat acc.doc (R.group (R.concat R.nl commentText))
+                    else
+                        -- Different row: force a line break before the comment
+                        R.concat acc.doc (R.concat R.hardNl commentText)
+    in
+    { doc = R.concat docWithComment R.hardNl
+    , prevRow = loc.start.row
+    , prevElided = False
+    , separator = AlreadyTerminated
+    }
 
 
 {-| builds the flow, and handles SingleLineComment nodes correctly:
@@ -542,50 +738,7 @@ buildFlowDocImpl indent inlineStart brokenFlow nodes =
                             in
                             when box is
                                 SingleLineComment loc ->
-                                    let
-                                        commentText = commentBoxDoc box
-                                        docWithComment =
-                                            when acc.separator is
-                                                FirstItem ->
-                                                    commentText
-                                                AlreadyTerminated ->
-                                                    -- Previous comment already ended its line with hardNl;
-                                                    -- concatenate directly to avoid a blank line between
-                                                    -- consecutive comments.
-                                                    R.concat acc.doc commentText
-                                                _ ->
-                                                    if loc.start.row == acc.prevRow || acc.prevElided then
-                                                        -- Same row as preceding item: attach with a SOFT
-                                                        -- break — a space in flat context, otherwise its own
-                                                        -- line. A hard space would give the flow no break
-                                                        -- point here, forcing an *earlier* break (e.g. before
-                                                        -- an elided `->`) so the comment trails a token that
-                                                        -- moved down. Whether that earlier token then renders
-                                                        -- on row N or N+1 flips the comment's own input row on
-                                                        -- reparse, oscillating between layouts. The soft break
-                                                        -- keeps the preceding token in place and moves only the
-                                                        -- comment, which is stable across reformats.
-                                                        --
-                                                        -- `prevElided` also takes this branch: a comment that
-                                                        -- directly trails a zero-width elided token (`->`, `:`,
-                                                        -- `=`, …) is anchored at that token's *left-neighbour*
-                                                        -- row, not where the token renders. If the token wraps
-                                                        -- onto its own continuation line, the comment's own row
-                                                        -- no longer equals that anchor — so a pure row test
-                                                        -- would flip it to its own line on the next format even
-                                                        -- though it fits beside the (wrapped) token. Soft-gluing
-                                                        -- whenever it trails an elided token keeps the glue-when-
-                                                        -- it-fits rendering stable across reformats.
-                                                        R.concat acc.doc (R.group (R.concat R.nl commentText))
-                                                    else
-                                                        -- Different row: force a line break before the comment
-                                                        R.concat acc.doc (R.concat R.hardNl commentText)
-                                    in
-                                    Ok { doc = R.concat docWithComment R.hardNl
-                                       , prevRow = loc.start.row
-                                       , prevElided = False
-                                       , separator = AlreadyTerminated
-                                       }
+                                    Ok (renderSingleLineCommentNode acc box loc)
 
                                 BlockComment loc ->
                                     let
@@ -649,156 +802,13 @@ buildFlowDocImpl indent inlineStart brokenFlow nodes =
                                     renderBlockNode indentedBlockRule acc nodeChildren
 
                                 PipelineStep ->
-                                    -- Peel a single leading line/block comment
-                                    -- off the step so it renders at the step's
-                                    -- own nesting level rather than inside the
-                                    -- extra R.nest grenIndent applied to the
-                                    -- args. This keeps the comment and `|>` at
-                                    -- the same column, while continuation args
-                                    -- are indented +4 from `|>`. Always force a
-                                    -- hardNl after the comment so `|>` starts
-                                    -- on the next line.
-                                    --
-                                    -- Also peel a single trailing line/block
-                                    -- comment off the END of the step. Letting
-                                    -- buildFlowDoc emit it would put the
-                                    -- terminating hardNl at the +grenIndent
-                                    -- continuation-arg level (= base + 2 *
-                                    -- grenIndent), which leaves the next step's
-                                    -- leading hardNl producing a blank line at
-                                    -- that over-indented level. Render the
-                                    -- trailing comment ourselves, glued to the
-                                    -- last arg with a space, and let the next
-                                    -- step's leading hardNl handle line
-                                    -- termination at the correct outer indent.
-                                    let
-                                        { commentDoc, withoutLeading, hasComment } =
-                                            -- Peel ALL leading comments, not just the first. Each
-                                            -- renders own-line at the step's own column (the outer
-                                            -- nest), so `|>` is the first token after them at that
-                                            -- same column. Leaving a second leading comment inside
-                                            -- `childrenDoc` (which carries an inner `nest grenIndent`)
-                                            -- would let its own-line break push `|>` one level deeper
-                                            -- — an inconsistent `|>` indent that varies with how many
-                                            -- comments precede the step.
-                                            let { leading, rest } = splitLeadingComments nodeChildren
-                                            in
-                                            { commentDoc =
-                                                Array.foldl
-                                                    (\c cdoc -> R.concat cdoc (R.concat (commentNodeDoc c) R.hardNl))
-                                                    R.empty
-                                                    leading
-                                            , withoutLeading = rest
-                                            , hasComment = not (Array.isEmpty leading)
-                                            }
-
-                                        { stepChildren, trailingCommentDoc, hasTrailing } =
-                                            when Array.popLast withoutLeading is
-                                                Just { last = lastChild, initial = initChildren } ->
-                                                    if nodeIsComment lastChild then
-                                                        { stepChildren = initChildren
-                                                        , trailingCommentDoc =
-                                                            R.concat (R.text " ") (commentNodeDoc lastChild)
-                                                        , hasTrailing = True
-                                                        }
-                                                    else
-                                                        { stepChildren = withoutLeading
-                                                        , trailingCommentDoc = R.empty
-                                                        , hasTrailing = False
-                                                        }
-                                                Nothing ->
-                                                    { stepChildren = withoutLeading
-                                                    , trailingCommentDoc = R.empty
-                                                    , hasTrailing = False
-                                                    }
-                                    in
-                                    when buildFlowDoc grenIndent stepChildren is
-                                        Err e -> Err e
-                                        Ok childrenDoc ->
-                                            let
-                                                -- Only add a blank line before a commented step if it
-                                                -- follows another PipelineStep (separator = HardNl).
-                                                blankLinePrefix =
-                                                    when acc.separator is
-                                                        HardNl ->
-                                                            if hasComment then R.text "\n" else R.empty
-                                                        _ ->
-                                                            R.empty
-                                                -- commentDoc (if any) fires at step level; childrenDoc
-                                                -- (|> and args) is wrapped in R.nest grenIndent so
-                                                -- continuation args break at |>-column + 4. The
-                                                -- trailingCommentDoc (if any) is glued onto the end of
-                                                -- the children with a leading space — it lives inside
-                                                -- the same inner nest, but with NO trailing hardNl,
-                                                -- so the next step's leading hardNl is the one that
-                                                -- ends the line and re-establishes the outer indent.
-                                                indentedDoc =
-                                                    R.concat blankLinePrefix
-                                                        (R.nest grenIndent
-                                                            (R.concat R.hardNl
-                                                                (R.concat commentDoc
-                                                                    (R.concat childrenDoc trailingCommentDoc))))
-                                                newDoc =
-                                                    when acc.separator is
-                                                        FirstItem -> R.concat commentDoc (R.concat childrenDoc trailingCommentDoc)
-                                                        _         -> R.concat acc.doc indentedDoc
-                                            in
-                                            Ok { doc = newDoc
-                                               , prevRow = -1
-                                               , prevElided = False
-                                               , separator = HardNl
-                                               }
+                                    renderPipelineStepNode acc nodeChildren
 
                                 BodyBlock ->
                                     renderBodyBlockNode bodyBlockRule acc nodeChildren
 
                                 WhenBranch ->
-                                    -- Peel a single-line block comment off the END of the
-                                    -- branch and glue it inline to the body with a space,
-                                    -- rather than letting buildFlowDoc place it. Left in the
-                                    -- flow it rides a soft break, so the comment
-                                    -- drops onto its own line at the branch indent — one row
-                                    -- *below* the body's last token, and dedented from it. On
-                                    -- reparse that row sits past the declaration's range and
-                                    -- the comment escapes to a top-level comment (column 1),
-                                    -- non-idempotently. Gluing keeps it on the body's last
-                                    -- row so it stays inside the
-                                    -- branch across reformats. The next branch's leading
-                                    -- hardNl terminates the line.
-                                    -- Peel *all* trailing block comments off the end (not just
-                                    -- one): a branch body can end in a run of them, and any left
-                                    -- in the flow rides a soft break and escapes onto its own
-                                    -- line below the body. A
-                                    -- trailing `--` is left in place (peelLineComments = False) —
-                                    -- its own soft-break handling keeps it stable.
-                                    let
-                                        { bodyNodes, trailingCommentDoc } =
-                                            peelTrailingComments False nodeChildren
-                                    in
-                                    when buildFlowDoc 0 bodyNodes is
-                                        Err e -> Err e
-                                        Ok bodyDoc ->
-                                            let
-                                                childrenDoc = R.concat bodyDoc trailingCommentDoc
-                                                -- Always blank-separate consecutive branches,
-                                                -- regardless of whether either body is multi-line.
-                                                blankOrNewline =
-                                                    R.concat (R.text "\n") R.hardNl
-                                                newDoc =
-                                                    when acc.separator is
-                                                        FirstItem -> childrenDoc
-                                                        -- A preceding comment has already ended its
-                                                        -- line with hardNl, so attach the branch
-                                                        -- directly to avoid inserting an extra blank
-                                                        -- line between the comment and its pattern.
-                                                        AlreadyTerminated -> R.concat acc.doc childrenDoc
-                                                        _         -> R.concat acc.doc (R.concat blankOrNewline childrenDoc)
-                                            in
-                                            Ok { doc = newDoc
-                                               , prevRow = -1
-                                               , prevElided = False
-                                               , separator = FlowSep
-                                               }
+                                    renderWhenBranchNode acc nodeChildren
 
                                 SoftIndentedBlock ->
                                     renderBlockNode softIndentedBlockRule acc nodeChildren
