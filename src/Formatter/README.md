@@ -643,7 +643,11 @@ else
 
 ## When expressions
 
-A `when … is` header follows your layout, like `if`:
+Gren's `when … is` is the equivalent of Elm's `case … of`, but the grammar
+is more flexible: the scrutinee may appear on the same line as `when`, or on
+its own line between `when` and `is`. In Elm the scrutinee must always share
+its line with `case`, so elm-format has no layout choice to preserve. In Gren
+the formatter preserves whichever form you wrote.
 
 Written on one line — scrutinee on the same row as `when`:
 
@@ -653,7 +657,8 @@ when msg is
         model + 1
 ```
 
-Written across rows — scrutinee on a different row from `when`:
+Written across rows — scrutinee on a different row from `when`, `is` at the
+same indent as `when`:
 
 ```gren
 when
@@ -661,6 +666,21 @@ when
 is
     Increment ->
         model + 1
+```
+
+The broken form is useful when the scrutinee is a long expression that you
+want to read clearly on its own line — something that in Elm you would have
+to bind with a `let` first:
+
+```gren
+when
+    Dict.get model.selectedId model.items
+is
+    Just item ->
+        item.name
+
+    Nothing ->
+        "unknown"
 ```
 
 Branch bodies **always** go on the next line, indented 4 spaces from the
