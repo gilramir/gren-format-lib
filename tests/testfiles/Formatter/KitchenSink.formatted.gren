@@ -28,16 +28,17 @@ port module KitchenSink exposing
 
 # Ports
 @docs port_out_message, port_in_message
+
 -}
 
-import Array exposing ( Array )
+import Array exposing (Array)
 import Dict
-import Json.Decode as Decode exposing ( Decoder, decodeString, field, int, string )
+import Json.Decode as Decode exposing (Decoder, decodeString, field, int, string)
 import Json.Encode as Encode
 import Math
 import Result.Extra as ResultExtra
-import String exposing ( fromInt, toInt, toUpper, toLower, trim, words )
-import Task exposing ( Task )
+import String exposing (fromInt, toInt, toUpper, toLower, trim, words)
+import Task exposing (Task)
 
 infix left 6 (+) = add
 infix left 6 (-) = sub
@@ -64,8 +65,10 @@ port port_in_message : (String -> msg) -> Sub msg
 type Tree a
     = Empty
     | Leaf a
-    | Branch { label : String, attributes : Array { attrName : String, attrValueAsString : String }, children : Array (Tree a) }
-    | Cons { headValue : a, leftSubtree : Tree a, rightSubtree : Tree a }
+    | Branch
+        { label : String, attributes : Array { attrName : String, attrValueAsString : String }, children : Array (Tree a) }
+    | Cons
+        { headValue : a, leftSubtree : Tree a, rightSubtree : Tree a }
 
 
 {-| Generic result-style type using qualified names everywhere. -}

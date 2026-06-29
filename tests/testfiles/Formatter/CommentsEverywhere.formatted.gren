@@ -1,9 +1,10 @@
-module CommentsEverywhere exposing ( foo )
+module CommentsEverywhere exposing (foo)
 
 {-|
 This is a top-level doc comment
 
 And this is last line of it
+
 -}
 
 -- A floating comment, not attached to a function
@@ -28,6 +29,7 @@ foo2 a =
 {-|
 A doc comment before
 a function
+
 -}
 foo3 : Int -> Int
 foo3 a =

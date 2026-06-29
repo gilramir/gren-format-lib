@@ -1,4 +1,4 @@
-module TypeUnion exposing ( Color, Maybe, Shape )
+module TypeUnion exposing (Color, Maybe, Shape)
 
 
 type Color

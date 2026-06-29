@@ -1,4 +1,4 @@
-module LetExpression exposing ( circleArea, initials, labeledPair )
+module LetExpression exposing (circleArea, initials, labeledPair)
 
 {- Examples using let/in -}
 

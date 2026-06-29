@@ -1094,8 +1094,16 @@ makeAllAcrossOrAllVertical brackets children =
     let
         bs = bracketStrings brackets
         hasComment = Array.any nodeIsComment children
+        -- A Pipeline whose last PipelineStep has an IndentedBlock body renders
+        -- with hardNl (see makeBackwardPipelineDoc, IndentedBlock arm). The
+        -- parser sometimes assigns the `end` of a `let`-bodied lambda to the
+        -- position of the following `,`, making itemsSpanRows return false even
+        -- when the items are on separate source rows. Detect these pipelines
+        -- here so we can switch to always-vertical before they inject hardNl
+        -- into the flat group, producing non-idempotent output.
+        hasVerticalPipeline = Array.any pipelineItemHasHardBreak children
     in
-    if hasComment then
+    if hasComment || hasVerticalPipeline then
         listBoxesWithBrackets bs.open bs.close children
     else
         traverseArray makeListItemDoc children
@@ -1103,6 +1111,34 @@ makeAllAcrossOrAllVertical brackets children =
                 exposingListWithBrackets bs.open bs.close bs.empty itemDocs
             )
 
+
+
+pipelineItemHasHardBreak : LPNode -> Bool
+pipelineItemHasHardBreak node =
+    when lpnBox node is
+        Pipeline _ ->
+            let
+                isPipelineStep c =
+                    when lpnBox c is
+                        PipelineStep -> True
+                        _ -> False
+
+                isIndentedBlock c =
+                    when lpnBox c is
+                        IndentedBlock -> True
+                        _ -> False
+
+                lastStep =
+                    lpnChildren node
+                        |> Array.keepIf isPipelineStep
+                        |> Array.last
+            in
+            when lastStep is
+                Nothing -> False
+                Just step ->
+                    Array.any isIndentedBlock (lpnChildren step)
+        _ ->
+            False
 
 
 -- Map a Result-producing builder over each element, collecting the Ok values
@@ -1240,7 +1276,7 @@ makeExposingListDoc forceVertical children =
                         R.text " ()"
                     Just { first = firstItem, rest = restItems } ->
                         let
-                            firstSeg = R.concat (R.text "( ") firstItem
+                            firstSeg = R.concat (R.text "(") firstItem
                             restSegs =
                                 Array.map
                                     (\d -> R.concat R.breakDoc (R.concat (R.text ", ") d))
@@ -1248,7 +1284,7 @@ makeExposingListDoc forceVertical children =
                             body =
                                 Array.foldl (\seg acc -> R.concat acc seg) firstSeg restSegs
                             full =
-                                R.concat body (R.concat R.nl (R.text ")"))
+                                R.concat body (R.text ")")
                         in
                         R.group (R.concat R.nl full)
             )
@@ -1267,7 +1303,16 @@ commentBoxDoc box =
     when box is
         SingleLineComment loc -> R.text ("--" ++ loc.value)
         BlockComment loc -> blockCommentDoc loc
-        DocComment loc -> R.text ("{-|" ++ loc.value ++ "-}")
+        DocComment loc ->
+            let
+                -- elm-format always ensures a blank line before the closing -}
+                normalizedValue =
+                    if String.endsWith "\n" loc.value && not (String.endsWith "\n\n" loc.value) then
+                        loc.value ++ "\n"
+                    else
+                        loc.value
+            in
+            R.text ("{-|" ++ normalizedValue ++ "-}")
         _ -> R.empty
 
 
@@ -2035,7 +2080,9 @@ makeBackwardPipelineDoc forceVertical children =
                                             Just { last = lastNode, initial = headNodes } ->
                                                 when lpnBox lastNode is
                                                     SoftIndentedBlock ->
-                                                        -- Lambda: body on same row as `->`, may stay inline.
+                                                        -- Body authored inline (same row as `->`): keep
+                                                        -- the soft-break so a short lambda stays on one
+                                                        -- line (e.g. `f <| \x -> x + 1`).
                                                         buildFlowDocInline 0 headNodes
                                                             |> Result.andThen (\headDoc ->
                                                                 buildFlowDoc 0 (lpnChildren lastNode)
@@ -2053,16 +2100,19 @@ makeBackwardPipelineDoc forceVertical children =
                                                                     )
                                                             )
                                                     IndentedBlock ->
-                                                        -- Lambda: body on a different row from `->`,
-                                                        -- always hard-break to seed_col + 4.
+                                                        -- Body authored across rows (different row from
+                                                        -- `->`): elm-format style — always break after
+                                                        -- `<|`, lambda header at seed+4, body at seed+8.
                                                         buildFlowDocInline 0 headNodes
                                                             |> Result.andThen (\headDoc ->
                                                                 buildFlowDoc 0 (lpnChildren lastNode)
                                                                     |> Result.map (\bodyDoc ->
                                                                         R.concat seedDoc
-                                                                            (R.concat (R.text " <| ")
-                                                                                (R.concat headDoc
-                                                                                    (R.nest grenIndent (R.concat R.hardNl bodyDoc))))
+                                                                            (R.concat (R.text " <|")
+                                                                                (R.nest grenIndent
+                                                                                    (R.concat R.hardNl
+                                                                                        (R.concat headDoc
+                                                                                            (R.nest grenIndent (R.concat R.hardNl bodyDoc))))))
                                                                     )
                                                             )
                                                     _ ->

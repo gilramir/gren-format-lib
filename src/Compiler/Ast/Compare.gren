@@ -140,7 +140,7 @@ compareValueDecl la lb =
     in
     chainAll
         [ compareStr "function name" a.name.value b.name.value
-        , compareMaybeStr (ctx ++ " docs") (Maybe.map .value la.value.docs) (Maybe.map .value lb.value.docs)
+        , compareMaybeDocStr (ctx ++ " docs") (Maybe.map .value la.value.docs) (Maybe.map .value lb.value.docs)
         , compareMaybe (ctx ++ " signature")
             (\sa sb -> compareType_ ctx sa.value sb.value)
             (Maybe.map .type_ a.signature)
@@ -161,7 +161,7 @@ compareUnionDecl la lb =
     in
     chainAll
         [ compareStr "type name" a.name.value b.name.value
-        , compareMaybeStr (ctx ++ " docs") (Maybe.map .value la.value.docs) (Maybe.map .value lb.value.docs)
+        , compareMaybeDocStr (ctx ++ " docs") (Maybe.map .value la.value.docs) (Maybe.map .value lb.value.docs)
         , compareArray (ctx ++ " vars") (\la_ lb_ -> compareStr "type var" la_.value lb_.value) a.vars b.vars
         , compareArray (ctx ++ " variants") compareVariant a.variants b.variants
         ]
@@ -190,7 +190,7 @@ compareAliasDecl la lb =
     in
     chainAll
         [ compareStr "type alias name" a.name.value b.name.value
-        , compareMaybeStr (ctx ++ " docs") (Maybe.map .value la.value.docs) (Maybe.map .value lb.value.docs)
+        , compareMaybeDocStr (ctx ++ " docs") (Maybe.map .value la.value.docs) (Maybe.map .value lb.value.docs)
         , compareArray (ctx ++ " vars") (\la_ lb_ -> compareStr "type var" la_.value lb_.value) a.vars b.vars
         , compareType ctx a.type_ b.type_
         ]
@@ -512,6 +512,14 @@ compareStr ctx a b =
         Err (ctx ++ ": '" ++ a ++ "' vs '" ++ b ++ "'")
 
 
+-- Like compareStr but normalizes trailing newlines first.
+-- Doc comment formatting may add a blank line before the closing -}, which
+-- changes the raw content but not the semantic meaning of the documentation.
+compareDocStr : String -> String -> String -> Result String {}
+compareDocStr ctx a b =
+    compareStr ctx (String.trimRight a) (String.trimRight b)
+
+
 compareMaybeStr : String -> Maybe String -> Maybe String -> Result String {}
 compareMaybeStr ctx a b =
     when a is
@@ -523,6 +531,19 @@ compareMaybeStr ctx a b =
             when b is
                 Nothing -> Err (ctx ++ ": Just '" ++ av ++ "' vs Nothing")
                 Just bv -> compareStr ctx av bv
+
+
+compareMaybeDocStr : String -> Maybe String -> Maybe String -> Result String {}
+compareMaybeDocStr ctx a b =
+    when a is
+        Nothing ->
+            when b is
+                Nothing -> Ok {}
+                Just bv -> Err (ctx ++ ": Nothing vs Just '" ++ bv ++ "'")
+        Just av ->
+            when b is
+                Nothing -> Err (ctx ++ ": Just '" ++ av ++ "' vs Nothing")
+                Just bv -> compareDocStr ctx av bv
 
 
 compareChar : String -> Char -> Char -> Result String {}

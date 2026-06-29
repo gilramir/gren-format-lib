@@ -5,7 +5,7 @@ import Dict exposing
     , empty {- block comment after the exposed name -}
     -- line comment after the exposed name
     )
-import Basics exposing ( max )
+import Basics exposing (max)
 
 
 theValue =

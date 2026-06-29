@@ -1,6 +1,6 @@
 port module PortComments exposing (..)
 
-import Json.Encode exposing ( Value )
+import Json.Encode exposing (Value)
 
 
 {-| Doc comment on a port declaration. -}

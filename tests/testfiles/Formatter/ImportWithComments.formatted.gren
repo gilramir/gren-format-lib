@@ -1,7 +1,7 @@
-module ViewItems exposing ( viewItems )
+module ViewItems exposing (viewItems)
 
 -- Comment line 3
-import Array as A exposing ( mapAndKeepJust )
+import Array as A exposing (mapAndKeepJust)
 
 import Basics exposing -- comment after 'exposing'
     ( max )

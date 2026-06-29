@@ -520,11 +520,15 @@ processVariantNode locVariant accNodes =
         Just payloadType ->
             makeSignatureBranch payloadType
                 |> Result.map (\payloadNodes ->
-                    -- Wrap the payload in SoftIndentedBlock so that when the
-                    -- variant doesn't fit on one line, the payload moves to a
-                    -- new line indented +4 from the `|` (instead of landing at
-                    -- the same column as the `|`).
-                    let payloadBlock = lpnNode SoftIndentedBlock payloadNodes
+                    -- Record payloads always break to the next line (elm-format style).
+                    -- Other payloads use SoftIndentedBlock so they can stay inline
+                    -- when short (e.g. `| Just Int`).
+                    let
+                        payloadBox =
+                            when payloadType.value is
+                                Src.TRecord _ -> IndentedBlock
+                                _ -> SoftIndentedBlock
+                        payloadBlock = lpnNode payloadBox payloadNodes
                     in
                     Array.pushLast (lpnNode (AcrossThenIndent { forceVertical = False }) [prefixNode, nameNode, payloadBlock]) accNodes
                 )

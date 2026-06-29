@@ -5,7 +5,7 @@ module ExposingListLayoutByAuthor exposing
     )
 
 -- Flat import: stays flat
-import Array exposing ( Array )
+import Array exposing (Array)
 
 -- Vertical import: stays vertical, one item per line
 import Dict exposing
@@ -22,7 +22,7 @@ import Array.Extra as AE exposing
     )
 
 -- Flat import with alias: stays flat
-import String.Extra as SE exposing ( toTitleCase, underscored )
+import String.Extra as SE exposing (toTitleCase, underscored)
 
 
 alpha =

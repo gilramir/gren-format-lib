@@ -3,7 +3,8 @@ module UnionRecordPayloadTrailingComment exposing (..)
 
 type Tree a
     = Leaf
-    | Node { value : a
+    | Node
+        { value : a
         , left : Tree a
         , right : Tree a
         } {- tree node with three children -}

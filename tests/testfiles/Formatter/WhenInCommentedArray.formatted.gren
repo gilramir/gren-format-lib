@@ -1,4 +1,4 @@
-module WhenInCommentedArray exposing ( foo )
+module WhenInCommentedArray exposing (foo)
 
 
 foo x y =

@@ -6,7 +6,8 @@ module RecordFieldAsPattern exposing (..)
 -- output re-parses with `as` binding outside the record entirely.
 type Tree
     = Leaf
-    | Node { left : Tree, right : Tree }
+    | Node
+        { left : Tree, right : Tree }
 
 
 getLeft : Tree -> Tree

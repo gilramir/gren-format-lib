@@ -1,4 +1,4 @@
-module CommentsPipeline exposing ( foo )
+module CommentsPipeline exposing (foo)
 
 
 -- Comments between pipeline lines should have a single space

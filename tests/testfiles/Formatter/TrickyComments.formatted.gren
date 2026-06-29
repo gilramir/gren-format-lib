@@ -10,6 +10,7 @@ block used to be evicted to trailing continuation lines after
 `exposing (..)`. Now they stay adjacent to their original slot:
 c1 lands just after `where`, c2 stays inside the first binding,
 c3 stays inside the second binding.
+
 -}
 
 import Task
