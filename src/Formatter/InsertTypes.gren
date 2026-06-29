@@ -114,7 +114,7 @@ makeSignatureBranch locType =
             let
                 -- Signal B over the type's fields (name start → signature end):
                 -- a record type the author wrote across rows stays one-field-
-                -- per-line; one written on a single line is fit-based. Mirrors
+                -- per-line; one written on a single line stays inline. Mirrors
                 -- the record-literal rule in `Src.Record`.
                 fieldsMultiLine =
                     itemsSpanRows

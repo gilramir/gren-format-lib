@@ -109,18 +109,18 @@ fast whole-corpus sweep.
 Both the standalone CLI and the legacy `gren format` subcommand accept debug flags:
 
 ```bash
-node ../gren-format/app --show    MyFile.gren   # formatted output to stdout
-node ../gren-format/app --pre-ast MyFile.gren   # parsed AST + context as JSON
-node ../gren-format/app --lpt     MyFile.gren   # Logical Printing Tree as JSON
-node ../gren-format/app --pex     MyFile.gren   # PrettyExpressive Doc as JSON
-node ../gren-format/app --check   MyFile.gren   # format, verify ASTs match
+node ../gren-format/app --show       MyFile.gren   # formatted output to stdout
+node ../gren-format/app --pre-ast    MyFile.gren   # parsed AST + context as JSON
+node ../gren-format/app --lpt        MyFile.gren   # Logical Printing Tree as JSON
+node ../gren-format/app --render-doc MyFile.gren   # Formatter.Render Doc tree as JSON
+node ../gren-format/app --check      MyFile.gren   # format, verify ASTs match
 ```
 
 `--lpt` is the most useful debug flag for comment-placement and layout bugs.
 
 ## Formatter architecture
 
-Pipeline: `Src.Module + Ctx.Context → LPT → PrettyExpressive Doc → String`
+Pipeline: `Src.Module + Ctx.Context → LPT → Formatter.Render Doc → String`
 
 ```
 Formatter.PrettyPrinter        entry point: prettyPrint/2
@@ -131,11 +131,15 @@ Formatter.PrettyPrinter        entry point: prettyPrint/2
         Formatter.LPTHelpers          shared helpers (mkText, mkTextFromLocString, …)
         Formatter.Comments            re-attaches comments from parse context
         Formatter.VerticalSpace       inserts blank lines between top-level items
-    Formatter.MakePretty       LPT → PrettyExpressive Doc → String
+    Formatter.MakePretty       LPT → Formatter.Render Doc → String
+        Formatter.Render          custom Doc IR + renderer (no page-width optimizer)
 ```
 
-Page width: **80** columns (`costFactory.pageWidth`; `computationWidth` is 100).
-Indent step: **4** spaces (`grenIndent`). All in `MakePretty.gren`.
+Layout is **author-driven, not fit-driven**: there is no page width and no
+layout search. Each box already knows whether it renders inline or vertical —
+decided from the author's original source rows (`forceVertical`) — and
+`Formatter.Render`'s `group` always renders flat. Indent step: **4** spaces
+(`grenIndent`, in `MakePretty.gren`).
 
 **Key invariant:** every top-level declaration becomes exactly one `OriginalRows`
 node directly under `RootBox`. Comments and blank lines are inserted as sibling

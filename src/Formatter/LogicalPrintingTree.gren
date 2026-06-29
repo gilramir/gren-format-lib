@@ -78,19 +78,21 @@ type LPBox
     --         body               -- body at +4
     | IfCondition { forceVertical : Bool }
 
-    -- Lists with surrounding brackets — fits on one line if it can,
-    -- otherwise breaks every item to its own line.
+    -- Lists with surrounding brackets that the author wrote on one line.
+    -- Renders inline on one line (regardless of width); the only thing that
+    -- forces it one-item-per-line is a contained comment. Lists the author
+    -- wrote across rows use `AlwaysVertical` instead.
     --
-    --     [ a, b, c ]            or       [ a
+    --     [ a, b, c ]            or       [ a       -- (only with a comment)
     --                                     , b
     --                                     , c
     --                                     ]
     | AllAcrossOrAllVertical ListBrackets
 
-    -- Always-vertical list: one item per line regardless of page fit. Used for
-    -- array literals and record literals the author wrote across multiple
-    -- source rows (see `Src.ArrayLiteral` / `Src.Record` in InsertExpressions
-    -- and `itemsSpanRows`). The fit-based counterpart is
+    -- Always-vertical list: one item per line. Used for array literals and
+    -- record literals the author wrote across multiple source rows (see
+    -- `Src.ArrayLiteral` / `Src.Record` in InsertExpressions and
+    -- `itemsSpanRows`). The one-line-authored counterpart is
     -- `AllAcrossOrAllVertical`; record *updates* use `RecordUpdate`.
     --
     --     { x = 1
@@ -112,9 +114,8 @@ type LPBox
     --
     -- `forceVertical` is True when the author wrote the fields across
     -- multiple rows: like array/record literals, the update then stays
-    -- one-field-per-line regardless of fit. When False the layout is fit
-    -- based — inline `{ base | a, b }` when it fits, the vertical form
-    -- (shown above) when it overflows.
+    -- one-field-per-line. When False (author wrote it on one line) it renders
+    -- inline `{ base | a, b }`, regardless of width.
     | RecordUpdate { name : Located String, forceVertical : Bool }
 
     -- An empty bracketed literal (`{}` / `[]` / `()`). Carries the full
@@ -142,8 +143,8 @@ type LPBox
     -- A whole `|>`/`<|` pipeline: children are the seed node(s) followed by the
     -- `PipelineStep` nodes. `op` is `"|>"` or `"<|"`. Mirrors the author-layout
     -- rule of the bracketed containers: a pipeline written on one line stays
-    -- inline when it fits (`seed |> a |> b`), one written across rows — or one
-    -- that overflows — gets one step per line. `forceVertical` is True when the
+    -- inline (`seed |> a |> b`), regardless of width; one written across rows
+    -- gets one step per line. `forceVertical` is True when the
     -- author wrote the seed/steps across rows (signal B). A pipeline carrying any
     -- comment always renders through the `PipelineStep` path (its comment-peeling
     -- / blank-line logic is intricate and stays untouched).
@@ -210,7 +211,7 @@ type LPBox
 
     -- `when … is` expression. Children are:
     --   [whenNode, …scrutineeNodes, isNode, IndentedBlock(branchNodes)]
-    -- Flat: "when scrutinee is" on one line when it fits.
+    -- Flat: "when scrutinee is" on one line (when the author wrote it so).
     -- Broken: `when` then scrutinee indented +4, `is` back at the `when`
     -- column, branches indented +4. This keeps `when` and `is` visually
     -- paired; scrutinee arg-continuation lines land at +8, visually
@@ -244,10 +245,12 @@ type LPBox
     -- leaf child, so position bookkeeping needs no special casing.
     | Glue
 
-    -- Let-def body: tries to keep children inline after `=`, but when it must
-    -- break, places the body at +4 from the binding name's column.
-    -- Unlike IndentedBlock (which always forces P.hardNl), this uses
-    -- P.group so the optimizer can choose inline or indented-newline.
+    -- Let-def body: keeps children inline after `=` unless the body itself
+    -- breaks. Unlike IndentedBlock (which always forces a hard newline), this
+    -- wraps the body in a group (rendered flat, so the soft break before it
+    -- collapses to a space). A body that contains its own unflattenable hard
+    -- break — a block-style `if`/`let`/lambda body, or a comment — drops to a
+    -- new line at +4 from the binding name's column; a simple body stays inline.
     --
     --     name = body                or       name =
     --                                             body

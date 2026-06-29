@@ -28,18 +28,19 @@ The work happens in three stages:
    header." Comments are woven in from the comment table, and blank lines are
    inserted between top-level declarations according to the spacing rules.
 
-2. Render to a pretty-printer document (MakePretty). The layout box tree is
-   translated into a document in the Wadler/Lindig style: a choice-laden
-   structure where the pretty-printer algorithm picks the layout that fits
-   within the 80-character page width.
+2. Render to a document (MakePretty). The layout box tree is translated into a
+   `Formatter.Render` document. Layout is author-driven, not fit-driven: there
+   is no page-width search. Each box already knows whether it renders inline or
+   vertical (decided from the author's original source rows), so this stage just
+   builds the corresponding document.
 
-3. Serialize to a string. The pretty-printer resolves all layout choices and
-   produces the final text.
+3. Serialize to a string. `Formatter.Render` walks the document and produces the
+   final text.
 
 The key design principle is that layout decisions (where line breaks go, how
 much indentation) are separated from content (the actual tokens and comments).
-Stage 1 captures the logical structure; stage 2 expresses the choices; stage 3
-commits to one.
+Stage 1 captures the logical structure and the author's inline/vertical choices;
+stages 2 and 3 render them.
 -}
 prettyPrint: Src.Module -> Ctx.Context -> Result String String
 prettyPrint ast ctx =

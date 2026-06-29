@@ -28,7 +28,6 @@ type Doc
     | Align Doc
     | Reset Doc
     | Group Doc
-    | Fail
 
 
 empty : Doc
@@ -156,12 +155,9 @@ renderState state flat doc =
             in { innerState | indent = state.indent }
 
         Group inner ->
-            -- Group always renders flat (no page-width optimizer)
+            -- Group always renders flat: layout is author-driven, so a group's
+            -- only job is to force its content onto one line.
             renderState state True inner
-
-        Fail ->
-            -- No-op (no optimizer to propagate failure to)
-            state
 
 
 render : Doc -> String
@@ -213,6 +209,3 @@ docToJson doc =
 
         Group inner ->
             wrap "Group" [ child inner ]
-
-        Fail ->
-            tag "Fail"

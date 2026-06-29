@@ -86,27 +86,28 @@ grenIndent =
 
 
 -- Author-layout combinators, shared by the constructs that follow the author's
--- one-line-vs-multi-line choice (signatures, pipelines, binop chains). Each is
--- "fit-based when the author wrote it on one line, forced-vertical when they
--- spread it across rows". The two helpers encode the invariant that the group's
--- broken branch is byte-identical to the forced form — build the segment
--- separators with `authorSep` and wrap the whole doc with `groupUnlessForced`,
--- and overflow == author-multi-line, so formatting stays a fixed point.
+-- one-line-vs-multi-line choice (signatures, pipelines, binop chains). Layout is
+-- author-driven, not fit-driven: a construct the author wrote on one line stays
+-- inline, one they spread across rows stays vertical. `forceVertical` carries
+-- that decision (made upstream from the source rows). Build the segment
+-- separators with `authorSep forceVertical` and wrap the whole doc with
+-- `inlineUnlessVertical forceVertical`.
 
--- Separator between author-layout segments: an unflattenable hard break when
--- forced vertical (so an enclosing `name = body` group can't collapse a
--- multi-line construct back onto one line), otherwise a soft break that
--- flattens to a space when the whole thing fits.
+-- Separator between author-layout segments. Vertical: an unflattenable hard
+-- break (so an enclosing `name = body` group can't collapse a multi-line
+-- construct back onto one line). Inline: a soft break — it sits inside the
+-- `R.group` that `inlineUnlessVertical` adds, which always renders flat, so the
+-- break becomes a single space.
 authorSep : Bool -> Doc
 authorSep forceVertical =
     if forceVertical then R.hardNl else R.nl
 
 
--- Wrap an author-layout doc: grouped (so the optimizer picks flat-or-broken by
--- fit) unless forced vertical, in which case it is returned as-is and its hard
--- breaks always fire.
-groupUnlessForced : Bool -> Doc -> Doc
-groupUnlessForced forceVertical full =
+-- Wrap an author-layout doc. Vertical: returned as-is so its hard breaks fire.
+-- Inline: wrapped in `R.group`, which always renders flat (there is no
+-- page-width test), forcing the whole doc onto one line.
+inlineUnlessVertical : Bool -> Doc -> Doc
+inlineUnlessVertical forceVertical full =
     if forceVertical then full else R.group full
 
 
@@ -202,10 +203,11 @@ makeUnionBodyDoc nodes =
         hasComment = Array.any nodeIsComment nodes
         variantNodes = Array.keepIf (\n -> not (nodeIsComment n)) nodes
         -- Signal B over the variants: a union the author wrote across rows stays
-        -- one-variant-per-line; one written on a single line is fit-based
-        -- (`= A | B | C` inline when it fits, one-per-line on overflow). Mirrors
-        -- the record/list rule, with the fit-based↔vertical group built so the
-        -- broken form is byte-identical to the always-vertical (R.vcat) form.
+        -- one-variant-per-line; one written on a single line stays inline
+        -- (`= A | B | C`), regardless of width — layout is author-driven, not
+        -- fit-driven. Mirrors the record/list rule. The inline `R.group` and the
+        -- always-vertical `R.vcat` form are built to be byte-identical when
+        -- flattened, so reformatting is a fixed point.
         variantsSpanRows =
             rowsSpanMultiple (Array.map firstRowInSubtree variantNodes)
     in
@@ -308,8 +310,9 @@ makeTypeBodyDoc typeNodes =
                 -- its own author-derived layout (`AllAcrossOrAllVertical` when
                 -- written on one line, `AlwaysVertical` when written across
                 -- rows — see `Src.TRecord`), so it is no longer force-
-                -- verticalized; it sits inline on the body line when it fits,
-                -- exactly like a non-record alias body (`type alias Id = Int`).
+                -- verticalized; a one-line-authored record sits inline on the
+                -- body line, exactly like a non-record alias body
+                -- (`type alias Id = Int`).
                 makePDoc (lpnBox onlyNode) (lpnChildren onlyNode)
             else
                 buildFlowDoc 0 typeNodes
@@ -553,7 +556,7 @@ buildFlowDocImpl indent inlineStart brokenFlow nodes =
                                                 _ ->
                                                     if loc.start.row == acc.prevRow || acc.prevElided then
                                                         -- Same row as preceding item: attach with a SOFT
-                                                        -- break — a space when it fits, otherwise its own
+                                                        -- break — a space in flat context, otherwise its own
                                                         -- line. A hard space would give the flow no break
                                                         -- point here, forcing an *earlier* break (e.g. before
                                                         -- an elided `->`) so the comment trails a token that
@@ -753,18 +756,19 @@ buildFlowDocImpl indent inlineStart brokenFlow nodes =
                                     -- Peel a single-line block comment off the END of the
                                     -- branch and glue it inline to the body with a space,
                                     -- rather than letting buildFlowDoc place it. Left in the
-                                    -- flow it rides a soft break, so an overflowing comment
+                                    -- flow it rides a soft break, so the comment
                                     -- drops onto its own line at the branch indent — one row
                                     -- *below* the body's last token, and dedented from it. On
                                     -- reparse that row sits past the declaration's range and
                                     -- the comment escapes to a top-level comment (column 1),
                                     -- non-idempotently. Gluing keeps it on the body's last
-                                    -- row (even past the page width) so it stays inside the
+                                    -- row so it stays inside the
                                     -- branch across reformats. The next branch's leading
                                     -- hardNl terminates the line.
                                     -- Peel *all* trailing block comments off the end (not just
                                     -- one): a branch body can end in a run of them, and any left
-                                    -- in the flow rides a soft break and escapes on overflow. A
+                                    -- in the flow rides a soft break and escapes onto its own
+                                    -- line below the body. A
                                     -- trailing `--` is left in place (peelLineComments = False) —
                                     -- its own soft-break handling keeps it stable.
                                     let
@@ -994,14 +998,15 @@ makePDoc box children =
         unexpected -> Err ("makePDoc: unexpected box type:\n" ++ lptToJson (lpnNode unexpected children))
 
 
--- Render a bracketed, comma-separated list of LPNode items, flat-or-vertical.
+-- Render a bracketed, comma-separated list of LPNode items.
 --
 -- If any child is a SingleLineComment, delegates to listBoxesWithBrackets,
 -- which always produces a multi-line layout (a line comment cannot live
--- inside a flat group). Otherwise the pretty-printer chooses flat or
--- one-item-per-line via the `R.group` in exposingListWithBrackets. (Callers
--- that want an unconditional vertical layout use `AlwaysVertical`, which routes
--- through listBoxesWithBrackets instead.)
+-- inside a flat group). Otherwise it renders inline on one line — the
+-- `R.group` in exposingListWithBrackets always renders flat. (A comment is the
+-- only thing that forces this box vertical; callers that want an unconditional
+-- vertical layout use `AlwaysVertical`, which routes through
+-- listBoxesWithBrackets instead.)
 makeAllAcrossOrAllVertical : ListBrackets -> Array LPNode -> Result String Doc
 makeAllAcrossOrAllVertical brackets children =
     let
@@ -1419,16 +1424,16 @@ makeRecordUpdateDoc forceVertical baseName children =
                             Ok fieldLines ->
                                 Ok (R.vcat ([R.text ("{ " ++ baseName)] ++ fieldLines ++ [R.text "}"]))
             else
-                -- Fit-based form (no comments, author wrote it on one line): a
-                -- group whose flat rendering is `{ base | a = 1, b = 2 }` and
-                -- whose broken rendering is the vertical form above. The breaks
-                -- are built so that flattening reproduces the inline spacing:
-                -- `nl` before the first field (flattens to a space, giving
-                -- ` | `), `breakDoc` before each subsequent field (flattens to
-                -- empty, so its own `, ` prefix gives `, `), and `nl` before the
-                -- closing `}`. The fields are nested +4 so the broken form is
-                -- byte-identical to the vcat form above — keeping a single-line
-                -- update that overflows idempotent with a multi-line-authored one.
+                -- Inline form (no comments, author wrote it on one line): a group
+                -- that always renders flat as `{ base | a = 1, b = 2 }`. The
+                -- separators are built so that flattening reproduces the inline
+                -- spacing: `nl` before the first field (flattens to a space,
+                -- giving ` | `), `breakDoc` before each subsequent field
+                -- (flattens to empty, so its own `, ` prefix gives `, `), and
+                -- `nl` before the closing `}`. The fields are nested +4 so the
+                -- ungrouped (vertical) rendering would be byte-identical to the
+                -- vcat form above — keeping the one-line and multi-line-authored
+                -- updates a shared fixed point.
                 when fieldDoc firstField is
                     Err e -> Err e
                     Ok firstFieldDoc ->
@@ -1451,7 +1456,7 @@ makeRecordUpdateDoc forceVertical baseName children =
                             )
 
 
-{-| Build the `PrettyExpressive` `Doc` for a single root-child node without
+{-| Build the `Formatter.Render` `Doc` for a single root-child node without
 resolving it to a string.
 
 Dispatches on the node's `OriginalRows` `SyntaxType` (type aliases, type
@@ -1687,18 +1692,17 @@ segmentsBrokenAtBoundary segments =
 {-| Render a function/port signature with the author's one-line-vs-multi-line
 layout (all-or-nothing, mirroring lists/records).
 
-A signature the author wrote on one line stays inline when it fits and breaks
-to one-segment-per-line on overflow; one written across rows stays
-one-segment-per-line. Both the overflow form and the multi-line form are:
+A signature the author wrote on one line stays inline, regardless of width; one
+written across rows stays one-segment-per-line. The multi-line form is:
 
     foo :
         VeryLongType
         -> AnotherType
         -> ResultType
 
-The fit-based `R.group`'s broken branch is byte-identical to the forced-vertical
-form (same `nl` separators), so overflow == author-multi-line and formatting is
-a fixed point.
+The inline `R.group` (always flat) and the forced-vertical form share the same
+`nl` separators, so they are byte-identical when flattened and formatting is a
+fixed point.
 
 Comment-bearing signatures fall back to the original fill renderer: the
 all-or-nothing break points have no stable anchor for a trailing comment, and
@@ -1754,7 +1758,7 @@ makeSignaturePrettyDoc children =
                                     R.concat headerDoc
                                         (R.nest grenIndent (R.concat R.nl bodyInner))
                             in
-                            groupUnlessForced forceVertical full
+                            inlineUnlessVertical forceVertical full
                         )
                 )
 
@@ -1770,16 +1774,16 @@ isPipelineStepNode node =
 {-| Render a whole pipeline with the author's one-line-vs-multi-line layout.
 
 `children` are the seed node(s) followed by the `PipelineStep` nodes. A pipeline
-the author wrote on one line stays inline when it fits (`seed |> a |> b`); one
-written across rows, or one that overflows, gets one step per line:
+the author wrote on one line stays inline (`seed |> a |> b`), regardless of
+width; one written across rows gets one step per line:
 
     seed
         |> step1
         |> step2
 
-The fit-based `R.group`'s broken branch and the forced-vertical form are the
-*same* doc (just grouped vs not), so overflow == author-multi-line and formatting
-is a fixed point. A pipeline carrying any comment always renders through the
+The inline and forced-vertical forms are the *same* doc (just grouped vs not),
+so they are byte-identical when flattened and formatting is a fixed point. A
+pipeline carrying any comment always renders through the
 existing `PipelineStep` path (`buildFlowDoc 0 children`), whose comment-peeling
 and blank-line logic stays untouched.
 -}
@@ -1819,7 +1823,7 @@ makePipelineDoc forceVertical children =
                             full =
                                 R.concat seedDoc (R.nest grenIndent stepsInner)
                         in
-                        groupUnlessForced forceVertical full
+                        inlineUnlessVertical forceVertical full
                     )
             )
 
@@ -1924,7 +1928,7 @@ makeBackwardPipelineDoc forceVertical children =
                                                 -- Non-lambda single step (empty body — shouldn't happen).
                                                 buildFlowDoc 0 bodyNodes
                                                     |> Result.map (\bodyDoc ->
-                                                        groupUnlessForced forceVertical
+                                                        inlineUnlessVertical forceVertical
                                                             (R.concat seedDoc
                                                                 (R.concat (R.text " <|")
                                                                     (R.nest grenIndent (R.concat sep bodyDoc))))
@@ -1966,7 +1970,7 @@ makeBackwardPipelineDoc forceVertical children =
                                                         -- Non-lambda single step.
                                                         buildFlowDoc 0 bodyNodes
                                                             |> Result.map (\bodyDoc ->
-                                                                groupUnlessForced forceVertical
+                                                                inlineUnlessVertical forceVertical
                                                                     (R.concat seedDoc
                                                                         (R.concat (R.text " <|")
                                                                             (R.nest grenIndent (R.concat sep bodyDoc))))
@@ -2000,7 +2004,7 @@ makeBackwardPipelineDoc forceVertical children =
                                                     bodyDocs
                                                 |> .doc
                                         in
-                                        groupUnlessForced forceVertical
+                                        inlineUnlessVertical forceVertical
                                             (R.concat seedDoc
                                                 (R.concat (R.text " <|")
                                                     (R.nest grenIndent (R.concat sep stepsDoc))))
@@ -2078,18 +2082,18 @@ opNodeText node =
 
 {-| Render a non-pipeline binop chain with precedence-aware author layout.
 
-A chain the author wrote on one line stays inline when it fits; otherwise it
-breaks **only at its lowest-precedence operators** (operator-led, one group per
-line), keeping tighter-binding sub-terms inline:
+A chain the author wrote on one line stays inline, regardless of width; one
+written across rows breaks **only at its lowest-precedence operators**
+(operator-led, one group per line), keeping tighter-binding sub-terms inline:
 
     baseScore
         + bonusPoints * multiplier
         - penaltyAmount
 
-The fit-based `R.group` and the forced-vertical form share the broken doc (fit
-uses `R.nl`, forced uses `R.hardNl` so an outer `name = body` group can't collapse
-a multi-line chain), so overflow == author-multi-line and formatting is a fixed
-point. A chain carrying any comment falls back to the `OpAndRhs` fill renderer
+The inline and forced-vertical forms share the same doc (inline uses `R.nl`,
+forced uses `R.hardNl` so an outer `name = body` group can't collapse a
+multi-line chain), so they are byte-identical when flattened and formatting is a
+fixed point. A chain carrying any comment falls back to the `OpAndRhs` fill renderer
 (`buildFlowDoc grenIndent children`), so wrapped operators indent +4 like the
 precedence-aware form.
 -}
@@ -2195,7 +2199,7 @@ assembleBinopGroups forceVertical minPrec operandDocs ops =
         full =
             R.concat state.firstGroup (R.nest grenIndent restInner)
     in
-    groupUnlessForced forceVertical full
+    inlineUnlessVertical forceVertical full
 
 
 makeTypeAliasPrettyDoc : Array LPNode -> Result String Doc
@@ -2327,9 +2331,9 @@ listBoxesWithBracketsUsing itemRenderer open close nodes =
                                     in
                                     if commentRow == acc.prevRow then
                                         -- Trailing the preceding item: attach with a SOFT break —
-                                        -- a space when it fits, otherwise its own line. A hard
-                                        -- space would put the comment on the item's line, so an
-                                        -- overflowing trailing comment would re-wrap the item's
+                                        -- a space in flat context, otherwise its own line. A hard
+                                        -- space would put the comment on the item's line, so a
+                                        -- trailing comment would re-wrap the item's
                                         -- value; on reparse the comment then sits on the value's
                                         -- wrapped row, the value un-wraps, and the layout
                                         -- oscillates. The soft break keeps the item's value laid

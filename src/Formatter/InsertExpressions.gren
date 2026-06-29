@@ -296,8 +296,8 @@ insertExpression locExpr =
                             -- The author's layout decides the list shape: if the
                             -- items were written across multiple rows, keep them
                             -- one-per-line (`AlwaysVertical`); if they were on one
-                            -- row, let page fit decide (`AllAcrossOrAllVertical` —
-                            -- flat when it fits, one-per-line when it overflows).
+                            -- row, keep them inline (`AllAcrossOrAllVertical`,
+                            -- which renders flat unless it carries a comment).
                             -- `locExpr.end` is the `]`, so a comment on its own
                             -- line before the `]` stays inside the array.
                             let
@@ -318,9 +318,9 @@ insertExpression locExpr =
                             [lpnLeaf (EmptyBracketed { start = locExpr.start, end = locExpr.end, value = ListCurly })]
                         Just _ ->
                             -- Like array literals, the author's layout chooses the
-                            -- shape: fields written on one line stay inline when
-                            -- they fit (vertical on overflow); fields the author
-                            -- spread across rows stay one-per-line regardless.
+                            -- shape: fields written on one line stay inline
+                            -- (regardless of width); fields the author
+                            -- spread across rows stay one-per-line.
                             -- `locExpr.end` is the `}`, so a comment on its own
                             -- line before the `}` stays inside the record.
                             let
@@ -380,8 +380,8 @@ insertExpression locExpr =
                             else
                                 -- 2+ field update: like a record literal, the
                                 -- author's layout chooses the shape. Fields on one
-                                -- line → fit-based (inline `{ b | a, c }`, vertical
-                                -- on overflow); fields across rows → forced vertical.
+                                -- line → inline `{ b | a, c }` (regardless of
+                                -- width); fields across rows → forced vertical.
                                 -- Close position so the descent guards classify a
                                 -- comment before/after the `}` correctly (inside
                                 -- stays; past it escapes), matching the single-field
@@ -423,8 +423,8 @@ insertExpression locExpr =
                                     |> Result.map (\bodyNodes ->
                                         -- PipelineStep's buildFlowDoc grenIndent already provides
                                         -- +4 continuation, so unwrap a lone AcrossThenIndent (from
-                                        -- a function call) to keep the flat token flow the optimizer
-                                        -- needs to split across the |> line naturally.
+                                        -- a function call) to keep the token flow directly under the
+                                        -- step, avoiding a second +4 of indentation.
                                         let flatBodyNodes =
                                                 when Array.popFirst bodyNodes is
                                                     Just { first = onlyNode, rest = [] } ->
@@ -593,7 +593,8 @@ insertExpression locExpr =
                 |> Result.andThen (\exprNodes ->
                     resultFoldl folderInsertWhenBranch [] branches
                         |> Result.map (\branchNodes ->
-                            -- WhenFlow: flat "when scrutinee is" when it fits;
+                            -- WhenFlow: flat "when scrutinee is" when authored
+                            -- on one line;
                             -- broken puts `is` back at the `when` column so the
                             -- keyword pair is visually symmetric. Also aligns
                             -- branches to `when`'s actual column (not the
@@ -669,10 +670,11 @@ list item.
 
 Every container literal — list, record, and record update — now derives its
 inline-vs-vertical shape from the author's layout (`Src.ArrayLiteral`,
-`Src.Record`, `Src.Update`), and a fit-based container already collapses to one
-line when it fits, so nothing needs rewriting for the argument position. The
-only remaining work is to recurse through `ParenBlock` in case a future rule
-wants to reach the parenthesized form.
+`Src.Record`, `Src.Update`), so a one-line-authored container already renders
+inline and nothing needs rewriting for the argument position. The only
+remaining work is to recurse through `ParenBlock` in case a future rule wants to
+reach the parenthesized form. (This hook is now nearly an identity function —
+see the standalone review's step 3 for collapsing it.)
 -}
 convertForArg : LPNode -> LPNode
 convertForArg node =
