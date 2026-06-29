@@ -175,9 +175,11 @@ summariseCart ({ identifier, items, flags } as inboundCart) =
         |> Array.map formatLine
 
         -- comment before a pipeline step containing a record update
-        |> Array.map (\formattedItemLine ->
+        |> Array.map
+            (\formattedItemLine ->
                 -- comment inside a single-arg lambda body
-                "- " ++ formattedItemLine)
+                "- " ++ formattedItemLine
+            )
 
         {- comment between two pipeline steps using block-comment style -}
         |> String.join "\n"
@@ -205,14 +207,16 @@ reprice rawMultiplier ({ items, flags } as inboundCart) =
     { inboundCart
         -- comment before the first updated field
         | items = items
-                  |> Array.map (\itemRecord ->
+                  |> Array.map
+                      (\itemRecord ->
                           -- comment leading into a nested record update inside a pipeline step
                           { itemRecord
                               -- comment before the first updated field of a NESTED record update
                               | unitPriceCents = round (toFloat itemRecord.unitPriceCents * clampedMultiplier)
                               -- comment between two updated fields of a nested update
                               , quantity = itemRecord.quantity
-                          })
+                          }
+                      )
         -- comment between two updated fields of the OUTER record update
         , flags =
               -- comment before another nested record update
@@ -312,7 +316,8 @@ extremelyCommented {-c22-} {-c23-} {-c24-} ({ score {-c25-}
     wholeRecord
         {-c48-}
         {-c49-}
-        |> {-c50-} {-c51-} (\{-c52-} r ->
+        |> {-c50-} {-c51-}
+            (\{-c52-} r ->
                 {-c53-}
                 {-c54-}
                 {-c55-}
@@ -352,7 +357,8 @@ extremelyCommented {-c22-} {-c23-} {-c24-} ({ score {-c25-}
                         _ ->
                             {-c90-}
                             {-c91-}
-                            r {-c92-}) {-c93-}
+                            r {-c92-}
+            ) {-c93-}
 
         {-c94-}
         |> {-c95-} (\finalRecord -> {-c96-} {-c97-} finalRecord {-c98-}) {-c99-}
@@ -364,9 +370,11 @@ bestDiscount : Array { code : String, basisPoints : Int } -> -- comment after on
 bestDiscount candidateDiscounts =
     candidateDiscounts
         -- comment leading into a long pipeline
-        |> Array.keepIf (\{ basisPoints } ->
+        |> Array.keepIf
+            (\{ basisPoints } ->
                 -- comment inside the lambda body of a keepIf step
-                basisPoints > 0 && basisPoints <= 5000)
+                basisPoints > 0 && basisPoints <= 5000
+            )
 
         {- two-step block-comment narration begins -}
         |> Array.foldl (\candidate currentBest ->

@@ -484,6 +484,42 @@ renderBlockNode rule acc nodeChildren =
         )
 
 
+{-| Build the Doc for a pipeline step's children (the `|> func args...` part).
+
+When the last child is a multi-line lambda ParenBlock (`isMultilineLambdaParenBlock`),
+breaks it onto a new line so the body aligns under `(` rather than the ambient
+pipeline indent:
+
+    |> Task.andThen
+        (\start ->
+            body
+        )
+
+Otherwise falls back to `buildFlowDoc grenIndent` (continuation args at `|>` + 4).
+Called from both `renderPipelineStepNode` (comment-bearing path) and the fast
+path in `makePipelineDoc` (comment-free path) — both wrap the result in an outer
+`R.nest grenIndent`, so the lambda `(` lands at step-column + 4.
+-}
+buildStepChildrenDoc : Array LPNode -> Result String Doc
+buildStepChildrenDoc stepChildren =
+    when Array.popLast stepChildren is
+        Just { last = lastChild, initial = preamble } ->
+            if isMultilineLambdaParenBlock lastChild then
+                buildFlowDocInline 0 preamble
+                    |> Result.andThen (\preambleDoc ->
+                        makeMultilineLambdaArgDoc (lpnChildren lastChild)
+                            |> Result.map (\lambdaDoc ->
+                                R.concat preambleDoc
+                                    (R.nest grenIndent (R.concat R.hardNl lambdaDoc))
+                            )
+                    )
+            else
+                buildFlowDoc grenIndent stepChildren
+
+        Nothing ->
+            buildFlowDoc grenIndent stepChildren
+
+
 -- Render a `PipelineStep` child inside buildFlowDoc's fold.
 --
 -- Peel a single leading line/block comment off the step so it renders at the
@@ -542,7 +578,7 @@ renderPipelineStepNode acc nodeChildren =
                     , hasTrailing = False
                     }
     in
-    when buildFlowDoc grenIndent stepChildren is
+    when buildStepChildrenDoc stepChildren is
         Err e -> Err e
         Ok childrenDoc ->
             let
@@ -1777,6 +1813,27 @@ isPipelineStepNode node =
         _ -> False
 
 
+-- True when `node` is a `ParenBlock` whose body is on a different row from
+-- `->` — i.e. the lambda was written multi-line by the author.  Shape:
+--   ParenBlock [ AcrossThenIndent (\args ->), IndentedBlock (body) ]
+-- Single-line lambdas carry `SoftIndentedBlock` as the second child and are
+-- rendered inline as usual; only `IndentedBlock` gets the elm-format layout.
+isMultilineLambdaParenBlock : LPNode -> Bool
+isMultilineLambdaParenBlock node =
+    when lpnBox node is
+        ParenBlock ->
+            when Array.popFirst (lpnChildren node) is
+                Just { rest } ->
+                    when Array.first rest is
+                        Just secondChild ->
+                            when lpnBox secondChild is
+                                IndentedBlock -> True
+                                _ -> False
+                        Nothing -> False
+                Nothing -> False
+        _ -> False
+
+
 {-| Render a whole pipeline with the author's one-line-vs-multi-line layout.
 
 `children` are the seed node(s) followed by the `PipelineStep` nodes. A pipeline
@@ -1811,7 +1868,7 @@ makePipelineDoc forceVertical children =
                 -- `|> body` with continuation args nested +4 from the `|>` column
                 -- — exactly the PipelineStep path's `buildFlowDoc grenIndent
                 -- stepChildren`.
-                traverseArray (\step -> buildFlowDoc grenIndent (lpnChildren step)) stepNodes
+                traverseArray (\step -> buildStepChildrenDoc (lpnChildren step)) stepNodes
                     |> Result.map (\stepDocs ->
                         let
                             -- Step separator (see `authorSep`): a soft break inline,
@@ -2476,6 +2533,43 @@ makeWhenFlowDoc forceVertical branchNest children =
                                                 )
                                         )
                                 )
+
+
+{-| Render a multi-line lambda argument `(\args -> body)` in elm-format style:
+
+    |> Task.andThen
+        (\start ->
+            body
+        )
+
+`R.align` anchors indent to `(`, the body is at `(` col + 4, and `)` is on
+its own line at `(` col.  Called from `renderPipelineStepNode` after it detects
+a trailing `isMultilineLambdaParenBlock` child and breaks it onto a new line.
+-}
+makeMultilineLambdaArgDoc : Array LPNode -> Result String Doc
+makeMultilineLambdaArgDoc children =
+    when Array.popFirst children is
+        Nothing ->
+            Err "multiline lambda paren: no children"
+
+        Just { first = headNode, rest = afterHead } ->
+            buildFlowDocInline 0 (lpnChildren headNode)
+                |> Result.andThen (\headDoc ->
+                    when Array.first afterHead is
+                        Nothing ->
+                            Ok (R.align (R.concat (R.text "(") (R.concat headDoc (R.text ")"))))
+
+                        Just bodyNode ->
+                            buildFlowDoc 0 (lpnChildren bodyNode)
+                                |> Result.map (\bodyDoc ->
+                                    R.align
+                                        (R.concat (R.text "(")
+                                            (R.concat headDoc
+                                                (R.concat
+                                                    (R.nest grenIndent (R.concat R.hardNl bodyDoc))
+                                                    (R.concat R.hardNl (R.text ")")))))
+                                )
+                )
 
 
 {-| Render a ParenBlock: inline for simple expressions, paren-block layout for

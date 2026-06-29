@@ -1,0 +1,36 @@
+module PipelineLambdaArg exposing (..)
+
+-- A single-line lambda arg (body on same row as ->) stays inline.
+inlineCase =
+    list
+        |> Array.map (\n -> n * 2)
+
+
+-- A multi-line lambda arg (body on a different row from ->) uses elm-format
+-- style: lambda on its own line at step+4, body at step+8, ) at step+4.
+multilineCase =
+    Time.now
+        |> Task.andThen (\start ->
+            doWork start)
+
+
+-- Nested pipelines each get elm-format style.
+nestedCase =
+    Time.now
+        |> Task.andThen (\start ->
+            lifecycle start
+                |> Task.andThen (\outcome ->
+                    Task.succeed outcome))
+
+
+-- Lambda with multiple parameters.
+multiParamCase =
+    items
+        |> Array.map (\a b ->
+            a + b)
+
+
+-- Single-line lambda stays inline even when other args precede it.
+withPrefixArg =
+    items
+        |> Dict.map "key" (\v -> v + 1)
