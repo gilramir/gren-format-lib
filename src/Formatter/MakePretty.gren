@@ -71,7 +71,7 @@ import Compiler.SourcePosition exposing (Located)
 import Formatter.LogicalPrintingTree exposing (LPBox(..),
     LPNode, ListBrackets(..), SyntaxType(..),
     lpnBox, lpnChildren, lpnNode, firstRowInSubtree, lpnMaxRow, lpnLastPos,
-    lpnLastBracketEnd, lpnBracketStart)
+    lpnFirstPos, lpnLastBracketEnd, lpnBracketStart)
 import Formatter.LPTJson exposing (lptToJson)
 import Formatter.LPTHelpers exposing (binopPrecedence, binopMinPrecedence)
 
@@ -1176,7 +1176,23 @@ matching the always-vertical comment-aware list rendering.
 -}
 makeExposingListDoc : Array LPNode -> Result String Doc
 makeExposingListDoc children =
-    if Array.any nodeIsComment children then
+    let
+        authorWroteVertical =
+            when Array.popFirst children is
+                Nothing ->
+                    False
+                Just { first, rest } ->
+                    when Array.last rest is
+                        Nothing ->
+                            False
+                        Just last ->
+                            when { fp = lpnFirstPos first, lp = lpnFirstPos last } is
+                                { fp = Just fp, lp = Just lp } ->
+                                    fp.row < lp.row
+                                _ ->
+                                    False
+    in
+    if Array.any nodeIsComment children || authorWroteVertical then
         listBoxesWithBrackets "( " ")" children
             |> Result.map (\body -> R.concat R.hardNl body)
     else

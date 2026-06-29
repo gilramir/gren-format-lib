@@ -1,4 +1,16 @@
-port module KitchenSink exposing ( Tree(..), Result, Container, Configuration, initialContainer, processConfiguration, transform, fold, traverseDeeply, port_out_message, port_in_message )
+port module KitchenSink exposing
+    ( Tree(..)
+    , Result
+    , Container
+    , Configuration
+    , initialContainer
+    , processConfiguration
+    , transform
+    , fold
+    , traverseDeeply
+    , port_out_message
+    , port_in_message
+    )
 
 {-| A kitchen-sink module that exercises every Gren construct the formatter
     should know about. This module is intentionally over-stuffed and silly —
