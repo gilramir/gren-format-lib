@@ -1,5 +1,6 @@
 module Formatter.MakePretty exposing
     ( makePrettyResult
+    , lptToRenderDocJson
     )
 
 {-| Render a Logical Printing Tree to its final formatted source string.
@@ -74,6 +75,7 @@ import Formatter.Strings exposing
     )
 
 import Formatter.Render as R exposing (Doc)
+import Json.Encode as Json
 
 
 
@@ -2442,5 +2444,29 @@ listBoxesWithBracketsUsing itemRenderer open close nodes =
                     result ++ [ R.text close ]
             in
             Ok (R.vcat prefixed)
+
+
+{-| Serialize the Render.Doc tree for each top-level declaration to a JSON
+array, one entry per root child.  Exposed for the `--render-doc` debug flag.
+-}
+lptToRenderDocJson : LPNode -> Result String String
+lptToRenderDocJson root =
+    Array.foldl
+        (\child acc ->
+            when acc is
+                Err e ->
+                    Err e
+
+                Ok docs ->
+                    when makePrettyLineDoc child is
+                        Err e ->
+                            Err e
+
+                        Ok doc ->
+                            Ok (Array.pushLast (R.docToJson doc) docs)
+        )
+        (Ok [])
+        (lpnChildren root)
+        |> Result.map (\values -> Json.encode 2 (Json.array identity values))
 
 

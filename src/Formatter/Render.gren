@@ -3,6 +3,7 @@ module Formatter.Render exposing
     , empty, text, concat, hardNl, nl, breakDoc, nest, align, reset
     , group, vcat, foldDoc
     , render
+    , docToJson
     )
 
 {-| Simple custom Doc type and renderer for the Gren formatter.
@@ -12,6 +13,8 @@ call makes its content stay on one line. `HardNl` always forces a newline.
 `Nl` is a soft break: a space in flat context, a newline in normal context.
 `BreakDoc` is a soft break that emits nothing when flat.
 -}
+
+import Json.Encode as Json
 
 
 type Doc
@@ -164,3 +167,52 @@ renderState state flat doc =
 render : Doc -> String
 render doc =
     (renderState { indent = 0, col = 0, buf = "" } False doc).buf
+
+
+{-| Serialise a Doc to a JSON value for the `--render-doc` debug flag. -}
+docToJson : Doc -> Json.Value
+docToJson doc =
+    let
+        tag t = Json.object [ { key = "type", value = Json.string t } ]
+        wrap t fields = Json.object ([ { key = "type", value = Json.string t } ] ++ fields)
+        child d = { key = "doc", value = docToJson d }
+    in
+    when doc is
+        Empty ->
+            tag "Empty"
+
+        Text s ->
+            wrap "Text" [ { key = "text", value = Json.string s } ]
+
+        Concat { a, b } ->
+            wrap "Concat"
+                [ { key = "a", value = docToJson a }
+                , { key = "b", value = docToJson b }
+                ]
+
+        HardNl ->
+            tag "HardNl"
+
+        Nl ->
+            tag "Nl"
+
+        BreakDoc ->
+            tag "BreakDoc"
+
+        Nest { n, doc = inner } ->
+            wrap "Nest"
+                [ { key = "n", value = Json.int n }
+                , { key = "doc", value = docToJson inner }
+                ]
+
+        Align inner ->
+            wrap "Align" [ child inner ]
+
+        Reset inner ->
+            wrap "Reset" [ child inner ]
+
+        Group inner ->
+            wrap "Group" [ child inner ]
+
+        Fail ->
+            tag "Fail"
