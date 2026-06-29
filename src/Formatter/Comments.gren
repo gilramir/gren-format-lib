@@ -499,7 +499,7 @@ insertCommentIntoSubtree commentNode row col node =
                             && not (subtreeStartsAfter child row col)
                             && not laterSiblingClaims
                             && not
-                                ((isAcrossThenIndentNode child || isItemBracketListNode child || isIfConditionNode child || isPrefixGlueNode child || isParenBlockNode child || nextSiblingIsBoundary)
+                                ((boxKeepsTrailingCommentOutside child || nextSiblingIsBoundary)
                                     && subtreeEndsBefore child row col
                                     && not (commentInsideTrailingBracket child row col)
                                 ) then
@@ -593,44 +593,41 @@ insertAmongChildren commentNode row col children =
 
 -- Box-type guards for the descent. These predicates name the LPBox kinds that a
 -- trailing comment must never be sucked *into*, even when `child` is the last
--- node in its flow (no following sibling to fall beside): a function-call /
--- argument flow (`AcrossThenIndent`), an `if` / `else if` condition
--- (`IfCondition`), a `\`-glued lambda head or unary `-` (`PrefixGlue`), a
--- parenthesised expression (`ParenBlock`), and a bracketed item list
--- (`isItemBracketListNode`, defined with the bracket helpers below). A comment
--- past their last token belongs beside them, not inside. For every *other* box
--- kind the `hasFollowingSibling` check in the descent expresses the same intent
--- whenever a sibling follows — so most constructs need no entry here.
-isAcrossThenIndentNode : LPNode -> Bool
-isAcrossThenIndentNode node =
+-- True for box kinds that, when a comment sits past their last token, must keep
+-- that trailing comment OUTSIDE themselves — it belongs beside them, not inside.
+-- The node is the last in its flow (no following sibling to fall beside), or the
+-- descent guard pairs this with `nextSiblingIsBoundary` for a mid-flow node that
+-- still starts a new flow item. A comment genuinely inside a glued/bracketed
+-- form still descends, via `commentInsideTrailingBracket` /
+-- `commentInsideEmptyBracket`.
+--
+-- This is the single declared list of "never swallow a trailing comment" box
+-- kinds — to teach a new construct the same rule, add it here rather than
+-- threading another predicate into the guard. Per kind:
+--   AcrossThenIndent                       — function-call / argument flow
+--   IfCondition                            — `if` / `else if` condition
+--   PrefixGlue                             — `\`-glued lambda head or unary `-`;
+--       matters even mid-flow, where the next lambda parameter's flow separator
+--       would otherwise append the comment with a leading space and shift that
+--       parameter by a column (non-idempotent)
+--   ParenBlock                             — parenthesised expression
+--   AllAcrossOrAllVertical / AlwaysVertical — bracketed item list (`{ a, b }`,
+--       `[ x, y ]`, exposing lists): a comment past the closing bracket is a
+--       sibling, not an item. `RecordUpdate` is intentionally excluded — it has
+--       base `|` fields structure that a comment between the base and `|`
+--       legitimately enters, and the bracket-end-proximity check doesn't
+--       generalise to it.
+-- For every *other* box kind the sibling check in the descent expresses the same
+-- intent whenever a sibling follows, so most constructs need no entry here.
+boxKeepsTrailingCommentOutside : LPNode -> Bool
+boxKeepsTrailingCommentOutside node =
     when lpnBox node is
         AcrossThenIndent _ -> True
-        _ -> False
-
-
-isIfConditionNode : LPNode -> Bool
-isIfConditionNode node =
-    when lpnBox node is
         IfCondition _ -> True
-        _ -> False
-
-
--- `PrefixGlue` needs its own entry (rather than relying on `hasFollowingSibling`)
--- because keeping a trailing comment out of it matters even mid-flow: the next
--- lambda parameter's flow-separator would otherwise append the comment with a
--- leading space and shift that parameter by a column (non-idempotent). A comment
--- genuinely inside the glued bracket still descends, via commentInsideTrailingBracket.
-isPrefixGlueNode : LPNode -> Bool
-isPrefixGlueNode node =
-    when lpnBox node is
         PrefixGlue _ -> True
-        _ -> False
-
-
-isParenBlockNode : LPNode -> Bool
-isParenBlockNode node =
-    when lpnBox node is
         ParenBlock -> True
+        AllAcrossOrAllVertical _ -> True
+        AlwaysVertical _ -> True
         _ -> False
 
 
@@ -647,26 +644,6 @@ commentInsideEmptyBracket node row col =
             row < loc.end.row || (row == loc.end.row && col < loc.end.col)
         _ ->
             False
-
-
--- True if the node is a non-empty bracket-list LPBox whose children
--- are the items between the brackets (`{ a, b }`, `[ x, y ]`,
--- exposing lists). The descent guard refuses descent into one of
--- these when the comment is past its last item AND not column-close
--- to it — i.e. the user wrote the comment after the closing bracket
--- (`{ a, b } {- comment -}`), and the comment should land as a
--- sibling of the bracket-list, not inside it.
---
--- `RecordUpdate` is intentionally excluded: it has structure inside
--- the brackets (base name + `|` + fields), and comments between the
--- base and `|` legitimately descend; the bracket-end-proximity check
--- doesn't generalise cleanly to it.
-isItemBracketListNode : LPNode -> Bool
-isItemBracketListNode node =
-    when lpnBox node is
-        AllAcrossOrAllVertical _ -> True
-        AlwaysVertical _ -> True
-        _ -> False
 
 
 {-| True if the comment is sitting just past the closing bracket of

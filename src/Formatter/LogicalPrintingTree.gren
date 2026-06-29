@@ -273,14 +273,18 @@ type LPBox
 {-| The logical-printing-tree node.
 
 The record carries a `box` (the rendering shape) and `children`, plus
-six fields that *cache* subtree bounds so the comment-placement
-heuristic in `Formatter.Comments` can answer "what's the first/last
-positioned token in this subtree?", "what's its row range?", and
-"where does the last bracketed sublist end?" in O(1) instead of by
-recursive descent. The cache is populated bottom-up by `lpnNode` at
-construction time. ALL LPT construction must go through `lpnNode`
-(or `lpnLeaf`) — building an `LPNode` by direct record syntax would
-skip the cache and produce wrong answers from the accessors.
+seven fields that *cache* subtree bounds so position-dependent passes
+can answer "what's the first/last positioned token in this subtree?",
+"what's its row range?", and "where does the last bracketed sublist
+begin/end?" in O(1) instead of by recursive descent. The heaviest
+consumer is the comment-placement heuristic in `Formatter.Comments`,
+but the bounds are shared infrastructure: `MakePretty` also reads
+`firstPos`/`lastPos`/`maxRow`/`lastBracketEnd` (and `bracketStart`,
+added later for signature-segment row computation, not comments). The
+cache is populated bottom-up by `lpnNode` at construction time. ALL
+LPT construction must go through `lpnNode` (or `lpnLeaf`) — building
+an `LPNode` by direct record syntax would skip the cache and produce
+wrong answers from the accessors.
 
 `lastBracketEnd` is the source position of the last positioned
 descendant of the rightmost bracket-list (`AllAcrossOrAllVertical`,
