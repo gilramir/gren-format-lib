@@ -229,7 +229,7 @@ processModuleLine modAst root =
                 Src.Open ->
                     lpnLeaf (SynthesizedText "(..)")
                 Src.Explicit exposed ->
-                    lpnNode (AllAcrossOrAllVertical ListParen)
+                    lpnNode (exposingListBox (exposedSpansRows exposed))
                         (Array.map processExposed exposed)
 
         -- When the `exposing ( ... )` list renders *vertically* (one item per
@@ -248,15 +248,7 @@ processModuleLine modAst root =
         exposingClosesBelow =
             when modAst.exports is
                 Src.Explicit exposed ->
-                    when Array.popFirst exposed is
-                        Just { first = firstExposed, rest } ->
-                            when Array.last rest is
-                                Just lastExposed ->
-                                    exposedRow lastExposed > exposedRow firstExposed
-                                Nothing ->
-                                    False
-                        Nothing ->
-                            False
+                    exposedSpansRows exposed
                 Src.Open ->
                     False
 
@@ -333,6 +325,38 @@ exposedRow exposed =
             sp.start.row
 
 
+{-| True when the author wrote an `exposing ( … )` list across multiple rows
+(its last item sits on a later row than its first). This is the author-layout
+decision for an exposing list — the same role `itemsSpanRows` plays for array
+and record literals. It is computed once here and carried downstream by the
+box choice (`exposingListBox`), so `MakePretty` reads the box rather than
+re-deriving the row span from the items. -}
+exposedSpansRows : Array Src.Exposed -> Bool
+exposedSpansRows exposed =
+    when Array.popFirst exposed is
+        Just { first = firstExposed, rest } ->
+            when Array.last rest is
+                Just lastExposed ->
+                    exposedRow lastExposed > exposedRow firstExposed
+                Nothing ->
+                    False
+        Nothing ->
+            False
+
+
+{-| The bracket box for an `exposing ( … )` list: `AlwaysVertical` when the
+author wrote it across rows (so it stays one-item-per-line), otherwise
+`AllAcrossOrAllVertical` (inline unless it carries a comment). Mirrors the
+literal-vs-multiline box choice array/record literals make from
+`itemsSpanRows`. -}
+exposingListBox : Bool -> LPBox
+exposingListBox spansRows =
+    if spansRows then
+        AlwaysVertical ListParen
+    else
+        AllAcrossOrAllVertical ListParen
+
+
 processImports : Src.Module -> LPNode -> Result String LPNode
 processImports modAst root =
     Ok <| Array.foldl processImport root modAst.imports
@@ -402,7 +426,7 @@ processImport locImport root =
                               -- name, and the `)` line reads as a one-row gap
                               -- before the next declaration — inserting a blank
                               -- line non-idempotently.
-                              lpnBracketNode (AllAcrossOrAllVertical ListParen) locImport.end
+                              lpnBracketNode (exposingListBox (exposedSpansRows xlist)) locImport.end
                                 (Array.map processExposed xlist)
                             ]
                         Nothing ->

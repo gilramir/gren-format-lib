@@ -1140,28 +1140,14 @@ break (a space when flat, a newline when broken), so the caller glues it directl
 after `exposing` rather than adding its own flow separator. The +4 indentation
 comes from the enclosing flow's `R.nest`, so no nest is added here.
 
-A comment among the items forces the vertical form (with no flat alternative),
-matching the always-vertical comment-aware list rendering.
+`forceVertical` (read from the list's box type by the caller) requests the
+vertical form for a list the author wrote across rows. A comment among the items
+also forces it (with no flat alternative), matching the always-vertical
+comment-aware list rendering.
 -}
-makeExposingListDoc : Array LPNode -> Result String Doc
-makeExposingListDoc children =
-    let
-        authorWroteVertical =
-            when Array.popFirst children is
-                Nothing ->
-                    False
-                Just { first, rest } ->
-                    when Array.last rest is
-                        Nothing ->
-                            False
-                        Just last ->
-                            when { fp = lpnFirstPos first, lp = lpnFirstPos last } is
-                                { fp = Just fp, lp = Just lp } ->
-                                    fp.row < lp.row
-                                _ ->
-                                    False
-    in
-    if Array.any nodeIsComment children || authorWroteVertical then
+makeExposingListDoc : Bool -> Array LPNode -> Result String Doc
+makeExposingListDoc forceVertical children =
+    if Array.any nodeIsComment children || forceVertical then
         listBoxesWithBrackets "( " ")" children
             |> Result.map (\body -> R.concat R.hardNl body)
     else
@@ -1509,10 +1495,16 @@ makeExposingLineDoc children =
     when Array.popLast children is
         Just { last = lastNode, initial = headerNodes } ->
             let
-                lastIsParenList =
+                -- The exposing list's author-layout decision is carried by its
+                -- box type (set in MakeLogical.exposingListBox): an
+                -- `AllAcrossOrAllVertical ListParen` was written inline, an
+                -- `AlwaysVertical ListParen` across rows. `Nothing` means the
+                -- last node isn't a paren list at all (a `(..)` wildcard, etc.).
+                exposingForceVertical =
                     when lpnBox lastNode is
-                        AllAcrossOrAllVertical ListParen -> True
-                        _ -> False
+                        AllAcrossOrAllVertical ListParen -> Just False
+                        AlwaysVertical ListParen -> Just True
+                        _ -> Nothing
                 headerAllLeaves =
                     Array.all
                         (\n ->
@@ -1523,25 +1515,29 @@ makeExposingLineDoc children =
                         )
                         headerNodes
             in
-            if lastIsParenList && headerAllLeaves && not (Array.isEmpty headerNodes) then
-                traverseArray (\n -> makePDoc (lpnBox n) (lpnChildren n)) headerNodes
-                    |> Result.andThen (\headerDocs ->
-                        makeExposingListDoc (lpnChildren lastNode)
-                            |> Result.map (\listDoc ->
-                                let
-                                    -- Header tokens joined by hard spaces: no break
-                                    -- point inside the header, so the only break is the
-                                    -- exposing list's coupled drop.
-                                    headerDoc =
-                                        R.foldDoc
-                                            (\a b -> R.concat a (R.concat (R.text " ") b))
-                                            headerDocs
-                                in
-                                R.concat headerDoc (R.nest grenIndent listDoc)
+            when exposingForceVertical is
+                Just forceVertical ->
+                    if headerAllLeaves && not (Array.isEmpty headerNodes) then
+                        traverseArray (\n -> makePDoc (lpnBox n) (lpnChildren n)) headerNodes
+                            |> Result.andThen (\headerDocs ->
+                                makeExposingListDoc forceVertical (lpnChildren lastNode)
+                                    |> Result.map (\listDoc ->
+                                        let
+                                            -- Header tokens joined by hard spaces: no break
+                                            -- point inside the header, so the only break is the
+                                            -- exposing list's coupled drop.
+                                            headerDoc =
+                                                R.foldDoc
+                                                    (\a b -> R.concat a (R.concat (R.text " ") b))
+                                                    headerDocs
+                                        in
+                                        R.concat headerDoc (R.nest grenIndent listDoc)
+                                    )
                             )
-                    )
-            else
-                makeFlowIndentableDoc children
+                    else
+                        makeFlowIndentableDoc children
+                Nothing ->
+                    makeFlowIndentableDoc children
         Nothing ->
             makeFlowIndentableDoc children
 
