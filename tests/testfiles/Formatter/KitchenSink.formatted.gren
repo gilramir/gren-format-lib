@@ -28,7 +28,6 @@ port module KitchenSink exposing
 
 # Ports
 @docs port_out_message, port_in_message
-
 -}
 
 import Array exposing (Array)
@@ -65,10 +64,8 @@ port port_in_message : (String -> msg) -> Sub msg
 type Tree a
     = Empty
     | Leaf a
-    | Branch
-        { label : String, attributes : Array { attrName : String, attrValueAsString : String }, children : Array (Tree a) }
-    | Cons
-        { headValue : a, leftSubtree : Tree a, rightSubtree : Tree a }
+    | Branch { label : String, attributes : Array { attrName : String, attrValueAsString : String }, children : Array (Tree a) }
+    | Cons { headValue : a, leftSubtree : Tree a, rightSubtree : Tree a }
 
 
 {-| Generic result-style type using qualified names everywhere. -}
@@ -153,7 +150,9 @@ processConfiguration { tracing = tracingSection, scheduler = schedulerSection, f
                     chosenSink =
                         tracingSection.sinks
                             |> Array.keepIf (\{ kind, endpoint } -> not (String.isEmpty endpoint) && kind /= "noop")
-                            |> Array.map (\sinkConfig -> { sinkConfig | endpoint = String.trim sinkConfig.endpoint, kind = String.toLower sinkConfig.kind, headers = Array.map (\headerEntry -> { headerEntry | headerName = String.toLower headerEntry.headerName }) sinkConfig.headers })
+                            |> Array.map
+                                (\sinkConfig -> { sinkConfig | endpoint = String.trim sinkConfig.endpoint, kind = String.toLower sinkConfig.kind, headers = Array.map (\headerEntry -> { headerEntry | headerName = String.toLower headerEntry.headerName }) sinkConfig.headers }
+                                )
                             |> Array.first
                 in
                 when chosenSink is

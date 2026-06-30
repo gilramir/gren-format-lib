@@ -15,7 +15,6 @@ module KitchenComments exposing
     comment: between arguments, between items, inside record literals and
     updates, inside lets, inside pipelines, inside when-branches, and
     between binop operands.
-
 -}
 
 -- a line comment before the import block

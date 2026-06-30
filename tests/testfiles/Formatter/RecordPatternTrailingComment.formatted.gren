@@ -6,6 +6,7 @@ foldAttributes reducerFunction initialValue attributes =
         (\{ attrName = nameOfAttribute
             , attrValueAsString = valueOfAttributeAsString {- before the pattern's closing brace -}
             } accumulatedSoFar ->
-            reducerFunction nameOfAttribute valueOfAttributeAsString accumulatedSoFar)
+            reducerFunction nameOfAttribute valueOfAttributeAsString accumulatedSoFar
+        )
         initialValue
         attributes
