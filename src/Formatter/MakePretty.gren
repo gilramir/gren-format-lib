@@ -486,10 +486,12 @@ renderBlockNode rule acc nodeChildren =
 
 {-| Build the Doc for a pipeline step's children (the `|> func args...` part).
 
-When ANY child is a multi-line lambda ParenBlock (`isMultilineLambdaParenBlock`),
-breaks it onto a new line so the body aligns under `(` rather than the ambient
-pipeline indent.  Any arguments that follow the lambda also each land on their own
-line at the same `(` column:
+When ANY child is a multi-line paren arg — either a lambda ParenBlock
+(`isMultilineLambdaParenBlock`) or a paren whose content spans rows due to an
+AlwaysVertical or RecordUpdate inside (`isMultilineContentParenBlock`) — breaks it
+onto a new line.  For a lambda arg, the body aligns under `(` and `)` closes on
+its own line.  For a non-lambda multiline arg, `)` lands on its own line too.
+Any arguments that follow also each land on their own line at `|>` + 4:
 
     |> Array.foldl
         (\r acc ->
@@ -525,7 +527,7 @@ buildStepChildrenDoc stepChildren =
                                 | lambdaAndSuffix = Just { state | suffix = Array.pushLast node state.suffix }
                             }
                         Nothing ->
-                            if isMultilineLambdaParenBlock node then
+                            if isMultilineLambdaParenBlock node || isMultilineContentParenBlock node then
                                 { preamble = acc.preamble
                                 , lambdaAndSuffix = Just { lambda = node, suffix = [] }
                                 }
@@ -542,7 +544,14 @@ buildStepChildrenDoc stepChildren =
         Just { lambda, suffix } ->
             buildFlowDocInline 0 splitResult.preamble
                 |> Result.andThen (\preambleDoc ->
-                    makeMultilineLambdaArgDoc (lpnChildren lambda)
+                    let
+                        makeArgDoc =
+                            if isMultilineLambdaParenBlock lambda then
+                                makeMultilineLambdaArgDoc (lpnChildren lambda)
+                            else
+                                makeMultilineParenArgDoc (lpnChildren lambda)
+                    in
+                    makeArgDoc
                         |> Result.andThen (\lambdaDoc ->
                             let
                                 lambdaPart =
@@ -1304,15 +1313,23 @@ commentBoxDoc box =
         SingleLineComment loc -> R.text ("--" ++ loc.value)
         BlockComment loc -> blockCommentDoc loc
         DocComment loc ->
-            let
-                -- elm-format always ensures a blank line before the closing -}
-                normalizedValue =
-                    if String.endsWith "\n" loc.value && not (String.endsWith "\n\n" loc.value) then
-                        loc.value ++ "\n"
-                    else
-                        loc.value
-            in
-            R.text ("{-|" ++ normalizedValue ++ "-}")
+            if String.isEmpty (String.trim loc.value) then
+                R.text "{-| -}"
+            else
+                let
+                    -- elm-format adds a blank line before -} for multi-line doc
+                    -- comments (those whose content starts with a newline).
+                    -- Single-line doc comments (`{-| Short description. -}`) are
+                    -- left as-is.
+                    normalizedValue =
+                        if String.startsWith "\n" loc.value
+                            && String.endsWith "\n" loc.value
+                            && not (String.endsWith "\n\n" loc.value) then
+                            loc.value ++ "\n"
+                        else
+                            loc.value
+                in
+                R.text ("{-|" ++ normalizedValue ++ "-}")
         _ -> R.empty
 
 
@@ -1915,6 +1932,39 @@ isMultilineLambdaParenBlock node =
         _ -> False
 
 
+-- True when a node's subtree contains a box that always produces HardNl —
+-- AlwaysVertical, RecordUpdate, or AllAcrossOrAllVertical-with-comment (which
+-- switches to vertical rendering when it has comment children).  Used by
+-- isMultilineContentParenBlock to detect parens whose content spans rows
+-- without being a lambda (which isMultilineLambdaParenBlock already handles).
+subtreeHasVertical : LPNode -> Bool
+subtreeHasVertical node =
+    when lpnBox node is
+        AlwaysVertical _ -> True
+        RecordUpdate _ -> True
+        AllAcrossOrAllVertical _ ->
+            -- This box goes vertical when it has comment children (see
+            -- makeAllAcrossOrAllVertical).  Treat it as "will produce HardNl"
+            -- so isMultilineContentParenBlock detects it correctly.
+            Array.any nodeIsComment (lpnChildren node)
+                || Array.any subtreeHasVertical (lpnChildren node)
+        _ -> Array.any subtreeHasVertical (lpnChildren node)
+
+
+-- True when `node` is a ParenBlock whose content subtree contains an
+-- AlwaysVertical or RecordUpdate — i.e. the paren content will span rows
+-- at render time (unlike AllAcrossOrAllVertical, which stays inline when flat).
+-- Used in buildStepChildrenDoc to break a non-lambda multiline paren arg onto
+-- its own line within a pipeline step.
+isMultilineContentParenBlock : LPNode -> Bool
+isMultilineContentParenBlock node =
+    when lpnBox node is
+        ParenBlock ->
+            Array.any subtreeHasVertical (lpnChildren node)
+        _ ->
+            False
+
+
 {-| Render a whole pipeline with the author's one-line-vs-multi-line layout.
 
 `children` are the seed node(s) followed by the `PipelineStep` nodes. A pipeline
@@ -1992,7 +2042,39 @@ Comment-free, N non-lambda steps:
 All step bodies land at `seed_col + 4`. Comment-bearing pipelines fall back to
 `buildFlowDoc 0` (forward-leading style) so the intricate PipelineStep
 comment-peeling logic stays untouched.
+
+A single-line block comment `{- … -}` that sits between `<|` and the next
+body token (i.e. on the *same row* as `<|`) must be rendered inline — not
+as a standalone comment — so the pipeline doesn't gain a spurious HardNl
+that changes `forceVertical` on the next reparse.  `buildBodyDoc` handles
+this: it uses `buildFlowDocInline` (first item always inline) only when the
+body literally starts with such a same-row single-line block comment.  All
+other bodies fall through to the normal `buildFlowDoc`.
 -}
+buildBodyDoc : LPNode -> Array LPNode -> Result String Doc
+buildBodyDoc opNode bodyNodes =
+    let
+        opRow =
+            when lpnBox opNode is
+                UnbreakableText loc -> loc.end.row
+                _ -> -1
+
+        startsWithSameRowInlineBlock =
+            when Array.first bodyNodes is
+                Just first ->
+                    when lpnBox first is
+                        BlockComment loc ->
+                            not (isMultiLineCommentValue loc.value)
+                                && loc.start.row == opRow
+                        _ -> False
+                Nothing -> False
+    in
+    if startsWithSameRowInlineBlock then
+        buildFlowDocInline 0 bodyNodes
+    else
+        buildFlowDoc 0 bodyNodes
+
+
 makeBackwardPipelineDoc : Bool -> Array LPNode -> Result String Doc
 makeBackwardPipelineDoc forceVertical children =
     -- Fall back to forward-leading style only for comments at step boundaries:
@@ -2049,28 +2131,28 @@ makeBackwardPipelineDoc forceVertical children =
         in
         buildFlowDoc 0 seedNodes
             |> Result.andThen (\seedDoc ->
-                -- Collect body-node lists for each step (drop leading <| op child).
+                -- Collect (opNode, bodyNodes) pairs for each step.
                 traverseArray
                     (\stepNode ->
                         when Array.popFirst (lpnChildren stepNode) is
                             Nothing ->
                                 Err "backward pipeline step has no children"
-                            Just { first = _, rest = bodyNodes } ->
-                                Ok bodyNodes
+                            Just { first = opNode, rest = bodyNodes } ->
+                                Ok { op = opNode, body = bodyNodes }
                     )
                     stepNodes
-                    |> Result.andThen (\allBodyNodes ->
-                        when Array.length allBodyNodes is
+                    |> Result.andThen (\allStepBodies ->
+                        when Array.length allStepBodies is
                             1 ->
                                 -- Single step: check for lambda (trailing SoftIndentedBlock).
-                                when Array.first allBodyNodes is
+                                when Array.first allStepBodies is
                                     Nothing ->
                                         Err "backward pipeline: empty body nodes array"
-                                    Just bodyNodes ->
+                                    Just { op = opNode, body = bodyNodes } ->
                                         when Array.popLast bodyNodes is
                                             Nothing ->
                                                 -- Non-lambda single step (empty body — shouldn't happen).
-                                                buildFlowDoc 0 bodyNodes
+                                                buildBodyDoc opNode bodyNodes
                                                     |> Result.map (\bodyDoc ->
                                                         inlineUnlessVertical forceVertical
                                                             (R.concat seedDoc
@@ -2117,7 +2199,7 @@ makeBackwardPipelineDoc forceVertical children =
                                                             )
                                                     _ ->
                                                         -- Non-lambda single step.
-                                                        buildFlowDoc 0 bodyNodes
+                                                        buildBodyDoc opNode bodyNodes
                                                             |> Result.map (\bodyDoc ->
                                                                 inlineUnlessVertical forceVertical
                                                                     (R.concat seedDoc
@@ -2127,7 +2209,7 @@ makeBackwardPipelineDoc forceVertical children =
                             _ ->
                                 -- Multiple steps: each body at seed_col + 4, operator
                                 -- trails the previous slot (seed or step body).
-                                traverseArray (buildFlowDoc 0) allBodyNodes
+                                traverseArray (\sBody -> buildBodyDoc sBody.op sBody.body) allStepBodies
                                     |> Result.map (\bodyDocs ->
                                         let
                                             nBodies = Array.length bodyDocs
@@ -2658,6 +2740,21 @@ makeMultilineLambdaArgDoc children =
                 )
 
 
+-- Render a non-lambda multiline ParenBlock arg: `(content\n)` with `)` on
+-- its own line at the surrounding indent level.  Called from
+-- buildStepChildrenDoc when the paren content has AlwaysVertical or
+-- RecordUpdate structure (and the whole paren has already been broken onto
+-- its own line via R.nest grenIndent (R.hardNl + ...)).
+makeMultilineParenArgDoc : Array LPNode -> Result String Doc
+makeMultilineParenArgDoc children =
+    buildFlowDocInline 0 children
+        |> Result.map (\innerDoc ->
+            R.concat (R.text "(")
+                (R.concat innerDoc
+                    (R.concat R.hardNl (R.text ")")))
+        )
+
+
 {-| Render a ParenBlock: inline for simple expressions, paren-block layout for
 block-style content (when, if, let).  Block layout matches elm-format:
 
@@ -2702,7 +2799,30 @@ makeParenBlockDoc children =
                         inline
 
                 _ ->
-                    inline
+                    -- If the second direct child is IndentedBlock, the lambda
+                    -- body is on a separate row — put ) on its own line so the
+                    -- closing paren doesn't trail the body text.
+                    let
+                        isLambdaMultiline =
+                            when Array.popFirst children is
+                                Just { rest } ->
+                                    when Array.first rest is
+                                        Just secondChild ->
+                                            when lpnBox secondChild is
+                                                IndentedBlock -> True
+                                                _ -> False
+                                        Nothing -> False
+                                Nothing -> False
+                    in
+                    if isLambdaMultiline then
+                        when buildFlowDocInline 0 children is
+                            Err e -> Err e
+                            Ok innerDoc ->
+                                Ok (R.concat (R.text "(")
+                                    (R.concat innerDoc
+                                        (R.concat R.hardNl (R.text ")"))))
+                    else
+                        inline
 
 
 {-| Render if/else and let expressions inside a ParenBlock using the
