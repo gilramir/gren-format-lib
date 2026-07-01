@@ -848,7 +848,15 @@ buildFlowDocImpl indent inlineStart brokenFlow nodes =
                                                     AlreadyTerminated ->
                                                         R.concat acc.doc commentText
                                                     _ ->
-                                                        if loc.start.row == acc.prevRow then
+                                                        -- `|| acc.prevElided` mirrors
+                                                        -- `renderSingleLineCommentNode`: a comment
+                                                        -- directly trailing a zero-width elided token
+                                                        -- (e.g. a signature's synthesized `->`) is
+                                                        -- anchored at that token's left-neighbour row,
+                                                        -- not where the token renders, so a pure row
+                                                        -- test flips across reformats when the
+                                                        -- neighbour wraps onto its own line.
+                                                        if loc.start.row == acc.prevRow || acc.prevElided then
                                                             R.concat acc.doc (R.concat (R.text " ") commentText)
                                                         else
                                                             R.concat acc.doc (R.concat R.hardNl commentText)
@@ -1625,14 +1633,23 @@ makePrettyLineDoc node =
 {-| Render a `module …` or `import …` line. When it ends in an `exposing ( … )`
 list and the part before that list is all plain keyword/name tokens (the common
 case: a plain `module`/`port module` or any `import`, but not an effect module's
-`where { … }` block, and no comment in the header), render the header on a single
-unbreakable line and glue the exposing list as a coupled all-or-nothing group via
-`makeExposingListDoc`. This makes the line either fully on one line, or `header
-exposing` then the list one-item-per-line — never the in-between "list dropped to
-its own line but still flat" form, and never a break inside the header itself.
+`where { … }` block, and no comment in the header), render the exposing list
+as a coupled all-or-nothing group via `makeExposingListDoc`.
 
-Anything that doesn't match (a `(..)` wildcard, an effect-module `where` block, a
-comment in the header) falls back to the generic flow.
+When the list stays flat, the whole line (header, `exposing`, and the list) is
+one unbreakable line. When the list goes vertical — because the author wrote
+it across rows, or because it carries a comment — `exposing` itself drops to
+its own line indented +4 under the header, and the list indents +8 (matching
+elm-format's convention):
+
+    import Dict
+        exposing
+            ( Dict
+            , empty
+            )
+
+Anything that doesn't match (a `(..)` wildcard, an effect-module `where` block,
+a comment in the header) falls back to the generic flow.
 -}
 makeExposingLineDoc : Array LPNode -> Result String Doc
 makeExposingLineDoc children =
@@ -1658,25 +1675,45 @@ makeExposingLineDoc children =
                                 _ -> False
                         )
                         headerNodes
+                joinWithSpaces docs =
+                    R.foldDoc
+                        (\a b -> R.concat a (R.concat (R.text " ") b))
+                        docs
             in
             when exposingForceVertical is
                 Just forceVertical ->
                     if headerAllLeaves && not (Array.isEmpty headerNodes) then
-                        traverseArray (\n -> makePDoc (lpnBox n) (lpnChildren n)) headerNodes
-                            |> Result.andThen (\headerDocs ->
-                                makeExposingListDoc forceVertical (lpnChildren lastNode)
-                                    |> Result.map (\listDoc ->
-                                        let
-                                            -- Header tokens joined by hard spaces: no break
-                                            -- point inside the header, so the only break is the
-                                            -- exposing list's coupled drop.
-                                            headerDoc =
-                                                R.foldDoc
-                                                    (\a b -> R.concat a (R.concat (R.text " ") b))
-                                                    headerDocs
-                                        in
-                                        R.concat headerDoc (R.nest grenIndent listDoc)
-                                    )
+                        let
+                            listChildren = lpnChildren lastNode
+                            listGoesVertical =
+                                forceVertical || Array.any nodeIsComment listChildren
+                        in
+                        makeExposingListDoc forceVertical listChildren
+                            |> Result.andThen (\listDoc ->
+                                if listGoesVertical then
+                                    when Array.popLast headerNodes is
+                                        Just { last = exposingNode, initial = preExposingNodes } ->
+                                            traverseArray (\n -> makePDoc (lpnBox n) (lpnChildren n)) preExposingNodes
+                                                |> Result.andThen (\preDocs ->
+                                                    makePDoc (lpnBox exposingNode) (lpnChildren exposingNode)
+                                                        |> Result.map (\exposingDoc ->
+                                                            R.concat (joinWithSpaces preDocs)
+                                                                (R.nest grenIndent
+                                                                    (R.concat R.hardNl
+                                                                        (R.concat exposingDoc
+                                                                            (R.nest grenIndent listDoc)
+                                                                        )
+                                                                    )
+                                                                )
+                                                        )
+                                                )
+                                        Nothing ->
+                                            makeFlowIndentableDoc children
+                                else
+                                    traverseArray (\n -> makePDoc (lpnBox n) (lpnChildren n)) headerNodes
+                                        |> Result.map (\headerDocs ->
+                                            R.concat (joinWithSpaces headerDocs) (R.nest grenIndent listDoc)
+                                        )
                             )
                     else
                         makeFlowIndentableDoc children
@@ -1844,40 +1881,45 @@ The inline `R.group` (always flat) and the forced-vertical form share the same
 `nl` separators, so they are byte-identical when flattened and formatting is a
 fixed point.
 
-Comment-bearing signatures fall back to the original fill renderer: the
-all-or-nothing break points have no stable anchor for a trailing comment, and
-the existing fill path already keeps arrow-comment placement idempotent.
+A signature written on one row that carries a comment falls back to the
+original fill renderer: the all-or-nothing break points have no stable anchor
+for a trailing comment on an otherwise-inline signature. A signature the
+author wrote *across* rows uses the canonical per-segment layout regardless of
+whether it carries a comment — a comment doesn't get its own, differently-shaped
+signature than a comment-free one would; `buildFlowDoc` (used per header/segment
+below) already places an embedded comment correctly within its segment.
 -}
 makeSignaturePrettyDoc : Array LPNode -> Result String Doc
 makeSignaturePrettyDoc children =
-    if Array.any subtreeHasComment children then
+    let
+        -- Header = everything up to and including the `:`; the rest is the
+        -- type. (`name :` for a function, `port name :` for a port.)
+        colonSplit =
+            Array.foldl
+                (\node acc ->
+                    if acc.afterColon then
+                        { acc | typeNodes = Array.pushLast node acc.typeNodes }
+                    else if isColonLeaf node then
+                        { acc | header = Array.pushLast node acc.header, afterColon = True }
+                    else
+                        { acc | header = Array.pushLast node acc.header }
+                )
+                { header = [], typeNodes = [], afterColon = False }
+                children
+    in
+    if not colonSplit.afterColon then
+        -- No colon found: not a real signature shape; render as a flow.
         makeFlowIndentableDoc children
     else
         let
-            -- Header = everything up to and including the `:`; the rest is the
-            -- type. (`name :` for a function, `port name :` for a port.)
-            colonSplit =
-                Array.foldl
-                    (\node acc ->
-                        if acc.afterColon then
-                            { acc | typeNodes = Array.pushLast node acc.typeNodes }
-                        else if isColonLeaf node then
-                            { acc | header = Array.pushLast node acc.header, afterColon = True }
-                        else
-                            { acc | header = Array.pushLast node acc.header }
-                    )
-                    { header = [], typeNodes = [], afterColon = False }
-                    children
+            segments = splitSignatureSegments colonSplit.typeNodes
+            forceVertical =
+                segmentsBrokenAtBoundary segments
         in
-        if not colonSplit.afterColon then
-            -- No colon found: not a real signature shape; render as a flow.
+        if not forceVertical && Array.any subtreeHasComment children then
             makeFlowIndentableDoc children
         else
             let
-                segments = splitSignatureSegments colonSplit.typeNodes
-                forceVertical =
-                    segmentsBrokenAtBoundary segments
-
                 segDocsResult =
                     traverseArray (buildFlowDoc 0) segments
             in

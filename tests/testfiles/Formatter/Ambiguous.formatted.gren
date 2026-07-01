@@ -30,10 +30,12 @@ unwrap x =
 
 -- Case 3 — extensible record `|` (type). Comment authored AFTER `|`. Canonical
 -- rendering places it on its own line BEFORE `|`.
-field : { r
+field :
+    { r
         {- authored after `|` -}
         | name : String
-    } -> String
+    }
+    -> String
 field r =
     r.name
 

@@ -25,13 +25,14 @@ import Dict
 {- 4 a
    4 b
    4 c -}
-import String exposing
-    ( fromInt
-    {- 5 a
-       5 b
-       5 c -}
-    , toInt
-    )
+import String
+    exposing
+        ( fromInt
+        {- 5 a
+           5 b
+           5 c -}
+        , toInt
+        )
 
 
 {-| Doc comment on a type alias. -}
@@ -69,18 +70,22 @@ port output : {- 45 a
     String -> Cmd msg
 
 
-sig : Int -> {- 10 a
-                10 b
-                10 c -}
+sig :
+    Int
+    -> {- 10 a
+          10 b
+          10 c -}
     Array {- 11 a
              11 b
              11 c -}
-    String -> { a
+    String
+    -> { a
         {- 12 a
            12 b
            12 c -}
         | x : Int
-    } -> Int
+    }
+    -> Int
 sig a b c =
     0
 

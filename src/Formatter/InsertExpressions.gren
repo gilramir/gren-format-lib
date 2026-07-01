@@ -442,7 +442,7 @@ insertExpression locExpr =
         Src.Call { fn = fnExpr, args = argsExprs } ->
             insertExpression fnExpr
                 |> Result.andThen (\fnNodes ->
-                    resultFoldl folderInsertExprAsItem fnNodes argsExprs
+                    resultFoldl folderInsertCallArgAsItem fnNodes argsExprs
                         -- AcrossThenIndent: overflow arguments indent +4 from the function name,
                         -- keeping them visually distinct from the surrounding context.
                         |> Result.map (\allNodes ->
@@ -636,6 +636,56 @@ position-specific rewriting. -}
 folderInsertExprAsItem : Src.Expression -> Array LPNode -> Result String (Array LPNode)
 folderInsertExprAsItem expr accNodes =
     insertExpressionAsItem expr
+        |> Result.map (\node -> Array.pushLast node accNodes)
+
+
+{-| True for an expression that's self-delimiting or atomic — one that never
+needs grouping parens to parse unambiguously in call-argument position. A
+`Record`, `ArrayLiteral`, or `Update` is already bracket-delimited by its own
+`{ }`/`[ ]`; a `Var`, `VarQual`, literal, `Accessor`, or `Access` chain is a
+single token or tightly-binding chain. Everything else — applications,
+lambdas, operator chains, negation, `if`/`when`/`let`, and a bare operator
+value like `(+)` (whose parens are the value's own syntax, not grouping) —
+still needs its parens as an argument. -}
+exprIsAtomicAsArg : Src.Expression -> Bool
+exprIsAtomicAsArg expr =
+    when expr.value is
+        Src.CharLiteral _ -> True
+        Src.StringLiteral _ -> True
+        Src.NumberLiteral _ -> True
+        Src.Var _ -> True
+        Src.VarQual _ -> True
+        Src.ArrayLiteral _ -> True
+        Src.Record _ -> True
+        Src.Update _ -> True
+        Src.Accessor _ -> True
+        Src.Access _ -> True
+        _ -> False
+
+
+{-| Like `insertExpressionAsItem`, but for call-argument position: strips a
+redundant `Parens` wrapper around an atomic/self-delimiting inner expression
+(matching elm-format, which drops parens the author didn't need). Only one
+level unwraps — a `Parens` around a still-non-atomic expression, or a `Parens`
+around another `Parens`, is left exactly as authored. -}
+insertCallArgAsItem : Src.Expression -> Result String LPNode
+insertCallArgAsItem locExpr =
+    when locExpr.value is
+        Src.Parens inner ->
+            if exprIsAtomicAsArg inner then
+                insertExpressionAsItem inner
+            else
+                insertExpressionAsItem locExpr
+        _ ->
+            insertExpressionAsItem locExpr
+
+
+{-| `resultFoldl` folder for function-call arguments: like
+`folderInsertExprAsItem`, but goes through `insertCallArgAsItem` so a
+redundant `Parens` wrapper around an atomic argument gets stripped. -}
+folderInsertCallArgAsItem : Src.Expression -> Array LPNode -> Result String (Array LPNode)
+folderInsertCallArgAsItem expr accNodes =
+    insertCallArgAsItem expr
         |> Result.map (\node -> Array.pushLast node accNodes)
 
 

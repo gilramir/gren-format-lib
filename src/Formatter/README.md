@@ -60,17 +60,19 @@ line, it stays on one line:
 module MyApp exposing ( Model, Msg, init, update, view, subscriptions )
 ```
 
-Written across rows, each item gets its own line:
+Written across rows, `exposing` drops to its own line indented +4 under the
+module name, and the list indents +8 — one item per line:
 
 ```gren
-module MyApp exposing
-    ( Model
-    , Msg
-    , init
-    , update
-    , view
-    , subscriptions
-    )
+module MyApp
+    exposing
+        ( Model
+        , Msg
+        , init
+        , update
+        , view
+        , subscriptions
+        )
 ```
 
 The wildcard `exposing (..)` is always written as `(..)` on the module line.
@@ -88,7 +90,9 @@ import Array
 ```
 
 An alias uses `as`. An exposing list follows your layout — flat if you wrote
-it flat, vertical if you wrote it across rows:
+it flat, vertical if you wrote it across rows. A vertical list follows the
+same `exposing`-on-its-own-line, list-indented-+8 shape as the module
+declaration's exposing list:
 
 ```gren
 -- flat:
@@ -97,12 +101,13 @@ import String exposing ( fromInt, toInt )
 import Array.Extra as AE exposing ( filterMap, unique )
 
 -- vertical:
-import Dict exposing
-    ( Dict
-    , empty
-    , fromArray
-    , get
-    )
+import Dict
+    exposing
+        ( Dict
+        , empty
+        , fromArray
+        , get
+        )
 ```
 
 ---
@@ -143,8 +148,21 @@ The multi-line shape triggers when any `->` separator appears on a different
 row than the one before it. A line break right after the `:` with the rest
 still on one line is not enough — the break must fall between `->` segments.
 
-A signature containing a comment cannot be split segment-by-segment; it falls
-back to filling the flow and wrapping at word boundaries.
+A comment doesn't change this: a signature written across rows uses the same
+per-segment shape whether or not it carries a comment. A comment leading a
+segment (right after its `->`) drops to its own indented line above the type:
+
+```gren
+bestDiscount :
+    Array { code : String, basisPoints : Int }
+    ->
+        -- comment about the result
+        Maybe { code : String, basisPoints : Int }
+```
+
+Only a signature the author kept on **one row** falls back to filling the flow
+and wrapping at word boundaries when it carries a comment — there's no
+`->`-segment boundary to anchor a break to.
 
 ---
 
@@ -171,6 +189,29 @@ result =
         firstLongArg
         secondLongArg
         thirdLongArg
+```
+
+A redundant pair of parens around an argument is stripped when the argument
+doesn't need them to parse unambiguously — a record, array, record update,
+variable, literal, or field-access chain:
+
+```gren
+-- you wrote:
+view (model) ({ id = 1 }) =
+    ...
+
+-- formats to:
+view model { id = 1 } =
+    ...
+```
+
+Parens stay when they're load-bearing — an applied function, a lambda, an
+operator chain, a negation, an `if`/`when`/`let`, or a bare operator value
+like `(+)`:
+
+```gren
+result =
+    Array.foldl (+) 0 (compute x) (\y -> y * 2)
 ```
 
 ---
@@ -1412,3 +1453,115 @@ body is kept verbatim — columns are not canonicalized. Two inputs that differ
 only in the body's indentation format to two different outputs. This is
 deliberate (it protects ASCII art and aligned tables), but it means this class
 of comment is not whitespace-canonical.
+
+---
+
+## Comparison with elm-format
+
+Gren is a fork of Elm, so `gren format` and `elm-format` should agree on
+shared syntax unless there's a deliberate reason not to. This audit ran the
+formatter's own test fixtures (`gren-format-lib/tests/testfiles/Formatter/`)
+through `elm-format` and catalogued every divergence. Each finding below
+records the decision made and why.
+
+1. **Blank lines: comment-attached vs. declaration-attached — keep as is.**
+   elm-format always puts its 2-blank-line separator immediately above the
+   declaration itself, splitting a leading comment away from the code it
+   documents. gren-format treats the comment as part of the declaration's
+   group and puts the 2 blank lines before the comment instead (see
+   [Blank lines around comments](#blank-lines-around-comments)). Keeping the
+   comment glued to its declaration is the more useful behavior for a doc
+   comment or an explanatory note — splitting them apart the way elm-format
+   does would be a regression, not a fix.
+
+2. **Doc/block comment closing `-}` placement — keep as is.** elm-format
+   always puts a multi-line comment's closing `-}` on its own line, even when
+   the body is one short line. gren-format keeps the closer glued to the last
+   content line when it fits, and otherwise follows the comment's own
+   structure (see [Comments](#comments)). This is consistent with gren-format's
+   broader "your line breaks are your layout decisions" philosophy; elm-format's
+   rule is a fixed convention, not obviously better.
+
+3. **Import/exposing list sorting — keep as is.** elm-format alphabetizes
+   every `exposing (...)` list and `import` block. gren-format preserves the
+   author's order. Reordering the author's imports is a bigger, more
+   surprising rewrite than a formatter should make unprompted — this is left
+   alone.
+
+4. **`import X exposing (...)` wrapping style — changed.** gren-format used to
+   keep `import Dict exposing` together with the list indented +4. It now
+   matches elm-format: `import Dict` alone on the first line, `exposing` on
+   its own line indented +4, and the list indented +8. See
+   [Import statements](#import-statements) for the new canonical shape.
+
+5. **Type-signature wrapping when a comment is present — changed.** A
+   multi-row signature now always uses the canonical per-`->`-segment vertical
+   layout (see [Type signatures](#type-signatures)), even when it contains a
+   comment. The old special-case fallback to a fill-style flow renderer for
+   comment-bearing signatures is gone — comments no longer produce a
+   differently-shaped signature than a comment-free one would.
+
+6. **Union type declarations always stack one variant per line in
+   elm-format — keep as is.** Even when the author wrote
+   `= Red | Green | Blue` on one line and it fits, elm-format always splits to
+   one `| Variant` per line — contradicting elm-format's own general
+   "respects the author's newlines" design. gren-format's author-driven rule
+   (see [Custom types](#custom-types)) is preferred and stays.
+
+7. **Record patterns (destructuring) aren't author-driven in
+   elm-format — keep as is.** elm-format collapses a multi-line record/array
+   *pattern* back to one line if it fits, even overriding an embedded comment
+   that forces gren-format to stay vertical. Same reasoning as #6: gren-format's
+   consistent author-driven layout is preferred.
+
+8. **`where { ... }` effect-module clauses collapse to one line in
+   elm-format — keep as is.** Likely a corollary of the same
+   multiline-tracking gap as #6/#7 rather than a deliberate elm-format rule.
+   gren-format's behavior (see
+   [Comments in an effect module's header](#comments-in-an-effect-modules-header))
+   stays.
+
+9. **Verbatim literal preservation vs. normalization — keep as is.**
+   elm-format normalizes scientific-notation floats (`1e5` → `1.0e5`,
+   `1.5E3` → `1.5e3`, `1.5e+3` → `1.5e3`), uppercases `\u{...}` hex escapes,
+   expands named escapes like `\r` to `\u{000D}`, and drops unnecessary `\"`
+   escaping inside triple-quoted strings. gren-format deliberately preserves
+   the author's exact original literal spelling (see
+   [String literals](#string-literals)) — this was already a considered
+   design choice, not an oversight.
+
+10. **Redundant parens around a call argument — fixed.** `node "div"
+    ({ foo = 1, bar = 2 }) []` kept the author's parens verbatim around the
+    record literal, even though they're unnecessary for a record literal in
+    argument position. The formatter now strips a `Parens` wrapper around an
+    argument expression when the wrapped expression doesn't need parens to
+    parse unambiguously in that position (see
+    [Function application](#function-application)). Covered by new fixtures
+    `RedundantArgParens.dirty.gren` / `.formatted.gren`.
+
+### Minor/cosmetic — not acted on
+
+- `infix left  6 (+) = add` — elm-format inserts a double space after `left`;
+  looks like an elm-format quirk on a construct Elm 0.19 itself no longer
+  supports at the compiler level. Not worth matching.
+- A handful of comment-attachment micro-differences around pipeline steps,
+  binop operands, and lambda arrows/`in` — elm-format sometimes pushes a
+  trailing comment to its own line where gren-format keeps it inline, or vice
+  versa. These are construct-specific and would need one-off matching rather
+  than a single rule; left as is for now.
+
+### Out of scope for comparison
+
+Some fixtures use Gren syntax with no valid Elm equivalent, so they can't be
+mechanically translated and run through `elm-format` at all:
+
+- A record-update base that's a parenthesized call or a dotted field-access
+  chain (`{ (someTransform base) | ... }`, `{ model.sub | ... }`) — Elm's
+  grammar only allows a bare variable there.
+- Gren's record-pattern field-renaming syntax, `{ field = alias }` in pattern
+  position (e.g. `Just { endpoint = sinkEndpoint } ->`) — Elm patterns only
+  support bare `{ field }`. `elm-format` hard-errors on this construct (or, if
+  the renamed identifier looks like a wildcard such as `_x`, silently
+  mis-parses it into two separate patterns instead of erroring) — so this
+  whole class of fixtures is fundamentally outside the scope of an
+  elm-format comparison.

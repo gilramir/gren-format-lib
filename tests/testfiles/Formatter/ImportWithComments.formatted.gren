@@ -6,10 +6,11 @@ import Array as A exposing (mapAndKeepJust)
 import Basics exposing -- comment after 'exposing'
     ( max )
 
-import Dict exposing
-    ( Dict
-    , empty -- comment after 'empty'
-    )
+import Dict
+    exposing
+        ( Dict
+        , empty -- comment after 'empty'
+        )
 
 import Basics exposing -- comment after 'exposing'
     ( max

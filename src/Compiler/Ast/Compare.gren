@@ -331,9 +331,21 @@ comparePRecordField a b =
 
 -- EXPRESSIONS
 
+-- Parens never change an expression's meaning, so comparison must not care
+-- whether either side has them, or how many layers deep. Without this, the
+-- formatter could never legitimately add or drop a redundant paren (e.g.
+-- stripping `({ a = 1 })` down to `{ a = 1 }` as a call argument) without
+-- tripping the "formatted output means the same thing as the original" guard.
+stripParens : Src.Expression -> Src.Expression
+stripParens expr =
+    when expr.value is
+        Src.Parens inner -> stripParens inner
+        _ -> expr
+
+
 compareExpr : String -> Src.Expression -> Src.Expression -> Result String {}
 compareExpr ctx a b =
-    compareExpr_ ctx a.value b.value
+    compareExpr_ ctx (stripParens a).value (stripParens b).value
 
 
 compareExpr_ : String -> Src.Expression_ -> Src.Expression_ -> Result String {}
@@ -363,8 +375,6 @@ compareExpr_ ctx a b =
                 [ compareExpr (ctx ++ " .expr") aa.expression ab_.expression
                 , compareStr (ctx ++ " .field") aa.accessor ab_.accessor
                 ]
-        { fst = Src.Parens ea, snd = Src.Parens eb } ->
-            compareExpr (ctx ++ " (parens)") ea eb
         { fst = Src.ArrayLiteral la, snd = Src.ArrayLiteral lb } ->
             compareArray (ctx ++ " []") (compareExpr ctx) la lb
         { fst = Src.Record ra, snd = Src.Record rb } ->
