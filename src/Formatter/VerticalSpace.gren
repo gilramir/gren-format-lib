@@ -520,7 +520,7 @@ isLineComment node =
 -- Within one node's children, insert a single `EmptyLine` marker before a
 -- line comment that directly follows a `when` branch — i.e. a comment sitting
 -- between two cases. This restores the canonical "one blank line between
--- cases" (which `MakePretty` emits between adjacent branches) for the
+-- cases" (which `MakeRender` emits between adjacent branches) for the
 -- comment-bearing gap, where the comment otherwise glues straight onto the
 -- previous branch's body. Only the *first* comment of a run is preceded by a
 -- branch, so a block of comment lines gets exactly one blank above it; the
@@ -551,7 +551,7 @@ insertBlanksInWhenFlow children =
 
 {-| Insert a single blank-line `EmptyLine` marker before a comment that sits
 between two `when` cases, so the comment is separated from the previous branch
-by one blank — matching the blank `MakePretty` already places between adjacent
+by one blank — matching the blank `MakeRender` already places between adjacent
 (comment-free) branches.
 
 Recurses over the whole tree. Runs *after* `Formatter.Comments`, so the

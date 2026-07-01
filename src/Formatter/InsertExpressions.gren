@@ -149,7 +149,7 @@ sub-terms inline), so the author "wrote it across rows" exactly when a newline
 sits at one of those split points. A group is a maximal run of operands joined by
 higher-than-minimum-precedence operators.
 
-This grouping mirrors `MakePretty.assembleBinopGroups`, which renders the same
+This grouping mirrors `MakeRender.assembleBinopGroups`, which renders the same
 groups; both break at `binopMinPrecedence ops`, so they stay in lockstep.
 -}
 binopForceVertical : Array Src.Expression -> Array (Located String) -> Bool
@@ -548,7 +548,7 @@ insertExpression locExpr =
                 |> Result.andThen
                     (\patNodes ->
                         let
-                            -- Wrap first pattern in PrefixGlue "\\" so MakePretty
+                            -- Wrap first pattern in PrefixGlue "\\" so MakeRender
                             -- emits \ immediately before the pattern (no space). This
                             -- works for all pattern shapes including record ({ x, y })
                             -- and array ([ x, y ]) whose opening bracket is synthesised

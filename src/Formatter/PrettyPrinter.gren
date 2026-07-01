@@ -12,7 +12,7 @@ import Compiler.Ast.Source as Src
 import Compiler.Parse.Context as Ctx
 
 import Formatter.MakeLogical exposing (makeLogicalPrintingTree)
-import Formatter.MakePretty exposing (makePrettyResult)
+import Formatter.MakeRender exposing (makePrettyResult)
 
 
 {-|

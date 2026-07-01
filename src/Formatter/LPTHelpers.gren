@@ -207,7 +207,7 @@ chain breaks when it goes multi-line (operators that bind tighter stay inline).
 This is the seam the two halves of the binop-layout logic share and MUST agree
 on: `InsertExpressions.binopForceVertical` groups the operand *ranges* at this
 tier to decide whether the author wrote the chain across rows, and
-`MakePretty.assembleBinopGroups` groups the operand *docs* at this tier to render
+`MakeRender.assembleBinopGroups` groups the operand *docs* at this tier to render
 them. Deriving both from this one function keeps the two groupings in lockstep.
 
 The seed exceeds every real precedence, so an all-defaults or empty chain yields

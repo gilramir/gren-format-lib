@@ -15,7 +15,7 @@ example-driven description of *what every rule does*) open while you work.
 
 ```
 Src.Module + Ctx.Context  ──►  LPT  ──►  R.Doc  ──►  String
-                          MakeLogical   MakePretty
+                          MakeLogical   MakeRender
 ```
 
 - **Input** is two things from the parser: the AST (`Src.Module`) *and* a
@@ -32,7 +32,7 @@ Src.Module + Ctx.Context  ──►  LPT  ──►  R.Doc  ──►  String
 
 Entry point: `Formatter.PrettyPrinter.prettyPrint : Src.Module -> Ctx.Context ->
 Result String String`. It calls `MakeLogical.makeLogicalPrintingTree` (build the
-LPT) then `MakePretty.makePrettyResult` (render it). Every stage returns
+LPT) then `MakeRender.makePrettyResult` (render it). Every stage returns
 `Result String _`; there are no silent fallbacks — an unhandled case is an
 `Err`, not a guess.
 
@@ -158,7 +158,7 @@ positions, not at render time from a column budget.
 
 The mechanism: some boxes carry `{ forceVertical : Bool }`. Set it `True` when
 the author's source has a line break inside that construct; set it `False` for
-flat intent. `MakePretty` then picks between a flat flow (`buildFlowDoc`) and a
+flat intent. `MakeRender` then picks between a flat flow (`buildFlowDoc`) and a
 hard-breaking flow (`buildFlowDocBroken`) based on that flag.
 
 **Where to detect multiline intent** (in `InsertExpressions.gren`):
@@ -203,7 +203,7 @@ which just always stays flat.
 
 When you add a new box type to `makePDoc`, return `Result String Doc` built from
 these combinators. Reuse an existing box shape if one fits — a new `LPBox`
-constructor requires new arms in *every* `when box is` in `MakePretty` plus
+constructor requires new arms in *every* `when box is` in `MakeRender` plus
 `selfBoxBounds` in `LogicalPrintingTree`.
 
 ---
@@ -277,14 +277,14 @@ construct") is required reading, but the short version:
   if `fuzz-idempotency.py` flags a trailing-comment gap, fix it in those shared
   places.
 
-### 6. Render it — `MakePretty.makePDoc`
+### 6. Render it — `MakeRender.makePDoc`
 Add an arm to the `makePDoc` `when box is …` dispatch (and to the parallel
 flow/aligned dispatches if your box appears there) returning a `Result String Doc`
 built from `Formatter.Render` combinators. Reuse an existing box shape if one
 fits — prefer `AcrossThenIndent`, `AllAcrossOrAllVertical`, `IndentedBlock` etc.
 over inventing a new box. Only add a new `LPBox` constructor when no existing
 shape expresses the breaking behaviour you need; a new constructor means new arms
-in *every* `when box is` in `MakePretty` plus `selfBoxBounds` in
+in *every* `when box is` in `MakeRender` plus `selfBoxBounds` in
 `LogicalPrintingTree`.
 
 ### 7. Blank lines (top-level only)

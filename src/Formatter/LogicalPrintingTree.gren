@@ -301,7 +301,7 @@ can answer "what's the first/last positioned token in this subtree?",
 "what's its row range?", and "where does the last bracketed sublist
 begin/end?" in O(1) instead of by recursive descent. The heaviest
 consumer is the comment-placement heuristic in `Formatter.Comments`,
-but the bounds are shared infrastructure: `MakePretty` also reads
+but the bounds are shared infrastructure: `MakeRender` also reads
 `firstPos`/`lastPos`/`maxRow`/`lastBracketEnd` (and `bracketStart`,
 added later for signature-segment row computation, not comments). The
 cache is populated bottom-up by `lpnNode` at construction time. ALL
@@ -425,7 +425,7 @@ bounds this is a property of the node itself, not aggregated from children.
 
 The opening bracket has no leaf of its own in the tree, so a container whose
 first item dropped to the next input row looks like it *starts* on that row.
-`MakePretty.segContentFirstRow` uses this to read a signature segment's true
+`MakeRender.segContentFirstRow` uses this to read a signature segment's true
 start row (`-> { ⏎ x : Int }` begins at the `{`, not the field), so a break
 inside the braces doesn't masquerade as a break between `->` segments.
 -}

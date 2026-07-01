@@ -1,4 +1,4 @@
-module Formatter.MakePretty
+module Formatter.MakeRender
     exposing
         ( makePrettyResult
         , lptToRenderDocJson
