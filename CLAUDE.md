@@ -132,7 +132,7 @@ Formatter.PrettyPrinter        entry point: prettyPrint/2
         Formatter.LPTHelpers          shared helpers (mkText, mkTextFromLocString, …)
         Formatter.Comments            re-attaches comments from parse context
         Formatter.VerticalSpace       inserts blank lines between top-level items
-    Formatter.MakePretty       LPT → Formatter.Render Doc → String
+    Formatter.MakeRender       LPT → Formatter.Render Doc → String
         Formatter.Render          custom Doc IR + renderer (no page-width optimizer)
 ```
 
@@ -140,7 +140,7 @@ Layout is **author-driven, not fit-driven**: there is no page width and no
 layout search. Each box already knows whether it renders inline or vertical —
 decided from the author's original source rows (`forceVertical`) — and
 `Formatter.Render`'s `group` always renders flat. Indent step: **4** spaces
-(`grenIndent`, in `MakePretty.gren`).
+(`grenIndent`, in `MakeRender.gren`).
 
 **Key invariant:** every top-level declaration becomes exactly one `OriginalRows`
 node directly under `RootBox`. Comments and blank lines are inserted as sibling
