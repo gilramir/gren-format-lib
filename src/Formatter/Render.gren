@@ -1,10 +1,21 @@
-module Formatter.Render exposing
-    ( Doc
-    , empty, text, concat, hardNl, nl, breakDoc, nest, align, reset
-    , group, vcat, foldDoc
-    , render
-    , docToJson
-    )
+module Formatter.Render
+    exposing
+        ( Doc
+        , empty
+        , text
+        , concat
+        , hardNl
+        , nl
+        , breakDoc
+        , nest
+        , align
+        , reset
+        , group
+        , vcat
+        , foldDoc
+        , render
+        , docToJson
+        )
 
 {-| Simple custom Doc type and renderer for the Gren formatter.
 
@@ -37,15 +48,24 @@ empty =
 
 text : String -> Doc
 text s =
-    if String.isEmpty s then Empty else Text s
+    if String.isEmpty s then
+        Empty
+
+    else
+        Text s
 
 
 concat : Doc -> Doc -> Doc
 concat a b =
     when { a = a, b = b } is
-        { a = Empty } -> b
-        { b = Empty } -> a
-        _ -> Concat { a = a, b = b }
+        { a = Empty } ->
+            b
+
+        { b = Empty } ->
+            a
+
+        _ ->
+            Concat { a = a, b = b }
 
 
 hardNl : Doc
@@ -65,7 +85,11 @@ breakDoc =
 
 nest : Int -> Doc -> Doc
 nest n d =
-    if n == 0 then d else Nest { n = n, doc = d }
+    if n == 0 then
+        d
+
+    else
+        Nest { n = n, doc = d }
 
 
 align : Doc -> Doc
@@ -125,34 +149,54 @@ renderState state flat doc =
             renderState (renderState state flat a) flat b
 
         HardNl ->
-            let pad = String.repeat state.indent " "
-            in { state | col = state.indent, buf = state.buf ++ "\n" ++ pad }
+            let
+                pad =
+                    String.repeat state.indent " "
+            in
+            { state | col = state.indent, buf = state.buf ++ "\n" ++ pad }
 
         Nl ->
             if flat then
                 { state | col = state.col + 1, buf = state.buf ++ " " }
+
             else
-                let pad = String.repeat state.indent " "
-                in { state | col = state.indent, buf = state.buf ++ "\n" ++ pad }
+                let
+                    pad =
+                        String.repeat state.indent " "
+                in
+                { state | col = state.indent, buf = state.buf ++ "\n" ++ pad }
 
         BreakDoc ->
             if flat then
                 state
+
             else
-                let pad = String.repeat state.indent " "
-                in { state | col = state.indent, buf = state.buf ++ "\n" ++ pad }
+                let
+                    pad =
+                        String.repeat state.indent " "
+                in
+                { state | col = state.indent, buf = state.buf ++ "\n" ++ pad }
 
         Nest { n, doc = inner } ->
-            let innerState = renderState { state | indent = state.indent + n } flat inner
-            in { innerState | indent = state.indent }
+            let
+                innerState =
+                    renderState { state | indent = state.indent + n } flat inner
+            in
+            { innerState | indent = state.indent }
 
         Align inner ->
-            let innerState = renderState { state | indent = state.col } flat inner
-            in { innerState | indent = state.indent }
+            let
+                innerState =
+                    renderState { state | indent = state.col } flat inner
+            in
+            { innerState | indent = state.indent }
 
         Reset inner ->
-            let innerState = renderState { state | indent = 0 } flat inner
-            in { innerState | indent = state.indent }
+            let
+                innerState =
+                    renderState { state | indent = 0 } flat inner
+            in
+            { innerState | indent = state.indent }
 
         Group inner ->
             -- Group always renders flat: layout is author-driven, so a group's
@@ -169,9 +213,14 @@ render doc =
 docToJson : Doc -> Json.Value
 docToJson doc =
     let
-        tag t = Json.object [ { key = "type", value = Json.string t } ]
-        wrap t fields = Json.object ([ { key = "type", value = Json.string t } ] ++ fields)
-        child d = { key = "doc", value = docToJson d }
+        tag t =
+            Json.object [ { key = "type", value = Json.string t } ]
+
+        wrap t fields =
+            Json.object ([ { key = "type", value = Json.string t } ] ++ fields)
+
+        child d =
+            { key = "doc", value = docToJson d }
     in
     when doc is
         Empty ->
@@ -181,7 +230,8 @@ docToJson doc =
             wrap "Text" [ { key = "text", value = Json.string s } ]
 
         Concat { a, b } ->
-            wrap "Concat"
+            wrap
+                "Concat"
                 [ { key = "a", value = docToJson a }
                 , { key = "b", value = docToJson b }
                 ]
@@ -196,7 +246,8 @@ docToJson doc =
             tag "BreakDoc"
 
         Nest { n, doc = inner } ->
-            wrap "Nest"
+            wrap
+                "Nest"
                 [ { key = "n", value = Json.int n }
                 , { key = "doc", value = docToJson inner }
                 ]

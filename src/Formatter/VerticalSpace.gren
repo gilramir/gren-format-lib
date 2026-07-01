@@ -9,17 +9,33 @@ sitting between two `when` cases (`insertWhenBlankLines`).
 @docs insertEmptyLines, insertLetBlankLines, insertIfBlankLines, insertWhenBlankLines
 -}
 
-import Formatter.LogicalPrintingTree exposing (LPBox(..), SyntaxType(..), lpnNode,
-    LPNode(..), lpnBox, lpnChildren, lpnLeaf, lpnReplaceChildren)
+import Formatter.LogicalPrintingTree
+    exposing
+        ( LPBox(..)
+        , SyntaxType(..)
+        , lpnNode
+        , LPNode(..)
+        , lpnBox
+        , lpnChildren
+        , lpnLeaf
+        , lpnReplaceChildren
+        )
 
 
 isCommentStype : SyntaxType -> Bool
 isCommentStype stype =
     when stype is
-        StSingleLineComment -> True
-        StBlockComment -> True
-        StDocComment -> True
-        _ -> False
+        StSingleLineComment ->
+            True
+
+        StBlockComment ->
+            True
+
+        StDocComment ->
+            True
+
+        _ ->
+            False
 
 
 {-| Row/type info plus classification for one root child, used by the
@@ -54,19 +70,30 @@ classifyChildren nodes =
                     when lpnBox node is
                         OriginalRows r ->
                             let
-                                comment = isCommentStype r.stype
+                                comment =
+                                    isCommentStype r.stype
+
                                 core =
                                     when r.stype is
-                                        StFunctionSignature -> True
-                                        StTypeAlias -> True
-                                        StTypeUnion -> True
-                                        StPort -> True
+                                        StFunctionSignature ->
+                                            True
+
+                                        StTypeAlias ->
+                                            True
+
+                                        StTypeUnion ->
+                                            True
+
+                                        StPort ->
+                                            True
+
                                         StFunctionDeclaration ->
                                             acc.lastNonComment /= Just StFunctionSignature
-                                        _ -> False
+
+                                        _ ->
+                                            False
                             in
-                            { out =
-                                Array.pushLast
+                            { out = Array.pushLast
                                     { node = node
                                     , first = r.first
                                     , last = r.last
@@ -76,11 +103,15 @@ classifyChildren nodes =
                                     }
                                     acc.out
                             , lastNonComment =
-                                if comment then acc.lastNonComment else Just r.stype
+                                if comment then
+                                    acc.lastNonComment
+
+                                else
+                                    Just r.stype
                             }
+
                         _ ->
-                            { out =
-                                Array.pushLast
+                            { out = Array.pushLast
                                     { node = node, first = -1, last = -1, stype = Nothing, isComment = False, core = False }
                                     acc.out
                             , lastNonComment = acc.lastNonComment
@@ -106,15 +137,25 @@ computeGroupStarts infos =
                         isStart =
                             if info.core then
                                 True
+
                             else if info.isComment then
                                 when acc.nextStartFirst is
-                                    Just nf -> nf == info.last + 1
-                                    Nothing -> False
+                                    Just nf ->
+                                        nf == info.last + 1
+
+                                    Nothing ->
+                                        False
+
                             else
                                 False
                     in
                     { flags = Array.pushFirst isStart acc.flags
-                    , nextStartFirst = if isStart then Just info.first else Nothing
+                    , nextStartFirst =
+                        if isStart then
+                            Just info.first
+
+                        else
+                            Nothing
                     }
                 )
                 { flags = [], nextStartFirst = Nothing }
@@ -143,9 +184,15 @@ Runs after `Formatter.MakeLogical` has built the tree and
 insertEmptyLines : LPNode -> LPNode
 insertEmptyLines root =
     let
-        infos = classifyChildren (lpnChildren root)
-        groupStarts = computeGroupStarts infos
-        zipped = Array.map2 (\info gs -> { info = info, isGroupStart = gs }) infos groupStarts
+        infos =
+            classifyChildren (lpnChildren root)
+
+        groupStarts =
+            computeGroupStarts infos
+
+        zipped =
+            Array.map2 (\info gs -> { info = info, isGroupStart = gs }) infos groupStarts
+
         { newChildren } =
             Array.foldl
                 (\{ info, isGroupStart } acc ->
@@ -160,9 +207,13 @@ insertEmptyLines root =
                         unitStart =
                             isGroupStart
                                 && (when acc.prev is
-                                        Just p -> not (p.isGroupStart && p.isComment)
-                                        Nothing -> True
+                                     Just p ->
+                                         not (p.isGroupStart && p.isComment)
+
+                                     Nothing ->
+                                         True
                                    )
+
                         prevRec =
                             { isGroupStart = isGroupStart
                             , isComment = info.isComment
@@ -179,35 +230,39 @@ insertEmptyLines root =
 
                         Just p ->
                             if unitStart then
-                                { newChildren =
-                                    acc.newChildren
+                                { newChildren = acc.newChildren
                                         |> Array.pushLast (lpnLeaf EmptyLine)
                                         |> Array.pushLast (lpnLeaf EmptyLine)
                                         |> Array.pushLast info.node
                                 , prev = Just prevRec
                                 }
+
                             else
                                 let
                                     -- The module line is always followed by one
                                     -- blank, regardless of how its exposing list
                                     -- renders (its input-row `last` can over-count
                                     -- when a perturbed list spans extra rows).
-                                    afterModule = p.stype == Just StModule
+                                    afterModule =
+                                        p.stype == Just StModule
+
                                     -- A definition sits directly under its own
                                     -- signature with no blank, even if the author
                                     -- left one.
                                     sigThenDef =
                                         p.stype == Just StFunctionSignature
                                             && info.stype == Just StFunctionDeclaration
-                                    gap = info.first > p.last + 1
+
+                                    gap =
+                                        info.first > p.last + 1
                                 in
                                 if (gap || afterModule) && not sigThenDef then
-                                    { newChildren =
-                                        acc.newChildren
+                                    { newChildren = acc.newChildren
                                             |> Array.pushLast (lpnLeaf EmptyLine)
                                             |> Array.pushLast info.node
                                     , prev = Just prevRec
                                     }
+
                                 else
                                     { newChildren = Array.pushLast info.node acc.newChildren
                                     , prev = Just prevRec
@@ -224,8 +279,11 @@ insertEmptyLines root =
 isLetKeyword : LPNode -> Bool
 isLetKeyword node =
     when lpnBox node is
-        UnbreakableText loc -> loc.value == "let"
-        _ -> False
+        UnbreakableText loc ->
+            loc.value == "let"
+
+        _ ->
+            False
 
 
 -- True if a node is the synthesized `in` leaf that closes a let-expression's
@@ -233,8 +291,11 @@ isLetKeyword node =
 isInKeyword : LPNode -> Bool
 isInKeyword node =
     when lpnBox node is
-        SynthesizedText value -> value == "in"
-        _ -> False
+        SynthesizedText value ->
+            value == "in"
+
+        _ ->
+            False
 
 
 -- True if a node is an own-line comment sibling in a `let` binding span.
@@ -244,9 +305,14 @@ isInKeyword node =
 isLetCommentNode : LPNode -> Bool
 isLetCommentNode node =
     when lpnBox node is
-        SingleLineComment _ -> True
-        BlockComment _ -> True
-        _ -> False
+        SingleLineComment _ ->
+            True
+
+        BlockComment _ ->
+            True
+
+        _ ->
+            False
 
 
 -- True if a node is a let-level type signature: the `IndentedBlock` built by
@@ -267,14 +333,21 @@ isLetSignature node =
                             Array.any
                                 (\c ->
                                     when lpnBox c is
-                                        SynthesizedText v -> v == ":"
-                                        _ -> False
+                                        SynthesizedText v ->
+                                            v == ":"
+
+                                        _ ->
+                                            False
                                 )
                                 (lpnChildren inner)
-                        _ -> False
+
+                        _ ->
+                            False
                 )
                 (lpnChildren node)
-        _ -> False
+
+        _ ->
+            False
 
 
 -- Within one node's children, find the `let … in` binding span (the nodes
@@ -299,16 +372,19 @@ insertBlanksInLetFlow children =
                         , inLet = True
                         , prevSticky = True
                         }
+
                     else if isInKeyword child then
                         { out = Array.pushLast child acc.out
                         , inLet = False
                         , prevSticky = True
                         }
+
                     else if acc.inLet then
                         let
                             out2 =
                                 if acc.prevSticky then
                                     Array.pushLast child acc.out
+
                                 else
                                     acc.out
                                         |> Array.pushLast (lpnLeaf EmptyLine)
@@ -321,6 +397,7 @@ insertBlanksInLetFlow children =
                         -- a blank.
                         , prevSticky = isLetCommentNode child || isLetSignature child
                         }
+
                     else
                         { acc | out = Array.pushLast child acc.out }
                 )
@@ -348,7 +425,8 @@ sequence as their own nodes — see `insertBlanksInLetFlow`. Rebuilds via
 mapFlows : (Array LPNode -> Array LPNode) -> LPNode -> LPNode
 mapFlows transform node =
     let
-        recursed = Array.map (mapFlows transform) (lpnChildren node)
+        recursed =
+            Array.map (mapFlows transform) (lpnChildren node)
     in
     lpnReplaceChildren node (transform recursed)
 
@@ -368,18 +446,28 @@ isElseIfCondition node =
             when Array.popFirst (lpnChildren node) is
                 Just { first = firstChild } ->
                     when lpnBox firstChild is
-                        UnbreakableText loc -> loc.value == "else if"
-                        _ -> False
-                Nothing -> False
-        _ -> False
+                        UnbreakableText loc ->
+                            loc.value == "else if"
+
+                        _ ->
+                            False
+
+                Nothing ->
+                    False
+
+        _ ->
+            False
 
 
 -- True if a node is the synthesized `else` leaf of an if-expression.
 isElseKeyword : LPNode -> Bool
 isElseKeyword node =
     when lpnBox node is
-        SynthesizedText value -> value == "else"
-        _ -> False
+        SynthesizedText value ->
+            value == "else"
+
+        _ ->
+            False
 
 
 -- Within one node's children, insert a single `EmptyLine` marker before every
@@ -395,6 +483,7 @@ insertBlanksInIfFlow children =
                 acc
                     |> Array.pushLast (lpnLeaf EmptyLine)
                     |> Array.pushLast child
+
             else
                 Array.pushLast child acc
         )
@@ -406,8 +495,11 @@ insertBlanksInIfFlow children =
 isWhenBranchNode : LPNode -> Bool
 isWhenBranchNode node =
     when lpnBox node is
-        WhenBranch -> True
-        _ -> False
+        WhenBranch ->
+            True
+
+        _ ->
+            False
 
 
 -- True if a node is a standalone `--` line comment. Restricted to line
@@ -418,8 +510,11 @@ isWhenBranchNode node =
 isLineComment : LPNode -> Bool
 isLineComment node =
     when lpnBox node is
-        SingleLineComment _ -> True
-        _ -> False
+        SingleLineComment _ ->
+            True
+
+        _ ->
+            False
 
 
 -- Within one node's children, insert a single `EmptyLine` marker before a
@@ -442,6 +537,7 @@ insertBlanksInWhenFlow children =
                                 acc.out
                                     |> Array.pushLast (lpnLeaf EmptyLine)
                                     |> Array.pushLast child
+
                             else
                                 Array.pushLast child acc.out
                     in

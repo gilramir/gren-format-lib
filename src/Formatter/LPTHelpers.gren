@@ -4,21 +4,29 @@ module Formatter.LPTHelpers exposing (..)
 LPT construction helpers shared by every Insert* module: leaf-building,
 position arithmetic, Result-aware folding, and leaf-walking utilities
 used to rewrite the text on the deepest leaf of a subtree.
+
 -}
 
 import Compiler.SourcePosition exposing (Located, Position)
 
-import Formatter.LogicalPrintingTree exposing (LPBox(..), ListBrackets(..),
-    LPNode(..), lpnBox, lpnChildren, lpnLeaf, lpnNode, lpnBracketNode)
+import Formatter.LogicalPrintingTree
+    exposing
+        ( LPBox(..)
+        , ListBrackets(..)
+        , LPNode(..)
+        , lpnBox
+        , lpnChildren
+        , lpnLeaf
+        , lpnNode
+        , lpnBracketNode
+        )
 
 
 mkText : Position -> String -> LPBox
 mkText pos text =
     let
         end =
-            { pos
-                | col = pos.col + String.count text
-            }
+            { pos | col = pos.col + String.count text }
     in
     UnbreakableText
         { start = pos
@@ -50,9 +58,7 @@ mkZeroWidthText pos text =
 
 incCol : Int -> Position -> Position
 incCol n pos =
-    { pos
-        | col = pos.col + n
-    }
+    { pos | col = pos.col + n }
 
 
 {-| True when the author laid these located items out across more than one
@@ -102,7 +108,12 @@ authoredBracketList brackets spans closeEnd empty itemNodes =
 
         Just _ ->
             lpnBracketNode
-                (if spans then AlwaysVertical brackets else AllAcrossOrAllVertical brackets)
+                (if spans then
+                  AlwaysVertical brackets
+
+                 else
+                  AllAcrossOrAllVertical brackets
+                )
                 closeEnd
                 itemNodes
 
@@ -127,24 +138,59 @@ defaultBinopPrecedence =
 binopPrecedence : String -> Int
 binopPrecedence op =
     when op is
-        "||" -> 2
-        "&&" -> 3
-        "==" -> 4
-        "/=" -> 4
-        "<" -> 4
-        ">" -> 4
-        "<=" -> 4
-        ">=" -> 4
-        "++" -> 5
-        "+" -> 6
-        "-" -> 6
-        "*" -> 7
-        "/" -> 7
-        "//" -> 7
-        "^" -> 8
-        "<<" -> 9
-        ">>" -> 9
-        _ -> defaultBinopPrecedence
+        "||" ->
+            2
+
+        "&&" ->
+            3
+
+        "==" ->
+            4
+
+        "/=" ->
+            4
+
+        "<" ->
+            4
+
+        ">" ->
+            4
+
+        "<=" ->
+            4
+
+        ">=" ->
+            4
+
+        "++" ->
+            5
+
+        "+" ->
+            6
+
+        "-" ->
+            6
+
+        "*" ->
+            7
+
+        "/" ->
+            7
+
+        "//" ->
+            7
+
+        "^" ->
+            8
+
+        "<<" ->
+            9
+
+        ">>" ->
+            9
+
+        _ ->
+            defaultBinopPrecedence
 
 
 {-| The lowest precedence among a chain's operators — the tier at which the
@@ -181,13 +227,17 @@ tryMapFirstLeaf f node =
     when lpnBox node is
         UnbreakableText loc ->
             Just (lpnNode (f loc) (lpnChildren node))
+
         _ ->
             when Array.popFirst (lpnChildren node) is
                 Nothing ->
                     Nothing
+
                 Just { first = firstChild, rest = restChildren } ->
                     when tryMapFirstLeaf f firstChild is
-                        Nothing -> Nothing
+                        Nothing ->
+                            Nothing
+
                         Just updated ->
                             Just (lpnNode (lpnBox node) (Array.pushFirst updated restChildren))
 
@@ -199,13 +249,17 @@ tryMapLastLeaf f node =
     when lpnBox node is
         UnbreakableText loc ->
             Just (lpnNode (f loc) (lpnChildren node))
+
         _ ->
             when Array.popLast (lpnChildren node) is
                 Nothing ->
                     Nothing
+
                 Just { last = lastChild, initial = initialChildren } ->
                     when tryMapLastLeaf f lastChild is
-                        Nothing -> Nothing
+                        Nothing ->
+                            Nothing
+
                         Just updated ->
                             Just (lpnNode (lpnBox node) (Array.pushLast updated initialChildren))
 
@@ -218,6 +272,7 @@ fixupParensChildrenNodes : Array LPNode -> Result String (Array LPNode)
 fixupParensChildrenNodes nodes =
     when Array.popFirst nodes is
         Nothing ->
-            Ok [lpnLeaf (SynthesizedText "()")]
+            Ok [ lpnLeaf (SynthesizedText "()") ]
+
         Just _ ->
-            Ok [lpnNode ParenBlock nodes]
+            Ok [ lpnNode ParenBlock nodes ]

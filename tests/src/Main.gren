@@ -13,9 +13,9 @@ main =
     U.runWith
         { name = "gren-format-lib-tests"
         , version = "1.0.0"
-        , init =
-            \done ->
-                Init.await FileSystem.initialize <| \fs ->
+        , init = \done ->
+            Init.await FileSystem.initialize <|
+                \fs ->
                     done { fs = fs }
         , globalSetUp = U.noFixture
         , globalTearDown = U.noTearDown

@@ -192,6 +192,11 @@ lpBoxFields lpbox =
 bracketsToString : ListBrackets -> String
 bracketsToString brackets =
     when brackets is
-        ListParen -> "paren"
-        ListCurly -> "curly"
-        ListSquare -> "square"
+        ListParen ->
+            "paren"
+
+        ListCurly ->
+            "curly"
+
+        ListSquare ->
+            "square"

@@ -28,18 +28,21 @@ compareModules a b =
         , compareEffects a.effects b.effects
         ]
 
-
 -- EFFECTS
+
 
 compareEffects : Src.Effects -> Src.Effects -> Result String {}
 compareEffects a b =
     when { fst = a, snd = b } is
         { fst = Src.NoEffects, snd = Src.NoEffects } ->
             Ok {}
+
         { fst = Src.Ports ap, snd = Src.Ports bp } ->
             compareArray "ports" comparePortDecl ap bp
+
         { fst = Src.Manager am, snd = Src.Manager bm } ->
             compareManager am bm
+
         _ ->
             Err "effects: different kinds (NoEffects vs Ports vs Manager)"
 
@@ -49,40 +52,48 @@ compareManager a b =
     when { fst = a, snd = b } is
         { fst = Src.Cmd ac, snd = Src.Cmd bc } ->
             compareStr "manager Cmd" ac.value bc.value
+
         { fst = Src.Sub as_, snd = Src.Sub bs } ->
             compareStr "manager Sub" as_.value bs.value
+
         { fst = Src.Fx af, snd = Src.Fx bf } ->
             chainAll
                 [ compareStr "manager Fx cmd" af.cmd.value bf.cmd.value
                 , compareStr "manager Fx sub" af.sub.value bf.sub.value
                 ]
+
         _ ->
             Err "manager: different kinds"
 
-
 -- PORTS
+
 
 comparePortDecl : Src.ModuleDeclaration Src.Port -> Src.ModuleDeclaration Src.Port -> Result String {}
 comparePortDecl la lb =
     let
-        a = la.value.value
-        b = lb.value.value
+        a =
+            la.value.value
+
+        b =
+            lb.value.value
     in
     chainAll
         [ compareStr "port name" a.name.value b.name.value
         , compareType ("port '" ++ a.name.value ++ "'") a.signature b.signature
         ]
 
-
 -- EXPOSING
+
 
 compareExposing : String -> Src.Exposing -> Src.Exposing -> Result String {}
 compareExposing ctx a b =
     when { fst = a, snd = b } is
         { fst = Src.Open, snd = Src.Open } ->
             Ok {}
+
         { fst = Src.Explicit xs, snd = Src.Explicit ys } ->
             compareArray (ctx ++ " exposed list") compareExposed xs ys
+
         _ ->
             Err (ctx ++ ": Open vs Explicit")
 
@@ -92,13 +103,16 @@ compareExposed a b =
     when { fst = a, snd = b } is
         { fst = Src.ExposedLower la, snd = Src.ExposedLower lb } ->
             compareStr "exposed value" la.value lb.value
+
         { fst = Src.ExposedUpper ua, snd = Src.ExposedUpper ub } ->
             chainAll
                 [ compareStr "exposed type name" ua.name.value ub.name.value
                 , comparePrivacy ua.privacy ub.privacy
                 ]
+
         { fst = Src.ExposedOperator oa, snd = Src.ExposedOperator ob } ->
             compareStr "exposed operator" oa.value ob.value
+
         _ ->
             Err "exposed item: different kinds"
 
@@ -108,19 +122,24 @@ comparePrivacy a b =
     when { fst = a, snd = b } is
         { fst = Src.Public, snd = Src.Public } ->
             Ok {}
+
         { fst = Src.Private, snd = Src.Private } ->
             Ok {}
+
         _ ->
             Err "privacy: Public vs Private"
 
-
 -- IMPORTS
+
 
 compareImport : SP.Located Src.Import -> SP.Located Src.Import -> Result String {}
 compareImport la lb =
     let
-        a = la.value
-        b = lb.value
+        a =
+            la.value
+
+        b =
+            lb.value
     in
     chainAll
         [ compareStr "import module" a.module_.value b.module_.value
@@ -128,36 +147,43 @@ compareImport la lb =
         , compareExposing ("import " ++ a.module_.value) a.expose b.expose
         ]
 
-
 -- VALUE DECLARATIONS
+
 
 compareValueDecl : Src.ModuleDeclaration Src.Value -> Src.ModuleDeclaration Src.Value -> Result String {}
 compareValueDecl la lb =
     let
-        a = la.value.value
-        b = lb.value.value
-        ctx = "function '" ++ a.name.value ++ "'"
+        a =
+            la.value.value
+
+        b =
+            lb.value.value
+
+        ctx =
+            "function '" ++ a.name.value ++ "'"
     in
     chainAll
         [ compareStr "function name" a.name.value b.name.value
         , compareMaybeDocStr (ctx ++ " docs") (Maybe.map .value la.value.docs) (Maybe.map .value lb.value.docs)
-        , compareMaybe (ctx ++ " signature")
-            (\sa sb -> compareType_ ctx sa.value sb.value)
-            (Maybe.map .type_ a.signature)
-            (Maybe.map .type_ b.signature)
+        , compareMaybe (ctx ++ " signature") (\sa sb -> compareType_ ctx sa.value sb.value) (Maybe.map .type_ a.signature) (Maybe.map .type_ b.signature)
         , compareArray (ctx ++ " args") comparePattern a.args b.args
         , compareExpr ctx a.body b.body
         ]
 
-
 -- UNION TYPE DECLARATIONS
+
 
 compareUnionDecl : Src.ModuleDeclaration Src.Union -> Src.ModuleDeclaration Src.Union -> Result String {}
 compareUnionDecl la lb =
     let
-        a = la.value.value
-        b = lb.value.value
-        ctx = "type '" ++ a.name.value ++ "'"
+        a =
+            la.value.value
+
+        b =
+            lb.value.value
+
+        ctx =
+            "type '" ++ a.name.value ++ "'"
     in
     chainAll
         [ compareStr "type name" a.name.value b.name.value
@@ -170,23 +196,31 @@ compareUnionDecl la lb =
 compareVariant : SP.Located Src.UnionVariant -> SP.Located Src.UnionVariant -> Result String {}
 compareVariant la lb =
     let
-        a = la.value
-        b = lb.value
+        a =
+            la.value
+
+        b =
+            lb.value
     in
     chainAll
         [ compareStr "variant name" a.name.value b.name.value
         , compareMaybe "variant payload" (compareType "variant payload") a.payload b.payload
         ]
 
-
 -- TYPE ALIAS DECLARATIONS
+
 
 compareAliasDecl : Src.ModuleDeclaration Src.Alias -> Src.ModuleDeclaration Src.Alias -> Result String {}
 compareAliasDecl la lb =
     let
-        a = la.value.value
-        b = lb.value.value
-        ctx = "type alias '" ++ a.name.value ++ "'"
+        a =
+            la.value.value
+
+        b =
+            lb.value.value
+
+        ctx =
+            "type alias '" ++ a.name.value ++ "'"
     in
     chainAll
         [ compareStr "type alias name" a.name.value b.name.value
@@ -195,14 +229,17 @@ compareAliasDecl la lb =
         , compareType ctx a.type_ b.type_
         ]
 
-
 -- BINOP (INFIX) DECLARATIONS
+
 
 compareBinopDecl : SP.Located Src.Infix -> SP.Located Src.Infix -> Result String {}
 compareBinopDecl la lb =
     let
-        a = la.value
-        b = lb.value
+        a =
+            la.value
+
+        b =
+            lb.value
     in
     chainAll
         [ compareStr "binop fn" a.fn b.fn
@@ -217,15 +254,18 @@ compareAssociativity a b =
     when { fst = a, snd = b } is
         { fst = Src.OpALeft, snd = Src.OpALeft } ->
             Ok {}
+
         { fst = Src.OpANone, snd = Src.OpANone } ->
             Ok {}
+
         { fst = Src.OpARight, snd = Src.OpARight } ->
             Ok {}
+
         _ ->
             Err "binop associativity differs"
 
-
 -- TYPES
+
 
 compareType : String -> Src.Type -> Src.Type -> Result String {}
 compareType ctx a b =
@@ -237,31 +277,35 @@ compareType_ ctx a b =
     when { fst = a, snd = b } is
         { fst = Src.TVar va, snd = Src.TVar vb } ->
             compareStr (ctx ++ " type var") va vb
+
         { fst = Src.TType ta, snd = Src.TType tb } ->
             chainAll
                 [ compareStr (ctx ++ " type name") ta.name.value tb.name.value
                 , compareArray (ctx ++ " type args") (compareType ctx) ta.args tb.args
                 ]
+
         { fst = Src.TTypeQual qa, snd = Src.TTypeQual qb } ->
             chainAll
                 [ compareStr (ctx ++ " type qualifier") qa.qualifier qb.qualifier
                 , compareStr (ctx ++ " type name") qa.name qb.name
                 , compareArray (ctx ++ " type args") (compareType ctx) qa.args qb.args
                 ]
+
         { fst = Src.TLambda la, snd = Src.TLambda lb } ->
             chainAll
                 [ compareType (ctx ++ " ->from") la.from lb.from
                 , compareType (ctx ++ " ->to") la.to lb.to
                 ]
+
         { fst = Src.TRecord ra, snd = Src.TRecord rb } ->
             chainAll
-                [ compareMaybeStr (ctx ++ " record extending")
-                    (Maybe.map .value ra.extending)
-                    (Maybe.map .value rb.extending)
+                [ compareMaybeStr (ctx ++ " record extending") (Maybe.map .value ra.extending) (Maybe.map .value rb.extending)
                 , compareArray (ctx ++ " record fields") (compareTRecordField ctx) ra.fields rb.fields
                 ]
+
         { fst = Src.TParens ta, snd = Src.TParens tb } ->
             compareType (ctx ++ " (parens)") ta tb
+
         _ ->
             Err (ctx ++ ": type constructors differ")
 
@@ -273,8 +317,8 @@ compareTRecordField ctx a b =
         , compareType (ctx ++ " field '" ++ a.field.value ++ "'") a.signature b.signature
         ]
 
-
 -- PATTERNS
+
 
 comparePattern : Src.Pattern -> Src.Pattern -> Result String {}
 comparePattern a b =
@@ -286,37 +330,47 @@ comparePattern_ a b =
     when { fst = a, snd = b } is
         { fst = Src.PAnything _, snd = Src.PAnything _ } ->
             Ok {}
+
         { fst = Src.PVar va, snd = Src.PVar vb } ->
             compareStr "pattern var" va vb
+
         { fst = Src.PRecord fa, snd = Src.PRecord fb } ->
             compareArray "pattern record" comparePRecordField fa fb
+
         { fst = Src.PAlias aa, snd = Src.PAlias ab_ } ->
             chainAll
                 [ comparePattern aa.pattern ab_.pattern
                 , compareStr "alias name" aa.name.value ab_.name.value
                 ]
+
         { fst = Src.PCtor ca, snd = Src.PCtor cb } ->
             chainAll
                 [ compareStr "ctor name" ca.name.value cb.name.value
                 , compareMaybe "ctor arg" comparePattern ca.arg cb.arg
                 ]
+
         { fst = Src.PCtorQual qa, snd = Src.PCtorQual qb } ->
             chainAll
                 [ compareStr "ctor module" qa.module_ qb.module_
                 , compareStr "ctor name" qa.name qb.name
                 , compareMaybe "ctor arg" comparePattern qa.arg qb.arg
                 ]
+
         { fst = Src.PArray pa, snd = Src.PArray pb } ->
             compareArray "pattern array" comparePattern pa pb
+
         { fst = Src.PChr ca, snd = Src.PChr cb } ->
             compareChar "pattern char" ca cb
+
         { fst = Src.PStr sa, snd = Src.PStr sb } ->
             compareStr "pattern string" sa sb
+
         { fst = Src.PInt ia, snd = Src.PInt ib } ->
             chainAll
                 [ compareInt "pattern int" ia.value ib.value
                 , compareBool "pattern int isHex" ia.isHex ib.isHex
                 ]
+
         _ ->
             Err "pattern: constructors differ"
 
@@ -328,8 +382,8 @@ comparePRecordField a b =
         , compareMaybe "pattern record field pattern" comparePattern a.pattern b.pattern
         ]
 
-
 -- EXPRESSIONS
+
 
 -- Parens never change an expression's meaning, so comparison must not care
 -- whether either side has them, or how many layers deep. Without this, the
@@ -339,8 +393,11 @@ comparePRecordField a b =
 stripParens : Src.Expression -> Src.Expression
 stripParens expr =
     when expr.value is
-        Src.Parens inner -> stripParens inner
-        _ -> expr
+        Src.Parens inner ->
+            stripParens inner
+
+        _ ->
+            expr
 
 
 compareExpr : String -> Src.Expression -> Src.Expression -> Result String {}
@@ -353,68 +410,86 @@ compareExpr_ ctx a b =
     when { fst = a, snd = b } is
         { fst = Src.CharLiteral ca, snd = Src.CharLiteral cb } ->
             compareChar ctx ca cb
+
         { fst = Src.StringLiteral sa, snd = Src.StringLiteral sb } ->
             compareStr ctx sa sb
+
         { fst = Src.NumberLiteral na, snd = Src.NumberLiteral nb } ->
             compareNumber ctx na nb
+
         { fst = Src.Var va, snd = Src.Var vb } ->
             compareStr ctx va.name vb.name
+
         { fst = Src.VarQual qa, snd = Src.VarQual qb } ->
             chainAll
                 [ compareStr (ctx ++ " qualifier") qa.qualifier qb.qualifier
                 , compareStr (ctx ++ " name") qa.name qb.name
                 ]
+
         { fst = Src.Operator oa, snd = Src.Operator ob } ->
             compareStr ctx oa ob
+
         { fst = Src.Negate ea, snd = Src.Negate eb } ->
             compareExpr (ctx ++ " negate") ea eb
+
         { fst = Src.Accessor sa, snd = Src.Accessor sb } ->
             compareStr (ctx ++ " accessor") sa sb
+
         { fst = Src.Access aa, snd = Src.Access ab_ } ->
             chainAll
                 [ compareExpr (ctx ++ " .expr") aa.expression ab_.expression
                 , compareStr (ctx ++ " .field") aa.accessor ab_.accessor
                 ]
+
         { fst = Src.ArrayLiteral la, snd = Src.ArrayLiteral lb } ->
             compareArray (ctx ++ " []") (compareExpr ctx) la lb
+
         { fst = Src.Record ra, snd = Src.Record rb } ->
             compareArray (ctx ++ " {}") (compareRecordField ctx) ra rb
+
         { fst = Src.Update ua, snd = Src.Update ub } ->
             chainAll
                 [ compareExpr (ctx ++ " update.record") ua.record ub.record
                 , compareArray (ctx ++ " update.fields") (compareRecordField ctx) ua.newValues ub.newValues
                 ]
+
         { fst = Src.Binops ba, snd = Src.Binops bb } ->
             chainAll
                 [ compareExpr (ctx ++ " binop.left") ba.left bb.left
                 , compareStr (ctx ++ " binop.op") ba.operator.value bb.operator.value
                 , compareExpr (ctx ++ " binop.right") ba.right bb.right
                 ]
+
         { fst = Src.Lambda la, snd = Src.Lambda lb } ->
             chainAll
                 [ compareArray (ctx ++ " lambda.args") comparePattern la.patterns lb.patterns
                 , compareExpr (ctx ++ " lambda.body") la.body lb.body
                 ]
+
         { fst = Src.Call ca, snd = Src.Call cb } ->
             chainAll
                 [ compareExpr (ctx ++ " call.fn") ca.fn cb.fn
                 , compareArray (ctx ++ " call.args") (compareExpr ctx) ca.args cb.args
                 ]
+
         { fst = Src.Let la, snd = Src.Let lb } ->
             chainAll
                 [ compareArray (ctx ++ " let.defs") (compareLetDef ctx) la.defs lb.defs
                 , compareExpr (ctx ++ " let.body") la.body lb.body
                 ]
+
         { fst = Src.If ia, snd = Src.If ib } ->
             chainAll
                 [ compareArray (ctx ++ " if.branches") (compareIfBranch ctx) ia.branches ib.branches
                 , compareExpr (ctx ++ " else") ia.elseBranch ib.elseBranch
                 ]
+
         { fst = Src.When wa, snd = Src.When wb } ->
             chainAll
                 [ compareExpr (ctx ++ " when.expr") wa.expression wb.expression
                 , compareArray (ctx ++ " when.branches") (compareWhenBranch ctx) wa.branches wb.branches
                 ]
+
         _ ->
             Err (ctx ++ ": expression constructors differ")
 
@@ -453,50 +528,64 @@ compareLetDef ctx la lb =
                 , compareMaybe (ctx ++ " let." ++ da.name.value ++ ".sig") (compareType (ctx ++ " let.sig")) da.typeSignature db.typeSignature
                 , compareExpr (ctx ++ " let." ++ da.name.value ++ ".body") da.body db.body
                 ]
+
         { fst = Src.Destruct da, snd = Src.Destruct db } ->
             chainAll
                 [ comparePattern da.pattern db.pattern
                 , compareExpr (ctx ++ " let.destruct.body") da.body db.body
                 ]
+
         _ ->
             Err (ctx ++ ": let def: Define vs Destruct")
 
-
 -- PRIMITIVE HELPERS
+
 
 chainAll : Array (Result String {}) -> Result String {}
 chainAll results =
     Array.foldl
         (\result acc ->
             when acc is
-                Err e -> Err e
-                Ok {} -> result
+                Err e ->
+                    Err e
+
+                Ok {} ->
+                    result
         )
         (Ok {})
         results
 
 
 compareArray : String -> (a -> a -> Result String {}) -> Array a -> Array a -> Result String {}
-compareArray name cmp as_ bs =
+compareArray name cmp a_array b_array =
     let
-        lenA = Array.length as_
-        lenB = Array.length bs
+        lenA =
+            Array.length a_array
+
+        lenB =
+            Array.length b_array
     in
     if lenA /= lenB then
         Err ("Different number of " ++ name ++ ": " ++ String.fromInt lenA ++ " vs " ++ String.fromInt lenB)
+
     else
-        compareArrayItems cmp as_ bs
+        compareArrayItems cmp a_array b_array
 
 
 compareArrayItems : (a -> a -> Result String {}) -> Array a -> Array a -> Result String {}
-compareArrayItems cmp as_ bs =
-    when { fst = Array.popFirst as_, snd = Array.popFirst bs } is
+compareArrayItems cmp a_array b_array =
+    when { fst = Array.popFirst a_array, snd = Array.popFirst b_array } is
         { fst = Nothing, snd = Nothing } ->
             Ok {}
+
         { fst = Just { first = a, rest = aRest }, snd = Just { first = b, rest = bRest } } ->
             when cmp a b is
-                Err e -> Err e
-                Ok {} -> compareArrayItems cmp aRest bRest
+                Err e ->
+                    Err e
+
+                Ok {} ->
+                    compareArrayItems cmp aRest bRest
+
         _ ->
             Ok {}
 
@@ -506,18 +595,26 @@ compareMaybe ctx cmp a b =
     when a is
         Nothing ->
             when b is
-                Nothing -> Ok {}
-                Just _ -> Err (ctx ++ ": Nothing vs Just")
+                Nothing ->
+                    Ok {}
+
+                Just _ ->
+                    Err (ctx ++ ": Nothing vs Just")
+
         Just av ->
             when b is
-                Nothing -> Err (ctx ++ ": Just vs Nothing")
-                Just bv -> cmp av bv
+                Nothing ->
+                    Err (ctx ++ ": Just vs Nothing")
+
+                Just bv ->
+                    cmp av bv
 
 
 compareStr : String -> String -> String -> Result String {}
 compareStr ctx a b =
     if a == b then
         Ok {}
+
     else
         Err (ctx ++ ": '" ++ a ++ "' vs '" ++ b ++ "'")
 
@@ -535,12 +632,19 @@ compareMaybeStr ctx a b =
     when a is
         Nothing ->
             when b is
-                Nothing -> Ok {}
-                Just bv -> Err (ctx ++ ": Nothing vs Just '" ++ bv ++ "'")
+                Nothing ->
+                    Ok {}
+
+                Just bv ->
+                    Err (ctx ++ ": Nothing vs Just '" ++ bv ++ "'")
+
         Just av ->
             when b is
-                Nothing -> Err (ctx ++ ": Just '" ++ av ++ "' vs Nothing")
-                Just bv -> compareStr ctx av bv
+                Nothing ->
+                    Err (ctx ++ ": Just '" ++ av ++ "' vs Nothing")
+
+                Just bv ->
+                    compareStr ctx av bv
 
 
 compareMaybeDocStr : String -> Maybe String -> Maybe String -> Result String {}
@@ -548,18 +652,26 @@ compareMaybeDocStr ctx a b =
     when a is
         Nothing ->
             when b is
-                Nothing -> Ok {}
-                Just bv -> Err (ctx ++ ": Nothing vs Just '" ++ bv ++ "'")
+                Nothing ->
+                    Ok {}
+
+                Just bv ->
+                    Err (ctx ++ ": Nothing vs Just '" ++ bv ++ "'")
+
         Just av ->
             when b is
-                Nothing -> Err (ctx ++ ": Just '" ++ av ++ "' vs Nothing")
-                Just bv -> compareDocStr ctx av bv
+                Nothing ->
+                    Err (ctx ++ ": Just '" ++ av ++ "' vs Nothing")
+
+                Just bv ->
+                    compareDocStr ctx av bv
 
 
 compareChar : String -> Char -> Char -> Result String {}
 compareChar ctx a b =
     if a == b then
         Ok {}
+
     else
         Err (ctx ++ ": '" ++ String.fromChar a ++ "' vs '" ++ String.fromChar b ++ "'")
 
@@ -568,6 +680,7 @@ compareInt : String -> Int -> Int -> Result String {}
 compareInt ctx a b =
     if a == b then
         Ok {}
+
     else
         Err (ctx ++ ": " ++ String.fromInt a ++ " vs " ++ String.fromInt b)
 
@@ -576,8 +689,19 @@ compareBool : String -> Bool -> Bool -> Result String {}
 compareBool ctx a b =
     if a == b then
         Ok {}
+
     else
-        Err (ctx ++ ": " ++ (if a then "True" else "False") ++ " vs " ++ (if b then "True" else "False"))
+        Err (ctx ++ ": " ++ (if a then
+                              "True"
+
+                             else
+                              "False"
+                            ) ++ " vs " ++ (if b then
+                                             "True"
+
+                                            else
+                                             "False"
+                                           ))
 
 
 compareNumber : String -> Number.Outcome -> Number.Outcome -> Result String {}
@@ -586,8 +710,10 @@ compareNumber ctx a b =
         { fst = Number.Integer ia, snd = Number.Integer ib } ->
             if ia == ib then
                 Ok {}
+
             else
                 Err (ctx ++ ": " ++ String.fromInt ia ++ " vs " ++ String.fromInt ib)
+
         { fst = Number.FloatingPoint fa, snd = Number.FloatingPoint fb } ->
             -- Compare both the parsed value and the original source text:
             -- the formatter preserves the author's representation (e.g. `1e5`
@@ -595,12 +721,16 @@ compareNumber ctx a b =
             -- the numeric value or the visual form.
             if fa.val == fb.val && fa.text == fb.text then
                 Ok {}
+
             else
                 Err (ctx ++ ": " ++ fa.text ++ " vs " ++ fb.text)
+
         { fst = Number.Hex ha, snd = Number.Hex hb } ->
             if ha == hb then
                 Ok {}
+
             else
                 Err (ctx ++ " (hex): " ++ String.fromInt ha ++ " vs " ++ String.fromInt hb)
+
         _ ->
             Err (ctx ++ ": number literal kinds differ (Int/Float/Hex)")

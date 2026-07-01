@@ -1,18 +1,22 @@
-module Formatter.Strings exposing
-    ( countNewlines
-    , joinResultStrings
-    )
+module Formatter.Strings
+    exposing
+        ( countNewlines
+        , joinResultStrings
+        )
+
 
 {-|
 Counts the number of newlines in the string
+
 -}
 countNewlines : String -> Int
 countNewlines string =
     String.foldl (\char count ->
-        if char == '\n' then
-            count + 1
-        else
-            count
+            if char == '\n' then
+                count + 1
+
+            else
+                count
         ) 0 string
 
 
@@ -26,9 +30,10 @@ joinResultStrings : String -> Array (Result String String) -> Result String Stri
 joinResultStrings sep array =
     Array.foldl
         (\item acc ->
-            acc |> Result.andThen (\strings ->
-                item |> Result.map (\str -> Array.pushLast str strings)
-            )
+            acc |> Result.andThen
+                    (\strings ->
+                        item |> Result.map (\str -> Array.pushLast str strings)
+                    )
         )
         (Ok [])
         array

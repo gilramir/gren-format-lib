@@ -3,6 +3,7 @@ module Formatter.LiteralFormat exposing (..)
 {-|
 Source-text formatting of primitive literals: strings, chars, and hex
 integers. Pure string-to-string conversions; no LPT awareness.
+
 -}
 
 import Char
@@ -14,23 +15,35 @@ escapeStringContent s =
     let
         escapeChar c =
             let
-                code = Char.toCode c
+                code =
+                    Char.toCode c
             in
             when code is
                 -- HT (Horizontal Tab)
-                9  -> "\\t"
+                9 ->
+                    "\\t"
+
                 -- LF (Line Feed)
-                10 -> "\\n"
+                10 ->
+                    "\\n"
+
                 -- CR (Carriage Return)
-                13 -> "\\r"
+                13 ->
+                    "\\r"
+
                 -- QUOTATION MARK
-                34 -> "\\\""
+                34 ->
+                    "\\\""
+
                 -- REVERSE SOLIDUS
-                92 -> "\\\\"
-                _  ->
+                92 ->
+                    "\\\\"
+
+                _ ->
                     -- C0 control characters (code < 32); DEL (code == 127)
                     if code < 32 || code == 127 then
                         "\\u{" ++ codePointHex code ++ "}"
+
                     else
                         String.fromChar c
     in
@@ -54,23 +67,35 @@ escapeMultilineContent s =
     let
         escapeChar c =
             let
-                code = Char.toCode c
+                code =
+                    Char.toCode c
             in
             when code is
                 -- HT (Horizontal Tab) — preserved verbatim in triple-quoted strings
-                9  -> String.fromChar c
+                9 ->
+                    String.fromChar c
+
                 -- LF (Line Feed) — preserved verbatim
-                10 -> String.fromChar c
+                10 ->
+                    String.fromChar c
+
                 -- CR (Carriage Return) — preserved verbatim
-                13 -> String.fromChar c
+                13 ->
+                    String.fromChar c
+
                 -- QUOTATION MARK
-                34 -> "\\\""
+                34 ->
+                    "\\\""
+
                 -- REVERSE SOLIDUS
-                92 -> "\\\\"
-                _  ->
+                92 ->
+                    "\\\\"
+
+                _ ->
                     -- C0 control characters (code < 32); DEL (code == 127)
                     if code < 32 || code == 127 then
                         "\\u{" ++ codePointHex code ++ "}"
+
                     else
                         String.fromChar c
     in
@@ -80,20 +105,33 @@ escapeMultilineContent s =
 charLiteralString : Char -> String
 charLiteralString c =
     let
-        code = Char.toCode c
+        code =
+            Char.toCode c
+
         inner =
             when code is
-                9  -> "\\t"
-                10 -> "\\n"
-                13 -> "\\r"
-                39 -> "\\'"
-                92 -> "\\\\"
-                _  ->
+                9 ->
+                    "\\t"
+
+                10 ->
+                    "\\n"
+
+                13 ->
+                    "\\r"
+
+                39 ->
+                    "\\'"
+
+                92 ->
+                    "\\\\"
+
+                _ ->
                     -- Keep non-ASCII characters as `\u{HEX}` escapes rather
                     -- than emitting the raw byte. Printable ASCII (space
                     -- through tilde) is emitted as-is.
                     if code >= 32 && code <= 126 then
                         String.fromChar c
+
                     else
                         "\\u{" ++ codePointHex code ++ "}"
     in
@@ -105,25 +143,57 @@ intToHex n =
     let
         hexDigit d =
             when d is
-                0 -> "0"
-                1 -> "1"
-                2 -> "2"
-                3 -> "3"
-                4 -> "4"
-                5 -> "5"
-                6 -> "6"
-                7 -> "7"
-                8 -> "8"
-                9 -> "9"
-                10 -> "A"
-                11 -> "B"
-                12 -> "C"
-                13 -> "D"
-                14 -> "E"
-                _  -> "F"
+                0 ->
+                    "0"
+
+                1 ->
+                    "1"
+
+                2 ->
+                    "2"
+
+                3 ->
+                    "3"
+
+                4 ->
+                    "4"
+
+                5 ->
+                    "5"
+
+                6 ->
+                    "6"
+
+                7 ->
+                    "7"
+
+                8 ->
+                    "8"
+
+                9 ->
+                    "9"
+
+                10 ->
+                    "A"
+
+                11 ->
+                    "B"
+
+                12 ->
+                    "C"
+
+                13 ->
+                    "D"
+
+                14 ->
+                    "E"
+
+                _ ->
+                    "F"
     in
     if n < 16 then
         hexDigit n
+
     else
         intToHex (n // 16) ++ hexDigit (Math.modBy 16 n)
 
@@ -136,20 +206,46 @@ codePointHex n =
     let
         hexDigitLower d =
             when d is
-                10 -> "a"
-                11 -> "b"
-                12 -> "c"
-                13 -> "d"
-                14 -> "e"
-                15 -> "f"
-                _  -> String.fromInt d
+                10 ->
+                    "a"
+
+                11 ->
+                    "b"
+
+                12 ->
+                    "c"
+
+                13 ->
+                    "d"
+
+                14 ->
+                    "e"
+
+                15 ->
+                    "f"
+
+                _ ->
+                    String.fromInt d
+
         toHexLower m =
             if m < 16 then
                 hexDigitLower m
+
             else
                 toHexLower (m // 16) ++ hexDigitLower (Math.modBy 16 m)
-        raw = toHexLower n
-        rawLen = String.count raw
-        pad = String.repeat (if rawLen < 4 then 4 - rawLen else 0) "0"
+
+        raw =
+            toHexLower n
+
+        rawLen =
+            String.count raw
+
+        pad =
+            String.repeat (if rawLen < 4 then
+                            4 - rawLen
+
+                           else
+                            0
+                          ) "0"
     in
     pad ++ raw

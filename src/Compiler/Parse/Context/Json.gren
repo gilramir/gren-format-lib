@@ -20,8 +20,7 @@ internal parser state and not meaningful after parsing completes.
 encodeContext : Ctx.Context -> Json.Value
 encodeContext ctx =
     Json.object
-        [ { key = "comments", value = Json.array encodeLocatedComment (Builder.toArray ctx.comments) }
-        ]
+        [ { key = "comments", value = Json.array encodeLocatedComment (Builder.toArray ctx.comments) } ]
 
 
 encodeLocatedComment : SP.Located Ctx.Comment -> Json.Value
@@ -29,12 +28,19 @@ encodeLocatedComment loc =
     let
         typ =
             when loc.value is
-                Ctx.Line _ -> "line"
-                Ctx.Block _ -> "block"
+                Ctx.Line _ ->
+                    "line"
+
+                Ctx.Block _ ->
+                    "block"
+
         val =
             when loc.value is
-                Ctx.Line s -> s
-                Ctx.Block s -> s
+                Ctx.Line s ->
+                    s
+
+                Ctx.Block s ->
+                    s
     in
     Json.object
         [ { key = "type", value = Json.string typ }

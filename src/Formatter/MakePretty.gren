@@ -1,7 +1,8 @@
-module Formatter.MakePretty exposing
-    ( makePrettyResult
-    , lptToRenderDocJson
-    )
+module Formatter.MakePretty
+    exposing
+        ( makePrettyResult
+        , lptToRenderDocJson
+        )
 
 {-| Render a Logical Printing Tree to its final formatted source string.
 
@@ -63,27 +64,35 @@ A handful of techniques carry the load:
 
 import Compiler.SourcePosition exposing (Located)
 
-import Formatter.LogicalPrintingTree exposing (LPBox(..),
-    LPNode, ListBrackets(..), SyntaxType(..),
-    lpnBox, lpnChildren, lpnNode, firstRowInSubtree, lpnMaxRow, lpnLastPos,
-    lpnFirstPos, lpnLastBracketEnd, lpnBracketStart)
+import Formatter.LogicalPrintingTree
+    exposing
+        ( LPBox(..)
+        , LPNode
+        , ListBrackets(..)
+        , SyntaxType(..)
+        , lpnBox
+        , lpnChildren
+        , lpnNode
+        , firstRowInSubtree
+        , lpnMaxRow
+        , lpnLastPos
+        , lpnFirstPos
+        , lpnLastBracketEnd
+        , lpnBracketStart
+        )
 import Formatter.LPTJson exposing (lptToJson)
 import Formatter.LPTHelpers exposing (binopPrecedence, binopMinPrecedence)
 
-import Formatter.Strings exposing
-    ( joinResultStrings
-    )
+import Formatter.Strings exposing (joinResultStrings)
 
 import Formatter.Render as R exposing (Doc)
 import Json.Encode as Json
-
 
 
 -- How many spaces we indent
 grenIndent : Int
 grenIndent =
     4
-
 
 -- Author-layout combinators, shared by the constructs that follow the author's
 -- one-line-vs-multi-line choice (signatures, pipelines, binop chains). Layout is
@@ -93,6 +102,7 @@ grenIndent =
 -- separators with `authorSep forceVertical` and wrap the whole doc with
 -- `inlineUnlessVertical forceVertical`.
 
+
 -- Separator between author-layout segments. Vertical: an unflattenable hard
 -- break (so an enclosing `name = body` group can't collapse a multi-line
 -- construct back onto one line). Inline: a soft break — it sits inside the
@@ -100,7 +110,11 @@ grenIndent =
 -- break becomes a single space.
 authorSep : Bool -> Doc
 authorSep forceVertical =
-    if forceVertical then R.hardNl else R.nl
+    if forceVertical then
+        R.hardNl
+
+    else
+        R.nl
 
 
 -- Wrap an author-layout doc. Vertical: returned as-is so its hard breaks fire.
@@ -108,7 +122,11 @@ authorSep forceVertical =
 -- page-width test), forcing the whole doc onto one line.
 inlineUnlessVertical : Bool -> Doc -> Doc
 inlineUnlessVertical forceVertical full =
-    if forceVertical then full else R.group full
+    if forceVertical then
+        full
+
+    else
+        R.group full
 
 
 -- True if the rows are not all equal — i.e. the items they came from span more
@@ -120,8 +138,11 @@ inlineUnlessVertical forceVertical full =
 rowsSpanMultiple : Array Int -> Bool
 rowsSpanMultiple rows =
     when Array.popFirst rows is
-        Nothing -> False
-        Just { first, rest } -> Array.any (\r -> r /= first) rest
+        Nothing ->
+            False
+
+        Just { first, rest } ->
+            Array.any (\r -> r /= first) rest
 
 
 -- Canonical hanging indent for a multi-line block comment's continuation
@@ -130,6 +151,7 @@ rowsSpanMultiple rows =
 blockCommentBodyOffset : Int
 blockCommentBodyOffset =
     3
+
 
 {-| Render a complete Logical Printing Tree to its formatted source string.
 
@@ -162,6 +184,7 @@ makePrettyResult root =
     in
     joinResultStrings "\n" prettyLines
 
+
 makePrettyLine : LPNode -> Result String String
 makePrettyLine node =
     makePrettyLineDoc node
@@ -173,9 +196,14 @@ makePrettyLine node =
 nodeIsComment : LPNode -> Bool
 nodeIsComment node =
     when lpnBox node is
-        SingleLineComment _ -> True
-        BlockComment _ -> True
-        _ -> False
+        SingleLineComment _ ->
+            True
+
+        BlockComment _ ->
+            True
+
+        _ ->
+            False
 
 
 -- Take a prefix of comment nodes off `nodes`, returning the comments and
@@ -188,10 +216,12 @@ splitLeadingComments nodes =
         step item acc =
             if acc.done then
                 { acc | rest = Array.pushLast item acc.rest }
+
             else if nodeIsComment item then
                 { acc | leading = Array.pushLast item acc.leading }
+
             else
-                { leading = acc.leading, rest = [item], done = True }
+                { leading = acc.leading, rest = [ item ], done = True }
     in
     Array.foldl step { leading = [], rest = [], done = False } nodes
         |> (\r -> { leading = r.leading, rest = r.rest })
@@ -200,8 +230,12 @@ splitLeadingComments nodes =
 makeUnionBodyDoc : Array LPNode -> Result String Doc
 makeUnionBodyDoc nodes =
     let
-        hasComment = Array.any nodeIsComment nodes
-        variantNodes = Array.keepIf (\n -> not (nodeIsComment n)) nodes
+        hasComment =
+            Array.any nodeIsComment nodes
+
+        variantNodes =
+            Array.keepIf (\n -> not (nodeIsComment n)) nodes
+
         -- Signal B over the variants: a union the author wrote across rows stays
         -- one-variant-per-line; one written on a single line stays inline
         -- (`= A | B | C`), regardless of width — layout is author-driven, not
@@ -213,11 +247,13 @@ makeUnionBodyDoc nodes =
     in
     if hasComment || variantsSpanRows then
         makeUnionBodyVertical nodes
+
     else
         traverseArray (\n -> buildFlowDoc 0 (lpnChildren n)) variantNodes
-            |> Result.map (\docs ->
-                R.group (R.foldDoc (\a b -> R.concat a (R.concat R.nl b)) docs)
-            )
+            |> Result.map
+                (\docs ->
+                    R.group (R.foldDoc (\a b -> R.concat a (R.concat R.nl b)) docs)
+                )
 
 
 -- Always-vertical union body: one variant per line via R.vcat, with comments
@@ -228,22 +264,26 @@ makeUnionBodyVertical nodes =
         placeComment row commentDoc acc =
             when Array.popLast acc.docs is
                 Nothing ->
-                    Ok { docs = [commentDoc], prevRow = row }
+                    Ok { docs = [ commentDoc ], prevRow = row }
+
                 Just { last = lastDoc, initial = initDocs } ->
                     if row == acc.prevRow then
                         Ok { docs = Array.pushLast (R.concat lastDoc (R.concat (R.text " ") commentDoc)) initDocs
-                           , prevRow = row
-                           }
+                            , prevRow = row
+                            }
+
                     else
                         Ok { docs = Array.pushLast commentDoc acc.docs
-                           , prevRow = row
-                           }
+                            , prevRow = row
+                            }
 
         result =
             Array.foldl
                 (\node accResult ->
                     when accResult is
-                        Err e -> Err e
+                        Err e ->
+                            Err e
+
                         Ok acc ->
                             when lpnBox node is
                                 SingleLineComment loc ->
@@ -254,23 +294,25 @@ makeUnionBodyVertical nodes =
 
                                 _ ->
                                     when buildFlowDoc 0 (lpnChildren node) is
-                                        Err e -> Err e
+                                        Err e ->
+                                            Err e
+
                                         Ok childDoc ->
                                             Ok { docs = Array.pushLast childDoc acc.docs
-                                               -- Use the later of the last *positioned token* row and
-                                               -- the last *bracket end* row. The last token row alone
-                                               -- is wrong when the variant ends with a record payload:
-                                               -- the closing `}` is not a positioned token, so
-                                               -- `lpnLastPos` returns the last field value (one row
-                                               -- above `}` when multi-line). A trailing comment on the
-                                               -- `}` line would then fail the `row == prevRow` test and
-                                               -- be placed on its own line, shifting it one row down on
-                                               -- each reformat (non-idempotent). Adding the bracket
-                                               -- end row — set precisely by `lpnBracketNode` from the
-                                               -- parser's `locType.end` — covers that case without
-                                               -- over-counting from multi-line block comments, whose
-                                               -- end row widens `maxRow` but not `lastBracketEnd`.
-                                               , prevRow =
+                                                -- Use the later of the last *positioned token* row and
+                                                -- the last *bracket end* row. The last token row alone
+                                                -- is wrong when the variant ends with a record payload:
+                                                -- the closing `}` is not a positioned token, so
+                                                -- `lpnLastPos` returns the last field value (one row
+                                                -- above `}` when multi-line). A trailing comment on the
+                                                -- `}` line would then fail the `row == prevRow` test and
+                                                -- be placed on its own line, shifting it one row down on
+                                                -- each reformat (non-idempotent). Adding the bracket
+                                                -- end row — set precisely by `lpnBracketNode` from the
+                                                -- parser's `locType.end` — covers that case without
+                                                -- over-counting from multi-line block comments, whose
+                                                -- end row widens `maxRow` but not `lastBracketEnd`.
+                                                , prevRow =
                                                     let
                                                         tokenRow =
                                                             lpnLastPos node
@@ -287,16 +329,20 @@ makeUnionBodyVertical nodes =
                                                     in
                                                     if maxR >= 0 then
                                                         maxR
+
                                                     else
                                                         firstRowInSubtree node
-                                               }
+                                                }
                 )
                 (Ok { docs = [], prevRow = -1 })
                 nodes
     in
     when result is
-        Err e -> Err e
-        Ok state -> Ok (R.vcat state.docs)
+        Err e ->
+            Err e
+
+        Ok state ->
+            Ok (R.vcat state.docs)
 
 
 makeTypeBodyDoc : Array LPNode -> Result String (Doc)
@@ -304,6 +350,7 @@ makeTypeBodyDoc typeNodes =
     when Array.popFirst typeNodes is
         Nothing ->
             Ok R.empty
+
         Just { first = onlyNode, rest = rest } ->
             if Array.isEmpty rest then
                 -- Render the single body node as-is. A record body now carries
@@ -314,6 +361,7 @@ makeTypeBodyDoc typeNodes =
                 -- body line, exactly like a non-record alias body
                 -- (`type alias Id = Int`).
                 makePDoc (lpnBox onlyNode) (lpnChildren onlyNode)
+
             else
                 buildFlowDoc 0 typeNodes
 
@@ -388,9 +436,11 @@ joinBlock rule sep accDoc childDoc =
     when sep is
         FirstItem ->
             childDoc
+
         AlreadyTerminated ->
             if rule.bypassAlreadyTerminated then
                 R.concat accDoc childDoc
+
             else
                 -- The previous item (a comment) already ended its line with a
                 -- hardNl, so applying the normal wrap — which begins with its own
@@ -403,9 +453,12 @@ joinBlock rule sep accDoc childDoc =
                 -- non-bypass rules (IndentedBlock, SoftIndentedBlock) both nest by
                 -- exactly grenIndent, so this matches their broken form minus the
                 -- spurious blank line.
-                R.concat accDoc
-                    (R.nest grenIndent
+                R.concat
+                    accDoc
+                    (R.nest
+                        grenIndent
                         (R.concat (R.text (String.repeat grenIndent " ")) childDoc))
+
         _ ->
             R.concat accDoc (rule.wrap childDoc)
 
@@ -439,19 +492,33 @@ peelTrailingComments peelLineComments nodes =
             when Array.popLast remaining is
                 Just { last = lastChild, initial = initChildren } ->
                     let
-                        keep = { bodyNodes = remaining, trailingCommentDoc = accDoc }
+                        keep =
+                            { bodyNodes = remaining, trailingCommentDoc = accDoc }
+
                         glue newSawLineComment =
-                            go initChildren
+                            go
+                                initChildren
                                 (R.concat (R.text " ") (R.concat (commentNodeDoc lastChild) accDoc))
                                 newSawLineComment
                     in
                     when lpnBox lastChild is
                         SingleLineComment _ ->
-                            if peelLineComments && not sawLineComment then glue True else keep
+                            if peelLineComments && not sawLineComment then
+                                glue True
+
+                            else
+                                keep
+
                         BlockComment loc ->
-                            if isMultiLineCommentValue loc.value then keep else glue sawLineComment
+                            if isMultiLineCommentValue loc.value then
+                                keep
+
+                            else
+                                glue sawLineComment
+
                         _ ->
                             keep
+
                 Nothing ->
                     { bodyNodes = remaining, trailingCommentDoc = accDoc }
     in
@@ -464,7 +531,8 @@ peelTrailingComments peelLineComments nodes =
 renderBodyBlockNode : BlockRule -> FlowAcc -> Array LPNode -> Result String FlowAcc
 renderBodyBlockNode rule acc nodeChildren =
     let
-        { bodyNodes, trailingCommentDoc } = peelTrailingComments True nodeChildren
+        { bodyNodes, trailingCommentDoc } =
+            peelTrailingComments True nodeChildren
     in
     renderBlockNode rule acc bodyNodes
         |> Result.map (\r -> { r | doc = R.concat r.doc trailingCommentDoc })
@@ -475,13 +543,14 @@ renderBodyBlockNode rule acc nodeChildren =
 renderBlockNode : BlockRule -> FlowAcc -> Array LPNode -> Result String FlowAcc
 renderBlockNode rule acc nodeChildren =
     buildFlowDoc 0 nodeChildren
-        |> Result.map (\childrenDoc ->
-            { doc = joinBlock rule acc.separator acc.doc childrenDoc
-            , prevRow = -1
-            , prevElided = False
-            , separator = rule.nextSep
-            }
-        )
+        |> Result.map
+            (\childrenDoc ->
+                { doc = joinBlock rule acc.separator acc.doc childrenDoc
+                , prevRow = -1
+                , prevElided = False
+                , separator = rule.nextSep
+                }
+            )
 
 
 {-| Build the Doc for a pipeline step's children (the `|> func args...` part).
@@ -523,14 +592,14 @@ buildStepChildrenDoc stepChildren =
                 (\node acc ->
                     when acc.lambdaAndSuffix is
                         Just state ->
-                            { acc
-                                | lambdaAndSuffix = Just { state | suffix = Array.pushLast node state.suffix }
-                            }
+                            { acc | lambdaAndSuffix = Just { state | suffix = Array.pushLast node state.suffix } }
+
                         Nothing ->
                             if isMultilineLambdaParenBlock node || isMultilineContentParenBlock node then
                                 { preamble = acc.preamble
                                 , lambdaAndSuffix = Just { lambda = node, suffix = [] }
                                 }
+
                             else
                                 { acc | preamble = Array.pushLast node acc.preamble }
                 )
@@ -543,35 +612,42 @@ buildStepChildrenDoc stepChildren =
 
         Just { lambda, suffix } ->
             buildFlowDocInline 0 splitResult.preamble
-                |> Result.andThen (\preambleDoc ->
-                    let
-                        makeArgDoc =
-                            if isMultilineLambdaParenBlock lambda then
-                                makeMultilineLambdaArgDoc (lpnChildren lambda)
-                            else
-                                makeMultilineParenArgDoc (lpnChildren lambda)
-                    in
-                    makeArgDoc
-                        |> Result.andThen (\lambdaDoc ->
-                            let
-                                lambdaPart =
-                                    R.nest grenIndent (R.concat R.hardNl lambdaDoc)
-                            in
-                            if Array.isEmpty suffix then
-                                Ok (R.concat preambleDoc lambdaPart)
-                            else
-                                -- Use buildFlowDoc 0 so AlreadyTerminated tracks
-                                -- correctly across comments in the suffix (avoids
-                                -- a double hardNl when a SingleLineComment precedes
-                                -- the last arg).
-                                buildFlowDoc 0 suffix
-                                    |> Result.map (\suffixDoc ->
-                                        R.concat preambleDoc
-                                            (R.concat lambdaPart
-                                                (R.nest grenIndent (R.concat R.hardNl suffixDoc)))
-                                    )
-                        )
-                )
+                |> Result.andThen
+                    (\preambleDoc ->
+                        let
+                            makeArgDoc =
+                                if isMultilineLambdaParenBlock lambda then
+                                    makeMultilineLambdaArgDoc (lpnChildren lambda)
+
+                                else
+                                    makeMultilineParenArgDoc (lpnChildren lambda)
+                        in
+                        makeArgDoc
+                            |> Result.andThen
+                                (\lambdaDoc ->
+                                    let
+                                        lambdaPart =
+                                            R.nest grenIndent (R.concat R.hardNl lambdaDoc)
+                                    in
+                                    if Array.isEmpty suffix then
+                                        Ok (R.concat preambleDoc lambdaPart)
+
+                                    else
+                                        -- Use buildFlowDoc 0 so AlreadyTerminated tracks
+                                        -- correctly across comments in the suffix (avoids
+                                        -- a double hardNl when a SingleLineComment precedes
+                                        -- the last arg).
+                                        buildFlowDoc 0 suffix
+                                            |> Result.map
+                                                (\suffixDoc ->
+                                                    R.concat
+                                                        preambleDoc
+                                                        (R.concat
+                                                            lambdaPart
+                                                            (R.nest grenIndent (R.concat R.hardNl suffixDoc)))
+                                                )
+                                )
+                    )
 
 
 -- Render a `PipelineStep` child inside buildFlowDoc's fold.
@@ -605,10 +681,11 @@ renderPipelineStepNode acc nodeChildren =
             -- would let its own-line break push `|>` one level deeper
             -- — an inconsistent `|>` indent that varies with how many
             -- comments precede the step.
-            let { leading, rest } = splitLeadingComments nodeChildren
+            let
+                { leading, rest } =
+                    splitLeadingComments nodeChildren
             in
-            { commentDoc =
-                Array.foldl
+            { commentDoc = Array.foldl
                     (\c cdoc -> R.concat cdoc (R.concat (commentNodeDoc c) R.hardNl))
                     R.empty
                     leading
@@ -618,13 +695,17 @@ renderPipelineStepNode acc nodeChildren =
 
         peeled =
             peelTrailingComments True withoutLeading
+
         stepChildren =
             peeled.bodyNodes
+
         trailingCommentDoc =
             peeled.trailingCommentDoc
     in
     when buildStepChildrenDoc stepChildren is
-        Err e -> Err e
+        Err e ->
+            Err e
+
         Ok childrenDoc ->
             let
                 -- Only add a blank line before a commented step if it
@@ -632,9 +713,15 @@ renderPipelineStepNode acc nodeChildren =
                 blankLinePrefix =
                     when acc.separator is
                         HardNl ->
-                            if hasComment then R.text "\n" else R.empty
+                            if hasComment then
+                                R.text "\n"
+
+                            else
+                                R.empty
+
                         _ ->
                             R.empty
+
                 -- commentDoc (if any) fires at step level; childrenDoc
                 -- (|> and args) is wrapped in R.nest grenIndent so
                 -- continuation args break at |>-column + 4. The
@@ -644,21 +731,29 @@ renderPipelineStepNode acc nodeChildren =
                 -- so the next step's leading hardNl is the one that
                 -- ends the line and re-establishes the outer indent.
                 indentedDoc =
-                    R.concat blankLinePrefix
-                        (R.nest grenIndent
-                            (R.concat R.hardNl
-                                (R.concat commentDoc
+                    R.concat
+                        blankLinePrefix
+                        (R.nest
+                            grenIndent
+                            (R.concat
+                                R.hardNl
+                                (R.concat
+                                    commentDoc
                                     (R.concat childrenDoc trailingCommentDoc))))
+
                 newDoc =
                     when acc.separator is
-                        FirstItem -> R.concat commentDoc (R.concat childrenDoc trailingCommentDoc)
-                        _         -> R.concat acc.doc indentedDoc
+                        FirstItem ->
+                            R.concat commentDoc (R.concat childrenDoc trailingCommentDoc)
+
+                        _ ->
+                            R.concat acc.doc indentedDoc
             in
             Ok { doc = newDoc
-               , prevRow = -1
-               , prevElided = False
-               , separator = HardNl
-               }
+                , prevRow = -1
+                , prevElided = False
+                , separator = HardNl
+                }
 
 
 -- Render a `WhenBranch` child inside buildFlowDoc's fold.
@@ -679,29 +774,39 @@ renderWhenBranchNode acc nodeChildren =
             peelTrailingComments False nodeChildren
     in
     when buildFlowDoc 0 bodyNodes is
-        Err e -> Err e
+        Err e ->
+            Err e
+
         Ok bodyDoc ->
             let
-                childrenDoc = R.concat bodyDoc trailingCommentDoc
+                childrenDoc =
+                    R.concat bodyDoc trailingCommentDoc
+
                 -- Always blank-separate consecutive branches,
                 -- regardless of whether either body is multi-line.
                 blankOrNewline =
                     R.concat (R.text "\n") R.hardNl
+
                 newDoc =
                     when acc.separator is
-                        FirstItem -> childrenDoc
+                        FirstItem ->
+                            childrenDoc
+
                         -- A preceding comment has already ended its
                         -- line with hardNl, so attach the branch
                         -- directly to avoid inserting an extra blank
                         -- line between the comment and its pattern.
-                        AlreadyTerminated -> R.concat acc.doc childrenDoc
-                        _         -> R.concat acc.doc (R.concat blankOrNewline childrenDoc)
+                        AlreadyTerminated ->
+                            R.concat acc.doc childrenDoc
+
+                        _ ->
+                            R.concat acc.doc (R.concat blankOrNewline childrenDoc)
             in
             Ok { doc = newDoc
-               , prevRow = -1
-               , prevElided = False
-               , separator = FlowSep
-               }
+                , prevRow = -1
+                , prevElided = False
+                , separator = FlowSep
+                }
 
 
 -- Render a `SingleLineComment` child inside buildFlowDoc's fold. A comment on
@@ -711,16 +816,20 @@ renderWhenBranchNode acc nodeChildren =
 renderSingleLineCommentNode : FlowAcc -> LPBox -> Located String -> FlowAcc
 renderSingleLineCommentNode acc box loc =
     let
-        commentText = commentBoxDoc box
+        commentText =
+            commentBoxDoc box
+
         docWithComment =
             when acc.separator is
                 FirstItem ->
                     commentText
+
                 AlreadyTerminated ->
                     -- Previous comment already ended its line with hardNl;
                     -- concatenate directly to avoid a blank line between
                     -- consecutive comments.
                     R.concat acc.doc commentText
+
                 _ ->
                     if loc.start.row == acc.prevRow || acc.prevElided then
                         -- Same row as preceding item: attach with a SOFT
@@ -745,6 +854,7 @@ renderSingleLineCommentNode acc box loc =
                         -- whenever it trails an elided token keeps the glue-when-
                         -- it-fits rendering stable across reformats.
                         R.concat acc.doc (R.group (R.concat R.nl commentText))
+
                     else
                         -- Different row: force a line break before the comment
                         R.concat acc.doc (R.concat R.hardNl commentText)
@@ -797,25 +907,38 @@ buildFlowDocImpl indent inlineStart brokenFlow nodes =
         flowSep accDoc nextDoc =
             if brokenFlow then
                 R.concat accDoc (R.concat R.hardNl nextDoc)
+
             else
                 R.concat accDoc (R.group (R.concat R.nl nextDoc))
 
         joinDoc sep accDoc itemDoc =
             when sep is
-                FirstItem        -> itemDoc
-                FlowSep          -> flowSep accDoc itemDoc
-                HardNl           -> R.concat (R.concat accDoc R.hardNl) itemDoc
-                AlreadyTerminated -> R.concat accDoc itemDoc
+                FirstItem ->
+                    itemDoc
+
+                FlowSep ->
+                    flowSep accDoc itemDoc
+
+                HardNl ->
+                    R.concat (R.concat accDoc R.hardNl) itemDoc
+
+                AlreadyTerminated ->
+                    R.concat accDoc itemDoc
 
         foldResult =
             Array.foldl
                 (\node accResult ->
                     when accResult is
-                        Err e -> Err e
+                        Err e ->
+                            Err e
+
                         Ok acc ->
                             let
-                                box = lpnBox node
-                                nodeChildren = lpnChildren node
+                                box =
+                                    lpnBox node
+
+                                nodeChildren =
+                                    lpnChildren node
                             in
                             when box is
                                 SingleLineComment loc ->
@@ -840,13 +963,17 @@ buildFlowDocImpl indent inlineStart brokenFlow nodes =
                                     in
                                     if isMultiLineCommentValue loc.value || standaloneLeading then
                                         let
-                                            commentText = commentBoxDoc box
+                                            commentText =
+                                                commentBoxDoc box
+
                                             docWithComment =
                                                 when acc.separator is
                                                     FirstItem ->
                                                         commentText
+
                                                     AlreadyTerminated ->
                                                         R.concat acc.doc commentText
+
                                                     _ ->
                                                         -- `|| acc.prevElided` mirrors
                                                         -- `renderSingleLineCommentNode`: a comment
@@ -858,34 +985,40 @@ buildFlowDocImpl indent inlineStart brokenFlow nodes =
                                                         -- neighbour wraps onto its own line.
                                                         if loc.start.row == acc.prevRow || acc.prevElided then
                                                             R.concat acc.doc (R.concat (R.text " ") commentText)
+
                                                         else
                                                             R.concat acc.doc (R.concat R.hardNl commentText)
                                         in
                                         Ok { doc = R.concat docWithComment R.hardNl
-                                           , prevRow = loc.start.row
-                                           , prevElided = False
-                                           , separator = AlreadyTerminated
-                                           }
+                                            , prevRow = loc.start.row
+                                            , prevElided = False
+                                            , separator = AlreadyTerminated
+                                            }
+
                                     else
                                         -- Single-line block comment continuing a line: inline.
                                         when makePDoc box nodeChildren is
-                                            Err e -> Err e
+                                            Err e ->
+                                                Err e
+
                                             Ok itemDoc ->
                                                 Ok { doc = joinDoc acc.separator acc.doc itemDoc
-                                                   , prevRow = -1
-                                                   , prevElided = False
-                                                   , separator = FlowSep
-                                                   }
+                                                    , prevRow = -1
+                                                    , prevElided = False
+                                                    , separator = FlowSep
+                                                    }
 
                                 AllAcrossOrAllVertical bracket ->
                                     when makeAllAcrossOrAllVertical bracket nodeChildren is
-                                        Err e -> Err e
+                                        Err e ->
+                                            Err e
+
                                         Ok itemDoc ->
                                             Ok { doc = joinDoc acc.separator acc.doc itemDoc
-                                               , prevRow = -1
-                                               , prevElided = False
-                                               , separator = FlowSep
-                                               }
+                                                , prevRow = -1
+                                                , prevElided = False
+                                                , separator = FlowSep
+                                                }
 
                                 IndentedBlock ->
                                     renderBlockNode indentedBlockRule acc nodeChildren
@@ -913,20 +1046,25 @@ buildFlowDocImpl indent inlineStart brokenFlow nodes =
                                     -- nets exactly one blank line. Keep separator = HardNl
                                     -- so that binding still wraps onto its own line.
                                     Ok { doc = R.concat acc.doc (R.text "\n")
-                                       , prevRow = -1
-                                       , prevElided = False
-                                       , separator = HardNl
-                                       }
+                                        , prevRow = -1
+                                        , prevElided = False
+                                        , separator = HardNl
+                                        }
 
                                 _ ->
                                     when makePDoc box nodeChildren is
-                                        Err e -> Err e
+                                        Err e ->
+                                            Err e
+
                                         Ok itemDoc ->
                                             let
                                                 prevRow =
                                                     when box is
-                                                        UnbreakableText loc -> loc.start.row
-                                                        _ -> -1
+                                                        UnbreakableText loc ->
+                                                            loc.start.row
+
+                                                        _ ->
+                                                            -1
 
                                                 -- The synthesized signature `->` is a zero-width
                                                 -- `UnbreakableText` (start == end) built by
@@ -945,21 +1083,25 @@ buildFlowDocImpl indent inlineStart brokenFlow nodes =
                                                             loc.value == "->"
                                                                 && loc.start.row == loc.end.row
                                                                 && loc.start.col == loc.end.col
-                                                        _ -> False
+
+                                                        _ ->
+                                                            False
                                             in
                                             Ok { doc = joinDoc acc.separator acc.doc itemDoc
-                                               , prevRow = prevRow
-                                               , prevElided = prevElided
-                                               , separator = FlowSep
-                                               }
+                                                , prevRow = prevRow
+                                                , prevElided = prevElided
+                                                , separator = FlowSep
+                                                }
                 )
                 (Ok { doc = R.empty, prevRow = -1, prevElided = False, separator = FirstItem })
                 nodes
     in
     when foldResult is
-        Err e -> Err e
-        Ok state -> Ok (R.nest indent state.doc)
+        Err e ->
+            Err e
 
+        Ok state ->
+            Ok (R.nest indent state.doc)
 
 
 -- True if the node is a DocComment (kept separate from nodeIsComment so
@@ -968,20 +1110,31 @@ buildFlowDocImpl indent inlineStart brokenFlow nodes =
 isDocCommentNode : LPNode -> Bool
 isDocCommentNode node =
     when lpnBox node is
-        DocComment _ -> True
-        _ -> False
+        DocComment _ ->
+            True
+
+        _ ->
+            False
+
 
 makePDoc : LPBox -> Array LPNode -> Result String Doc
 makePDoc box children =
     when box is
-        UnbreakableText locs -> Ok (R.text locs.value)
-        SynthesizedText s -> Ok (R.text s)
+        UnbreakableText locs ->
+            Ok (R.text locs.value)
+
+        SynthesizedText s ->
+            Ok (R.text s)
+
         AllAcrossOrAllVertical bracket ->
             makeAllAcrossOrAllVertical bracket children
+
         AlwaysVertical bracket ->
             listBoxesForBracket bracket children
+
         RecordUpdate { name, forceVertical } ->
             makeRecordUpdateDoc forceVertical name.value children
+
         EmptyBracketed loc ->
             -- An empty literal whose source spans more than the bare
             -- `{}` / `[]` / `()` only acquires children if a comment
@@ -989,78 +1142,125 @@ makePDoc box children =
             -- bare literal; with comment children, render as
             -- `{ comment1 comment2 ... }` inline so the comments stay
             -- inside the brackets.
-            let bs = bracketStrings loc.value
+            let
+                bs =
+                    bracketStrings loc.value
             in
             if Array.isEmpty children then
                 Ok (R.text bs.empty)
+
             else
                 let
-                    commentDocs = Array.map commentNodeDoc children
+                    commentDocs =
+                        Array.map commentNodeDoc children
+
                     body =
                         Array.foldl
                             (\d acc ->
-                                if acc == R.empty then d
-                                else R.concat acc (R.concat (R.text " ") d)
+                                if acc == R.empty then
+                                    d
+
+                                else
+                                    R.concat acc (R.concat (R.text " ") d)
                             )
                             R.empty
                             commentDocs
                 in
                 Ok (R.concat (R.text bs.open) (R.concat body (R.concat (R.text " ") (R.text bs.close))))
-        SingleLineComment locs -> Ok (lineComment locs.value)
-        BlockComment _ -> Ok (commentBoxDoc box)
+
+        SingleLineComment locs ->
+            Ok (lineComment locs.value)
+
+        BlockComment _ ->
+            Ok (commentBoxDoc box)
+
         AcrossThenIndent { forceVertical } ->
             if forceVertical then
                 buildFlowDocBroken grenIndent children
+
             else
                 buildFlowDoc grenIndent children
+
         WhenBranchPattern ->
             buildFlowDoc grenIndent children
                 |> Result.map (\d -> R.concat d (R.text " ->"))
+
         IfCondition { forceVertical } ->
             makeIfConditionDoc forceVertical children
+
         IndentedBlock ->
             buildFlowDoc 0 children
+
         PipelineStep ->
             buildFlowDoc 0 children
+
         Pipeline { forceVertical, op } ->
             if op == "<|" then
                 makeBackwardPipelineDoc forceVertical children
+
             else
                 makePipelineDoc forceVertical children
+
         Binop { forceVertical } ->
             makeBinopDoc forceVertical children
+
         BodyBlock ->
             buildFlowDoc 0 children
+
         WhenBranch ->
             buildFlowDoc 0 children
+
         SoftIndentedBlock ->
             buildFlowDoc 0 children
+
         ParenBlock ->
             makeParenBlockDoc children
+
         OpAndRhs ->
             when Array.popFirst children is
                 Just { first = opNode, rest = rhsNodes } ->
                     when lpnBox opNode is
                         UnbreakableText opLoc ->
                             when buildFlowDocInline 0 rhsNodes is
-                                Err e -> Err e
-                                Ok rhsDoc -> Ok (R.concat (R.text (opLoc.value ++ " ")) rhsDoc)
+                                Err e ->
+                                    Err e
+
+                                Ok rhsDoc ->
+                                    Ok (R.concat (R.text (opLoc.value ++ " ")) rhsDoc)
+
                         SynthesizedText opStr ->
                             when buildFlowDocInline 0 rhsNodes is
-                                Err e -> Err e
-                                Ok rhsDoc -> Ok (R.concat (R.text (opStr ++ " ")) rhsDoc)
-                        _ -> Err "OpAndRhs: first child must be a text operator"
-                Nothing -> Err "OpAndRhs: empty children"
+                                Err e ->
+                                    Err e
+
+                                Ok rhsDoc ->
+                                    Ok (R.concat (R.text (opStr ++ " ")) rhsDoc)
+
+                        _ ->
+                            Err "OpAndRhs: first child must be a text operator"
+
+                Nothing ->
+                    Err "OpAndRhs: empty children"
+
         AlignedFlow ->
             when buildFlowDocInline 0 children is
-                Err e -> Err e
-                Ok innerDoc -> Ok (R.align innerDoc)
+                Err e ->
+                    Err e
+
+                Ok innerDoc ->
+                    Ok (R.align innerDoc)
+
         WhenFlow { forceVertical } ->
             makeWhenFlowDoc forceVertical grenIndent children
+
         PrefixGlue prefix ->
             when buildFlowDocInline 0 children is
-                Err e -> Err e
-                Ok innerDoc -> Ok (R.concat (R.text prefix.value) innerDoc)
+                Err e ->
+                    Err e
+
+                Ok innerDoc ->
+                    Ok (R.concat (R.text prefix.value) innerDoc)
+
         Glue ->
             -- Children concatenated with no separator (a postfix accessor
             -- glued after a bracketed base). Each child renders on its own
@@ -1069,17 +1269,25 @@ makePDoc box children =
             Array.foldl
                 (\child acc ->
                     when acc is
-                        Err e -> Err e
+                        Err e ->
+                            Err e
+
                         Ok accDoc ->
-                            when buildFlowDocInline 0 [child] is
-                                Err e -> Err e
-                                Ok childDoc -> Ok (R.concat accDoc childDoc)
+                            when buildFlowDocInline 0 [ child ] is
+                                Err e ->
+                                    Err e
+
+                                Ok childDoc ->
+                                    Ok (R.concat accDoc childDoc)
                 )
                 (Ok R.empty)
                 children
+
         MultilineString located ->
             let
-                tripleQuote = R.text "\"\"\""
+                tripleQuote =
+                    R.text "\"\"\""
+
                 contentDoc =
                     Array.foldl
                         (\line acc -> R.concat acc (R.concat R.hardNl (R.text line)))
@@ -1094,7 +1302,9 @@ makePDoc box children =
             -- (because preceding tokens consumed columns) produces output
             -- that fails to re-parse.
             Ok (R.align (R.concat contentDoc (R.concat R.hardNl tripleQuote)))
-        unexpected -> Err ("makePDoc: unexpected box type:\n" ++ lptToJson (lpnNode unexpected children))
+
+        unexpected ->
+            Err ("makePDoc: unexpected box type:\n" ++ lptToJson (lpnNode unexpected children))
 
 
 -- Render a bracketed, comma-separated list of LPNode items.
@@ -1109,8 +1319,12 @@ makePDoc box children =
 makeAllAcrossOrAllVertical : ListBrackets -> Array LPNode -> Result String Doc
 makeAllAcrossOrAllVertical brackets children =
     let
-        bs = bracketStrings brackets
-        hasComment = Array.any nodeIsComment children
+        bs =
+            bracketStrings brackets
+
+        hasComment =
+            Array.any nodeIsComment children
+
         -- A Pipeline whose last PipelineStep has an IndentedBlock body renders
         -- with hardNl (see makeBackwardPipelineDoc, IndentedBlock arm). The
         -- parser sometimes assigns the `end` of a `let`-bodied lambda to the
@@ -1118,16 +1332,18 @@ makeAllAcrossOrAllVertical brackets children =
         -- when the items are on separate source rows. Detect these pipelines
         -- here so we can switch to always-vertical before they inject hardNl
         -- into the flat group, producing non-idempotent output.
-        hasVerticalPipeline = Array.any pipelineItemHasHardBreak children
+        hasVerticalPipeline =
+            Array.any pipelineItemHasHardBreak children
     in
     if hasComment || hasVerticalPipeline then
         listBoxesWithBrackets bs.open bs.close children
+
     else
         traverseArray makeListItemDoc children
-            |> Result.map (\itemDocs ->
-                exposingListWithBrackets bs.open bs.close bs.empty itemDocs
-            )
-
+            |> Result.map
+                (\itemDocs ->
+                    exposingListWithBrackets bs.open bs.close bs.empty itemDocs
+                )
 
 
 pipelineItemHasHardBreak : LPNode -> Bool
@@ -1137,13 +1353,19 @@ pipelineItemHasHardBreak node =
             let
                 isPipelineStep c =
                     when lpnBox c is
-                        PipelineStep -> True
-                        _ -> False
+                        PipelineStep ->
+                            True
+
+                        _ ->
+                            False
 
                 isIndentedBlock c =
                     when lpnBox c is
-                        IndentedBlock -> True
-                        _ -> False
+                        IndentedBlock ->
+                            True
+
+                        _ ->
+                            False
 
                 lastStep =
                     lpnChildren node
@@ -1151,9 +1373,12 @@ pipelineItemHasHardBreak node =
                         |> Array.last
             in
             when lastStep is
-                Nothing -> False
+                Nothing ->
+                    False
+
                 Just step ->
                     Array.any isIndentedBlock (lpnChildren step)
+
         _ ->
             False
 
@@ -1166,9 +1391,10 @@ traverseArray : (a -> Result e b) -> Array a -> Result e (Array b)
 traverseArray build items =
     Array.foldl
         (\item acc ->
-            acc |> Result.andThen (\collected ->
-                build item |> Result.map (\b -> Array.pushLast b collected)
-            )
+            acc |> Result.andThen
+                    (\collected ->
+                        build item |> Result.map (\b -> Array.pushLast b collected)
+                    )
         )
         (Ok [])
         items
@@ -1177,9 +1403,15 @@ traverseArray build items =
 bracketStrings : ListBrackets -> { open : String, close : String, empty : String }
 bracketStrings brackets =
     when brackets is
-        ListParen  -> { open = "( ", close = ")", empty = "()" }
-        ListCurly  -> { open = "{ ", close = "}", empty = "{}" }
-        ListSquare -> { open = "[ ", close = "]", empty = "[]" }
+        ListParen ->
+            { open = "( ", close = ")", empty = "()" }
+
+        ListCurly ->
+            { open = "{ ", close = "}", empty = "{}" }
+
+        ListSquare ->
+            { open = "[ ", close = "]", empty = "[]" }
+
 
 -- Shared per-box rendering for a list item, used by both the flat/vertical
 -- bracket renderer (`makeListItemDoc`) and the comment-bearing always-vertical
@@ -1194,46 +1426,62 @@ bracketStrings brackets =
 listItemBoxDoc : LPNode -> Maybe (Result String Doc)
 listItemBoxDoc node =
     let
-        children = lpnChildren node
+        children =
+            lpnChildren node
     in
     when lpnBox node is
         UnbreakableText loc ->
             Just (Ok (R.text loc.value))
+
         AcrossThenIndent _ ->
             Just (buildFlowDoc grenIndent children)
+
         IndentedBlock ->
             -- A record field whose value is a lambda: the field flow renders at
             -- +0 so the lambda body's SoftIndentedBlock supplies the only +4
             -- (see folderInsertRecordField).
             Just (buildFlowDoc 0 children)
+
         ParenBlock ->
             Just (makePDoc ParenBlock children)
+
         AllAcrossOrAllVertical _ ->
             Just (makePDoc (lpnBox node) children |> Result.map (R.nest 2))
+
         AlwaysVertical bracket ->
             Just (listBoxesForBracket bracket children |> Result.map (R.nest 2))
+
         RecordUpdate { name, forceVertical } ->
             Just (makeRecordUpdateDoc forceVertical name.value children)
+
         -- An inline `when ... is`, a prefix-glued expr (`-1`), an empty literal
         -- (`[]` / `{}` / `()`), a synthesised keyword, a pipeline, or a binop
         -- chain as a list item: render inline; the enclosing list's break-or-flat
         -- decision still applies.
         AlignedFlow ->
             Just (makePDoc AlignedFlow children)
+
         WhenFlow _ ->
             Just (makePDoc (lpnBox node) children)
+
         PrefixGlue _ ->
             Just (makePDoc (lpnBox node) children)
+
         Glue ->
             Just (makePDoc (lpnBox node) children)
+
         EmptyBracketed _ ->
             Just (makePDoc (lpnBox node) children)
+
         SynthesizedText _ ->
             Just (makePDoc (lpnBox node) children)
+
         Pipeline _ ->
             Just (makePDoc (lpnBox node) children)
+
         Binop _ ->
             Just (makePDoc (lpnBox node) children)
+
         _ ->
             Nothing
 
@@ -1241,19 +1489,30 @@ listItemBoxDoc node =
 makeListItemDoc : LPNode -> Result String Doc
 makeListItemDoc node =
     when listItemBoxDoc node is
-        Just result -> result
-        Nothing -> Err ("makeListItemDoc: unexpected box type:\n" ++ lptToJson node)
+        Just result ->
+            result
+
+        Nothing ->
+            Err ("makeListItemDoc: unexpected box type:\n" ++ lptToJson node)
+
 
 exposingListWithBrackets : String -> String -> String -> Array Doc -> Doc
 exposingListWithBrackets open close empty items =
     when Array.popFirst items is
         Nothing ->
             R.text empty
+
         Just { first, rest } ->
             let
-                firstDoc = R.concat (R.text open) first
-                restDocs = Array.map (\d -> R.concat (R.text ", ") d) rest
-                allDocs  = [ firstDoc ] ++ restDocs
+                firstDoc =
+                    R.concat (R.text open) first
+
+                restDocs =
+                    Array.map (\d -> R.concat (R.text ", ") d) rest
+
+                allDocs =
+                    [ firstDoc ] ++ restDocs
+
                 joined =
                     R.foldDoc
                         (\a b -> R.concat a (R.concat R.breakDoc b))
@@ -1285,26 +1544,33 @@ makeExposingListDoc forceVertical children =
     if Array.any nodeIsComment children || forceVertical then
         listBoxesWithBrackets "( " ")" children
             |> Result.map (\body -> R.concat R.hardNl body)
+
     else
         traverseArray makeListItemDoc children
-            |> Result.map (\itemDocs ->
-                when Array.popFirst itemDocs is
-                    Nothing ->
-                        R.text " ()"
-                    Just { first = firstItem, rest = restItems } ->
-                        let
-                            firstSeg = R.concat (R.text "(") firstItem
-                            restSegs =
-                                Array.map
-                                    (\d -> R.concat R.breakDoc (R.concat (R.text ", ") d))
-                                    restItems
-                            body =
-                                Array.foldl (\seg acc -> R.concat acc seg) firstSeg restSegs
-                            full =
-                                R.concat body (R.text ")")
-                        in
-                        R.group (R.concat R.nl full)
-            )
+            |> Result.map
+                (\itemDocs ->
+                    when Array.popFirst itemDocs is
+                        Nothing ->
+                            R.text " ()"
+
+                        Just { first = firstItem, rest = restItems } ->
+                            let
+                                firstSeg =
+                                    R.concat (R.text "(") firstItem
+
+                                restSegs =
+                                    Array.map
+                                        (\d -> R.concat R.breakDoc (R.concat (R.text ", ") d))
+                                        restItems
+
+                                body =
+                                    Array.foldl (\seg acc -> R.concat acc seg) firstSeg restSegs
+
+                                full =
+                                    R.concat body (R.text ")")
+                            in
+                            R.group (R.concat R.nl full)
+                )
 
 
 -- Render a comment box as just the source text it would produce: `--xxx`
@@ -1318,11 +1584,16 @@ makeExposingListDoc forceVertical children =
 commentBoxDoc : LPBox -> Doc
 commentBoxDoc box =
     when box is
-        SingleLineComment loc -> R.text ("--" ++ loc.value)
-        BlockComment loc -> blockCommentDoc loc
+        SingleLineComment loc ->
+            R.text ("--" ++ loc.value)
+
+        BlockComment loc ->
+            blockCommentDoc loc
+
         DocComment loc ->
             if String.isEmpty (String.trim loc.value) then
                 R.text "{-| -}"
+
             else
                 let
                     -- elm-format adds a blank line before -} for multi-line doc
@@ -1334,11 +1605,14 @@ commentBoxDoc box =
                             && String.endsWith "\n" loc.value
                             && not (String.endsWith "\n\n" loc.value) then
                             loc.value ++ "\n"
+
                         else
                             loc.value
                 in
                 R.text ("{-|" ++ normalizedValue ++ "-}")
-        _ -> R.empty
+
+        _ ->
+            R.empty
 
 
 -- True if a comment body spans more than one source line.
@@ -1354,8 +1628,10 @@ leadingSpaceCount s =
         (\c acc ->
             if acc.done then
                 acc
+
             else if c == ' ' then
                 { acc | count = acc.count + 1 }
+
             else
                 { acc | done = True }
         )
@@ -1390,13 +1666,16 @@ blockCommentDoc : Located String -> Doc
 blockCommentDoc loc =
     if not (isMultiLineCommentValue loc.value) then
         R.text ("{-" ++ loc.value ++ "-}")
+
     else
         let
-            fullText = "{-" ++ loc.value ++ "-}"
+            fullText =
+                "{-" ++ loc.value ++ "-}"
         in
         when Array.popFirst (String.split "\n" fullText) is
             Nothing ->
                 R.text fullText
+
             Just { first = firstLine, rest = contLines } ->
                 let
                     -- The body's base column: the smallest leading-space count
@@ -1404,12 +1683,17 @@ blockCommentDoc loc =
                     -- and a closing `-}` alone on its own line are excluded so
                     -- they can't drag the base to column 0.
                     isContentLine line =
-                        let t = String.trimLeft line
-                        in t /= "" && t /= "-}"
+                        let
+                            t =
+                                String.trimLeft line
+                        in
+                        t /= "" && t /= "-}"
+
                     contentCols =
                         contLines
                             |> Array.keepIf isContentLine
                             |> Array.map leadingSpaceCount
+
                     -- `{-` sits alone on its first line (nothing after the
                     -- opener). This is the author's signal — and the only
                     -- trigger — for verbatim mode below. It is a property of
@@ -1437,12 +1721,14 @@ blockCommentDoc loc =
                                 contLines
                     in
                     R.concat (R.text "{-") (R.reset contDoc)
+
                 else
                     let
                         base =
                             contentCols
                                 |> Array.minimum
                                 |> Maybe.withDefault blockCommentBodyOffset
+
                         -- Map the base to `blockCommentBodyOffset` and keep any
                         -- deeper internal indentation relative to it. Blank lines
                         -- and a bare `-}` emit as-is (trimmed): `R.align` will
@@ -1450,12 +1736,17 @@ blockCommentDoc loc =
                         -- with its opener. The formula would give them
                         -- `blockCommentBodyOffset` extra spaces, which is wrong.
                         reindent line =
-                            let t = String.trimLeft line
+                            let
+                                t =
+                                    String.trimLeft line
                             in
                             if t == "" || t == "-}" then
                                 t
+
                             else
-                                let l = leadingSpaceCount line
+                                let
+                                    l =
+                                        leadingSpaceCount line
                                 in
                                 String.repeat (max 0 (blockCommentBodyOffset + l - base)) " "
                                     ++ String.dropFirst l line
@@ -1469,7 +1760,8 @@ blockCommentDoc loc =
 
 -- LPNode-form of commentBoxDoc.
 commentNodeDoc : LPNode -> Doc
-commentNodeDoc node = commentBoxDoc (lpnBox node)
+commentNodeDoc node =
+    commentBoxDoc (lpnBox node)
 
 
 -- Render a SingleLineComment's source text followed by a hardNl. The hardNl
@@ -1487,17 +1779,21 @@ makeRecordUpdateDoc forceVertical baseName children =
     -- Skip any leading comment children so we can find the actual first field
     -- (the comment-bearing children get rendered as their own lines below).
     let
-        { leading = commentsBefore, rest = fields } = splitLeadingComments children
+        { leading = commentsBefore, rest = fields } =
+            splitLeadingComments children
     in
     when Array.popFirst fields is
         Nothing ->
             when Array.popFirst commentsBefore is
-                Nothing -> Ok (R.text ("{ " ++ baseName ++ " }"))
+                Nothing ->
+                    Ok (R.text ("{ " ++ baseName ++ " }"))
+
                 Just _ ->
                     Ok (R.vcat
-                        ([R.text ("{ " ++ baseName)]
-                        ++ Array.map (\c -> R.concat (R.text "    ") (commentNodeDoc c)) commentsBefore
-                        ++ [R.text "}"]))
+                            ([ R.text ("{ " ++ baseName) ]
+                                ++ Array.map (\c -> R.concat (R.text "    ") (commentNodeDoc c)) commentsBefore
+                                ++ [ R.text "}" ]))
+
         Just { first = firstField, rest = restFields } ->
             -- Wrap each field's flow with R.align so that when the field value
             -- itself spans multiple lines (e.g. a nested record update), the
@@ -1515,8 +1811,11 @@ makeRecordUpdateDoc forceVertical baseName children =
                     let
                         flowIndent =
                             when lpnBox field is
-                                IndentedBlock -> 0
-                                _ -> grenIndent
+                                IndentedBlock ->
+                                    0
+
+                                _ ->
+                                    grenIndent
                     in
                     buildFlowDoc flowIndent (lpnChildren field)
                         |> Result.map R.align
@@ -1536,31 +1835,43 @@ makeRecordUpdateDoc forceVertical baseName children =
                         Array.map (\c -> R.concat (R.text "    ") (commentNodeDoc c)) commentsBefore
                 in
                 when fieldDoc firstField is
-                    Err e -> Err e
+                    Err e ->
+                        Err e
+
                     Ok firstFieldDoc ->
                         let
-                            firstLine = R.concat (R.text "    | ") firstFieldDoc
+                            firstLine =
+                                R.concat (R.text "    | ") firstFieldDoc
+
                             restResult =
                                 Array.foldl
                                     (\field accResult ->
                                         when accResult is
-                                            Err e -> Err e
+                                            Err e ->
+                                                Err e
+
                                             Ok docs ->
                                                 if nodeIsComment field then
                                                     Ok (Array.pushLast (R.concat (R.text "    ") (commentNodeDoc field)) docs)
+
                                                 else
                                                     when fieldDoc field is
-                                                        Err e -> Err e
+                                                        Err e ->
+                                                            Err e
+
                                                         Ok d ->
                                                             Ok (Array.pushLast (R.concat (R.text "    , ") d) docs)
                                     )
-                                    (Ok (leadingCommentLines ++ [firstLine]))
+                                    (Ok (leadingCommentLines ++ [ firstLine ]))
                                     restFields
                         in
                         when restResult is
-                            Err e -> Err e
+                            Err e ->
+                                Err e
+
                             Ok fieldLines ->
-                                Ok (R.vcat ([R.text ("{ " ++ baseName)] ++ fieldLines ++ [R.text "}"]))
+                                Ok (R.vcat ([ R.text ("{ " ++ baseName) ] ++ fieldLines ++ [ R.text "}" ]))
+
             else
                 -- Inline form (no comments, author wrote it on one line): a group
                 -- that always renders flat as `{ base | a = 1, b = 2 }`. The
@@ -1573,25 +1884,35 @@ makeRecordUpdateDoc forceVertical baseName children =
                 -- vcat form above — keeping the one-line and multi-line-authored
                 -- updates a shared fixed point.
                 when fieldDoc firstField is
-                    Err e -> Err e
+                    Err e ->
+                        Err e
+
                     Ok firstFieldDoc ->
                         traverseArray fieldDoc restFields
-                            |> Result.map (\restDocs ->
-                                let
-                                    firstSeg = R.concat (R.text "| ") firstFieldDoc
-                                    restSegs =
-                                        Array.map
-                                            (\d -> R.concat R.breakDoc (R.concat (R.text ", ") d))
-                                            restDocs
-                                    fieldsInner = Array.foldl (\seg acc -> R.concat acc seg) firstSeg restSegs
-                                    fieldsPart = R.nest grenIndent (R.concat R.nl fieldsInner)
-                                    inner =
-                                        R.concat
-                                            (R.text ("{ " ++ baseName))
-                                            (R.concat fieldsPart (R.concat R.nl (R.text "}")))
-                                in
-                                R.group inner
-                            )
+                            |> Result.map
+                                (\restDocs ->
+                                    let
+                                        firstSeg =
+                                            R.concat (R.text "| ") firstFieldDoc
+
+                                        restSegs =
+                                            Array.map
+                                                (\d -> R.concat R.breakDoc (R.concat (R.text ", ") d))
+                                                restDocs
+
+                                        fieldsInner =
+                                            Array.foldl (\seg acc -> R.concat acc seg) firstSeg restSegs
+
+                                        fieldsPart =
+                                            R.nest grenIndent (R.concat R.nl fieldsInner)
+
+                                        inner =
+                                            R.concat
+                                                (R.text ("{ " ++ baseName))
+                                                (R.concat fieldsPart (R.concat R.nl (R.text "}")))
+                                    in
+                                    R.group inner
+                                )
 
 
 {-| Build the `Formatter.Render` `Doc` for a single root-child node without
@@ -1609,23 +1930,45 @@ by `makePrettyLine` (via `makePrettyResult`) to render each top-level node.
 makePrettyLineDoc : LPNode -> Result String Doc
 makePrettyLineDoc node =
     let
-        children = lpnChildren node
+        children =
+            lpnChildren node
     in
     when lpnBox node is
         OriginalRows { stype = stype } ->
             when stype is
-                StTypeAlias -> makeTypeAliasPrettyDoc children
-                StTypeUnion -> makeTypeUnionPrettyDoc children
-                StSingleLineComment -> makeCommentLineDoc_ children
-                StBlockComment -> makeCommentLineDoc_ children
-                StDocComment -> makeCommentLineDoc_ children
-                StFunctionSignature -> makeSignaturePrettyDoc children
-                StPort -> makeSignaturePrettyDoc children
-                StModule -> makeExposingLineDoc children
-                StImport -> makeExposingLineDoc children
-                _ -> makeFlowIndentableDoc children
+                StTypeAlias ->
+                    makeTypeAliasPrettyDoc children
+
+                StTypeUnion ->
+                    makeTypeUnionPrettyDoc children
+
+                StSingleLineComment ->
+                    makeCommentLineDoc_ children
+
+                StBlockComment ->
+                    makeCommentLineDoc_ children
+
+                StDocComment ->
+                    makeCommentLineDoc_ children
+
+                StFunctionSignature ->
+                    makeSignaturePrettyDoc children
+
+                StPort ->
+                    makeSignaturePrettyDoc children
+
+                StModule ->
+                    makeExposingLineDoc children
+
+                StImport ->
+                    makeExposingLineDoc children
+
+                _ ->
+                    makeFlowIndentableDoc children
+
         EmptyLine ->
             Ok R.empty
+
         _ ->
             Err "Unexpected item in LPTree root children"
 
@@ -1663,18 +2006,30 @@ makeExposingLineDoc children =
                 -- last node isn't a paren list at all (a `(..)` wildcard, etc.).
                 exposingForceVertical =
                     when lpnBox lastNode is
-                        AllAcrossOrAllVertical ListParen -> Just False
-                        AlwaysVertical ListParen -> Just True
-                        _ -> Nothing
+                        AllAcrossOrAllVertical ListParen ->
+                            Just False
+
+                        AlwaysVertical ListParen ->
+                            Just True
+
+                        _ ->
+                            Nothing
+
                 headerAllLeaves =
                     Array.all
                         (\n ->
                             when lpnBox n is
-                                UnbreakableText _ -> True
-                                SynthesizedText _ -> True
-                                _ -> False
+                                UnbreakableText _ ->
+                                    True
+
+                                SynthesizedText _ ->
+                                    True
+
+                                _ ->
+                                    False
                         )
                         headerNodes
+
                 joinWithSpaces docs =
                     R.foldDoc
                         (\a b -> R.concat a (R.concat (R.text " ") b))
@@ -1684,41 +2039,53 @@ makeExposingLineDoc children =
                 Just forceVertical ->
                     if headerAllLeaves && not (Array.isEmpty headerNodes) then
                         let
-                            listChildren = lpnChildren lastNode
+                            listChildren =
+                                lpnChildren lastNode
+
                             listGoesVertical =
                                 forceVertical || Array.any nodeIsComment listChildren
                         in
                         makeExposingListDoc forceVertical listChildren
-                            |> Result.andThen (\listDoc ->
-                                if listGoesVertical then
-                                    when Array.popLast headerNodes is
-                                        Just { last = exposingNode, initial = preExposingNodes } ->
-                                            traverseArray (\n -> makePDoc (lpnBox n) (lpnChildren n)) preExposingNodes
-                                                |> Result.andThen (\preDocs ->
-                                                    makePDoc (lpnBox exposingNode) (lpnChildren exposingNode)
-                                                        |> Result.map (\exposingDoc ->
-                                                            R.concat (joinWithSpaces preDocs)
-                                                                (R.nest grenIndent
-                                                                    (R.concat R.hardNl
-                                                                        (R.concat exposingDoc
-                                                                            (R.nest grenIndent listDoc)
-                                                                        )
+                            |> Result.andThen
+                                (\listDoc ->
+                                    if listGoesVertical then
+                                        when Array.popLast headerNodes is
+                                            Just { last = exposingNode, initial = preExposingNodes } ->
+                                                traverseArray (\n -> makePDoc (lpnBox n) (lpnChildren n)) preExposingNodes
+                                                    |> Result.andThen
+                                                        (\preDocs ->
+                                                            makePDoc (lpnBox exposingNode) (lpnChildren exposingNode)
+                                                                |> Result.map
+                                                                    (\exposingDoc ->
+                                                                        R.concat
+                                                                            (joinWithSpaces preDocs)
+                                                                            (R.nest
+                                                                                grenIndent
+                                                                                (R.concat
+                                                                                    R.hardNl
+                                                                                    (R.concat
+                                                                                        exposingDoc
+                                                                                        (R.nest grenIndent listDoc))))
                                                                     )
-                                                                )
                                                         )
+
+                                            Nothing ->
+                                                makeFlowIndentableDoc children
+
+                                    else
+                                        traverseArray (\n -> makePDoc (lpnBox n) (lpnChildren n)) headerNodes
+                                            |> Result.map
+                                                (\headerDocs ->
+                                                    R.concat (joinWithSpaces headerDocs) (R.nest grenIndent listDoc)
                                                 )
-                                        Nothing ->
-                                            makeFlowIndentableDoc children
-                                else
-                                    traverseArray (\n -> makePDoc (lpnBox n) (lpnChildren n)) headerNodes
-                                        |> Result.map (\headerDocs ->
-                                            R.concat (joinWithSpaces headerDocs) (R.nest grenIndent listDoc)
-                                        )
-                            )
+                                )
+
                     else
                         makeFlowIndentableDoc children
+
                 Nothing ->
                     makeFlowIndentableDoc children
+
         Nothing ->
             makeFlowIndentableDoc children
 
@@ -1726,18 +2093,22 @@ makeExposingLineDoc children =
 makeFlowIndentableDoc : Array LPNode -> Result String Doc
 makeFlowIndentableDoc children =
     let
-        { leading, rest } = splitLeadingComments children
+        { leading, rest } =
+            splitLeadingComments children
     in
     buildFlowDoc grenIndent rest
-        |> Result.map (\flowDoc ->
-            let
-                commentDocs = Array.map commentNodeDoc leading
-            in
-            if Array.isEmpty commentDocs then
-                flowDoc
-            else
-                R.concat (R.vcat commentDocs) (R.concat R.hardNl flowDoc)
-        )
+        |> Result.map
+            (\flowDoc ->
+                let
+                    commentDocs =
+                        Array.map commentNodeDoc leading
+                in
+                if Array.isEmpty commentDocs then
+                    flowDoc
+
+                else
+                    R.concat (R.vcat commentDocs) (R.concat R.hardNl flowDoc)
+            )
 
 
 -- True if `node` or any of its descendants is a line/block comment.
@@ -1757,6 +2128,7 @@ isArrowLeaf node =
             loc.value == "->"
                 && loc.start.row == loc.end.row
                 && loc.start.col == loc.end.col
+
         _ ->
             False
 
@@ -1768,8 +2140,11 @@ isArrowLeaf node =
 isColonLeaf : LPNode -> Bool
 isColonLeaf node =
     when lpnBox node is
-        UnbreakableText loc -> loc.value == ":"
-        _ -> False
+        UnbreakableText loc ->
+            loc.value == ":"
+
+        _ ->
+            False
 
 
 -- Split a signature's type nodes (everything after the `:`) into segments at
@@ -1780,13 +2155,15 @@ splitSignatureSegments nodes =
     Array.foldl
         (\node acc ->
             if isArrowLeaf node then
-                Array.pushLast [node] acc
+                Array.pushLast [ node ] acc
+
             else
                 when Array.popLast acc is
                     Just { last = seg, initial = front } ->
                         Array.pushLast (Array.pushLast node seg) front
+
                     Nothing ->
-                        [[node]]
+                        [ [ node ] ]
         )
         []
         nodes
@@ -1807,17 +2184,29 @@ segContentFirstRow seg =
         (\node acc ->
             if isArrowLeaf node then
                 acc
+
             else
                 let
-                    leafRow = firstRowInSubtree node
+                    leafRow =
+                        firstRowInSubtree node
+
                     r =
                         when lpnBracketStart node is
                             Just open ->
-                                if leafRow < 0 then open.row else min open.row leafRow
+                                if leafRow < 0 then
+                                    open.row
+
+                                else
+                                    min open.row leafRow
+
                             Nothing ->
                                 leafRow
                 in
-                if acc < 0 then r else min acc r
+                if acc < 0 then
+                    r
+
+                else
+                    min acc r
         )
         -1
         seg
@@ -1831,6 +2220,7 @@ segContentLastRow seg =
         (\node acc ->
             if isArrowLeaf node then
                 acc
+
             else
                 max acc (lpnMaxRow node)
         )
@@ -1851,13 +2241,20 @@ segmentsBrokenAtBoundary segments =
             Array.foldl
                 (\seg acc ->
                     let
-                        first = segContentFirstRow seg
-                        last = segContentLastRow seg
+                        first =
+                            segContentFirstRow seg
+
+                        last =
+                            segContentLastRow seg
                     in
-                    { broken =
-                        acc.broken
+                    { broken = acc.broken
                             || (acc.prevLast >= 0 && first >= 0 && first > acc.prevLast)
-                    , prevLast = if last >= 0 then last else acc.prevLast
+                    , prevLast =
+                        if last >= 0 then
+                            last
+
+                        else
+                            acc.prevLast
                     }
                 )
                 { broken = False, prevLast = -1 }
@@ -1899,8 +2296,10 @@ makeSignaturePrettyDoc children =
                 (\node acc ->
                     if acc.afterColon then
                         { acc | typeNodes = Array.pushLast node acc.typeNodes }
+
                     else if isColonLeaf node then
                         { acc | header = Array.pushLast node acc.header, afterColon = True }
+
                     else
                         { acc | header = Array.pushLast node acc.header }
                 )
@@ -1910,47 +2309,60 @@ makeSignaturePrettyDoc children =
     if not colonSplit.afterColon then
         -- No colon found: not a real signature shape; render as a flow.
         makeFlowIndentableDoc children
+
     else
         let
-            segments = splitSignatureSegments colonSplit.typeNodes
+            segments =
+                splitSignatureSegments colonSplit.typeNodes
+
             forceVertical =
                 segmentsBrokenAtBoundary segments
         in
         if not forceVertical && Array.any subtreeHasComment children then
             makeFlowIndentableDoc children
+
         else
             let
                 segDocsResult =
                     traverseArray (buildFlowDoc 0) segments
             in
             buildFlowDoc 0 colonSplit.header
-                |> Result.andThen (\headerDoc ->
-                    segDocsResult
-                        |> Result.map (\segDocs ->
-                            let
-                                bodyInner =
-                                    when Array.popFirst segDocs is
-                                        Nothing -> R.empty
-                                        Just { first = d0, rest = ds } ->
-                                            Array.foldl
-                                                (\d acc -> R.concat acc (R.concat R.nl d))
-                                                d0
-                                                ds
-                                full =
-                                    R.concat headerDoc
-                                        (R.nest grenIndent (R.concat R.nl bodyInner))
-                            in
-                            inlineUnlessVertical forceVertical full
-                        )
-                )
+                |> Result.andThen
+                    (\headerDoc ->
+                        segDocsResult
+                            |> Result.map
+                                (\segDocs ->
+                                    let
+                                        bodyInner =
+                                            when Array.popFirst segDocs is
+                                                Nothing ->
+                                                    R.empty
+
+                                                Just { first = d0, rest = ds } ->
+                                                    Array.foldl
+                                                        (\d acc -> R.concat acc (R.concat R.nl d))
+                                                        d0
+                                                        ds
+
+                                        full =
+                                            R.concat
+                                                headerDoc
+                                                (R.nest grenIndent (R.concat R.nl bodyInner))
+                                    in
+                                    inlineUnlessVertical forceVertical full
+                                )
+                    )
 
 
 -- True for a `PipelineStep` node (one `|> step` / `<| step`).
 isPipelineStepNode : LPNode -> Bool
 isPipelineStepNode node =
     when lpnBox node is
-        PipelineStep -> True
-        _ -> False
+        PipelineStep ->
+            True
+
+        _ ->
+            False
 
 
 -- True when `node` is a `ParenBlock` whose body is on a different row from
@@ -1967,11 +2379,20 @@ isMultilineLambdaParenBlock node =
                     when Array.first rest is
                         Just secondChild ->
                             when lpnBox secondChild is
-                                IndentedBlock -> True
-                                _ -> False
-                        Nothing -> False
-                Nothing -> False
-        _ -> False
+                                IndentedBlock ->
+                                    True
+
+                                _ ->
+                                    False
+
+                        Nothing ->
+                            False
+
+                Nothing ->
+                    False
+
+        _ ->
+            False
 
 
 -- True when a node's subtree contains a box that always produces HardNl —
@@ -1982,15 +2403,21 @@ isMultilineLambdaParenBlock node =
 subtreeHasVertical : LPNode -> Bool
 subtreeHasVertical node =
     when lpnBox node is
-        AlwaysVertical _ -> True
-        RecordUpdate _ -> True
+        AlwaysVertical _ ->
+            True
+
+        RecordUpdate _ ->
+            True
+
         AllAcrossOrAllVertical _ ->
             -- This box goes vertical when it has comment children (see
             -- makeAllAcrossOrAllVertical).  Treat it as "will produce HardNl"
             -- so isMultilineContentParenBlock detects it correctly.
             Array.any nodeIsComment (lpnChildren node)
                 || Array.any subtreeHasVertical (lpnChildren node)
-        _ -> Array.any subtreeHasVertical (lpnChildren node)
+
+        _ ->
+            Array.any subtreeHasVertical (lpnChildren node)
 
 
 -- True when `node` is a ParenBlock whose content subtree contains an
@@ -2003,6 +2430,7 @@ isMultilineContentParenBlock node =
     when lpnBox node is
         ParenBlock ->
             Array.any subtreeHasVertical (lpnChildren node)
+
         _ ->
             False
 
@@ -2029,39 +2457,48 @@ makePipelineDoc forceVertical children =
         -- Comment-bearing pipeline: the intricate per-step comment handling
         -- lives in buildFlowDocImpl's PipelineStep case. Route there.
         buildFlowDoc 0 children
+
     else
         let
             -- No comments in this branch, so every non-step node is a seed node
             -- and they all precede the steps; `keepIf` preserves that order.
-            seedNodes = Array.keepIf (\n -> not (isPipelineStepNode n)) children
-            stepNodes = Array.keepIf isPipelineStepNode children
+            seedNodes =
+                Array.keepIf (\n -> not (isPipelineStepNode n)) children
+
+            stepNodes =
+                Array.keepIf isPipelineStepNode children
         in
         buildFlowDoc 0 seedNodes
-            |> Result.andThen (\seedDoc ->
-                -- `|> body` with continuation args nested +4 from the `|>` column
-                -- — exactly the PipelineStep path's `buildFlowDoc grenIndent
-                -- stepChildren`.
-                traverseArray (\step -> buildStepChildrenDoc (lpnChildren step)) stepNodes
-                    |> Result.map (\stepDocs ->
-                        let
-                            -- Step separator (see `authorSep`): a soft break inline,
-                            -- an unflattenable hard break when forced, so an outer
-                            -- `name = body` group can't collapse a multi-line pipeline
-                            -- back onto the `=` line. Both render the same bytes when
-                            -- broken, so fit-overflow == forced-vertical.
-                            sep = authorSep forceVertical
-                            -- Each step on its own line, indented +grenIndent from the seed.
-                            stepsInner =
-                                Array.foldl
-                                    (\d acc -> R.concat acc (R.concat sep d))
-                                    R.empty
-                                    stepDocs
-                            full =
-                                R.concat seedDoc (R.nest grenIndent stepsInner)
-                        in
-                        inlineUnlessVertical forceVertical full
-                    )
-            )
+            |> Result.andThen
+                (\seedDoc ->
+                    -- `|> body` with continuation args nested +4 from the `|>` column
+                    -- — exactly the PipelineStep path's `buildFlowDoc grenIndent
+                    -- stepChildren`.
+                    traverseArray (\step -> buildStepChildrenDoc (lpnChildren step)) stepNodes
+                        |> Result.map
+                            (\stepDocs ->
+                                let
+                                    -- Step separator (see `authorSep`): a soft break inline,
+                                    -- an unflattenable hard break when forced, so an outer
+                                    -- `name = body` group can't collapse a multi-line pipeline
+                                    -- back onto the `=` line. Both render the same bytes when
+                                    -- broken, so fit-overflow == forced-vertical.
+                                    sep =
+                                        authorSep forceVertical
+
+                                    -- Each step on its own line, indented +grenIndent from the seed.
+                                    stepsInner =
+                                        Array.foldl
+                                            (\d acc -> R.concat acc (R.concat sep d))
+                                            R.empty
+                                            stepDocs
+
+                                    full =
+                                        R.concat seedDoc (R.nest grenIndent stepsInner)
+                                in
+                                inlineUnlessVertical forceVertical full
+                            )
+                )
 
 
 {-| Render a `<|` (backward) pipeline with trailing-operator style.
@@ -2098,8 +2535,11 @@ buildBodyDoc opNode bodyNodes =
     let
         opRow =
             when lpnBox opNode is
-                UnbreakableText loc -> loc.end.row
-                _ -> -1
+                UnbreakableText loc ->
+                    loc.end.row
+
+                _ ->
+                    -1
 
         startsWithSameRowInlineBlock =
             when Array.first bodyNodes is
@@ -2108,11 +2548,16 @@ buildBodyDoc opNode bodyNodes =
                         BlockComment loc ->
                             not (isMultiLineCommentValue loc.value)
                                 && loc.start.row == opRow
-                        _ -> False
-                Nothing -> False
+
+                        _ ->
+                            False
+
+                Nothing ->
+                    False
     in
     if startsWithSameRowInlineBlock then
         buildFlowDocInline 0 bodyNodes
+
     else
         buildFlowDoc 0 bodyNodes
 
@@ -2127,13 +2572,19 @@ makeBackwardPipelineDoc forceVertical children =
     let
         stepFirstIsComment stepNode =
             when Array.popFirst (lpnChildren stepNode) is
-                Just { first = firstChild } -> nodeIsComment firstChild
-                Nothing -> False
+                Just { first = firstChild } ->
+                    nodeIsComment firstChild
+
+                Nothing ->
+                    False
 
         stepLastIsComment stepNode =
             when Array.popLast (lpnChildren stepNode) is
-                Just { last = lastChild } -> nodeIsComment lastChild
-                Nothing -> False
+                Just { last = lastChild } ->
+                    nodeIsComment lastChild
+
+                Nothing ->
+                    False
 
         hasStepBoundaryComment =
             Array.any
@@ -2141,6 +2592,7 @@ makeBackwardPipelineDoc forceVertical children =
                     if isPipelineStepNode n then
                         -- Leading comment (before <|) or trailing comment (after body).
                         stepFirstIsComment n || stepLastIsComment n
+
                     else
                         -- Comment sibling between seed and step.
                         nodeIsComment n
@@ -2156,134 +2608,184 @@ makeBackwardPipelineDoc forceVertical children =
             when Array.popFirst (lpnChildren stepNode) is
                 Just { first = opNode } ->
                     when lpnBox opNode is
-                        UnbreakableText loc -> loc.value == "<|"
-                        _ -> False
-                Nothing -> False
+                        UnbreakableText loc ->
+                            loc.value == "<|"
+
+                        _ ->
+                            False
+
+                Nothing ->
+                    False
 
         allStepsBackward =
             Array.all stepOpIsBackward (Array.keepIf isPipelineStepNode children)
     in
     if hasStepBoundaryComment || not allStepsBackward then
         buildFlowDoc 0 children
+
     else
         let
-            seedNodes = Array.keepIf (\n -> not (isPipelineStepNode n)) children
-            stepNodes = Array.keepIf isPipelineStepNode children
-            sep = authorSep forceVertical
+            seedNodes =
+                Array.keepIf (\n -> not (isPipelineStepNode n)) children
+
+            stepNodes =
+                Array.keepIf isPipelineStepNode children
+
+            sep =
+                authorSep forceVertical
         in
         buildFlowDoc 0 seedNodes
-            |> Result.andThen (\seedDoc ->
-                -- Collect (opNode, bodyNodes) pairs for each step.
-                traverseArray
-                    (\stepNode ->
-                        when Array.popFirst (lpnChildren stepNode) is
-                            Nothing ->
-                                Err "backward pipeline step has no children"
-                            Just { first = opNode, rest = bodyNodes } ->
-                                Ok { op = opNode, body = bodyNodes }
-                    )
-                    stepNodes
-                    |> Result.andThen (\allStepBodies ->
-                        when Array.length allStepBodies is
-                            1 ->
-                                -- Single step: check for lambda (trailing SoftIndentedBlock).
-                                when Array.first allStepBodies is
-                                    Nothing ->
-                                        Err "backward pipeline: empty body nodes array"
-                                    Just { op = opNode, body = bodyNodes } ->
-                                        when Array.popLast bodyNodes is
+            |> Result.andThen
+                (\seedDoc ->
+                    -- Collect (opNode, bodyNodes) pairs for each step.
+                    traverseArray
+                        (\stepNode ->
+                            when Array.popFirst (lpnChildren stepNode) is
+                                Nothing ->
+                                    Err "backward pipeline step has no children"
+
+                                Just { first = opNode, rest = bodyNodes } ->
+                                    Ok { op = opNode, body = bodyNodes }
+                        )
+                        stepNodes
+                        |> Result.andThen
+                            (\allStepBodies ->
+                                when Array.length allStepBodies is
+                                    1 ->
+                                        -- Single step: check for lambda (trailing SoftIndentedBlock).
+                                        when Array.first allStepBodies is
                                             Nothing ->
-                                                -- Non-lambda single step (empty body — shouldn't happen).
-                                                buildBodyDoc opNode bodyNodes
-                                                    |> Result.map (\bodyDoc ->
-                                                        inlineUnlessVertical forceVertical
-                                                            (R.concat seedDoc
-                                                                (R.concat (R.text " <|")
-                                                                    (R.nest grenIndent (R.concat sep bodyDoc))))
-                                                    )
-                                            Just { last = lastNode, initial = headNodes } ->
-                                                when lpnBox lastNode is
-                                                    SoftIndentedBlock ->
-                                                        -- Body authored inline (same row as `->`): keep
-                                                        -- the soft-break so a short lambda stays on one
-                                                        -- line (e.g. `f <| \x -> x + 1`).
-                                                        buildFlowDocInline 0 headNodes
-                                                            |> Result.andThen (\headDoc ->
-                                                                buildFlowDoc 0 (lpnChildren lastNode)
-                                                                    |> Result.map (\bodyDoc ->
-                                                                        let
-                                                                            bodyBreak =
-                                                                                if forceVertical then
-                                                                                    R.nest grenIndent (R.concat R.hardNl bodyDoc)
-                                                                                else
-                                                                                    R.group (R.nest grenIndent (R.concat R.nl bodyDoc))
-                                                                        in
-                                                                        R.concat seedDoc
-                                                                            (R.concat (R.text " <| ")
-                                                                                (R.concat headDoc bodyBreak))
-                                                                    )
-                                                            )
-                                                    IndentedBlock ->
-                                                        -- Body authored across rows (different row from
-                                                        -- `->`): elm-format style — always break after
-                                                        -- `<|`, lambda header at seed+4, body at seed+8.
-                                                        buildFlowDocInline 0 headNodes
-                                                            |> Result.andThen (\headDoc ->
-                                                                buildFlowDoc 0 (lpnChildren lastNode)
-                                                                    |> Result.map (\bodyDoc ->
-                                                                        R.concat seedDoc
-                                                                            (R.concat (R.text " <|")
-                                                                                (R.nest grenIndent
-                                                                                    (R.concat R.hardNl
-                                                                                        (R.concat headDoc
-                                                                                            (R.nest grenIndent (R.concat R.hardNl bodyDoc))))))
-                                                                    )
-                                                            )
-                                                    _ ->
-                                                        -- Non-lambda single step.
+                                                Err "backward pipeline: empty body nodes array"
+
+                                            Just { op = opNode, body = bodyNodes } ->
+                                                when Array.popLast bodyNodes is
+                                                    Nothing ->
+                                                        -- Non-lambda single step (empty body — shouldn't happen).
                                                         buildBodyDoc opNode bodyNodes
-                                                            |> Result.map (\bodyDoc ->
-                                                                inlineUnlessVertical forceVertical
-                                                                    (R.concat seedDoc
-                                                                        (R.concat (R.text " <|")
-                                                                            (R.nest grenIndent (R.concat sep bodyDoc))))
-                                                            )
-                            _ ->
-                                -- Multiple steps: each body at seed_col + 4, operator
-                                -- trails the previous slot (seed or step body).
-                                traverseArray (\sBody -> buildBodyDoc sBody.op sBody.body) allStepBodies
-                                    |> Result.map (\bodyDocs ->
-                                        let
-                                            nBodies = Array.length bodyDocs
-                                            stepsDoc =
-                                                Array.foldl
-                                                    (\bodyDoc { idx, doc } ->
-                                                        let
-                                                            isLast = idx == nBodies - 1
-                                                            bodyWithTrail =
-                                                                if isLast then
-                                                                    bodyDoc
-                                                                else
-                                                                    R.concat bodyDoc (R.text " <|")
-                                                            newDoc =
-                                                                if idx == 0 then
-                                                                    bodyWithTrail
-                                                                else
-                                                                    R.concat doc (R.concat sep bodyWithTrail)
-                                                        in
-                                                        { idx = idx + 1, doc = newDoc }
-                                                    )
-                                                    { idx = 0, doc = R.empty }
-                                                    bodyDocs
-                                                |> .doc
-                                        in
-                                        inlineUnlessVertical forceVertical
-                                            (R.concat seedDoc
-                                                (R.concat (R.text " <|")
-                                                    (R.nest grenIndent (R.concat sep stepsDoc))))
-                                    )
-                    )
-            )
+                                                            |> Result.map
+                                                                (\bodyDoc ->
+                                                                    inlineUnlessVertical
+                                                                        forceVertical
+                                                                        (R.concat
+                                                                            seedDoc
+                                                                            (R.concat
+                                                                                (R.text " <|")
+                                                                                (R.nest grenIndent (R.concat sep bodyDoc))))
+                                                                )
+
+                                                    Just { last = lastNode, initial = headNodes } ->
+                                                        when lpnBox lastNode is
+                                                            SoftIndentedBlock ->
+                                                                -- Body authored inline (same row as `->`): keep
+                                                                -- the soft-break so a short lambda stays on one
+                                                                -- line (e.g. `f <| \x -> x + 1`).
+                                                                buildFlowDocInline 0 headNodes
+                                                                    |> Result.andThen
+                                                                        (\headDoc ->
+                                                                            buildFlowDoc 0 (lpnChildren lastNode)
+                                                                                |> Result.map
+                                                                                    (\bodyDoc ->
+                                                                                        let
+                                                                                            bodyBreak =
+                                                                                                if forceVertical then
+                                                                                                    R.nest grenIndent (R.concat R.hardNl bodyDoc)
+
+                                                                                                else
+                                                                                                    R.group (R.nest grenIndent (R.concat R.nl bodyDoc))
+                                                                                        in
+                                                                                        R.concat
+                                                                                            seedDoc
+                                                                                            (R.concat
+                                                                                                (R.text " <| ")
+                                                                                                (R.concat headDoc bodyBreak))
+                                                                                    )
+                                                                        )
+
+                                                            IndentedBlock ->
+                                                                -- Body authored across rows (different row from
+                                                                -- `->`): elm-format style — always break after
+                                                                -- `<|`, lambda header at seed+4, body at seed+8.
+                                                                buildFlowDocInline 0 headNodes
+                                                                    |> Result.andThen
+                                                                        (\headDoc ->
+                                                                            buildFlowDoc 0 (lpnChildren lastNode)
+                                                                                |> Result.map
+                                                                                    (\bodyDoc ->
+                                                                                        R.concat
+                                                                                            seedDoc
+                                                                                            (R.concat
+                                                                                                (R.text " <|")
+                                                                                                (R.nest
+                                                                                                    grenIndent
+                                                                                                    (R.concat
+                                                                                                        R.hardNl
+                                                                                                        (R.concat
+                                                                                                            headDoc
+                                                                                                            (R.nest grenIndent (R.concat R.hardNl bodyDoc))))))
+                                                                                    )
+                                                                        )
+
+                                                            _ ->
+                                                                -- Non-lambda single step.
+                                                                buildBodyDoc opNode bodyNodes
+                                                                    |> Result.map
+                                                                        (\bodyDoc ->
+                                                                            inlineUnlessVertical
+                                                                                forceVertical
+                                                                                (R.concat
+                                                                                    seedDoc
+                                                                                    (R.concat
+                                                                                        (R.text " <|")
+                                                                                        (R.nest grenIndent (R.concat sep bodyDoc))))
+                                                                        )
+
+                                    _ ->
+                                        -- Multiple steps: each body at seed_col + 4, operator
+                                        -- trails the previous slot (seed or step body).
+                                        traverseArray (\sBody -> buildBodyDoc sBody.op sBody.body) allStepBodies
+                                            |> Result.map
+                                                (\bodyDocs ->
+                                                    let
+                                                        nBodies =
+                                                            Array.length bodyDocs
+
+                                                        stepsDoc =
+                                                            Array.foldl
+                                                                (\bodyDoc { idx, doc } ->
+                                                                    let
+                                                                        isLast =
+                                                                            idx == nBodies - 1
+
+                                                                        bodyWithTrail =
+                                                                            if isLast then
+                                                                                bodyDoc
+
+                                                                            else
+                                                                                R.concat bodyDoc (R.text " <|")
+
+                                                                        newDoc =
+                                                                            if idx == 0 then
+                                                                                bodyWithTrail
+
+                                                                            else
+                                                                                R.concat doc (R.concat sep bodyWithTrail)
+                                                                    in
+                                                                    { idx = idx + 1, doc = newDoc }
+                                                                )
+                                                                { idx = 0, doc = R.empty }
+                                                                bodyDocs
+                                                                |> .doc
+                                                    in
+                                                    inlineUnlessVertical
+                                                        forceVertical
+                                                        (R.concat
+                                                            seedDoc
+                                                            (R.concat
+                                                                (R.text " <|")
+                                                                (R.nest grenIndent (R.concat sep stepsDoc))))
+                                                )
+                            )
+                )
 
 
 -- Flatten the right-nested `OpAndRhs` structure of a Binop container back into
@@ -2295,20 +2797,25 @@ flattenBinopNodes children =
     when Array.popLast children is
         Nothing ->
             { operands = [], ops = [] }
+
         Just { last = lastNode, initial = operandNodes } ->
             when lpnBox lastNode is
                 OpAndRhs ->
                     when Array.popFirst (lpnChildren lastNode) is
                         Just { first = opNode, rest = restChildren } ->
-                            let inner = flattenBinopNodes restChildren
+                            let
+                                inner =
+                                    flattenBinopNodes restChildren
                             in
-                            { operands = [operandNodes] ++ inner.operands
-                            , ops = [opNode] ++ inner.ops
+                            { operands = [ operandNodes ] ++ inner.operands
+                            , ops = [ opNode ] ++ inner.ops
                             }
+
                         Nothing ->
-                            { operands = [operandNodes], ops = [] }
+                            { operands = [ operandNodes ], ops = [] }
+
                 _ ->
-                    { operands = [children], ops = [] }
+                    { operands = [ children ], ops = [] }
 
 
 makeIfConditionDoc : Bool -> Array LPNode -> Result String Doc
@@ -2316,41 +2823,59 @@ makeIfConditionDoc forceVertical children =
     when Array.popFirst children is
         Nothing ->
             Err "if condition: no nodes"
+
         Just { first = ifNode, rest = afterIf } ->
             when Array.popLast afterIf is
                 Nothing ->
                     Err "if condition: missing then"
+
                 Just { initial = condNodes, last = thenNode } ->
                     makePDoc (lpnBox ifNode) (lpnChildren ifNode)
-                        |> Result.andThen (\ifDoc ->
-                            makePDoc (lpnBox thenNode) (lpnChildren thenNode)
-                                |> Result.andThen (\thenDoc ->
-                                    (if forceVertical then buildFlowDoc 0 condNodes else buildFlowDocInline 0 condNodes)
-                                        |> Result.map (\condDoc ->
-                                            if forceVertical then
-                                                R.concat ifDoc
-                                                    (R.concat
-                                                        (R.nest grenIndent (R.concat R.hardNl condDoc))
-                                                        (R.concat R.hardNl thenDoc))
-                                            else
-                                                R.concat ifDoc
-                                                    (R.concat (R.text " ")
-                                                        (R.concat condDoc
-                                                            (R.concat (R.text " ") thenDoc)))
+                        |> Result.andThen
+                            (\ifDoc ->
+                                makePDoc (lpnBox thenNode) (lpnChildren thenNode)
+                                    |> Result.andThen
+                                        (\thenDoc ->
+                                            (if forceVertical then
+                                              buildFlowDoc 0 condNodes
+
+                                             else
+                                              buildFlowDocInline 0 condNodes
+                                            )
+                                                |> Result.map
+                                                    (\condDoc ->
+                                                        if forceVertical then
+                                                            R.concat
+                                                                ifDoc
+                                                                (R.concat
+                                                                    (R.nest grenIndent (R.concat R.hardNl condDoc))
+                                                                    (R.concat R.hardNl thenDoc))
+
+                                                        else
+                                                            R.concat
+                                                                ifDoc
+                                                                (R.concat
+                                                                    (R.text " ")
+                                                                    (R.concat
+                                                                        condDoc
+                                                                        (R.concat (R.text " ") thenDoc)))
+                                                    )
                                         )
-                                )
-                        )
-
-
+                            )
 
 
 -- The text of an operator leaf node (`UnbreakableText` / `SynthesizedText`).
 opNodeText : LPNode -> String
 opNodeText node =
     when lpnBox node is
-        UnbreakableText loc -> loc.value
-        SynthesizedText s -> s
-        _ -> ""
+        UnbreakableText loc ->
+            loc.value
+
+        SynthesizedText s ->
+            s
+
+        _ ->
+            ""
 
 
 {-| Render a non-pipeline binop chain with precedence-aware author layout.
@@ -2378,29 +2903,35 @@ makeBinopDoc forceVertical children =
         -- and the comment-bearing signature fallback, so wrapped operators sit
         -- under the first operand rather than back at its own column.
         buildFlowDoc grenIndent children
+
     else
         let
-            flat = flattenBinopNodes children
+            flat =
+                flattenBinopNodes children
         in
         when Array.popFirst flat.operands is
             Nothing ->
                 Ok R.empty
+
             Just { first = operand0Nodes, rest = restOperands } ->
                 if Array.isEmpty flat.ops then
                     buildFlowDoc 0 operand0Nodes
+
                 else
                     -- Render every operand to a doc, then split at the chain's
                     -- minimum precedence into operator-led groups.
                     let
                         operandDocsResult =
                             traverseArray (buildFlowDoc 0) flat.operands
+
                         minPrec =
                             binopMinPrecedence (Array.map opNodeText flat.ops)
                     in
                     operandDocsResult
-                        |> Result.map (\operandDocs ->
-                            assembleBinopGroups forceVertical minPrec operandDocs flat.ops
-                        )
+                        |> Result.map
+                            (\operandDocs ->
+                                assembleBinopGroups forceVertical minPrec operandDocs flat.ops
+                            )
 
 
 -- Assemble the operand docs and operator nodes into the precedence-aware layout.
@@ -2415,12 +2946,14 @@ assembleBinopGroups forceVertical minPrec operandDocs ops =
     let
         firstDoc =
             Array.first operandDocs |> Maybe.withDefault R.empty
+
         -- Pair each operator with the operand doc that follows it.
         paired =
             Array.map2
                 (\op nextDoc -> { op = op, nextDoc = nextDoc })
                 ops
                 (Array.dropFirst 1 operandDocs)
+
         -- Fold left, accumulating the current group's inline doc and emitting a
         -- completed group (led by its lowest-precedence operator) each time we
         -- cross a minimum-precedence operator.
@@ -2432,22 +2965,26 @@ assembleBinopGroups forceVertical minPrec operandDocs ops =
                             -- The first minimum-precedence operator closes group 0;
                             -- capture the accumulated `curDoc` (which may already hold
                             -- higher-precedence ops, e.g. `a * b` in `a * b + c`).
-                            if acc.started then acc.firstGroup else acc.curDoc
+                            if acc.started then
+                                acc.firstGroup
+
+                            else
+                                acc.curDoc
                         , started = True
                         , segments =
                             if acc.started then
                                 Array.pushLast { sep = acc.pendingSep, doc = acc.curDoc } acc.segments
+
                             else
                                 acc.segments
                         , pendingSep = opNodeText pair.op
                         , curDoc = pair.nextDoc
                         }
+
                     else
-                        { acc
-                            | curDoc =
-                                R.concat acc.curDoc
-                                    (R.concat (R.text (" " ++ opNodeText pair.op ++ " ")) pair.nextDoc)
-                        }
+                        { acc | curDoc = R.concat
+                                acc.curDoc
+                                (R.concat (R.text (" " ++ opNodeText pair.op ++ " ")) pair.nextDoc) }
                 )
                 { firstGroup = firstDoc
                 , started = False
@@ -2456,19 +2993,24 @@ assembleBinopGroups forceVertical minPrec operandDocs ops =
                 , curDoc = firstDoc
                 }
                 paired
+
         -- Close the final group.
         segments =
             Array.pushLast { sep = state.pendingSep, doc = state.curDoc } state.segments
+
         sep =
             authorSep forceVertical
+
         restInner =
             Array.foldl
                 (\seg acc ->
-                    R.concat acc
+                    R.concat
+                        acc
                         (R.concat sep (R.concat (R.text (seg.sep ++ " ")) seg.doc))
                 )
                 R.empty
                 segments
+
         full =
             R.concat state.firstGroup (R.nest grenIndent restInner)
     in
@@ -2490,14 +3032,17 @@ renderHeaderIndentedBodyDoc emptyError buildBody children =
     when Array.popLast children is
         Nothing ->
             Err emptyError
+
         Just { initial = headerChildren, last = bodyBlock } ->
             buildFlowDoc 0 headerChildren
-                |> Result.andThen (\headerDoc ->
-                    buildBody (lpnChildren bodyBlock)
-                        |> Result.map (\bodyDoc ->
-                            R.concat headerDoc (R.nest grenIndent (R.concat R.hardNl bodyDoc))
-                        )
-                )
+                |> Result.andThen
+                    (\headerDoc ->
+                        buildBody (lpnChildren bodyBlock)
+                            |> Result.map
+                                (\bodyDoc ->
+                                    R.concat headerDoc (R.nest grenIndent (R.concat R.hardNl bodyDoc))
+                                )
+                    )
 
 
 -- Render a top-level comment-line OriginalRows. Usually it holds a single
@@ -2511,54 +3056,74 @@ makeCommentLineDoc_ children =
     let
         commentInfo node =
             when lpnBox node is
-                SingleLineComment loc -> Just { row = loc.start.row, isLine = True }
-                BlockComment loc -> Just { row = loc.start.row, isLine = False }
-                DocComment loc -> Just { row = loc.start.row, isLine = False }
-                _ -> Nothing
+                SingleLineComment loc ->
+                    Just { row = loc.start.row, isLine = True }
+
+                BlockComment loc ->
+                    Just { row = loc.start.row, isLine = False }
+
+                DocComment loc ->
+                    Just { row = loc.start.row, isLine = False }
+
+                _ ->
+                    Nothing
     in
     Array.foldl
         (\node accResult ->
             when accResult is
-                Err e -> Err e
+                Err e ->
+                    Err e
+
                 Ok acc ->
                     when commentInfo node is
                         Nothing ->
                             Err "Unexpected node type in comment line"
+
                         Just info ->
                             let
-                                commentDoc = commentNodeDoc node
+                                commentDoc =
+                                    commentNodeDoc node
                             in
                             when acc.doc is
                                 Nothing ->
                                     Ok { doc = Just commentDoc, prevRow = info.row, prevLine = info.isLine }
+
                                 Just prevDoc ->
                                     let
                                         separator =
                                             if acc.prevLine || info.row /= acc.prevRow then
                                                 R.hardNl
+
                                             else
                                                 R.text " "
                                     in
                                     Ok { doc = Just (R.concat prevDoc (R.concat separator commentDoc))
-                                       , prevRow = info.row
-                                       , prevLine = info.isLine
-                                       }
+                                        , prevRow = info.row
+                                        , prevLine = info.isLine
+                                        }
         )
         (Ok { doc = Nothing, prevRow = -1, prevLine = False })
         children
-        |> Result.andThen (\acc ->
-            when acc.doc is
-                Nothing -> Err "No nodes in comment line"
-                Just d -> Ok d
-        )
+        |> Result.andThen
+            (\acc ->
+                when acc.doc is
+                    Nothing ->
+                        Err "No nodes in comment line"
+
+                    Just d ->
+                        Ok d
+            )
 
 
 -- `listBoxesWithBrackets` keyed by a `ListBrackets` value rather than explicit
 -- open/close strings — the shape every nested always-vertical literal needs.
 listBoxesForBracket : ListBrackets -> Array LPNode -> Result String Doc
 listBoxesForBracket bracket nodes =
-    let bs = bracketStrings bracket
-    in listBoxesWithBrackets bs.open bs.close nodes
+    let
+        bs =
+            bracketStrings bracket
+    in
+    listBoxesWithBrackets bs.open bs.close nodes
 
 
 listBoxesWithBrackets : String -> String -> Array LPNode -> Result String Doc
@@ -2582,12 +3147,16 @@ listBoxesWithBracketsUsing itemRenderer open close nodes =
             when itemRenderer node is
                 Nothing ->
                     Ok Nothing
+
                 Just result ->
                     let
                         row =
                             when lpnBox node is
-                                UnbreakableText loc -> loc.start.row
-                                _ -> lpnMaxRow node
+                                UnbreakableText loc ->
+                                    loc.start.row
+
+                                _ ->
+                                    lpnMaxRow node
                     in
                     result |> Result.map (\d -> Just { doc = d, row = row })
 
@@ -2595,12 +3164,15 @@ listBoxesWithBracketsUsing itemRenderer open close nodes =
             Array.foldl
                 (\node accResult ->
                     when accResult is
-                        Err e -> Err e
+                        Err e ->
+                            Err e
+
                         Ok acc ->
                             let
                                 handleCommentNode commentRow =
                                     let
-                                        commentDoc = commentNodeDoc node
+                                        commentDoc =
+                                            commentNodeDoc node
                                     in
                                     if commentRow == acc.prevRow then
                                         -- Trailing the preceding item: attach with a SOFT break —
@@ -2619,27 +3191,31 @@ listBoxesWithBracketsUsing itemRenderer open close nodes =
                                                 when acc.pending is
                                                     Nothing ->
                                                         { doc = commentDoc, isComment = True }
+
                                                     Just e ->
                                                         { doc = R.concat e.doc (R.group (R.concat R.nl commentDoc))
                                                         , isComment = False
                                                         }
                                         in
                                         Ok { acc
-                                            | lineDocs = acc.lineDocs ++ [ attached ]
-                                            , pending  = Nothing
+                                                | lineDocs = acc.lineDocs ++ [ attached ]
+                                                , pending = Nothing
                                             }
 
                                     else
                                         let
                                             flushed =
                                                 when acc.pending is
-                                                    Nothing -> acc.lineDocs
-                                                    Just e  -> acc.lineDocs ++ [ e ]
+                                                    Nothing ->
+                                                        acc.lineDocs
+
+                                                    Just e ->
+                                                        acc.lineDocs ++ [ e ]
                                         in
                                         Ok { lineDocs = flushed ++ [ { doc = commentDoc, isComment = True } ]
-                                           , pending  = Nothing
-                                           , prevRow  = commentRow
-                                           }
+                                            , pending = Nothing
+                                            , prevRow = commentRow
+                                            }
                             in
                             when lpnBox node is
                                 SingleLineComment loc ->
@@ -2650,31 +3226,43 @@ listBoxesWithBracketsUsing itemRenderer open close nodes =
 
                                 _ ->
                                     when nodeItemDoc node is
-                                        Err e -> Err e
-                                        Ok Nothing -> Ok acc
+                                        Err e ->
+                                            Err e
+
+                                        Ok Nothing ->
+                                            Ok acc
+
                                         Ok (Just { doc, row }) ->
                                             let
                                                 flushed =
                                                     when acc.pending is
-                                                        Nothing -> acc.lineDocs
-                                                        Just e  -> acc.lineDocs ++ [ e ]
+                                                        Nothing ->
+                                                            acc.lineDocs
+
+                                                        Just e ->
+                                                            acc.lineDocs ++ [ e ]
                                             in
                                             Ok { lineDocs = flushed
-                                               , pending  = Just { doc = doc, isComment = False }
-                                               , prevRow  = row
-                                               }
+                                                , pending = Just { doc = doc, isComment = False }
+                                                , prevRow = row
+                                                }
                 )
                 (Ok { lineDocs = [], pending = Nothing, prevRow = -1 })
                 nodes
     in
     when foldResult is
-        Err e -> Err e
+        Err e ->
+            Err e
+
         Ok state ->
             let
                 allLineDocs =
                     when state.pending is
-                        Nothing -> state.lineDocs
-                        Just e  -> state.lineDocs ++ [ e ]
+                        Nothing ->
+                            state.lineDocs
+
+                        Just e ->
+                            state.lineDocs ++ [ e ]
 
                 prefixed =
                     let
@@ -2683,11 +3271,13 @@ listBoxesWithBracketsUsing itemRenderer open close nodes =
                                 (\{ doc, isComment } acc ->
                                     if isComment then
                                         { acc | result = acc.result ++ [ doc ] }
+
                                     else
                                         let
                                             prefixedDoc =
                                                 if acc.seenText then
                                                     R.concat (R.text ", ") doc
+
                                                 else
                                                     R.concat (R.text open) doc
                                         in
@@ -2721,28 +3311,33 @@ makeWhenFlowDoc forceVertical branchNest children =
 
                         Just { rest = scrutineeNodes } ->
                             buildFlowDocInline 0 withoutBranches
-                                |> Result.andThen (\flatHeaderDoc ->
-                                    buildFlowDocInline 0 scrutineeNodes
-                                        |> Result.andThen (\scrutineeDoc ->
-                                            buildFlowDoc 0 (lpnChildren branchesBlock)
-                                                |> Result.map (\branchesContent ->
-                                                    let
-                                                        headerDoc =
-                                                            if forceVertical then
-                                                                R.concat (R.text "when")
-                                                                    (R.concat
-                                                                        (R.nest grenIndent (R.concat R.hardNl scrutineeDoc))
-                                                                        (R.concat R.hardNl (R.text "is")))
-                                                            else
-                                                                flatHeaderDoc
+                                |> Result.andThen
+                                    (\flatHeaderDoc ->
+                                        buildFlowDocInline 0 scrutineeNodes
+                                            |> Result.andThen
+                                                (\scrutineeDoc ->
+                                                    buildFlowDoc 0 (lpnChildren branchesBlock)
+                                                        |> Result.map
+                                                            (\branchesContent ->
+                                                                let
+                                                                    headerDoc =
+                                                                        if forceVertical then
+                                                                            R.concat
+                                                                                (R.text "when")
+                                                                                (R.concat
+                                                                                    (R.nest grenIndent (R.concat R.hardNl scrutineeDoc))
+                                                                                    (R.concat R.hardNl (R.text "is")))
 
-                                                        branchesDoc =
-                                                            R.nest branchNest (R.concat R.hardNl branchesContent)
-                                                    in
-                                                    R.align (R.concat headerDoc branchesDoc)
+                                                                        else
+                                                                            flatHeaderDoc
+
+                                                                    branchesDoc =
+                                                                        R.nest branchNest (R.concat R.hardNl branchesContent)
+                                                                in
+                                                                R.align (R.concat headerDoc branchesDoc)
+                                                            )
                                                 )
-                                        )
-                                )
+                                    )
 
 
 {-| Render a multi-line lambda argument `(\args -> body)` in elm-format style:
@@ -2764,22 +3359,26 @@ makeMultilineLambdaArgDoc children =
 
         Just { first = headNode, rest = afterHead } ->
             buildFlowDocInline 0 (lpnChildren headNode)
-                |> Result.andThen (\headDoc ->
-                    when Array.first afterHead is
-                        Nothing ->
-                            Ok (R.align (R.concat (R.text "(") (R.concat headDoc (R.text ")"))))
+                |> Result.andThen
+                    (\headDoc ->
+                        when Array.first afterHead is
+                            Nothing ->
+                                Ok (R.align (R.concat (R.text "(") (R.concat headDoc (R.text ")"))))
 
-                        Just bodyNode ->
-                            buildFlowDoc 0 (lpnChildren bodyNode)
-                                |> Result.map (\bodyDoc ->
-                                    R.align
-                                        (R.concat (R.text "(")
-                                            (R.concat headDoc
+                            Just bodyNode ->
+                                buildFlowDoc 0 (lpnChildren bodyNode)
+                                    |> Result.map
+                                        (\bodyDoc ->
+                                            R.align
                                                 (R.concat
-                                                    (R.nest grenIndent (R.concat R.hardNl bodyDoc))
-                                                    (R.concat R.hardNl (R.text ")")))))
-                                )
-                )
+                                                    (R.text "(")
+                                                    (R.concat
+                                                        headDoc
+                                                        (R.concat
+                                                            (R.nest grenIndent (R.concat R.hardNl bodyDoc))
+                                                            (R.concat R.hardNl (R.text ")")))))
+                                        )
+                    )
 
 
 -- Render a non-lambda multiline ParenBlock arg: `(content\n)` with `)` on
@@ -2790,11 +3389,14 @@ makeMultilineLambdaArgDoc children =
 makeMultilineParenArgDoc : Array LPNode -> Result String Doc
 makeMultilineParenArgDoc children =
     buildFlowDocInline 0 children
-        |> Result.map (\innerDoc ->
-            R.concat (R.text "(")
-                (R.concat innerDoc
-                    (R.concat R.hardNl (R.text ")")))
-        )
+        |> Result.map
+            (\innerDoc ->
+                R.concat
+                    (R.text "(")
+                    (R.concat
+                        innerDoc
+                        (R.concat R.hardNl (R.text ")")))
+            )
 
 
 {-| Render a ParenBlock: inline for simple expressions, paren-block layout for
@@ -2824,12 +3426,15 @@ makeParenBlockDoc children =
             when lpnBox first is
                 WhenFlow { forceVertical } ->
                     makeWhenFlowDoc forceVertical 1 (lpnChildren first)
-                        |> Result.map (\whenDoc ->
-                            R.align
-                                (R.concat (R.text "(")
-                                    (R.concat whenDoc
-                                        (R.concat R.hardNl (R.text ")"))))
-                        )
+                        |> Result.map
+                            (\whenDoc ->
+                                R.align
+                                    (R.concat
+                                        (R.text "(")
+                                        (R.concat
+                                            whenDoc
+                                            (R.concat R.hardNl (R.text ")"))))
+                            )
 
                 IfCondition _ ->
                     makeBlockInParenDoc children
@@ -2837,6 +3442,7 @@ makeParenBlockDoc children =
                 UnbreakableText loc ->
                     if loc.value == "let" then
                         makeBlockInParenDoc children
+
                     else
                         inline
 
@@ -2851,18 +3457,30 @@ makeParenBlockDoc children =
                                     when Array.first rest is
                                         Just secondChild ->
                                             when lpnBox secondChild is
-                                                IndentedBlock -> True
-                                                _ -> False
-                                        Nothing -> False
-                                Nothing -> False
+                                                IndentedBlock ->
+                                                    True
+
+                                                _ ->
+                                                    False
+
+                                        Nothing ->
+                                            False
+
+                                Nothing ->
+                                    False
                     in
                     if isLambdaMultiline then
                         when buildFlowDocInline 0 children is
-                            Err e -> Err e
+                            Err e ->
+                                Err e
+
                             Ok innerDoc ->
-                                Ok (R.concat (R.text "(")
-                                    (R.concat innerDoc
-                                        (R.concat R.hardNl (R.text ")"))))
+                                Ok (R.concat
+                                        (R.text "(")
+                                        (R.concat
+                                            innerDoc
+                                            (R.concat R.hardNl (R.text ")"))))
+
                     else
                         inline
 
@@ -2883,21 +3501,24 @@ makeBlockInParenDoc children =
                         appendDoc d =
                             if isFirst then
                                 Ok { doc = d, isFirst = False }
+
                             else
                                 Ok { doc = R.concat doc d, isFirst = False }
                     in
                     when lpnBox node is
                         IndentedBlock ->
                             buildFlowDoc 0 (lpnChildren node)
-                                |> Result.andThen (\bodyDoc ->
-                                    appendDoc (R.nest 2 (R.concat R.hardNl bodyDoc))
-                                )
+                                |> Result.andThen
+                                    (\bodyDoc ->
+                                        appendDoc (R.nest 2 (R.concat R.hardNl bodyDoc))
+                                    )
 
                         BodyBlock ->
                             buildFlowDoc 0 (lpnChildren node)
-                                |> Result.andThen (\bodyDoc ->
-                                    appendDoc (R.nest 1 (R.concat R.hardNl bodyDoc))
-                                )
+                                |> Result.andThen
+                                    (\bodyDoc ->
+                                        appendDoc (R.nest 1 (R.concat R.hardNl bodyDoc))
+                                    )
 
                         EmptyLine ->
                             appendDoc (R.text "\n")
@@ -2907,30 +3528,37 @@ makeBlockInParenDoc children =
 
                         IfCondition _ ->
                             makePDoc (lpnBox node) (lpnChildren node)
-                                |> Result.andThen (\nodeDoc ->
-                                    if isFirst then
-                                        appendDoc nodeDoc
-                                    else
-                                        appendDoc (R.nest 1 (R.concat R.hardNl nodeDoc))
-                                )
+                                |> Result.andThen
+                                    (\nodeDoc ->
+                                        if isFirst then
+                                            appendDoc nodeDoc
+
+                                        else
+                                            appendDoc (R.nest 1 (R.concat R.hardNl nodeDoc))
+                                    )
 
                         _ ->
                             makePDoc (lpnBox node) (lpnChildren node)
-                                |> Result.andThen (\nodeDoc ->
-                                    if isFirst then
-                                        appendDoc nodeDoc
-                                    else
-                                        appendDoc (R.concat R.hardNl nodeDoc)
-                                )
+                                |> Result.andThen
+                                    (\nodeDoc ->
+                                        if isFirst then
+                                            appendDoc nodeDoc
+
+                                        else
+                                            appendDoc (R.concat R.hardNl nodeDoc)
+                                    )
         )
         (Ok { doc = R.empty, isFirst = True })
         children
-        |> Result.map (\{ doc } ->
-            R.align
-                (R.concat (R.text "(")
-                    (R.concat doc
-                        (R.concat R.hardNl (R.text ")"))))
-        )
+        |> Result.map
+            (\{ doc } ->
+                R.align
+                    (R.concat
+                        (R.text "(")
+                        (R.concat
+                            doc
+                            (R.concat R.hardNl (R.text ")"))))
+            )
 
 
 {-| Serialize the Render.Doc tree for each top-level declaration to a JSON
@@ -2955,5 +3583,3 @@ lptToRenderDocJson root =
         (Ok [])
         (lpnChildren root)
         |> Result.map (\values -> Json.encode 2 (Json.array identity values))
-
-

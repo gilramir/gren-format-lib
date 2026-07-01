@@ -11,8 +11,8 @@ import Compiler.Ast.Source as Src
 import Compiler.SourcePosition as SP
 import Compiler.Parse.Number as Number
 
-
 -- Helpers
+
 
 encPos : SP.Position -> Json.Value
 encPos pos =
@@ -42,11 +42,14 @@ encLocated f loc =
 encMaybe : (a -> Json.Value) -> Maybe a -> Json.Value
 encMaybe f maybe =
     when maybe is
-        Nothing -> Json.null
-        Just a -> f a
+        Nothing ->
+            Json.null
 
+        Just a ->
+            f a
 
 -- Module
+
 
 {-| Encode a `Src.Module` as a JSON value.
 -}
@@ -72,14 +75,15 @@ encModuleDecl encV decl =
         , { key = "value", value = encV decl.value }
         ]
 
-
 -- Exposing
+
 
 encExposing : Src.Exposing -> Json.Value
 encExposing exp =
     when exp is
         Src.Open ->
             Json.string "open"
+
         Src.Explicit items ->
             Json.array encExposed items
 
@@ -92,12 +96,14 @@ encExposed exposed =
                 [ { key = "type", value = Json.string "lower" }
                 , { key = "name", value = encLocated Json.string loc }
                 ]
+
         Src.ExposedUpper { name, privacy } ->
             Json.object
                 [ { key = "type", value = Json.string "upper" }
                 , { key = "name", value = encLocated Json.string name }
                 , { key = "privacy", value = encPrivacy privacy }
                 ]
+
         Src.ExposedOperator loc ->
             Json.object
                 [ { key = "type", value = Json.string "operator" }
@@ -108,11 +114,14 @@ encExposed exposed =
 encPrivacy : Src.Privacy -> Json.Value
 encPrivacy privacy =
     when privacy is
-        Src.Public -> Json.string "public"
-        Src.Private -> Json.string "private"
+        Src.Public ->
+            Json.string "public"
 
+        Src.Private ->
+            Json.string "private"
 
 -- Import
+
 
 encImport : Src.Import -> Json.Value
 encImport imp =
@@ -122,8 +131,8 @@ encImport imp =
         , { key = "expose", value = encExposing imp.expose }
         ]
 
-
 -- Value
+
 
 encValue : Src.Value -> Json.Value
 encValue v =
@@ -142,8 +151,8 @@ encValueSig sig =
         , { key = "type_", value = encLocated encType_ sig.type_ }
         ]
 
-
 -- Union
+
 
 encUnion : Src.Union -> Json.Value
 encUnion union =
@@ -161,8 +170,8 @@ encUnionVariant variant =
         , { key = "payload", value = encMaybe encType variant.payload }
         ]
 
-
 -- Alias
+
 
 encAlias : Src.Alias -> Json.Value
 encAlias al =
@@ -172,8 +181,8 @@ encAlias al =
         , { key = "type_", value = encType al.type_ }
         ]
 
-
 -- Infix
+
 
 encInfix : Src.Infix -> Json.Value
 encInfix inf =
@@ -188,23 +197,30 @@ encInfix inf =
 encAssociativity : Src.BinopAssociativity -> Json.Value
 encAssociativity assoc =
     when assoc is
-        Src.OpALeft -> Json.string "left"
-        Src.OpANone -> Json.string "none"
-        Src.OpARight -> Json.string "right"
+        Src.OpALeft ->
+            Json.string "left"
 
+        Src.OpANone ->
+            Json.string "none"
+
+        Src.OpARight ->
+            Json.string "right"
 
 -- Effects
+
 
 encEffects : Src.Effects -> Json.Value
 encEffects effects =
     when effects is
         Src.NoEffects ->
             Json.string "none"
+
         Src.Ports ports ->
             Json.object
                 [ { key = "type", value = Json.string "ports" }
                 , { key = "ports", value = Json.array (encLocated (encModuleDecl encPort)) ports }
                 ]
+
         Src.Manager mgr ->
             Json.object
                 [ { key = "type", value = Json.string "manager" }
@@ -228,11 +244,13 @@ encManager mgr =
                 [ { key = "type", value = Json.string "cmd" }
                 , { key = "name", value = encLocated Json.string loc }
                 ]
+
         Src.Sub loc ->
             Json.object
                 [ { key = "type", value = Json.string "sub" }
                 , { key = "name", value = encLocated Json.string loc }
                 ]
+
         Src.Fx { cmd, sub } ->
             Json.object
                 [ { key = "type", value = Json.string "fx" }
@@ -240,8 +258,8 @@ encManager mgr =
                 , { key = "sub", value = encLocated Json.string sub }
                 ]
 
-
 -- Type
+
 
 encType : Src.Type -> Json.Value
 encType typ =
@@ -257,17 +275,20 @@ encType_ typ =
                 , { key = "from", value = encType from }
                 , { key = "to", value = encType to }
                 ]
+
         Src.TVar name ->
             Json.object
                 [ { key = "type", value = Json.string "var" }
                 , { key = "name", value = Json.string name }
                 ]
+
         Src.TType { name, args } ->
             Json.object
                 [ { key = "type", value = Json.string "type" }
                 , { key = "name", value = encLocated Json.string name }
                 , { key = "args", value = Json.array encType args }
                 ]
+
         Src.TTypeQual { varRegion, qualifier, name, args } ->
             Json.object
                 [ { key = "type", value = Json.string "typeQual" }
@@ -276,12 +297,14 @@ encType_ typ =
                 , { key = "name", value = Json.string name }
                 , { key = "args", value = Json.array encType args }
                 ]
+
         Src.TRecord { fields, extending } ->
             Json.object
                 [ { key = "type", value = Json.string "record" }
                 , { key = "fields", value = Json.array encTRecordField fields }
                 , { key = "extending", value = encMaybe (encLocated Json.string) extending }
                 ]
+
         Src.TParens inner ->
             Json.object
                 [ { key = "type", value = Json.string "parens" }
@@ -296,8 +319,8 @@ encTRecordField fld =
         , { key = "signature", value = encType fld.signature }
         ]
 
-
 -- Pattern
+
 
 encPattern : Src.Pattern -> Json.Value
 encPattern pat =
@@ -312,28 +335,33 @@ encPattern_ pat =
                 [ { key = "type", value = Json.string "anything" }
                 , { key = "name", value = Json.string name }
                 ]
+
         Src.PVar name ->
             Json.object
                 [ { key = "type", value = Json.string "var" }
                 , { key = "name", value = Json.string name }
                 ]
+
         Src.PRecord fields ->
             Json.object
                 [ { key = "type", value = Json.string "record" }
                 , { key = "fields", value = Json.array encPRecordField fields }
                 ]
+
         Src.PAlias { pattern, name } ->
             Json.object
                 [ { key = "type", value = Json.string "alias" }
                 , { key = "pattern", value = encPattern pattern }
                 , { key = "name", value = encLocated Json.string name }
                 ]
+
         Src.PCtor { name, arg } ->
             Json.object
                 [ { key = "type", value = Json.string "ctor" }
                 , { key = "name", value = encLocated Json.string name }
                 , { key = "arg", value = encMaybe encPattern arg }
                 ]
+
         Src.PCtorQual { varRegion, module_, name, arg } ->
             Json.object
                 [ { key = "type", value = Json.string "ctorQual" }
@@ -342,21 +370,25 @@ encPattern_ pat =
                 , { key = "name", value = Json.string name }
                 , { key = "arg", value = encMaybe encPattern arg }
                 ]
+
         Src.PArray patterns ->
             Json.object
                 [ { key = "type", value = Json.string "array" }
                 , { key = "patterns", value = Json.array encPattern patterns }
                 ]
+
         Src.PChr char ->
             Json.object
                 [ { key = "type", value = Json.string "char" }
                 , { key = "value", value = Json.string (String.fromChar char) }
                 ]
+
         Src.PStr str ->
             Json.object
                 [ { key = "type", value = Json.string "string" }
                 , { key = "value", value = Json.string str }
                 ]
+
         Src.PInt { value, isHex } ->
             Json.object
                 [ { key = "type", value = Json.string "int" }
@@ -372,8 +404,8 @@ encPRecordField fld =
         , { key = "pattern", value = encMaybe encPattern fld.pattern }
         ]
 
-
 -- Expression
+
 
 encExpression : Src.Expression -> Json.Value
 encExpression expr =
@@ -388,22 +420,26 @@ encExpression_ expr =
                 [ { key = "type", value = Json.string "char" }
                 , { key = "value", value = Json.string (String.fromChar char) }
                 ]
+
         Src.StringLiteral str ->
             Json.object
                 [ { key = "type", value = Json.string "string" }
                 , { key = "value", value = Json.string str }
                 ]
+
         Src.NumberLiteral outcome ->
             Json.object
                 [ { key = "type", value = Json.string "number" }
                 , { key = "value", value = encNumberOutcome outcome }
                 ]
+
         Src.Var { varType, name } ->
             Json.object
                 [ { key = "type", value = Json.string "var" }
                 , { key = "varType", value = encVarType varType }
                 , { key = "name", value = Json.string name }
                 ]
+
         Src.VarQual { varType, qualifier, name } ->
             Json.object
                 [ { key = "type", value = Json.string "varQual" }
@@ -411,32 +447,38 @@ encExpression_ expr =
                 , { key = "qualifier", value = Json.string qualifier }
                 , { key = "name", value = Json.string name }
                 ]
+
         Src.ArrayLiteral items ->
             Json.object
                 [ { key = "type", value = Json.string "array" }
                 , { key = "items", value = Json.array encExpression items }
                 ]
+
         Src.Record fields ->
             Json.object
                 [ { key = "type", value = Json.string "record" }
                 , { key = "fields", value = Json.array encRecordField fields }
                 ]
+
         Src.Update { record, newValues } ->
             Json.object
                 [ { key = "type", value = Json.string "update" }
                 , { key = "record", value = encExpression record }
                 , { key = "newValues", value = Json.array encRecordField newValues }
                 ]
+
         Src.Operator op ->
             Json.object
                 [ { key = "type", value = Json.string "operator" }
                 , { key = "op", value = Json.string op }
                 ]
+
         Src.Negate inner ->
             Json.object
                 [ { key = "type", value = Json.string "negate" }
                 , { key = "expr", value = encExpression inner }
                 ]
+
         Src.Binops { left, operator, right } ->
             Json.object
                 [ { key = "type", value = Json.string "binops" }
@@ -444,47 +486,55 @@ encExpression_ expr =
                 , { key = "operator", value = encLocated Json.string operator }
                 , { key = "right", value = encExpression right }
                 ]
+
         Src.Lambda { patterns, body } ->
             Json.object
                 [ { key = "type", value = Json.string "lambda" }
                 , { key = "patterns", value = Json.array encPattern patterns }
                 , { key = "body", value = encExpression body }
                 ]
+
         Src.Call { fn, args } ->
             Json.object
                 [ { key = "type", value = Json.string "call" }
                 , { key = "fn", value = encExpression fn }
                 , { key = "args", value = Json.array encExpression args }
                 ]
+
         Src.Let { defs, body } ->
             Json.object
                 [ { key = "type", value = Json.string "let" }
                 , { key = "defs", value = Json.array (encLocated encDef) defs }
                 , { key = "body", value = encExpression body }
                 ]
+
         Src.If { branches, elseBranch } ->
             Json.object
                 [ { key = "type", value = Json.string "if" }
                 , { key = "branches", value = Json.array encIfBranch branches }
                 , { key = "elseBranch", value = encExpression elseBranch }
                 ]
+
         Src.When { expression, branches } ->
             Json.object
                 [ { key = "type", value = Json.string "when" }
                 , { key = "expression", value = encExpression expression }
                 , { key = "branches", value = Json.array encWhenBranch branches }
                 ]
+
         Src.Accessor fld ->
             Json.object
                 [ { key = "type", value = Json.string "accessor" }
                 , { key = "field", value = Json.string fld }
                 ]
+
         Src.Access { expression, accessor } ->
             Json.object
                 [ { key = "type", value = Json.string "access" }
                 , { key = "expression", value = encExpression expression }
                 , { key = "accessor", value = Json.string accessor }
                 ]
+
         Src.Parens inner ->
             Json.object
                 [ { key = "type", value = Json.string "parens" }
@@ -527,6 +577,7 @@ encDef def =
                 , { key = "body", value = encExpression rec.body }
                 , { key = "typeSignature", value = encMaybe encType rec.typeSignature }
                 ]
+
         Src.Destruct { pattern, body } ->
             Json.object
                 [ { key = "type", value = Json.string "destruct" }
@@ -538,8 +589,11 @@ encDef def =
 encVarType : Src.VarType -> Json.Value
 encVarType vt =
     when vt is
-        Src.LowVar -> Json.string "lower"
-        Src.CapVar -> Json.string "upper"
+        Src.LowVar ->
+            Json.string "lower"
+
+        Src.CapVar ->
+            Json.string "upper"
 
 
 encNumberOutcome : Number.Outcome -> Json.Value
@@ -550,12 +604,14 @@ encNumberOutcome outcome =
                 [ { key = "type", value = Json.string "int" }
                 , { key = "value", value = Json.int n }
                 ]
+
         Number.FloatingPoint { val = fval, text = ftext } ->
             Json.object
                 [ { key = "type", value = Json.string "float" }
                 , { key = "value", value = Json.float fval }
                 , { key = "text", value = Json.string ftext }
                 ]
+
         Number.Hex h ->
             Json.object
                 [ { key = "type", value = Json.string "hex" }

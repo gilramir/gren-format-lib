@@ -5,6 +5,7 @@ The Formatter package takes a parsed Gren source file and produces a
 canonically formatted string.
 
 @docs prettyPrint
+
 -}
 
 import Compiler.Ast.Source as Src
@@ -12,6 +13,7 @@ import Compiler.Parse.Context as Ctx
 
 import Formatter.MakeLogical exposing (makeLogicalPrintingTree)
 import Formatter.MakePretty exposing (makePrettyResult)
+
 
 {-|
 Input: a syntax tree (Src.Module) and a comment table (Ctx.Context) produced
@@ -41,11 +43,13 @@ The key design principle is that layout decisions (where line breaks go, how
 much indentation) are separated from content (the actual tokens and comments).
 Stage 1 captures the logical structure and the author's inline/vertical choices;
 stages 2 and 3 render them.
+
 -}
-prettyPrint: Src.Module -> Ctx.Context -> Result String String
+prettyPrint : Src.Module -> Ctx.Context -> Result String String
 prettyPrint ast ctx =
     when makeLogicalPrintingTree ast ctx is
         Err errString ->
             Err errString
+
         Ok lpTree ->
-             makePrettyResult lpTree
+            makePrettyResult lpTree

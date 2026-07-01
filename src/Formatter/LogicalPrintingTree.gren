@@ -4,10 +4,12 @@ import Math exposing (maxSafeInteger)
 
 import Compiler.SourcePosition exposing (Located, Position)
 
+
 type ListBrackets
     = ListParen
     | ListCurly
     | ListSquare
+
 
 type SyntaxType
     = StModule
@@ -22,45 +24,62 @@ type SyntaxType
     | StPort
     | StInfixDecl
 
+
 stypeToString : SyntaxType -> String
 stypeToString st =
     when st is
-        StModule -> "module"
-        StImport -> "import"
-        StSingleLineComment -> "lineComment"
-        StBlockComment -> "blockComment"
-        StDocComment -> "docComment"
-        StFunctionSignature -> "funcSig"
-        StFunctionDeclaration -> "funcDecl"
-        StTypeAlias -> "typeAlias"
-        StTypeUnion -> "typeUnion"
-        StPort -> "port"
-        StInfixDecl -> "infixDecl"
+        StModule ->
+            "module"
+
+        StImport ->
+            "import"
+
+        StSingleLineComment ->
+            "lineComment"
+
+        StBlockComment ->
+            "blockComment"
+
+        StDocComment ->
+            "docComment"
+
+        StFunctionSignature ->
+            "funcSig"
+
+        StFunctionDeclaration ->
+            "funcDecl"
+
+        StTypeAlias ->
+            "typeAlias"
+
+        StTypeUnion ->
+            "typeUnion"
+
+        StPort ->
+            "port"
+
+        StInfixDecl ->
+            "infixDecl"
+
 
 type LPBox
     -- This is needed just to use as a root node
     = RootBox
-
     -- Sets the original source row for the children
-    | OriginalRows { first: Int, last: Int, stype: SyntaxType }
-
+    | OriginalRows { first : Int, last : Int, stype : SyntaxType }
     -- An empty line inserted after we have grouped everything
     | EmptyLine
-
     -- Just regular text; printed as-is. Can never be broken.
     -- The location is the original source location, if we have it.
     | UnbreakableText (Located String)
-
     -- Synthesized keyword or punctuation with no source position
     -- (e.g. "=", "in", "then", "else", "->", "is", "(..)").
     -- Excluded from all row-range computations.
     | SynthesizedText String
-
     -- For when the line starts with and is only a single-line comment
     | SingleLineComment (Located String)
     | BlockComment (Located String)
     | DocComment (Located String)
-
     -- Flows across as far as possible. When it goes
     -- to the first new line, it indents one over and continues.
     -- Subsequent lines stay at that indentation.
@@ -68,7 +87,6 @@ type LPBox
     --     foo bar baz
     --         qux quux         -- continuation indented +4
     | AcrossThenIndent { forceVertical : Bool }
-
     -- Like AcrossThenIndent but with 2× the indent on continuation lines.
     -- Used for if/else if conditions so their continuations are more indented
     -- than the branch body (+8 vs +4), making them visually distinct.
@@ -77,7 +95,6 @@ type LPBox
     --             && more then   -- condition wraps at +8
     --         body               -- body at +4
     | IfCondition { forceVertical : Bool }
-
     -- Lists with surrounding brackets that the author wrote on one line.
     -- Renders inline on one line (regardless of width); the only thing that
     -- forces it one-item-per-line is a contained comment. Lists the author
@@ -88,7 +105,6 @@ type LPBox
     --                                     , c
     --                                     ]
     | AllAcrossOrAllVertical ListBrackets
-
     -- Always-vertical list: one item per line. Used for array literals and
     -- record literals the author wrote across multiple source rows (see
     -- `Src.ArrayLiteral` / `Src.Record` in InsertExpressions and
@@ -99,7 +115,6 @@ type LPBox
     --     , y = 2
     --     }
     | AlwaysVertical ListBrackets
-
     -- Multi-field record update: base name on first line, fields indented +4.
     --
     --     { pt
@@ -117,20 +132,17 @@ type LPBox
     -- one-field-per-line. When False (author wrote it on one line) it renders
     -- inline `{ base | a, b }`, regardless of width.
     | RecordUpdate { name : Located String, forceVertical : Bool }
-
     -- An empty bracketed literal (`{}` / `[]` / `()`). Carries the full
     -- source span so a comment that sits between the opening and
     -- closing bracket (`{ {- c -} }`) can be placed as a child of this
     -- node during comment insertion, instead of falling out to a
     -- sibling slot of the literal.
     | EmptyBracketed (Located ListBrackets)
-
     -- Children always render on a new indented line (used for then/else bodies, etc.).
     --
     --     parent
     --         child
     | IndentedBlock
-
     -- One step in a |> or <| pipeline: renders like IndentedBlock but always
     -- hard-breaks before the pipe operator. Adds a blank line before if the
     -- step starts with a comment.
@@ -139,7 +151,6 @@ type LPBox
     --         |> step1
     --         |> step2
     | PipelineStep
-
     -- A whole `|>`/`<|` pipeline: children are the seed node(s) followed by the
     -- `PipelineStep` nodes. `op` is `"|>"` or `"<|"`. Mirrors the author-layout
     -- rule of the bracketed containers: a pipeline written on one line stays
@@ -154,38 +165,32 @@ type LPBox
     --   when the step body is a lambda, the lambda head also trails
     --   (`seed <| \patterns ->\n    body`).
     | Pipeline { forceVertical : Bool, op : String }
-
     -- Function body block: forces a hard newline before children, no extra nesting
     -- (the outer buildFlowDoc's P.nest 4 provides the 4-space indent).
     --
     --     foo =
     --         body
     | BodyBlock
-
     -- One branch in a when/is expression.
     --
     --     Pattern ->
     --         body
     | WhenBranch
-
     -- Pattern nodes for one when-branch. Renders like AcrossThenIndent
     -- (continuation lines +4) but appends " ->" directly after the last token,
     -- so the arrow always trails the pattern on the same line — including after
     -- the closing } of a broken record pattern.
     | WhenBranchPattern
-
     -- Parenthesized expression: renders children with ( prefix and ) suffix
     -- using P.concat (immediate adjacency, no space). Used instead of
     -- text-modification so that bracket-rendered containers (like arrays) render
     -- correctly: ([...] ++ x) not [( ... ] ++ x).
     | ParenBlock
-
     -- One step of a non-pipeline binop chain: children are [op, ...rhsNodes].
     -- Renders the operator immediately adjacent (with a single space) to the
     -- rhs flow, so when the surrounding chain breaks, the operator starts the
     -- new line instead of dangling at the end of the previous one.
     | OpAndRhs
-
     -- A whole non-pipeline binop chain (`a + b * c`). Children are the nested
     -- `[operand0, OpAndRhs(op1, [operand1, OpAndRhs(op2, …)])]` structure the
     -- chain has always built. Mirrors the author-layout rule: inline when written
@@ -201,14 +206,12 @@ type LPBox
     -- groups across rows. A chain carrying any comment falls back to the existing
     -- `OpAndRhs` fill rendering (`buildFlowDoc 0 children`), unchanged.
     | Binop { forceVertical : Bool }
-
     -- A flow whose internal newlines are aligned to the column where the
     -- flow starts (via P.align). Used to wrap indentation-sensitive
     -- constructs (if/then/else, let/in) so their bodies indent
     -- relative to the keyword's actual column, even when comments have
     -- shifted that keyword to the right.
     | AlignedFlow
-
     -- `when … is` expression. Children are:
     --   [whenNode, …scrutineeNodes, isNode, IndentedBlock(branchNodes)]
     -- Flat: "when scrutinee is" on one line (when the author wrote it so).
@@ -222,7 +225,6 @@ type LPBox
     --     is
     --         Nothing -> …
     | WhenFlow { forceVertical : Bool }
-
     -- Prefix glued (no space) to the rendered children. Used for
     -- prefix-negation `-expr` (PrefixGlue "-") and lambdas `\pat -> body`
     -- (PrefixGlue "\\"). Mapping the prefix onto the first text leaf
@@ -234,7 +236,6 @@ type LPBox
     -- the prefix and its content lands outside the PrefixGlue
     -- entirely).
     | PrefixGlue (Located String)
-
     -- Children concatenated with NO separator. Used for a postfix
     -- accessor glued after a bracket-rendered base: `(expr).field`,
     -- `{ a = 1 }.a`, `{ r | a = 1 }.a`. Mapping the accessor onto the
@@ -244,7 +245,6 @@ type LPBox
     -- a different expression. The accessor is an ordinary positioned
     -- leaf child, so position bookkeeping needs no special casing.
     | Glue
-
     -- Let-def body: keeps children inline after `=` unless the body itself
     -- breaks. Unlike IndentedBlock (which always forces a hard newline), this
     -- wraps the body in a group (rendered flat, so the soft break before it
@@ -255,7 +255,6 @@ type LPBox
     --     name = body                or       name =
     --                                             body
     | SoftIndentedBlock
-
     -- A triple-quoted (""") multiline string literal.
     -- Each element is one line of content (leading whitespace already stripped by the parser).
     -- Rendered as """ followed by a hard-newline-separated list of lines and a closing """.
@@ -269,6 +268,7 @@ type LPBox
     -- enclosing OriginalRows extends over the whole literal and
     -- adjacent comments can be anchored to it.
     | MultilineString (Located (Array String))
+
 
 {-| The logical-printing-tree node.
 
@@ -298,8 +298,7 @@ the comment between the bracket's last item and the closing
 bracket character.
 -}
 type LPNode
-    = LPNode
-        { box : LPBox
+    = LPNode { box : LPBox
         , children : Array LPNode
         , firstPos : Maybe Position
         , lastPos : Maybe Position
@@ -314,12 +313,15 @@ type LPNode
 lpnBox : LPNode -> LPBox
 lpnBox node =
     when node is
-        LPNode r -> r.box
+        LPNode r ->
+            r.box
+
 
 lpnChildren : LPNode -> Array LPNode
 lpnChildren node =
     when node is
-        LPNode r -> r.children
+        LPNode r ->
+            r.children
 
 
 {-| First positioned token of the subtree in depth-first pre-order.
@@ -330,7 +332,8 @@ base name, or the opening bracket itself is the earliest position).
 lpnFirstPos : LPNode -> Maybe Position
 lpnFirstPos node =
     when node is
-        LPNode r -> r.firstPos
+        LPNode r ->
+            r.firstPos
 
 
 {-| Last positioned token of the subtree in depth-first post-order.
@@ -340,7 +343,8 @@ contribute, mirroring the existing `lastRealPosition` semantics.
 lpnLastPos : LPNode -> Maybe Position
 lpnLastPos node =
     when node is
-        LPNode r -> r.lastPos
+        LPNode r ->
+            r.lastPos
 
 
 {-| Smallest source row covered by any positioned descendant, or
@@ -349,7 +353,8 @@ lpnLastPos node =
 lpnMinRow : LPNode -> Int
 lpnMinRow node =
     when node is
-        LPNode r -> r.minRow
+        LPNode r ->
+            r.minRow
 
 
 {-| Largest source row covered by any positioned descendant
@@ -359,7 +364,8 @@ their content), or `-1` if the subtree has no positioned leaves.
 lpnMaxRow : LPNode -> Int
 lpnMaxRow node =
     when node is
-        LPNode r -> r.maxRow
+        LPNode r ->
+            r.maxRow
 
 
 {-| Source position of the last positioned descendant of the
@@ -374,7 +380,8 @@ appeared in the source).
 lpnLastBracketEnd : LPNode -> Maybe Position
 lpnLastBracketEnd node =
     when node is
-        LPNode r -> r.lastBracketEnd
+        LPNode r ->
+            r.lastBracketEnd
 
 
 {-| True when `lastBracketEnd` is the container's *exact* closing-bracket
@@ -385,7 +392,8 @@ where-blocks, patterns). Callers classifying a trailing comment use strict
 lpnBracketEndExact : LPNode -> Bool
 lpnBracketEndExact node =
     when node is
-        LPNode r -> r.bracketEndExact
+        LPNode r ->
+            r.bracketEndExact
 
 
 {-| The exact source position of this container's *opening* bracket, when the
@@ -401,14 +409,16 @@ inside the braces doesn't masquerade as a break between `->` segments.
 lpnBracketStart : LPNode -> Maybe Position
 lpnBracketStart node =
     when node is
-        LPNode r -> r.bracketStart
+        LPNode r ->
+            r.bracketStart
 
 
 {-| Record `openStart` as the node's opening-bracket position. -}
 lpnWithBracketStart : Position -> LPNode -> LPNode
 lpnWithBracketStart openStart node =
     when node is
-        LPNode r -> LPNode { r | bracketStart = Just openStart }
+        LPNode r ->
+            LPNode { r | bracketStart = Just openStart }
 
 
 lpnLeaf : LPBox -> LPNode
@@ -422,24 +432,37 @@ combined via min/max. -}
 lpnNode : LPBox -> Array LPNode -> LPNode
 lpnNode box children =
     let
-        self = selfBoxBounds box
+        self =
+            selfBoxBounds box
 
         -- Combine children's cached bounds with self's contribution.
         merged =
             Array.foldl
                 (\child acc ->
-                    let cfp = lpnFirstPos child
-                        clp = lpnLastPos child
-                        cbe = lpnLastBracketEnd child
+                    let
+                        cfp =
+                            lpnFirstPos child
+
+                        clp =
+                            lpnLastPos child
+
+                        cbe =
+                            lpnLastBracketEnd child
                     in
                     { firstPos =
                         when acc.firstPos is
-                            Just _ -> acc.firstPos
-                            Nothing -> cfp
+                            Just _ ->
+                                acc.firstPos
+
+                            Nothing ->
+                                cfp
                     , lastPos =
                         when clp is
-                            Just _ -> clp
-                            Nothing -> acc.lastPos
+                            Just _ ->
+                                clp
+
+                            Nothing ->
+                                acc.lastPos
                     , minRow = min (lpnMinRow child) acc.minRow
                     , maxRow = max (lpnMaxRow child) acc.maxRow
                     -- Bracket-end propagates from the LAST child whose
@@ -448,12 +471,18 @@ lpnNode box children =
                     -- keeps the rightmost bracket-list's end.
                     , lastBracketEnd =
                         when cbe is
-                            Just _ -> cbe
-                            Nothing -> acc.lastBracketEnd
+                            Just _ ->
+                                cbe
+
+                            Nothing ->
+                                acc.lastBracketEnd
                     , bracketEndExact =
                         when cbe is
-                            Just _ -> lpnBracketEndExact child
-                            Nothing -> acc.bracketEndExact
+                            Just _ ->
+                                lpnBracketEndExact child
+
+                            Nothing ->
+                                acc.bracketEndExact
                     }
                 )
                 { firstPos = self.firstPos
@@ -474,6 +503,7 @@ lpnNode box children =
         bracketEnd =
             if self.isBracket then
                 merged.lastPos
+
             else
                 merged.lastBracketEnd
 
@@ -484,6 +514,7 @@ lpnNode box children =
         bracketExact =
             if self.isBracket then
                 False
+
             else
                 merged.bracketEndExact
     in
@@ -530,7 +561,8 @@ extension it is identical to `lpnNode (lpnBox old) newChildren`. -}
 lpnReplaceChildren : LPNode -> Array LPNode -> LPNode
 lpnReplaceChildren old newChildren =
     let
-        rebuilt = lpnNode (lpnBox old) newChildren
+        rebuilt =
+            lpnNode (lpnBox old) newChildren
     in
     let
         -- The opening-bracket position (like the closing one) lives on the
@@ -539,12 +571,14 @@ lpnReplaceChildren old newChildren =
             when lpnBracketStart old is
                 Nothing ->
                     rebuilt
+
                 Just oldStart ->
                     lpnWithBracketStart oldStart rebuilt
     in
     when lpnLastBracketEnd old is
         Nothing ->
             withStart
+
         Just oldEnd ->
             when withStart is
                 LPNode r ->
@@ -578,14 +612,14 @@ Inclusion rules match the legacy recursive helpers:
     `EmptyBracketed` (the bracket-list boxes the descent guard cares
     about).
 -}
-selfBoxBounds
-    : LPBox
+selfBoxBounds :
+    LPBox
     -> { firstPos : Maybe Position
-       , lastPos : Maybe Position
-       , minRow : Int
-       , maxRow : Int
-       , isBracket : Bool
-       }
+    , lastPos : Maybe Position
+    , minRow : Int
+    , maxRow : Int
+    , isBracket : Bool
+    }
 selfBoxBounds box =
     let
         empty =
@@ -604,6 +638,7 @@ selfBoxBounds box =
                 , minRow = loc.start.row
                 , maxRow = loc.end.row
             }
+
         SingleLineComment loc ->
             { empty
                 | firstPos = Just loc.start
@@ -611,6 +646,7 @@ selfBoxBounds box =
                 , minRow = loc.start.row
                 , maxRow = loc.end.row
             }
+
         BlockComment loc ->
             { empty
                 | firstPos = Just loc.start
@@ -625,17 +661,20 @@ selfBoxBounds box =
                 -- *trailing* comment of the previous one (blank-line churn).
                 , maxRow = loc.end.row
             }
+
         DocComment loc ->
             { empty
                 | minRow = loc.start.row
                 , maxRow = loc.end.row
             }
+
         PrefixGlue loc ->
             { empty
                 | firstPos = Just loc.start
                 , minRow = loc.start.row
                 , maxRow = loc.end.row
             }
+
         MultilineString loc ->
             { empty
                 | firstPos = Just loc.start
@@ -643,12 +682,14 @@ selfBoxBounds box =
                 , minRow = loc.start.row
                 , maxRow = loc.end.row
             }
+
         RecordUpdate { name } ->
             { empty
                 | firstPos = Just name.start
                 , minRow = name.start.row
                 , maxRow = name.end.row
             }
+
         EmptyBracketed loc ->
             { empty
                 | firstPos = Just loc.start
@@ -656,10 +697,13 @@ selfBoxBounds box =
                 , maxRow = loc.end.row
                 , isBracket = True
             }
+
         AllAcrossOrAllVertical _ ->
             { empty | isBracket = True }
+
         AlwaysVertical _ ->
             { empty | isBracket = True }
+
         _ ->
             empty
 
@@ -677,9 +721,15 @@ subtreeRowRange node =
 -- leaves exist. O(1).
 firstRowInSubtree : LPNode -> Int
 firstRowInSubtree node =
-    let r = subtreeRowRange node
+    let
+        r =
+            subtreeRowRange node
     in
-    if r.minRow == maxSafeInteger then -1 else r.minRow
+    if r.minRow == maxSafeInteger then
+        -1
+
+    else
+        r.minRow
 
 
 -- Last (largest) positioned row in a subtree, or -1 if no positioned
@@ -687,5 +737,3 @@ firstRowInSubtree node =
 lastRowInSubtree : LPNode -> Int
 lastRowInSubtree node =
     (subtreeRowRange node).maxRow
-
-

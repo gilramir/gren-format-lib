@@ -9,9 +9,19 @@ import Compiler.Ast.Source as Src
 import Compiler.Parse.Context as Ctx
 import Compiler.SourcePosition exposing (Located, Position)
 
-import Formatter.LogicalPrintingTree exposing (LPBox(..),
-    LPNode(..), ListBrackets(..), SyntaxType(..),
-    lpnBox, lpnChildren, lpnLeaf, lpnNode, lpnBracketNode, lastRowInSubtree)
+import Formatter.LogicalPrintingTree
+    exposing
+        ( LPBox(..)
+        , LPNode(..)
+        , ListBrackets(..)
+        , SyntaxType(..)
+        , lpnBox
+        , lpnChildren
+        , lpnLeaf
+        , lpnNode
+        , lpnBracketNode
+        , lastRowInSubtree
+        )
 import Formatter.Comments exposing (lptAddComments)
 import Formatter.LPTHelpers exposing (mkText, mkZeroWidthText, mkTextFromLocString, resultFoldl)
 import Formatter.InsertExpressions exposing (insertExpression)
@@ -39,14 +49,24 @@ makeLogicalPrintingTree ast ctx =
     when lptFromAst ast is
         Err errString ->
             Err ("Failed to create intermediate representation for pretty printing: "
-                ++ errString)
+                    ++ errString)
+
         Ok lpt ->
             let
-                lptWc = lptAddComments ctx lpt
-                lptLb = insertLetBlankLines lptWc
-                lptIf = insertIfBlankLines lptLb
-                lptWhen = insertWhenBlankLines lptIf
-                lptXl = insertEmptyLines lptWhen
+                lptWc =
+                    lptAddComments ctx lpt
+
+                lptLb =
+                    insertLetBlankLines lptWc
+
+                lptIf =
+                    insertIfBlankLines lptLb
+
+                lptWhen =
+                    insertWhenBlankLines lptIf
+
+                lptXl =
+                    insertEmptyLines lptWhen
             in
             Ok lptXl
 
@@ -61,7 +81,9 @@ order using the row ranges recorded on each `OriginalRows` box.
 -}
 lptFromAst : Src.Module -> Result String LPNode
 lptFromAst modAst =
-    let root = lpnLeaf RootBox
+    let
+        root =
+            lpnLeaf RootBox
     in
     processModuleLine modAst root
         |> Result.map (processFunctionDoc modAst.docs)
@@ -87,6 +109,7 @@ sortOriginalRows root =
                     when { a = lpnBox a, b = lpnBox b } is
                         { a = OriginalRows { last = alast }, b = OriginalRows { first = bfirst } } ->
                             compare alast bfirst
+
                         _ ->
                             compare 0 1
                 )
@@ -101,7 +124,8 @@ positioned row found anywhere in `children`.
 makeOrigRows : Int -> SyntaxType -> Array LPNode -> LPNode
 makeOrigRows firstRow stype children =
     let
-        last = Array.foldl (\child acc -> max acc (lastRowInSubtree child)) -1 children
+        last =
+            Array.foldl (\child acc -> max acc (lastRowInSubtree child)) -1 children
     in
     lpnNode (OriginalRows { first = firstRow, last = last, stype = stype }) children
 
@@ -125,9 +149,15 @@ processModuleLine modAst root =
     let
         keyword =
             when modAst.effects is
-                Src.Ports _ -> "port module"
-                Src.Manager _ -> "effect module"
-                Src.NoEffects -> "module"
+                Src.Ports _ ->
+                    "port module"
+
+                Src.Manager _ ->
+                    "effect module"
+
+                Src.NoEffects ->
+                    "module"
+
         -- Zero-width: `port module` / `effect module` are rendered as one
         -- multi-word token, but a real width would let a comment written
         -- *between* the words (`port {- c -} module`) fall inside the token's
@@ -141,8 +171,11 @@ processModuleLine modAst root =
         -- Anchoring at the name's row would then place the keyword *below* a
         -- comment on row 1, so the comment would sort before the keyword and
         -- escape ahead of it on reparse (non-idempotent, and unparseable).
-        n1 = lpnLeaf (mkZeroWidthText { row = 1, col = 1 } keyword)
-        n2 = lpnLeaf (mkTextFromLocString modAst.name)
+        n1 =
+            lpnLeaf (mkZeroWidthText { row = 1, col = 1 } keyword)
+
+        n2 =
+            lpnLeaf (mkTextFromLocString modAst.name)
 
         -- For effect modules, emit a `where { ... }` block between the
         -- module name and `exposing`. The block lists which constructors
@@ -169,14 +202,26 @@ processModuleLine modAst root =
                         -- Formatter.Comments to place inter-token comments.
                         binding label locName =
                             let
-                                ctorCol = locName.start.col
-                                labelLen = String.count label
-                                labelCol = ctorCol - 3 - labelLen
-                                eqCol = ctorCol - 2
-                                labelStart = { row = locName.start.row, col = labelCol }
-                                eqStart = { row = locName.start.row, col = eqCol }
+                                ctorCol =
+                                    locName.start.col
+
+                                labelLen =
+                                    String.count label
+
+                                labelCol =
+                                    ctorCol - 3 - labelLen
+
+                                eqCol =
+                                    ctorCol - 2
+
+                                labelStart =
+                                    { row = locName.start.row, col = labelCol }
+
+                                eqStart =
+                                    { row = locName.start.row, col = eqCol }
                             in
-                            lpnNode (AcrossThenIndent { forceVertical = False })
+                            lpnNode
+                                (AcrossThenIndent { forceVertical = False })
                                 [ lpnLeaf (mkZeroWidthText labelStart label)
                                 , lpnLeaf (mkZeroWidthText eqStart "=")
                                 , lpnLeaf (mkTextFromLocString locName)
@@ -186,8 +231,10 @@ processModuleLine modAst root =
                             when manager is
                                 Src.Cmd locName ->
                                     [ binding "command" locName ]
+
                                 Src.Sub locName ->
                                     [ binding "subscription" locName ]
+
                                 Src.Fx { cmd = cmd, sub = sub } ->
                                     [ binding "command" cmd
                                     , binding "subscription" sub
@@ -196,6 +243,7 @@ processModuleLine modAst root =
                     [ lpnLeaf (SynthesizedText "where")
                     , lpnNode (AllAcrossOrAllVertical ListCurly) fields
                     ]
+
                 _ ->
                     []
 
@@ -203,6 +251,7 @@ processModuleLine modAst root =
             { row = modAst.name.start.row
             , col = modAst.name.start.col + String.count modAst.name.value
             }
+
         -- `exposing` has no position in the AST, so we synthesize one. We
         -- anchor it *exactly at the end of the module name* (a real, stable
         -- position) rather than one column further. This guarantees
@@ -221,6 +270,7 @@ processModuleLine modAst root =
             when modAst.effects is
                 Src.Manager _ ->
                     lpnLeaf (SynthesizedText "exposing")
+
                 _ ->
                     lpnLeaf (mkZeroWidthText exposingPos "exposing")
 
@@ -228,8 +278,10 @@ processModuleLine modAst root =
             when modAst.exports is
                 Src.Open ->
                     lpnLeaf (SynthesizedText "(..)")
+
                 Src.Explicit exposed ->
-                    lpnNode (exposingListBox (exposedSpansRows exposed))
+                    lpnNode
+                        (exposingListBox (exposedSpansRows exposed))
                         (Array.map processExposed exposed)
 
         -- When the `exposing ( ... )` list renders *vertically* (one item per
@@ -249,6 +301,7 @@ processModuleLine modAst root =
             when modAst.exports is
                 Src.Explicit exposed ->
                     exposedSpansRows exposed
+
                 Src.Open ->
                     False
 
@@ -262,6 +315,7 @@ processModuleLine modAst root =
             when modAst.effects is
                 Src.Manager (Src.Fx { cmd = cmd, sub = sub }) ->
                     sub.start.row > cmd.start.row
+
                 _ ->
                     False
 
@@ -272,15 +326,17 @@ processModuleLine modAst root =
         -- line's range and be re-attached as a top-level comment *ahead* of the
         -- module keyword on reparse — which does not parse (non-idempotent).
         base =
-            makeOrigRows 1 StModule ([n1, n2] ++ whereNodes ++ [n3, n4])
+            makeOrigRows 1 StModule ([ n1, n2 ] ++ whereNodes ++ [ n3, n4 ])
 
         origRow =
             if exposingClosesBelow || whereClosesBelow then
                 when lpnBox base is
                     OriginalRows r ->
                         lpnNode (OriginalRows { r | last = r.last + 1 }) (lpnChildren base)
+
                     _ ->
                         base
+
             else
                 base
     in
@@ -304,6 +360,7 @@ processExposed exposed =
             when privacy is
                 Src.Public ->
                     lpnLeaf (UnbreakableText { sp | value = sp.value ++ "(..)" })
+
                 Src.Private ->
                     lpnLeaf (UnbreakableText sp)
 
@@ -319,8 +376,10 @@ exposedRow exposed =
     when exposed is
         Src.ExposedLower sp ->
             sp.start.row
+
         Src.ExposedUpper { name = sp } ->
             sp.start.row
+
         Src.ExposedOperator sp ->
             sp.start.row
 
@@ -338,8 +397,10 @@ exposedSpansRows exposed =
             when Array.last rest is
                 Just lastExposed ->
                     exposedRow lastExposed > exposedRow firstExposed
+
                 Nothing ->
                     False
+
         Nothing ->
             False
 
@@ -353,6 +414,7 @@ exposingListBox : Bool -> LPBox
 exposingListBox spansRows =
     if spansRows then
         AlwaysVertical ListParen
+
     else
         AllAcrossOrAllVertical ListParen
 
@@ -372,8 +434,11 @@ processImports modAst root =
 processImport : Located Src.Import -> LPNode -> LPNode
 processImport locImport root =
     let
-        n1 = lpnLeaf (mkText { row = locImport.start.row, col = 1 } "import")
-        n2 = lpnLeaf (mkTextFromLocString locImport.value.module_)
+        n1 =
+            lpnLeaf (mkText { row = locImport.start.row, col = 1 } "import")
+
+        n2 =
+            lpnLeaf (mkTextFromLocString locImport.value.module_)
 
         -- `as`, the alias name, and `exposing` have no AST positions; only the
         -- module name and the import's overall end are recorded. Anchor the
@@ -393,18 +458,21 @@ processImport locImport root =
         --   - `exposing` sits at the module name's end, so a comment in the
         --     exposing area sorts after it (canonical:
         --     `exposing {- c -} ( … )`).
-        modEnd = locImport.value.module_.end
+        modEnd =
+            locImport.value.module_.end
 
         aliasNodes =
             when locImport.value.alias is
                 Nothing ->
                     []
+
                 Just name ->
                     [ lpnLeaf (mkZeroWidthText locImport.end "as")
                     , lpnLeaf (mkZeroWidthText locImport.end name)
                     ]
 
-        exposingStart = modEnd
+        exposingStart =
+            modEnd
 
         -- Emit `exposing (...)` after the module name. `Open` is the
         -- wildcard `(..)` form; `Explicit` is a list of items (an empty
@@ -415,24 +483,27 @@ processImport locImport root =
                     [ lpnLeaf (mkZeroWidthText exposingStart "exposing")
                     , lpnLeaf (SynthesizedText "(..)")
                     ]
+
                 Src.Explicit xlist ->
                     when Array.popFirst xlist is
                         Just _ ->
                             [ lpnLeaf (mkZeroWidthText exposingStart "exposing")
-                            , -- `locImport.end` is past the closing `)`, so the
-                              -- import's row range covers it. Without this, a
-                              -- comment that forces the exposing list multi-line
-                              -- leaves the import's last row at the last exposed
-                              -- name, and the `)` line reads as a one-row gap
-                              -- before the next declaration — inserting a blank
-                              -- line non-idempotently.
-                              lpnBracketNode (exposingListBox (exposedSpansRows xlist)) locImport.end
-                                (Array.map processExposed xlist)
+                            -- `locImport.end` is past the closing `)`, so the
+                            -- import's row range covers it. Without this, a
+                            -- comment that forces the exposing list multi-line
+                            -- leaves the import's last row at the last exposed
+                            -- name, and the `)` line reads as a one-row gap
+                            -- before the next declaration — inserting a blank
+                            -- line non-idempotently.
+                            , lpnBracketNode (exposingListBox (exposedSpansRows xlist)) locImport.end (Array.map processExposed xlist)
                             ]
+
                         Nothing ->
                             []
 
-        allChildren = [n1, n2] ++ aliasNodes ++ exposeNodes
+        allChildren =
+            [ n1, n2 ] ++ aliasNodes ++ exposeNodes
+
         origRow =
             makeOrigRows locImport.start.row StImport allChildren
     in
@@ -442,9 +513,14 @@ processImport locImport root =
 processPorts : Src.Module -> LPNode -> Result String LPNode
 processPorts modAst root =
     when modAst.effects is
-        Src.NoEffects -> Ok root
-        Src.Ports ports -> resultFoldl processPortDecl root ports
-        Src.Manager _ -> Ok root
+        Src.NoEffects ->
+            Ok root
+
+        Src.Ports ports ->
+            resultFoldl processPortDecl root ports
+
+        Src.Manager _ ->
+            Ok root
 
 
 {-| Emit one `port name : Signature` declaration as an `StPort`
@@ -455,20 +531,33 @@ processPorts modAst root =
 processPortDecl : Src.ModuleDeclaration Src.Port -> LPNode -> Result String LPNode
 processPortDecl modDecl root =
     let
-        port_ = modDecl.value.value
-        portNode = lpnLeaf (mkText { row = modDecl.start.row, col = 1 } "port")
-        nameNode = lpnLeaf (mkTextFromLocString port_.name)
-        colonNode = lpnLeaf (mkZeroWidthText port_.name.end ":")
-        t0 = processFunctionDoc modDecl.value.docs root
+        port_ =
+            modDecl.value.value
+
+        portNode =
+            lpnLeaf (mkText { row = modDecl.start.row, col = 1 } "port")
+
+        nameNode =
+            lpnLeaf (mkTextFromLocString port_.name)
+
+        colonNode =
+            lpnLeaf (mkZeroWidthText port_.name.end ":")
+
+        t0 =
+            processFunctionDoc modDecl.value.docs root
     in
     makeSignatureBranch port_.signature
-        |> Result.map (\typeNodes ->
-            let
-                allChildren = [portNode, nameNode, colonNode] ++ typeNodes
-                origRow = makeOrigRows modDecl.start.row StPort allChildren
-            in
-            addRootChild origRow t0
-        )
+        |> Result.map
+            (\typeNodes ->
+                let
+                    allChildren =
+                        [ portNode, nameNode, colonNode ] ++ typeNodes
+
+                    origRow =
+                        makeOrigRows modDecl.start.row StPort allChildren
+                in
+                addRootChild origRow t0
+            )
 
 
 {-| Emit one `type ... = Variants` declaration as an `StTypeUnion`
@@ -481,21 +570,36 @@ processPortDecl modDecl root =
 processUnionDecl : Src.ModuleDeclaration Src.Union -> LPNode -> Result String LPNode
 processUnionDecl modDecl root =
     let
-        union_ = modDecl.value.value
-        typeNode = lpnLeaf (mkText { row = modDecl.start.row, col = 1 } "type")
-        nameNode = lpnLeaf (mkTextFromLocString union_.name)
-        varNodes = Array.map (\v -> lpnLeaf (mkTextFromLocString v)) union_.vars
-        t0 = processFunctionDoc modDecl.value.docs root
+        union_ =
+            modDecl.value.value
+
+        typeNode =
+            lpnLeaf (mkText { row = modDecl.start.row, col = 1 } "type")
+
+        nameNode =
+            lpnLeaf (mkTextFromLocString union_.name)
+
+        varNodes =
+            Array.map (\v -> lpnLeaf (mkTextFromLocString v)) union_.vars
+
+        t0 =
+            processFunctionDoc modDecl.value.docs root
     in
     resultFoldl processVariantNode [] union_.variants
-        |> Result.map (\variantNodes ->
-            let
-                variantsBlock = lpnNode IndentedBlock variantNodes
-                allChildren = [typeNode, nameNode] ++ varNodes ++ [variantsBlock]
-                origRow = makeOrigRows modDecl.start.row StTypeUnion allChildren
-            in
-            addRootChild origRow t0
-        )
+        |> Result.map
+            (\variantNodes ->
+                let
+                    variantsBlock =
+                        lpnNode IndentedBlock variantNodes
+
+                    allChildren =
+                        [ typeNode, nameNode ] ++ varNodes ++ [ variantsBlock ]
+
+                    origRow =
+                        makeOrigRows modDecl.start.row StTypeUnion allChildren
+                in
+                addRootChild origRow t0
+            )
 
 
 {-| Fold one union variant into the running array of variant nodes.
@@ -510,21 +614,34 @@ variant overflows.
 processVariantNode : Located Src.UnionVariant -> Array LPNode -> Result String (Array LPNode)
 processVariantNode locVariant accNodes =
     let
-        isFirst = Array.isEmpty accNodes
-        prefixNode = lpnLeaf (SynthesizedText (if isFirst then "=" else "|"))
-        nameNode = lpnLeaf (mkTextFromLocString locVariant.value.name)
+        isFirst =
+            Array.isEmpty accNodes
+
+        prefixNode =
+            lpnLeaf (SynthesizedText (if isFirst then
+                                       "="
+
+                                      else
+                                       "|"
+                                     ))
+
+        nameNode =
+            lpnLeaf (mkTextFromLocString locVariant.value.name)
     in
     when locVariant.value.payload is
         Nothing ->
-            Ok (Array.pushLast (lpnNode (AcrossThenIndent { forceVertical = False }) [prefixNode, nameNode]) accNodes)
+            Ok (Array.pushLast (lpnNode (AcrossThenIndent { forceVertical = False }) [ prefixNode, nameNode ]) accNodes)
+
         Just payloadType ->
             makeSignatureBranch payloadType
-                |> Result.map (\payloadNodes ->
-                    let
-                        payloadBlock = lpnNode SoftIndentedBlock payloadNodes
-                    in
-                    Array.pushLast (lpnNode (AcrossThenIndent { forceVertical = False }) [prefixNode, nameNode, payloadBlock]) accNodes
-                )
+                |> Result.map
+                    (\payloadNodes ->
+                        let
+                            payloadBlock =
+                                lpnNode SoftIndentedBlock payloadNodes
+                        in
+                        Array.pushLast (lpnNode (AcrossThenIndent { forceVertical = False }) [ prefixNode, nameNode, payloadBlock ]) accNodes
+                    )
 
 
 {-| Emit one `type alias` declaration as an `StTypeAlias`
@@ -536,22 +653,39 @@ processVariantNode locVariant accNodes =
 processAliasDecl : Src.ModuleDeclaration Src.Alias -> LPNode -> Result String LPNode
 processAliasDecl modDecl root =
     let
-        alias_ = modDecl.value.value
-        typeAliasNode = lpnLeaf (mkText { row = modDecl.start.row, col = 1 } "type alias")
-        nameNode = lpnLeaf (mkTextFromLocString alias_.name)
-        varNodes = Array.map (\v -> lpnLeaf (mkTextFromLocString v)) alias_.vars
-        eqNode = lpnLeaf (SynthesizedText "=")
-        t0 = processFunctionDoc modDecl.value.docs root
+        alias_ =
+            modDecl.value.value
+
+        typeAliasNode =
+            lpnLeaf (mkText { row = modDecl.start.row, col = 1 } "type alias")
+
+        nameNode =
+            lpnLeaf (mkTextFromLocString alias_.name)
+
+        varNodes =
+            Array.map (\v -> lpnLeaf (mkTextFromLocString v)) alias_.vars
+
+        eqNode =
+            lpnLeaf (SynthesizedText "=")
+
+        t0 =
+            processFunctionDoc modDecl.value.docs root
     in
     makeSignatureBranch alias_.type_
-        |> Result.map (\typeNodes ->
-            let
-                typeBlock = lpnNode IndentedBlock typeNodes
-                allChildren = [typeAliasNode, nameNode] ++ varNodes ++ [eqNode, typeBlock]
-                origRow = makeOrigRows modDecl.start.row StTypeAlias allChildren
-            in
-            addRootChild origRow t0
-        )
+        |> Result.map
+            (\typeNodes ->
+                let
+                    typeBlock =
+                        lpnNode IndentedBlock typeNodes
+
+                    allChildren =
+                        [ typeAliasNode, nameNode ] ++ varNodes ++ [ eqNode, typeBlock ]
+
+                    origRow =
+                        makeOrigRows modDecl.start.row StTypeAlias allChildren
+                in
+                addRootChild origRow t0
+            )
 
 
 {-| Emit one top-level value declaration as up to three sibling
@@ -567,7 +701,8 @@ processAliasDecl modDecl root =
 processModDecl : Src.ModuleDeclaration Src.Value -> LPNode -> Result String LPNode
 processModDecl modDecl root =
     let
-        t0 = processFunctionDoc modDecl.value.docs root
+        t0 =
+            processFunctionDoc modDecl.value.docs root
     in
     processFunctionSignature modDecl.value.value.name modDecl.value.value.signature t0
         |> Result.andThen (processFunctionBody modDecl.value.value)
@@ -588,21 +723,31 @@ simple the body is.
 processFunctionBody : Src.Value -> LPNode -> Result String LPNode
 processFunctionBody modVal root =
     let
-        nameNode = lpnLeaf (mkTextFromLocString modVal.name)
-        eqNode = lpnLeaf (SynthesizedText "=")
+        nameNode =
+            lpnLeaf (mkTextFromLocString modVal.name)
+
+        eqNode =
+            lpnLeaf (SynthesizedText "=")
     in
     resultFoldl folderInsertPattern [] modVal.args
-        |> Result.andThen (\argsNodes ->
-            insertExpression modVal.body
-                |> Result.map (\bodyNodes ->
-                    let
-                        header = lpnNode (AcrossThenIndent { forceVertical = False }) ([nameNode] ++ argsNodes ++ [eqNode])
-                        bodyWrapper = lpnNode BodyBlock bodyNodes
-                        allChildren = [header, bodyWrapper]
-                    in
-                    addRootChild (makeOrigRows modVal.name.start.row StFunctionDeclaration allChildren) root
-                )
-        )
+        |> Result.andThen
+            (\argsNodes ->
+                insertExpression modVal.body
+                    |> Result.map
+                        (\bodyNodes ->
+                            let
+                                header =
+                                    lpnNode (AcrossThenIndent { forceVertical = False }) ([ nameNode ] ++ argsNodes ++ [ eqNode ])
+
+                                bodyWrapper =
+                                    lpnNode BodyBlock bodyNodes
+
+                                allChildren =
+                                    [ header, bodyWrapper ]
+                            in
+                            addRootChild (makeOrigRows modVal.name.start.row StFunctionDeclaration allChildren) root
+                        )
+            )
 
 
 {-| Maybe or maybe not insert a DocComment for this function
@@ -612,11 +757,14 @@ processFunctionDoc maybeLocString root =
     when maybeLocString is
         Just locString ->
             let
-                docNode = lpnLeaf (DocComment locString)
+                docNode =
+                    lpnLeaf (DocComment locString)
+
                 origRow =
-                    makeOrigRows locString.start.row StDocComment [docNode]
+                    makeOrigRows locString.start.row StDocComment [ docNode ]
             in
             addRootChild origRow root
+
         Nothing ->
             root
 
@@ -628,53 +776,64 @@ processFunctionSignature locName maybeType root =
     when maybeType is
         Nothing ->
             Ok root
+
         Just { start = sigStart, type_ = locType } ->
             makeSignatureBranch locType
-                |> Result.map (\typeNodes ->
-                    let
-                        -- `locName` is the AST's `name` location, which always
-                        -- points at the *definition's* name (the second
-                        -- occurrence in a `foo : T\nfoo = …` shape). Use the
-                        -- signature's own `start` position for the name node
-                        -- so the StFunctionSignature OriginalRows' row range
-                        -- doesn't stretch all the way down to the definition
-                        -- — that would suck a line comment sitting between
-                        -- signature and definition into the signature row.
-                        nameLen = String.count locName.value
-                        sigNameEnd = { row = sigStart.row, col = sigStart.col + nameLen }
-                        nameNode =
-                            lpnLeaf (UnbreakableText { start = sigStart, end = sigNameEnd, value = locName.value })
-                        colonNode = lpnLeaf (mkZeroWidthText sigNameEnd ":")
-                        allChildren = [nameNode, colonNode] ++ typeNodes
-                        -- The signature's row range starts at the name
-                        -- (`sigStart`), not the type. For a multi-line
-                        -- signature (`foo :` on one row, the type below)
-                        -- using the type's row would leave a phantom one-row
-                        -- gap above the signature, which makes a preceding
-                        -- adjacent comment look non-adjacent and the blank-line
-                        -- pass non-idempotent.
-                        --
-                        -- The range must also extend to the type's end
-                        -- (`locType.end`), which lands on the type's closing
-                        -- bracket when the type ends in a record/paren. The
-                        -- positioned leaves stop at the last field, so without
-                        -- this a comment after that closing bracket but before
-                        -- the definition falls outside the signature and lands
-                        -- inconsistently across reformats.
-                        childrenLast =
-                            Array.foldl (\c acc -> max acc (lastRowInSubtree c)) -1 allChildren
-                        origRow =
-                            lpnNode
-                                (OriginalRows
-                                    { first = sigStart.row
-                                    , last = max childrenLast locType.end.row
-                                    , stype = StFunctionSignature
-                                    }
-                                )
-                                allChildren
-                    in
-                    addRootChild origRow root
-                )
+                |> Result.map
+                    (\typeNodes ->
+                        let
+                            -- `locName` is the AST's `name` location, which always
+                            -- points at the *definition's* name (the second
+                            -- occurrence in a `foo : T\nfoo = …` shape). Use the
+                            -- signature's own `start` position for the name node
+                            -- so the StFunctionSignature OriginalRows' row range
+                            -- doesn't stretch all the way down to the definition
+                            -- — that would suck a line comment sitting between
+                            -- signature and definition into the signature row.
+                            nameLen =
+                                String.count locName.value
+
+                            sigNameEnd =
+                                { row = sigStart.row, col = sigStart.col + nameLen }
+
+                            nameNode =
+                                lpnLeaf (UnbreakableText { start = sigStart, end = sigNameEnd, value = locName.value })
+
+                            colonNode =
+                                lpnLeaf (mkZeroWidthText sigNameEnd ":")
+
+                            allChildren =
+                                [ nameNode, colonNode ] ++ typeNodes
+
+                            -- The signature's row range starts at the name
+                            -- (`sigStart`), not the type. For a multi-line
+                            -- signature (`foo :` on one row, the type below)
+                            -- using the type's row would leave a phantom one-row
+                            -- gap above the signature, which makes a preceding
+                            -- adjacent comment look non-adjacent and the blank-line
+                            -- pass non-idempotent.
+                            --
+                            -- The range must also extend to the type's end
+                            -- (`locType.end`), which lands on the type's closing
+                            -- bracket when the type ends in a record/paren. The
+                            -- positioned leaves stop at the last field, so without
+                            -- this a comment after that closing bracket but before
+                            -- the definition falls outside the signature and lands
+                            -- inconsistently across reformats.
+                            childrenLast =
+                                Array.foldl (\c acc -> max acc (lastRowInSubtree c)) -1 allChildren
+
+                            origRow =
+                                lpnNode
+                                    (OriginalRows
+                                        { first = sigStart.row
+                                        , last = max childrenLast locType.end.row
+                                        , stype = StFunctionSignature
+                                        })
+                                    allChildren
+                        in
+                        addRootChild origRow root
+                    )
 
 
 processInfixDecls : Src.Module -> LPNode -> Result String LPNode
@@ -689,24 +848,47 @@ processInfixDecls modAst root =
 processInfixDecl : Located Src.Infix -> LPNode -> LPNode
 processInfixDecl locInfix root =
     let
-        infix_ = locInfix.value
+        infix_ =
+            locInfix.value
+
         assocStr =
             when infix_.associativity is
-                Src.OpALeft -> "left"
-                Src.OpARight -> "right"
-                Src.OpANone -> "non"
-        keywordNode = lpnLeaf (mkText { row = locInfix.start.row, col = 1 } "infix")
-        assocNode = lpnLeaf (SynthesizedText assocStr)
-        precNode = lpnLeaf (SynthesizedText (String.fromInt infix_.precedence))
-        opNode = lpnLeaf (SynthesizedText ("(" ++ infix_.symbol ++ ")"))
-        eqNode = lpnLeaf (SynthesizedText "=")
+                Src.OpALeft ->
+                    "left"
+
+                Src.OpARight ->
+                    "right"
+
+                Src.OpANone ->
+                    "non"
+
+        keywordNode =
+            lpnLeaf (mkText { row = locInfix.start.row, col = 1 } "infix")
+
+        assocNode =
+            lpnLeaf (SynthesizedText assocStr)
+
+        precNode =
+            lpnLeaf (SynthesizedText (String.fromInt infix_.precedence))
+
+        opNode =
+            lpnLeaf (SynthesizedText ("(" ++ infix_.symbol ++ ")"))
+
+        eqNode =
+            lpnLeaf (SynthesizedText "=")
+
         -- Anchor the trailing fn name zero-width at the declaration's end so
         -- the OriginalRows row range covers an input decl that wraps across
         -- rows. With every inner token synthesized, the range would otherwise
         -- collapse to the keyword's row, and the blank-line pass would see a
         -- phantom gap below a wrapped decl (a spurious blank on reformat).
-        fnNode = lpnLeaf (mkZeroWidthText locInfix.end infix_.fn)
-        allChildren = [keywordNode, assocNode, precNode, opNode, eqNode, fnNode]
-        origRow = makeOrigRows locInfix.start.row StInfixDecl allChildren
+        fnNode =
+            lpnLeaf (mkZeroWidthText locInfix.end infix_.fn)
+
+        allChildren =
+            [ keywordNode, assocNode, precNode, opNode, eqNode, fnNode ]
+
+        origRow =
+            makeOrigRows locInfix.start.row StInfixDecl allChildren
     in
     addRootChild origRow root
