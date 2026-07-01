@@ -47,7 +47,7 @@ is a separate Gren application that depends on this package locally.
 
 ```bash
 cd gren-format-lib/tests
-./run-tests.sh     # builds tests/app via `../../gren.sh make Main --output=app`, then runs it
+./run-tests.sh     # builds tests/app via devbox, then runs it
 ```
 
 `run-tests.sh` recompiles the test harness against the formatter source directly

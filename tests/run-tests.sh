@@ -1,7 +1,7 @@
 #!/bin/bash
 
-set -e
+pushd ..
+devbox run build_test
 
-../../gren.sh make Main --output=app
-
+popd
 node app "$@"

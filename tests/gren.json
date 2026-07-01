@@ -4,10 +4,10 @@
     "source-directories": [
         "src"
     ],
-    "gren-version": "0.6.5",
+    "gren-version": "0.6.6",
     "dependencies": {
         "direct": {
-            "gilramir/gren-argparse": "local:../../gren-argparse",
+            "gilramir/gren-argparse": "1.0.1",
             "gilramir/gren-diff": "1.0.1",
             "gilramir/gren-format-lib": "local:..",
             "gilramir/gren-pretty-expressive": "2.0.1",
