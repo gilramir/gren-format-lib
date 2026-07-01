@@ -1,4 +1,17 @@
-module Formatter.LPTHelpers exposing (..)
+module Formatter.LPTHelpers
+    exposing
+        ( mkText
+        , mkTextFromLocString
+        , mkZeroWidthText
+        , itemsSpanRows
+        , authoredBracketList
+        , binopPrecedence
+        , binopMinPrecedence
+        , resultFoldl
+        , tryMapFirstLeaf
+        , tryMapLastLeaf
+        , fixupParensChildrenNodes
+        )
 
 {-|
 LPT construction helpers shared by every Insert* module: leaf-building,
@@ -54,11 +67,6 @@ mkZeroWidthText pos text =
         , end = pos
         , value = text
         }
-
-
-incCol : Int -> Position -> Position
-incCol n pos =
-    { pos | col = pos.col + n }
 
 
 {-| True when the author laid these located items out across more than one

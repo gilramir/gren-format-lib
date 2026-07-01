@@ -1,4 +1,4 @@
-module Formatter.Comments exposing (..)
+module Formatter.Comments exposing (lptAddComments)
 
 {-| Weave parse-context comments into the Logical Printing Tree.
 

@@ -1,4 +1,4 @@
-module Formatter.InsertTypes exposing (..)
+module Formatter.InsertTypes exposing (makeSignatureBranch)
 
 {-|
 Type → LPT conversion. Used by function signatures, type aliases, type

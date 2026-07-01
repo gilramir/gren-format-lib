@@ -1,4 +1,4 @@
-module Formatter.InsertPatterns exposing (..)
+module Formatter.InsertPatterns exposing (insertPattern, folderInsertPattern, argNeedsParens)
 
 {-|
 Pattern → LPT conversion. Patterns appear in let-destructures, lambda

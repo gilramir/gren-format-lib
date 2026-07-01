@@ -1104,19 +1104,6 @@ buildFlowDocImpl indent inlineStart brokenFlow nodes =
             Ok (R.nest indent state.doc)
 
 
--- True if the node is a DocComment (kept separate from nodeIsComment so
--- that line/block comments which appear in mid-flow positions don't accept
--- doc-comments by accident).
-isDocCommentNode : LPNode -> Bool
-isDocCommentNode node =
-    when lpnBox node is
-        DocComment _ ->
-            True
-
-        _ ->
-            False
-
-
 makePDoc : LPBox -> Array LPNode -> Result String Doc
 makePDoc box children =
     when box is
@@ -2648,144 +2635,150 @@ makeBackwardPipelineDoc forceVertical children =
                                     Ok { op = opNode, body = bodyNodes }
                         )
                         stepNodes
-                        |> Result.andThen
-                            (\allStepBodies ->
-                                when Array.length allStepBodies is
-                                    1 ->
-                                        -- Single step: check for lambda (trailing SoftIndentedBlock).
-                                        when Array.first allStepBodies is
-                                            Nothing ->
-                                                Err "backward pipeline: empty body nodes array"
-
-                                            Just { op = opNode, body = bodyNodes } ->
-                                                when Array.popLast bodyNodes is
-                                                    Nothing ->
-                                                        -- Non-lambda single step (empty body — shouldn't happen).
-                                                        buildBodyDoc opNode bodyNodes
-                                                            |> Result.map
-                                                                (\bodyDoc ->
-                                                                    inlineUnlessVertical
-                                                                        forceVertical
-                                                                        (R.concat
-                                                                            seedDoc
-                                                                            (R.concat
-                                                                                (R.text " <|")
-                                                                                (R.nest grenIndent (R.concat sep bodyDoc))))
-                                                                )
-
-                                                    Just { last = lastNode, initial = headNodes } ->
-                                                        when lpnBox lastNode is
-                                                            SoftIndentedBlock ->
-                                                                -- Body authored inline (same row as `->`): keep
-                                                                -- the soft-break so a short lambda stays on one
-                                                                -- line (e.g. `f <| \x -> x + 1`).
-                                                                buildFlowDocInline 0 headNodes
-                                                                    |> Result.andThen
-                                                                        (\headDoc ->
-                                                                            buildFlowDoc 0 (lpnChildren lastNode)
-                                                                                |> Result.map
-                                                                                    (\bodyDoc ->
-                                                                                        let
-                                                                                            bodyBreak =
-                                                                                                if forceVertical then
-                                                                                                    R.nest grenIndent (R.concat R.hardNl bodyDoc)
-
-                                                                                                else
-                                                                                                    R.group (R.nest grenIndent (R.concat R.nl bodyDoc))
-                                                                                        in
-                                                                                        R.concat
-                                                                                            seedDoc
-                                                                                            (R.concat
-                                                                                                (R.text " <| ")
-                                                                                                (R.concat headDoc bodyBreak))
-                                                                                    )
-                                                                        )
-
-                                                            IndentedBlock ->
-                                                                -- Body authored across rows (different row from
-                                                                -- `->`): elm-format style — always break after
-                                                                -- `<|`, lambda header at seed+4, body at seed+8.
-                                                                buildFlowDocInline 0 headNodes
-                                                                    |> Result.andThen
-                                                                        (\headDoc ->
-                                                                            buildFlowDoc 0 (lpnChildren lastNode)
-                                                                                |> Result.map
-                                                                                    (\bodyDoc ->
-                                                                                        R.concat
-                                                                                            seedDoc
-                                                                                            (R.concat
-                                                                                                (R.text " <|")
-                                                                                                (R.nest
-                                                                                                    grenIndent
-                                                                                                    (R.concat
-                                                                                                        R.hardNl
-                                                                                                        (R.concat
-                                                                                                            headDoc
-                                                                                                            (R.nest grenIndent (R.concat R.hardNl bodyDoc))))))
-                                                                                    )
-                                                                        )
-
-                                                            _ ->
-                                                                -- Non-lambda single step.
-                                                                buildBodyDoc opNode bodyNodes
-                                                                    |> Result.map
-                                                                        (\bodyDoc ->
-                                                                            inlineUnlessVertical
-                                                                                forceVertical
-                                                                                (R.concat
-                                                                                    seedDoc
-                                                                                    (R.concat
-                                                                                        (R.text " <|")
-                                                                                        (R.nest grenIndent (R.concat sep bodyDoc))))
-                                                                        )
-
-                                    _ ->
-                                        -- Multiple steps: each body at seed_col + 4, operator
-                                        -- trails the previous slot (seed or step body).
-                                        traverseArray (\sBody -> buildBodyDoc sBody.op sBody.body) allStepBodies
-                                            |> Result.map
-                                                (\bodyDocs ->
-                                                    let
-                                                        nBodies =
-                                                            Array.length bodyDocs
-
-                                                        stepsDoc =
-                                                            Array.foldl
-                                                                (\bodyDoc { idx, doc } ->
-                                                                    let
-                                                                        isLast =
-                                                                            idx == nBodies - 1
-
-                                                                        bodyWithTrail =
-                                                                            if isLast then
-                                                                                bodyDoc
-
-                                                                            else
-                                                                                R.concat bodyDoc (R.text " <|")
-
-                                                                        newDoc =
-                                                                            if idx == 0 then
-                                                                                bodyWithTrail
-
-                                                                            else
-                                                                                R.concat doc (R.concat sep bodyWithTrail)
-                                                                    in
-                                                                    { idx = idx + 1, doc = newDoc }
-                                                                )
-                                                                { idx = 0, doc = R.empty }
-                                                                bodyDocs
-                                                                |> .doc
-                                                    in
-                                                    inlineUnlessVertical
-                                                        forceVertical
-                                                        (R.concat
-                                                            seedDoc
-                                                            (R.concat
-                                                                (R.text " <|")
-                                                                (R.nest grenIndent (R.concat sep stepsDoc))))
-                                                )
-                            )
+                        |> Result.andThen (makeBackwardPipelineBodyDoc forceVertical seedDoc sep)
                 )
+
+
+-- Renders the step bodies of a backward (`<|`) pipeline once the seed and
+-- separator are known. Split out of makeBackwardPipelineDoc because the
+-- single-step (lambda vs non-lambda) and multi-step cases are each
+-- substantial on their own.
+makeBackwardPipelineBodyDoc : Bool -> Doc -> Doc -> Array { op : LPNode, body : Array LPNode } -> Result String Doc
+makeBackwardPipelineBodyDoc forceVertical seedDoc sep allStepBodies =
+    when Array.length allStepBodies is
+        1 ->
+            -- Single step: check for lambda (trailing SoftIndentedBlock).
+            when Array.first allStepBodies is
+                Nothing ->
+                    Err "backward pipeline: empty body nodes array"
+
+                Just { op = opNode, body = bodyNodes } ->
+                    when Array.popLast bodyNodes is
+                        Nothing ->
+                            -- Non-lambda single step (empty body — shouldn't happen).
+                            buildBodyDoc opNode bodyNodes
+                                |> Result.map
+                                    (\bodyDoc ->
+                                        inlineUnlessVertical
+                                            forceVertical
+                                            (R.concat
+                                                seedDoc
+                                                (R.concat
+                                                    (R.text " <|")
+                                                    (R.nest grenIndent (R.concat sep bodyDoc))))
+                                    )
+
+                        Just { last = lastNode, initial = headNodes } ->
+                            when lpnBox lastNode is
+                                SoftIndentedBlock ->
+                                    -- Body authored inline (same row as `->`): keep
+                                    -- the soft-break so a short lambda stays on one
+                                    -- line (e.g. `f <| \x -> x + 1`).
+                                    buildFlowDocInline 0 headNodes
+                                        |> Result.andThen
+                                            (\headDoc ->
+                                                buildFlowDoc 0 (lpnChildren lastNode)
+                                                    |> Result.map
+                                                        (\bodyDoc ->
+                                                            let
+                                                                bodyBreak =
+                                                                    if forceVertical then
+                                                                        R.nest grenIndent (R.concat R.hardNl bodyDoc)
+
+                                                                    else
+                                                                        R.group (R.nest grenIndent (R.concat R.nl bodyDoc))
+                                                            in
+                                                            R.concat
+                                                                seedDoc
+                                                                (R.concat
+                                                                    (R.text " <| ")
+                                                                    (R.concat headDoc bodyBreak))
+                                                        )
+                                            )
+
+                                IndentedBlock ->
+                                    -- Body authored across rows (different row from
+                                    -- `->`): elm-format style — always break after
+                                    -- `<|`, lambda header at seed+4, body at seed+8.
+                                    buildFlowDocInline 0 headNodes
+                                        |> Result.andThen
+                                            (\headDoc ->
+                                                buildFlowDoc 0 (lpnChildren lastNode)
+                                                    |> Result.map
+                                                        (\bodyDoc ->
+                                                            R.concat
+                                                                seedDoc
+                                                                (R.concat
+                                                                    (R.text " <|")
+                                                                    (R.nest
+                                                                        grenIndent
+                                                                        (R.concat
+                                                                            R.hardNl
+                                                                            (R.concat
+                                                                                headDoc
+                                                                                (R.nest grenIndent (R.concat R.hardNl bodyDoc))))))
+                                                        )
+                                            )
+
+                                _ ->
+                                    -- Non-lambda single step.
+                                    buildBodyDoc opNode bodyNodes
+                                        |> Result.map
+                                            (\bodyDoc ->
+                                                inlineUnlessVertical
+                                                    forceVertical
+                                                    (R.concat
+                                                        seedDoc
+                                                        (R.concat
+                                                            (R.text " <|")
+                                                            (R.nest grenIndent (R.concat sep bodyDoc))))
+                                            )
+
+        _ ->
+            -- Multiple steps: each body at seed_col + 4, operator
+            -- trails the previous slot (seed or step body).
+            traverseArray (\sBody -> buildBodyDoc sBody.op sBody.body) allStepBodies
+                |> Result.map
+                    (\bodyDocs ->
+                        let
+                            nBodies =
+                                Array.length bodyDocs
+
+                            stepsDoc =
+                                Array.foldl
+                                    (\bodyDoc { idx, doc } ->
+                                        let
+                                            isLast =
+                                                idx == nBodies - 1
+
+                                            bodyWithTrail =
+                                                if isLast then
+                                                    bodyDoc
+
+                                                else
+                                                    R.concat bodyDoc (R.text " <|")
+
+                                            newDoc =
+                                                if idx == 0 then
+                                                    bodyWithTrail
+
+                                                else
+                                                    R.concat doc (R.concat sep bodyWithTrail)
+                                        in
+                                        { idx = idx + 1, doc = newDoc }
+                                    )
+                                    { idx = 0, doc = R.empty }
+                                    bodyDocs
+                                    |> .doc
+                        in
+                        inlineUnlessVertical
+                            forceVertical
+                            (R.concat
+                                seedDoc
+                                (R.concat
+                                    (R.text " <|")
+                                    (R.nest grenIndent (R.concat sep stepsDoc))))
+                    )
 
 
 -- Flatten the right-nested `OpAndRhs` structure of a Binop container back into

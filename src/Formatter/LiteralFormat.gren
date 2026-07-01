@@ -1,4 +1,4 @@
-module Formatter.LiteralFormat exposing (..)
+module Formatter.LiteralFormat exposing (escapeStringContent, escapeMultilineContent, charLiteralString, intToHex)
 
 {-|
 Source-text formatting of primitive literals: strings, chars, and hex

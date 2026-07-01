@@ -1,4 +1,27 @@
-module Formatter.LogicalPrintingTree exposing (..)
+module Formatter.LogicalPrintingTree
+    exposing
+        ( LPBox(..)
+        , LPNode(..)
+        , ListBrackets(..)
+        , SyntaxType(..)
+        , stypeToString
+        , lpnBox
+        , lpnChildren
+        , lpnFirstPos
+        , lpnLastPos
+        , lpnMaxRow
+        , lpnLastBracketEnd
+        , lpnBracketEndExact
+        , lpnBracketStart
+        , lpnWithBracketStart
+        , lpnLeaf
+        , lpnNode
+        , lpnBracketNode
+        , lpnReplaceChildren
+        , subtreeRowRange
+        , firstRowInSubtree
+        , lastRowInSubtree
+        )
 
 import Math exposing (maxSafeInteger)
 
