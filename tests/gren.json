@@ -12,7 +12,7 @@
             "gilramir/gren-format-lib": "local:..",
             "gilramir/gren-pretty-expressive": "2.0.1",
             "gilramir/gren-unit-node": "1.0.0",
-            "gren-lang/compiler-common": "local:../../compiler-common",
+            "gren-lang/compiler-common": "3.0.0",
             "gren-lang/core": "7.4.2",
             "gren-lang/node": "6.1.0",
             "gren-lang/parser": "6.2.0",
