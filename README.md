@@ -57,8 +57,8 @@ same shape as your code.
 Each entry in this tree isn't the final text yet — it's a *layout decision*.
 Some examples of the kinds of decisions recorded here:
 
-- "these pieces can sit next to each other on one line, or if they don't
-  fit that way, each one gets its own line"
+- "these pieces sit on one line if you wrote them on one line, or each gets
+  its own line if you spread them across rows"
 - "this is a block whose body always starts on the next line, indented"
 - "this is a list that's either written all on one line, or with one item
   per line — never a mix"
