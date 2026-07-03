@@ -346,7 +346,7 @@ processModuleLine modAst root =
 {-| Render a single item in an `exposing (...)` list.
 
     foo               -- ExposedLower
-    Maybe(..)         -- ExposedUpper Public
+    Maybe (..)        -- ExposedUpper Public
     Maybe             -- ExposedUpper Private
     (+)               -- ExposedOperator
 -}
@@ -359,7 +359,7 @@ processExposed exposed =
         Src.ExposedUpper { name = sp, privacy = privacy } ->
             when privacy is
                 Src.Public ->
-                    lpnLeaf (UnbreakableText { sp | value = sp.value ++ "(..)" })
+                    lpnLeaf (UnbreakableText { sp | value = sp.value ++ " (..)" })
 
                 Src.Private ->
                     lpnLeaf (UnbreakableText sp)

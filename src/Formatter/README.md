@@ -46,6 +46,8 @@ A few things are **always fixed**, regardless of how you wrote them:
 - A type alias always puts the aliased type on its own line.
 - A custom type always puts the variant list on its own line(s).
 - **Indentation is 4 spaces.** Always spaces, never tabs.
+- On a `module` line, `exposing` always stays on the same line as the module
+  name (see [Module declaration](#module-declaration)).
 
 Everything else follows your layout choices.
 
@@ -53,31 +55,52 @@ Everything else follows your layout choices.
 
 ## Module declaration
 
-The `module` line follows your layout for the exposing list. Written on one
-line, it stays on one line:
+`exposing` always stays on the same line as the module name — it never drops
+to its own line the way an import's `exposing` can. Written on one line, the
+whole thing stays on one line:
 
 ```gren
-module MyApp exposing ( Model, Msg, init, update, view, subscriptions )
+module MyApp exposing (Model, Msg, init, update, view, subscriptions)
 ```
 
-Written across rows, `exposing` drops to its own line indented +4 under the
-module name, and the list indents +8 — one item per line:
+Written across rows, the list indents +4 under the module line — one item
+per line — but `exposing` itself still stays glued to `module MyApp`:
 
 ```gren
-module MyApp
-    exposing
-        ( Model
-        , Msg
-        , init
-        , update
-        , view
-        , subscriptions
-        )
+module MyApp exposing
+    ( Model
+    , Msg
+    , init
+    , update
+    , view
+    , subscriptions
+    )
+```
+
+A comment written between the module name and `exposing` always canonicalizes
+to *after* `exposing` (its exact original position isn't preserved) — and
+since a comment forces a break right after itself, the exposing list drops to
+the next line, indented +4, while `module MyApp exposing` stays intact as one
+line:
+
+```gren
+module MyApp exposing -- a note
+    ( Model, Msg )
 ```
 
 The wildcard `exposing (..)` is always written as `(..)` on the module line.
 
 When the exposing list contains a comment, it is always kept vertical.
+
+A custom type exposed with its constructors gets a space before `(..)`:
+
+```gren
+module MyApp exposing (Outcome (..), Model)
+```
+
+This applies anywhere an exposing list can name a custom type's
+constructors, including an import's exposing list (see
+[Import statements](#import-statements)).
 
 ---
 
@@ -96,9 +119,9 @@ declaration's exposing list:
 
 ```gren
 -- flat:
-import String exposing ( fromInt, toInt )
+import String exposing (fromInt, toInt)
 
-import Array.Extra as AE exposing ( filterMap, unique )
+import Array.Extra as AE exposing (filterMap, unique)
 
 -- vertical:
 import Dict

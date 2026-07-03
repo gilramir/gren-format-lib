@@ -1945,10 +1945,10 @@ makePrettyLineDoc node =
                     makeSignaturePrettyDoc children
 
                 StModule ->
-                    makeExposingLineDoc children
+                    makeExposingLineDoc StModule children
 
                 StImport ->
-                    makeExposingLineDoc children
+                    makeExposingLineDoc StImport children
 
                 _ ->
                     makeFlowIndentableDoc children
@@ -1967,10 +1967,20 @@ case: a plain `module`/`port module` or any `import`, but not an effect module's
 as a coupled all-or-nothing group via `makeExposingListDoc`.
 
 When the list stays flat, the whole line (header, `exposing`, and the list) is
-one unbreakable line. When the list goes vertical — because the author wrote
-it across rows, or because it carries a comment — `exposing` itself drops to
-its own line indented +4 under the header, and the list indents +8 (matching
-elm-format's convention):
+one unbreakable line.
+
+For a `module` line, `exposing` always stays glued to the header — even when
+the list goes vertical — with the list indented +4 under the merged line
+(matching elm-format's convention):
+
+    module MyApp exposing
+        ( Model
+        , Msg
+        )
+
+For an `import` line, when the list goes vertical — because the author wrote
+it across rows, or because it carries a comment — `exposing` itself still
+drops to its own line indented +4 under the header, and the list indents +8:
 
     import Dict
         exposing
@@ -1981,8 +1991,8 @@ elm-format's convention):
 Anything that doesn't match (a `(..)` wildcard, an effect-module `where` block,
 a comment in the header) falls back to the generic flow.
 -}
-makeExposingLineDoc : Array LPNode -> Result String Doc
-makeExposingLineDoc children =
+makeExposingLineDoc : SyntaxType -> Array LPNode -> Result String Doc
+makeExposingLineDoc stype children =
     when Array.popLast children is
         Just { last = lastNode, initial = headerNodes } ->
             let
@@ -2031,11 +2041,25 @@ makeExposingLineDoc children =
 
                             listGoesVertical =
                                 forceVertical || Array.any nodeIsComment listChildren
+
+                            -- A module line always keeps `exposing` glued to
+                            -- the header, even when the list goes vertical;
+                            -- an import line drops `exposing` to its own line
+                            -- in that case (see the doc comment above).
+                            keepExposingGlued =
+                                stype == StModule || not listGoesVertical
                         in
                         makeExposingListDoc forceVertical listChildren
                             |> Result.andThen
                                 (\listDoc ->
-                                    if listGoesVertical then
+                                    if keepExposingGlued then
+                                        traverseArray (\n -> makePDoc (lpnBox n) (lpnChildren n)) headerNodes
+                                            |> Result.map
+                                                (\headerDocs ->
+                                                    R.concat (joinWithSpaces headerDocs) (R.nest grenIndent listDoc)
+                                                )
+
+                                    else
                                         when Array.popLast headerNodes is
                                             Just { last = exposingNode, initial = preExposingNodes } ->
                                                 traverseArray (\n -> makePDoc (lpnBox n) (lpnChildren n)) preExposingNodes
@@ -2058,13 +2082,6 @@ makeExposingLineDoc children =
 
                                             Nothing ->
                                                 makeFlowIndentableDoc children
-
-                                    else
-                                        traverseArray (\n -> makePDoc (lpnBox n) (lpnChildren n)) headerNodes
-                                            |> Result.map
-                                                (\headerDocs ->
-                                                    R.concat (joinWithSpaces headerDocs) (R.nest grenIndent listDoc)
-                                                )
                                 )
 
                     else

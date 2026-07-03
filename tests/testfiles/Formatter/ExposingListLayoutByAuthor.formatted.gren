@@ -1,9 +1,8 @@
-module ExposingListLayoutByAuthor
-    exposing
-        ( Alpha
-        , Beta
-        , Gamma
-        )
+module ExposingListLayoutByAuthor exposing
+    ( Alpha
+    , Beta
+    , Gamma
+    )
 
 -- Flat import: stays flat
 import Array exposing (Array)
