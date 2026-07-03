@@ -1904,10 +1904,11 @@ of comment is not whitespace-canonical.
 
 ### Comparison with elm-format
 
-Gren is a fork of Elm, so `gren format` and `elm-format` should agree on
-shared syntax unless there's a deliberate reason not to. This audit ran the
-formatter's own test fixtures (`gren-format-lib/tests/testfiles/Formatter/`)
-through `elm-format` and catalogued every divergence. Each finding below
+Gren is a spiritual descendant of Elm, so `gren format` and `elm-format` should agree on
+shared syntax unless there's a deliberate reason not to. We ran an audit on the
+formatter's own test fixtures (`gren-format-lib/tests/testfiles/Formatter/`),
+converting the Gren code to Elm, ran them through
+`elm-format` and catalogued every divergence. Each finding below
 records the decision made and why.
 
 1. **Blank lines: comment-attached vs. declaration-attached — keep as is.**
