@@ -1832,6 +1832,28 @@ finds **zero** non-idempotent gaps across the whole test corpus.
 
 ### Known limitations
 
+#### A compiler bug with field access on a record-update base
+
+Field access directly after a closing paren, a plain record literal, or a
+qualified name — `(getUser model).name`, `{ x = 1 }.x`,
+`Config.default.timeout` — parses and formats correctly. But a
+record-**update** base still hits a narrower case of the same bug:
+
+```gren
+{ model | x = 0 }.x
+```
+
+is formatted with a space before the dot (`{ model | x = 0 } .x`). That
+space changes the meaning: it applies the accessor *function* `.x` to the
+record update instead of reading its field, and the formatted file no
+longer compiles. The parser reads both spellings as the same expression
+(`Call(Update, [Accessor])`) — the same root cause as
+[compiler-common#27](https://github.com/gren-lang/compiler-common/issues/27),
+which fixed every other kind of base but not this one. Until it's fixed,
+avoid formatting files that access a field directly off a record-update
+literal; wrap the update in parens first (`({ model | x = 0 }).x`), which
+formats correctly.
+
 #### Wide `when` branch patterns
 
 A `when` branch whose record (or array) pattern is too wide to fit on one line
