@@ -221,7 +221,7 @@ processModuleLine modAst root =
                                     { row = locName.start.row, col = eqCol }
                             in
                             lpnNode
-                                (AcrossThenIndent { forceVertical = False })
+                                (AcrossThenIndent { forceVertical = False, checkContentVertical = False })
                                 [ lpnLeaf (mkZeroWidthText labelStart label)
                                 , lpnLeaf (mkZeroWidthText eqStart "=")
                                 , lpnLeaf (mkTextFromLocString locName)
@@ -630,7 +630,7 @@ processVariantNode locVariant accNodes =
     in
     when locVariant.value.payload is
         Nothing ->
-            Ok (Array.pushLast (lpnNode (AcrossThenIndent { forceVertical = False }) [ prefixNode, nameNode ]) accNodes)
+            Ok (Array.pushLast (lpnNode (AcrossThenIndent { forceVertical = False, checkContentVertical = False }) [ prefixNode, nameNode ]) accNodes)
 
         Just payloadType ->
             makeSignatureBranch payloadType
@@ -640,7 +640,7 @@ processVariantNode locVariant accNodes =
                             payloadBlock =
                                 lpnNode SoftIndentedBlock payloadNodes
                         in
-                        Array.pushLast (lpnNode (AcrossThenIndent { forceVertical = False }) [ prefixNode, nameNode, payloadBlock ]) accNodes
+                        Array.pushLast (lpnNode (AcrossThenIndent { forceVertical = False, checkContentVertical = False }) [ prefixNode, nameNode, payloadBlock ]) accNodes
                     )
 
 
@@ -737,7 +737,7 @@ processFunctionBody modVal root =
                         (\bodyNodes ->
                             let
                                 header =
-                                    lpnNode (AcrossThenIndent { forceVertical = False }) ([ nameNode ] ++ argsNodes ++ [ eqNode ])
+                                    lpnNode (AcrossThenIndent { forceVertical = False, checkContentVertical = False }) ([ nameNode ] ++ argsNodes ++ [ eqNode ])
 
                                 bodyWrapper =
                                     lpnNode BodyBlock bodyNodes

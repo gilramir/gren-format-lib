@@ -1,0 +1,69 @@
+module RecordArgOwnLine exposing (..)
+
+
+-- A constructor call whose record argument is glued to the constructor name.
+mkBar x =
+    Bar
+        { name = x
+        , value = 1
+        }
+
+
+-- A plain (lowercase) function call, same bug, not constructor-specific.
+mkThing x =
+    someFunc
+        { name = x
+        , value = 1
+        }
+
+
+-- A trailing argument after a multi-line record must also drop to its own
+-- line, not stay glued to the record's closing brace.
+withTrailing x =
+    someFunc
+        { name = x
+        , value = 1
+        }
+        extraArg
+
+
+-- Forward pipeline step: same glued-record bug, plus the step's `|>` must
+-- stay glued to the function name -- only the record moves.
+forwardPipe x =
+    x
+        |> AST.TType
+            { name = x
+            , args = []
+            }
+
+
+-- Backward pipeline step: same, for `<|`.
+backwardPipe x =
+    identity <|
+        AST.TType
+            { name = x
+            , args = []
+            }
+
+
+-- Regression guard: a lambda-with-if-body call argument must stay glued to
+-- the function name -- it already has its own correct handling (from the
+-- closing-paren-own-line rule) and must not also get pulled onto its own
+-- line by this rule.
+mapWithLambda xs =
+    Array.map (\n -> if n > 0 then
+                      n
+
+                  else
+                      -n
+              ) xs
+
+
+pipeWithLambda xs =
+    xs
+        |> Array.map (\n -> if n > 0 then
+                             n
+
+                         else
+                             -n
+                     )

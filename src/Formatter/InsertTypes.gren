@@ -140,7 +140,7 @@ makeSignatureBranch locType =
                                         [ nameNode, colonNode ] ++ typeNodes
 
                                     itemContainer =
-                                        lpnNode (AcrossThenIndent { forceVertical = False }) allChildren
+                                        lpnNode (AcrossThenIndent { forceVertical = False, checkContentVertical = False }) allChildren
                                 in
                                 Array.pushLast itemContainer accNodes
                             )

@@ -109,7 +109,21 @@ type LPBox
     --
     --     foo bar baz
     --         qux quux         -- continuation indented +4
-    | AcrossThenIndent { forceVertical : Bool }
+    --
+    -- `checkContentVertical` opts into the same "content can force
+    -- verticality regardless of forceVertical" backstop as `ParenBlock`'s
+    -- flag of the same name, but scoped to genuine `Src.Call` (function
+    -- call arguments) only -- `AcrossThenIndent` is reused for many other
+    -- flows (a function/lambda's own name-args-`=`/`->` head, a record
+    -- field's name-`=`-value, an effect-module binding, ...) where the
+    -- trailing token must always stay glued to the last item and must NOT
+    -- be pushed onto its own line just because an earlier item (e.g. a
+    -- comment-bearing pattern) happens to render multi-row. When True and
+    -- any argument's content forces a hard break, every argument in the
+    -- call renders one-per-line -- not just the triggering one -- so the
+    -- call commits to the vertical shape from the first format instead of
+    -- only catching up (and flipping non-idempotently) on reparse.
+    | AcrossThenIndent { forceVertical : Bool, checkContentVertical : Bool }
     -- Like AcrossThenIndent but with 2× the indent on continuation lines.
     -- Used for if/else if conditions so their continuations are more indented
     -- than the branch body (+8 vs +4), making them visually distinct.

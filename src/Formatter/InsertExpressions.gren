@@ -547,7 +547,7 @@ insertExpression locExpr =
                                                 ([ { start = fnExpr.start, end = fnExpr.end } ]
                                                     ++ Array.map (\a -> { start = a.start, end = a.end }) argsExprs)
                                     in
-                                    [ lpnNode (AcrossThenIndent { forceVertical = forceVertical }) allNodes ]
+                                    [ lpnNode (AcrossThenIndent { forceVertical = forceVertical, checkContentVertical = True }) allNodes ]
                                 )
                     )
 
@@ -634,7 +634,7 @@ insertExpression locExpr =
                                     -- the only thing that can break to a new line.
                                     let
                                         patsWithArrow =
-                                            lpnNode (AcrossThenIndent { forceVertical = False }) (updatedPatNodes ++ [ arrowNode ])
+                                            lpnNode (AcrossThenIndent { forceVertical = False, checkContentVertical = False }) (updatedPatNodes ++ [ arrowNode ])
                                     in
                                     [ patsWithArrow, bodyBlock ]
                                 )
@@ -794,7 +794,7 @@ insertExpressionAsItem locExpr =
                             Ok onlyNode
 
                         else
-                            Ok (lpnNode (AcrossThenIndent { forceVertical = False }) nodes)
+                            Ok (lpnNode (AcrossThenIndent { forceVertical = False, checkContentVertical = False }) nodes)
             )
 
 
@@ -967,7 +967,7 @@ folderInsertRecordField field accNodes =
             lpnLeaf (SynthesizedText "=")
 
         plainContainer valueNodes =
-            lpnNode (AcrossThenIndent { forceVertical = False }) ([ fieldNameNode, eqNode ] ++ valueNodes)
+            lpnNode (AcrossThenIndent { forceVertical = False, checkContentVertical = False }) ([ fieldNameNode, eqNode ] ++ valueNodes)
     in
     insertExpression field.value
         |> Result.map
@@ -980,18 +980,18 @@ folderInsertRecordField field accNodes =
 
                             Src.If _ ->
                                 lpnNode
-                                    (AcrossThenIndent { forceVertical = False })
+                                    (AcrossThenIndent { forceVertical = False, checkContentVertical = False })
                                     [ fieldNameNode, eqNode, lpnNode BodyBlock valueNodes ]
 
                             Src.Let _ ->
                                 lpnNode
-                                    (AcrossThenIndent { forceVertical = False })
+                                    (AcrossThenIndent { forceVertical = False, checkContentVertical = False })
                                     [ fieldNameNode, eqNode, lpnNode BodyBlock valueNodes ]
 
                             Src.When _ ->
                                 if field.value.start.row > field.field.start.row then
                                     lpnNode
-                                        (AcrossThenIndent { forceVertical = False })
+                                        (AcrossThenIndent { forceVertical = False, checkContentVertical = False })
                                         [ fieldNameNode, eqNode, lpnNode BodyBlock valueNodes ]
 
                                 else
@@ -1045,7 +1045,7 @@ folderInsertLetDef locDef accNodes =
                                                 [ nameNode, colonNode ] ++ sigTypeNodes
 
                                             sigContainer =
-                                                lpnNode IndentedBlock [ lpnNode (AcrossThenIndent { forceVertical = False }) sigChildren ]
+                                                lpnNode IndentedBlock [ lpnNode (AcrossThenIndent { forceVertical = False, checkContentVertical = False }) sigChildren ]
                                         in
                                         Array.pushLast sigContainer accNodes
                                     )
@@ -1061,7 +1061,7 @@ folderInsertLetDef locDef accNodes =
                                             (\bodyNodes ->
                                                 let
                                                     header =
-                                                        lpnNode (AcrossThenIndent { forceVertical = False }) ([ nameNode ] ++ argsNodes ++ [ eqNode ])
+                                                        lpnNode (AcrossThenIndent { forceVertical = False, checkContentVertical = False }) ([ nameNode ] ++ argsNodes ++ [ eqNode ])
 
                                                     -- Same rule as the top-level (processFunctionBody):
                                                     -- the body always drops to the next line

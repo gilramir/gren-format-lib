@@ -555,12 +555,16 @@ renderBlockNode rule acc nodeChildren =
 
 {-| Build the Doc for a pipeline step's children (the `|> func args...` part).
 
-When ANY child is a multi-line paren arg — either a lambda ParenBlock
-(`isMultilineLambdaParenBlock`) or a paren whose content spans rows due to an
-AlwaysVertical or RecordUpdate inside (`isMultilineContentParenBlock`) — breaks it
-onto a new line.  For a lambda arg, the body aligns under `(` and `)` closes on
-its own line.  For a non-lambda multiline arg, `)` lands on its own line too.
-Any arguments that follow also each land on their own line at `|>` + 4:
+When ANY child forces multi-line rendering — a lambda ParenBlock
+(`isMultilineLambdaParenBlock`), a paren whose content spans rows due to an
+AlwaysVertical or RecordUpdate inside (`isMultilineContentParenBlock`), or any
+other node whose own rendered content contains a hard break (e.g. a record
+argument with 2+ fields or a comment, per `anyChildForcesVertical`'s
+per-node check) — breaks it onto a new line.  For a lambda arg, the body
+aligns under `(` and `)` closes on its own line.  For a non-lambda multiline
+paren arg, `)` lands on its own line too.  For any other multiline arg (e.g. a
+record), it renders via its own normal box.  Any arguments that follow also
+each land on their own line at `|>` + 4:
 
     |> Array.foldl
         (\r acc ->
@@ -568,69 +572,86 @@ Any arguments that follow also each land on their own line at `|>` + 4:
         )
         0
 
-When the lambda is the last arg (no suffix), the trailing `)` closes the step:
+    |> AST.TType
+        { name = name
+        , args = args
+        }
+        extraArg
 
-    |> Task.andThen
-        (\start ->
-            body
-        )
-
-Otherwise falls back to `buildFlowDoc grenIndent` (continuation args at `|>` + 4).
-Called from both `renderPipelineStepNode` (comment-bearing path) and the fast
-path in `makePipelineDoc` (comment-free path) — both wrap the result in an outer
-`R.nest grenIndent`, so the lambda `(` lands at step-column + 4.
+When the multiline arg is the last one (no suffix), it closes the step.
+Otherwise falls back to `buildFlowDoc grenIndent` (continuation args at `|>` + 4)
+— note this never falls back to `buildFlowDocBroken`: `stepChildren` includes
+the `|>`/`<|` operator token as its first item, and unlike a plain call's
+`AcrossThenIndent`, this flow must keep the operator glued to the function
+name even when a later argument forces vertical (the split below handles that
+via preamble/trigger/suffix instead).  Called from both `renderPipelineStepNode`
+(comment-bearing path) and the fast path in `makePipelineDoc` (comment-free
+path) — both wrap the result in an outer `R.nest grenIndent`, so the arg
+lands at step-column + 4.
 -}
 buildStepChildrenDoc : Array LPNode -> Result String Doc
 buildStepChildrenDoc stepChildren =
     let
-        -- Scan left-to-right for the first multiline lambda ParenBlock.
-        -- Accumulator: { preamble, lambdaAndSuffix }
-        -- Before the lambda is found: preamble grows.
-        -- After the lambda is found: lambdaAndSuffix.suffix grows.
+        -- Scan left-to-right for the first node that must force a break: a
+        -- multiline lambda ParenBlock, a ParenBlock with multiline content,
+        -- or (new) any other multiline-forcing node — a record argument
+        -- being the common case, since a Call's lone-AcrossThenIndent
+        -- wrapper is unwrapped directly into the step (see
+        -- `MakeLogical`/`buildBodyDoc`), discarding the `checkContentVertical`
+        -- decision that would normally catch it (see `flowChildForcesVertical`
+        -- for why ParenBlock/comments are excluded from that last check —
+        -- they already have dedicated handling here and in the surrounding
+        -- flow, respectively).
+        -- Accumulator: { preamble, triggerAndSuffix }
+        -- Before the trigger is found: preamble grows.
+        -- After the trigger is found: triggerAndSuffix.suffix grows.
         splitResult =
             Array.foldl
                 (\node acc ->
-                    when acc.lambdaAndSuffix is
+                    when acc.triggerAndSuffix is
                         Just state ->
-                            { acc | lambdaAndSuffix = Just { state | suffix = Array.pushLast node state.suffix } }
+                            { acc | triggerAndSuffix = Just { state | suffix = Array.pushLast node state.suffix } }
 
                         Nothing ->
-                            if isMultilineLambdaParenBlock node || isMultilineContentParenBlock node then
+                            if isMultilineLambdaParenBlock node || isMultilineContentParenBlock node || flowChildForcesVertical node then
                                 { preamble = acc.preamble
-                                , lambdaAndSuffix = Just { lambda = node, suffix = [] }
+                                , triggerAndSuffix = Just { trigger = node, suffix = [] }
                                 }
 
                             else
                                 { acc | preamble = Array.pushLast node acc.preamble }
                 )
-                { preamble = [], lambdaAndSuffix = Nothing }
+                { preamble = [], triggerAndSuffix = Nothing }
                 stepChildren
     in
-    when splitResult.lambdaAndSuffix is
+    when splitResult.triggerAndSuffix is
         Nothing ->
             buildFlowDoc grenIndent stepChildren
 
-        Just { lambda, suffix } ->
+        Just { trigger, suffix } ->
             buildFlowDocInline 0 splitResult.preamble
                 |> Result.andThen
                     (\preambleDoc ->
                         let
                             makeArgDoc =
-                                if isMultilineLambdaParenBlock lambda then
-                                    makeMultilineLambdaArgDoc (lpnChildren lambda)
+                                if isMultilineLambdaParenBlock trigger then
+                                    makeMultilineLambdaArgDoc (lpnChildren trigger)
+
+                                else if isMultilineContentParenBlock trigger then
+                                    makeMultilineParenArgDoc (lpnChildren trigger)
 
                                 else
-                                    makeMultilineParenArgDoc (lpnChildren lambda)
+                                    makePDoc (lpnBox trigger) (lpnChildren trigger)
                         in
                         makeArgDoc
                             |> Result.andThen
-                                (\lambdaDoc ->
+                                (\triggerDoc ->
                                     let
-                                        lambdaPart =
-                                            R.nest grenIndent (R.concat R.hardNl lambdaDoc)
+                                        triggerPart =
+                                            R.nest grenIndent (R.concat R.hardNl triggerDoc)
                                     in
                                     if Array.isEmpty suffix then
-                                        Ok (R.concat preambleDoc lambdaPart)
+                                        Ok (R.concat preambleDoc triggerPart)
 
                                     else
                                         -- Use buildFlowDoc 0 so AlreadyTerminated tracks
@@ -643,7 +664,7 @@ buildStepChildrenDoc stepChildren =
                                                     R.concat
                                                         preambleDoc
                                                         (R.concat
-                                                            lambdaPart
+                                                            triggerPart
                                                             (R.nest grenIndent (R.concat R.hardNl suffixDoc)))
                                                 )
                                 )
@@ -1104,6 +1125,66 @@ buildFlowDocImpl indent inlineStart brokenFlow nodes =
             Ok (R.nest indent state.doc)
 
 
+{-| True when `node`'s own rendered `Doc` contains a hard break — i.e. its
+content is forced multi-row regardless of how the surrounding flow was
+written (a record argument with a comment, or one the author already spread
+across rows).
+-}
+nodeForcesVertical : LPNode -> Bool
+nodeForcesVertical node =
+    when makePDoc (lpnBox node) (lpnChildren node) is
+        Ok d ->
+            R.hasHardBreak d
+
+        Err _ ->
+            False
+
+
+{-| True when `node` forces vertical (`nodeForcesVertical`) in a way that
+should make the *surrounding flow* also commit to one-item-per-line —
+excludes `ParenBlock` and comments, which already have dedicated handling
+that keeps them glued to whatever precedes them:
+
+  - A `ParenBlock` argument (e.g. `Array.map (\n -> if … )`) already decides
+    its own internal layout via `MakeRender.makeParenBlockDoc`'s
+    `checkContentVertical` — that fix specifically keeps the surrounding
+    call/step glued to `(` and only moves the closing `)`. Also matching
+    it here would double up and instead pull the whole `(...)` onto its
+    own line, undoing that.
+  - A comment is already placed correctly by the flow's own comment-peeling
+    logic (`buildFlowDocImpl`'s `SingleLineComment`/`BlockComment` cases,
+    `renderPipelineStepNode`'s leading/trailing peeling, …).
+-}
+flowChildForcesVertical : LPNode -> Bool
+flowChildForcesVertical node =
+    when lpnBox node is
+        ParenBlock _ ->
+            False
+
+        _ ->
+            not (nodeIsComment node) && nodeForcesVertical node
+
+
+{-| True when any child forces the surrounding flow vertical (see
+`flowChildForcesVertical`). Used by `AcrossThenIndent` (a function call) so
+the whole argument list commits to one-argument-per-line the moment any
+argument demands it, rather than pushing just that argument onto its own
+line and leaving the rest glued to whatever follows.
+
+The latter (local-only) fix is only correct on the *first* format: the
+call's own `forceVertical` — decided from the author's row layout — then
+sees the call visibly spanning multiple rows on reparse and flips to
+`True`, breaking every argument the second time and producing a
+non-idempotent result. Checking content up front avoids the flip: the
+combined decision is already `True` on the first pass, so it stays `True`
+on every subsequent one. Mirrors the `ParenBlock` fix (`checkContentVertical`
++ `R.hasHardBreak`) one level up, at the call itself.
+-}
+anyChildForcesVertical : Array LPNode -> Bool
+anyChildForcesVertical children =
+    Array.any flowChildForcesVertical children
+
+
 makePDoc : LPBox -> Array LPNode -> Result String Doc
 makePDoc box children =
     when box is
@@ -1161,8 +1242,8 @@ makePDoc box children =
         BlockComment _ ->
             Ok (commentBoxDoc box)
 
-        AcrossThenIndent { forceVertical } ->
-            if forceVertical then
+        AcrossThenIndent { forceVertical, checkContentVertical } ->
+            if forceVertical || (checkContentVertical && anyChildForcesVertical children) then
                 buildFlowDocBroken grenIndent children
 
             else
@@ -2561,6 +2642,20 @@ buildBodyDoc opNode bodyNodes =
     in
     if startsWithSameRowInlineBlock then
         buildFlowDocInline 0 bodyNodes
+
+    else if anyChildForcesVertical bodyNodes then
+        -- The step body is a call whose "lone AcrossThenIndent" wrapper was
+        -- unwrapped directly into the step (see the doc comment above), which
+        -- also discards its `checkContentVertical` decision — recompute it
+        -- here so a call-with-a-multiline-record body still breaks every
+        -- argument onto its own line instead of leaving later ones glued.
+        -- `grenIndent` (not the `0` the flat branches below use): the first
+        -- body node (the function name) is placed by the caller's own `sep`
+        -- outside this function, under the same outer `R.nest grenIndent` as
+        -- this fold's result — so this fold needs its own further +grenIndent
+        -- for later arguments to land one level deeper than the function name,
+        -- not at the same column as it.
+        buildFlowDocBroken grenIndent bodyNodes
 
     else
         buildFlowDoc 0 bodyNodes
