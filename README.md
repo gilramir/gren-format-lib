@@ -1832,24 +1832,6 @@ finds **zero** non-idempotent gaps across the whole test corpus.
 
 ### Known limitations
 
-#### A compiler bug with postfix field access
-
-Field access written directly after a closing bracket or a qualified name —
-
-```gren
-(getUser model).name
-{ x = 1 }.x
-Config.default.timeout
-```
-
-— is formatted with a space before the dot (`(getUser model) .name`). That
-space changes the meaning: it applies the accessor *function* `.name` to the
-value instead of reading its field, and the formatted file no longer compiles.
-The cause is in the parser: it reads both spellings as the same expression.
-Until the parser is fixed, avoid formatting files that contain `).field`,
-`}.field`, or `Module.value.field`. Tracking:
-[compiler-common#27](https://github.com/gren-lang/compiler-common/issues/27).
-
 #### Wide `when` branch patterns
 
 A `when` branch whose record (or array) pattern is too wide to fit on one line
