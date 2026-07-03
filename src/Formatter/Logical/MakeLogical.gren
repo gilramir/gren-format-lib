@@ -32,14 +32,17 @@ import Formatter.Logical.VerticalSpace exposing (..)
 
 {-| Build the Logical Printing Tree for a parsed module.
 
-The pipeline runs in three stages:
+The pipeline runs in four stages:
 
 1. `lptFromAst` walks the `Src.Module` and emits one `OriginalRows` child
    per top-level declaration, in source order.
 2. `Formatter.Logical.Comments.lptAddComments` weaves in comment nodes from the
    parse `Ctx.Context`, as siblings of the declarations they belong to.
-3. `Formatter.Logical.VerticalSpace.insertEmptyLines` inserts `EmptyLine` siblings
-   to normalise blank-line spacing between declarations.
+3. `Formatter.Logical.VerticalSpace.insertFlowBlankLines` walks the whole tree
+   once, inserting `EmptyLine` siblings between `let` bindings, before
+   `else`/`else if`, and before a comment between `when` cases.
+4. `Formatter.Logical.VerticalSpace.insertEmptyLines` inserts `EmptyLine` siblings
+   to normalise blank-line spacing between top-level declarations.
 
 Returns `Err` (with the original error prefixed for context) if any stage
 fails. The resulting `LPNode` is the input to `Formatter.Render.MakeRender`.
@@ -56,17 +59,11 @@ makeLogicalPrintingTree ast ctx =
                 lptWc =
                     lptAddComments ctx lpt
 
-                lptLb =
-                    insertLetBlankLines lptWc
-
-                lptIf =
-                    insertIfBlankLines lptLb
-
-                lptWhen =
-                    insertWhenBlankLines lptIf
+                lptFb =
+                    insertFlowBlankLines lptWc
 
                 lptXl =
-                    insertEmptyLines lptWhen
+                    insertEmptyLines lptFb
             in
             Ok lptXl
 

@@ -1058,7 +1058,7 @@ buildFlowDocImpl indent inlineStart brokenFlow nodes =
 
                                 EmptyLine ->
                                     -- A blank-line marker between `let` bindings,
-                                    -- inserted by `VerticalSpace.insertLetBlankLines`.
+                                    -- inserted by `VerticalSpace.insertFlowBlankLines`.
                                     -- Emit one raw "\n" (not R.hardNl, which would
                                     -- re-emit indentation and leave trailing whitespace
                                     -- on the blank line — cf. the WhenBranch/PipelineStep

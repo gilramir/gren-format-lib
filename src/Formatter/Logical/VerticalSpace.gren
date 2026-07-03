@@ -1,12 +1,12 @@
-module Formatter.Logical.VerticalSpace exposing (insertEmptyLines, insertLetBlankLines, insertIfBlankLines, insertWhenBlankLines)
+module Formatter.Logical.VerticalSpace exposing (insertEmptyLines, insertFlowBlankLines)
 
 {-| Insert blank-line `EmptyLine` siblings into the Logical Printing Tree to
 preserve and normalise vertical spacing — between top-level declarations
-(`insertEmptyLines`), between `let` bindings (`insertLetBlankLines`), before the
-`else`/`else if` of an if-expression (`insertIfBlankLines`), and before a comment
-sitting between two `when` cases (`insertWhenBlankLines`).
+(`insertEmptyLines`), and — in a single combined tree walk, `insertFlowBlankLines`
+— between `let` bindings, before the `else`/`else if` of an if-expression, and
+before a comment sitting between two `when` cases.
 
-@docs insertEmptyLines, insertLetBlankLines, insertIfBlankLines, insertWhenBlankLines
+@docs insertEmptyLines, insertFlowBlankLines
 -}
 
 import Formatter.Logical.LogicalPrintingTree
@@ -407,21 +407,9 @@ insertBlanksInLetFlow children =
     result.out
 
 
-{-| Insert single blank-line `EmptyLine` markers between `let` bindings —
-always exactly one, whether or not the author wrote any, mirroring the top
-level's forced spacing (but one blank, never the top level's two). A type
-signature stays glued to its definition, and a run of own-line comments stays
-glued to the binding below it, exactly like a top-level function group.
-
-Recurses over the whole tree, acting on every `let … in` binding span it finds.
-Runs *after* `Formatter.Logical.Comments`, so comment nodes already sit in the binding
-sequence as their own nodes — see `insertBlanksInLetFlow`. Rebuilds via
-`lpnReplaceChildren` so bracket-extent caches survive.
--}
--- Recurse over the whole tree, applying a per-flow blank-line `transform` to
--- every node's child sequence bottom-up. Rebuilds each node via
--- `lpnReplaceChildren` so bracket-extent caches survive. The three
--- blank-line passes (`let`, `if`, `when`) differ only in `transform`.
+-- Recurse over the whole tree, applying a blank-line `transform` to every
+-- node's child sequence bottom-up. Rebuilds each node via
+-- `lpnReplaceChildren` so bracket-extent caches survive.
 mapFlows : (Array LPNode -> Array LPNode) -> LPNode -> LPNode
 mapFlows transform node =
     let
@@ -429,11 +417,6 @@ mapFlows transform node =
             Array.map (mapFlows transform) (lpnChildren node)
     in
     lpnReplaceChildren node (transform recursed)
-
-
-insertLetBlankLines : LPNode -> LPNode
-insertLetBlankLines node =
-    mapFlows insertBlanksInLetFlow node
 
 
 -- True if a node is an `else if` condition: an `IfCondition` whose first leaf
@@ -549,30 +532,41 @@ insertBlanksInWhenFlow children =
     result.out
 
 
-{-| Insert a single blank-line `EmptyLine` marker before a comment that sits
-between two `when` cases, so the comment is separated from the previous branch
-by one blank — matching the blank `MakeRender` already places between adjacent
-(comment-free) branches.
+-- Compose the three per-flow blank-line rules into one transform, applied to
+-- every node's children during a single tree walk (via `mapFlows`). Each rule
+-- triggers on its own distinct box shape (let/in keyword leaves, an
+-- `IfCondition`'s `else`/`else if` leaf, a `WhenBranch` node), so at most one
+-- of the three ever matches a given children array — running them in
+-- sequence here is equivalent to three independent full-tree passes, in one
+-- walk instead of three.
+insertBlanksInFlow : Array LPNode -> Array LPNode
+insertBlanksInFlow children =
+    children
+        |> insertBlanksInLetFlow
+        |> insertBlanksInIfFlow
+        |> insertBlanksInWhenFlow
 
-Recurses over the whole tree. Runs *after* `Formatter.Logical.Comments`, so the
-between-branch comment is already a sibling among the branch nodes. Rebuilds via
-`lpnReplaceChildren` so bracket-extent caches survive.
+
+{-| Insert blank-line `EmptyLine` markers at three kinds of boundary, in a
+single recursive walk of the whole tree:
+
+  - between `let` bindings — always exactly one blank, whether or not the
+    author wrote any, mirroring the top level's forced spacing (but one
+    blank, never the top level's two). A type signature stays glued to its
+    definition, and a run of own-line comments stays glued to the binding
+    below it, exactly like a top-level function group.
+  - before every `else if` and `else` of an if-expression — always one
+    blank, regardless of the author's spacing, so each branch body is
+    visually separated from the `else`/`else if` that follows it.
+  - before a comment that sits between two `when` cases — one blank, so the
+    comment is separated from the previous branch instead of gluing to it,
+    matching the blank `MakeRender` already places between adjacent
+    (comment-free) branches.
+
+Runs *after* `Formatter.Logical.Comments`, so comment nodes already sit among
+the relevant children as their own nodes. Rebuilds via `lpnReplaceChildren`
+(inside `mapFlows`) so bracket-extent caches survive.
 -}
-insertWhenBlankLines : LPNode -> LPNode
-insertWhenBlankLines node =
-    mapFlows insertBlanksInWhenFlow node
-
-
-{-| Insert a single blank-line `EmptyLine` marker before every `else if` and
-`else` of an if-expression, so each branch body is visually separated from the
-`else`/`else if` that follows. Always one blank, regardless of the author's
-spacing.
-
-Recurses over the whole tree. Runs *after* `Formatter.Logical.Comments`, so any comment
-nodes already sit among the if-expression's children and the blank is placed
-relative to them. Rebuilds via `lpnReplaceChildren` so bracket-extent caches
-survive.
--}
-insertIfBlankLines : LPNode -> LPNode
-insertIfBlankLines node =
-    mapFlows insertBlanksInIfFlow node
+insertFlowBlankLines : LPNode -> LPNode
+insertFlowBlankLines node =
+    mapFlows insertBlanksInFlow node
