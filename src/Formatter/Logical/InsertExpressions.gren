@@ -25,6 +25,7 @@ import Formatter.Logical.LogicalPrintingTree
         , lpnBracketNode
         , lpnLastPos
         , lpnLastBracketEnd
+        , lpnWithBox
         )
 import Formatter.Logical.LPTHelpers
     exposing
@@ -141,6 +142,33 @@ flattenBinop locExpr =
 
         _ ->
             { operands = [ locExpr ], ops = [] }
+
+
+{-| True for an operand that's a parenthesized `when`/`if`/`let` — content
+that's always going to render as its own multi-row block regardless of how
+compactly the author wrote it. When such an operand appears in a binop chain,
+the chain breaks (operator onto its own line) even if the author wrote the
+whole thing on one source row — matching elm-format, which breaks a binop
+chain the moment any operand's parse touches a newline. -}
+operandForcesBinopBreak : Src.Expression -> Bool
+operandForcesBinopBreak expr =
+    when expr.value is
+        Src.Parens inner ->
+            when inner.value is
+                Src.When _ ->
+                    True
+
+                Src.If _ ->
+                    True
+
+                Src.Let _ ->
+                    True
+
+                _ ->
+                    False
+
+        _ ->
+            False
 
 
 {-| Signal B for a binop chain: do the lowest-precedence split groups span rows?
@@ -359,7 +387,7 @@ insertExpression locExpr =
                                     forceVertical =
                                         locExpr.start.row /= locExpr.end.row
                                 in
-                                Ok [ lpnBracketNode (ParenBlock { forceVertical = forceVertical, checkContentVertical = True }) locExpr.end nodes ]
+                                Ok [ lpnBracketNode (ParenBlock { forceVertical = forceVertical, checkContentVertical = True, isCallArgument = False }) locExpr.end nodes ]
                     )
 
         Src.ArrayLiteral exprArray ->
@@ -528,6 +556,7 @@ insertExpression locExpr =
 
                                 forceVertical =
                                     binopForceVertical flat.operands flat.ops
+                                        || Array.any operandForcesBinopBreak flat.operands
                             in
                             [ lpnNode (Binop { forceVertical = forceVertical }) nested ]
                         )
@@ -858,7 +887,13 @@ exprIsAtomicAsArg expr =
 redundant `Parens` wrapper around an atomic/self-delimiting inner expression
 (matching elm-format, which drops parens the author didn't need). Only one
 level unwraps — a `Parens` around a still-non-atomic expression, or a `Parens`
-around another `Parens`, is left exactly as authored. -}
+around another `Parens`, is left exactly as authored.
+
+A `Parens` that's kept is tagged `isCallArgument = True` — see
+`LogicalPrintingTree.ParenBlock` for why: a when/if/let inside parens indents
+its branches/bodies by `(` + 4 here (matching the unparenthesized construct)
+rather than the `(` + 2 used when the parens trail other tokens on the same
+line (a binop operand, etc). -}
 insertCallArgAsItem : Src.Expression -> Result String LPNode
 insertCallArgAsItem locExpr =
     when locExpr.value is
@@ -868,6 +903,15 @@ insertCallArgAsItem locExpr =
 
             else
                 insertExpressionAsItem locExpr
+                    |> Result.map
+                        (\node ->
+                            when lpnBox node is
+                                ParenBlock payload ->
+                                    lpnWithBox (ParenBlock { payload | isCallArgument = True }) node
+
+                                _ ->
+                                    node
+                        )
 
         _ ->
             insertExpressionAsItem locExpr
@@ -1091,7 +1135,7 @@ folderInsertLetDef locDef accNodes =
                             -- (`argNeedsParens`).
                             lhsNodes =
                                 if argNeedsParens pattern.value then
-                                    [ lpnNode (ParenBlock { forceVertical = False, checkContentVertical = False }) patNodes ]
+                                    [ lpnNode (ParenBlock { forceVertical = False, checkContentVertical = False, isCallArgument = False }) patNodes ]
 
                                 else
                                     patNodes

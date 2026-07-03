@@ -1,0 +1,53 @@
+module ParenBlockCallArg exposing (..)
+
+
+-- when as a call argument: branches at ( + 4, ) on own line
+a x =
+    foo
+        bar
+        (when x is
+            Just _ ->
+                1
+
+            Nothing ->
+                0
+        )
+
+
+-- if/else as a call argument: bodies at ( + 4, ) on own line
+b x =
+    foo
+        bar
+        (if x then
+            2
+
+         else
+            3
+        )
+
+
+-- else-if chain as a call argument
+c x =
+    foo
+        bar
+        (if x == 1 then
+            "one"
+
+         else if x == 2 then
+            "two"
+
+         else
+            "other"
+        )
+
+
+-- let as a call argument: bindings at ( + 4, in/body at ( + 1, ) on own line
+d x =
+    foo
+        bar
+        (let
+            y =
+                2
+         in
+         y + x
+        )

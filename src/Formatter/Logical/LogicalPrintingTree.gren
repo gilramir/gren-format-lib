@@ -14,6 +14,7 @@ module Formatter.Logical.LogicalPrintingTree
         , lpnBracketEndExact
         , lpnBracketStart
         , lpnWithBracketStart
+        , lpnWithBox
         , lpnLeaf
         , lpnNode
         , lpnBracketNode
@@ -241,7 +242,17 @@ type LPBox
     -- paren-block shape (when/if/let, a multiline lambda), the closing `)`
     -- renders on its own line at the opening `(`'s column instead of
     -- trailing the last content token.
-    | ParenBlock { forceVertical : Bool, checkContentVertical : Bool }
+    --
+    -- `isCallArgument` is True only when these parens are a direct
+    -- function-call argument (set by `InsertExpressions.insertCallArgAsItem`),
+    -- False everywhere else (a binop operand, a formatter-synthesized wrap,
+    -- …). It controls how far a when/if/let block's branches/bodies indent
+    -- inside the parens: `(` + 4 (matching the same construct unparenthesized)
+    -- for a call argument, vs the more compact `(` + 2 elsewhere — matching
+    -- elm-format, which reduces the indent only when the parens trail other
+    -- tokens on the same line (e.g. `x + (when ...`) rather than starting a
+    -- fresh line of their own.
+    | ParenBlock { forceVertical : Bool, checkContentVertical : Bool, isCallArgument : Bool }
     -- One step of a non-pipeline binop chain: children are [op, ...rhsNodes].
     -- Renders the operator immediately adjacent (with a single space) to the
     -- rhs flow, so when the surrounding chain breaks, the operator starts the
@@ -475,6 +486,16 @@ lpnWithBracketStart openStart node =
     when node is
         LPNode r ->
             LPNode { r | bracketStart = Just openStart }
+
+
+{-| Replace a node's box, keeping its children and cached bounds as-is. Used
+to tag an already-built node with context its constructor didn't have —
+e.g. marking a `ParenBlock` as a call argument after the fact. -}
+lpnWithBox : LPBox -> LPNode -> LPNode
+lpnWithBox newBox node =
+    when node is
+        LPNode r ->
+            LPNode { r | box = newBox }
 
 
 lpnLeaf : LPBox -> LPNode

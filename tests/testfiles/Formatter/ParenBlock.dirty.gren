@@ -1,7 +1,7 @@
 module ParenBlock exposing (..)
 
 
--- when inside parens: branches at ( + 2, ) on own line
+-- when as a binop operand: forces the operator onto its own line, matching elm-format
 a x =
     List.length x + (when x is
                          Just _ ->
@@ -11,7 +11,7 @@ a x =
                              0)
 
 
--- if/else inside parens: bodies at ( + 2, ) on own line
+-- if/else as a binop operand: forces the operator onto its own line, matching elm-format
 b x =
     1 + (if x then
                  2
@@ -20,7 +20,7 @@ b x =
                  3)
 
 
--- else-if chain inside parens
+-- else-if chain as a binop operand
 c x =
     1 + (if x == 1 then
                  "one"
@@ -32,6 +32,6 @@ c x =
                  "other")
 
 
--- let inside parens: bindings at ( + 2, in/body at ( + 1, ) on own line
+-- let as a binop operand: forces the operator onto its own line, matching elm-format
 d x =
     1 + (let y = 2 in y + x)

@@ -1281,8 +1281,8 @@ makePDoc box children =
         SoftIndentedBlock ->
             buildFlowDoc 0 children
 
-        ParenBlock { forceVertical, checkContentVertical } ->
-            makeParenBlockDoc { forceVertical = forceVertical, checkContentVertical = checkContentVertical } children
+        ParenBlock { forceVertical, checkContentVertical, isCallArgument } ->
+            makeParenBlockDoc { forceVertical = forceVertical, checkContentVertical = checkContentVertical, isCallArgument = isCallArgument } children
 
         OpAndRhs ->
             when Array.popFirst children is
@@ -3508,9 +3508,18 @@ makeMultilineParenArgDoc children =
 block-style content (when, if, let).  Block layout matches elm-format:
 
     x + (when y is        -- "when" immediately after "("
-              Just n ->   -- branches at "(" + 2
+              Just n ->   -- branches at "(" + 2 (parens trail "+", not a call arg)
                   n
           )               -- ")" on its own line at "(" column
+
+    foo bar (when y is    -- parens are a call argument, start their own line
+                 Just n ->   -- branches at "(" + 4, same as unparenthesized `when`
+                     n
+             )
+
+`isCallArgument` (set by `InsertExpressions.insertCallArgAsItem`) picks
+between these two indents for a when/if/let body — see
+`LogicalPrintingTree.ParenBlock` for why the two contexts differ.
 
 When the parens will span multiple rows — either because the author wrote
 them that way (`parensForceVertical`, from the paren's own start/end row —
@@ -3542,7 +3551,7 @@ must not pull its closing paren onto its own line. `R.align` anchors the
 closing paren to whatever column `(` renders at (not necessarily a
 `nest`-boundary column, e.g. mid-expression after other tokens).
 -}
-makeParenBlockDoc : { forceVertical : Bool, checkContentVertical : Bool } -> Array LPNode -> Result String Doc
+makeParenBlockDoc : { forceVertical : Bool, checkContentVertical : Bool, isCallArgument : Bool } -> Array LPNode -> Result String Doc
 makeParenBlockDoc parenFlags children =
     let
         innerDocResult =
@@ -3632,9 +3641,22 @@ makeParenBlockDoc parenFlags children =
             Ok (R.text "()")
 
         Just first ->
+            let
+                -- Branches/bodies land at "(" + 4 for a call argument (matching
+                -- the unparenthesized construct's own indent), or the more
+                -- compact "(" + 2 elsewhere. `R.align` anchors at the column
+                -- right after "(" (where the keyword starts), so the nest
+                -- amount is one less than the "(" -relative offset.
+                branchNest =
+                    if parenFlags.isCallArgument then
+                        3
+
+                    else
+                        1
+            in
             when lpnBox first is
                 WhenFlow { forceVertical } ->
-                    makeWhenFlowDoc forceVertical 1 (lpnChildren first)
+                    makeWhenFlowDoc forceVertical branchNest (lpnChildren first)
                         |> Result.map
                             (\whenDoc ->
                                 R.align
@@ -3646,11 +3668,11 @@ makeParenBlockDoc parenFlags children =
                             )
 
                 IfCondition _ ->
-                    makeBlockInParenDoc children
+                    makeBlockInParenDoc parenFlags.isCallArgument children
 
                 UnbreakableText loc ->
                     if loc.value == "let" then
-                        makeBlockInParenDoc children
+                        makeBlockInParenDoc parenFlags.isCallArgument children
 
                     else
                         genericFallback
@@ -3660,10 +3682,19 @@ makeParenBlockDoc parenFlags children =
 
 
 {-| Render if/else and let expressions inside a ParenBlock using the
-paren-block layout: keyword at "("+1, bodies at "("+2, ")" at "(" column.
+paren-block layout: keyword at "("+1, bodies at "("+4 for a call argument or
+"("+2 otherwise, ")" at "(" column.
 -}
-makeBlockInParenDoc : Array LPNode -> Result String Doc
-makeBlockInParenDoc children =
+makeBlockInParenDoc : Bool -> Array LPNode -> Result String Doc
+makeBlockInParenDoc isCallArgument children =
+    let
+        bodyNest =
+            if isCallArgument then
+                4
+
+            else
+                2
+    in
     Array.foldl
         (\node accResult ->
             when accResult is
@@ -3684,7 +3715,7 @@ makeBlockInParenDoc children =
                             buildFlowDoc 0 (lpnChildren node)
                                 |> Result.andThen
                                     (\bodyDoc ->
-                                        appendDoc (R.nest 2 (R.concat R.hardNl bodyDoc))
+                                        appendDoc (R.nest bodyNest (R.concat R.hardNl bodyDoc))
                                     )
 
                         BodyBlock ->
