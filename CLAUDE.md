@@ -22,12 +22,14 @@ package's `tests/` can import them (their module names are unchanged).
 
 | Path | Role |
 |---|---|
-| `../compiler-common/` | Shared AST + parse types (`Compiler.Ast.Source`, `Compiler.Parse.Context`) |
-| `../compiler/` | Haskell front-end; provides `../gren.sh` for builds |
+| `../compiler-common/` | Shared AST + parse types (`Compiler.Ast.Source`, `Compiler.Parse.Context`) — no longer modified/rebuilt, read-only |
 | `../gren-format/` | Standalone CLI that imports this package |
 
-`../gren.sh` (one directory up from this repo) is the compiler wrapper used for
-all build and format commands.
+`compiler/`, `compiler-common/`, and `compiler-node/` are no longer being
+modified or rebuilt. There is no top-level `gren.sh` wrapper anymore (removed).
+Build and typecheck this package with **devbox** — `devbox.json` pins a
+`gren@0.6` package that resolves to a version-compatible published Gren
+compiler.
 
 ## Build & check
 
@@ -35,7 +37,7 @@ Compile a module to surface type errors (use the **module name**, not a file pat
 
 ```bash
 cd gren-format-lib
-../gren.sh make Formatter.PrettyPrinter
+devbox run -- gren make Formatter.PrettyPrinter
 ```
 
 The package itself has no runnable app — it is a library. The `tests/` directory
@@ -87,9 +89,10 @@ python3 fuzz-idempotency.py -j 12                                      # whole c
 python3 fuzz-idempotency.py -v testfiles/Formatter/Foo.formatted.gren  # one file
 ```
 
-**Rebuild the compiler app first** — fuzzers invoke `../../gren.sh format` as a
-subprocess, so they require an up-to-date binary. Run after any change to comment
-handling, and after adding any comment-bearing fixture.
+**Rebuild the `gren-format` app first** (`cd ../../gren-format && ./build.sh`) —
+fuzzers invoke `../../gren-format/gren-format.sh` as a subprocess, so they
+require an up-to-date binary. Run after any change to comment handling, and
+after adding any comment-bearing fixture.
 
 ### Whitespace-canonicalization fuzzer
 
