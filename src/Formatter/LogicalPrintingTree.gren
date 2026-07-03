@@ -208,7 +208,26 @@ type LPBox
     -- using P.concat (immediate adjacency, no space). Used instead of
     -- text-modification so that bracket-rendered containers (like arrays) render
     -- correctly: ([...] ++ x) not [( ... ] ++ x).
-    | ParenBlock
+    --
+    -- `forceVertical` is True when the author wrote the opening and closing
+    -- parens on different source rows (`Src.Parens`'s own start/end row
+    -- differ). `checkContentVertical` additionally lets the renderer fall
+    -- back to "does the content contain a HardNl regardless of how it was
+    -- written" (an if/when/let body, a comment, a multiline string) — needed
+    -- for idempotency: content that's *structurally* forced vertical can
+    -- have `forceVertical = False` on a first pass (author crammed it onto
+    -- one source row) yet render multi-row anyway, and reparsing that output
+    -- would then see `forceVertical = True`, flipping the decision. Both are
+    -- always False for formatter-synthesized parens (pattern/type wrapping)
+    -- that carry no author position of their own — `checkContentVertical`
+    -- is False there too so a comment/multiline construct *inside* a
+    -- synthesized wrap doesn't unexpectedly pull the closing paren onto its
+    -- own line; only genuine `Src.Parens` (expressions) opts in. When either
+    -- flag is True and the content isn't already handled by a more specific
+    -- paren-block shape (when/if/let, a multiline lambda), the closing `)`
+    -- renders on its own line at the opening `(`'s column instead of
+    -- trailing the last content token.
+    | ParenBlock { forceVertical : Bool, checkContentVertical : Bool }
     -- One step of a non-pipeline binop chain: children are [op, ...rhsNodes].
     -- Renders the operator immediately adjacent (with a single space) to the
     -- rhs flow, so when the surrounding chain breaks, the operator starts the

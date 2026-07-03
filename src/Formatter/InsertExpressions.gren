@@ -351,7 +351,15 @@ insertExpression locExpr =
                                 Ok [ lpnLeaf (SynthesizedText "()") ]
 
                             Just _ ->
-                                Ok [ lpnBracketNode ParenBlock locExpr.end nodes ]
+                                let
+                                    -- `locExpr` spans from `(` to `)` (the
+                                    -- parser captures position before/after the
+                                    -- delimiters), so this is exactly "did the
+                                    -- author put the parens on different rows."
+                                    forceVertical =
+                                        locExpr.start.row /= locExpr.end.row
+                                in
+                                Ok [ lpnBracketNode (ParenBlock { forceVertical = forceVertical, checkContentVertical = True }) locExpr.end nodes ]
                     )
 
         Src.ArrayLiteral exprArray ->
@@ -1083,7 +1091,7 @@ folderInsertLetDef locDef accNodes =
                             -- (`argNeedsParens`).
                             lhsNodes =
                                 if argNeedsParens pattern.value then
-                                    [ lpnNode ParenBlock patNodes ]
+                                    [ lpnNode (ParenBlock { forceVertical = False, checkContentVertical = False }) patNodes ]
 
                                 else
                                     patNodes

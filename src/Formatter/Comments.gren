@@ -720,7 +720,7 @@ boxKeepsTrailingCommentOutside node =
         PrefixGlue _ ->
             True
 
-        ParenBlock ->
+        ParenBlock _ ->
             True
 
         AllAcrossOrAllVertical _ ->
@@ -963,7 +963,7 @@ inside would move it between the brackets. -}
 isBracketContainerBox : LPNode -> Bool
 isBracketContainerBox node =
     when lpnBox node is
-        ParenBlock ->
+        ParenBlock _ ->
             True
 
         AllAcrossOrAllVertical _ ->

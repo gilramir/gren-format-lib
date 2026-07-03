@@ -283,7 +283,8 @@ torturedComments primaryIntValue secondaryStringValue tertiaryBoolValue =
                 (String.append
                     guardedString
                     {- yet another inter-arg comment -}
-                    (String.fromInt otherwiseAnyValue))
+                    (String.fromInt otherwiseAnyValue)
+                )
 
 
 {-| EXTREME case: one function that uses let, when, if, record destructuring,

@@ -316,16 +316,18 @@ transform inputValues =
         |> Array.map (doubleThenIncrement >> decrementThenHalve)
         |> Array.keepIf (\n -> n > -10 && n < 10000)
         |> Array.map (\n -> if Math.modBy 2 n == 0 then
-                    n * n
+                             n * n
 
-                else
-                    -n)
+                         else
+                             -n
+                     )
         |> Array.foldl (+) 0
         |> (\result -> if result < 0 then
-                    -result
+                   -result
 
-                else
-                    result)
+               else
+                   result
+           )
         |> identity
         <| 0
 

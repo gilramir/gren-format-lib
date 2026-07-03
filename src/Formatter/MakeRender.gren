@@ -1200,8 +1200,8 @@ makePDoc box children =
         SoftIndentedBlock ->
             buildFlowDoc 0 children
 
-        ParenBlock ->
-            makeParenBlockDoc children
+        ParenBlock { forceVertical, checkContentVertical } ->
+            makeParenBlockDoc { forceVertical = forceVertical, checkContentVertical = checkContentVertical } children
 
         OpAndRhs ->
             when Array.popFirst children is
@@ -1429,8 +1429,8 @@ listItemBoxDoc node =
             -- (see folderInsertRecordField).
             Just (buildFlowDoc 0 children)
 
-        ParenBlock ->
-            Just (makePDoc ParenBlock children)
+        ParenBlock payload ->
+            Just (makePDoc (ParenBlock payload) children)
 
         AllAcrossOrAllVertical _ ->
             Just (makePDoc (lpnBox node) children |> Result.map (R.nest 2))
@@ -2377,7 +2377,7 @@ isPipelineStepNode node =
 isMultilineLambdaParenBlock : LPNode -> Bool
 isMultilineLambdaParenBlock node =
     when lpnBox node is
-        ParenBlock ->
+        ParenBlock _ ->
             when Array.popFirst (lpnChildren node) is
                 Just { rest } ->
                     when Array.first rest is
@@ -2432,7 +2432,7 @@ subtreeHasVertical node =
 isMultilineContentParenBlock : LPNode -> Bool
 isMultilineContentParenBlock node =
     when lpnBox node is
-        ParenBlock ->
+        ParenBlock _ ->
             Array.any subtreeHasVertical (lpnChildren node)
 
         _ ->
@@ -3416,17 +3416,121 @@ block-style content (when, if, let).  Block layout matches elm-format:
               Just n ->   -- branches at "(" + 2
                   n
           )               -- ")" on its own line at "(" column
--}
-makeParenBlockDoc : Array LPNode -> Result String Doc
-makeParenBlockDoc children =
-    let
-        inline =
-            when buildFlowDocInline 0 children is
-                Err e ->
-                    Err e
 
-                Ok innerDoc ->
-                    Ok (R.concat (R.text "(") (R.concat innerDoc (R.text ")")))
+When the parens will span multiple rows — either because the author wrote
+them that way (`parensForceVertical`, from the paren's own start/end row —
+see `LogicalPrintingTree.ParenBlock`) or because the content is *structurally*
+forced vertical regardless of how it was written (an `if`/`when`/`let` body,
+a comment, a multiline string — anything whose rendered `Doc` contains a
+`HardNl`, per `R.hasHardBreak`) — and the content isn't already one of the
+block-style/lambda shapes above, the same "content right after `(`, `)` on
+its own line" layout applies generically:
+
+    (Parser.oneOf
+        [ a
+        , b
+        ]
+    )
+
+Both signals matter, and only for genuine `Src.Parens` (`checkContentVertical`):
+`forceVertical` alone catches an author spreading otherwise-trivial content
+across rows for no structural reason; `hasHardBreak` alone catches content
+that's forced vertical by a rule unrelated to how the *parens* were
+originally written (an `if` body always breaks even when the author crammed
+the whole `(...)` onto one row) — using only the source row-span there would
+be a moving target: the first format spreads the content out, and reparsing
+that *new* text sees the parens now spanning rows and flips the decision,
+breaking idempotency. `checkContentVertical` is False for formatter-synthesized
+parens (pattern/type wrapping): those must stay byte-identical to before this
+rule existed, so a comment or multiline construct *inside* a synthesized wrap
+must not pull its closing paren onto its own line. `R.align` anchors the
+closing paren to whatever column `(` renders at (not necessarily a
+`nest`-boundary column, e.g. mid-expression after other tokens).
+-}
+makeParenBlockDoc : { forceVertical : Bool, checkContentVertical : Bool } -> Array LPNode -> Result String Doc
+makeParenBlockDoc parenFlags children =
+    let
+        innerDocResult =
+            buildFlowDocInline 0 children
+
+        inline =
+            Result.map (\innerDoc -> R.concat (R.text "(") (R.concat innerDoc (R.text ")"))) innerDocResult
+
+        -- Whether the content is *structurally* forced vertical (an if/when/let
+        -- body, a comment, a multiline string, …) regardless of how the parens
+        -- themselves were written — see the doc comment above for why this is
+        -- ORed with `forceVertical` rather than used alone, and gated behind
+        -- `checkContentVertical` rather than applied unconditionally.
+        contentForcesVertical =
+            if not parenFlags.checkContentVertical then
+                False
+
+            else
+                when innerDocResult is
+                    Ok innerDoc ->
+                        R.hasHardBreak innerDoc
+
+                    Err _ ->
+                        False
+
+        parensForceVertical =
+            parenFlags.forceVertical
+
+        -- Shared fallback for any content that isn't a when/if/let block:
+        -- own-line `)` for a multiline lambda (checked first, by content
+        -- shape) or when either verticality signal is set; otherwise flat.
+        -- Reused by both the `UnbreakableText` (non-`let`) and catch-all
+        -- match arms below — a bare leaf like `Int` (a type's arrow chain
+        -- has no wrapping container, unlike a Call/Binop) must get the same
+        -- treatment as everything else, not silently skip it.
+        genericFallback =
+            -- If the second direct child is IndentedBlock, the lambda
+            -- body is on a separate row — put ) on its own line so the
+            -- closing paren doesn't trail the body text.
+            let
+                isLambdaMultiline =
+                    when Array.popFirst children is
+                        Just { rest } ->
+                            when Array.first rest is
+                                Just secondChild ->
+                                    when lpnBox secondChild is
+                                        IndentedBlock ->
+                                            True
+
+                                        _ ->
+                                            False
+
+                                Nothing ->
+                                    False
+
+                        Nothing ->
+                            False
+            in
+            if isLambdaMultiline then
+                Result.map
+                    (\innerDoc ->
+                        R.concat
+                            (R.text "(")
+                            (R.concat
+                                innerDoc
+                                (R.concat R.hardNl (R.text ")")))
+                    )
+                    innerDocResult
+
+            else if parensForceVertical || contentForcesVertical then
+                Result.map
+                    (\innerDoc ->
+                        R.align
+                            (R.concat
+                                (R.text "(")
+                                (R.concat
+                                    innerDoc
+                                    (R.concat R.hardNl (R.text ")"))))
+                    )
+                    innerDocResult
+
+            else
+                inline
     in
     when Array.first children is
         Nothing ->
@@ -3454,45 +3558,10 @@ makeParenBlockDoc children =
                         makeBlockInParenDoc children
 
                     else
-                        inline
+                        genericFallback
 
                 _ ->
-                    -- If the second direct child is IndentedBlock, the lambda
-                    -- body is on a separate row — put ) on its own line so the
-                    -- closing paren doesn't trail the body text.
-                    let
-                        isLambdaMultiline =
-                            when Array.popFirst children is
-                                Just { rest } ->
-                                    when Array.first rest is
-                                        Just secondChild ->
-                                            when lpnBox secondChild is
-                                                IndentedBlock ->
-                                                    True
-
-                                                _ ->
-                                                    False
-
-                                        Nothing ->
-                                            False
-
-                                Nothing ->
-                                    False
-                    in
-                    if isLambdaMultiline then
-                        when buildFlowDocInline 0 children is
-                            Err e ->
-                                Err e
-
-                            Ok innerDoc ->
-                                Ok (R.concat
-                                        (R.text "(")
-                                        (R.concat
-                                            innerDoc
-                                            (R.concat R.hardNl (R.text ")"))))
-
-                    else
-                        inline
+                    genericFallback
 
 
 {-| Render if/else and let expressions inside a ParenBlock using the

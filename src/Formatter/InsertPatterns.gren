@@ -86,7 +86,7 @@ insertPattern locPat =
                             -- no longer consumes args at the top level of `parser`).
                             wrappedPatNodes =
                                 if argNeedsParens pat.value then
-                                    [ lpnNode ParenBlock patNodes ]
+                                    [ lpnNode (ParenBlock { forceVertical = False, checkContentVertical = False }) patNodes ]
 
                                 else
                                     patNodes
@@ -179,7 +179,7 @@ insertPatternAsItem locPat =
 parenCtorArg : Src.Pattern -> LPNode -> LPNode
 parenCtorArg argPat argNode =
     if argNeedsParens argPat.value then
-        lpnNode ParenBlock [ argNode ]
+        lpnNode (ParenBlock { forceVertical = False, checkContentVertical = False }) [ argNode ]
 
     else
         argNode
@@ -199,7 +199,7 @@ folderInsertPattern locPat accNodes =
                 --     today, but the parens are the canonical form and keep the
                 --     alias visibly bound to its own pattern.
                 if argNeedsParens locPat.value then
-                    Array.pushLast (lpnNode ParenBlock newNodes) accNodes
+                    Array.pushLast (lpnNode (ParenBlock { forceVertical = False, checkContentVertical = False }) newNodes) accNodes
 
                 else
                     accNodes ++ newNodes
@@ -257,7 +257,7 @@ folderInsertPRecordField field accNodes =
                             wrappedAliasNode =
                                 when aliasPat.value is
                                     Src.PAlias _ ->
-                                        lpnNode ParenBlock [ aliasNode ]
+                                        lpnNode (ParenBlock { forceVertical = False, checkContentVertical = False }) [ aliasNode ]
 
                                     _ ->
                                         aliasNode

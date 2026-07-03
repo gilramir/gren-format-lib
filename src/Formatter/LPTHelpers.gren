@@ -283,4 +283,4 @@ fixupParensChildrenNodes nodes =
             Ok [ lpnLeaf (SynthesizedText "()") ]
 
         Just _ ->
-            Ok [ lpnNode ParenBlock nodes ]
+            Ok [ lpnNode (ParenBlock { forceVertical = False, checkContentVertical = False }) nodes ]

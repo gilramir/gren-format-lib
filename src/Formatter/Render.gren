@@ -14,6 +14,7 @@ module Formatter.Render
         , vcat
         , foldDoc
         , render
+        , hasHardBreak
         , docToJson
         )
 
@@ -207,6 +208,41 @@ renderState state flat doc =
 render : Doc -> String
 render doc =
     (renderState { indent = 0, col = 0, buf = "" } False doc).buf
+
+
+{-| True if `doc` contains a `HardNl` anywhere in its tree — i.e. it will
+render across multiple rows no matter what context it's embedded in.
+`HardNl` always breaks regardless of an enclosing `Group` (see `HardNl`'s
+render case), so this needs no `flat`-context tracking the way a full
+render would; `Nl`/`BreakDoc` are conditional (only break outside a `Group`)
+and irrelevant here — everything that's *unconditionally* vertical (an
+`AlwaysVertical` list, a `when`/`if`/`let` body, a comment, a multiline
+string) is built from `HardNl`. Used to detect when a `ParenBlock`'s content
+is forced multi-row by its own structure, independent of how the author
+originally laid out the surrounding parens (see `MakeRender.makeParenBlockDoc`). -}
+hasHardBreak : Doc -> Bool
+hasHardBreak doc =
+    when doc is
+        HardNl ->
+            True
+
+        Concat { a, b } ->
+            hasHardBreak a || hasHardBreak b
+
+        Nest { doc = inner } ->
+            hasHardBreak inner
+
+        Align inner ->
+            hasHardBreak inner
+
+        Reset inner ->
+            hasHardBreak inner
+
+        Group inner ->
+            hasHardBreak inner
+
+        _ ->
+            False
 
 
 {-| Serialise a Doc to a JSON value for the `--render-doc` debug flag. -}

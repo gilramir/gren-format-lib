@@ -1,0 +1,38 @@
+module ParenClosingLine exposing (..)
+
+-- Trivial content the author still spread across rows: no structural reason
+-- for it to be multi-line, but the parens' own row span is honored anyway.
+trivial =
+    (
+        x
+    )
+
+-- A call wrapped in parens as the entire function body, written across rows.
+topLevelWrap =
+    (Parser.oneOf
+        [ a
+        , b
+        ]
+    )
+
+-- A call wrapped in parens as a nested call argument.
+nestedWrap =
+    make
+        (build
+            { a = 1
+            , b = 2
+            }
+        )
+
+-- A binop chain wrapped in parens, written across rows.
+binopWrap =
+    (1
+        + 2
+    )
+
+-- Content that's structurally forced vertical (an if body) even though the
+-- author wrote the whole parenthesized lambda on one row -- the closing
+-- paren must still land on its own line, and stay that way on reformat.
+forcedByContent xs =
+    xs
+        |> Array.map (\n -> if n > 0 then n else -n)

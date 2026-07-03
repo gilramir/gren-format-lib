@@ -268,7 +268,8 @@ parensAccessor r =
     (r.field {- 43 a
                 43 b
                 43 c -}
-        + 1)
+        + 1
+    )
 
 
 asPattern arg =
