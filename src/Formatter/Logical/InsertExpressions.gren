@@ -1,4 +1,4 @@
-module Formatter.InsertExpressions exposing (insertExpression)
+module Formatter.Logical.InsertExpressions exposing (insertExpression)
 
 {-|
 Expression → LPT conversion. Recurses through Src.Expression producing the
@@ -13,7 +13,7 @@ import Compiler.Ast.Source as Src
 import Compiler.Parse.Number as PN
 import Compiler.SourcePosition exposing (Located, Position)
 
-import Formatter.LogicalPrintingTree
+import Formatter.Logical.LogicalPrintingTree
     exposing
         ( LPBox(..)
         , LPNode(..)
@@ -26,7 +26,7 @@ import Formatter.LogicalPrintingTree
         , lpnLastPos
         , lpnLastBracketEnd
         )
-import Formatter.LPTHelpers
+import Formatter.Logical.LPTHelpers
     exposing
         ( mkText
         , mkZeroWidthText
@@ -40,9 +40,9 @@ import Formatter.LPTHelpers
         , binopPrecedence
         , binopMinPrecedence
         )
-import Formatter.LiteralFormat exposing (charLiteralString, escapeStringContent, escapeMultilineContent, intToHex)
-import Formatter.InsertPatterns exposing (argNeedsParens, folderInsertPattern, insertPattern)
-import Formatter.InsertTypes exposing (makeSignatureBranch)
+import Formatter.Logical.LiteralFormat exposing (charLiteralString, escapeStringContent, escapeMultilineContent, intToHex)
+import Formatter.Logical.InsertPatterns exposing (argNeedsParens, folderInsertPattern, insertPattern)
+import Formatter.Logical.InsertTypes exposing (makeSignatureBranch)
 
 
 {-| Returns True for the pipeline operators `|>` and `<|`.

@@ -1,4 +1,4 @@
-module Formatter.Comments exposing (lptAddComments)
+module Formatter.Logical.Comments exposing (lptAddComments)
 
 {-| Weave parse-context comments into the Logical Printing Tree.
 
@@ -111,7 +111,7 @@ import Array.Builder as Builder
 import Compiler.Parse.Context as Ctx
 import Compiler.SourcePosition exposing (Located, Position, at)
 
-import Formatter.LogicalPrintingTree
+import Formatter.Logical.LogicalPrintingTree
     exposing
         ( LPBox(..)
         , LPNode(..)

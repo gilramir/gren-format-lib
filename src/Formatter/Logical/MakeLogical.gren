@@ -1,4 +1,4 @@
-module Formatter.MakeLogical exposing (makeLogicalPrintingTree)
+module Formatter.Logical.MakeLogical exposing (makeLogicalPrintingTree)
 
 {-| Convert the Abstract Syntax Tree into a Logical Printing Tree
 
@@ -9,7 +9,7 @@ import Compiler.Ast.Source as Src
 import Compiler.Parse.Context as Ctx
 import Compiler.SourcePosition exposing (Located, Position)
 
-import Formatter.LogicalPrintingTree
+import Formatter.Logical.LogicalPrintingTree
     exposing
         ( LPBox(..)
         , LPNode(..)
@@ -22,12 +22,12 @@ import Formatter.LogicalPrintingTree
         , lpnBracketNode
         , lastRowInSubtree
         )
-import Formatter.Comments exposing (lptAddComments)
-import Formatter.LPTHelpers exposing (mkText, mkZeroWidthText, mkTextFromLocString, resultFoldl)
-import Formatter.InsertExpressions exposing (insertExpression)
-import Formatter.InsertPatterns exposing (folderInsertPattern)
-import Formatter.InsertTypes exposing (makeSignatureBranch)
-import Formatter.VerticalSpace exposing (..)
+import Formatter.Logical.Comments exposing (lptAddComments)
+import Formatter.Logical.LPTHelpers exposing (mkText, mkZeroWidthText, mkTextFromLocString, resultFoldl)
+import Formatter.Logical.InsertExpressions exposing (insertExpression)
+import Formatter.Logical.InsertPatterns exposing (folderInsertPattern)
+import Formatter.Logical.InsertTypes exposing (makeSignatureBranch)
+import Formatter.Logical.VerticalSpace exposing (..)
 
 
 {-| Build the Logical Printing Tree for a parsed module.
@@ -36,13 +36,13 @@ The pipeline runs in three stages:
 
 1. `lptFromAst` walks the `Src.Module` and emits one `OriginalRows` child
    per top-level declaration, in source order.
-2. `Formatter.Comments.lptAddComments` weaves in comment nodes from the
+2. `Formatter.Logical.Comments.lptAddComments` weaves in comment nodes from the
    parse `Ctx.Context`, as siblings of the declarations they belong to.
-3. `Formatter.VerticalSpace.insertEmptyLines` inserts `EmptyLine` siblings
+3. `Formatter.Logical.VerticalSpace.insertEmptyLines` inserts `EmptyLine` siblings
    to normalise blank-line spacing between declarations.
 
 Returns `Err` (with the original error prefixed for context) if any stage
-fails. The resulting `LPNode` is the input to `Formatter.MakeRender`.
+fails. The resulting `LPNode` is the input to `Formatter.Render.MakeRender`.
 -}
 makeLogicalPrintingTree : Src.Module -> Ctx.Context -> Result String LPNode
 makeLogicalPrintingTree ast ctx =
@@ -199,7 +199,7 @@ processModuleLine modAst root =
                         -- own length, and the `=` sits two columns before
                         -- the constructor. Positioning these makes the
                         -- subtree row/col ranges precise enough for
-                        -- Formatter.Comments to place inter-token comments.
+                        -- Formatter.Logical.Comments to place inter-token comments.
                         binding label locName =
                             let
                                 ctorCol =

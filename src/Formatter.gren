@@ -1,4 +1,4 @@
-module Formatter.PrettyPrinter exposing (prettyPrint)
+module Formatter exposing (prettyPrint)
 
 {-|
 The Formatter package takes a parsed Gren source file and produces a
@@ -11,8 +11,8 @@ canonically formatted string.
 import Compiler.Ast.Source as Src
 import Compiler.Parse.Context as Ctx
 
-import Formatter.MakeLogical exposing (makeLogicalPrintingTree)
-import Formatter.MakeRender exposing (makePrettyResult)
+import Formatter.Logical.MakeLogical exposing (makeLogicalPrintingTree)
+import Formatter.Render.MakeRender exposing (makePrettyResult)
 
 
 {-|

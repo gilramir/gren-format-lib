@@ -12,7 +12,7 @@ import Compiler.Ast.Source as Src
 import Compiler.Parse.Module as PM
 import Compiler.Parse.Context as Context
 import Compiler.Ast.Compare as AstCompare
-import Formatter.PrettyPrinter as PPrint
+import Formatter as PPrint
 import String.Parser.Advanced as Parser
 
 import UnifiedDiff exposing (unifiedDiffStrings)

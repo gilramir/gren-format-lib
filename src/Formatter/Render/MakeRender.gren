@@ -1,4 +1,4 @@
-module Formatter.MakeRender
+module Formatter.Render.MakeRender
     exposing
         ( makePrettyResult
         , lptToRenderDocJson
@@ -6,7 +6,7 @@ module Formatter.MakeRender
 
 {-| Render a Logical Printing Tree to its final formatted source string.
 
-Each `LPBox` constructor maps to a `Formatter.Render` `Doc` via `makePDoc`.
+Each `LPBox` constructor maps to a `Formatter.Render.Doc` `Doc` via `makePDoc`.
 `makePrettyResult` is the main entry point. Unhandled box types surface as
 `Err` rather than silently falling back, so every supported construct must
 have an explicit case in `makePDoc`.
@@ -14,7 +14,7 @@ have an explicit case in `makePDoc`.
 # Comments
 
 Comments arrive in the LPT already woven into the right slots by
-`Formatter.Comments`, so by the time `makePrettyResult` runs they're
+`Formatter.Logical.Comments`, so by the time `makePrettyResult` runs they're
 just `LPNode`s interleaved with content at whatever depth they belong
 to. What makes them tricky is that they can show up *anywhere* — in a
 top-level slot, mid-expression, between record fields, between a
@@ -64,7 +64,7 @@ A handful of techniques carry the load:
 
 import Compiler.SourcePosition exposing (Located)
 
-import Formatter.LogicalPrintingTree
+import Formatter.Logical.LogicalPrintingTree
     exposing
         ( LPBox(..)
         , LPNode
@@ -80,12 +80,12 @@ import Formatter.LogicalPrintingTree
         , lpnLastBracketEnd
         , lpnBracketStart
         )
-import Formatter.LPTJson exposing (lptToJson)
-import Formatter.LPTHelpers exposing (binopPrecedence, binopMinPrecedence)
+import Formatter.Logical.LPTJson exposing (lptToJson)
+import Formatter.Logical.LPTHelpers exposing (binopPrecedence, binopMinPrecedence)
 
 import Formatter.Strings exposing (joinResultStrings)
 
-import Formatter.Render as R exposing (Doc)
+import Formatter.Render.Doc as R exposing (Doc)
 import Json.Encode as Json
 
 
@@ -157,7 +157,7 @@ blockCommentBodyOffset =
 
 Renders each root child independently via `makePrettyLine` and joins the
 results with a single newline. The caller is expected to pass the root
-`LPNode` produced by `Formatter.MakeLogical`; `EmptyLine` children
+`LPNode` produced by `Formatter.Logical.MakeLogical`; `EmptyLine` children
 contribute blank separators here. Returns `Err` if any child contains an
 unhandled box construct.
 -}

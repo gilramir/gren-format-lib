@@ -1,4 +1,4 @@
-module Formatter.InsertPatterns exposing (insertPattern, folderInsertPattern, argNeedsParens)
+module Formatter.Logical.InsertPatterns exposing (insertPattern, folderInsertPattern, argNeedsParens)
 
 {-|
 Pattern → LPT conversion. Patterns appear in let-destructures, lambda
@@ -11,7 +11,7 @@ boxes.
 import Compiler.Ast.Source as Src
 import Compiler.SourcePosition exposing (Located, Position)
 
-import Formatter.LogicalPrintingTree
+import Formatter.Logical.LogicalPrintingTree
     exposing
         ( LPBox(..)
         , LPNode(..)
@@ -22,8 +22,8 @@ import Formatter.LogicalPrintingTree
         , lpnNode
         , lpnBracketNode
         )
-import Formatter.LPTHelpers exposing (mkText, mkZeroWidthText, mkTextFromLocString, resultFoldl, itemsSpanRows, authoredBracketList)
-import Formatter.LiteralFormat exposing (charLiteralString, escapeStringContent, intToHex)
+import Formatter.Logical.LPTHelpers exposing (mkText, mkZeroWidthText, mkTextFromLocString, resultFoldl, itemsSpanRows, authoredBracketList)
+import Formatter.Logical.LiteralFormat exposing (charLiteralString, escapeStringContent, intToHex)
 
 
 insertPattern : Src.Pattern -> Result String (Array LPNode)

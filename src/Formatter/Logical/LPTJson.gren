@@ -1,4 +1,4 @@
-module Formatter.LPTJson exposing (lptToJson)
+module Formatter.Logical.LPTJson exposing (lptToJson)
 
 {-| Serialise the Logical Printing Tree to JSON for debugging.
 
@@ -6,7 +6,7 @@ Exposed via `gren format --lpt`, which prints the tree as nested objects:
 each node carries its box constructor (`type`, plus box-specific fields like
 `first`/`last`/`stype` for `OriginalRows`, or the literal text for leaves)
 and a `children` array. The format is intended for human inspection of the
-intermediate representation produced by `Formatter.MakeLogical`, not for any
+intermediate representation produced by `Formatter.Logical.MakeLogical`, not for any
 machine consumer.
 
 @docs lptToJson
@@ -15,7 +15,7 @@ machine consumer.
 import Json.Encode as Json
 
 import Compiler.SourcePosition exposing (Located, Position)
-import Formatter.LogicalPrintingTree exposing (LPBox(..), LPNode, ListBrackets(..), SyntaxType(..), stypeToString, lpnBox, lpnChildren)
+import Formatter.Logical.LogicalPrintingTree exposing (LPBox(..), LPNode, ListBrackets(..), SyntaxType(..), stypeToString, lpnBox, lpnChildren)
 
 
 {-| Serialise the Logical Printing Tree to JSON for debugging.

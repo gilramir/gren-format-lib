@@ -1,4 +1,4 @@
-module Formatter.VerticalSpace exposing (insertEmptyLines, insertLetBlankLines, insertIfBlankLines, insertWhenBlankLines)
+module Formatter.Logical.VerticalSpace exposing (insertEmptyLines, insertLetBlankLines, insertIfBlankLines, insertWhenBlankLines)
 
 {-| Insert blank-line `EmptyLine` siblings into the Logical Printing Tree to
 preserve and normalise vertical spacing — between top-level declarations
@@ -9,7 +9,7 @@ sitting between two `when` cases (`insertWhenBlankLines`).
 @docs insertEmptyLines, insertLetBlankLines, insertIfBlankLines, insertWhenBlankLines
 -}
 
-import Formatter.LogicalPrintingTree
+import Formatter.Logical.LogicalPrintingTree
     exposing
         ( LPBox(..)
         , SyntaxType(..)
@@ -167,8 +167,8 @@ computeGroupStarts infos =
 {-| Insert blank-line `EmptyLine` siblings into the root of the Logical
 Printing Tree.
 
-Runs after `Formatter.MakeLogical` has built the tree and
-`Formatter.Comments` has attached comments. The rule:
+Runs after `Formatter.Logical.MakeLogical` has built the tree and
+`Formatter.Logical.Comments` has attached comments. The rule:
 
   - **Two blank lines before the start of every top-level declaration unit,
     always** — whether the author wrote zero, one, or several. A "unit" is one
@@ -287,7 +287,7 @@ isLetKeyword node =
 
 
 -- True if a node is the synthesized `in` leaf that closes a let-expression's
--- bindings. (The same marker `Formatter.Comments` uses to find the boundary.)
+-- bindings. (The same marker `Formatter.Logical.Comments` uses to find the boundary.)
 isInKeyword : LPNode -> Bool
 isInKeyword node =
     when lpnBox node is
@@ -414,7 +414,7 @@ signature stays glued to its definition, and a run of own-line comments stays
 glued to the binding below it, exactly like a top-level function group.
 
 Recurses over the whole tree, acting on every `let … in` binding span it finds.
-Runs *after* `Formatter.Comments`, so comment nodes already sit in the binding
+Runs *after* `Formatter.Logical.Comments`, so comment nodes already sit in the binding
 sequence as their own nodes — see `insertBlanksInLetFlow`. Rebuilds via
 `lpnReplaceChildren` so bracket-extent caches survive.
 -}
@@ -554,7 +554,7 @@ between two `when` cases, so the comment is separated from the previous branch
 by one blank — matching the blank `MakeRender` already places between adjacent
 (comment-free) branches.
 
-Recurses over the whole tree. Runs *after* `Formatter.Comments`, so the
+Recurses over the whole tree. Runs *after* `Formatter.Logical.Comments`, so the
 between-branch comment is already a sibling among the branch nodes. Rebuilds via
 `lpnReplaceChildren` so bracket-extent caches survive.
 -}
@@ -568,7 +568,7 @@ insertWhenBlankLines node =
 `else`/`else if` that follows. Always one blank, regardless of the author's
 spacing.
 
-Recurses over the whole tree. Runs *after* `Formatter.Comments`, so any comment
+Recurses over the whole tree. Runs *after* `Formatter.Logical.Comments`, so any comment
 nodes already sit among the if-expression's children and the blank is placed
 relative to them. Rebuilds via `lpnReplaceChildren` so bracket-extent caches
 survive.

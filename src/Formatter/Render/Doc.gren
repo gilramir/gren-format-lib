@@ -1,4 +1,4 @@
-module Formatter.Render
+module Formatter.Render.Doc
     exposing
         ( Doc
         , empty

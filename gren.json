@@ -9,10 +9,10 @@
         "Compiler.Ast.Compare",
         "Compiler.Ast.Source.Json",
         "Compiler.Parse.Context.Json",
-        "Formatter.PrettyPrinter",
-        "Formatter.LPTJson",
-        "Formatter.MakeLogical",
-        "Formatter.MakeRender"
+        "Formatter",
+        "Formatter.Logical.LPTJson",
+        "Formatter.Logical.MakeLogical",
+        "Formatter.Render.MakeRender"
     ],
     "gren-version": "0.6.0 <= v < 0.7.0",
     "dependencies": {

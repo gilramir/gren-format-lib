@@ -24,13 +24,13 @@ Src.Module + Ctx.Context  ──►  LPT  ──►  R.Doc  ──►  String
   should be grouped with what* and *how each group may break across lines* — but
   not the exact spaces. It also carries enough source-position information to put
   comments back where the author wrote them.
-- **`Formatter.Render`** turns the LPT into a concrete string. It is a simple
+- **`Formatter.Render.Doc`** turns the LPT into a concrete string. It is a simple
   greedy renderer: `Group` always renders flat (no optimizer), `HardNl` always
   breaks, `Nl`/`BreakDoc` are soft (space in flat context, newline otherwise).
   There is no page width. Author layout is encoded at LPT-build time via
   `forceVertical` flags on certain boxes (see below).
 
-Entry point: `Formatter.PrettyPrinter.prettyPrint : Src.Module -> Ctx.Context ->
+Entry point: `Formatter.prettyPrint : Src.Module -> Ctx.Context ->
 Result String String`. It calls `MakeLogical.makeLogicalPrintingTree` (build the
 LPT) then `MakeRender.makePrettyResult` (render it). Every stage returns
 `Result String _`; there are no silent fallbacks — an unhandled case is an
@@ -81,13 +81,13 @@ type Comment = Line String | Block String
 
 Comments ride alongside the AST as a flat, source-ordered list of located
 `Line` (`--`) or `Block` (`{- -}`) strings. They are re-attached to the LPT
-*after* it is built, purely by position (`Formatter.Comments`). This is why
+*after* it is built, purely by position (`Formatter.Logical.Comments`). This is why
 positions on your LPT nodes must be honest: a comment is placed next to whatever
 token its `(row, col)` falls between.
 
 ---
 
-## The LPT — `Formatter.LogicalPrintingTree`
+## The LPT — `Formatter.Logical.LogicalPrintingTree`
 
 An `LPNode` is a `box` (the layout shape) plus `children`, plus a handful of
 **cached subtree bounds**. Build nodes only with the smart constructors —
@@ -104,7 +104,7 @@ Leaves (carry text/position, no children):
 - `SynthesizedText String` — punctuation/keywords the AST doesn't position
   (`=`, `->`, `in`, `(..)`). **Excluded from all row-range and comment math.**
 - `SingleLineComment` / `BlockComment` / `DocComment` (`Located String`) —
-  inserted by `Formatter.Comments`, you rarely emit these yourself.
+  inserted by `Formatter.Logical.Comments`, you rarely emit these yourself.
 - `MultilineString (Located (Array String))`, `EmptyLine`, `RootBox`.
 
 Layout boxes (have children):
@@ -135,13 +135,13 @@ stype }` node directly under `RootBox`, where `stype : SyntaxType` tags the kind
 `first`/`last` are its source-row range. Comments and blank lines are then added
 as *sibling* `OriginalRows` nodes. The row range drives two things: source
 ordering (`MakeLogical.sortOriginalRows`) and blank-line decisions
-(`Formatter.VerticalSpace`). Get `first`/`last` right or comments/blanks land in
+(`Formatter.Logical.VerticalSpace`). Get `first`/`last` right or comments/blanks land in
 the wrong place — `first` should be the declaration's **leading keyword** row.
 
 ### The cached bounds (why `lpnNode` matters)
 
 Every node caches `firstPos`, `lastPos`, `minRow`, `maxRow`, `lastBracketEnd`,
-and `bracketEndExact`. `Formatter.Comments` uses these to answer "what's the
+and `bracketEndExact`. `Formatter.Logical.Comments` uses these to answer "what's the
 first/last positioned token here?" and "where does the rightmost bracket close?"
 in O(1). `lpnNode` fills them from `selfBoxBounds box` merged with the children;
 `lpnBracketNode` additionally records an *exact* closing-bracket position.
@@ -179,9 +179,9 @@ its predecessor. If yes → `forceVertical = True`; the renderer does the rest.
 
 ---
 
-## `Formatter.Render` — the backend
+## `Formatter.Render.Doc` — the backend
 
-`Formatter.Render` is a small custom Doc renderer. Key combinators:
+`Formatter.Render.Doc` is a small custom Doc renderer. Key combinators:
 
 - `R.text s` — literal text, width = `String.count s`
 - `R.concat a b` — sequence
@@ -222,14 +222,14 @@ brackets the parser consumes without recording a position).
 Add/extend the right converter:
 
 - **Top-level declaration kind** → a `process*` function in
-  `Formatter.MakeLogical` (mirror `processUnionDecl` / `processPorts`). Wrap the
+  `Formatter.Logical.MakeLogical` (mirror `processUnionDecl` / `processPorts`). Wrap the
   result in `makeOrigRows firstRow stype children` with a new or existing
   `SyntaxType`. `firstRow` = the **keyword** row.
-- **Expression** → `Formatter.InsertExpressions.insertExpression`.
-- **Pattern** → `Formatter.InsertPatterns`.
-- **Type** → `Formatter.InsertTypes`.
+- **Expression** → `Formatter.Logical.InsertExpressions.insertExpression`.
+- **Pattern** → `Formatter.Logical.InsertPatterns`.
+- **Type** → `Formatter.Logical.InsertTypes`.
 
-Use the shared helpers in `Formatter.LPTHelpers`: `mkTextFromLocString` (a real
+Use the shared helpers in `Formatter.Logical.LPTHelpers`: `mkTextFromLocString` (a real
 token at its `Located` position), `mkText pos str` (text at an explicit
 position), `mkZeroWidthText pos str` (a synthesized token anchored at a real
 position but contributing zero width — see below), `resultFoldl`.
@@ -260,7 +260,7 @@ than one row, using the positions from the AST. See the [Author layout
 section](#author-layout--the-forcevertical-flag) for the pattern.
 
 ### 5. Comments — usually nothing to do
-`Formatter.Comments` re-attaches every comment by position; it is largely
+`Formatter.Logical.Comments` re-attaches every comment by position; it is largely
 construct-agnostic. Its module doc (`Comments.gren`, "Adding support for a new
 construct") is required reading, but the short version:
 
@@ -280,7 +280,7 @@ construct") is required reading, but the short version:
 ### 6. Render it — `MakeRender.makePDoc`
 Add an arm to the `makePDoc` `when box is …` dispatch (and to the parallel
 flow/aligned dispatches if your box appears there) returning a `Result String Doc`
-built from `Formatter.Render` combinators. Reuse an existing box shape if one
+built from `Formatter.Render.Doc` combinators. Reuse an existing box shape if one
 fits — prefer `AcrossThenIndent`, `AllAcrossOrAllVertical`, `IndentedBlock` etc.
 over inventing a new box. Only add a new `LPBox` constructor when no existing
 shape expresses the breaking behaviour you need; a new constructor means new arms
@@ -288,7 +288,7 @@ in *every* `when box is` in `MakeRender` plus `selfBoxBounds` in
 `LogicalPrintingTree`.
 
 ### 7. Blank lines (top-level only)
-If you added a top-level `SyntaxType`, check `Formatter.VerticalSpace`: is your
+If you added a top-level `SyntaxType`, check `Formatter.Logical.VerticalSpace`: is your
 declaration a "function group" start (2 blank lines before) or an ordinary
 declaration (1)? Adjust `tagGroupStarts` if needed.
 
@@ -385,7 +385,7 @@ comment-bearing fixture so the fuzzers exercise it.
 ## Where to read more
 
 - `README.md` — authoritative, example-by-example description of every rule.
-- `LogicalPrintingTree.gren` — every box's doc comment and the caching invariants.
-- `Comments.gren` module doc — the comment-attachment algorithm and its
+- `Logical/LogicalPrintingTree.gren` — every box's doc comment and the caching invariants.
+- `Logical/Comments.gren` module doc — the comment-attachment algorithm and its
   "Adding support for a new construct" section.
-- `Formatter.Render` — the Doc type and renderer; small enough to read in full.
+- `Formatter.Render.Doc` (`Render/Doc.gren`) — the Doc type and renderer; small enough to read in full.

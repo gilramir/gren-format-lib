@@ -1,4 +1,4 @@
-module Formatter.LPTHelpers
+module Formatter.Logical.LPTHelpers
     exposing
         ( mkText
         , mkTextFromLocString
@@ -22,7 +22,7 @@ used to rewrite the text on the deepest leaf of a subtree.
 
 import Compiler.SourcePosition exposing (Located, Position)
 
-import Formatter.LogicalPrintingTree
+import Formatter.Logical.LogicalPrintingTree
     exposing
         ( LPBox(..)
         , ListBrackets(..)

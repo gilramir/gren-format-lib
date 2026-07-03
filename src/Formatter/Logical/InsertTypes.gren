@@ -1,4 +1,4 @@
-module Formatter.InsertTypes exposing (makeSignatureBranch)
+module Formatter.Logical.InsertTypes exposing (makeSignatureBranch)
 
 {-|
 Type → LPT conversion. Used by function signatures, type aliases, type
@@ -9,7 +9,7 @@ union variant payloads, and port signatures.
 import Compiler.Ast.Source as Src
 import Compiler.SourcePosition exposing (Located, Position)
 
-import Formatter.LogicalPrintingTree
+import Formatter.Logical.LogicalPrintingTree
     exposing
         ( LPBox(..)
         , LPNode(..)
@@ -21,7 +21,7 @@ import Formatter.LogicalPrintingTree
         , lpnBracketNode
         , lpnWithBracketStart
         )
-import Formatter.LPTHelpers
+import Formatter.Logical.LPTHelpers
     exposing
         ( mkText
         , mkZeroWidthText

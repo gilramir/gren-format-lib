@@ -1,4 +1,4 @@
-module Formatter.LogicalPrintingTree
+module Formatter.Logical.LogicalPrintingTree
     exposing
         ( LPBox(..)
         , LPNode(..)
@@ -333,7 +333,7 @@ seven fields that *cache* subtree bounds so position-dependent passes
 can answer "what's the first/last positioned token in this subtree?",
 "what's its row range?", and "where does the last bracketed sublist
 begin/end?" in O(1) instead of by recursive descent. The heaviest
-consumer is the comment-placement heuristic in `Formatter.Comments`,
+consumer is the comment-placement heuristic in `Formatter.Logical.Comments`,
 but the bounds are shared infrastructure: `MakeRender` also reads
 `firstPos`/`lastPos`/`maxRow`/`lastBracketEnd` (and `bracketStart`,
 added later for signature-segment row computation, not comments). The
@@ -610,7 +610,7 @@ lpnBracketNode box closeEnd children =
 position carried by `old` (from `lpnBracketNode`). Plain `lpnNode` recomputes
 bounds purely from children and would shrink a container's row range back to
 its last item — which is wrong when the new children are the *same* code plus
-an inserted comment. Comment insertion (`Formatter.Comments`) uses this so a
+an inserted comment. Comment insertion (`Formatter.Logical.Comments`) uses this so a
 container's closing-bracket extent survives every rebuild, keeping subsequent
 own-line comments before the bracket inside it. For nodes with no such
 extension it is identical to `lpnNode (lpnBox old) newChildren`. -}
@@ -653,7 +653,7 @@ Inclusion rules match the legacy recursive helpers:
   - `firstPos`: contributes from `UnbreakableText`, `SingleLineComment`,
     `BlockComment`, `PrefixGlue`, `MultilineString`, `RecordUpdate`,
     `EmptyBracketed` (= the union of cases previously listed by
-    `firstRealPosition` in `Formatter.Comments`).
+    `firstRealPosition` in `Formatter.Logical.Comments`).
   - `lastPos`: contributes from `UnbreakableText`, `SingleLineComment`,
     `BlockComment`, `MultilineString` only — for `PrefixGlue`,
     `RecordUpdate`, and `EmptyBracketed`, children's positions take
