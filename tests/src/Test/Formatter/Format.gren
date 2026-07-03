@@ -300,6 +300,7 @@ expressionSuite fsPerm =
             , assertPretty fsPerm "record update base can be a parenthesized call" "RecordUpdateComplexBase"
             , assertPretty fsPerm "multi-line string content escapes backslashes and embedded triple quotes" "MultilineStringContent"
             , assertPretty fsPerm "negation of parenthesized expression keeps `-` outside the parens" "NegateParens"
+            , assertPretty fsPerm "field access glues directly to a paren/record/qualified-name base with no space (compiler-common#27)" "PostfixAccess"
             ]
         }
 

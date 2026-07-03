@@ -1,0 +1,35 @@
+module PostfixAccess exposing (..)
+
+
+-- Field access directly after a closing paren, a plain record literal, or a
+-- qualified name (compiler-common#27, fixed in compiler-common 3.0.0): the
+-- parser used to misparse `(f x).field` the same way as `(f x) .field`
+-- (applying the .field accessor as a function), so a space before the dot
+-- was a silently different program. This locks in that both the base and
+-- the dot glue together with no space, and chained accesses keep gluing.
+--
+-- NOT covered here: a record-UPDATE base, e.g. `{ r | a = 1 }.a`, still hits
+-- the same misparse (verified 2026-07-03) and is not yet fixed upstream.
+f : Int -> { value : Int, a : { b : Int } }
+f x =
+  { value = x, a = { b = x } }
+
+
+parenBase : Int
+parenBase =
+  (f 1).value
+
+
+parenChainBase : Int
+parenChainBase =
+  (f 1).a.b
+
+
+recordLiteralBase : Int
+recordLiteralBase =
+  { a = 1 }.a
+
+
+qualifiedBase : Int
+qualifiedBase =
+  Config.default.timeout
