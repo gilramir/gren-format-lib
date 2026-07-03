@@ -103,9 +103,14 @@ import String
 
 
 -- Greets someone by name
+greet:String->String
 greet name =
-  "Hello, " ++ name
+  "Hello, "  ++    name
 ```
+
+(The parser doesn't care whether `:` and `->` have surrounding spaces —
+`greet:String->String` parses exactly like `greet : String -> String`;
+whitespace around most tokens is not meaningful.)
 
 The parser splits this into an AST — which never mentions the comment at
 all — and a Context that holds only the comment, tagged with the row and
@@ -116,9 +121,11 @@ Module "Sample"
 ├── exports: [ greet ]
 ├── imports: [ String  (4:1–4:14) ]
 └── values
-    └── greet(name) = Binop "++"                  (8:1–9:20)
-        ├── left:  String "Hello, "
-        └── right: Var name
+    └── greet(name)                                (8:1–10:24)
+        ├── signature: String -> String             (8:7–8:21)
+        └── body: Binop "++"                        (10:3–10:24)
+            ├── left:  String "Hello, "
+            └── right: Var name
 
 Context
 └── comments: [ Line "-- Greets someone by name"  (7:1–7:26) ]
@@ -126,7 +133,7 @@ Context
 
 Building the Logical Printing Tree means walking that AST first, then going
 back and re-inserting the comment at row 7 — right where it was written,
-directly above the function it sits beside:
+directly above the signature it sits beside:
 
 ```
 RootBox
@@ -136,6 +143,7 @@ RootBox
 ├── EmptyLine
 ├── EmptyLine
 ├── OriginalRows[lineComment]  "-- Greets someone by name"
+├── OriginalRows[funcSig]      "greet : String -> String"
 └── OriginalRows[funcDecl]
     ├── AcrossThenIndent        "greet name ="
     └── BodyBlock
@@ -144,10 +152,10 @@ RootBox
             └── OpAndRhs  "++ name"
 ```
 
-Notice there's no `EmptyLine` between the comment and the function it
-documents — that gap is what makes the comment "belong" to `greet` instead
-of floating on its own. (See [Blank lines around
-comments](#blank-lines-around-comments) for the general rule.)
+Notice there's no `EmptyLine` between the comment, the signature, and the
+function itself — all three stay glued together as one declaration unit.
+(See [Blank lines around comments](#blank-lines-around-comments) for the
+general rule.)
 
 ---
 
@@ -192,7 +200,19 @@ building blocks (`X › Y` means `X` wraps a single child `Y`; branches use
 
 [5] Text "-- Greets someone by name"
 
-[6] Nest 4
+[6] Group
+    └── Seq
+        ├── "greet"
+        ├── Group › Seq[ Nl, ":" ]
+        └── Nest 4
+            └── Seq
+                ├── Nl
+                ├── "String"
+                ├── Nl
+                ├── "->"
+                └── Group › Seq[ Nl, "String" ]
+
+[7] Nest 4
     ├── Nest 4
     │   └── Seq
     │       ├── "greet"
@@ -204,8 +224,13 @@ building blocks (`X › Y` means `X` wraps a single child `Y`; branches use
 ```
 
 The comment (entry `[5]`) is just a bare `Text` node sitting between two
-`Empty` placeholders and the function's `Nest` — nothing left to decide
-about it. Every choice about line breaks is already made here too, not in
+`Empty` placeholders and the signature's `Group` — nothing left to decide
+about it. The whole signature (entry `[6]`) sits inside one outer `Group`,
+so every `Nl` inside it — around `:`, `->`, even the ones separating
+`String` from its neighbors — collapses to a single space no matter what;
+that's what "written on one line, stays on one line" (see [Type
+signatures](#type-signatures)) looks like at this stage. And every choice
+about line breaks in the function itself is already made here too, not in
 Step 3: `Group` always renders flat, so every `Nl` above (around `name`,
 `=`, and `++ name`) is really just a space — because you wrote `greet
 name = "Hello, " ++ name` on one row, nothing here forces those breaks
@@ -236,13 +261,16 @@ import String
 
 
 -- Greets someone by name
+greet : String -> String
 greet name =
     "Hello, " ++ name
 ```
 
-The two blank lines around `module`/`import` collapsed to one, the
-2-space body indent became 4, and the comment landed exactly where it
-started — still glued to `greet`, with no blank line between them.
+The two blank lines around `module`/`import` collapsed to one, `:` and
+`->` each got a surrounding space, the four spaces around `++` collapsed
+to one, the 2-space body indent became 4, and the comment landed exactly
+where it started — still glued to the signature, with no blank line
+between them.
 
 ---
 
