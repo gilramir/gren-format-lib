@@ -1849,10 +1849,7 @@ record update instead of reading its field, and the formatted file no
 longer compiles. The parser reads both spellings as the same expression
 (`Call(Update, [Accessor])`) — the same root cause as
 [compiler-common#27](https://github.com/gren-lang/compiler-common/issues/27),
-which fixed every other kind of base but not this one. Until it's fixed,
-avoid formatting files that access a field directly off a record-update
-literal; wrap the update in parens first (`({ model | x = 0 }).x`), which
-formats correctly.
+which fixed every other kind of base but not this one.
 
 #### Wide `when` branch patterns
 
