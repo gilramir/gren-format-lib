@@ -237,6 +237,131 @@ result =
     Array.foldl (+) 0 (compute x) (\y -> y * 2)
 ```
 
+### A record argument that renders across rows drops to its own line
+
+A record argument with 2+ fields (or one field plus a comment) always ends up
+rendered across rows — see [Record values](#record-values). If you glued it to
+the function name on the same row, it stays glued when it's short enough to
+stay on one line:
+
+```gren
+type Bar
+    = Bar { name : String, value : Int }
+
+
+mkBar x =
+    Bar { name = x, value = 1 }
+```
+
+But once the record itself renders across rows, the formatter always moves it
+to its own line, indented +4 from the function name — it never leaves the
+record's first row glued to the function name while only its later fields
+wrap:
+
+```gren
+-- you wrote:
+mkBar x =
+    Bar { name = x
+        , value = 1
+        }
+
+-- formats to:
+mkBar x =
+    Bar
+        { name = x
+        , value = 1
+        }
+```
+
+Any argument that follows the record also gets its own line, for the same
+reason — nothing stays glued to the record's closing `}`:
+
+```gren
+-- you wrote:
+foo x =
+    someFunc { name = x
+             , value = 1
+             } extraArg
+
+-- formats to:
+foo x =
+    someFunc
+        { name = x
+        , value = 1
+        }
+        extraArg
+```
+
+The same thing happens inside a pipeline step:
+
+```gren
+build x =
+    x
+        |> AST.TType
+            { name = x
+            , args = []
+            }
+```
+
+This only applies to a record (or anything else whose own content forces it
+across rows). A parenthesized lambda argument follows its own rule instead
+(see [Parentheses](#parentheses)) and stays glued to the function name even
+when its body wraps:
+
+```gren
+foo xs =
+    Array.map (\n -> if n > 0 then
+                      n
+
+                  else
+                      -n
+              ) xs
+```
+
+---
+
+## Parentheses
+
+When a parenthesized expression renders across rows, the closing `)` always
+gets its own line, indented to line up with the opening `(` — it never trails
+the last piece of content:
+
+```gren
+topLevelParser =
+    (Parser.oneOf
+        [ a
+        , b
+        ]
+    )
+```
+
+This applies wherever parens show up, not just at the top of a function body —
+nested inside a call, for instance:
+
+```gren
+combine x y =
+    make
+        (build
+            { a = x
+            , b = y
+            }
+        )
+```
+
+...or wrapping an operator chain:
+
+```gren
+total =
+    (1
+        + 2
+    )
+```
+
+The trigger is the parenthesized content rendering across rows — either
+because you wrote it that way, or because something inside forces it (a
+comment, an `if`/`when`/`let`). Either way the shape is the same: content
+starts right after `(`, and `)` closes on its own line underneath.
+
 ---
 
 ## Function body
