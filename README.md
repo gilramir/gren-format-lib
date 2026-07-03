@@ -175,11 +175,17 @@ building blocks (`X › Y` means `X` wraps a single child `Y`; branches use
 `├──`/`└──`):
 
 ```
-[0] Seq[ "module Sample exposing", Nest 4 › Group › Seq[ Nl, "(greet)" ] ]
+[0] Seq
+    ├── "module Sample exposing"
+    └── Nest 4
+        └── Group › Seq[ Nl, "(greet)" ]
 
 [1] Empty
 
-[2] Nest 4 › Seq[ "import", Group › Seq[ Nl, "String" ] ]
+[2] Nest 4
+    └── Seq
+        ├── "import"
+        └── Group › Seq[ Nl, "String" ]
 
 [3] Empty
 [4] Empty
@@ -187,7 +193,11 @@ building blocks (`X › Y` means `X` wraps a single child `Y`; branches use
 [5] Text "-- Greets someone by name"
 
 [6] Nest 4
-    ├── Nest 4 › Seq[ "greet", Group›Seq[Nl,"name"], Group›Seq[Nl,"="] ]
+    ├── Nest 4
+    │   └── Seq
+    │       ├── "greet"
+    │       ├── Group › Seq[ Nl, "name" ]
+    │       └── Group › Seq[ Nl, "=" ]
     └── Seq
         ├── HardNl
         └── Group › Seq[ "\"Hello, \"", Nest 4 › Seq[ Nl, "++ name" ] ]
