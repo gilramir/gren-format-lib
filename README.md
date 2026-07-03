@@ -88,6 +88,67 @@ The result is a Logical Printing Tree that has everything: code, comments,
 and blank lines, all in the right order and all carrying their layout
 decisions.
 
+### Example
+
+Comments are what make this genuinely hard: they carry meaning for a human
+reader, but the parser doesn't attach them to any particular piece of code —
+they just sit in a separate list, tagged with a position. Take this
+(deliberately messy) file:
+
+```gren
+module Sample exposing (greet)
+
+
+import String
+
+
+-- Greets someone by name
+greet name =
+  "Hello, " ++ name
+```
+
+The parser splits this into an AST — which never mentions the comment at
+all — and a Context that holds only the comment, tagged with the row and
+column where it starts:
+
+```
+Module "Sample"
+├── exports: [ greet ]
+├── imports: [ String  (4:1–4:14) ]
+└── values
+    └── greet(name) = Binop "++"                  (8:1–9:20)
+        ├── left:  String "Hello, "
+        └── right: Var name
+
+Context
+└── comments: [ Line "-- Greets someone by name"  (7:1–7:26) ]
+```
+
+Building the Logical Printing Tree means walking that AST first, then going
+back and re-inserting the comment at row 7 — right where it was written,
+directly above the function it sits beside:
+
+```
+RootBox
+├── OriginalRows[module]       "module Sample exposing (greet)"
+├── EmptyLine
+├── OriginalRows[import]       "import String"
+├── EmptyLine
+├── EmptyLine
+├── OriginalRows[lineComment]  "-- Greets someone by name"
+└── OriginalRows[funcDecl]
+    ├── AcrossThenIndent        "greet name ="
+    └── BodyBlock
+        └── Binop "++"
+            ├── "Hello, "
+            └── OpAndRhs  "++ name"
+```
+
+Notice there's no `EmptyLine` between the comment and the function it
+documents — that gap is what makes the comment "belong" to `greet` instead
+of floating on its own. (See [Blank lines around
+comments](#blank-lines-around-comments) for the general rule.)
+
 ---
 
 ## Step 2: turning the Logical Printing Tree into a render plan
@@ -106,6 +167,45 @@ produces the same output, and why there's no "line width" setting to
 configure — the formatter isn't trying to fit your code into 80 columns or
 any other target, it's reproducing the shape you already chose.
 
+### Example
+
+Continuing the same example, the Logical Printing Tree from Step 1 becomes
+this render plan — one entry per root item, each a small tree of concrete
+building blocks (`X › Y` means `X` wraps a single child `Y`; branches use
+`├──`/`└──`):
+
+```
+[0] Seq[ "module Sample exposing", Nest 4 › Group › Seq[ Nl, "(greet)" ] ]
+
+[1] Empty
+
+[2] Nest 4 › Seq[ "import", Group › Seq[ Nl, "String" ] ]
+
+[3] Empty
+[4] Empty
+
+[5] Text "-- Greets someone by name"
+
+[6] Nest 4
+    ├── Nest 4 › Seq[ "greet", Group›Seq[Nl,"name"], Group›Seq[Nl,"="] ]
+    └── Seq
+        ├── HardNl
+        └── Group › Seq[ "\"Hello, \"", Nest 4 › Seq[ Nl, "++ name" ] ]
+```
+
+The comment (entry `[5]`) is just a bare `Text` node sitting between two
+`Empty` placeholders and the function's `Nest` — nothing left to decide
+about it. Every choice about line breaks is already made here too, not in
+Step 3: `Group` always renders flat, so every `Nl` above (around `name`,
+`=`, and `++ name`) is really just a space — because you wrote `greet
+name = "Hello, " ++ name` on one row, nothing here forces those breaks
+open. The one break that *does* happen, the `HardNl` between `greet name
+=` and its body, is unconditional regardless of `Group` — that's the
+"function body always starts on the next line" rule, and it fires no
+matter how the call was written. Step 3 doesn't choose between staying
+flat or breaking; it just executes whichever this tree already committed
+to.
+
 ---
 
 ## Step 3: turning the render plan into text
@@ -114,6 +214,25 @@ The last step is the simplest: walk over the render plan from the previous
 step and produce the actual characters of the formatted file — inserting
 real newlines, real spaces, and the right amount of indentation at each
 level. What comes out the other end is the finished, formatted source file.
+
+### Example
+
+Rendering the plan from Step 2 produces the finished file:
+
+```gren
+module Sample exposing (greet)
+
+import String
+
+
+-- Greets someone by name
+greet name =
+    "Hello, " ++ name
+```
+
+The two blank lines around `module`/`import` collapsed to one, the
+2-space body indent became 4, and the comment landed exactly where it
+started — still glued to `greet`, with no blank line between them.
 
 ---
 
