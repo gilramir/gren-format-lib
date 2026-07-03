@@ -1,4 +1,4 @@
-module ModuleLineVertical exposing (AlphaLongTypeName, BetaLongTypeName, GammaLongFunctionName, DeltaLongFunctionName, EpsilonLongValue)
+module ModuleLineVertical exposing (AlphaLongTypeName, BetaLongTypeName, DeltaLongFunctionName, EpsilonLongValue, GammaLongFunctionName)
 
 
 alphaLongTypeName =

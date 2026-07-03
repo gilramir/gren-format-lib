@@ -1,4 +1,4 @@
-module TypeAlias exposing (Point, Config, Named)
+module TypeAlias exposing (Config, Named, Point)
 
 
 -- Simple record type alias

@@ -1,4 +1,4 @@
-port module Ports exposing (outgoing, incoming)
+port module Ports exposing (incoming, outgoing)
 
 import Json.Decode as Decode
 

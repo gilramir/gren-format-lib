@@ -1,4 +1,4 @@
-module IfExpression exposing (classify, clamp, between)
+module IfExpression exposing (between, clamp, classify)
 
 
 -- Classify an integer as negative, zero, or positive

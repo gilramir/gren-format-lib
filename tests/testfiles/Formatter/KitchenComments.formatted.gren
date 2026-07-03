@@ -1,12 +1,12 @@
 module KitchenComments exposing
     -- a comment inside the exposing list
-    ( processOrder
-    -- a comment before another exposed name
-    , summariseCart
+    -- trailing-only comment
+    ( bestDiscount
+    , processOrder
     {- inline block comment -}
     , reprice
-    -- trailing-only comment
-    , bestDiscount
+    -- a comment before another exposed name
+    , summariseCart
     )
 
 {-| Top-level module doc comment.

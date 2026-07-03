@@ -1,15 +1,15 @@
 port module KitchenSink exposing
-    ( Tree (..)
-    , Result
+    ( Configuration
     , Container
-    , Configuration
+    , Result
+    , Tree (..)
+    , fold
     , initialContainer
+    , port_in_message
+    , port_out_message
     , processConfiguration
     , transform
-    , fold
     , traverseDeeply
-    , port_out_message
-    , port_in_message
     )
 
 {-| A kitchen-sink module that exercises every Gren construct the formatter
@@ -36,7 +36,7 @@ import Json.Decode as Decode exposing (Decoder, decodeString, field, int, string
 import Json.Encode as Encode
 import Math
 import Result.Extra as ResultExtra
-import String exposing (fromInt, toInt, toUpper, toLower, trim, words)
+import String exposing (fromInt, toInt, toLower, toUpper, trim, words)
 import Task exposing (Task)
 
 infix left 6 (+) = add

@@ -14,13 +14,22 @@ import Compiler.SourcePosition as SP
 the modules agree on name, exports, imports, declarations, and effects
 (ignoring source positions and parse-context comments), or `Err` with a
 description of the first difference encountered.
+
+`exports` and `imports` are compared order-independently (each side is
+canonicalized by sorting before the pairwise comparison): the formatter
+(`Formatter.Logical.SortSymbols`) deliberately reorders the contents of an
+`exposing ( ... )` list, and reorders `import` statements within a
+contiguous, blank-line/comment-free run of them -- neither order is part
+of Gren's program semantics. Every other array compared here stays
+positional, since those genuinely are order-sensitive (function arguments,
+union constructors, declaration bodies, ...).
 -}
 compareModules : Src.Module -> Src.Module -> Result String {}
 compareModules a b =
     chainAll
         [ compareStr "module name" a.name.value b.name.value
         , compareExposing "exports" a.exports b.exports
-        , compareArray "imports" compareImport a.imports b.imports
+        , compareArray "imports" compareImport (sortImportsForCompare a.imports) (sortImportsForCompare b.imports)
         , compareArray "values" compareValueDecl a.values b.values
         , compareArray "unions" compareUnionDecl a.unions b.unions
         , compareArray "aliases" compareAliasDecl a.aliases b.aliases
@@ -92,10 +101,33 @@ compareExposing ctx a b =
             Ok {}
 
         { fst = Src.Explicit xs, snd = Src.Explicit ys } ->
-            compareArray (ctx ++ " exposed list") compareExposed xs ys
+            compareArray (ctx ++ " exposed list") compareExposed (sortExposedForCompare xs) (sortExposedForCompare ys)
 
         _ ->
             Err (ctx ++ ": Open vs Explicit")
+
+
+{-| Canonical order for comparing an exposing list independent of how the
+formatter sorted it: operators, then types/unions, then values (mirrors
+`Formatter.Logical.SortSymbols`' grouping), alphabetical by name within each
+group. Only used to line the two sides up before `compareArray`'s pairwise
+`compareExposed` checks content -- not a formatting decision. -}
+sortExposedForCompare : Array Src.Exposed -> Array Src.Exposed
+sortExposedForCompare exposed =
+    Array.sortBy exposedSortKey exposed
+
+
+exposedSortKey : Src.Exposed -> String
+exposedSortKey exposed =
+    when exposed is
+        Src.ExposedOperator sp ->
+            "0" ++ sp.value
+
+        Src.ExposedUpper { name = sp } ->
+            "1" ++ sp.value
+
+        Src.ExposedLower sp ->
+            "2" ++ sp.value
 
 
 compareExposed : Src.Exposed -> Src.Exposed -> Result String {}
@@ -146,6 +178,21 @@ compareImport la lb =
         , compareMaybeStr "import alias" a.alias b.alias
         , compareExposing ("import " ++ a.module_.value) a.expose b.expose
         ]
+
+
+{-| Canonical order for comparing the import list independent of how the
+formatter sorted it: alphabetical by module name (mirrors
+`Formatter.Logical.SortSymbols.sortImportGroups`'s sort key -- the grouping
+rule itself doesn't matter here, since two ASTs are semantically equivalent
+regardless of import order at all). Two imports of the same module name
+(unusual, but not rejected by the parser) keep their relative order, since
+`Array.sortBy` is stable and there is nothing else to break the tie on here
+-- `compareArray`'s pairwise `compareImport` still catches a genuine content
+difference between them either way. -}
+sortImportsForCompare : Array (SP.Located Src.Import) -> Array (SP.Located Src.Import)
+sortImportsForCompare imports =
+    Array.sortBy (\locImport -> locImport.value.module_.value) imports
+
 
 -- VALUE DECLARATIONS
 

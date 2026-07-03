@@ -1,4 +1,4 @@
-module {- comment between `module` keyword and module name -} ModuleHeaderComments exposing {- comment between module name and `exposing` -} {- comment between `exposing` and `(` -} ( foo, bar )
+module {- comment between `module` keyword and module name -} ModuleHeaderComments exposing {- comment between module name and `exposing` -} {- comment between `exposing` and `(` -} ( bar, foo )
 
 -- single-line comment before the first import
 import Array

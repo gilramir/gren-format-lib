@@ -2,12 +2,12 @@ port module MultilineBlockComments exposing
     {- 1 a
        1 b
        1 c -}
-    ( sig
     {- 2 a
        2 b
        2 c -}
-    , decl
+    ( decl
     , recordLit
+    , sig
     )
 
 {-| Stress test: a 3-line `{- -}` block comment in (nearly) every AST

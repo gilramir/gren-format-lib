@@ -1,4 +1,4 @@
-module SimpleArithmetic exposing (double, square, average)
+module SimpleArithmetic exposing (average, double, square)
 
 
 -- Double a number

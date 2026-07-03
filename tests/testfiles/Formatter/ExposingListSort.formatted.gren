@@ -1,0 +1,17 @@
+module ExposingListSort exposing (Kiwi, Mango, apple, zebra)
+
+
+type Kiwi
+    = Kiwi
+
+
+type Mango
+    = Mango
+
+
+apple =
+    1
+
+
+zebra =
+    2

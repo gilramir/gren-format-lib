@@ -399,6 +399,48 @@ This applies anywhere an exposing list can name a custom type's
 constructors, including an import's exposing list (see
 [Import statements](#import-statements)).
 
+### Exposed names sort automatically
+
+Regardless of the order you wrote them in, an `exposing ( ... )` list sorts
+into three groups — operators, then types, then plain values — and
+alphabetically within each group. This matches `elm-format`.
+
+```gren
+module ExposingListSort exposing (zebra, Kiwi, apple, Mango)
+```
+
+becomes:
+
+```gren
+module ExposingListSort exposing (Kiwi, Mango, apple, zebra)
+```
+
+A comment attached to a name — on its own line above it, or trailing on the
+name's own line — travels with it when it moves:
+
+```gren
+module ExposingListSort exposing
+    ( zebra -- the last one
+    , Kiwi
+    , apple
+    , Mango
+    )
+```
+
+becomes:
+
+```gren
+module ExposingListSort exposing
+    ( Kiwi
+    , Mango
+    , apple
+    , zebra -- the last one
+    )
+```
+
+This applies the same way to an import's own exposing list — see
+[An import's exposing list sorts automatically](#an-imports-exposing-list-sorts-automatically).
+
 ---
 
 ### Import statements
@@ -428,6 +470,79 @@ import Dict
         , fromArray
         , get
         )
+```
+
+### An import's exposing list sorts automatically
+
+Each import's own exposing list sorts, the same way a module's does —
+operators, then types, then values, alphabetically within each group (see
+[Exposed names sort automatically](#exposed-names-sort-automatically)):
+
+```gren
+import Mango exposing (zebra, Kiwi, apple, Mango)
+```
+
+becomes:
+
+```gren
+import Mango exposing (Kiwi, Mango, apple, zebra)
+```
+
+(This is independent of whether the import itself is part of a sortable
+run of imports — see below.)
+
+### Import statements sort within unbroken runs
+
+`import` statements sort alphabetically by module name, but only within a
+*run* — a stretch of imports with nothing between them: no blank line, no
+comment on its own line. A blank line or an own-line comment is a boundary:
+it never moves, and it splits the imports around it into independently
+sorted groups. A run is fine with multi-row imports (a wrapped exposing
+list doesn't break it) — only a blank line or a comment does.
+
+```gren
+import Zebra
+import Mango
+-- a section note
+import Kiwi
+import Apple
+
+import Delta
+```
+
+becomes:
+
+```gren
+import Mango
+import Zebra
+-- a section note
+import Apple
+import Kiwi
+
+import Delta
+```
+
+`[Zebra, Mango]` and `[Kiwi, Apple]` are separate runs (split by the
+comment), each sorted independently; `Delta` is alone in its own run (blank
+line above it), so there's nothing to sort. The comment and the blank line
+stay exactly where they were.
+
+A comment trailing an import on that import's *own* source row is the one
+exception — unlike an own-line comment, it does not break the run, and it
+travels with its import if that import moves within the group:
+
+```gren
+import Foo -- deprecated, remove soon
+import Bar
+import Baz
+```
+
+becomes:
+
+```gren
+import Bar
+import Baz
+import Foo -- deprecated, remove soon
 ```
 
 ---
@@ -1892,6 +2007,41 @@ a comment's placement near the `where { … }` block is determined by proximity
 to the handler name. Changing the spacing can change where the comment ends up.
 This stays as-is until the parser records positions for the missing tokens.
 
+#### A comment right after `exposing` doesn't sort with the first name
+
+As described in [Exposed names sort automatically](#exposed-names-sort-automatically),
+a comment on its own line — attached to the *first* name in an
+`exposing ( ... )` list — is a special case: the opening `(` has no position
+in the AST, so the comment is placed as a header-level comment right after
+`exposing`, not as a child of the first name. It renders in that same spot
+every time, regardless of which name ends up first after sorting:
+
+```gren
+module ExposingListSort exposing
+    ( -- describes zebra
+      zebra
+    , Kiwi
+    , apple
+    , Mango
+    )
+```
+
+formats to:
+
+```gren
+module ExposingListSort exposing
+    -- describes zebra
+    ( Kiwi
+    , Mango
+    , apple
+    , zebra
+    )
+```
+
+A comment before any *other* name in the list (not the first) doesn't have
+this issue — it travels with its name normally, as shown in
+[Exposed names sort automatically](#exposed-names-sort-automatically).
+
 #### Verbatim block comment bodies
 
 When a multi-line block comment opens with `{-` alone on its first line, the
@@ -1929,11 +2079,17 @@ records the decision made and why.
    broader "your line breaks are your layout decisions" philosophy; elm-format's
    rule is a fixed convention, not obviously better.
 
-3. **Import/exposing list sorting — keep as is.** elm-format alphabetizes
-   every `exposing (...)` list and `import` block. gren-format preserves the
-   author's order. Reordering the author's imports is a bigger, more
-   surprising rewrite than a formatter should make unprompted — this is left
-   alone.
+3. **Exposing list sorting — changed to match; import statement sorting —
+   changed, but narrower.** gren-format now alphabetizes every
+   `exposing ( ... )` list the same way elm-format does — operators, then
+   types, then values, alphabetically within each group. See
+   [Exposed names sort automatically](#exposed-names-sort-automatically).
+   `import` statements sort alphabetically too, but — unlike elm-format,
+   which always alphabetizes the whole `import` block regardless of the
+   author's spacing — gren-format only sorts within a run of imports that
+   sit with nothing between them; a blank line or a comment on its own
+   line is a boundary the sort never crosses. See
+   [Import statements sort within unbroken runs](#import-statements-sort-within-unbroken-runs).
 
 4. **`import X exposing (...)` wrapping style — changed.** gren-format used to
    keep `import Dict exposing` together with the list indented +4. It now

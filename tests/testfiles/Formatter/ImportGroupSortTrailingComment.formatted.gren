@@ -1,0 +1,8 @@
+module ImportGroupSortTrailingComment exposing (..)
+
+import Apple
+import Mango -- m note
+import Zebra -- z note
+-- boundary comment
+import Delta
+import Kiwi -- k note

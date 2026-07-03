@@ -1,4 +1,4 @@
-module LambdasAndCalls exposing (doubleAll, keepPositive, applyTwice)
+module LambdasAndCalls exposing (applyTwice, doubleAll, keepPositive)
 
 
 -- Double every element in an array

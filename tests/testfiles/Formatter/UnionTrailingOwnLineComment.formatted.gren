@@ -1,4 +1,4 @@
-module UnionTrailingOwnLineComment exposing (Doc, Color, next)
+module UnionTrailingOwnLineComment exposing (Color, Doc, next)
 
 
 type Doc

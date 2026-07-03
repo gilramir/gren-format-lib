@@ -1,0 +1,594 @@
+module Formatter.Logical.SortSymbols exposing (sortSymbols)
+
+{-| Two independent sorts, each governed by its own rule:
+
+1. **Exposing lists.** The symbols named in an `exposing ( ... )` list --
+   the module header's and every `import ... exposing`'s -- sort into three
+   groups, matching `elm-format`: operators, then types/unions, then plain
+   values, alphabetically within each group. A comment attached to a name
+   (leading, on its own line, or trailing on the name's own source row)
+   travels with it.
+
+2. **Import statements.** `import` lines sort alphabetically by module
+   name, but *only within a maximal run of imports that sit with zero rows
+   between them* -- no blank line, no comment on its own line. A blank line
+   or an own-line comment is a hard boundary: it never moves, and it splits
+   the imports around it into independently-sorted groups. A comment
+   trailing an import on that import's own source row (`import Foo --
+   note`) is the one exception -- it does not break the run, and it travels
+   with `Foo` if `Foo` moves within its group.
+
+Runs *after* `Formatter.Logical.Comments` has attached every comment by its
+real source position -- that ordering is load-bearing for both sorts.
+Comment placement is purely positional and assumes siblings are still in
+source-row order, so sorting the underlying declarations first would
+scatter comments into the wrong places (see `Formatter.Logical.Comments`'s
+own docs). By the time this pass runs, a comment sibling immediately before
+an item is unambiguously that item's leading comment, and one immediately
+after it on the item's own source row is unambiguously its trailing
+comment -- so this pass only has to re-group and reorder an
+already-correct flat sibling list; it never has to re-decide attachment.
+
+@docs sortSymbols
+-}
+
+import Array
+import Char
+import String
+
+import Formatter.Logical.LogicalPrintingTree
+    exposing
+        ( LPBox(..)
+        , LPNode(..)
+        , ListBrackets(..)
+        , SyntaxType(..)
+        , lpnBox
+        , lpnChildren
+        , lpnFirstPos
+        , lpnLastPos
+        , lpnReplaceChildren
+        , lpnWithBox
+        )
+
+
+{-| -}
+sortSymbols : LPNode -> LPNode
+sortSymbols root =
+    root
+        |> sortImportGroups
+        |> sortExposingLists
+
+
+
+-- SHARED: clustering a flat sibling list into (comments, item, comments) groups
+
+
+{-| One exposed name together with the comments that travel with it: any
+comment(s) on their own line(s) directly above, and any comment(s) trailing
+it on its own last source row.
+
+`origIndex` is the cluster's position before sorting. It breaks ties
+between clusters whose sort key compares equal so the result is
+deterministic regardless of whether the underlying sort is stable.
+-}
+type alias Cluster =
+    { leading : Array LPNode
+    , item : LPNode
+    , trailing : Array LPNode
+    , origIndex : Int
+    }
+
+
+{-| True for a comment leaf inserted directly into a container's children
+(siblings of exposed items, inside an exposing-list box). -}
+isSweepComment : LPNode -> Bool
+isSweepComment node =
+    when lpnBox node is
+        SingleLineComment _ ->
+            True
+
+        BlockComment _ ->
+            True
+
+        _ ->
+            False
+
+
+isExposedItem : LPNode -> Bool
+isExposedItem node =
+    when lpnBox node is
+        UnbreakableText _ ->
+            True
+
+        _ ->
+            False
+
+
+isImportNode : LPNode -> Bool
+isImportNode node =
+    when lpnBox node is
+        OriginalRows { stype = StImport } ->
+            True
+
+        _ ->
+            False
+
+
+{-| The first/last source row spanned by a node's subtree, read from the
+shared position cache (`lpnFirstPos` / `lpnLastPos`). -1 for a
+position-less node (shouldn't occur for anything this module clusters).
+
+This cache is IMMUTABLE -- `lpnWithBox` (used by `shiftOrigRows` below)
+deliberately leaves it untouched when swapping a node's box. That makes
+`rowSpan` correct for reading a node's TRUE original position, but wrong
+for reading an `OriginalRows` node's row *after* `sortImportGroups` has
+shifted it -- use `origRowsFirst` / `origRowsLast` for that instead (they
+read the mutated box field directly). Mixing the two up once already
+produced silently-wrong deltas that compounded across every import group
+member after the first. -}
+rowSpan : LPNode -> { first : Int, last : Int }
+rowSpan node =
+    { first = lpnFirstPos node |> Maybe.map .row |> Maybe.withDefault -1
+    , last = lpnLastPos node |> Maybe.map .row |> Maybe.withDefault -1
+    }
+
+
+{-| An `OriginalRows` node's row range as currently stored on its own box
+-- i.e. `rowSpan`'s cache-based answer BEFORE any shift, but reflects a
+shift applied via `shiftOrigRows` / `lpnWithBox` afterward. Root-level
+imports are always this box kind, so this is the correct accessor once
+`sortImportGroups` has started reflowing a sorted group. -}
+origRowsFirst : LPNode -> Int
+origRowsFirst node =
+    when lpnBox node is
+        OriginalRows r ->
+            r.first
+
+        _ ->
+            rowSpan node |> .first
+
+
+origRowsLast : LPNode -> Int
+origRowsLast node =
+    when lpnBox node is
+        OriginalRows r ->
+            r.last
+
+        _ ->
+            rowSpan node |> .last
+
+
+shiftOrigRows : Int -> LPNode -> LPNode
+shiftOrigRows delta node =
+    when lpnBox node is
+        OriginalRows r ->
+            lpnWithBox (OriginalRows { r | first = r.first + delta, last = r.last + delta }) node
+
+        _ ->
+            node
+
+
+{-| Pop sweep-eligible comments off the front of `arr`. -}
+takeLeadingComments : Array LPNode -> { pending : Array LPNode, afterPending : Array LPNode }
+takeLeadingComments arr =
+    when Array.popFirst arr is
+        Just { first = node, rest } ->
+            if isSweepComment node then
+                let
+                    inner =
+                        takeLeadingComments rest
+                in
+                { pending = Array.pushFirst node inner.pending, afterPending = inner.afterPending }
+
+            else
+                { pending = [], afterPending = arr }
+
+        Nothing ->
+            { pending = [], afterPending = arr }
+
+
+{-| Pop comments off the front of `arr` for as long as each one starts on
+`item`'s own last source row -- a comment trailing `item` on the same
+line. -}
+takeSameRowTrailing : LPNode -> Array LPNode -> { trailing : Array LPNode, afterTrailing : Array LPNode }
+takeSameRowTrailing item arr =
+    let
+        itemLastRow =
+            rowSpan item |> .last
+    in
+    when Array.popFirst arr is
+        Just { first = node, rest } ->
+            if isSweepComment node && (rowSpan node |> .first) == itemLastRow then
+                let
+                    inner =
+                        takeSameRowTrailing item rest
+                in
+                { trailing = Array.pushFirst node inner.trailing, afterTrailing = inner.afterTrailing }
+
+            else
+                { trailing = [], afterTrailing = arr }
+
+        Nothing ->
+            { trailing = [], afterTrailing = arr }
+
+
+{-| Walk `remaining` left to right, folding runs of comments and each
+"item" node (per `isItem`) into `Cluster`s. Any comments left dangling
+after the last item (nothing left to lead) come back as `leftover` for the
+caller to attach somewhere.
+
+`ok = False` signals the walk hit a node that is neither a sweep-eligible
+comment nor an item -- the region passed in wasn't what the caller assumed.
+`sortExposedChildren` scopes its input tightly enough that this should not
+happen, but "should not happen" is exactly the kind of assumption worth
+failing safe on rather than trusting blindly -- `ok` lets the caller leave
+the region exactly as authored instead of risking lost content. -}
+clusterRegionHelp : (LPNode -> Bool) -> Array LPNode -> Array Cluster -> { clusters : Array Cluster, leftover : Array LPNode, ok : Bool }
+clusterRegionHelp isItem remaining acc =
+    let
+        { pending, afterPending } =
+            takeLeadingComments remaining
+    in
+    when Array.popFirst afterPending is
+        Nothing ->
+            { clusters = acc, leftover = pending, ok = True }
+
+        Just { first = node, rest = afterNode } ->
+            if isItem node then
+                let
+                    { trailing, afterTrailing } =
+                        takeSameRowTrailing node afterNode
+
+                    cluster =
+                        { leading = pending, item = node, trailing = trailing, origIndex = Array.length acc }
+                in
+                clusterRegionHelp isItem afterTrailing (Array.pushLast cluster acc)
+
+            else
+                -- An unexpected node that is neither a sweep-eligible comment
+                -- nor an item. Bail out with `ok = False` rather than
+                -- continuing -- see the doc comment above.
+                { clusters = acc, leftover = pending ++ [ node ] ++ afterNode, ok = False }
+
+
+{-| Cluster `region`, then fold any leftover trailing comments (nothing
+left to lead) into the last cluster's trailing position -- there is
+nowhere else for them to go once a comment "barrier" is off the table.
+
+Returns `Nothing` if the region didn't match what clustering expects (see
+`clusterRegionHelp`'s `ok` flag) -- the caller should fall back to `region`
+unchanged rather than trust a partial result. -}
+clusterAndAttachLeftover : (LPNode -> Bool) -> Array LPNode -> Maybe (Array Cluster)
+clusterAndAttachLeftover isItem region =
+    let
+        { clusters, leftover, ok } =
+            clusterRegionHelp isItem region []
+    in
+    if not ok then
+        Nothing
+
+    else if Array.isEmpty leftover then
+        Just clusters
+
+    else
+        when Array.popLast clusters is
+            Just { last = lastCluster, initial } ->
+                Just (Array.pushLast { lastCluster | trailing = lastCluster.trailing ++ leftover } initial)
+
+            Nothing ->
+                -- Unreachable: the only call site invokes this on a slice
+                -- already confirmed (via `isItem`) to contain at least one item,
+                -- so `ok = True` with no clusters can't happen alongside a
+                -- non-empty leftover.
+                Nothing
+
+
+compareClusters : (LPNode -> LPNode -> Order) -> Cluster -> Cluster -> Order
+compareClusters itemCompare a b =
+    when itemCompare a.item b.item is
+        EQ ->
+            compare a.origIndex b.origIndex
+
+        other ->
+            other
+
+
+flattenClusters : Array Cluster -> Array LPNode
+flattenClusters clusters =
+    Array.foldl (\c acc -> acc ++ c.leading ++ [ c.item ] ++ c.trailing) [] clusters
+
+
+
+-- IMPORT STATEMENTS
+
+
+{-| One `import` statement together with any comment(s) trailing it on its
+own source row -- the only comment shape that travels with an import (see
+the module doc comment for the full rule). -}
+type alias ImportUnit =
+    { item : LPNode
+    , trailing : Array LPNode
+    }
+
+
+unitFirstRow : ImportUnit -> Int
+unitFirstRow unit =
+    origRowsFirst unit.item
+
+
+unitLastRow : ImportUnit -> Int
+unitLastRow unit =
+    when Array.popLast unit.trailing is
+        Just { last = n } ->
+            origRowsLast n
+
+        Nothing ->
+            origRowsLast unit.item
+
+
+{-| Reorder `import` statements alphabetically by module name, but only
+within a maximal run of imports that sit with zero rows between them --
+see the module doc comment for the exact rule (blank lines and own-line
+comments are hard boundaries; a same-row trailing comment is not). Walks
+the root's children once, left to right. -}
+sortImportGroups : LPNode -> LPNode
+sortImportGroups root =
+    lpnReplaceChildren root (walkTop (lpnChildren root) [])
+
+
+walkTop : Array LPNode -> Array LPNode -> Array LPNode
+walkTop remaining acc =
+    when Array.popFirst remaining is
+        Nothing ->
+            acc
+
+        Just { first = node, rest } ->
+            if isImportNode node then
+                let
+                    { units, afterRun } =
+                        collectRun node rest
+                in
+                if Array.length units >= 2 then
+                    walkTop afterRun (acc ++ renderSortedRun (origRowsFirst node) units)
+
+                else
+                    walkTop afterRun (acc ++ flattenUnits units)
+
+            else
+                walkTop rest (Array.pushLast node acc)
+
+
+renderSortedRun : Int -> Array ImportUnit -> Array LPNode
+renderSortedRun runFirstRow units =
+    units
+        |> sortUnitsStable
+        |> reflowUnits runFirstRow
+        |> flattenUnits
+
+
+{-| Collect one run starting at `firstImport`: absorb any comment(s)
+trailing it on its own row (`takeSameRowTrailing`), then check whether the
+very next node is another import starting immediately after (zero rows) --
+if so, that import continues the run; anything else (a blank line, an
+own-line comment, the end of the children array) ends it. -}
+collectRun : LPNode -> Array LPNode -> { units : Array ImportUnit, afterRun : Array LPNode }
+collectRun firstImport remaining =
+    collectRunHelp firstImport remaining []
+
+
+collectRunHelp : LPNode -> Array LPNode -> Array ImportUnit -> { units : Array ImportUnit, afterRun : Array LPNode }
+collectRunHelp importNode remaining acc =
+    let
+        { trailing, afterTrailing } =
+            takeSameRowTrailing importNode remaining
+
+        unit =
+            { item = importNode, trailing = trailing }
+
+        newAcc =
+            Array.pushLast unit acc
+
+        unitEnd =
+            unitLastRow unit
+    in
+    when Array.popFirst afterTrailing is
+        Just { first = nextNode, rest } ->
+            if isImportNode nextNode && origRowsFirst nextNode == unitEnd + 1 then
+                collectRunHelp nextNode rest newAcc
+
+            else
+                { units = newAcc, afterRun = afterTrailing }
+
+        Nothing ->
+            { units = newAcc, afterRun = afterTrailing }
+
+
+sortUnitsStable : Array ImportUnit -> Array ImportUnit
+sortUnitsStable units =
+    Array.indexedMap (\i u -> { unit = u, origIndex = i }) units
+        |> Array.sortWith compareIndexedUnits
+        |> Array.map .unit
+
+
+compareIndexedUnits : { unit : ImportUnit, origIndex : Int } -> { unit : ImportUnit, origIndex : Int } -> Order
+compareIndexedUnits a b =
+    when compare (importModuleName a.unit.item) (importModuleName b.unit.item) is
+        EQ ->
+            compare a.origIndex b.origIndex
+
+        other ->
+            other
+
+
+{-| An import's module name -- always the second child of its
+`OriginalRows` node (`n2` in `MakeLogical.processImport`), an
+`UnbreakableText` leaf. -}
+importModuleName : LPNode -> String
+importModuleName item =
+    when Array.get 1 (lpnChildren item) is
+        Just n ->
+            when lpnBox n is
+                UnbreakableText loc ->
+                    loc.value
+
+                _ ->
+                    ""
+
+        Nothing ->
+            ""
+
+
+{-| Shift every unit after the first so it starts exactly one row past the
+previous unit's end -- row-adjacent, zero gap -- anchored so the FIRST
+unit (in sorted order, whichever import that now is) starts at the run's
+true original first row. Because the run's members are a permutation of
+the same set with no additions or removals, and every original adjacent
+pair had zero rows between them, the total height is invariant under
+reordering -- the reflowed run's last row always lands back on the run's
+true original last row, so (unlike the old, now-removed import-statement
+sort) no separate boundary patch is needed for whatever follows the run. -}
+reflowUnits : Int -> Array ImportUnit -> Array ImportUnit
+reflowUnits runFirstRow units =
+    Array.foldl
+        (\unit acc ->
+            let
+                delta =
+                    (acc.cursor + 1) - unitFirstRow unit
+
+                shifted =
+                    shiftUnit delta unit
+            in
+            { out = Array.pushLast shifted acc.out, cursor = unitLastRow shifted }
+        )
+        { out = [], cursor = runFirstRow - 1 }
+        units
+        |> .out
+
+
+shiftUnit : Int -> ImportUnit -> ImportUnit
+shiftUnit delta unit =
+    if delta == 0 then
+        unit
+
+    else
+        { unit
+            | item = shiftOrigRows delta unit.item
+            , trailing = Array.map (shiftOrigRows delta) unit.trailing
+        }
+
+
+flattenUnits : Array ImportUnit -> Array LPNode
+flattenUnits units =
+    Array.foldl (\u acc -> acc ++ [ u.item ] ++ u.trailing) [] units
+
+
+
+-- EXPOSING LISTS
+
+
+{-| Reorder every exposing-list box in the tree (the module header's and
+every import's) by walking the whole tree once. `ListParen` is used
+exclusively for exposing-list boxes -- no other construct builds
+`AllAcrossOrAllVertical ListParen` / `AlwaysVertical ListParen` -- so
+matching on the box alone finds every exposing list unambiguously, with no
+new box variant needed. -}
+sortExposingLists : LPNode -> LPNode
+sortExposingLists node =
+    let
+        recursed =
+            lpnReplaceChildren node (Array.map sortExposingLists (lpnChildren node))
+    in
+    when lpnBox recursed is
+        AllAcrossOrAllVertical ListParen ->
+            lpnReplaceChildren recursed (sortExposedChildren (lpnChildren recursed))
+
+        AlwaysVertical ListParen ->
+            lpnReplaceChildren recursed (sortExposedChildren (lpnChildren recursed))
+
+        _ ->
+            recursed
+
+
+{-| Sort one exposing list's children. Every child here is already "inside
+the parens" -- there is no boundary to respect, so a comment left dangling
+after the last item (nothing left to lead) simply becomes that item's
+trailing comment instead of being excluded. -}
+sortExposedChildren : Array LPNode -> Array LPNode
+sortExposedChildren items =
+    if not (Array.any isExposedItem items) then
+        items
+
+    else
+        when clusterAndAttachLeftover isExposedItem items is
+            Nothing ->
+                -- Didn't match what clustering expects (see
+                -- `clusterRegionHelp`). Leave it exactly as authored rather
+                -- than risk losing content.
+                items
+
+            Just clusters ->
+                clusters
+                    |> Array.sortWith (compareClusters compareExposedText)
+                    |> flattenClusters
+
+
+compareExposedText : LPNode -> LPNode -> Order
+compareExposedText a b =
+    let
+        ka =
+            exposedSortKey a
+
+        kb =
+            exposedSortKey b
+    in
+    when compare ka.rank kb.rank is
+        EQ ->
+            compare ka.baseName kb.baseName
+
+        other ->
+            other
+
+
+exposedSortKey : LPNode -> { rank : Int, baseName : String }
+exposedSortKey node =
+    when lpnBox node is
+        UnbreakableText loc ->
+            classifyExposedText loc.value
+
+        _ ->
+            { rank = 3, baseName = "" }
+
+
+{-| Classify one exposed item's rendered text into elm-format's three
+groups -- operators (0), types/unions (1), values (2) -- and its base name
+for alphabetical comparison within the group. A closed, exhaustive match
+over exactly the three shapes `MakeLogical.processExposed` ever renders
+(`(op)`, `Name` / `Name (..)`, `name`); keep this in sync if that function's
+output shapes ever change. -}
+classifyExposedText : String -> { rank : Int, baseName : String }
+classifyExposedText text =
+    if String.startsWith "(" text then
+        { rank = 0, baseName = text |> String.dropFirst 1 |> String.dropLast 1 }
+
+    else if startsWithUpper text then
+        { rank = 1
+        , baseName =
+            if String.endsWith " (..)" text then
+                String.dropLast 5 text
+
+            else
+                text
+        }
+
+    else
+        { rank = 2, baseName = text }
+
+
+startsWithUpper : String -> Bool
+startsWithUpper text =
+    when Array.get 0 (String.toArray text) is
+        Just c ->
+            Char.isUpper c
+
+        Nothing ->
+            False

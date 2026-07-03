@@ -1,4 +1,4 @@
-module ModuleLineWrap exposing (AlphaType, BetaType, GammaFunction, DeltaFunction, EpsilonValue, ZetaValue)
+module ModuleLineWrap exposing (AlphaType, BetaType, DeltaFunction, EpsilonValue, GammaFunction, ZetaValue)
 
 
 type AlphaType

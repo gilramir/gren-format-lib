@@ -1,4 +1,4 @@
-module WhenExpression exposing (dayName, sign, describeList)
+module WhenExpression exposing (dayName, describeList, sign)
 
 {- Pattern matching with when/is -}
 

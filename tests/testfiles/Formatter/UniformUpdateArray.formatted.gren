@@ -1,4 +1,4 @@
-module UniformUpdateArray exposing (updates, updatesWide, mixedKinds, singleField, plain)
+module UniformUpdateArray exposing (mixedKinds, plain, singleField, updates, updatesWide)
 
 
 base =

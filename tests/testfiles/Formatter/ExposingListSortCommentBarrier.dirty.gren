@@ -1,0 +1,25 @@
+module ExposingListSortCommentBarrier exposing
+    ( apple
+
+    -- describes zebra
+
+    , zebra
+    , Kiwi
+    , Mango
+    )
+
+
+type Kiwi
+    = Kiwi
+
+
+type Mango
+    = Mango
+
+
+apple =
+    1
+
+
+zebra =
+    2

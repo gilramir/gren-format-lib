@@ -16,7 +16,7 @@ import String exposing (fromInt, toInt)
 import Array.Extra as AE exposing (filterMap, unique)
 
 -- Long exposing list wraps to one indented line
-import MyModule exposing (AlphaType, BetaType, gammaFunction, deltaFunction, epsilonValue)
+import MyModule exposing (AlphaType, BetaType, deltaFunction, epsilonValue, gammaFunction)
 
 -- Very long exposing list wraps to one item per line
-import MyOtherModule exposing (AlphaLongTypeName, BetaLongTypeName, GammaLongFunctionName, DeltaLongFunctionName, EpsilonLongValue)
+import MyOtherModule exposing (AlphaLongTypeName, BetaLongTypeName, DeltaLongFunctionName, EpsilonLongValue, GammaLongFunctionName)
