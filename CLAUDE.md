@@ -151,8 +151,9 @@ node directly under `RootBox`. Comments and blank lines are inserted as sibling
 
 ## Authoritative documentation
 
-- `src/Formatter/README.md` — what every formatting rule does, with worked
-  examples for every construct. Read first when reasoning about formatter behavior.
-- `src/Formatter/DEVELOPER.md` — orientation guide for extending the formatter
+- `README.md` (the "Gren Formatter Rules" section) — what every formatting
+  rule does, with worked examples for every construct. Read first when
+  reasoning about formatter behavior.
+- `DEVELOPER.md` — orientation guide for extending the formatter
   with new syntax: the full checklist, position rules, comment-attachment
   hazards, and the "things to worry about" section.
