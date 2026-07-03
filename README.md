@@ -22,7 +22,7 @@ code structure  +  comments
         │
         │  Step 1
         ▼
-a layout tree
+a Logical Printing Tree
         │
         │  Step 2
         ▼
@@ -47,10 +47,10 @@ on the page.
 
 ---
 
-## Step 1: building the layout tree
+## Step 1: building the Logical Printing Tree
 
-The first step walks over your code's structure and builds a **layout
-tree**: one entry for every piece of your program (a function, an
+The first step walks over your code's structure and builds a **Logical
+Printing Tree**: one entry for every piece of your program (a function, an
 expression, a list, a comment, a blank line, and so on), arranged in the
 same shape as your code.
 
@@ -64,8 +64,8 @@ Some examples of the kinds of decisions recorded here:
   per line — never a mix"
 
 Where those decisions come from matters: the formatter mostly follows *your*
-original line breaks. If you wrote a list across several lines, the layout
-tree records "spread this out"; if you wrote it on one line, it records
+original line breaks. If you wrote a list across several lines, the Logical
+Printing Tree records "spread this out"; if you wrote it on one line, it records
 "keep this together." The tree is really a map of those choices, ready to
 be turned into text later.
 
@@ -74,8 +74,8 @@ be turned into text later.
 Comments and blank lines aren't part of your code's structure, so they
 arrive separately, each tagged with the line and column where you wrote it.
 
-Once the rest of the layout tree is built from your code alone, this step
-goes back through and puts each comment and blank line in place —
+Once the rest of the Logical Printing Tree is built from your code alone,
+this step goes back through and puts each comment and blank line in place —
 finding the spot in the tree that sits at that same line and column, and
 inserting it right there, next to the code it was originally written
 beside. A comment on the same line as some code attaches to that code; a
@@ -84,26 +84,27 @@ came before and after it in your file. The same idea applies to blank
 lines: the formatter notices where you left gaps and preserves them as
 their own entries in the tree.
 
-The result is a layout tree that has everything: code, comments, and blank
-lines, all in the right order and all carrying their layout decisions.
+The result is a Logical Printing Tree that has everything: code, comments,
+and blank lines, all in the right order and all carrying their layout
+decisions.
 
 ---
 
-## Step 2: turning the layout tree into a render plan
+## Step 2: turning the Logical Printing Tree into a render plan
 
-The layout tree says *what could* happen ("these items can go on one line or
-several"). The next step turns each of those decisions into something much
-more concrete: a small set of building blocks that say exactly what to
-print — a piece of text, a line break, or "indent everything from here by
-one more level."
+The Logical Printing Tree says *what could* happen ("these items can go on
+one line or several"). The next step turns each of those decisions into
+something much more concrete: a small set of building blocks that say
+exactly what to print — a piece of text, a line break, or "indent
+everything from here by one more level."
 
 This step doesn't do any guessing or searching for the "best" way to lay
-things out. Because the layout tree already recorded each decision (based
-on how you originally wrote the code), this step just follows those
-decisions directly. That's why the same input always produces the same
-output, and why there's no "line width" setting to configure — the
-formatter isn't trying to fit your code into 80 columns or any other
-target, it's reproducing the shape you already chose.
+things out. Because the Logical Printing Tree already recorded each
+decision (based on how you originally wrote the code), this step just
+follows those decisions directly. That's why the same input always
+produces the same output, and why there's no "line width" setting to
+configure — the formatter isn't trying to fit your code into 80 columns or
+any other target, it's reproducing the shape you already chose.
 
 ---
 
