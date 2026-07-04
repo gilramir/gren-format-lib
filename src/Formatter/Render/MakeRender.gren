@@ -81,7 +81,7 @@ import Formatter.Logical.LogicalPrintingTree
         , lpnBracketStart
         )
 import Formatter.Logical.LPTJson exposing (lptToJson)
-import Formatter.Logical.LPTHelpers exposing (binopPrecedence, binopMinPrecedence)
+import Formatter.Logical.BinopPrecedence exposing (binopPrecedence, binopMinPrecedence)
 
 import Formatter.Strings exposing (joinResultStrings)
 

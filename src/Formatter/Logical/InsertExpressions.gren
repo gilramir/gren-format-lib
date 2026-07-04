@@ -38,11 +38,10 @@ import Formatter.Logical.LPTHelpers
         , fixupParensChildrenNodes
         , itemsSpanRows
         , authoredBracketList
-        , binopPrecedence
-        , binopMinPrecedence
         , plainAcross
         , syntheticParens
         )
+import Formatter.Logical.BinopPrecedence exposing (binopPrecedence, binopMinPrecedence)
 import Formatter.Logical.LiteralFormat exposing (charLiteralString, escapeStringContent, escapeMultilineContent, intToHex)
 import Formatter.Logical.InsertPatterns exposing (argNeedsParens, folderInsertPattern, insertPattern)
 import Formatter.Logical.InsertTypes exposing (makeSignatureBranch)

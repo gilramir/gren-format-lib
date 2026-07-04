@@ -7,8 +7,6 @@ module Formatter.Logical.LPTHelpers
         , syntheticParens
         , itemsSpanRows
         , authoredBracketList
-        , binopPrecedence
-        , binopMinPrecedence
         , resultFoldl
         , tryMapFirstLeaf
         , tryMapLastLeaf
@@ -145,98 +143,6 @@ authoredBracketList brackets spans closeEnd empty itemNodes =
                 )
                 closeEnd
                 itemNodes
-
-
-{-| Precedence of a binary operator, used to lay out a binop chain by breaking
-at its lowest-precedence operators while keeping tighter-binding sub-terms
-inline (`a + b * c` breaks at `+`, keeps `b * c` together).
-
-The values are core's authoritative fixities (`core/src/Basics.gren`): higher
-binds tighter. `|>` / `<|` (precedence 0) are pipelines, handled by the separate
-`Pipeline` path and never reach the binop layout. Module-local operators and
-operators imported with a custom fixity are rare; they fall back to
-`defaultBinopPrecedence`, which sits just below the tightest standard tier so an
-unknown operator in a mixed chain errs toward staying grouped rather than
-splitting the chain at the wrong place.
--}
-defaultBinopPrecedence : Int
-defaultBinopPrecedence =
-    7
-
-
-binopPrecedence : String -> Int
-binopPrecedence op =
-    when op is
-        "||" ->
-            2
-
-        "&&" ->
-            3
-
-        "==" ->
-            4
-
-        "/=" ->
-            4
-
-        "<" ->
-            4
-
-        ">" ->
-            4
-
-        "<=" ->
-            4
-
-        ">=" ->
-            4
-
-        "++" ->
-            5
-
-        "+" ->
-            6
-
-        "-" ->
-            6
-
-        "*" ->
-            7
-
-        "/" ->
-            7
-
-        "//" ->
-            7
-
-        "^" ->
-            8
-
-        "<<" ->
-            9
-
-        ">>" ->
-            9
-
-        _ ->
-            defaultBinopPrecedence
-
-
-{-| The lowest precedence among a chain's operators — the tier at which the
-chain breaks when it goes multi-line (operators that bind tighter stay inline).
-
-This is the seam the two halves of the binop-layout logic share and MUST agree
-on: `InsertExpressions.binopForceVertical` groups the operand *ranges* at this
-tier to decide whether the author wrote the chain across rows, and
-`MakeRender.assembleBinopGroups` groups the operand *docs* at this tier to render
-them. Deriving both from this one function keeps the two groupings in lockstep.
-
-The seed exceeds every real precedence, so an all-defaults or empty chain yields
-the sentinel (callers guard the empty case separately).
--}
-binopMinPrecedence : Array String -> Int
-binopMinPrecedence ops =
-    Array.foldl (\op acc -> min acc (binopPrecedence op)) 999 ops
 
 
 -- Left-fold that threads a Result through the accumulator, short-circuiting
