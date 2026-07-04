@@ -736,7 +736,7 @@ insertAmongChildren commentNode row col children =
 -- This is the single declared list of "never swallow a trailing comment" box
 -- kinds — to teach a new construct the same rule, add it here rather than
 -- threading another predicate into the guard. Per kind:
---   AcrossThenIndent                       — function-call / argument flow
+--   AcrossOrVertical                       — function-call / argument flow
 --   IfCondition                            — `if` / `else if` condition
 --   PrefixGlue                             — `\`-glued lambda head or unary `-`;
 --       matters even mid-flow, where the next lambda parameter's flow separator
@@ -754,7 +754,7 @@ insertAmongChildren commentNode row col children =
 boxKeepsTrailingCommentOutside : LPNode -> Bool
 boxKeepsTrailingCommentOutside node =
     when lpnBox node is
-        AcrossThenIndent _ ->
+        AcrossOrVertical _ ->
             True
 
         IfCondition _ ->
@@ -795,9 +795,9 @@ commentInsideEmptyBracket node row col =
 {-| True if the comment is sitting just past the closing bracket of
 the rightmost bracket-list inside `node`'s subtree — i.e. the user
 plausibly wrote it between the bracket's last item and the closing
-bracket character. Allows the descent guard for `AcrossThenIndent`
+bracket character. Allows the descent guard for `AcrossOrVertical`
 to admit comments like `\[a, b, c {- trailing -}] -> body`, where the
-AcrossThenIndent's last positioned token (`c`) is before the
+AcrossOrVertical's last positioned token (`c`) is before the
 comment but the bracket genuinely owns it.
 
 The column-proximity threshold (`+2`) accounts for one whitespace
@@ -1072,7 +1072,7 @@ appendTrailingComment commentNode col node =
         lastPositioned =
             lastPositionedOf children
 
-        -- An indenting flow (`AcrossThenIndent`, `IfCondition`) is never
+        -- An indenting flow (`AcrossOrVertical`, `IfCondition`) is never
         -- itself the append level: a comment appended as its direct child
         -- renders at the flow's continuation indent, and the comment's own
         -- hard newline then emits that indent as trailing whitespace.
@@ -1082,7 +1082,7 @@ appendTrailingComment commentNode col node =
         -- block indent like any interior own-line comment.
         isIndentingFlowBox flowNode =
             when lpnBox flowNode is
-                AcrossThenIndent _ ->
+                AcrossOrVertical _ ->
                     True
 
                 IfCondition _ ->

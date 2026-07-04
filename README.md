@@ -146,7 +146,7 @@ RootBox
 ├── OriginalRows[lineComment]  "-- Greets someone by name"
 ├── OriginalRows[funcSig]      "greet : String -> String"
 └── OriginalRows[funcDecl]
-    ├── AcrossThenIndent        "greet name ="
+    ├── AcrossOrVertical        "greet name ="
     └── BodyBlock
         └── Binop "++"
             ├── "Hello, "

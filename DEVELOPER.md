@@ -142,10 +142,12 @@ Leaves (carry text/position, no children):
 
 Layout boxes (have children):
 
-- `AcrossThenIndent { forceVertical : Bool }` — flow tokens across; wrap
-  continuations +4. The default for "a thing and its parts" (a function call,
-  a variant + payload). When `forceVertical` is `True`, continuations always
-  break — no flat option.
+- `AcrossOrVertical { forceVertical : Bool }` — bare (unbracketed) token
+  sequence, all on one line *or* one child per line with continuations
+  indented +4 — same author-driven choice as `AllAcrossOrAllVertical`, just
+  without delimiters. The default for "a thing and its parts" (a function
+  call, a variant + payload). When `forceVertical` is `True`, continuations
+  always break — no flat option.
 - `AllAcrossOrAllVertical ListBrackets` — bracketed list, all on one line *or*
   one item per line (`ListParen`/`ListCurly`/`ListSquare`). Vertical when any
   item boundary spans rows.
@@ -269,7 +271,7 @@ token at its `Located` position), `mkText pos str` (text at an explicit
 position), `mkZeroWidthText pos str` (a synthesized token anchored at a real
 position but contributing zero width — see below), `resultFoldl`. For the two
 most common container shapes there are smart constructors that fill in the
-default flags for you: `plainAcross children` (an `AcrossThenIndent` flow — a
+default flags for you: `plainAcross children` (an `AcrossOrVertical` flow — a
 head-and-its-parts) and `syntheticParens children` (a formatter-synthesized
 `ParenBlock` with no author position). Prefer them over spelling out the box
 record; reach for the raw box only when you need a non-default flag
@@ -322,7 +324,7 @@ construct") is required reading, but the short version:
 Add an arm to the `makePDoc` `when box is …` dispatch (and to the parallel
 flow/aligned dispatches if your box appears there) returning a `Result String Doc`
 built from `Formatter.Render.Doc` combinators. Reuse an existing box shape if one
-fits — prefer `AcrossThenIndent`, `AllAcrossOrAllVertical`, `IndentedBlock` etc.
+fits — prefer `AcrossOrVertical`, `AllAcrossOrAllVertical`, `IndentedBlock` etc.
 over inventing a new box. Only add a new `LPBox` constructor when no existing
 shape expresses the breaking behaviour you need; a new constructor means new arms
 in *every* `when box is` in `MakeRender` plus `selfBoxBounds` in

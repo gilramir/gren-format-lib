@@ -81,8 +81,8 @@ lpBoxFields lpbox =
             , { key = "startCol", value = Json.int loc.start.col }
             ]
 
-        AcrossThenIndent { forceVertical, checkContentVertical } ->
-            [ { key = "type", value = Json.string "AcrossThenIndent" }
+        AcrossOrVertical { forceVertical, checkContentVertical } ->
+            [ { key = "type", value = Json.string "AcrossOrVertical" }
             , { key = "forceVertical", value = Json.bool forceVertical }
             , { key = "checkContentVertical", value = Json.bool checkContentVertical }
             ]

@@ -109,10 +109,10 @@ emptyArray =
 
 -- Bug D — a trailing block comment after the last item of an array
 -- pattern used to escape the brackets ([ a, b, c ] -> {- c -} body).
--- The AcrossThenIndent descent guard now consults the cached
+-- The AcrossOrVertical descent guard now consults the cached
 -- `lastBracketEnd` position: when the comment is column-close to a
 -- bracket-list's last item (same row, within ~2 cols), the guard
--- admits the comment past the AcrossThenIndent so it can descend
+-- admits the comment past the AcrossOrVertical so it can descend
 -- into the bracket-list and land as its last child.
 arrayPatTrailing =
     \[a, b, c {- trailing comment after last array-pattern item -}] -> a
@@ -124,7 +124,7 @@ arrayPatTrailing =
 --   * The descent guard refuses descent into a bracket-list
 --     (AllAcrossOrAllVertical / AlwaysVertical) when the comment is
 --     past the last item AND not column-close to it (same heuristic
---     as the AcrossThenIndent guard).
+--     as the AcrossOrVertical guard).
 --   * The synthesized `as` in PAlias now carries a computed source
 --     position (name.start.col - 3), so the synth-text skip can't
 --     push the comment past `as`.

@@ -275,7 +275,7 @@ accessBaseIsBracketed locExpr =
 {-| Recursively convert a Gren expression into LPT nodes.
 
 Returns the top-level nodes for this expression. The caller is responsible
-for wrapping the result in a container box (e.g. `AcrossThenIndent`,
+for wrapping the result in a container box (e.g. `AcrossOrVertical`,
 `IndentedBlock`) appropriate to its surrounding context.
 -}
 insertExpression : Src.Expression -> Result String (Array LPNode)
@@ -549,7 +549,7 @@ insertBinops locExpr { operator = locStringOp } =
                                 |> Result.map
                                     (\bodyNodes ->
                                         -- PipelineStep's buildFlowDoc grenIndent already provides
-                                        -- +4 continuation, so unwrap a lone AcrossThenIndent (from
+                                        -- +4 continuation, so unwrap a lone AcrossOrVertical (from
                                         -- a function call) to keep the token flow directly under the
                                         -- step, avoiding a second +4 of indentation.
                                         let
@@ -557,7 +557,7 @@ insertBinops locExpr { operator = locStringOp } =
                                                 when Array.popFirst bodyNodes is
                                                     Just { first = onlyNode, rest = [] } ->
                                                         when lpnBox onlyNode is
-                                                            AcrossThenIndent _ ->
+                                                            AcrossOrVertical _ ->
                                                                 lpnChildren onlyNode
 
                                                             _ ->
@@ -606,9 +606,9 @@ insertBinops locExpr { operator = locStringOp } =
                 )
 
 
-{-| `Src.Call` — a function applied to arguments. Overflow arguments indent +4
-from the function name (`AcrossThenIndent`), keeping them visually distinct
-from the surrounding context. -}
+{-| `Src.Call` — a function applied to arguments. Arguments the author wrote
+across rows indent +4 from the function name (`AcrossOrVertical`), keeping
+them visually distinct from the surrounding context. -}
 insertCall : { fn : Src.Expression, args : Array Src.Expression } -> Result String (Array LPNode)
 insertCall { fn = fnExpr, args = argsExprs } =
     insertExpression fnExpr
@@ -623,7 +623,7 @@ insertCall { fn = fnExpr, args = argsExprs } =
                                         ([ { start = fnExpr.start, end = fnExpr.end } ]
                                             ++ Array.map (\a -> { start = a.start, end = a.end }) argsExprs)
                             in
-                            [ lpnNode (AcrossThenIndent { forceVertical = forceVertical, checkContentVertical = True }) allNodes ]
+                            [ lpnNode (AcrossOrVertical { forceVertical = forceVertical, checkContentVertical = True }) allNodes ]
                         )
             )
 
@@ -661,7 +661,7 @@ insertLambda locExpr { patterns = patterns, body = body } =
                     -- vertical structure whose inner rows carry their own
                     -- `IndentedBlock` indentation. Wrapping it through
                     -- `insertExpressionAsItem` would bundle those rows under
-                    -- an extra `AcrossThenIndent`, whose +4 continuation
+                    -- an extra `AcrossOrVertical`, whose +4 continuation
                     -- indent stacks on top of the inner blocks and
                     -- double-indents the `let` bindings / branch bodies. So
                     -- for those, drop the raw rows straight into the
@@ -868,7 +868,7 @@ simpleExprText locExpr =
 {-| Wrap an expression as a single node.
 
 If the expression produces multiple sibling nodes, group them under
-`AcrossThenIndent` so callers receive exactly one `LPNode`.
+`AcrossOrVertical` so callers receive exactly one `LPNode`.
 -}
 insertExpressionAsItem : Src.Expression -> Result String LPNode
 insertExpressionAsItem locExpr =
@@ -1054,8 +1054,8 @@ body block adds a second +4.
     (`else`, `in`) sit one level under the field. `BodyBlock` forces that drop
     with no extra nest, leaving the value's internal blocks to supply their own.
   - Every other value (including `when`, whose `AlignedFlow` already drops) uses
-    the plain `AcrossThenIndent`, which keeps short values inline and indents an
-    overflowing continuation +4.
+    the plain `AcrossOrVertical`, which keeps a one-row value inline and
+    indents a continuation the author wrote across rows +4.
 
 This applies to both record literals and record updates: the literal renders a
 field through the nest-based list-item path (`listItemBoxDoc`), and the update
@@ -1271,7 +1271,7 @@ folderInsertElseIfBranch branch accNodes =
 {-| Folder for branches of a `when ... is` expression.
 
 Produces one `WhenBranch` node per branch. The pattern nodes go into a
-`WhenBranchPattern` child, which renders them like `AcrossThenIndent` but
+`WhenBranchPattern` child, which renders them like `AcrossOrVertical` but
 appends " ->" directly after the last token — so the arrow always trails the
 pattern on the same line, whether flat or broken. The body is always in an
 `IndentedBlock` (+4 from the branch indent).

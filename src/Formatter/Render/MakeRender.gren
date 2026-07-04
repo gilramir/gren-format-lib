@@ -609,7 +609,7 @@ When the multiline arg is the last one (no suffix), it closes the step.
 Otherwise falls back to `buildFlowDoc grenIndent` (continuation args at `|>` + 4)
 — note this never falls back to `buildFlowDocBroken`: `stepChildren` includes
 the `|>`/`<|` operator token as its first item, and unlike a plain call's
-`AcrossThenIndent`, this flow must keep the operator glued to the function
+`AcrossOrVertical`, this flow must keep the operator glued to the function
 name even when a later argument forces vertical (the split below handles that
 via preamble/trigger/suffix instead).  Called from both `renderPipelineStepNode`
 (comment-bearing path) and the fast path in `makePipelineDoc` (comment-free
@@ -622,7 +622,7 @@ buildStepChildrenDoc stepChildren =
         -- Scan left-to-right for the first node that must force a break: a
         -- multiline lambda ParenBlock, a ParenBlock with multiline content,
         -- or (new) any other multiline-forcing node — a record argument
-        -- being the common case, since a Call's lone-AcrossThenIndent
+        -- being the common case, since a Call's lone-AcrossOrVertical
         -- wrapper is unwrapped directly into the step (see
         -- `MakeLogical`/`buildBodyDoc`), discarding the `checkContentVertical`
         -- decision that would normally catch it (see `flowChildForcesVertical`
@@ -1195,7 +1195,7 @@ flowChildForcesVertical node =
 
 
 {-| True when any child forces the surrounding flow vertical (see
-`flowChildForcesVertical`). Used by `AcrossThenIndent` (a function call) so
+`flowChildForcesVertical`). Used by `AcrossOrVertical` (a function call) so
 the whole argument list commits to one-argument-per-line the moment any
 argument demands it, rather than pushing just that argument onto its own
 line and leaving the rest glued to whatever follows.
@@ -1248,7 +1248,7 @@ makePDoc box children =
         BlockComment _ ->
             Ok (commentBoxDoc box)
 
-        AcrossThenIndent { forceVertical, checkContentVertical } ->
+        AcrossOrVertical { forceVertical, checkContentVertical } ->
             if forceVertical || (checkContentVertical && anyChildForcesVertical children) then
                 buildFlowDocBroken grenIndent children
 
@@ -1543,7 +1543,7 @@ listItemBoxDoc node =
         UnbreakableText loc ->
             Just (Ok (R.text loc.value))
 
-        AcrossThenIndent _ ->
+        AcrossOrVertical _ ->
             Just (buildFlowDoc grenIndent children)
 
         IndentedBlock ->
@@ -2515,7 +2515,7 @@ isPipelineStepNode node =
 
 -- True when `node` is a `ParenBlock` whose body is on a different row from
 -- `->` — i.e. the lambda was written multi-line by the author.  Shape:
---   ParenBlock [ AcrossThenIndent (\args ->), IndentedBlock (body) ]
+--   ParenBlock [ AcrossOrVertical (\args ->), IndentedBlock (body) ]
 -- Single-line lambdas carry `SoftIndentedBlock` as the second child and are
 -- rendered inline as usual; only `IndentedBlock` gets the elm-format layout.
 isMultilineLambdaParenBlock : LPNode -> Bool
@@ -2707,7 +2707,7 @@ buildBodyDoc opNode bodyNodes =
         buildFlowDocInline 0 bodyNodes
 
     else if anyChildForcesVertical bodyNodes then
-        -- The step body is a call whose "lone AcrossThenIndent" wrapper was
+        -- The step body is a call whose "lone AcrossOrVertical" wrapper was
         -- unwrapped directly into the step (see the doc comment above), which
         -- also discards its `checkContentVertical` decision — recompute it
         -- here so a call-with-a-multiline-record body still breaks every

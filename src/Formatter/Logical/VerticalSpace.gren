@@ -392,19 +392,19 @@ isLetCommentNode node =
 
 -- True if a node is a let-level type signature: the `IndentedBlock` built by
 -- `folderInsertLetDef` for `name : Type`, recognised by the synthesized `:`
--- inside its `AcrossThenIndent`. A binding's header carries a synthesized `=`
+-- inside its `AcrossOrVertical`. A binding's header carries a synthesized `=`
 -- instead, so the `:` is unambiguous here.
 isLetSignature : LPNode -> Bool
 isLetSignature node =
     when lpnBox node is
         IndentedBlock ->
             -- Comments preceding a signature are redirected inside the
-            -- IndentedBlock by Comments.insertAmongChildren, so the AcrossThenIndent
+            -- IndentedBlock by Comments.insertAmongChildren, so the AcrossOrVertical
             -- may not be the first child. Check all children.
             Array.any
                 (\inner ->
                     when lpnBox inner is
-                        AcrossThenIndent _ ->
+                        AcrossOrVertical _ ->
                             Array.any
                                 (\c ->
                                     when lpnBox c is

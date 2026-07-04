@@ -261,7 +261,7 @@ buildWhereBlock effects =
         Src.Manager manager ->
             let
                 -- Each "field" of the `where { ... }` block is one
-                -- list item (an AcrossThenIndent containing the
+                -- list item (an AcrossOrVertical containing the
                 -- `name = Ctor` tokens) so the surrounding list
                 -- joins items with commas, not the inner tokens.
                 --

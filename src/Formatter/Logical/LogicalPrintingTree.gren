@@ -53,7 +53,7 @@ Two core types:
   - `SingleLineComment` / `BlockComment` / `DocComment`.
 
 **Token flows** (tokens across a line; continuation lines indent)
-  - `AcrossThenIndent` — the default flow; continuations +4.
+  - `AcrossOrVertical` — the default flow; continuations +4.
   - `IfCondition` — like above but +8, so an `if` condition's wrap is distinct
     from its branch body.
   - `WhenBranchPattern` — a when-branch's pattern with `->` glued after it.
@@ -166,9 +166,12 @@ type LPBox
     | SingleLineComment (Located String)
     | BlockComment (Located String)
     | DocComment (Located String)
-    -- Flows across as far as possible. When it goes
-    -- to the first new line, it indents one over and continues.
-    -- Subsequent lines stay at that indentation.
+    -- Author-driven binary flow, same as `AllAcrossOrAllVertical` but for a
+    -- bare (unbracketed) sequence of tokens rather than a delimited list: all
+    -- across on one line if the author wrote it that way (regardless of
+    -- length — no page width, no wrapping), or one child per line, indented
+    -- +4, if the author wrote it across rows (`forceVertical`) or a child's
+    -- own content forces a break.
     --
     --     foo bar baz
     --         qux quux         -- continuation indented +4
@@ -176,7 +179,7 @@ type LPBox
     -- `checkContentVertical` opts into the same "content can force
     -- verticality regardless of forceVertical" backstop as `ParenBlock`'s
     -- flag of the same name, but scoped to genuine `Src.Call` (function
-    -- call arguments) only -- `AcrossThenIndent` is reused for many other
+    -- call arguments) only -- `AcrossOrVertical` is reused for many other
     -- flows (a function/lambda's own name-args-`=`/`->` head, a record
     -- field's name-`=`-value, an effect-module binding, ...) where the
     -- trailing token must always stay glued to the last item and must NOT
@@ -186,8 +189,8 @@ type LPBox
     -- call renders one-per-line -- not just the triggering one -- so the
     -- call commits to the vertical shape from the first format instead of
     -- only catching up (and flipping non-idempotently) on reparse.
-    | AcrossThenIndent { forceVertical : Bool, checkContentVertical : Bool }
-    -- Like AcrossThenIndent but with 2× the indent on continuation lines.
+    | AcrossOrVertical { forceVertical : Bool, checkContentVertical : Bool }
+    -- Like AcrossOrVertical but with 2× the indent on continuation lines.
     -- Used for if/else if conditions so their continuations are more indented
     -- than the branch body (+8 vs +4), making them visually distinct.
     --
@@ -276,7 +279,7 @@ type LPBox
     --     Pattern ->
     --         body
     | WhenBranch
-    -- Pattern nodes for one when-branch. Renders like AcrossThenIndent
+    -- Pattern nodes for one when-branch. Renders like AcrossOrVertical
     -- (continuation lines +4) but appends " ->" directly after the last token,
     -- so the arrow always trails the pattern on the same line — including after
     -- the closing } of a broken record pattern.
@@ -420,7 +423,7 @@ descendant of the rightmost bracket-list (`AllAcrossOrAllVertical`,
 `AlwaysVertical`, or `EmptyBracketed`) in this subtree, or
 `Nothing` if the subtree contains no such bracket. The
 comment-placement descent guard uses it to allow descent into an
-`AcrossThenIndent` whose last positioned token is before the comment
+`AcrossOrVertical` whose last positioned token is before the comment
 *when* the comment is on the same row and column-close to the
 bracket's closing position — i.e. the user almost certainly wrote
 the comment between the bracket's last item and the closing
