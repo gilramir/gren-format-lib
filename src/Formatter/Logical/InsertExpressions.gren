@@ -342,55 +342,11 @@ insertExpression locExpr =
         Src.Accessor string ->
             Ok [ lpnLeaf (mkText locExpr.start ("." ++ string)) ]
 
-        Src.Access { expression = expression, accessor = accessor } ->
-            insertExpression expression
-                |> Result.andThen
-                    (\nodes ->
-                        if accessBaseIsBracketed expression then
-                            -- The accessor must be glued AFTER the base's closing
-                            -- bracket with no separator: mapping it onto the last
-                            -- text leaf would land it inside the bracket, and a
-                            -- flow sibling would get a space — which re-parses as
-                            -- applying the accessor *function* to the base.
-                            let
-                                dotNode =
-                                    lpnLeaf (mkText expression.end ("." ++ accessor))
-                            in
-                            Ok [ lpnNode Glue (Array.pushLast dotNode nodes) ]
-
-                        else
-                            when Array.popLast nodes is
-                                Nothing ->
-                                    Err "Access: empty inner expression"
-
-                                Just { last = lastNode, initial = initialNodes } ->
-                                    when tryMapLastLeaf (\loc -> mkText loc.start (loc.value ++ "." ++ accessor)) lastNode is
-                                        Just updated ->
-                                            Ok (Array.pushLast updated initialNodes)
-
-                                        Nothing ->
-                                            Ok (Array.pushLast (lpnLeaf (SynthesizedText ("." ++ accessor))) nodes)
-                    )
+        Src.Access payload ->
+            insertAccess payload
 
         Src.Parens expression ->
-            insertExpression expression
-                |> Result.andThen
-                    (\nodes ->
-                        when Array.popFirst nodes is
-                            Nothing ->
-                                Ok [ lpnLeaf (SynthesizedText "()") ]
-
-                            Just _ ->
-                                let
-                                    -- `locExpr` spans from `(` to `)` (the
-                                    -- parser captures position before/after the
-                                    -- delimiters), so this is exactly "did the
-                                    -- author put the parens on different rows."
-                                    forceVertical =
-                                        locExpr.start.row /= locExpr.end.row
-                                in
-                                Ok [ lpnBracketNode (ParenBlock { forceVertical = forceVertical, checkContentVertical = True, isCallArgument = False }) locExpr.end nodes ]
-                    )
+            insertParens locExpr expression
 
         Src.ArrayLiteral exprArray ->
             -- The author's layout decides the list shape (see `authoredBracketList`):
@@ -410,351 +366,455 @@ insertExpression locExpr =
                         [ authoredBracketList ListCurly (recordFieldsSpanRows fieldArray) locExpr.end (lpnLeaf (EmptyBracketed { start = locExpr.start, end = locExpr.end, value = ListCurly })) fieldNodes ]
                     )
 
-        Src.Update { record = record, newValues = newValues } ->
-            let
-                recText =
-                    simpleExprText record
+        Src.Update payload ->
+            insertUpdate locExpr payload
 
-                -- The base record expression's source range. Used both as
-                -- the inline-update text and as the source-position anchor
-                -- for the RecordUpdate LPT node, so a comment between the
-                -- base and `|` (or between `|` and the first field) can
-                -- still locate the RecordUpdate subtree during placement.
-                recLoc =
-                    -- `start` anchors the base; `end` is the *whole* update's
-                    -- closing `}` (locExpr.end), not just the base name, so the
-                    -- RecordUpdate subtree's row range covers the closing brace.
-                    -- Otherwise a comment after the last field but before `}`
-                    -- falls outside the range and escapes to the next sibling
-                    -- on reparse (non-idempotent). `value` stays the base text
-                    -- used for rendering.
-                    { start = record.start
-                    , end = locExpr.end
-                    , value = recText
-                    }
-            in
-            resultFoldl folderInsertRecordField [] newValues
-                |> Result.map
-                    (\fieldNodes ->
-                        when Array.popFirst fieldNodes is
-                            Nothing ->
-                                [ lpnLeaf (mkText locExpr.start "{}") ]
+        Src.Binops payload ->
+            insertBinops locExpr payload
 
-                            Just { first = firstField, rest = restFields } ->
-                                if Array.isEmpty restFields then
-                                    -- Single field update: inline, prepend "recName | " to first field text
-                                    -- Zero-width merged "base | field" token (it
-                                    -- spans base + `|` + field name in one leaf) so
-                                    -- it can't overlap a comment between the field's
-                                    -- `=` and its value; that comment then sorts
-                                    -- after the field name consistently (idempotent).
-                                    let
-                                        updatedField =
-                                            when tryMapFirstLeaf (\loc -> mkZeroWidthText loc.start (recText ++ " | " ++ loc.value)) firstField is
-                                                Just updated ->
-                                                    updated
+        Src.Call payload ->
+            insertCall payload
 
-                                                Nothing ->
-                                                    firstField
-                                    in
-                                    -- Close position so an own-line comment after the field but
-                                    -- before `}` attaches inside the update (consistent with the
-                                    -- inline form), matching the 2+ field case below.
-                                    [ lpnBracketNode (AllAcrossOrAllVertical ListCurly) locExpr.end [ updatedField ] ]
+        Src.Lambda payload ->
+            insertLambda locExpr payload
 
-                                else
-                                    -- 2+ field update: like a record literal, the
-                                    -- author's layout chooses the shape. Fields on one
-                                    -- line → inline `{ b | a, c }` (regardless of
-                                    -- width); fields across rows → forced vertical.
-                                    -- Close position so the descent guards classify a
-                                    -- comment before/after the `}` correctly (inside
-                                    -- stays; past it escapes), matching the single-field
-                                    -- form above.
-                                    [ lpnBracketNode (RecordUpdate
-                                            { name = recLoc
-                                            , forceVertical = recordFieldsSpanRows newValues
-                                            }) locExpr.end fieldNodes ]
-                    )
+        Src.Let payload ->
+            insertLet locExpr payload
 
-        Src.Binops { left = lhsExpr, operator = locStringOp, right = rhsExpr } ->
-            if isPipelineOp locStringOp.value then
-                let
-                    flattened =
-                        flattenPipeline locExpr
+        Src.If payload ->
+            insertIf locExpr payload
 
-                    -- Signal B for pipelines: a newline between the seed and the
-                    -- first step, or between consecutive steps, means the author
-                    -- wrote the pipeline across rows, so it stays one-step-per-line.
-                    -- (The `|>` sits between an item's end and the next body's
-                    -- start, so spanning shows up as the next body starting on a
-                    -- later row than the previous item ended.)
-                    forceVertical =
-                        itemsSpanRows
-                            ([ { start = flattened.seed.start, end = flattened.seed.end } ]
-                                ++ Array.map (\s -> { start = s.body.start, end = s.body.end }) flattened.steps)
-                in
-                insertExpression flattened.seed
-                    |> Result.andThen
-                        (\seedNodes ->
-                            resultFoldl
-                                (\step accNodes ->
-                                    let
-                                        opNode =
-                                            lpnLeaf (mkTextFromLocString step.op)
-                                    in
-                                    insertStepBody locStringOp.value step.body
-                                        |> Result.map
-                                            (\bodyNodes ->
-                                                -- PipelineStep's buildFlowDoc grenIndent already provides
-                                                -- +4 continuation, so unwrap a lone AcrossThenIndent (from
-                                                -- a function call) to keep the token flow directly under the
-                                                -- step, avoiding a second +4 of indentation.
-                                                let
-                                                    flatBodyNodes =
-                                                        when Array.popFirst bodyNodes is
-                                                            Just { first = onlyNode, rest = [] } ->
-                                                                when lpnBox onlyNode is
-                                                                    AcrossThenIndent _ ->
-                                                                        lpnChildren onlyNode
+        Src.When payload ->
+            insertWhen locExpr payload
 
-                                                                    _ ->
-                                                                        bodyNodes
+
+{-| `Src.Access` — a `.field` accessor applied to a base expression. -}
+insertAccess : { expression : Src.Expression, accessor : String } -> Result String (Array LPNode)
+insertAccess { expression = expression, accessor = accessor } =
+    insertExpression expression
+        |> Result.andThen
+            (\nodes ->
+                if accessBaseIsBracketed expression then
+                    -- The accessor must be glued AFTER the base's closing
+                    -- bracket with no separator: mapping it onto the last
+                    -- text leaf would land it inside the bracket, and a
+                    -- flow sibling would get a space — which re-parses as
+                    -- applying the accessor *function* to the base.
+                    let
+                        dotNode =
+                            lpnLeaf (mkText expression.end ("." ++ accessor))
+                    in
+                    Ok [ lpnNode Glue (Array.pushLast dotNode nodes) ]
+
+                else
+                    when Array.popLast nodes is
+                        Nothing ->
+                            Err "Access: empty inner expression"
+
+                        Just { last = lastNode, initial = initialNodes } ->
+                            when tryMapLastLeaf (\loc -> mkText loc.start (loc.value ++ "." ++ accessor)) lastNode is
+                                Just updated ->
+                                    Ok (Array.pushLast updated initialNodes)
+
+                                Nothing ->
+                                    Ok (Array.pushLast (lpnLeaf (SynthesizedText ("." ++ accessor))) nodes)
+            )
+
+
+{-| `Src.Parens` — a parenthesized expression. `locExpr` spans `(` to `)`, so
+the parens' own start/end rows say whether the author wrote them across rows. -}
+insertParens : Src.Expression -> Src.Expression -> Result String (Array LPNode)
+insertParens locExpr expression =
+    insertExpression expression
+        |> Result.andThen
+            (\nodes ->
+                when Array.popFirst nodes is
+                    Nothing ->
+                        Ok [ lpnLeaf (SynthesizedText "()") ]
+
+                    Just _ ->
+                        let
+                            -- `locExpr` spans from `(` to `)` (the
+                            -- parser captures position before/after the
+                            -- delimiters), so this is exactly "did the
+                            -- author put the parens on different rows."
+                            forceVertical =
+                                locExpr.start.row /= locExpr.end.row
+                        in
+                        Ok [ lpnBracketNode (ParenBlock { forceVertical = forceVertical, checkContentVertical = True, isCallArgument = False }) locExpr.end nodes ]
+            )
+
+
+{-| `Src.Update` — a record update `{ base | field = ... }`. `locExpr.end` is
+the closing `}`. -}
+insertUpdate : Src.Expression -> { record : Src.Expression, newValues : Array Src.RecordField } -> Result String (Array LPNode)
+insertUpdate locExpr { record = record, newValues = newValues } =
+    let
+        recText =
+            simpleExprText record
+
+        -- The base record expression's source range. Used both as
+        -- the inline-update text and as the source-position anchor
+        -- for the RecordUpdate LPT node, so a comment between the
+        -- base and `|` (or between `|` and the first field) can
+        -- still locate the RecordUpdate subtree during placement.
+        recLoc =
+            -- `start` anchors the base; `end` is the *whole* update's
+            -- closing `}` (locExpr.end), not just the base name, so the
+            -- RecordUpdate subtree's row range covers the closing brace.
+            -- Otherwise a comment after the last field but before `}`
+            -- falls outside the range and escapes to the next sibling
+            -- on reparse (non-idempotent). `value` stays the base text
+            -- used for rendering.
+            { start = record.start
+            , end = locExpr.end
+            , value = recText
+            }
+    in
+    resultFoldl folderInsertRecordField [] newValues
+        |> Result.map
+            (\fieldNodes ->
+                when Array.popFirst fieldNodes is
+                    Nothing ->
+                        [ lpnLeaf (mkText locExpr.start "{}") ]
+
+                    Just { first = firstField, rest = restFields } ->
+                        if Array.isEmpty restFields then
+                            -- Single field update: inline, prepend "recName | " to first field text
+                            -- Zero-width merged "base | field" token (it
+                            -- spans base + `|` + field name in one leaf) so
+                            -- it can't overlap a comment between the field's
+                            -- `=` and its value; that comment then sorts
+                            -- after the field name consistently (idempotent).
+                            let
+                                updatedField =
+                                    when tryMapFirstLeaf (\loc -> mkZeroWidthText loc.start (recText ++ " | " ++ loc.value)) firstField is
+                                        Just updated ->
+                                            updated
+
+                                        Nothing ->
+                                            firstField
+                            in
+                            -- Close position so an own-line comment after the field but
+                            -- before `}` attaches inside the update (consistent with the
+                            -- inline form), matching the 2+ field case below.
+                            [ lpnBracketNode (AllAcrossOrAllVertical ListCurly) locExpr.end [ updatedField ] ]
+
+                        else
+                            -- 2+ field update: like a record literal, the
+                            -- author's layout chooses the shape. Fields on one
+                            -- line → inline `{ b | a, c }` (regardless of
+                            -- width); fields across rows → forced vertical.
+                            -- Close position so the descent guards classify a
+                            -- comment before/after the `}` correctly (inside
+                            -- stays; past it escapes), matching the single-field
+                            -- form above.
+                            [ lpnBracketNode (RecordUpdate
+                                    { name = recLoc
+                                    , forceVertical = recordFieldsSpanRows newValues
+                                    }) locExpr.end fieldNodes ]
+            )
+
+
+{-| `Src.Binops` — either a `|>`/`<|` pipeline or an ordinary operator chain.
+Both re-flatten the left-nested tree from `locExpr`; only `operator` is needed
+from the payload (to pick the branch and label the pipeline). -}
+insertBinops : Src.Expression -> { left : Src.Expression, operator : Located String, right : Src.Expression } -> Result String (Array LPNode)
+insertBinops locExpr { operator = locStringOp } =
+    if isPipelineOp locStringOp.value then
+        let
+            flattened =
+                flattenPipeline locExpr
+
+            -- Signal B for pipelines: a newline between the seed and the
+            -- first step, or between consecutive steps, means the author
+            -- wrote the pipeline across rows, so it stays one-step-per-line.
+            -- (The `|>` sits between an item's end and the next body's
+            -- start, so spanning shows up as the next body starting on a
+            -- later row than the previous item ended.)
+            forceVertical =
+                itemsSpanRows
+                    ([ { start = flattened.seed.start, end = flattened.seed.end } ]
+                        ++ Array.map (\s -> { start = s.body.start, end = s.body.end }) flattened.steps)
+        in
+        insertExpression flattened.seed
+            |> Result.andThen
+                (\seedNodes ->
+                    resultFoldl
+                        (\step accNodes ->
+                            let
+                                opNode =
+                                    lpnLeaf (mkTextFromLocString step.op)
+                            in
+                            insertStepBody locStringOp.value step.body
+                                |> Result.map
+                                    (\bodyNodes ->
+                                        -- PipelineStep's buildFlowDoc grenIndent already provides
+                                        -- +4 continuation, so unwrap a lone AcrossThenIndent (from
+                                        -- a function call) to keep the token flow directly under the
+                                        -- step, avoiding a second +4 of indentation.
+                                        let
+                                            flatBodyNodes =
+                                                when Array.popFirst bodyNodes is
+                                                    Just { first = onlyNode, rest = [] } ->
+                                                        when lpnBox onlyNode is
+                                                            AcrossThenIndent _ ->
+                                                                lpnChildren onlyNode
 
                                                             _ ->
                                                                 bodyNodes
-                                                in
-                                                Array.pushLast (lpnNode PipelineStep ([ opNode ] ++ flatBodyNodes)) accNodes
+
+                                                    _ ->
+                                                        bodyNodes
+                                        in
+                                        Array.pushLast (lpnNode PipelineStep ([ opNode ] ++ flatBodyNodes)) accNodes
+                                    )
+                        )
+                        seedNodes
+                        flattened.steps
+                        -- Wrap the seed + steps in a single Pipeline container so the
+                        -- renderer can choose inline (fits) vs one-step-per-line.
+                        |> Result.map (\allNodes -> [ lpnNode (Pipeline { forceVertical = forceVertical, op = locStringOp.value }) allNodes ])
+                )
+
+    else
+        -- Flatten the whole chain (not recurse into it) so the Binop
+        -- container wraps the entire chain exactly once. The nested
+        -- `OpAndRhs` structure is then rebuilt from the flat operands so
+        -- the comment-bearing fill path stays byte-identical.
+        let
+            flat =
+                flattenBinop locExpr
+        in
+        resultFoldl
+            (\operand accList ->
+                insertExpression operand
+                    |> Result.map (\nodes -> Array.pushLast nodes accList)
+            )
+            []
+            flat.operands
+            |> Result.map
+                (\operandNodesList ->
+                    let
+                        nested =
+                            buildNestedOpAndRhs operandNodesList flat.ops
+
+                        forceVertical =
+                            binopForceVertical flat.operands flat.ops
+                                || Array.any operandForcesBinopBreak flat.operands
+                    in
+                    [ lpnNode (Binop { forceVertical = forceVertical }) nested ]
+                )
+
+
+{-| `Src.Call` — a function applied to arguments. Overflow arguments indent +4
+from the function name (`AcrossThenIndent`), keeping them visually distinct
+from the surrounding context. -}
+insertCall : { fn : Src.Expression, args : Array Src.Expression } -> Result String (Array LPNode)
+insertCall { fn = fnExpr, args = argsExprs } =
+    insertExpression fnExpr
+        |> Result.andThen
+            (\fnNodes ->
+                resultFoldl folderInsertCallArgAsItem fnNodes argsExprs
+                    |> Result.map
+                        (\allNodes ->
+                            let
+                                forceVertical =
+                                    itemsSpanRows
+                                        ([ { start = fnExpr.start, end = fnExpr.end } ]
+                                            ++ Array.map (\a -> { start = a.start, end = a.end }) argsExprs)
+                            in
+                            [ lpnNode (AcrossThenIndent { forceVertical = forceVertical, checkContentVertical = True }) allNodes ]
+                        )
+            )
+
+
+{-| `Src.Lambda` — `\patterns -> body`. `locExpr.start` anchors the `\`. -}
+insertLambda : Src.Expression -> { patterns : Array Src.Pattern, body : Src.Expression } -> Result String (Array LPNode)
+insertLambda locExpr { patterns = patterns, body = body } =
+    resultFoldl folderInsertPattern [] patterns
+        |> Result.andThen
+            (\patNodes ->
+                let
+                    -- Wrap first pattern in PrefixGlue "\\" so MakeRender
+                    -- emits \ immediately before the pattern (no space). This
+                    -- works for all pattern shapes including record ({ x, y })
+                    -- and array ([ x, y ]) whose opening bracket is synthesised
+                    -- during rendering and would be skipped by tryMapFirstLeaf.
+                    backslashLoc =
+                        { start = locExpr.start
+                        , end = { row = locExpr.start.row, col = locExpr.start.col + 1 }
+                        , value = "\\"
+                        }
+
+                    updatedPatNodes =
+                        when Array.popFirst patNodes is
+                            Nothing ->
+                                patNodes
+
+                            Just { first = firstPat, rest = restPats } ->
+                                Array.pushFirst (lpnNode (PrefixGlue backslashLoc) [ firstPat ]) restPats
+
+                    arrowNode =
+                        lpnLeaf (SynthesizedText "->")
+
+                    -- A block-like body (`let`/`if`/`when`) is already a
+                    -- vertical structure whose inner rows carry their own
+                    -- `IndentedBlock` indentation. Wrapping it through
+                    -- `insertExpressionAsItem` would bundle those rows under
+                    -- an extra `AcrossThenIndent`, whose +4 continuation
+                    -- indent stacks on top of the inner blocks and
+                    -- double-indents the `let` bindings / branch bodies. So
+                    -- for those, drop the raw rows straight into the
+                    -- `SoftIndentedBlock` (as every other block context
+                    -- does). Other bodies keep `insertExpressionAsItem` so a
+                    -- call body still gets the +4 arg-flow continuation.
+                    isBlockBody =
+                        when body.value is
+                            Src.Let _ ->
+                                True
+
+                            Src.If _ ->
+                                True
+
+                            Src.When _ ->
+                                True
+
+                            _ ->
+                                False
+
+                    lastPatternEndRow =
+                        Array.last patterns
+                            |> Maybe.map (\p -> p.end.row)
+                            |> Maybe.withDefault locExpr.start.row
+
+                    lambdaBodyForceVertical =
+                        body.start.row > lastPatternEndRow
+
+                    bodyBox =
+                        if lambdaBodyForceVertical then
+                            IndentedBlock
+
+                        else
+                            SoftIndentedBlock
+
+                    bodyBlockResult =
+                        if isBlockBody then
+                            insertExpression body
+                                |> Result.map (\bodyNodes -> lpnNode bodyBox bodyNodes)
+
+                        else
+                            insertExpressionAsItem body
+                                |> Result.map (\bodyNode -> lpnNode bodyBox [ bodyNode ])
+                in
+                bodyBlockResult
+                    |> Result.map
+                        (\bodyBlock ->
+                            -- Bundle the `->` with the patterns so the body is
+                            -- the only thing that can break to a new line.
+                            let
+                                patsWithArrow =
+                                    plainAcross (updatedPatNodes ++ [ arrowNode ])
+                            in
+                            [ patsWithArrow, bodyBlock ]
+                        )
+            )
+
+
+{-| `Src.Let` — `let defs in body`. `locExpr.start` anchors the `let` keyword. -}
+insertLet : Src.Expression -> { defs : Array (Located Src.Def), body : Src.Expression } -> Result String (Array LPNode)
+insertLet locExpr { defs = defs, body = body } =
+    let
+        letNode =
+            lpnLeaf (mkText locExpr.start "let")
+
+        inNode =
+            lpnLeaf (SynthesizedText "in")
+    in
+    resultFoldl folderInsertLetDef [] defs
+        |> Result.andThen
+            (\defNodes ->
+                insertExpressionAsBodyBlock body
+                    |> Result.map (\bodyNode -> [ letNode ] ++ defNodes ++ [ inNode, bodyNode ])
+            )
+
+
+{-| `Src.If` — `if/then/else` with optional `else if` branches. `locExpr.start`
+anchors the leading `if`. -}
+insertIf : Src.Expression -> { branches : Array Src.IfBranch, elseBranch : Src.Expression } -> Result String (Array LPNode)
+insertIf locExpr { branches = branches, elseBranch = elseBranch } =
+    when Array.popFirst branches is
+        Nothing ->
+            Err "If: no branches"
+
+        Just { first = firstBranch, rest = restBranches } ->
+            let
+                ifNode =
+                    lpnLeaf (mkText locExpr.start "if")
+
+                thenNode =
+                    lpnLeaf (SynthesizedText "then")
+
+                elseNode =
+                    lpnLeaf (SynthesizedText "else")
+            in
+            insertExpression firstBranch.test
+                |> Result.andThen
+                    (\testNodes ->
+                        let
+                            condForceVertical =
+                                firstBranch.test.start.row > locExpr.start.row
+
+                            condNode =
+                                lpnNode (IfCondition { forceVertical = condForceVertical }) ([ ifNode ] ++ testNodes ++ [ thenNode ])
+                        in
+                        insertExpressionAsIndentedBlock firstBranch.body
+                            |> Result.andThen
+                                (\bodyNode ->
+                                    resultFoldl folderInsertElseIfBranch [ condNode, bodyNode ] restBranches
+                                        |> Result.andThen
+                                            (\branchNodes ->
+                                                insertExpressionAsIndentedBlock elseBranch
+                                                    |> Result.map
+                                                        (\elseBodyNode ->
+                                                            branchNodes ++ [ elseNode, elseBodyNode ]
+                                                        )
                                             )
                                 )
-                                seedNodes
-                                flattened.steps
-                                -- Wrap the seed + steps in a single Pipeline container so the
-                                -- renderer can choose inline (fits) vs one-step-per-line.
-                                |> Result.map (\allNodes -> [ lpnNode (Pipeline { forceVertical = forceVertical, op = locStringOp.value }) allNodes ])
-                        )
-
-            else
-                -- Flatten the whole chain (not recurse into it) so the Binop
-                -- container wraps the entire chain exactly once. The nested
-                -- `OpAndRhs` structure is then rebuilt from the flat operands so
-                -- the comment-bearing fill path stays byte-identical.
-                let
-                    flat =
-                        flattenBinop locExpr
-                in
-                resultFoldl
-                    (\operand accList ->
-                        insertExpression operand
-                            |> Result.map (\nodes -> Array.pushLast nodes accList)
                     )
-                    []
-                    flat.operands
+
+
+{-| `Src.When` — `when scrutinee is` with branches. `locExpr.start` anchors the
+`when` keyword. -}
+insertWhen : Src.Expression -> { expression : Src.Expression, branches : Array Src.WhenBranch } -> Result String (Array LPNode)
+insertWhen locExpr { expression = expression, branches = branches } =
+    let
+        whenNode =
+            lpnLeaf (mkText locExpr.start "when")
+
+        isNode =
+            lpnLeaf (SynthesizedText "is")
+    in
+    insertExpression expression
+        |> Result.andThen
+            (\exprNodes ->
+                resultFoldl folderInsertWhenBranch [] branches
                     |> Result.map
-                        (\operandNodesList ->
+                        (\branchNodes ->
+                            -- WhenFlow: flat "when scrutinee is" when authored
+                            -- on one line;
+                            -- broken puts `is` back at the `when` column so the
+                            -- keyword pair is visually symmetric. Also aligns
+                            -- branches to `when`'s actual column (not the
+                            -- abstract nesting level), so preceding inline
+                            -- comments don't push branches too far right.
                             let
-                                nested =
-                                    buildNestedOpAndRhs operandNodesList flat.ops
-
-                                forceVertical =
-                                    binopForceVertical flat.operands flat.ops
-                                        || Array.any operandForcesBinopBreak flat.operands
+                                whenForceVertical =
+                                    expression.start.row > locExpr.start.row
                             in
-                            [ lpnNode (Binop { forceVertical = forceVertical }) nested ]
+                            [ lpnNode (WhenFlow { forceVertical = whenForceVertical }) ([ whenNode ] ++ exprNodes ++ [ isNode, lpnNode IndentedBlock branchNodes ]) ]
                         )
-
-        Src.Call { fn = fnExpr, args = argsExprs } ->
-            insertExpression fnExpr
-                |> Result.andThen
-                    (\fnNodes ->
-                        resultFoldl folderInsertCallArgAsItem fnNodes argsExprs
-                            -- AcrossThenIndent: overflow arguments indent +4 from the function name,
-                            -- keeping them visually distinct from the surrounding context.
-                            |> Result.map
-                                (\allNodes ->
-                                    let
-                                        forceVertical =
-                                            itemsSpanRows
-                                                ([ { start = fnExpr.start, end = fnExpr.end } ]
-                                                    ++ Array.map (\a -> { start = a.start, end = a.end }) argsExprs)
-                                    in
-                                    [ lpnNode (AcrossThenIndent { forceVertical = forceVertical, checkContentVertical = True }) allNodes ]
-                                )
-                    )
-
-        Src.Lambda { patterns = patterns, body = body } ->
-            resultFoldl folderInsertPattern [] patterns
-                |> Result.andThen
-                    (\patNodes ->
-                        let
-                            -- Wrap first pattern in PrefixGlue "\\" so MakeRender
-                            -- emits \ immediately before the pattern (no space). This
-                            -- works for all pattern shapes including record ({ x, y })
-                            -- and array ([ x, y ]) whose opening bracket is synthesised
-                            -- during rendering and would be skipped by tryMapFirstLeaf.
-                            backslashLoc =
-                                { start = locExpr.start
-                                , end = { row = locExpr.start.row, col = locExpr.start.col + 1 }
-                                , value = "\\"
-                                }
-
-                            updatedPatNodes =
-                                when Array.popFirst patNodes is
-                                    Nothing ->
-                                        patNodes
-
-                                    Just { first = firstPat, rest = restPats } ->
-                                        Array.pushFirst (lpnNode (PrefixGlue backslashLoc) [ firstPat ]) restPats
-
-                            arrowNode =
-                                lpnLeaf (SynthesizedText "->")
-
-                            -- A block-like body (`let`/`if`/`when`) is already a
-                            -- vertical structure whose inner rows carry their own
-                            -- `IndentedBlock` indentation. Wrapping it through
-                            -- `insertExpressionAsItem` would bundle those rows under
-                            -- an extra `AcrossThenIndent`, whose +4 continuation
-                            -- indent stacks on top of the inner blocks and
-                            -- double-indents the `let` bindings / branch bodies. So
-                            -- for those, drop the raw rows straight into the
-                            -- `SoftIndentedBlock` (as every other block context
-                            -- does). Other bodies keep `insertExpressionAsItem` so a
-                            -- call body still gets the +4 arg-flow continuation.
-                            isBlockBody =
-                                when body.value is
-                                    Src.Let _ ->
-                                        True
-
-                                    Src.If _ ->
-                                        True
-
-                                    Src.When _ ->
-                                        True
-
-                                    _ ->
-                                        False
-
-                            lastPatternEndRow =
-                                Array.last patterns
-                                    |> Maybe.map (\p -> p.end.row)
-                                    |> Maybe.withDefault locExpr.start.row
-
-                            lambdaBodyForceVertical =
-                                body.start.row > lastPatternEndRow
-
-                            bodyBox =
-                                if lambdaBodyForceVertical then
-                                    IndentedBlock
-
-                                else
-                                    SoftIndentedBlock
-
-                            bodyBlockResult =
-                                if isBlockBody then
-                                    insertExpression body
-                                        |> Result.map (\bodyNodes -> lpnNode bodyBox bodyNodes)
-
-                                else
-                                    insertExpressionAsItem body
-                                        |> Result.map (\bodyNode -> lpnNode bodyBox [ bodyNode ])
-                        in
-                        bodyBlockResult
-                            |> Result.map
-                                (\bodyBlock ->
-                                    -- Bundle the `->` with the patterns so the body is
-                                    -- the only thing that can break to a new line.
-                                    let
-                                        patsWithArrow =
-                                            plainAcross (updatedPatNodes ++ [ arrowNode ])
-                                    in
-                                    [ patsWithArrow, bodyBlock ]
-                                )
-                    )
-
-        Src.Let { defs = defs, body = body } ->
-            let
-                letNode =
-                    lpnLeaf (mkText locExpr.start "let")
-
-                inNode =
-                    lpnLeaf (SynthesizedText "in")
-            in
-            resultFoldl folderInsertLetDef [] defs
-                |> Result.andThen
-                    (\defNodes ->
-                        insertExpressionAsBodyBlock body
-                            |> Result.map (\bodyNode -> [ letNode ] ++ defNodes ++ [ inNode, bodyNode ])
-                    )
-
-        Src.If { branches = branches, elseBranch = elseBranch } ->
-            when Array.popFirst branches is
-                Nothing ->
-                    Err "If: no branches"
-
-                Just { first = firstBranch, rest = restBranches } ->
-                    let
-                        ifNode =
-                            lpnLeaf (mkText locExpr.start "if")
-
-                        thenNode =
-                            lpnLeaf (SynthesizedText "then")
-
-                        elseNode =
-                            lpnLeaf (SynthesizedText "else")
-                    in
-                    insertExpression firstBranch.test
-                        |> Result.andThen
-                            (\testNodes ->
-                                let
-                                    condForceVertical =
-                                        firstBranch.test.start.row > locExpr.start.row
-
-                                    condNode =
-                                        lpnNode (IfCondition { forceVertical = condForceVertical }) ([ ifNode ] ++ testNodes ++ [ thenNode ])
-                                in
-                                insertExpressionAsIndentedBlock firstBranch.body
-                                    |> Result.andThen
-                                        (\bodyNode ->
-                                            resultFoldl folderInsertElseIfBranch [ condNode, bodyNode ] restBranches
-                                                |> Result.andThen
-                                                    (\branchNodes ->
-                                                        insertExpressionAsIndentedBlock elseBranch
-                                                            |> Result.map
-                                                                (\elseBodyNode ->
-                                                                    branchNodes ++ [ elseNode, elseBodyNode ]
-                                                                )
-                                                    )
-                                        )
-                            )
-
-        Src.When { expression = expression, branches = branches } ->
-            let
-                whenNode =
-                    lpnLeaf (mkText locExpr.start "when")
-
-                isNode =
-                    lpnLeaf (SynthesizedText "is")
-            in
-            insertExpression expression
-                |> Result.andThen
-                    (\exprNodes ->
-                        resultFoldl folderInsertWhenBranch [] branches
-                            |> Result.map
-                                (\branchNodes ->
-                                    -- WhenFlow: flat "when scrutinee is" when authored
-                                    -- on one line;
-                                    -- broken puts `is` back at the `when` column so the
-                                    -- keyword pair is visually symmetric. Also aligns
-                                    -- branches to `when`'s actual column (not the
-                                    -- abstract nesting level), so preceding inline
-                                    -- comments don't push branches too far right.
-                                    let
-                                        whenForceVertical =
-                                            expression.start.row > locExpr.start.row
-                                    in
-                                    [ lpnNode (WhenFlow { forceVertical = whenForceVertical }) ([ whenNode ] ++ exprNodes ++ [ isNode, lpnNode IndentedBlock branchNodes ]) ]
-                                )
-                    )
+            )
 
 
 {-| Extract text from a small subset of simple expression shapes — the ones
