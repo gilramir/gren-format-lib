@@ -11,6 +11,7 @@ module Formatter.Render.Doc
         , align
         , reset
         , group
+        , concats
         , vcat
         , foldDoc
         , render
@@ -107,6 +108,15 @@ reset d =
 group : Doc -> Doc
 group d =
     Group d
+
+
+{-| Concatenate a list of docs left-to-right, i.e. `concats [a, b, c, d]` ==
+`concat a (concat b (concat c d))`. Uses a right fold so the resulting `Concat`
+tree leans **right**, byte-identical to the hand-nested form it replaces
+(including the `--render-doc` serialisation). -}
+concats : Array Doc -> Doc
+concats docs =
+    Array.foldr concat empty docs
 
 
 vcat : Array Doc -> Doc

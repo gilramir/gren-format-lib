@@ -688,11 +688,11 @@ buildStepChildrenDoc stepChildren =
                                         buildFlowDoc 0 suffix
                                             |> Result.map
                                                 (\suffixDoc ->
-                                                    R.concat
-                                                        preambleDoc
-                                                        (R.concat
-                                                            triggerPart
-                                                            (R.nest grenIndent (R.concat R.hardNl suffixDoc)))
+                                                    R.concats
+                                                        [ preambleDoc
+                                                        , triggerPart
+                                                        , R.nest grenIndent (R.concat R.hardNl suffixDoc)
+                                                        ]
                                                 )
                                 )
                     )
@@ -783,16 +783,12 @@ renderPipelineStepNode acc nodeChildren =
                         blankLinePrefix
                         (R.nest
                             grenIndent
-                            (R.concat
-                                R.hardNl
-                                (R.concat
-                                    commentDoc
-                                    (R.concat childrenDoc trailingCommentDoc))))
+                            (R.concats [ R.hardNl, commentDoc, childrenDoc, trailingCommentDoc ]))
 
                 newDoc =
                     when acc.separator is
                         FirstItem ->
-                            R.concat commentDoc (R.concat childrenDoc trailingCommentDoc)
+                            R.concats [ commentDoc, childrenDoc, trailingCommentDoc ]
 
                         _ ->
                             R.concat acc.doc indentedDoc
@@ -1274,7 +1270,7 @@ makePDoc box children =
                             R.empty
                             commentDocs
                 in
-                Ok (R.concat (R.text bs.open) (R.concat body (R.concat (R.text " ") (R.text bs.close))))
+                Ok (R.concats [ R.text bs.open, body, R.text " ", R.text bs.close ])
 
         SingleLineComment locs ->
             Ok (lineComment locs.value)
@@ -1409,7 +1405,7 @@ makePDoc box children =
             -- opening — without align, an opening that lands past the nest
             -- (because preceding tokens consumed columns) produces output
             -- that fails to re-parse.
-            Ok (R.align (R.concat contentDoc (R.concat R.hardNl tripleQuote)))
+            Ok (R.align (R.concats [ contentDoc, R.hardNl, tripleQuote ]))
 
         unexpected ->
             Err ("makePDoc: unexpected box type:\n" ++ lptToJson (lpnNode unexpected children))
@@ -2024,9 +2020,12 @@ makeRecordUpdateDoc forceVertical baseName children =
                                             R.nest grenIndent (R.concat R.nl fieldsInner)
 
                                         inner =
-                                            R.concat
-                                                (R.text ("{ " ++ baseName))
-                                                (R.concat fieldsPart (R.concat R.nl (R.text "}")))
+                                            R.concats
+                                                [ R.text ("{ " ++ baseName)
+                                                , fieldsPart
+                                                , R.nl
+                                                , R.text "}"
+                                                ]
                                     in
                                     R.group inner
                                 )
@@ -2208,11 +2207,11 @@ makeExposingLineDoc stype children =
                                                                             (joinWithSpaces preDocs)
                                                                             (R.nest
                                                                                 grenIndent
-                                                                                (R.concat
-                                                                                    R.hardNl
-                                                                                    (R.concat
-                                                                                        exposingDoc
-                                                                                        (R.nest grenIndent listDoc))))
+                                                                                (R.concats
+                                                                                    [ R.hardNl
+                                                                                    , exposingDoc
+                                                                                    , R.nest grenIndent listDoc
+                                                                                    ]))
                                                                     )
                                                         )
 
@@ -3547,20 +3546,20 @@ makeMultilineLambdaArgDoc children =
                     (\headDoc ->
                         when Array.first afterHead is
                             Nothing ->
-                                Ok (R.align (R.concat (R.text "(") (R.concat headDoc (R.text ")"))))
+                                Ok (R.align (R.concats [ R.text "(", headDoc, R.text ")" ]))
 
                             Just bodyNode ->
                                 buildFlowDoc 0 (lpnChildren bodyNode)
                                     |> Result.map
                                         (\bodyDoc ->
                                             R.align
-                                                (R.concat
-                                                    (R.text "(")
-                                                    (R.concat
-                                                        headDoc
-                                                        (R.concat
-                                                            (R.nest grenIndent (R.concat R.hardNl bodyDoc))
-                                                            (R.concat R.hardNl (R.text ")")))))
+                                                (R.concats
+                                                    [ R.text "("
+                                                    , headDoc
+                                                    , R.nest grenIndent (R.concat R.hardNl bodyDoc)
+                                                    , R.hardNl
+                                                    , R.text ")"
+                                                    ])
                                         )
                     )
 
@@ -3575,11 +3574,7 @@ makeMultilineParenArgDoc children =
     buildFlowDocInline 0 children
         |> Result.map
             (\innerDoc ->
-                R.concat
-                    (R.text "(")
-                    (R.concat
-                        innerDoc
-                        (R.concat R.hardNl (R.text ")")))
+                R.concats [ R.text "(", innerDoc, R.hardNl, R.text ")" ]
             )
 
 
@@ -3692,23 +3687,14 @@ makeParenBlockDoc parenFlags children =
             if isLambdaMultiline then
                 Result.map
                     (\innerDoc ->
-                        R.concat
-                            (R.text "(")
-                            (R.concat
-                                innerDoc
-                                (R.concat R.hardNl (R.text ")")))
+                        R.concats [ R.text "(", innerDoc, R.hardNl, R.text ")" ]
                     )
                     innerDocResult
 
             else if parensForceVertical || contentForcesVertical then
                 Result.map
                     (\innerDoc ->
-                        R.align
-                            (R.concat
-                                (R.text "(")
-                                (R.concat
-                                    innerDoc
-                                    (R.concat R.hardNl (R.text ")"))))
+                        R.align (R.concats [ R.text "(", innerDoc, R.hardNl, R.text ")" ])
                     )
                     innerDocResult
 
@@ -3738,12 +3724,7 @@ makeParenBlockDoc parenFlags children =
                     makeWhenFlowDoc forceVertical branchNest (lpnChildren first)
                         |> Result.map
                             (\whenDoc ->
-                                R.align
-                                    (R.concat
-                                        (R.text "(")
-                                        (R.concat
-                                            whenDoc
-                                            (R.concat R.hardNl (R.text ")"))))
+                                R.align (R.concats [ R.text "(", whenDoc, R.hardNl, R.text ")" ])
                             )
 
                 IfCondition _ ->
