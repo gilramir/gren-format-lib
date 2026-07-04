@@ -39,6 +39,30 @@ folderMakeSignatureBranch locType accNodes =
         |> Result.map (\newNodes -> accNodes ++ newNodes)
 
 
+{-| Emit a type constructor's `firstNode` (its name leaf) followed by its
+argument types. Shared by `TType` (bare `Array String`) and `TTypeQual`
+(`Dict.Dict k v`), which differ only in how the name leaf is built.
+
+A single argument emits inline; multiple arguments emit each arg's nodes
+consecutively. Any parens around an individual complex arg are already in the
+AST as `TParens` nodes, handled by the `TParens` case. -}
+typeWithArgs : LPNode -> Array Src.Type -> Result String (Array LPNode)
+typeWithArgs firstNode args =
+    when Array.popFirst args is
+        Nothing ->
+            Ok [ firstNode ]
+
+        Just { first = firstArg, rest = afterArg0 } ->
+            when Array.popFirst afterArg0 is
+                Nothing ->
+                    makeSignatureBranch firstArg
+                        |> Result.map (\firstArgNodes -> [ firstNode ] ++ firstArgNodes)
+
+                Just _ ->
+                    resultFoldl folderMakeSignatureBranch [] args
+                        |> Result.map (\childrenNodes -> [ firstNode ] ++ childrenNodes)
+
+
 makeSignatureBranch : Src.Type -> Result String (Array LPNode)
 makeSignatureBranch locType =
     when locType.value is
@@ -58,28 +82,7 @@ makeSignatureBranch locType =
         -- String => name = String
         -- Array String => name = Array (args = [String])
         Src.TType { name = locName, args = args } ->
-            let
-                firstNode =
-                    lpnLeaf (mkTextFromLocString locName)
-            in
-            when Array.popFirst args is
-                Nothing ->
-                    -- No args
-                    Ok [ firstNode ]
-
-                Just { first = firstArg, rest = afterArg0 } ->
-                    when Array.popFirst afterArg0 is
-                        Nothing ->
-                            -- Only 1 arg: no parens needed
-                            makeSignatureBranch firstArg
-                                |> Result.map (\firstArgNodes -> [ firstNode ] ++ firstArgNodes)
-
-                        Just _ ->
-                            -- Multiple args: emit each arg's nodes consecutively.
-                            -- Any parens around individual complex args are already
-                            -- in the AST as TParens nodes, handled by the TParens case.
-                            resultFoldl folderMakeSignatureBranch [] args
-                                |> Result.map (\childrenNodes -> [ firstNode ] ++ childrenNodes)
+            typeWithArgs (lpnLeaf (mkTextFromLocString locName)) args
 
         Src.TLambda { from = from, to = to } ->
             makeSignatureBranch from
@@ -103,23 +106,7 @@ makeSignatureBranch locType =
 
         -- e.g. Svg.Svg msg, Dict.Dict k v
         Src.TTypeQual { args = args, name = name, qualifier = qual, varRegion = varRegion } ->
-            let
-                firstNode =
-                    lpnLeaf (mkText varRegion.start (qual ++ "." ++ name))
-            in
-            when Array.popFirst args is
-                Nothing ->
-                    Ok [ firstNode ]
-
-                Just { first = firstArg, rest = afterArg0 } ->
-                    when Array.popFirst afterArg0 is
-                        Nothing ->
-                            makeSignatureBranch firstArg
-                                |> Result.map (\firstArgNodes -> [ firstNode ] ++ firstArgNodes)
-
-                        Just _ ->
-                            resultFoldl folderMakeSignatureBranch [] args
-                                |> Result.map (\childrenNodes -> [ firstNode ] ++ childrenNodes)
+            typeWithArgs (lpnLeaf (mkText varRegion.start (qual ++ "." ++ name))) args
 
         Src.TVar name ->
             Ok [ lpnLeaf (mkText locType.start name) ]
