@@ -24,7 +24,7 @@ import Formatter.Logical.LogicalPrintingTree
         )
 import Formatter.Logical.Comments exposing (lptAddComments)
 import Formatter.Logical.SortSymbols exposing (sortSymbols)
-import Formatter.Logical.LPTHelpers exposing (mkText, mkZeroWidthText, mkTextFromLocString, resultFoldl)
+import Formatter.Logical.LPTHelpers exposing (mkText, mkZeroWidthText, mkTextFromLocString, resultFoldl, plainAcross)
 import Formatter.Logical.InsertExpressions exposing (insertExpression)
 import Formatter.Logical.InsertPatterns exposing (folderInsertPattern)
 import Formatter.Logical.InsertTypes exposing (makeSignatureBranch)
@@ -226,8 +226,7 @@ processModuleLine modAst root =
                                 eqStart =
                                     { row = locName.start.row, col = eqCol }
                             in
-                            lpnNode
-                                (AcrossThenIndent { forceVertical = False, checkContentVertical = False })
+                            plainAcross
                                 [ lpnLeaf (mkZeroWidthText labelStart label)
                                 , lpnLeaf (mkZeroWidthText eqStart "=")
                                 , lpnLeaf (mkTextFromLocString locName)
@@ -636,7 +635,7 @@ processVariantNode locVariant accNodes =
     in
     when locVariant.value.payload is
         Nothing ->
-            Ok (Array.pushLast (lpnNode (AcrossThenIndent { forceVertical = False, checkContentVertical = False }) [ prefixNode, nameNode ]) accNodes)
+            Ok (Array.pushLast (plainAcross [ prefixNode, nameNode ]) accNodes)
 
         Just payloadType ->
             makeSignatureBranch payloadType
@@ -646,7 +645,7 @@ processVariantNode locVariant accNodes =
                             payloadBlock =
                                 lpnNode SoftIndentedBlock payloadNodes
                         in
-                        Array.pushLast (lpnNode (AcrossThenIndent { forceVertical = False, checkContentVertical = False }) [ prefixNode, nameNode, payloadBlock ]) accNodes
+                        Array.pushLast (plainAcross [ prefixNode, nameNode, payloadBlock ]) accNodes
                     )
 
 
@@ -743,7 +742,7 @@ processFunctionBody modVal root =
                         (\bodyNodes ->
                             let
                                 header =
-                                    lpnNode (AcrossThenIndent { forceVertical = False, checkContentVertical = False }) ([ nameNode ] ++ argsNodes ++ [ eqNode ])
+                                    plainAcross ([ nameNode ] ++ argsNodes ++ [ eqNode ])
 
                                 bodyWrapper =
                                     lpnNode BodyBlock bodyNodes

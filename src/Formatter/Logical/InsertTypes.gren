@@ -29,6 +29,7 @@ import Formatter.Logical.LPTHelpers
         , resultFoldl
         , fixupParensChildrenNodes
         , itemsSpanRows
+        , plainAcross
         )
 
 
@@ -140,7 +141,7 @@ makeSignatureBranch locType =
                                         [ nameNode, colonNode ] ++ typeNodes
 
                                     itemContainer =
-                                        lpnNode (AcrossThenIndent { forceVertical = False, checkContentVertical = False }) allChildren
+                                        plainAcross allChildren
                                 in
                                 Array.pushLast itemContainer accNodes
                             )

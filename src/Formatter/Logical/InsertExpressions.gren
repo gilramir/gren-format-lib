@@ -40,6 +40,8 @@ import Formatter.Logical.LPTHelpers
         , authoredBracketList
         , binopPrecedence
         , binopMinPrecedence
+        , plainAcross
+        , syntheticParens
         )
 import Formatter.Logical.LiteralFormat exposing (charLiteralString, escapeStringContent, escapeMultilineContent, intToHex)
 import Formatter.Logical.InsertPatterns exposing (argNeedsParens, folderInsertPattern, insertPattern)
@@ -663,7 +665,7 @@ insertExpression locExpr =
                                     -- the only thing that can break to a new line.
                                     let
                                         patsWithArrow =
-                                            lpnNode (AcrossThenIndent { forceVertical = False, checkContentVertical = False }) (updatedPatNodes ++ [ arrowNode ])
+                                            plainAcross (updatedPatNodes ++ [ arrowNode ])
                                     in
                                     [ patsWithArrow, bodyBlock ]
                                 )
@@ -823,7 +825,7 @@ insertExpressionAsItem locExpr =
                             Ok onlyNode
 
                         else
-                            Ok (lpnNode (AcrossThenIndent { forceVertical = False, checkContentVertical = False }) nodes)
+                            Ok (plainAcross nodes)
             )
 
 
@@ -1011,7 +1013,7 @@ folderInsertRecordField field accNodes =
             lpnLeaf (SynthesizedText "=")
 
         plainContainer valueNodes =
-            lpnNode (AcrossThenIndent { forceVertical = False, checkContentVertical = False }) ([ fieldNameNode, eqNode ] ++ valueNodes)
+            plainAcross ([ fieldNameNode, eqNode ] ++ valueNodes)
     in
     insertExpression field.value
         |> Result.map
@@ -1023,20 +1025,14 @@ folderInsertRecordField field accNodes =
                                 lpnNode IndentedBlock ([ fieldNameNode, eqNode ] ++ valueNodes)
 
                             Src.If _ ->
-                                lpnNode
-                                    (AcrossThenIndent { forceVertical = False, checkContentVertical = False })
-                                    [ fieldNameNode, eqNode, lpnNode BodyBlock valueNodes ]
+                                plainAcross [ fieldNameNode, eqNode, lpnNode BodyBlock valueNodes ]
 
                             Src.Let _ ->
-                                lpnNode
-                                    (AcrossThenIndent { forceVertical = False, checkContentVertical = False })
-                                    [ fieldNameNode, eqNode, lpnNode BodyBlock valueNodes ]
+                                plainAcross [ fieldNameNode, eqNode, lpnNode BodyBlock valueNodes ]
 
                             Src.When _ ->
                                 if field.value.start.row > field.field.start.row then
-                                    lpnNode
-                                        (AcrossThenIndent { forceVertical = False, checkContentVertical = False })
-                                        [ fieldNameNode, eqNode, lpnNode BodyBlock valueNodes ]
+                                    plainAcross [ fieldNameNode, eqNode, lpnNode BodyBlock valueNodes ]
 
                                 else
                                     plainContainer valueNodes
@@ -1089,7 +1085,7 @@ folderInsertLetDef locDef accNodes =
                                                 [ nameNode, colonNode ] ++ sigTypeNodes
 
                                             sigContainer =
-                                                lpnNode IndentedBlock [ lpnNode (AcrossThenIndent { forceVertical = False, checkContentVertical = False }) sigChildren ]
+                                                lpnNode IndentedBlock [ plainAcross sigChildren ]
                                         in
                                         Array.pushLast sigContainer accNodes
                                     )
@@ -1105,7 +1101,7 @@ folderInsertLetDef locDef accNodes =
                                             (\bodyNodes ->
                                                 let
                                                     header =
-                                                        lpnNode (AcrossThenIndent { forceVertical = False, checkContentVertical = False }) ([ nameNode ] ++ argsNodes ++ [ eqNode ])
+                                                        plainAcross ([ nameNode ] ++ argsNodes ++ [ eqNode ])
 
                                                     -- Same rule as the top-level (processFunctionBody):
                                                     -- the body always drops to the next line
@@ -1135,7 +1131,7 @@ folderInsertLetDef locDef accNodes =
                             -- (`argNeedsParens`).
                             lhsNodes =
                                 if argNeedsParens pattern.value then
-                                    [ lpnNode (ParenBlock { forceVertical = False, checkContentVertical = False, isCallArgument = False }) patNodes ]
+                                    [ syntheticParens patNodes ]
 
                                 else
                                     patNodes

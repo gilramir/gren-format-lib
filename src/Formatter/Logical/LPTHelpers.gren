@@ -3,6 +3,8 @@ module Formatter.Logical.LPTHelpers
         ( mkText
         , mkTextFromLocString
         , mkZeroWidthText
+        , plainAcross
+        , syntheticParens
         , itemsSpanRows
         , authoredBracketList
         , binopPrecedence
@@ -67,6 +69,25 @@ mkZeroWidthText pos text =
         , end = pos
         , value = text
         }
+
+
+{-| An `AcrossThenIndent` flow with both flags off — the default token flow for
+a function/lambda head, a record field, a constructor line, and anywhere else
+the layout is not forced vertical and the trailing token must stay glued to the
+last item. The forced-vertical / content-checking variants are spelled out at
+their (few) call sites so the flags that carry information stand out. -}
+plainAcross : Array LPNode -> LPNode
+plainAcross children =
+    lpnNode (AcrossThenIndent { forceVertical = False, checkContentVertical = False }) children
+
+
+{-| A `ParenBlock` with all flags off — formatter-synthesized parens that carry
+no author position of their own (pattern/type wrapping, a parenthesized
+destructure LHS). Genuine `Src.Parens` and kept call-argument parens set the
+flags explicitly at their call sites. -}
+syntheticParens : Array LPNode -> LPNode
+syntheticParens children =
+    lpnNode (ParenBlock { forceVertical = False, checkContentVertical = False, isCallArgument = False }) children
 
 
 {-| True when the author laid these located items out across more than one
@@ -283,4 +304,4 @@ fixupParensChildrenNodes nodes =
             Ok [ lpnLeaf (SynthesizedText "()") ]
 
         Just _ ->
-            Ok [ lpnNode (ParenBlock { forceVertical = False, checkContentVertical = False, isCallArgument = False }) nodes ]
+            Ok [ syntheticParens nodes ]
