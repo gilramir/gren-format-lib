@@ -218,6 +218,8 @@ its predecessor. If yes → `forceVertical = True`; the renderer does the rest.
 
 - `R.text s` — literal text, width = `String.count s`
 - `R.concat a b` — sequence
+- `R.concats docs` — sequence a whole list (right-leaning, so it matches a
+  hand-nested `R.concat a (R.concat b …)`); prefer it over deep `R.concat` nests
 - `R.hardNl` — unconditional newline + indent padding
 - `R.nl` — soft break: space in flat context, newline+indent otherwise
 - `R.breakDoc` — soft break: nothing in flat context, newline+indent otherwise
