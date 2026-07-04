@@ -24,6 +24,68 @@ module Formatter.Logical.LogicalPrintingTree
         , lastRowInSubtree
         )
 
+{-| The Logical Printing Tree (LPT): the intermediate representation between the
+parsed AST and the rendered string. `MakeLogical` builds it, the `Insert*`
+modules populate it, `Comments`/`SortSymbols`/`VerticalSpace` transform it, and
+`MakeRender` turns it into a `Formatter.Render` `Doc`.
+
+Two core types:
+
+  - `LPNode` — a tree node: a `box` (the rendering shape) plus `children`, with
+    seven cached subtree-bounds fields the position-dependent passes read in
+    O(1). ALL construction goes through `lpnNode`/`lpnLeaf` so the cache stays
+    correct (see the type's own doc).
+  - `LPBox` — the shape of one node. The constructors, by category:
+
+**Structural** (only ever direct children of the root)
+  - `RootBox` — the tree root.
+  - `OriginalRows` — one top-level declaration (or an inserted comment / blank),
+    tagged with its source-row range and `SyntaxType`.
+  - `EmptyLine` — a blank line inserted by `VerticalSpace`.
+
+**Text leaves**
+  - `UnbreakableText` — verbatim text carrying its source location.
+  - `SynthesizedText` — elided keyword/punctuation with no source position
+    (`=`, `in`, `->`, `(..)`, …); excluded from row-range math.
+  - `MultilineString` — a triple-quoted `"""…"""` literal, one line per element.
+
+**Comment leaves**
+  - `SingleLineComment` / `BlockComment` / `DocComment`.
+
+**Token flows** (tokens across a line; continuation lines indent)
+  - `AcrossThenIndent` — the default flow; continuations +4.
+  - `IfCondition` — like above but +8, so an `if` condition's wrap is distinct
+    from its branch body.
+  - `WhenBranchPattern` — a when-branch's pattern with `->` glued after it.
+  - `AlignedFlow` — a flow whose inner newlines align to its start column.
+
+**Bracketed lists**
+  - `AllAcrossOrAllVertical` — author wrote it on one line: inline unless it
+    carries a comment.
+  - `AlwaysVertical` — author wrote it across rows: one item per line.
+  - `EmptyBracketed` — an empty `{}` / `[]` / `()` carrying its full span.
+  - `RecordUpdate` — `{ base | … }` (and extensible record types).
+
+**Indented blocks** (body drops to its own indented line)
+  - `IndentedBlock` — hard newline, +4.
+  - `SoftIndentedBlock` — soft break, can stay inline (lambda/let-def bodies).
+  - `BodyBlock` — hard newline at the current indent, no extra nest.
+  - `WhenBranch` — one `pattern -> body` branch.
+
+**Pipelines & binops**
+  - `Pipeline` / `PipelineStep` — a `|>`/`<|` chain and one of its steps.
+  - `Binop` / `OpAndRhs` — a non-pipeline operator chain and one `op rhs` group.
+
+**Wrapping & glue**
+  - `ParenBlock` — a parenthesized expression (`( … )`, no inner space).
+  - `PrefixGlue` — a prefix glued with no space (`-expr`, `\pat -> …`).
+  - `Glue` — children concatenated with no separator (postfix `.field` access).
+  - `WhenFlow` — a whole `when … is` expression.
+
+Each constructor's own comment below carries the detailed rationale (much of it
+about idempotency); this table is the map, those comments are the territory.
+-}
+
 import Math exposing (maxSafeInteger)
 
 import Compiler.SourcePosition exposing (Located, Position)
