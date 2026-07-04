@@ -421,7 +421,7 @@ compareIndexedUnits a b =
 
 
 {-| An import's module name -- always the second child of its
-`OriginalRows` node (`n2` in `MakeLogical.processImport`), an
+`OriginalRows` node (`moduleNode` in `MakeLogical.processImport`), an
 `UnbreakableText` leaf. -}
 importModuleName : LPNode -> String
 importModuleName item =

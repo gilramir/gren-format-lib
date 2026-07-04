@@ -62,19 +62,19 @@ makeLogicalPrintingTree ast ctx =
 
         Ok lpt ->
             let
-                lptWc =
+                withComments =
                     lptAddComments ctx lpt
 
-                lptSorted =
-                    sortSymbols lptWc
+                sorted =
+                    sortSymbols withComments
 
-                lptFb =
-                    insertFlowBlankLines lptSorted
+                withFlowBlanks =
+                    insertFlowBlankLines sorted
 
-                lptXl =
-                    insertEmptyLines lptFb
+                withEmptyLines =
+                    insertEmptyLines withFlowBlanks
             in
-            Ok lptXl
+            Ok withEmptyLines
 
 
 {-| Walk the AST and produce a root `LPNode` whose children are one
@@ -177,10 +177,10 @@ processModuleLine modAst root =
         -- Anchoring at the name's row would then place the keyword *below* a
         -- comment on row 1, so the comment would sort before the keyword and
         -- escape ahead of it on reparse (non-idempotent, and unparseable).
-        n1 =
+        keywordNode =
             lpnLeaf (mkZeroWidthText { row = 1, col = 1 } keyword)
 
-        n2 =
+        nameNode =
             lpnLeaf (mkTextFromLocString modAst.name)
 
         -- For effect modules, emit a `where { ... }` block between the
@@ -272,7 +272,7 @@ processModuleLine modAst root =
         -- For `effect module … where { … } exposing`, the real column
         -- depends on the where-block's contents and isn't tracked in the
         -- AST, so we fall back to SynthesizedText (position-less).
-        n3 =
+        exposingNode =
             when modAst.effects is
                 Src.Manager _ ->
                     lpnLeaf (SynthesizedText "exposing")
@@ -280,7 +280,7 @@ processModuleLine modAst root =
                 _ ->
                     lpnLeaf (mkZeroWidthText exposingPos "exposing")
 
-        n4 =
+        exportsNode =
             when modAst.exports is
                 Src.Open ->
                     lpnLeaf (SynthesizedText "(..)")
@@ -325,14 +325,14 @@ processModuleLine modAst root =
                 _ ->
                     False
 
-        -- The module line's range starts at row 1, the keyword's row (see n1),
-        -- NOT the module name's row. A long header comment can push the name
+        -- The module line's range starts at row 1, the keyword's row (see
+        -- keywordNode), NOT the module name's row. A long header comment can push the name
         -- onto row 2; if `first` were the name's row, a comment on row 1
         -- (between the keyword and the name) would fall before the module
         -- line's range and be re-attached as a top-level comment *ahead* of the
         -- module keyword on reparse — which does not parse (non-idempotent).
         base =
-            makeOrigRows 1 StModule ([ n1, n2 ] ++ whereNodes ++ [ n3, n4 ])
+            makeOrigRows 1 StModule ([ keywordNode, nameNode ] ++ whereNodes ++ [ exposingNode, exportsNode ])
 
         origRow =
             if exposingClosesBelow || whereClosesBelow then
@@ -440,10 +440,10 @@ processImports modAst root =
 processImport : Located Src.Import -> LPNode -> LPNode
 processImport locImport root =
     let
-        n1 =
+        keywordNode =
             lpnLeaf (mkText { row = locImport.start.row, col = 1 } "import")
 
-        n2 =
+        moduleNode =
             lpnLeaf (mkTextFromLocString locImport.value.module_)
 
         -- `as`, the alias name, and `exposing` have no AST positions; only the
@@ -508,7 +508,7 @@ processImport locImport root =
                             []
 
         allChildren =
-            [ n1, n2 ] ++ aliasNodes ++ exposeNodes
+            [ keywordNode, moduleNode ] ++ aliasNodes ++ exposeNodes
 
         origRow =
             makeOrigRows locImport.start.row StImport allChildren
@@ -549,7 +549,7 @@ processPortDecl modDecl root =
         colonNode =
             lpnLeaf (mkZeroWidthText port_.name.end ":")
 
-        t0 =
+        rootWithDoc =
             processFunctionDoc modDecl.value.docs root
     in
     makeSignatureBranch port_.signature
@@ -562,7 +562,7 @@ processPortDecl modDecl root =
                     origRow =
                         makeOrigRows modDecl.start.row StPort allChildren
                 in
-                addRootChild origRow t0
+                addRootChild origRow rootWithDoc
             )
 
 
@@ -588,7 +588,7 @@ processUnionDecl modDecl root =
         varNodes =
             Array.map (\v -> lpnLeaf (mkTextFromLocString v)) union_.vars
 
-        t0 =
+        rootWithDoc =
             processFunctionDoc modDecl.value.docs root
     in
     resultFoldl processVariantNode [] union_.variants
@@ -604,7 +604,7 @@ processUnionDecl modDecl root =
                     origRow =
                         makeOrigRows modDecl.start.row StTypeUnion allChildren
                 in
-                addRootChild origRow t0
+                addRootChild origRow rootWithDoc
             )
 
 
@@ -674,7 +674,7 @@ processAliasDecl modDecl root =
         eqNode =
             lpnLeaf (SynthesizedText "=")
 
-        t0 =
+        rootWithDoc =
             processFunctionDoc modDecl.value.docs root
     in
     makeSignatureBranch alias_.type_
@@ -690,7 +690,7 @@ processAliasDecl modDecl root =
                     origRow =
                         makeOrigRows modDecl.start.row StTypeAlias allChildren
                 in
-                addRootChild origRow t0
+                addRootChild origRow rootWithDoc
             )
 
 
@@ -707,10 +707,10 @@ processAliasDecl modDecl root =
 processModDecl : Src.ModuleDeclaration Src.Value -> LPNode -> Result String LPNode
 processModDecl modDecl root =
     let
-        t0 =
+        rootWithDoc =
             processFunctionDoc modDecl.value.docs root
     in
-    processFunctionSignature modDecl.value.value.name modDecl.value.value.signature t0
+    processFunctionSignature modDecl.value.value.name modDecl.value.value.signature rootWithDoc
         |> Result.andThen (processFunctionBody modDecl.value.value)
 
 
