@@ -37,7 +37,7 @@ Compile a module to surface type errors (use the **module name**, not a file pat
 
 ```bash
 cd gren-format-lib
-devbox run -- gren make Formatter.PrettyPrinter
+devbox run -- gren make Formatter
 ```
 
 The package itself has no runnable app — it is a library. The `tests/` directory
@@ -116,7 +116,7 @@ Both the standalone CLI and the legacy `gren format` subcommand accept debug fla
 node ../gren-format/app --show       MyFile.gren   # formatted output to stdout
 node ../gren-format/app --pre-ast    MyFile.gren   # parsed AST + context as JSON
 node ../gren-format/app --lpt        MyFile.gren   # Logical Printing Tree as JSON
-node ../gren-format/app --render-doc MyFile.gren   # Formatter.Render Doc tree as JSON
+node ../gren-format/app --render-doc MyFile.gren   # Formatter.Render.Doc tree as JSON
 node ../gren-format/app --check      MyFile.gren   # format, verify ASTs match
 ```
 
@@ -124,26 +124,28 @@ node ../gren-format/app --check      MyFile.gren   # format, verify ASTs match
 
 ## Formatter architecture
 
-Pipeline: `Src.Module + Ctx.Context → LPT → Formatter.Render Doc → String`
+Pipeline: `Src.Module + Ctx.Context → LPT → Formatter.Render.Doc → String`
 
 ```
-Formatter.PrettyPrinter        entry point: prettyPrint/2
-    Formatter.MakeLogical      AST → LogicalPrintingTree
-        Formatter.InsertExpressions   expressions
-        Formatter.InsertPatterns      patterns
-        Formatter.InsertTypes         types
-        Formatter.LPTHelpers          shared helpers (mkText, mkTextFromLocString, …)
-        Formatter.Comments            re-attaches comments from parse context
-        Formatter.VerticalSpace       inserts blank lines between top-level items
-    Formatter.MakeRender       LPT → Formatter.Render Doc → String
-        Formatter.Render          custom Doc IR + renderer (no page-width optimizer)
+Formatter                              entry point: prettyPrint
+    Formatter.Logical.MakeLogical      AST → LogicalPrintingTree
+        Formatter.Logical.InsertExpressions   expressions (one insert* per form)
+        Formatter.Logical.InsertPatterns      patterns
+        Formatter.Logical.InsertTypes         types
+        Formatter.Logical.LPTHelpers          construction helpers (mkText*, plainAcross, …)
+        Formatter.Logical.BinopPrecedence     operator fixity table
+        Formatter.Logical.Comments            re-attaches comments from parse context
+        Formatter.Logical.SortSymbols         sorts exposing lists + import groups
+        Formatter.Logical.VerticalSpace       inserts blank lines between top-level items
+    Formatter.Render.MakeRender        LPT → Formatter.Render.Doc → String
+        Formatter.Render.Doc           custom Doc IR + renderer (no page-width optimizer)
 ```
 
 Layout is **author-driven, not fit-driven**: there is no page width and no
 layout search. Each box already knows whether it renders inline or vertical —
 decided from the author's original source rows (`forceVertical`) — and
-`Formatter.Render`'s `group` always renders flat. Indent step: **4** spaces
-(`grenIndent`, in `MakeRender.gren`).
+`Formatter.Render.Doc`'s `group` always renders flat. Indent step: **4** spaces
+(`grenIndent`, in `Render/MakeRender.gren`).
 
 **Key invariant:** every top-level declaration becomes exactly one `OriginalRows`
 node directly under `RootBox`. Comments and blank lines are inserted as sibling
