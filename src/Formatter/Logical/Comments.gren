@@ -214,6 +214,14 @@ mkCommentLpBox locComment =
             BlockComment <| at start end string
 
 
+-- PHASE 1: FIND THE TOP-LEVEL SLOT
+--
+-- Pick (or splice) the root-child OriginalRows the comment belongs to, applying
+-- the top-level half of the trailing-comment boundary rule (columnClaim /
+-- trailsClaimedConstruct). See appendTrailingComment (end of file) for where a
+-- column-claimed trailing comment is finally placed.
+
+
 {-
 Scans root's children for an OriginalRows whose range includes row.
 Returns { origRowNode, before, after } where before ++ [origRowNode] ++ after
@@ -472,6 +480,13 @@ declinesTrailingComments stype =
             False
 
 
+-- PHASE 2: DESCEND INTO THE OWNING SUBTREE
+--
+-- Walk down inside the chosen slot, at each level picking the deepest child that
+-- owns the comment (childOwnsComment), and insert it among that node's children.
+-- Enforces the inner half of the trailing-comment boundary rule.
+
+
 {-
 Walk down the subtree to find the deepest node that contains the row,
 then insert the comment among that node's children.
@@ -569,15 +584,34 @@ insertCommentIntoSubtree commentNode row col node =
 
                                     Nothing ->
                                         False
-                        in
-                        if (not (Array.isEmpty childChildren) || commentInsideEmptyBracket child row col)
-                            && subtreeContainsRow child row
-                            && not (subtreeStartsAfter child row col)
-                            && not laterSiblingClaims
-                            && not
-                                ((boxKeepsTrailingCommentOutside child || nextSiblingIsBoundary)
+                            -- `child` has a body the comment could live in: it has
+                            -- children, or it is an empty bracket the comment sits
+                            -- between (`{ {- c -} }`).
+                            childHasBody =
+                                not (Array.isEmpty childChildren) || commentInsideEmptyBracket child row col
+
+                            -- The comment merely *trails* `child`'s last token and
+                            -- must stay OUTSIDE it: `child` is a boundary-/bracket-
+                            -- keeping box (or the next sibling starts a new flow
+                            -- item) and the comment isn't genuinely inside child's
+                            -- closing bracket. See the trailing-comment boundary rule.
+                            trailingCommentEscapes =
+                                (boxKeepsTrailingCommentOutside child || nextSiblingIsBoundary)
                                     && subtreeEndsBefore child row col
-                                    && not (commentInsideTrailingBracket child row col)) then
+                                    && not (commentInsideTrailingBracket child row col)
+
+                            -- `child` owns the comment when its subtree covers the
+                            -- comment's row, it doesn't start after the comment, no
+                            -- later sibling claims it, and it isn't a trailing comment
+                            -- that must stay a sibling.
+                            childOwnsComment =
+                                childHasBody
+                                    && subtreeContainsRow child row
+                                    && not (subtreeStartsAfter child row col)
+                                    && not laterSiblingClaims
+                                    && not trailingCommentEscapes
+                        in
+                        if childOwnsComment then
                             let
                                 updatedChild =
                                     insertCommentIntoSubtree commentNode row col child
@@ -678,6 +712,15 @@ insertAmongChildren commentNode row col children =
 
             Nothing ->
                 finalBefore ++ [ commentNode ]
+
+
+-- PREDICATES: POSITION & BOX-KIND TESTS
+--
+-- Shared by both phases. The position tests (subtreeContainsRow, subtreeEndsBefore,
+-- subtreeStartsAfter, positionBefore, first/lastRealPosition, lastLeafRowMinCol)
+-- read the O(1) bounds cache; the box classifiers (boxKeepsTrailingCommentOutside,
+-- commentInside*, isBracketContainerBox) decide whether a trailing comment stays
+-- outside a container or descends into it.
 
 
 -- Box-type guards for the descent. These predicates name the LPBox kinds that a
@@ -986,6 +1029,9 @@ isBracketContainerBox node =
 
         _ ->
             False
+
+
+-- COLUMN-GUIDED TRAILING-COMMENT PLACEMENT (used by phase 1)
 
 
 {-| Column-guided placement for a trailing comment claimed via the
