@@ -38,6 +38,39 @@ LPT) then `MakeRender.makePrettyResult` (render it). Every stage returns
 
 ---
 
+## The modules
+
+All formatter source lives in `src/Formatter/`:
+
+```
+Formatter.gren                  entry: prettyPrint
+Formatter/Strings.gren          tiny string helpers (countNewlines)
+Formatter/Logical/              AST + comments → LPT
+  MakeLogical.gren                orchestrator: one process* per top-level decl kind
+  InsertExpressions.gren          expression → LPT (one insert* per expression form)
+  InsertPatterns.gren             pattern → LPT
+  InsertTypes.gren                type → LPT (typeWithArgs shared by TType/TTypeQual)
+  LiteralFormat.gren              string / char / hex literal escaping
+  LPTHelpers.gren                 LPT construction helpers: mkText*/plainAcross/
+                                    syntheticParens/authoredBracketList/resultFoldl/…
+  BinopPrecedence.gren            operator fixity table for binop-chain layout
+  LogicalPrintingTree.gren        LPBox / LPNode types, smart constructors, bounds cache
+  LPTJson.gren                    --lpt debug serialiser
+  Comments.gren                   re-attach parse-context comments by position
+  SortSymbols.gren                sort exposing lists + import groups
+  VerticalSpace.gren              insert blank lines
+Formatter/Render/               LPT → String
+  MakeRender.gren                 LPT → R.Doc → String
+  Doc.gren                        the custom Doc IR + renderer
+```
+
+`LogicalPrintingTree.gren` is the hub every module depends on; its module doc
+opens with a categorised map of all ~30 `LPBox` constructors. `BinopPrecedence`
+is imported by both `InsertExpressions` (to decide the author's break tier) and
+`MakeRender` (to render it) — they must agree, so the fixity table has one home.
+
+---
+
 ## What the formatter consumes
 
 ### The AST — `Compiler.Ast.Source.Module`
@@ -232,7 +265,13 @@ Add/extend the right converter:
 Use the shared helpers in `Formatter.Logical.LPTHelpers`: `mkTextFromLocString` (a real
 token at its `Located` position), `mkText pos str` (text at an explicit
 position), `mkZeroWidthText pos str` (a synthesized token anchored at a real
-position but contributing zero width — see below), `resultFoldl`.
+position but contributing zero width — see below), `resultFoldl`. For the two
+most common container shapes there are smart constructors that fill in the
+default flags for you: `plainAcross children` (an `AcrossThenIndent` flow — a
+head-and-its-parts) and `syntheticParens children` (a formatter-synthesized
+`ParenBlock` with no author position). Prefer them over spelling out the box
+record; reach for the raw box only when you need a non-default flag
+(`forceVertical = True`, `isCallArgument = True`, …).
 
 ### 3. Get positions right (the difficult part)
 - A real token from the AST → `mkTextFromLocString` / `UnbreakableText`. Its own
@@ -385,7 +424,11 @@ comment-bearing fixture so the fuzzers exercise it.
 ## Where to read more
 
 - `README.md` — authoritative, example-by-example description of every rule.
-- `Logical/LogicalPrintingTree.gren` — every box's doc comment and the caching invariants.
+- `Logical/LogicalPrintingTree.gren` — the module doc's categorised box table,
+  then every box's own doc comment and the caching invariants.
 - `Logical/Comments.gren` module doc — the comment-attachment algorithm and its
-  "Adding support for a new construct" section.
+  "Adding support for a new construct" section; the body is banner-sectioned into
+  phase 1 (top-level slot) and phase 2 (inner descent).
+- `Logical/BinopPrecedence.gren` — the operator fixity table and why its
+  `binopMinPrecedence` seam is shared by `InsertExpressions` and `MakeRender`.
 - `Formatter.Render.Doc` (`Render/Doc.gren`) — the Doc type and renderer; small enough to read in full.
