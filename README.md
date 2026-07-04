@@ -1,10 +1,11 @@
 # How the Gren formatter works
 
-This package is the library behind `gren format`: given a Gren source file,
-it produces a tidied-up version of the same file — consistent spacing,
-consistent indentation, comments and blank lines kept where they belong.
+This package is the library behind `gren-format`: given a Gren source file,
+it produces a formatted version of the same file — consistent spacing,
+consistent indentation, comments and blank lines kept where they belong, and
+also honoring the line breaks the author of the source code chose.
 
-This page is a guided tour of *how* it does that, at a conceptual level.
+This section is a guided tour of *how* it does that, at a conceptual level.
 
 ---
 
@@ -77,7 +78,7 @@ arrive separately, each tagged with the line and column where you wrote it.
 Once the rest of the Logical Printing Tree is built from your code alone,
 this step goes back through and puts each comment and blank line in place —
 finding the spot in the tree that sits at that same line and column, and
-inserting it right there, next to the code it was originally written
+inserting it next to the code it was originally written
 beside. A comment on the same line as some code attaches to that code; a
 comment on its own line becomes its own entry, positioned between whatever
 came before and after it in your file. The same idea applies to blank
@@ -93,7 +94,7 @@ decisions.
 Comments are what make this genuinely hard: they carry meaning for a human
 reader, but the parser doesn't attach them to any particular piece of code —
 they just sit in a separate list, tagged with a position. Take this
-(deliberately messy) file:
+file where spacing is messy and non-standard:
 
 ```gren
 module Sample exposing (greet)
@@ -314,7 +315,7 @@ call with five arguments all on one row stays on one line no matter how wide it
 is. A type signature written as one long line stays that way. If you want
 something to break, put a line break in it.
 
-The three core rules:
+The four core rules:
 
 1. **One row → one line.** If you wrote a construct on a single row, the
    formatter keeps it on one line. Width is irrelevant.
@@ -343,8 +344,10 @@ A few things are **always fixed**, regardless of how you wrote them:
 - A type alias always puts the aliased type on its own line.
 - A custom type always puts the variant list on its own line(s).
 - **Indentation is 4 spaces.** Always spaces, never tabs.
-- On a `module` line, `exposing` always stays on the same line as the module
-  name (see [Module declaration](#module-declaration)).
+- On a `module` line, `exposing` always stays glued to the module name —
+  never on its own line — though the exposed list itself can still spread
+  across multiple rows below it (see
+  [Module declaration](#module-declaration)).
 
 Everything else follows your layout choices.
 
@@ -452,9 +455,11 @@ import Array
 ```
 
 An alias uses `as`. An exposing list follows your layout — flat if you wrote
-it flat, vertical if you wrote it across rows. A vertical list follows the
-same `exposing`-on-its-own-line, list-indented-+8 shape as the module
-declaration's exposing list:
+it flat, vertical if you wrote it across rows. Unlike a module's `exposing`
+(which always stays glued to the module name — see
+[Module declaration](#module-declaration)), an import's `exposing` drops to
+its own line, indented +4, when the list goes vertical, with the list itself
+indented +8 below that:
 
 ```gren
 -- flat:
@@ -597,7 +602,20 @@ bestDiscount :
 
 Only a signature the author kept on **one row** falls back to filling the flow
 and wrapping at word boundaries when it carries a comment — there's no
-`->`-segment boundary to anchor a break to.
+`->`-segment boundary to anchor a break to. A multi-line block comment forces
+a break right after itself, and whatever follows just continues to fill the
+same line rather than starting a new per-segment line:
+
+```gren
+convert : Int -> {- explanation that
+                    spans multiple lines -}
+    Int -> Int
+```
+
+Compare this to the canonical per-segment shape a few lines up: there, every
+`->` starts its own line. Here, `Int -> Int` stays together on one
+continuation line — the break landed where the comment ended, not at a
+`->` boundary.
 
 ---
 
@@ -651,10 +669,11 @@ result =
 
 #### A record argument that renders across rows drops to its own line
 
-A record argument with 2+ fields (or one field plus a comment) always ends up
-rendered across rows — see [Record values](#record-values). If you glued it to
-the function name on the same row, it stays glued when it's short enough to
-stay on one line:
+A record argument with 2+ fields (or one field plus a comment) follows your
+row placement, same as any other record literal — see
+[Record values](#record-values). If you glued it to the function name on the
+same row, it stays glued and flat, no matter how long the line ends up being —
+there's no length check:
 
 ```gren
 type Bar
@@ -715,8 +734,8 @@ build x =
             }
 ```
 
-This only applies to a record (or anything else whose own content forces it
-across rows). A parenthesized lambda argument follows its own rule instead
+This only applies to a record, or anything else whose own content forces it
+across rows. A parenthesized lambda argument follows its own rule instead
 (see [Parentheses](#parentheses)) and stays glued to the function name even
 when its body wraps:
 
@@ -728,6 +747,23 @@ foo xs =
                   else
                       -n
               ) xs
+```
+
+Above, `if` sits wherever `\n ->` happens to end, so `then`/`else` line up under
+that column instead of under `if` itself. If the author instead puts a line
+break right after `->`, the lambda body — and with it, `if` — drops to its own
+line. Now `if` and `else` line up vertically, because `else` indents relative
+to `if`'s own column rather than to wherever `if` sits mid-line:
+
+```gren
+foo xs =
+    Array.map (\n ->
+            if n > 0 then
+                n
+
+            else
+                -n
+        ) xs
 ```
 
 ---
