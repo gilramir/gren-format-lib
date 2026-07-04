@@ -183,74 +183,8 @@ processModuleLine modAst root =
         nameNode =
             lpnLeaf (mkTextFromLocString modAst.name)
 
-        -- For effect modules, emit a `where { ... }` block between the
-        -- module name and `exposing`. The block lists which constructors
-        -- handle `command` and/or `subscription` effects; Cmd/Sub/Fx
-        -- below correspond to "only commands", "only subscriptions", and
-        -- "both" respectively.
         whereNodes =
-            when modAst.effects is
-                Src.Manager manager ->
-                    let
-                        -- Each "field" of the `where { ... }` block is one
-                        -- list item (an AcrossThenIndent containing the
-                        -- `name = Ctor` tokens) so the surrounding list
-                        -- joins items with commas, not the inner tokens.
-                        --
-                        -- The label keyword ("command" / "subscription") and
-                        -- the `=` are not separate tokens in the AST, so we
-                        -- synthesize them with positions derived from the
-                        -- constructor's location: the label sits at the
-                        -- constructor's column minus 3 (for " = ") minus its
-                        -- own length, and the `=` sits two columns before
-                        -- the constructor. Positioning these makes the
-                        -- subtree row/col ranges precise enough for
-                        -- Formatter.Logical.Comments to place inter-token comments.
-                        binding label locName =
-                            let
-                                ctorCol =
-                                    locName.start.col
-
-                                labelLen =
-                                    String.count label
-
-                                labelCol =
-                                    ctorCol - 3 - labelLen
-
-                                eqCol =
-                                    ctorCol - 2
-
-                                labelStart =
-                                    { row = locName.start.row, col = labelCol }
-
-                                eqStart =
-                                    { row = locName.start.row, col = eqCol }
-                            in
-                            plainAcross
-                                [ lpnLeaf (mkZeroWidthText labelStart label)
-                                , lpnLeaf (mkZeroWidthText eqStart "=")
-                                , lpnLeaf (mkTextFromLocString locName)
-                                ]
-
-                        fields =
-                            when manager is
-                                Src.Cmd locName ->
-                                    [ binding "command" locName ]
-
-                                Src.Sub locName ->
-                                    [ binding "subscription" locName ]
-
-                                Src.Fx { cmd = cmd, sub = sub } ->
-                                    [ binding "command" cmd
-                                    , binding "subscription" sub
-                                    ]
-                    in
-                    [ lpnLeaf (SynthesizedText "where")
-                    , lpnNode (AllAcrossOrAllVertical ListCurly) fields
-                    ]
-
-                _ ->
-                    []
+            buildWhereBlock modAst.effects
 
         exposingPos =
             { row = modAst.name.start.row
@@ -289,41 +223,6 @@ processModuleLine modAst root =
                         (exposingListBox (exposedSpansRows exposed))
                         (Array.map processExposed exposed)
 
-        -- When the `exposing ( ... )` list renders *vertically* (one item per
-        -- row), its closing `)` sits on its own row below the last item — but
-        -- the `)` has no AST position, so the row range computed from the items
-        -- alone stops one row short. VerticalSpace would then see a two-row gap
-        -- to the first declaration and insert a spurious blank line on reparse
-        -- (the module line was single-line in the original, vertical in our
-        -- output → non-idempotent). Extend the module line's `last` by one row
-        -- to cover the `)` whenever the list is vertical.
-        --
-        -- A list that merely *wrapped onto a continuation row* but stayed
-        -- horizontal (`exposing⏎    ( a, b, c )`) keeps its `)` on the item
-        -- row, so it must NOT be bumped. The distinguishing signal is whether
-        -- the items span more than one row.
-        exposingClosesBelow =
-            when modAst.exports is
-                Src.Explicit exposed ->
-                    exposedSpansRows exposed
-
-                Src.Open ->
-                    False
-
-        -- The same one-row shortfall happens for an effect module's
-        -- `where { … }` block: when it renders vertically (its fields span
-        -- multiple rows) the closing `}` — and the `exposing` that follows it
-        -- on the same row — sit one row below the last field, with no AST
-        -- position. Bump for that too. (Only `Fx` has two fields and can wrap;
-        -- a single-field `where` stays on one row.)
-        whereClosesBelow =
-            when modAst.effects is
-                Src.Manager (Src.Fx { cmd = cmd, sub = sub }) ->
-                    sub.start.row > cmd.start.row
-
-                _ ->
-                    False
-
         -- The module line's range starts at row 1, the keyword's row (see
         -- keywordNode), NOT the module name's row. A long header comment can push the name
         -- onto row 2; if `first` were the name's row, a comment on row 1
@@ -333,8 +232,11 @@ processModuleLine modAst root =
         base =
             makeOrigRows 1 StModule ([ keywordNode, nameNode ] ++ whereNodes ++ [ exposingNode, exportsNode ])
 
+        -- A vertical `exposing ( … )` or `where { … }` puts its closing bracket
+        -- one row below the last positioned item, so extend the module line's
+        -- range to cover it (see `moduleLineClosesBelow`).
         origRow =
-            if exposingClosesBelow || whereClosesBelow then
+            if moduleLineClosesBelow modAst then
                 when lpnBox base is
                     OriginalRows r ->
                         lpnNode (OriginalRows { r | last = r.last + 1 }) (lpnChildren base)
@@ -346,6 +248,114 @@ processModuleLine modAst root =
                 base
     in
     Ok (addRootChild origRow root)
+
+
+{-| For effect modules, the `where { command = …, subscription = … }` block
+between the module name and `exposing`; empty for non-effect modules. The block
+lists which constructors handle `command` and/or `subscription` effects; Cmd/Sub/Fx
+correspond to "only commands", "only subscriptions", and "both" respectively.
+-}
+buildWhereBlock : Src.Effects -> Array LPNode
+buildWhereBlock effects =
+    when effects is
+        Src.Manager manager ->
+            let
+                -- Each "field" of the `where { ... }` block is one
+                -- list item (an AcrossThenIndent containing the
+                -- `name = Ctor` tokens) so the surrounding list
+                -- joins items with commas, not the inner tokens.
+                --
+                -- The label keyword ("command" / "subscription") and
+                -- the `=` are not separate tokens in the AST, so we
+                -- synthesize them with positions derived from the
+                -- constructor's location: the label sits at the
+                -- constructor's column minus 3 (for " = ") minus its
+                -- own length, and the `=` sits two columns before
+                -- the constructor. Positioning these makes the
+                -- subtree row/col ranges precise enough for
+                -- Formatter.Logical.Comments to place inter-token comments.
+                binding label locName =
+                    let
+                        ctorCol =
+                            locName.start.col
+
+                        labelLen =
+                            String.count label
+
+                        labelCol =
+                            ctorCol - 3 - labelLen
+
+                        eqCol =
+                            ctorCol - 2
+
+                        labelStart =
+                            { row = locName.start.row, col = labelCol }
+
+                        eqStart =
+                            { row = locName.start.row, col = eqCol }
+                    in
+                    plainAcross
+                        [ lpnLeaf (mkZeroWidthText labelStart label)
+                        , lpnLeaf (mkZeroWidthText eqStart "=")
+                        , lpnLeaf (mkTextFromLocString locName)
+                        ]
+
+                fields =
+                    when manager is
+                        Src.Cmd locName ->
+                            [ binding "command" locName ]
+
+                        Src.Sub locName ->
+                            [ binding "subscription" locName ]
+
+                        Src.Fx { cmd = cmd, sub = sub } ->
+                            [ binding "command" cmd
+                            , binding "subscription" sub
+                            ]
+            in
+            [ lpnLeaf (SynthesizedText "where")
+            , lpnNode (AllAcrossOrAllVertical ListCurly) fields
+            ]
+
+        _ ->
+            []
+
+
+{-| True when the module line's closing bracket sits one row below its last
+positioned item, so its `OriginalRows` range must be bumped by a row.
+
+Two cases, both where a `)`/`}` has no AST position of its own:
+
+  - a vertical `exposing ( … )` list (its items span rows): the `)` drops
+    below the last item. A list that merely *wrapped* but stayed horizontal
+    (`exposing⏎    ( a, b, c )`) keeps its `)` on the item row and must NOT be
+    bumped — the distinguishing signal is whether the items span more than one row.
+  - a vertical effect-module `where { … }` block (only `Fx` has two fields and
+    can wrap): the closing `}` — and the `exposing` after it — drop below the
+    last field.
+
+Without the bump, VerticalSpace sees a spurious one-row gap to the first
+declaration and inserts a blank line on reparse (non-idempotent). -}
+moduleLineClosesBelow : Src.Module -> Bool
+moduleLineClosesBelow modAst =
+    let
+        exposingClosesBelow =
+            when modAst.exports is
+                Src.Explicit exposed ->
+                    exposedSpansRows exposed
+
+                Src.Open ->
+                    False
+
+        whereClosesBelow =
+            when modAst.effects is
+                Src.Manager (Src.Fx { cmd = cmd, sub = sub }) ->
+                    sub.start.row > cmd.start.row
+
+                _ ->
+                    False
+    in
+    exposingClosesBelow || whereClosesBelow
 
 
 {-| Render a single item in an `exposing (...)` list.
