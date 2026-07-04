@@ -89,6 +89,9 @@ import Formatter.Render.Doc as R exposing (Doc)
 import Json.Encode as Json
 
 
+-- ═══ CONSTANTS & AUTHOR-LAYOUT COMBINATORS ═══
+
+
 -- How many spaces we indent
 grenIndent : Int
 grenIndent =
@@ -151,6 +154,9 @@ rowsSpanMultiple rows =
 blockCommentBodyOffset : Int
 blockCommentBodyOffset =
     3
+
+
+-- ═══ ENTRY POINT ═══
 
 
 {-| Render a complete Logical Printing Tree to its formatted source string.
@@ -225,6 +231,9 @@ splitLeadingComments nodes =
     in
     Array.foldl step { leading = [], rest = [], done = False } nodes
         |> (\r -> { leading = r.leading, rest = r.rest })
+
+
+-- ═══ UNION & TYPE BODIES ═══
 
 
 makeUnionBodyDoc : Array LPNode -> Result String Doc
@@ -364,6 +373,17 @@ makeTypeBodyDoc typeNodes =
 
             else
                 buildFlowDoc 0 typeNodes
+
+
+-- ═══ THE FLOW BUILDER — separator state, block rules & comment peeling ═══
+--
+-- The core of comment-faithful rendering. `buildFlowDoc` walks a sequence of
+-- sibling LPNodes, threading a `FlowAcc` (the doc so far + the previous item's
+-- source row + the pending `NextSeparator`) so each item knows how to join to
+-- the one before it — the mechanism that glues a trailing comment to its line
+-- yet drops a leading one onto its own. Block-style children (IndentedBlock,
+-- BodyBlock, …) are decorated per a `BlockRule`; comments are peeled off the
+-- ends of blocks so they render stably across reformats.
 
 
 {-| What separator to place before the next item.
@@ -523,6 +543,13 @@ peelTrailingComments peelLineComments nodes =
                     { bodyNodes = remaining, trailingCommentDoc = accDoc }
     in
     go nodes R.empty False
+
+
+-- ═══ THE FLOW BUILDER — per-box node renderers ═══
+--
+-- One `render*Node` per block-style / comment / pipeline-step / when-branch box
+-- kind, each taking the running `FlowAcc` and the node's children and returning
+-- the next `FlowAcc`. `buildFlowDocImpl`'s fold dispatches to these.
 
 
 -- Render a body-block child (BodyBlock) inside buildFlowDoc's
@@ -887,6 +914,9 @@ renderSingleLineCommentNode acc box loc =
     }
 
 
+-- ═══ THE FLOW BUILDER — core (buildFlowDoc / buildFlowDocImpl) ═══
+
+
 {-| builds the flow, and handles SingleLineComment nodes correctly:
 
   - A comment on the same row as the preceding item is attached directly
@@ -1125,6 +1155,9 @@ buildFlowDocImpl indent inlineStart brokenFlow nodes =
             Ok (R.nest indent state.doc)
 
 
+-- ═══ VERTICAL-LAYOUT DETECTION ═══
+
+
 {-| True when `node`'s own rendered `Doc` contains a hard break — i.e. its
 content is forced multi-row regardless of how the surrounding flow was
 written (a record argument with a comment, or one the author already spread
@@ -1183,6 +1216,13 @@ on every subsequent one. Mirrors the `ParenBlock` fix (`checkContentVertical`
 anyChildForcesVertical : Array LPNode -> Bool
 anyChildForcesVertical children =
     Array.any flowChildForcesVertical children
+
+
+-- ═══ THE BOX DISPATCH ═══
+--
+-- `makePDoc` maps each `LPBox` constructor to its `Doc`. This is the hub the
+-- flow builder and every specialist builder below recurse through; an unhandled
+-- box is an `Err`, never a silent fallback.
 
 
 makePDoc : LPBox -> Array LPNode -> Result String Doc
@@ -1373,6 +1413,9 @@ makePDoc box children =
 
         unexpected ->
             Err ("makePDoc: unexpected box type:\n" ++ lptToJson (lpnNode unexpected children))
+
+
+-- ═══ LISTS & BRACKETS ═══
 
 
 -- Render a bracketed, comma-separated list of LPNode items.
@@ -1641,6 +1684,9 @@ makeExposingListDoc forceVertical children =
                 )
 
 
+-- ═══ COMMENT RENDERING ═══
+
+
 -- Render a comment box as just the source text it would produce: `--xxx`
 -- for a SingleLineComment, `{-xxx-}` for a BlockComment, `{-|xxx-}` for a
 -- DocComment. Returns R.empty for non-comment boxes; callers should only
@@ -1842,6 +1888,9 @@ lineComment s =
     R.concat (R.text ("--" ++ s)) R.hardNl
 
 
+-- ═══ RECORD UPDATES ═══
+
+
 makeRecordUpdateDoc : Bool -> String -> Array LPNode -> Result String Doc
 makeRecordUpdateDoc forceVertical baseName children =
     -- Skip any leading comment children so we can find the actual first field
@@ -1983,6 +2032,9 @@ makeRecordUpdateDoc forceVertical baseName children =
                                 )
 
 
+-- ═══ TOP-LEVEL LINE DISPATCH ═══
+
+
 {-| Build the `Formatter.Render` `Doc` for a single root-child node without
 resolving it to a string.
 
@@ -2011,13 +2063,13 @@ makePrettyLineDoc node =
                     makeTypeUnionPrettyDoc children
 
                 StSingleLineComment ->
-                    makeCommentLineDoc_ children
+                    makeCommentLineDoc children
 
                 StBlockComment ->
-                    makeCommentLineDoc_ children
+                    makeCommentLineDoc children
 
                 StDocComment ->
-                    makeCommentLineDoc_ children
+                    makeCommentLineDoc children
 
                 StFunctionSignature ->
                     makeSignaturePrettyDoc children
@@ -2039,6 +2091,9 @@ makePrettyLineDoc node =
 
         _ ->
             Err "Unexpected item in LPTree root children"
+
+
+-- ═══ MODULE & IMPORT LINES ═══
 
 
 {-| Render a `module …` or `import …` line. When it ends in an `exposing ( … )`
@@ -2194,6 +2249,9 @@ makeFlowIndentableDoc children =
                 else
                     R.concat (R.vcat commentDocs) (R.concat R.hardNl flowDoc)
             )
+
+
+-- ═══ SIGNATURES ═══
 
 
 -- True if `node` or any of its descendants is a line/block comment.
@@ -2437,6 +2495,9 @@ makeSignaturePrettyDoc children =
                                     inlineUnlessVertical forceVertical full
                                 )
                     )
+
+
+-- ═══ PIPELINES ═══
 
 
 -- True for a `PipelineStep` node (one `|> step` / `<| step`).
@@ -2893,6 +2954,9 @@ makeBackwardPipelineBodyDoc forceVertical seedDoc sep allStepBodies =
                     )
 
 
+-- ═══ BINARY OPERATORS & IF CONDITIONS ═══
+
+
 -- Flatten the right-nested `OpAndRhs` structure of a Binop container back into
 -- its operands (each a flow of LPNodes) and operator leaf nodes, in source
 -- order. Inverse of `InsertExpressions.buildNestedOpAndRhs`. Used only on the
@@ -3122,6 +3186,9 @@ assembleBinopGroups forceVertical minPrec operandDocs ops =
     inlineUnlessVertical forceVertical full
 
 
+-- ═══ TYPE ALIAS & UNION DECLARATIONS ═══
+
+
 makeTypeAliasPrettyDoc : Array LPNode -> Result String Doc
 makeTypeAliasPrettyDoc =
     renderHeaderIndentedBodyDoc "type alias declaration is empty" makeTypeBodyDoc
@@ -3150,14 +3217,17 @@ renderHeaderIndentedBodyDoc emptyError buildBody children =
                     )
 
 
+-- ═══ TOP-LEVEL COMMENT LINES ═══
+
+
 -- Render a top-level comment-line OriginalRows. Usually it holds a single
 -- comment, but comment placement merges comments that share a source row (or
 -- fall within a multi-line block comment's row span) into one OriginalRows —
 -- e.g. `{- a -} {- b -}` on one line. So render every comment child: join two
 -- block comments on the same row with a space, otherwise with a hardNl, and
 -- always break after a `--` line comment (which consumes the rest of its line).
-makeCommentLineDoc_ : Array LPNode -> Result String Doc
-makeCommentLineDoc_ children =
+makeCommentLineDoc : Array LPNode -> Result String Doc
+makeCommentLineDoc children =
     let
         commentInfo node =
             when lpnBox node is
@@ -3218,6 +3288,9 @@ makeCommentLineDoc_ children =
                     Just d ->
                         Ok d
             )
+
+
+-- ═══ VERTICAL BRACKETED LISTS ═══
 
 
 -- `listBoxesWithBrackets` keyed by a `ListBrackets` value rather than explicit
@@ -3398,6 +3471,9 @@ listBoxesWithBracketsUsing itemRenderer open close nodes =
             Ok (R.vcat prefixed)
 
 
+-- ═══ WHEN FLOW ═══
+
+
 makeWhenFlowDoc : Bool -> Int -> Array LPNode -> Result String Doc
 makeWhenFlowDoc forceVertical branchNest children =
     when Array.popLast children is
@@ -3443,6 +3519,9 @@ makeWhenFlowDoc forceVertical branchNest children =
                                                             )
                                                 )
                                     )
+
+
+-- ═══ PARENTHESIZED EXPRESSIONS ═══
 
 
 {-| Render a multi-line lambda argument `(\args -> body)` in elm-format style:
@@ -3764,6 +3843,9 @@ makeBlockInParenDoc isCallArgument children =
                             doc
                             (R.concat R.hardNl (R.text ")"))))
             )
+
+
+-- ═══ DEBUG SERIALISATION ═══
 
 
 {-| Serialize the Render.Doc tree for each top-level declaration to a JSON
