@@ -1240,37 +1240,7 @@ makePDoc box children =
             makeRecordUpdateDoc forceVertical name.value children
 
         EmptyBracketed loc ->
-            -- An empty literal whose source spans more than the bare
-            -- `{}` / `[]` / `()` only acquires children if a comment
-            -- ended up placed inside it. Without children, render the
-            -- bare literal; with comment children, render as
-            -- `{ comment1 comment2 ... }` inline so the comments stay
-            -- inside the brackets.
-            let
-                bs =
-                    bracketStrings loc.value
-            in
-            if Array.isEmpty children then
-                Ok (R.text bs.empty)
-
-            else
-                let
-                    commentDocs =
-                        Array.map commentNodeDoc children
-
-                    body =
-                        Array.foldl
-                            (\d acc ->
-                                if acc == R.empty then
-                                    d
-
-                                else
-                                    R.concat acc (R.concat (R.text " ") d)
-                            )
-                            R.empty
-                            commentDocs
-                in
-                Ok (R.concats [ R.text bs.open, body, R.text " ", R.text bs.close ])
+            makeEmptyBracketedDoc loc children
 
         SingleLineComment locs ->
             Ok (lineComment locs.value)
@@ -1321,30 +1291,7 @@ makePDoc box children =
             makeParenBlockDoc { forceVertical = forceVertical, checkContentVertical = checkContentVertical, isCallArgument = isCallArgument } children
 
         OpAndRhs ->
-            when Array.popFirst children is
-                Just { first = opNode, rest = rhsNodes } ->
-                    when lpnBox opNode is
-                        UnbreakableText opLoc ->
-                            when buildFlowDocInline 0 rhsNodes is
-                                Err e ->
-                                    Err e
-
-                                Ok rhsDoc ->
-                                    Ok (R.concat (R.text (opLoc.value ++ " ")) rhsDoc)
-
-                        SynthesizedText opStr ->
-                            when buildFlowDocInline 0 rhsNodes is
-                                Err e ->
-                                    Err e
-
-                                Ok rhsDoc ->
-                                    Ok (R.concat (R.text (opStr ++ " ")) rhsDoc)
-
-                        _ ->
-                            Err "OpAndRhs: first child must be a text operator"
-
-                Nothing ->
-                    Err "OpAndRhs: empty children"
+            makeOpAndRhsDoc children
 
         AlignedFlow ->
             when buildFlowDocInline 0 children is
@@ -1366,49 +1313,105 @@ makePDoc box children =
                     Ok (R.concat (R.text prefix.value) innerDoc)
 
         Glue ->
-            -- Children concatenated with no separator (a postfix accessor
-            -- glued after a bracketed base). Each child renders on its own
-            -- via the inline flow builder (a one-node flow emits no
-            -- separators), then the docs are concatenated directly.
-            Array.foldl
-                (\child acc ->
-                    when acc is
-                        Err e ->
-                            Err e
-
-                        Ok accDoc ->
-                            when buildFlowDocInline 0 [ child ] is
-                                Err e ->
-                                    Err e
-
-                                Ok childDoc ->
-                                    Ok (R.concat accDoc childDoc)
-                )
-                (Ok R.empty)
-                children
+            makeGlueDoc children
 
         MultilineString located ->
-            let
-                tripleQuote =
-                    R.text "\"\"\""
-
-                contentDoc =
-                    Array.foldl
-                        (\line acc -> R.concat acc (R.concat R.hardNl (R.text line)))
-                        tripleQuote
-                        located.value
-            in
-            -- Wrap the whole doc in R.align so internal hardNls land at the
-            -- column where the opening `"""` is printed, rather than at the
-            -- surrounding nest level. Gren's parser requires every content
-            -- line AND the closing `"""` to be at the same column as the
-            -- opening — without align, an opening that lands past the nest
-            -- (because preceding tokens consumed columns) produces output
-            -- that fails to re-parse.
-            Ok (R.align (R.concats [ contentDoc, R.hardNl, tripleQuote ]))
+            makeMultilineStringDoc located
 
         unexpected ->
             Err ("makePDoc: unexpected box type:\n" ++ lptToJson (lpnNode unexpected children))
+
+
+{-| Render an `EmptyBracketed` literal. Empty (no children) → the bare
+`{}` / `[]` / `()`. With comment children (a comment placed between the
+brackets) → `{ c1 c2 … }` inline, keeping the comments inside. -}
+makeEmptyBracketedDoc : Located ListBrackets -> Array LPNode -> Result String Doc
+makeEmptyBracketedDoc loc children =
+    let
+        bs =
+            bracketStrings loc.value
+    in
+    if Array.isEmpty children then
+        Ok (R.text bs.empty)
+
+    else
+        let
+            commentDocs =
+                Array.map commentNodeDoc children
+
+            body =
+                Array.foldl
+                    (\d acc ->
+                        if acc == R.empty then
+                            d
+
+                        else
+                            R.concat acc (R.concat (R.text " ") d)
+                    )
+                    R.empty
+                    commentDocs
+        in
+        Ok (R.concats [ R.text bs.open, body, R.text " ", R.text bs.close ])
+
+
+{-| Render one `OpAndRhs` group (`op rhs…`): the operator text, a space, then
+the rhs flow — so a breaking chain starts the new line with the operator. -}
+makeOpAndRhsDoc : Array LPNode -> Result String Doc
+makeOpAndRhsDoc children =
+    when Array.popFirst children is
+        Just { first = opNode, rest = rhsNodes } ->
+            when lpnBox opNode is
+                UnbreakableText opLoc ->
+                    buildFlowDocInline 0 rhsNodes
+                        |> Result.map (\rhsDoc -> R.concat (R.text (opLoc.value ++ " ")) rhsDoc)
+
+                SynthesizedText opStr ->
+                    buildFlowDocInline 0 rhsNodes
+                        |> Result.map (\rhsDoc -> R.concat (R.text (opStr ++ " ")) rhsDoc)
+
+                _ ->
+                    Err "OpAndRhs: first child must be a text operator"
+
+        Nothing ->
+            Err "OpAndRhs: empty children"
+
+
+{-| Render a `Glue`: children concatenated with no separator (a postfix accessor
+glued after a bracketed base). Each child renders via the inline flow builder (a
+one-node flow emits no separators), then the docs are concatenated directly. -}
+makeGlueDoc : Array LPNode -> Result String Doc
+makeGlueDoc children =
+    Array.foldl
+        (\child acc ->
+            when acc is
+                Err e ->
+                    Err e
+
+                Ok accDoc ->
+                    buildFlowDocInline 0 [ child ]
+                        |> Result.map (\childDoc -> R.concat accDoc childDoc)
+        )
+        (Ok R.empty)
+        children
+
+
+{-| Render a triple-quoted string. Wrapped in `R.align` so its internal hardNls
+land at the column where the opening `"""` prints — Gren requires every content
+line and the closing `"""` to share that column, so without align an opening
+pushed right by preceding tokens produces output that fails to re-parse. -}
+makeMultilineStringDoc : Located (Array String) -> Result String Doc
+makeMultilineStringDoc located =
+    let
+        tripleQuote =
+            R.text "\"\"\""
+
+        contentDoc =
+            Array.foldl
+                (\line acc -> R.concat acc (R.concat R.hardNl (R.text line)))
+                tripleQuote
+                located.value
+    in
+    Ok (R.align (R.concats [ contentDoc, R.hardNl, tripleQuote ]))
 
 
 -- ═══ LISTS & BRACKETS ═══
