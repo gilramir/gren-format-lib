@@ -15,6 +15,7 @@ type Color
     | Green
     {- ^ a block comment trailing the last variant -}
 
+
 -- detached: shallower than the variants, leading comment of what follows
 
 

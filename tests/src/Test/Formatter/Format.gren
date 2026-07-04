@@ -354,6 +354,7 @@ commentsSuite fsPerm =
             , assertPretty fsPerm "comment trailing the last let binding routes after `in` (not own-line, which would oscillate)" "LetInTrailingComment"
             , assertPretty fsPerm "comment trailing a non-last let binding's value sits at the bindings-block indent" "BetweenLetBindingsComment"
             , assertPretty fsPerm "comment after a wrapping module exposing list canonicalizes to column 1" "ModuleExposingTrailingComment"
+            , assertPretty fsPerm "comment on the module line's own row stays at one blank line, not bumped to a floating comment's two (would oscillate)" "ModuleLineFloatingComment"
             , assertPretty fsPerm "comment trailing a non-last when-branch body (nested in if/let) sits between branches, no blank" "BetweenWhenBranchesComment"
             -- Regression guards for the 2026-05-24 fuzzer-found idempotency fixes.
             , assertPretty fsPerm "trailing comment after a multi-line union variant stays on the variant's last row" "UnionVariantTrailingComment"

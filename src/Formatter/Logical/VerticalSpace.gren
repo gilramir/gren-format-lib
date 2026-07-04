@@ -164,6 +164,41 @@ computeGroupStarts infos =
     flags
 
 
+{-| For each root child, whether it is detached from the node that *follows*
+it — a gap after it, or nothing follows at all. Scans bottom-to-top,
+mirroring `computeGroupStarts`, but tracks physical row adjacency
+unconditionally rather than group-start status.
+
+Used to tell a genuinely free-floating comment (a gap on *both* sides) apart
+from a comment that merely leads an import with no gap below it — imports
+never register as a group start (see `classifyChildren`'s `core` field), so
+without this check both would look identical to `insertEmptyLines`.
+-}
+computeDetachedBelow : Array DeclInfo -> Array Bool
+computeDetachedBelow infos =
+    let
+        { flags } =
+            Array.foldl
+                (\info acc ->
+                    let
+                        detached =
+                            when acc.nextFirst is
+                                Just nf ->
+                                    nf > info.last + 1
+
+                                Nothing ->
+                                    True
+                    in
+                    { flags = Array.pushFirst detached acc.flags
+                    , nextFirst = Just info.first
+                    }
+                )
+                { flags = [], nextFirst = Nothing }
+                (Array.reverse infos)
+    in
+    flags
+
+
 {-| Insert blank-line `EmptyLine` siblings into the root of the Logical
 Printing Tree.
 
@@ -177,9 +212,14 @@ Runs after `Formatter.Logical.MakeLogical` has built the tree and
     *start* is the topmost of those. The two blanks go before that start.
   - No blank line *within* a unit (between a doc comment, signature, and
     definition — even if the author left one).
-  - Imports, the module line, and floating comments keep gap-driven spacing
-    (a single blank only where the author left one; the module line is always
-    followed by one blank).
+  - Imports and the module line keep gap-driven spacing (a single blank only
+    where the author left one; the module line is always followed by one
+    blank).
+  - A genuinely free-floating comment — detached from the node above it (a
+    gap) *and* the node below it (a gap, or nothing follows) — always gets
+    two blank lines above it, same as a declaration unit, once any gap is
+    present at all. A comment glued to whatever follows it (e.g. leading an
+    import) is not free-floating and keeps the single-blank gap-driven rule.
 -}
 insertEmptyLines : LPNode -> LPNode
 insertEmptyLines root =
@@ -190,12 +230,19 @@ insertEmptyLines root =
         groupStarts =
             computeGroupStarts infos
 
+        detachedBelow =
+            computeDetachedBelow infos
+
         zipped =
-            Array.map2 (\info gs -> { info = info, isGroupStart = gs }) infos groupStarts
+            Array.map3
+                (\info gs db -> { info = info, isGroupStart = gs, detachedBelow = db })
+                infos
+                groupStarts
+                detachedBelow
 
         { newChildren } =
             Array.foldl
-                (\{ info, isGroupStart } acc ->
+                (\{ info, isGroupStart, detachedBelow = infoDetachedBelow } acc ->
                     let
                         -- A group start is the *unit* start unless the node
                         -- directly above it is a leading comment of the same
@@ -255,8 +302,36 @@ insertEmptyLines root =
 
                                     gap =
                                         info.first > p.last + 1
+
+                                    -- A comment detached from both the node above it
+                                    -- (this `gap`) and the node below it
+                                    -- (`infoDetachedBelow`) is genuinely free-floating,
+                                    -- not merely leading whatever follows (e.g. an
+                                    -- import) — it gets two blanks above it, same as a
+                                    -- declaration unit, once any gap is present at all.
+                                    --
+                                    -- Excludes `afterModule`: the module line forces
+                                    -- anything after it onto its own row regardless of
+                                    -- how the author wrote it, so a comment authored on
+                                    -- the *same* source row as a wrapping `exposing`
+                                    -- list (past its close) has `gap = False` when
+                                    -- parsed from the original source, but `gap = True`
+                                    -- once reformatted onto its own row — an oscillation
+                                    -- that never settles. `afterModule`'s own fixed
+                                    -- one-blank rule (below) already covers this case
+                                    -- stably.
+                                    floating =
+                                        gap && info.isComment && infoDetachedBelow && not afterModule
                                 in
-                                if (gap || afterModule) && not sigThenDef then
+                                if floating then
+                                    { newChildren = acc.newChildren
+                                            |> Array.pushLast (lpnLeaf EmptyLine)
+                                            |> Array.pushLast (lpnLeaf EmptyLine)
+                                            |> Array.pushLast info.node
+                                    , prev = Just prevRec
+                                    }
+
+                                else if (gap || afterModule) && not sigThenDef then
                                     { newChildren = acc.newChildren
                                             |> Array.pushLast (lpnLeaf EmptyLine)
                                             |> Array.pushLast info.node

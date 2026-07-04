@@ -4,6 +4,7 @@ module PageWidth exposing (..)
 -- exceeds the 100-column page width? Constructs below are placed in the
 -- 95-120 column band. Names are padded purely to control where lines land.
 
+
 -- ===== Type signatures =====
 
 
@@ -24,6 +25,7 @@ signatureRecord : { fieldAlpha : Int, fieldBeta : String, fieldGamma : Bool, fie
 signatureRecord r =
     r
 
+
 -- ===== Function application =====
 
 
@@ -40,6 +42,7 @@ callPast =
 -- nested calls overflowing
 callNested =
     outerFunction (innerFunction argumentOne argumentTwo argumentThree) (anotherInner argumentFour argumentFive)
+
 
 -- ===== Records =====
 
@@ -62,6 +65,7 @@ recordUpdate existingRecord =
 -- nested record past the boundary
 recordNested =
     { outer = { innerAlpha = valueAlpha, innerBeta = valueBeta, innerGamma = valueGamma, innerDelta = valueDelta } }
+
 
 -- ===== if / then / else =====
 
@@ -95,6 +99,7 @@ ifElseChain x =
     else
         resultThree
 
+
 -- ===== when / is =====
 
 
@@ -122,6 +127,7 @@ whenRecord value =
         Empty ->
             { resultAlpha = 0, resultBeta = 0, resultGamma = 0 }
 
+
 -- ===== let / in =====
 
 
@@ -143,11 +149,13 @@ letDestructure pair =
     in
     leftComponent ++ rightComponent ++ someTrailingValueToPushThisParticularLineOutTowardOneHundredColumns
 
+
 -- ===== lambdas =====
 
 
 lambdaExample collection =
     List.map (\eachElement -> transformElement eachElement withContextArgument andMore intoTheResultType) collection
+
 
 -- ===== pipelines =====
 
@@ -159,6 +167,7 @@ pipelineExample collection =
 pipelineBackward collection =
     List.foldl mergeAllItems initialSeed <| List.filter shouldRetainThisItem <| List.map applyTransform collection
 
+
 -- ===== binary operator chains =====
 
 
@@ -169,6 +178,7 @@ binopChain =
 binopMixed =
     valueA ++ valueB ++ valueC ++ valueD ++ valueE ++ valueF ++ valueG ++ valueH ++ valueI ++ valueJ ++ valueK
 
+
 -- ===== arrays =====
 
 
@@ -178,6 +188,7 @@ arrayPast =
 
 arrayOfRecords =
     [ { idField = 1, nameField = "first" }, { idField = 2, nameField = "second" }, { idField = 3, nameField = "x" } ]
+
 
 -- ===== unbreakable tokens that exceed the width =====
 
@@ -193,6 +204,7 @@ multilineStringExample =
     a line of triple-quoted content that itself approaches the one hundred column page width boundary here
     """
 
+
 -- ===== custom types =====
 
 
@@ -204,6 +216,7 @@ type LongUnion
 
 type alias LongAlias =
     { fieldAlpha : Int, fieldBeta : String, fieldGamma : Bool, fieldDelta : Float, fieldEpsilon : Char, fieldZeta : Int }
+
 
 -- ===== comment variety near the boundary =====
 

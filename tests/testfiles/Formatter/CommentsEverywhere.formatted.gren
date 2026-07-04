@@ -7,7 +7,9 @@ And this is last line of it
 
 -}
 
+
 -- A floating comment, not attached to a function
+
 
 -- A second floating comment, not attached to a function
 
@@ -34,5 +36,6 @@ a function
 foo3 : Int -> Int
 foo3 a =
     a * 100
+
 
 -- File ends with a floating comment

@@ -870,14 +870,17 @@ double n =
     n * 2
 ```
 
-A comment separated from a function by a blank line is treated as floating —
-the comment keeps the one blank line you wrote, and the function still gets its
-two blank lines below:
+A comment separated by a blank line from *both* the declaration above it and
+whatever follows it is treated as genuinely floating — free-standing
+commentary, not attached to anything. Once any gap at all separates it from
+its neighbors, it gets the same two blank lines above it as a declaration
+unit, regardless of how many blank lines the author actually wrote:
 
 ```gren
 double : Int -> Int
 double n =
     n * 2
+
 
 -- A floating note, kept at arm's length
 
@@ -885,6 +888,34 @@ double n =
 square : Int -> Int
 square n =
     n * n
+```
+
+A comment glued directly beneath the code above it, with no gap at all, stays
+glued — the "floating" treatment only kicks in once the author has already
+separated it from what's above:
+
+```gren
+double : Int -> Int
+double n =
+    n * 2
+-- A note glued directly beneath, no gap
+
+
+square : Int -> Int
+square n =
+    n * n
+```
+
+A comment that's detached above but glued to whatever *follows* it — for
+example, a one-line explanation sitting directly above an import — is not
+floating; it keeps the single gap-driven blank line, since it isn't
+free-standing, it's introducing what comes right after it:
+
+```gren
+import Dict
+
+-- Used for array utilities
+import Array
 ```
 
 ---
