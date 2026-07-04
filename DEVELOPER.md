@@ -411,7 +411,7 @@ python3 fuzz-idempotency.py -j 12
 # Inserts a {- ¤ -} marker in every inter-token gap, formats twice,
 # requires byte-identical output. The safety net for comment-shift bugs.
 
-python3 fuzz-whitespace.py -j 12 --mode newline   # or: stretch | indent
+python3 fuzz-whitespace.py -j 12 --mode indent   # modes: stretch (default) | indent
 # Perturbs incoming whitespace and requires byte-identical output
 # (canonicalization — same meaning, same output, regardless of incoming spaces).
 ```
