@@ -172,11 +172,14 @@ processModuleLine modAst root =
         -- comment sorts after it instead.
         --
         -- Row 1, NOT the module name's row: the keyword always renders on the
-        -- module's first output row, but a long header comment can push the
-        -- name onto a continuation row (`effect module {- … -}⏎    Name …`).
-        -- Anchoring at the name's row would then place the keyword *below* a
-        -- comment on row 1, so the comment would sort before the keyword and
-        -- escape ahead of it on reparse (non-idempotent, and unparseable).
+        -- module's first output row, but a header comment that itself forces
+        -- a break (multi-line, or a `--` line comment) pushes the name onto a
+        -- continuation row (`effect module {- … -}⏎    Name …`). A comment's
+        -- *length* alone never does this — layout is author-driven, not
+        -- width-driven. Anchoring at the name's row would then place the
+        -- keyword *below* a comment on row 1, so the comment would sort
+        -- before the keyword and escape ahead of it on reparse
+        -- (non-idempotent, and unparseable).
         keywordNode =
             lpnLeaf (mkZeroWidthText { row = 1, col = 1 } keyword)
 
