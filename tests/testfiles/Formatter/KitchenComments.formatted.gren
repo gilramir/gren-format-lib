@@ -256,8 +256,7 @@ torturedComments primaryIntValue secondaryStringValue tertiaryBoolValue =
                 {- inline block between condition and `then` -}
                 -- comment between then and body
                 String.append secondaryStringValue
-                    {- block comment between function and its argument -}
-                    "!"
+                    {- block comment between function and its argument -} "!"
 
             else
                 {- block comment between `else` and body -}
@@ -281,8 +280,7 @@ torturedComments primaryIntValue secondaryStringValue tertiaryBoolValue =
                 "many/"
                 {- another comment in the gap between arguments -}
                 (String.append guardedString
-                    {- yet another inter-arg comment -}
-                    (String.fromInt otherwiseAnyValue)
+                    {- yet another inter-arg comment -} (String.fromInt otherwiseAnyValue)
                 )
 
 

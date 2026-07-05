@@ -1055,6 +1055,65 @@ buildFlowDocImpl indent inlineStart brokenFlow nodes =
                 AlreadyTerminated ->
                     R.concat accDoc itemDoc
 
+        -- elm-format keeps a short leading block comment glued to the very next
+        -- term (`fn arg0 {- c -} arg1` → arg1 stays on the comment's line)
+        -- instead of always forcing an own-line break — a break only happens
+        -- when something (a `--` comment, a multi-line comment, or the next
+        -- term itself) actually needs one. Scoped to `brokenFlow` (i.e. only
+        -- `buildFlowDocBroken`'s call sites: broken call arguments and the
+        -- comment-bearing binop fallback) — `buildFlowDoc`'s non-broken flows
+        -- (let bindings, record field values, …) also have `inlineStart=False`
+        -- but must keep a standalone leading comment on its own line, e.g.
+        -- before a non-first let binding. The `standaloneLeading` "first item
+        -- of a broken flow" trigger above can only ever fire once, on the very
+        -- first node of `nodes` (fold state can't return to `FirstItem` after
+        -- that) — so this is a one-time lookahead before the fold starts, not
+        -- a lookahead threaded through every step.
+        mergedFirstStep =
+            when { first = Array.first nodes, next = Array.get 1 nodes } is
+                { first = Just firstNode, next = Just nextNode } ->
+                    when lpnBox firstNode is
+                        BlockComment loc ->
+                            if
+                                brokenFlow
+                                    && not inlineStart
+                                    && not (isMultiLineCommentValue loc.value)
+                                    && not (nodeIsComment nextNode)
+                                    && not (nodeForcesVertical nextNode)
+                            then
+                                when makePDoc (lpnBox nextNode) (lpnChildren nextNode) is
+                                    Ok nextDoc ->
+                                        Just
+                                            { doc =
+                                                R.concat (commentBoxDoc (lpnBox firstNode))
+                                                    (R.concat (R.text " ") nextDoc)
+                                            , remaining = Array.dropFirst 2 nodes
+                                            }
+
+                                    Err _ ->
+                                        Nothing
+
+                            else
+                                Nothing
+
+                        _ ->
+                            Nothing
+
+                _ ->
+                    Nothing
+
+        foldSetup =
+            when mergedFirstStep is
+                Just merged ->
+                    { seed = Ok { doc = merged.doc, prevRow = -1, prevElided = False, separator = FlowSep }
+                    , items = merged.remaining
+                    }
+
+                Nothing ->
+                    { seed = Ok { doc = R.empty, prevRow = -1, prevElided = False, separator = FirstItem }
+                    , items = nodes
+                    }
+
         foldResult =
             Array.foldl
                 (\node accResult ->
@@ -1231,8 +1290,8 @@ buildFlowDocImpl indent inlineStart brokenFlow nodes =
                                                 , separator = FlowSep
                                                 }
                 )
-                (Ok { doc = R.empty, prevRow = -1, prevElided = False, separator = FirstItem })
-                nodes
+                foldSetup.seed
+                foldSetup.items
     in
     when foldResult is
         Err e ->
