@@ -310,15 +310,16 @@ insertEmptyLines root =
                                     -- import) — it gets two blanks above it, same as a
                                     -- declaration unit, once any gap is present at all.
                                     --
-                                    -- Excludes `afterModule`: the module line forces
-                                    -- anything after it onto its own row regardless of
-                                    -- how the author wrote it, so a comment authored on
-                                    -- the *same* source row as a wrapping `exposing`
-                                    -- list (past its close) has `gap = False` when
-                                    -- parsed from the original source, but `gap = True`
-                                    -- once reformatted onto its own row — an oscillation
-                                    -- that never settles. `afterModule`'s own fixed
-                                    -- one-blank rule (below) already covers this case
+                                    -- Excludes `afterModule`: a plain top-level comment
+                                    -- right after the module line routinely has both
+                                    -- `gap` (the module line's own mandatory one-blank
+                                    -- separator counts as a gap) and `infoDetachedBelow`
+                                    -- (e.g. a file-description comment, then a blank
+                                    -- line, then the first leading comment of a
+                                    -- declaration) — without this exclusion that comment
+                                    -- would wrongly get two blanks above it instead of
+                                    -- the module line's fixed one. `afterModule`'s own
+                                    -- fixed one-blank rule (below) already covers it
                                     -- stably.
                                     floating =
                                         gap && info.isComment && infoDetachedBelow && not afterModule
