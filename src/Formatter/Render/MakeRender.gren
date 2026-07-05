@@ -889,16 +889,8 @@ renderSingleLineCommentNode acc box loc =
 
                 _ ->
                     if loc.start.row == acc.prevRow || acc.prevElided then
-                        -- Same row as preceding item: attach with a SOFT
-                        -- break — a space in flat context, otherwise its own
-                        -- line. A hard space would give the flow no break
-                        -- point here, forcing an *earlier* break (e.g. before
-                        -- an elided `->`) so the comment trails a token that
-                        -- moved down. Whether that earlier token then renders
-                        -- on row N or N+1 flips the comment's own input row on
-                        -- reparse, oscillating between layouts. The soft break
-                        -- keeps the preceding token in place and moves only the
-                        -- comment, which is stable across reformats.
+                        -- Same row as preceding item: attach with a single
+                        -- space.
                         --
                         -- `prevElided` also takes this branch: a comment that
                         -- directly trails a zero-width elided token (`->`, `:`,
@@ -907,10 +899,10 @@ renderSingleLineCommentNode acc box loc =
                         -- onto its own continuation line, the comment's own row
                         -- no longer equals that anchor — so a pure row test
                         -- would flip it to its own line on the next format even
-                        -- though it fits beside the (wrapped) token. Soft-gluing
-                        -- whenever it trails an elided token keeps the glue-when-
-                        -- it-fits rendering stable across reformats.
-                        R.concat acc.doc (R.group (R.concat R.nl commentText))
+                        -- though it stays glued beside the (wrapped) token.
+                        -- Gluing whenever it trails an elided token keeps the
+                        -- rendering stable across reformats.
+                        R.concat acc.doc (R.concat (R.text " ") commentText)
 
                     else
                         -- Different row: force a line break before the comment
@@ -3567,17 +3559,12 @@ listBoxesWithBracketsUsing itemRenderer open close nodes =
                                             commentNodeDoc node
                                     in
                                     if commentRow == acc.prevRow then
-                                        -- Trailing the preceding item: attach with a SOFT break —
-                                        -- a space in flat context, otherwise its own line. A hard
-                                        -- space would put the comment on the item's line, so a
-                                        -- trailing comment would re-wrap the item's
-                                        -- value; on reparse the comment then sits on the value's
-                                        -- wrapped row, the value un-wraps, and the layout
-                                        -- oscillates. The soft break keeps the item's value laid
-                                        -- out as if the comment were absent (it lands past the
-                                        -- break), so only the comment moves — stable across
-                                        -- reformats. Mirrors the trailing line-comment soft break
-                                        -- in buildFlowDocImpl.
+                                        -- Trailing the preceding item: attach with a single
+                                        -- space, regardless of length — layout is
+                                        -- author-driven, not width-driven, so nothing
+                                        -- about the comment's length changes the item's
+                                        -- own layout. Mirrors the trailing line-comment
+                                        -- glue in buildFlowDocImpl.
                                         let
                                             attached =
                                                 when acc.pending is
@@ -3585,7 +3572,7 @@ listBoxesWithBracketsUsing itemRenderer open close nodes =
                                                         { doc = commentDoc, isComment = True }
 
                                                     Just e ->
-                                                        { doc = R.concat e.doc (R.group (R.concat R.nl commentDoc))
+                                                        { doc = R.concat e.doc (R.concat (R.text " ") commentDoc)
                                                         , isComment = False
                                                         }
                                         in
