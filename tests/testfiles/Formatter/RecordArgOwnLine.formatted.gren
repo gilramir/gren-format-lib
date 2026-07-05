@@ -51,19 +51,24 @@ backwardPipe x =
 -- closing-paren-own-line rule) and must not also get pulled onto its own
 -- line by this rule.
 mapWithLambda xs =
-    Array.map (\n -> if n > 0 then
-                      n
+    Array.map
+        (\n ->
+            if n > 0 then
+                n
 
-                  else
-                      -n
-              ) xs
+            else
+                -n
+        )
+        xs
 
 
 pipeWithLambda xs =
     xs
-        |> Array.map (\n -> if n > 0 then
-                             n
+        |> Array.map
+            (\n ->
+                if n > 0 then
+                    n
 
-                         else
-                             -n
-                     )
+                else
+                    -n
+            )

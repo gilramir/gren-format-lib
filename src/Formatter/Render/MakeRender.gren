@@ -640,7 +640,20 @@ buildStepChildrenDoc stepChildren =
                             { acc | triggerAndSuffix = Just { state | suffix = Array.pushLast node state.suffix } }
 
                         Nothing ->
-                            if isMultilineLambdaParenBlock node || isMultilineContentParenBlock node || flowChildForcesVertical node then
+                            let
+                                -- A multiline lambda that is the pipeline
+                                -- step's *direct operand* — only the `|>`/`<|`
+                                -- operator precedes it — stays glued to the
+                                -- operator (`|> (\x ->` … `)`), its block body
+                                -- dropping under `->`. elm-format only
+                                -- relocates a lambda that is a function
+                                -- *argument* (`|> f (\x -> …)`), where the
+                                -- preamble also carries the function name.
+                                isDirectOperandLambda =
+                                    isMultilineLambdaParenBlockAnyBody node
+                                        && Array.length acc.preamble <= 1
+                            in
+                            if not isDirectOperandLambda && (isMultilineLambdaParenBlock node || isMultilineContentParenBlock node || flowChildForcesVertical node) then
                                 { preamble = acc.preamble
                                 , triggerAndSuffix = Just { trigger = node, suffix = [] }
                                 }
@@ -1178,28 +1191,27 @@ nodeForcesVertical node =
 
 
 {-| True when `node` forces vertical (`nodeForcesVertical`) in a way that
-should make the *surrounding flow* also commit to one-item-per-line —
-excludes `ParenBlock` and comments, which already have dedicated handling
-that keeps them glued to whatever precedes them:
+should make the *surrounding flow* also commit to one-item-per-line.
 
-  - A `ParenBlock` argument (e.g. `Array.map (\n -> if … )`) already decides
-    its own internal layout via `MakeRender.makeParenBlockDoc`'s
-    `checkContentVertical` — that fix specifically keeps the surrounding
-    call/step glued to `(` and only moves the closing `)`. Also matching
-    it here would double up and instead pull the whole `(...)` onto its
-    own line, undoing that.
-  - A comment is already placed correctly by the flow's own comment-peeling
-    logic (`buildFlowDocImpl`'s `SingleLineComment`/`BlockComment` cases,
-    `renderPipelineStepNode`'s leading/trailing peeling, …).
+A multiline argument — a record, an array, or a parenthesized lambda /
+pipeline / `if`/`when`/`let` — pulls the whole call onto one-argument-per-line
+(each at +4), matching elm-format: `Array.map (\n -> if … )` becomes
+
+    Array.map
+        (\n -> … )
+        xs
+
+with the `(...)` on its own line and any following argument dropping too. A
+*flat* paren argument has no hard break, so `nodeForcesVertical` is False and
+it stays glued.
+
+Comments are excluded — they are already placed correctly by the flow's own
+comment-peeling logic (`buildFlowDocImpl`'s `SingleLineComment`/`BlockComment`
+cases, `renderPipelineStepNode`'s leading/trailing peeling, …).
 -}
 flowChildForcesVertical : LPNode -> Bool
 flowChildForcesVertical node =
-    when lpnBox node is
-        ParenBlock _ ->
-            False
-
-        _ ->
-            not (nodeIsComment node) && nodeForcesVertical node
+    not (nodeIsComment node) && nodeForcesVertical node
 
 
 {-| True when any child forces the surrounding flow vertical (see
@@ -2587,6 +2599,44 @@ isMultilineLambdaParenBlock node =
                             when lpnBox secondChild is
                                 IndentedBlock ->
                                     True
+
+                                _ ->
+                                    False
+
+                        Nothing ->
+                            False
+
+                Nothing ->
+                    False
+
+        _ ->
+            False
+
+
+-- True when `node` is a `ParenBlock` wrapping a lambda whose body renders
+-- across rows for *any* reason — an `IndentedBlock` body (author wrote it on a
+-- later row, or an `if`/`when`/`let` body) or a `SoftIndentedBlock` body that
+-- its own content forces vertical (a comment-forced-vertical record/array/
+-- update). Broader than `isMultilineLambdaParenBlock`, which only sees the
+-- `IndentedBlock` case: used by the pipeline direct-operand guard so a
+-- `|> (\c -> { c | … {- comment -} })` stays glued to `|>` on *both* the first
+-- format (SoftIndentedBlock body) and the reparse (the `{` is now on a later
+-- row, so IndentedBlock) — the two must agree or the step oscillates. Mirrors
+-- `makeParenBlockDoc`'s `isLambdaMultiline`.
+isMultilineLambdaParenBlockAnyBody : LPNode -> Bool
+isMultilineLambdaParenBlockAnyBody node =
+    when lpnBox node is
+        ParenBlock _ ->
+            when Array.popFirst (lpnChildren node) is
+                Just { rest } ->
+                    when Array.first rest is
+                        Just secondChild ->
+                            when lpnBox secondChild is
+                                IndentedBlock ->
+                                    True
+
+                                SoftIndentedBlock ->
+                                    softIndentedBlockChildForcesVertical (lpnChildren secondChild)
 
                                 _ ->
                                     False

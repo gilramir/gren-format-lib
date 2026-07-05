@@ -1,0 +1,88 @@
+module CallArgBlockRelocation exposing (directOperand, ifArg, letArg, pipelineArg, plainLambda, trailingArg, whenArg)
+
+
+plainLambda =
+    \n ->
+        if n > 0 then
+            n
+
+        else
+            -n
+
+
+ifArg xs =
+    Array.map
+        (\n ->
+            if n > 0 then
+                n
+
+            else
+                -n
+        )
+        xs
+
+
+whenArg xs =
+    Array.map
+        (\n ->
+            when n is
+                0 ->
+                    "zero"
+
+                _ ->
+                    "other"
+        )
+        xs
+
+
+letArg xs =
+    Array.map
+        (\n ->
+            let
+                y =
+                    n + 1
+            in
+            y * 2
+        )
+        xs
+
+
+trailingArg dict =
+    update
+        key
+        (\v ->
+            if v > 0 then
+                v
+
+            else
+                0
+        )
+        dict
+
+
+pipelineArg xs =
+    foo
+        (a
+            |> bar
+            |> baz
+        )
+        other
+
+
+directOperand xs =
+    xs
+        |> Array.map
+            (\n ->
+                if n > 0 then
+                    n
+
+                else
+                    -n
+            )
+        |> (\result ->
+                if result < 0 then
+                    -result
+
+                else
+                    result
+            )

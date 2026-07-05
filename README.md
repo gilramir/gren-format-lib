@@ -734,37 +734,27 @@ build x =
             }
 ```
 
-This only applies to a record, or anything else whose own content forces it
-across rows. A parenthesized lambda argument follows its own rule instead
-(see [Parentheses](#parentheses)) and stays glued to the function name even
-when its body wraps:
+This applies to a record, or anything else whose own content forces it across
+rows — including a parenthesized lambda whose body wraps (an `if`/`when`/`let`,
+or a record/array the lambda returns across rows), or a parenthesized pipeline.
+The whole `(...)` drops to its own line, and any argument after it drops too:
 
 ```gren
 foo xs =
-    Array.map (\n -> if n > 0 then
-                      n
-
-                  else
-                      -n
-              ) xs
-```
-
-Above, `if` sits wherever `\n ->` happens to end, so `then`/`else` line up under
-that column instead of under `if` itself. If the author instead puts a line
-break right after `->`, the lambda body — and with it, `if` — drops to its own
-line. Now `if` and `else` line up vertically, because `else` indents relative
-to `if`'s own column rather than to wherever `if` sits mid-line:
-
-```gren
-foo xs =
-    Array.map (\n ->
+    Array.map
+        (\n ->
             if n > 0 then
                 n
 
             else
                 -n
-        ) xs
+        )
+        xs
 ```
+
+Here `Array.map` sits alone on the first line, the `(\n -> …)` argument is on
+its own line indented +4, and `xs` follows on its own line. Inside the lambda,
+the `if` body drops to its own line under `->` (see [Lambdas](#lambdas)).
 
 ---
 
@@ -1150,9 +1140,9 @@ bumpFlat =
     \x -> { x | a = 1 }
 ```
 
-An `if`, `when`, or `let` body is not covered by this rule — it always keeps
-its keyword glued to `->`, managing its own body indentation separately (see
-[Lambdas](#lambdas)).
+An `if`, `when`, or `let` body drops to its own line under `->` too, but by a
+different rule — it *always* does so (it manages its own body indentation),
+whether or not it would fit inline (see [Lambdas](#lambdas)).
 
 #### Record field values
 
@@ -1623,11 +1613,61 @@ transform =
         veryLongParameterName * 2
 ```
 
-Passed as an argument, a lambda is wrapped in parentheses:
+A lambda whose body is an `if`, `when`, or `let` always drops that body to its
+own line under `->`, indented +4 — it never stays glued to `->`:
+
+```gren
+classify =
+    \n ->
+        if n > 0 then
+            "positive"
+
+        else
+            "other"
+```
+
+Passed as an argument, a lambda is wrapped in parentheses. A lambda with a
+one-line body stays glued to the function name:
 
 ```gren
 doubleAll =
     Array.map (\n -> n * 2) nums
+```
+
+But once the lambda's body wraps — an `if`/`when`/`let` body, or a
+record/array it returns across rows — the whole `(...)` argument drops to its
+own line, indented +4 from the function name, and any following argument drops
+too (see [A record argument that renders across rows drops to its own
+line](#a-record-argument-that-renders-across-rows-drops-to-its-own-line), which
+this shares its rule with):
+
+```gren
+signums =
+    Array.map
+        (\n ->
+            if n > 0 then
+                1
+
+            else
+                -1
+        )
+        nums
+```
+
+There is one exception: a lambda that is the **direct operand** of a pipeline
+step stays glued to `|>`/`<|` (only the operator precedes it, so there is no
+function name to separate from), with its body dropping under `->`:
+
+```gren
+result =
+    values
+        |> (\n ->
+                if n < 0 then
+                    -n
+
+                else
+                    n
+            )
 ```
 
 ---

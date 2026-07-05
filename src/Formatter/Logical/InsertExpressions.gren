@@ -664,10 +664,13 @@ insertLambda locExpr { patterns = patterns, body = body } =
                     -- an extra `AcrossOrVertical`, whose +4 continuation
                     -- indent stacks on top of the inner blocks and
                     -- double-indents the `let` bindings / branch bodies. So
-                    -- for those, drop the raw rows straight into the
-                    -- `SoftIndentedBlock` (as every other block context
-                    -- does). Other bodies keep `insertExpressionAsItem` so a
-                    -- call body still gets the +4 arg-flow continuation.
+                    -- for those, drop the raw rows straight in. Other bodies
+                    -- keep `insertExpressionAsItem` so a call body still gets
+                    -- the +4 arg-flow continuation.
+                    --
+                    -- A block body also always drops to its own line under
+                    -- `->` (see `bodyBox`), matching elm-format — `let`/`if`/
+                    -- `when` never stay glued to the `->`.
                     isBlockBody =
                         when body.value is
                             Src.Let _ ->
@@ -690,8 +693,11 @@ insertLambda locExpr { patterns = patterns, body = body } =
                     lambdaBodyForceVertical =
                         body.start.row > lastPatternEndRow
 
+                    -- A `let`/`if`/`when` body always drops to its own line
+                    -- under `->` (elm-format never glues the keyword to the
+                    -- arrow); other bodies follow the author's row placement.
                     bodyBox =
-                        if lambdaBodyForceVertical then
+                        if lambdaBodyForceVertical || isBlockBody then
                             IndentedBlock
 
                         else
