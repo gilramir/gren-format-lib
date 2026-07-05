@@ -954,6 +954,85 @@ buildFlowDocBroken indent nodes =
     buildFlowDocImpl indent False True nodes
 
 
+{-| Render a function application (`fn arg0 arg1 …`) that must break onto
+multiple lines. Matches elm-format's `ElmStructure.application`: the *first*
+argument stays glued to the function on the opening line — but only when the
+function is single-line, the author wrote `arg0` on the function's own source
+row, and `arg0` itself renders single-line. Every remaining argument (and
+`arg0` itself, when it isn't glued) drops to its own line at +`indent`.
+
+    -- arg0 glued (single-line, same row as fn):
+    foo bar
+        { record }
+        baz
+
+    -- fn alone (arg0 on a later row, or arg0/fn multiline):
+    foo
+        bar
+        { record }
+        baz
+
+This is reparse-stable: gluing keeps `arg0` on the function's row and single
+line, so a reparse re-glues it; not gluing puts `arg0` on its own (later) row,
+so a reparse still sees the newline before it and keeps the function alone.
+elm-format never glues more than the single `arg0`, so neither do we — a second
+simple argument (`baz` above) always drops to its own line.
+-}
+buildCallDocBroken : Int -> Array LPNode -> Result String Doc
+buildCallDocBroken indent nodes =
+    if shouldGlueFirstArg nodes then
+        let
+            preamble =
+                Array.takeFirst 2 nodes
+
+            rest =
+                Array.dropFirst 2 nodes
+        in
+        if Array.isEmpty rest then
+            -- Just `fn arg0` — nothing forces a break after all.
+            buildFlowDocInline 0 nodes
+
+        else
+            Result.map2
+                (\preambleDoc restDoc ->
+                    R.concat preambleDoc (R.nest indent (R.concat R.hardNl restDoc))
+                )
+                (buildFlowDocInline 0 preamble)
+                (buildFlowDocBroken 0 rest)
+
+    else
+        buildFlowDocBroken indent nodes
+
+
+-- True when a broken function application should keep its first argument glued
+-- to the function on the opening line (see `buildCallDocBroken`). Requires the
+-- function and its first argument to both render single-line and to share a
+-- source row — mirroring elm-format's `FAJoinFirst` + `SingleLine arg0` case.
+shouldGlueFirstArg : Array LPNode -> Bool
+shouldGlueFirstArg nodes =
+    when { fn = Array.first nodes, arg0 = Array.get 1 nodes } is
+        { fn = Just fn, arg0 = Just arg0 } ->
+            not (nodeIsComment fn)
+                && not (nodeIsComment arg0)
+                && not (flowChildForcesVertical fn)
+                && not (flowChildForcesVertical arg0)
+                && nodesShareStartRow fn arg0
+
+        _ ->
+            False
+
+
+-- True when both nodes have a known start position on the same source row.
+nodesShareStartRow : LPNode -> LPNode -> Bool
+nodesShareStartRow a b =
+    when { pa = lpnFirstPos a, pb = lpnFirstPos b } is
+        { pa = Just posA, pb = Just posB } ->
+            posA.row == posB.row
+
+        _ ->
+            False
+
+
 -- `inlineStart` says whether the first node of this flow continues a line the
 -- caller already started. It only affects a *leading single-line* block
 -- comment: in an inline context it stays inline; otherwise (a block/vertical
@@ -1319,7 +1398,7 @@ makePDoc box children =
 
         AcrossOrVertical { forceVertical, checkContentVertical } ->
             if forceVertical || (checkContentVertical && anyChildForcesVertical children) then
-                buildFlowDocBroken grenIndent children
+                buildCallDocBroken grenIndent children
 
             else
                 buildFlowDoc grenIndent children
@@ -2826,7 +2905,7 @@ buildBodyDoc opNode bodyNodes =
         -- this fold's result — so this fold needs its own further +grenIndent
         -- for later arguments to land one level deeper than the function name,
         -- not at the same column as it.
-        buildFlowDocBroken grenIndent bodyNodes
+        buildCallDocBroken grenIndent bodyNodes
 
     else
         buildFlowDoc 0 bodyNodes

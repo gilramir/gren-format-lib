@@ -1743,6 +1743,28 @@ passed =
             0
 ```
 
+When the lambda comes **straight after `|>`** — the whole step is `|> (\... -> ...)`,
+with no function in between — the lambda stays glued to `|>` and its body drops
+below, the same as above. The one difference is the closing `)`: it lines up under
+the step (4 spaces in from `|>`) rather than directly under its own `(`:
+
+```gren
+summary =
+    counts
+        |> Dict.foldl addRow []
+        |> (\rows ->
+                if Array.isEmpty rows then
+                    "no data"
+
+                else
+                    String.join "\n" rows
+            )
+```
+
+This is a small, deliberate difference from `elm-format`, which lines the `)` up
+one column further left, directly under the `(`. See
+[Comparison with elm-format](#comparison-with-elm-format), point 11.
+
 **Your row placement is the choice.** The formatter uses the multi-line form when
 the lambda body starts on a different row from `->`, and the inline form when the
 body is on the same row.
@@ -2341,6 +2363,36 @@ records the decision made and why.
     parse unambiguously in that position (see
     [Function application](#function-application)). Covered by new fixtures
     `RedundantArgParens.dirty.gren` / `.formatted.gren`.
+
+11. **Closing `)` of a lambda written straight after `|>` — keep as is.** When a
+    pipeline step is a parenthesized lambda used directly as the pipe's operand
+    (`|> (\x -> ...)`, with no function between `|>` and the `(`), gren-format
+    closes the `)` lined up under the step. gren-format writes:
+
+    ```gren
+    summary =
+        counts
+            |> Dict.foldl addRow []
+            |> (\rows ->
+                    if Array.isEmpty rows then
+                        "no data"
+
+                    else
+                        String.join "\n" rows
+                )
+    ```
+
+    elm-format lays the body out identically and differs only on the last line:
+    it pulls the `)` one space further left, so it sits directly under the `(` of
+    `(\rows ->`. elm-format lands there through a width-rounding rule it applies
+    to indentation generally — gren-format deliberately doesn't copy that rule (it
+    would make indentation depend on the exact width of the tokens on the line
+    above, rather than staying a plain multiple of 4), so this one follow-on
+    difference comes with it. It only shows up for a lambda that is the *direct*
+    operand of `|>`/`<|`; a lambda passed as a function argument
+    (`|> Task.andThen (\x -> ...)`) already lines its `)` up under the `(` in
+    both formatters (see [Pipelines](#pipelines)). Rare, and the shape is stable
+    when reformatted, so it's left as is.
 
 #### Minor/cosmetic — not acted on
 

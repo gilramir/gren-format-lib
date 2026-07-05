@@ -162,8 +162,8 @@ summariseCart ({ identifier, items, flags } as inboundCart) =
         formatLine =
             \({ sku, quantity, unitPriceCents } as wholeItem) ->
                 -- comment inside a lambda body
-                String.join
-                    " " -- inline comment after the function being called
+                String.join " "
+                    -- inline comment after the function being called
                     -- comment before the first argument-item of join
                     [ sku
                     -- comment between arguments
@@ -255,8 +255,7 @@ torturedComments primaryIntValue secondaryStringValue tertiaryBoolValue =
             if {- inline block between `if` and condition -} tertiaryBoolValue then
                 {- inline block between condition and `then` -}
                 -- comment between then and body
-                String.append
-                    secondaryStringValue
+                String.append secondaryStringValue
                     {- block comment between function and its argument -}
                     "!"
 
@@ -281,8 +280,7 @@ torturedComments primaryIntValue secondaryStringValue tertiaryBoolValue =
                 {- comment between an arg and the next arg in a call -}
                 "many/"
                 {- another comment in the gap between arguments -}
-                (String.append
-                    guardedString
+                (String.append guardedString
                     {- yet another inter-arg comment -}
                     (String.fromInt otherwiseAnyValue)
                 )

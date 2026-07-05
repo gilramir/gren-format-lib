@@ -48,8 +48,7 @@ letArg xs =
 
 
 trailingArg dict =
-    update
-        key
+    update key
         (\v ->
             if v > 0 then
                 v
