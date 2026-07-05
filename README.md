@@ -2280,8 +2280,50 @@ Gren is a spiritual descendant of Elm, so `gren format` and `elm-format` should 
 shared syntax unless there's a deliberate reason not to. We ran an audit on the
 formatter's own test fixtures (`gren-format-lib/tests/testfiles/Formatter/`),
 converting the Gren code to Elm, ran them through
-`elm-format` and catalogued every divergence. Each finding below
-records the decision made and why.
+`elm-format` and catalogued every divergence.
+
+Before the specific findings, it helps to see how alike the two tools are
+underneath — that's what explains why they agree on the overwhelming majority of
+code, and why the places they *don't* look the way they do.
+
+#### The idea both formatters share
+
+Neither formatter reflows your code to fit a page width. There is no line-length
+limit and no search for the "best" arrangement in either tool. Both lay a piece
+of code out vertically only when **(a)** you wrote it across multiple lines, or
+**(b)** something inside it is itself multi-line and forces the rest open.
+Everything else is kept the way you wrote it. This shared "your line breaks are
+your layout decisions" philosophy (see [Why this design?](#why-this-design)) is
+why the two formatters produce the same output almost everywhere — and why, when
+they *do* differ, it is never because one of them decided a line "got too long."
+
+#### The two ways they actually differ
+
+Given that shared foundation, the mechanics differ in just two ways:
+
+- **How far things indent.** gren-format always indents in fixed steps of four
+  spaces. elm-format instead rounds each indent up to the next multiple of four,
+  measured from wherever the text on the line above happens to sit — so its
+  indentation can depend on the exact width of the tokens above it. That is the
+  source of the small one-column offset in point 11 below; gren-format
+  deliberately keeps the simpler fixed-step rule.
+- **How comments are tracked.** This is the deeper one. elm-format has its own
+  parser that keeps every comment pinned to the exact spot in the program where
+  it was written, and carries it through untouched. gren-format is built on top
+  of the *real Gren compiler's* parser — the same one that compiles your code —
+  and that parser throws comments away, because the compiler doesn't need them.
+  So gren-format has to put each comment back afterwards by looking at where in
+  the source it sat and matching that against the surrounding code. That
+  reconstruction is the reason the formatter is so careful about source
+  positions, and the reason running it twice must produce byte-for-byte identical
+  output (see [Idempotency](#idempotency)). elm-format never has to solve this,
+  because its comments never leave the spot they were parsed into. The upside of
+  gren-format's choice is that it always agrees with the real language — it can
+  never drift from what the compiler actually accepts.
+
+The rest of this section catalogues the places where, given all of the above, we
+made a deliberately different choice from elm-format. Each finding records the
+decision and why.
 
 1. **Blank lines: comment-attached vs. declaration-attached — keep as is.**
    elm-format always puts its 2-blank-line separator immediately above the

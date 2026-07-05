@@ -425,6 +425,98 @@ comment-bearing fixture so the fuzzers exercise it.
 
 ---
 
+## Why the architecture is comment-driven — contrasted with elm-format
+
+Almost everything above (position caches, the separate `Comments` pass, the
+idempotency fuzzer, the `forceVertical`-stability rule) exists because of one
+upstream decision: **gren-format reuses the production Gren compiler's parser
+(`compiler-common`), and that parser discards comments.** elm-format made the
+opposite choice, and comparing the two is the fastest way to understand why this
+codebase looks the way it does.
+
+### elm-format: comments live inside the AST
+
+elm-format ships its own parser, purpose-built for formatting, whose AST is
+*comment-carrying*. Comments are first-class nodes in typed structural slots:
+
+```haskell
+data Comment = BlockComment [String] | LineComment String | ...
+
+Commented c a                       -- a value 'a' plus its comments (the "C" ctor)
+
+data CommentType = BeforeTerm | AfterTerm | Inside | BeforeSeparator | AfterSeparator
+type C2 l1 l2 = Commented (Comments, Comments)      -- e.g. pre + post slots
+type C1Eol l  = Commented (Comments, Maybe String)  -- + an end-of-line comment
+```
+
+The list types (`Sequence`, `OpenCommentedList`, `ExposedCommentedList`) carry
+comment slots on **every element and every separator**. The parser fills these
+slots as it consumes source, so a comment's attachment is decided
+*grammatically* — `{- x -}` is `AfterTerm` on `a` because the parser read it in
+that grammatical position. There is no position arithmetic anywhere.
+
+Rendering then treats a slotted comment as just another `Box` (elm-format's
+render IR — a bottom-up `SingleLine | Stack | MustBreak` of lines) and runs it
+through the *same* `spaceSepOrStack` combinators as everything else:
+`formatComment (LineComment …)` is a `MustBreak` box (a `--` inherently ends its
+line); a one-line `BlockComment` is a `SingleLine` box (so `{- x -}` can stay
+inline); an end-of-line comment on a single-line box becomes `MustBreak`, which
+is exactly how a trailing comment forces its enclosing structure open — straight
+from the slot, no inference. **There is no separate comment pass.** Comments ride
+the tree from parse to render.
+
+That same bottom-up `Box` model is also where elm-format's join-vs-stack
+decisions live: `allSingles children` asks "is every part still one line?", and
+author newlines enter as parser flags (`FASplitFirst`/`FAJoinFirst`,
+`ForceMultiline`, `Multiline`). Indentation is a tab-stop (`Tab` rounds to the
+next multiple of 4) plus `prefix` (pads continuation lines by the exact character
+width of the prefix) — the mechanism behind the fixed-4-vs-round-to-4 divergence
+noted in the README.
+
+### gren-format: comments are re-attached by position
+
+Our AST (`Compiler.Ast.Source`) has no comment slots. Comments arrive as a flat,
+source-ordered side list (`Compiler.Parse.Context`, `Located (Line | Block)`) and
+are re-attached to the already-built LPT **geometrically** by
+`Formatter.Logical.Comments`: a comment at `(row, col)` is placed next to
+whichever token its position falls between. Everything that looks like incidental
+bookkeeping in this codebase is forced by that one fact:
+
+- **The LPT carries source positions on every node** (`firstPos`/`lastPos`/
+  `minRow`/`maxRow`, computed by the smart constructors). elm-format's `Box`
+  carries *no* positions — it never needs to *locate* a comment. Ours does.
+- **Attachment must survive a reformat.** We format, our output is re-parsed, and
+  comments are re-attached from their *new* positions. If a comment lands in a
+  different relative gap the second time, the output shifts — the "comment moved
+  on reparse" bug class. `fuzz-idempotency.py` (a `{- ¤ -}` in every inter-token
+  gap, format twice, demand byte-equality) is the safety net specifically for
+  this. elm-format gets comment-idempotency for free: the comment never leaves
+  its slot.
+- **`forceVertical` stability** (the rule in *Things to worry about*) is the same
+  hazard one level up — our author-layout signal is recomputed from positions
+  each pass, so it must be invariant under reformatting; elm-format's equivalent
+  is a parser flag baked into the tree once.
+- **Render-time comment logic re-derives elm's typed slots from geometry.**
+  `buildFlowDocImpl`'s `SingleLineComment`/`BlockComment` handling,
+  `peelTrailingComments`, `splitLeadingComments`, `boxKeepsTrailingCommentOutside`,
+  and the `prevElided` zero-width-token hazard all exist to recover
+  "trailing-same-line vs standalone-own-line vs end-of-line" — the distinctions
+  elm-format reads directly off `BeforeTerm` / `AfterTerm` / `C0Eol`. Our version
+  keys off `loc.start.row == acc.prevRow` and friends.
+
+### The tradeoff in one line
+
+elm-format **owns its parser**, so comments are grammatical and idempotency is
+automatic — but it must track the Elm language itself. gren-format **borrows the
+compiler's parser**, so it can never diverge from what Gren actually accepts — but
+it pays for that by reconstructing comment attachment from positions, which is
+what the LPT, the `Comments` pass, and the fuzzers are all in service of. When you
+add a construct that can hold comments, you are extending *our* half of that
+tradeoff: get the positions right (step 3 of the checklist above) and give it a
+comment-bearing fixture so the fuzzers exercise the reconstruction.
+
+---
+
 ## Where to read more
 
 - `README.md` — authoritative, example-by-example description of every rule.
