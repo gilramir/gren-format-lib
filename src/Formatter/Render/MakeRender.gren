@@ -487,12 +487,11 @@ joinBlock rule sep accDoc childDoc =
 -- children, returning the remaining body nodes plus a doc that glues those
 -- comments back on inline (each preceded by a space), in source order.
 --
--- A comment left inside the block's flow rides a soft break, so an overflowing
--- line drops it onto its own line one row below the body's last token,
--- dedented; on reparse it sits past the body's range and re-attaches at the
--- enclosing level, the body collapses, and the layout oscillates
--- (non-idempotent). Gluing keeps the comment on the body's last row across
--- reformats.
+-- A comment left inside the block's flow, on its own source row already,
+-- renders on its own line one row below the body's last token, dedented; on
+-- reparse it sits past the body's range and re-attaches at the enclosing
+-- level, the body collapses, and the layout oscillates (non-idempotent).
+-- Gluing keeps the comment on the body's last row across reformats.
 --
 -- `peelLineComments` selects the caller's rule:
 --
@@ -2565,8 +2564,9 @@ The inline `R.group` (always flat) and the forced-vertical form share the same
 fixed point.
 
 A signature written on one row that carries a comment falls back to the
-original fill renderer: the all-or-nothing break points have no stable anchor
-for a trailing comment on an otherwise-inline signature. A signature the
+generic comment-aware flow renderer (`buildFlowDoc`): the all-or-nothing break
+points have no stable anchor for a trailing comment on an otherwise-inline
+signature. A signature the
 author wrote *across* rows uses the canonical per-segment layout regardless of
 whether it carries a comment — a comment doesn't get its own, differently-shaped
 signature than a comment-free one would; `buildFlowDoc` (used per header/segment
@@ -3241,7 +3241,8 @@ written across rows breaks **only at its lowest-precedence operators**
 The inline and forced-vertical forms share the same doc (inline uses `R.nl`,
 forced uses `R.hardNl` so an outer `name = body` group can't collapse a
 multi-line chain), so they are byte-identical when flattened and formatting is a
-fixed point. A chain carrying any comment falls back to the `OpAndRhs` fill renderer
+fixed point. A chain carrying any comment falls back to the generic
+comment-aware `OpAndRhs` flow renderer
 (`buildFlowDoc`/`buildFlowDocBroken grenIndent children`, picked by `forceVertical`
 the same way the precedence-aware form is), so wrapped operators indent +4 like the
 precedence-aware form and the split between the first operand and the rest of the
@@ -3264,8 +3265,9 @@ author's layout entirely), not full parity with the comment-free renderer.
 makeBinopDoc : Bool -> Array LPNode -> Result String Doc
 makeBinopDoc forceVertical children =
     if Array.any subtreeHasComment children then
-        -- Comment-bearing chain: fall back to the fill renderer. Use a +4
-        -- continuation indent (grenIndent), matching the precedence-aware form
+        -- Comment-bearing chain: fall back to the generic comment-aware flow
+        -- renderer. Use a +4 continuation indent (grenIndent), matching the
+        -- precedence-aware form
         -- and the comment-bearing signature fallback, so wrapped operators sit
         -- under the first operand rather than back at its own column.
         --
