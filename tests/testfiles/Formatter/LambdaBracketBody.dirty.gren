@@ -1,0 +1,24 @@
+module LambdaBracketBody exposing (bumpFlat, bumpUpdate, bumpRecord, bumpArray)
+
+
+bumpFlat =
+    \x -> { x | a = 1 }
+
+
+bumpUpdate =
+    \x -> { x
+        | a = 1
+        , b = 2
+        }
+
+
+bumpRecord =
+    \x -> { a = 1
+        , b = 2
+        }
+
+
+bumpArray =
+    \x -> [ 1
+        , 2
+        ]

@@ -1,6 +1,6 @@
 effect module TrickyComments where {- c1 -} { command = TrickyCmd {- c2 -}
-    , subscription = TrickySub {- c3 -}
-    } exposing (..)
+                                            , subscription = TrickySub {- c3 -}
+                                            } exposing (..)
 
 {-| Accumulates one regression case per previously-mishandled comment
 placement, identified by the bug letters from broken.txt.
@@ -90,10 +90,10 @@ sigToDef x =
 -- starts at the variable's column and the comment can descend into
 -- the RecordUpdate and land between the base and the first field.
 extensibleSig : { a
-        {- between extension var and pipe -}
-        | foo : Int
-        , bar : String
-    } -> Int
+                    {- between extension var and pipe -}
+                    | foo : Int
+                    , bar : String
+                } -> Int
 extensibleSig _ =
     0
 
@@ -120,9 +120,9 @@ emptyArray =
 -- into the bracket-list and land as its last child.
 arrayPatTrailing =
     \[ a
-        , b
-        , c {- trailing comment after last array-pattern item -}
-        ] -> a
+     , b
+     , c {- trailing comment after last array-pattern item -}
+     ] -> a
 
 
 -- Bug E — a block comment between a record pattern and `as` in an

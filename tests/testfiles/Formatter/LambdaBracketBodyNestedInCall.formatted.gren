@@ -1,0 +1,8 @@
+module LambdaBracketBodyNestedInCall exposing (updateHeaders)
+
+
+updateHeaders sinkConfig =
+    { sinkConfig | headers = Array.map (\headerEntry ->
+                { headerEntry | headerName = String.toLower headerEntry.headerName {- lowercase header names -}
+                }
+            ) sinkConfig.headers }

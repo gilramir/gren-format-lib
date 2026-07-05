@@ -83,20 +83,20 @@ type alias HasIdentifier r =
 
 type alias Container =
     HasIdentifier { payload : String
-    , flags : { isReady : Bool, isVerified : Bool, isPersisted : Bool, isShadowBanned : Bool, isQuarantined : Bool }
-    , nestedConfiguration : { retryCount : Int, exponentialBackoffMillis : Int, jitterMillis : Int, maxAttempts : Int }
-    , recentMessages : Array { author : String, timestampMillis : Int, body : String, replyToIdentifier : Maybe String }
-    }
+                  , flags : { isReady : Bool, isVerified : Bool, isPersisted : Bool, isShadowBanned : Bool, isQuarantined : Bool }
+                  , nestedConfiguration : { retryCount : Int, exponentialBackoffMillis : Int, jitterMillis : Int, maxAttempts : Int }
+                  , recentMessages : Array { author : String, timestampMillis : Int, body : String, replyToIdentifier : Maybe String }
+                  }
 
 
 {-| A configuration record with deeply nested option groups. -}
 type alias Configuration =
     { tracing : { isEnabled : Bool
-        , sinks : Array { kind : String, endpoint : String, headers : Array { headerName : String, headerValue : String } }
-        }
+                , sinks : Array { kind : String, endpoint : String, headers : Array { headerName : String, headerValue : String } }
+                }
     , scheduler : { defaultTickMillis : Int
-        , overrides : Array { lane : String, tickMillis : Int, priority : Int }
-        }
+                  , overrides : Array { lane : String, tickMillis : Int, priority : Int }
+                  }
     , featureFlags : Array { flagName : String, isOn : Bool, rolloutPercent : Int }
     }
 
@@ -207,15 +207,15 @@ processConfiguration { tracing = tracingSection, scheduler = schedulerSection, f
                     { incomingContainer
                         | flags = updateFlagsForConfigDecision flags
                         , nestedConfiguration = { nestedConfiguration
-                                  | exponentialBackoffMillis = Math.max nestedConfiguration.exponentialBackoffMillis schedulerDecision
-                                  , jitterMillis = nestedConfiguration.jitterMillis + (schedulerDecision // 10)
-                                  , maxAttempts =
-                                        if rolloutDecision "aggressive-retry" then
-                                            nestedConfiguration.maxAttempts * 2
+                                                    | exponentialBackoffMillis = Math.max nestedConfiguration.exponentialBackoffMillis schedulerDecision
+                                                    , jitterMillis = nestedConfiguration.jitterMillis + (schedulerDecision // 10)
+                                                    , maxAttempts =
+                                                          if rolloutDecision "aggressive-retry" then
+                                                              nestedConfiguration.maxAttempts * 2
 
-                                        else
-                                            nestedConfiguration.maxAttempts
-                              }
+                                                          else
+                                                              nestedConfiguration.maxAttempts
+                                                }
                         , payload = String.join " | " [ identifier, tracingSummary.kind, String.fromInt schedulerDecision, String.fromInt tracingSummary.header_count ]
                     }
             in
@@ -274,21 +274,21 @@ applyOverlays leadingOverridePriority tracingIsEnabled ({ flags, nestedConfigura
                 _ ->
                     { containerWithConditionallyTrimmedPayload
                         | nestedConfiguration = { nestedConfiguration
-                                  | retryCount = leadingOverridePriority
-                                  , exponentialBackoffMillis = nestedConfiguration.exponentialBackoffMillis * 2
-                                  , jitterMillis =
-                                        if leadingOverridePriority > 10 then
-                                            nestedConfiguration.jitterMillis * 3
+                                                    | retryCount = leadingOverridePriority
+                                                    , exponentialBackoffMillis = nestedConfiguration.exponentialBackoffMillis * 2
+                                                    , jitterMillis =
+                                                          if leadingOverridePriority > 10 then
+                                                              nestedConfiguration.jitterMillis * 3
 
-                                        else
-                                            nestedConfiguration.jitterMillis + 1
-                                  , maxAttempts = Math.max nestedConfiguration.maxAttempts leadingOverridePriority
-                              }
+                                                          else
+                                                              nestedConfiguration.jitterMillis + 1
+                                                    , maxAttempts = Math.max nestedConfiguration.maxAttempts leadingOverridePriority
+                                                }
                         , flags = { flags
-                                  | isPersisted = leadingOverridePriority > 5
-                                  , isQuarantined = leadingOverridePriority < 0
-                                  , isShadowBanned = leadingOverridePriority > 100
-                              }
+                                      | isPersisted = leadingOverridePriority > 5
+                                      , isQuarantined = leadingOverridePriority < 0
+                                      , isShadowBanned = leadingOverridePriority > 100
+                                  }
                         , payload = "priority=" ++ String.fromInt leadingOverridePriority
                     }
     in

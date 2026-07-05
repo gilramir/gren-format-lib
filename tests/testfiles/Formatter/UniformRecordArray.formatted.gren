@@ -4,8 +4,8 @@ module UniformRecordArray exposing (..)
 -- One author-broken record makes every sibling expand
 mixedAuthor =
     [ { name = "circle", sides = 0 }, { name = "triangle"
-      , sides = 3
-      } ]
+                                      , sides = 3
+                                      } ]
 
 
 -- All flat and fitting stays flat

@@ -1080,7 +1080,15 @@ buildFlowDocImpl indent inlineStart brokenFlow nodes =
                                     renderWhenBranchNode acc nodeChildren
 
                                 SoftIndentedBlock ->
-                                    renderBlockNode softIndentedBlockRule acc nodeChildren
+                                    let
+                                        rule =
+                                            if softIndentedBlockChildForcesVertical nodeChildren then
+                                                indentedBlockRule
+
+                                            else
+                                                softIndentedBlockRule
+                                    in
+                                    renderBlockNode rule acc nodeChildren
 
                                 EmptyLine ->
                                     -- A blank-line marker between `let` bindings,
@@ -1212,6 +1220,55 @@ on every subsequent one. Mirrors the `ParenBlock` fix (`checkContentVertical`
 anyChildForcesVertical : Array LPNode -> Bool
 anyChildForcesVertical children =
     Array.any flowChildForcesVertical children
+
+
+{-| True when a `SoftIndentedBlock`'s sole child is a bracketed *literal*
+(a record, record update, or array — never `if`/`when`/`let`, which glue
+their keyword to `->` regardless of their own verticality and manage their
+body's indentation separately) that itself renders vertical.
+
+Used to switch a lambda body from gluing its opening bracket to `->` (the
+usual soft-break behavior) onto its own indented line instead — matching
+elm-format, and gren's own existing rule for a forced-vertical record used as
+a call argument (see "A record argument that renders across rows drops to
+its own line" in the README). Reuses `nodeForcesVertical` (a full render +
+`R.hasHardBreak` check) so a comment-forced-vertical literal is treated the
+same on every pass, regardless of whether *this* box happens to be classified
+`AlwaysVertical` (author wrote it across rows) or `AllAcrossOrAllVertical`
+with an embedded comment — those two classifications are not stable relative
+to each other once a comment is involved (a comment-forced-vertical render
+necessarily leaves fields on separate physical rows, which a reparse then
+also sees as "the author wrote it across rows"), so a check that treats them
+differently oscillates. `isLambdaMultiline` in `makeParenBlockDoc` mirrors
+this same content check for the same reason — see its doc comment.
+-}
+softIndentedBlockChildForcesVertical : Array LPNode -> Bool
+softIndentedBlockChildForcesVertical children =
+    when Array.popFirst children is
+        Just { first = only, rest } ->
+            if not (Array.isEmpty rest) then
+                False
+
+            else
+                let
+                    isBracketLiteral =
+                        when lpnBox only is
+                            AlwaysVertical _ ->
+                                True
+
+                            AllAcrossOrAllVertical _ ->
+                                True
+
+                            RecordUpdate _ ->
+                                True
+
+                            _ ->
+                                False
+                in
+                isBracketLiteral && nodeForcesVertical only
+
+        Nothing ->
+            False
 
 
 -- ═══ THE BOX DISPATCH ═══
@@ -1905,10 +1962,11 @@ makeRecordUpdateDoc forceVertical baseName children =
                     Ok (R.text ("{ " ++ baseName ++ " }"))
 
                 Just _ ->
-                    Ok (R.vcat
-                            ([ R.text ("{ " ++ baseName) ]
-                                ++ Array.map (\c -> R.concat (R.text "    ") (commentNodeDoc c)) commentsBefore
-                                ++ [ R.text "}" ]))
+                    Ok (R.align
+                            (R.vcat
+                                ([ R.text ("{ " ++ baseName) ]
+                                    ++ Array.map (\c -> R.concat (R.text "    ") (commentNodeDoc c)) commentsBefore
+                                    ++ [ R.text "}" ])))
 
         Just { first = firstField, rest = restFields } ->
             -- Wrap each field's flow with R.align so that when the field value
@@ -1986,7 +2044,7 @@ makeRecordUpdateDoc forceVertical baseName children =
                                 Err e
 
                             Ok fieldLines ->
-                                Ok (R.vcat ([ R.text ("{ " ++ baseName) ] ++ fieldLines ++ [ R.text "}" ]))
+                                Ok (R.align (R.vcat ([ R.text ("{ " ++ baseName) ] ++ fieldLines ++ [ R.text "}" ])))
 
             else
                 -- Inline form (no comments, author wrote it on one line): a group
@@ -3470,7 +3528,18 @@ listBoxesWithBracketsUsing itemRenderer open close nodes =
                     in
                     result ++ [ R.text close ]
             in
-            Ok (R.vcat prefixed)
+            -- `Align` anchors every continuation line (the `, `/close-bracket
+            -- lines) to wherever `open` is *actually* printed, rather than to
+            -- the ambient nest level accumulated by whatever flow this list
+            -- happens to sit inside. Most callers keep the two in lockstep by
+            -- construction (e.g. `listItemBoxDoc`'s manual `+2` nest for a
+            -- nested bracket, matching "[ "/", "'s fixed width) so this is a
+            -- no-op there; it matters when a caller's nest doesn't actually
+            -- match the printed column — e.g. a bracketed *pattern* glued
+            -- inline after `when ... is` or a function name, where the
+            -- surrounding flow's own `+4` doesn't correspond to where the
+            -- bracket was printed (see `WhenBranchPattern`/`AcrossOrVertical`).
+            Ok (R.align (R.vcat prefixed))
 
 
 -- ═══ WHEN FLOW ═══
@@ -3667,7 +3736,17 @@ makeParenBlockDoc parenFlags children =
         genericFallback =
             -- If the second direct child is IndentedBlock, the lambda
             -- body is on a separate row — put ) on its own line so the
-            -- closing paren doesn't trail the body text.
+            -- closing paren doesn't trail the body text. A `SoftIndentedBlock`
+            -- body counts too when its own content forces it onto its own
+            -- line (`softIndentedBlockChildForcesVertical`, e.g. a
+            -- comment-forced-vertical record/array/update) — mirroring that
+            -- check here, rather than only matching on the `IndentedBlock`
+            -- box literally, keeps this stable across reformats: relying on
+            -- the box classification alone would disagree with the body's
+            -- own relocation decision once a reparse reclassifies a
+            -- comment-forced-vertical `AllAcrossOrAllVertical` as
+            -- `AlwaysVertical` (see `softIndentedBlockChildForcesVertical`'s
+            -- doc comment).
             let
                 isLambdaMultiline =
                     when Array.popFirst children is
@@ -3677,6 +3756,9 @@ makeParenBlockDoc parenFlags children =
                                     when lpnBox secondChild is
                                         IndentedBlock ->
                                             True
+
+                                        SoftIndentedBlock ->
+                                            softIndentedBlockChildForcesVertical (lpnChildren secondChild)
 
                                         _ ->
                                             False

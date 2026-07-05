@@ -20,6 +20,6 @@ withLineComment a b c d e f g h i j =
 
 
 insideRecordType : { a : Int {- inside the record type, before its close -}
-    }
+                   }
 insideRecordType =
     { a = 1 }

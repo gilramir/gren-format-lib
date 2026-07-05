@@ -1,0 +1,7 @@
+module WhenRecordPatternFlat exposing (describe)
+
+
+describe point =
+    when point is
+        {x,y} ->
+            String.fromInt x ++ ", " ++ String.fromInt y

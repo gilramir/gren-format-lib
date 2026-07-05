@@ -22,6 +22,6 @@ letDestructure value =
 
 
 multilineRecord { alpha
-        , beta
-        } =
+                , beta
+                } =
     alpha

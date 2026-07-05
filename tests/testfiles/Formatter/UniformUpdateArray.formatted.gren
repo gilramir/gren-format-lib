@@ -8,9 +8,9 @@ base =
 -- author-broken update expands its flat sibling
 updates =
     [ { base
-        | name = "circle"
-        , sides = 0
-    }
+          | name = "circle"
+          , sides = 0
+      }
     , { base | name = "tri", sides = 3 }
     ]
 

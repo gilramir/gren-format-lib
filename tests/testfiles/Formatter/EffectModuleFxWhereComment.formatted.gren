@@ -1,6 +1,6 @@
 effect module EffectModuleFxWhereComment where { command = TrickyCmd {- c2 -}
-    , subscription = TrickySub {- c3 -}
-    } exposing (..)
+                                               , subscription = TrickySub {- c3 -}
+                                               } exposing (..)
 
 {- trailing comment after the exposing list -}
 

@@ -1081,6 +1081,79 @@ movePoint dx dy pt =
     }
 ```
 
+Note the vertical shape is different from a plain record literal: the `|`/`,`
+field lines indent 4 spaces *past* the opening `{`, while the closing `}`
+comes back and lines up flush *with* `{` — not with the fields. This holds
+regardless of what precedes the `{` on its own line — for example, a record
+update glued after a field name:
+
+```gren
+wrapper x =
+    { holder = { x
+                   | a = 1
+                   , b = 2
+               } }
+```
+
+Here `{` sits wherever `holder = ` happens to end; the fields still land 4
+spaces past *that* column, and `}` still lines up with it exactly.
+
+#### A lambda whose body is a forced-vertical record, update, or array drops it to its own line
+
+A lambda's body normally follows your row placement, same as any other
+lambda body (see [Lambdas](#lambdas)). A record, record update, or array
+literal is an exception: once it renders across rows — because you wrote it
+that way, or a comment forces it — it drops to its own line under `->`,
+even if you glued it there, matching elm-format and gren's own rule for a
+forced-vertical record used as a call argument
+([above](#a-record-argument-that-renders-across-rows-drops-to-its-own-line)):
+
+```gren
+-- you wrote:
+bumpUpdate =
+    \x -> { x
+        | a = 1
+        , b = 2
+        }
+
+-- formats to:
+bumpUpdate =
+    \x ->
+        { x
+            | a = 1
+            , b = 2
+        }
+```
+
+A record literal and an array literal follow the same rule:
+
+```gren
+bumpRecord =
+    \x ->
+        { a = 1
+        , b = 2
+        }
+
+
+bumpArray =
+    \x ->
+        [ 1
+        , 2
+        ]
+```
+
+A flat update, record, or array — one that fits and stays inline — is
+unaffected:
+
+```gren
+bumpFlat =
+    \x -> { x | a = 1 }
+```
+
+An `if`, `when`, or `let` body is not covered by this rule — it always keeps
+its keyword glued to `->`, managing its own body indentation separately (see
+[Lambdas](#lambdas)).
+
 #### Record field values
 
 A field value that is itself a **lambda** keeps the `\args ->` header on the
@@ -1393,6 +1466,26 @@ when n is
     -- a note about the next case
     2 ->
         "two"
+```
+
+A branch pattern that destructures a record follows your layout, same as any
+other record pattern. Written on one line, the fields stay on one line:
+
+```gren
+when point is
+    { x, y } ->
+        String.fromInt x ++ ", " ++ String.fromInt y
+```
+
+Written across rows, the fields stay across rows, aligned directly under the
+pattern's opening `{` — the same convention record literals use:
+
+```gren
+when point is
+    { x
+    , y
+    } ->
+        String.fromInt x ++ ", " ++ String.fromInt y
 ```
 
 ---

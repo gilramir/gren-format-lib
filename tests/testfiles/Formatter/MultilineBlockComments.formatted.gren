@@ -80,11 +80,11 @@ sig :
              11 c -}
     String
     -> { a
-        {- 12 a
-           12 b
-           12 c -}
-        | x : Int
-    }
+           {- 12 a
+              12 b
+              12 c -}
+           | x : Int
+       }
     -> Int
 sig a b c =
     0

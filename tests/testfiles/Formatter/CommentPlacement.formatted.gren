@@ -6,7 +6,7 @@ inlineValue =
 
 
 recordInline : { a : Int {- inline trailing the field -}
-    }
+               }
 recordInline =
     { a = 1 }
 
