@@ -1,0 +1,7 @@
+effect module EffectModuleWideSpacingComment where { command = MyCmd } exposing (..) {- note -}
+
+import Task
+
+
+type MyCmd msg
+    = MyCmd (Task.Task Never msg)

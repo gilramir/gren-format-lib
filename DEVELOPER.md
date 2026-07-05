@@ -315,7 +315,7 @@ construct") is required reading, but the short version:
 - The one recurring hazard is a comment that **trails a node's last token**: it
   must attach at the enclosing flow level (rendered at the outer indent) on
   *every* format, or its indentation oscillates across reformats. This is already
-  enforced generically by position-only tests (`trailsClaimedConstruct`,
+  enforced generically by position-only tests (`columnClaim`,
   `nextSiblingIsBoundary`); do **not** add a construct-specific comment branch —
   if `fuzz-idempotency.py` flags a trailing-comment gap, fix it in those shared
   places.

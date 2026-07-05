@@ -58,14 +58,12 @@ comment at the enclosing flow level on *every* format. Two places enforce this,
 both keyed only on token positions (`commentTrailsNode`-style tests), so they
 are largely construct-agnostic:
 
-- **Top level** (`findOrCreateOrigRow` + `trailsClaimedConstruct`): a comment
-  past a signature's / module line's last token is not *claimed* by it; it
-  becomes its own top-level `OriginalRows` (rendered at column 1). For other
-  constructs the opposite applies: an own-line comment directly below one,
-  indented at least as deep as its last content line, is claimed as its
-  trailing comment (`columnClaim`) and placed by column depth
-  (`appendTrailingComment`) — the render column re-triggers the same claim on
-  reparse, so both the indented and the margin placement are fixed points.
+- **Top level** (`findOrCreateOrigRow` + `columnClaim`): an own-line comment
+  directly below a construct, indented at least as deep as its last content
+  line, is claimed as its trailing comment (`columnClaim`) and placed by
+  column depth (`appendTrailingComment`) — the render column re-triggers the
+  same claim on reparse, so the placement is a fixed point. This applies
+  uniformly, including to signatures and the module line.
 - **Inner descent** (`insertCommentIntoSubtree`): the formatter does not
   *descend* into a child it trails when the next sibling is a flow boundary
   (`nextSiblingIsBoundary` — the `in` keyword, the next binding, the next branch)
@@ -217,9 +215,9 @@ mkCommentLpBox locComment =
 -- PHASE 1: FIND THE TOP-LEVEL SLOT
 --
 -- Pick (or splice) the root-child OriginalRows the comment belongs to, applying
--- the top-level half of the trailing-comment boundary rule (columnClaim /
--- trailsClaimedConstruct). See appendTrailingComment (end of file) for where a
--- column-claimed trailing comment is finally placed.
+-- the top-level half of the trailing-comment boundary rule (columnClaim). See
+-- appendTrailingComment (end of file) for where a column-claimed trailing
+-- comment is finally placed.
 
 
 {-
@@ -250,10 +248,8 @@ findOrCreateOrigRow row col stype nodes =
 
                         Nothing ->
                             when lpnBox node is
-                                OriginalRows { first = first, last = last, stype = nodeStype } ->
-                                    if first <= row
-                                        && row <= last
-                                        && not (trailsClaimedConstruct nodeStype node row col) then
+                                OriginalRows { first = first, last = last } ->
+                                    if first <= row && row <= last then
                                         { acc | found = Just node }
 
                                     else
@@ -327,14 +323,7 @@ construct's last row + 1), the author's column decides the attachment:
 This is what makes a deep trailing comment a reparse fixed point: the first
 format renders it own-line at the construct's inner indent, and this rule
 re-claims it at that same column on every subsequent format. A blank line
-between the construct and the comment (row gap >= 2) always detaches it.
-
-Constructs whose *inline* trailing comments are declined to the margin by
-`trailsClaimedConstruct` (signatures and the module line) never column-claim
-either: claiming would render the comment glued/indented, which the decline
-then re-homes to the margin on reparse — re-creating the oscillation this rule
-exists to prevent. For those two, the margin is the single canonical home for
-every trailing comment. -}
+between the construct and the comment (row gap >= 2) always detaches it. -}
 columnClaim :
     Int
     -> Int
@@ -352,8 +341,8 @@ columnClaim row col nodes =
                     { index = st.index + 1
                     , found =
                         when lpnBox node is
-                            OriginalRows { last, stype } ->
-                                if last + 1 == row && not (declinesTrailingComments stype) then
+                            OriginalRows { last } ->
+                                if last + 1 == row then
                                     Just { idx = st.index, node = node }
 
                                 else
@@ -431,53 +420,6 @@ columnClaim row col nodes =
 
                     else
                         Nothing
-
-
-{-| True for a comment positioned after the last token of a top-level construct
-that would otherwise *claim* it for its own `OriginalRows` and render it at the
-construct's continuation indent — when on reparse (the comment now on its own
-line, one row past the construct's range) it re-attaches as a top-level comment
-at column 1. The indent then oscillates across reformats.
-
-Declining to claim it makes `findOrCreateOrigRow` splice a fresh top-level
-`OriginalRows` after the construct, so the comment renders at column 1 on every
-format. Two constructs need this:
-
-  - `StFunctionSignature` — a comment after the signature's last type token,
-    before the definition (canonical: a leading comment of the definition).
-  - `StModule` — a comment after the module line's `exposing ( … )`, whose `)`
-    has no AST position, so when the long module line wraps the comment lands at
-    the continuation indent on the first format but escapes to column 1 on
-    reparse (canonical: a top-level comment after the module line).
-
-The comment must be genuinely past the construct's content: one still inside a
-trailing record/paren of the signature, or inside the exposing list before its
-close, reports `commentInsideTrailingBracket` and is left to descend normally. A
-header comment (before the module name / mid-keyword) is not past the last token,
-so `subtreeEndsBefore` is false and it stays claimed by the module line.
--}
-trailsClaimedConstruct : SyntaxType -> LPNode -> Int -> Int -> Bool
-trailsClaimedConstruct stype node row col =
-    declinesTrailingComments stype
-        && subtreeEndsBefore node row col
-        && not (commentInsideTrailingBracket node row col)
-
-
-{-| Constructs whose canonical home for every trailing comment is the margin
-(column 1). Both attachment layers consult this — `trailsClaimedConstruct`
-(declining an inline trailing comment) and `columnClaim` (declining the
-own-line column claim) — so they can never disagree and oscillate. -}
-declinesTrailingComments : SyntaxType -> Bool
-declinesTrailingComments stype =
-    when stype is
-        StFunctionSignature ->
-            True
-
-        StModule ->
-            True
-
-        _ ->
-            False
 
 
 -- PHASE 2: DESCEND INTO THE OWNING SUBTREE

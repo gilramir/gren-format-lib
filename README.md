@@ -9,6 +9,79 @@ This section is a guided tour of *how* it does that, at a conceptual level.
 
 ---
 
+## Table of contents
+
+- [Overview](#overview)
+- [Step 1: building the Logical Printing Tree](#step-1-building-the-logical-printing-tree)
+  - [Where comments and blank lines fit in](#where-comments-and-blank-lines-fit-in)
+  - [Example](#example)
+- [Step 2: turning the Logical Printing Tree into a render plan](#step-2-turning-the-logical-printing-tree-into-a-render-plan)
+  - [Example](#example-1)
+- [Step 3: turning the render plan into text](#step-3-turning-the-render-plan-into-text)
+  - [Example](#example-2)
+- [Why this design?](#why-this-design)
+- [Where to go next](#where-to-go-next)
+- [Gren Formatter Rules](#gren-formatter-rules)
+  - [Background](#background)
+  - [Module declaration](#module-declaration)
+  - [Exposed names sort automatically](#exposed-names-sort-automatically)
+  - [Import statements](#import-statements)
+  - [An import's exposing list sorts automatically](#an-imports-exposing-list-sorts-automatically)
+  - [Import statements sort within unbroken runs](#import-statements-sort-within-unbroken-runs)
+  - [Type signatures](#type-signatures)
+  - [Function application](#function-application)
+    - [A record argument that renders across rows drops to its own line](#a-record-argument-that-renders-across-rows-drops-to-its-own-line)
+  - [Parentheses](#parentheses)
+  - [Function body](#function-body)
+  - [Blank lines between declarations](#blank-lines-between-declarations)
+  - [Type aliases](#type-aliases)
+  - [Custom types](#custom-types)
+  - [Ports](#ports)
+  - [Infix operator declarations](#infix-operator-declarations)
+  - [Records](#records)
+    - [Record values](#record-values)
+    - [Record updates](#record-updates)
+    - [A lambda whose body is a forced-vertical record, update, or array drops it to its own line](#a-lambda-whose-body-is-a-forced-vertical-record-update-or-array-drops-it-to-its-own-line)
+    - [Record field values](#record-field-values)
+    - [Record types and extensible records](#record-types-and-extensible-records)
+  - [Array literals](#array-literals)
+  - [String literals](#string-literals)
+    - [Character literals](#character-literals)
+    - [Multi-line (triple-quoted) strings](#multi-line-triple-quoted-strings)
+  - [If expressions](#if-expressions)
+  - [When expressions](#when-expressions)
+  - [Let expressions](#let-expressions)
+  - [Patterns as arguments](#patterns-as-arguments)
+  - [Lambdas](#lambdas)
+  - [Pipelines](#pipelines)
+  - [Binary operators](#binary-operators)
+  - [Comments](#comments)
+    - [Where you put a comment is meaningful](#where-you-put-a-comment-is-meaningful)
+    - [Single-line comments (`--`)](#single-line-comments---)
+    - [Block comments (`{- ... -}`)](#block-comments----)
+      - [Comments in an effect module's header](#comments-in-an-effect-modules-header)
+    - [Doc comments (`{-| ... -}`)](#doc-comments----)
+    - [Blank lines around comments](#blank-lines-around-comments)
+    - [A comment at the *end* of something](#a-comment-at-the-end-of-something)
+    - [A trailing comment on a `when` branch body](#a-trailing-comment-on-a-when-branch-body)
+    - [When the formatter can't tell what you meant](#when-the-formatter-cant-tell-what-you-meant)
+  - [Idempotency](#idempotency)
+  - [Known limitations](#known-limitations)
+    - [A compiler bug with field access on a record-update base](#a-compiler-bug-with-field-access-on-a-record-update-base)
+    - [Wide `when` branch patterns](#wide-when-branch-patterns)
+    - [Comment placement near invisible tokens](#comment-placement-near-invisible-tokens)
+    - [A line break inside a declaration's head](#a-line-break-inside-a-declarations-head)
+    - [Comments near an effect module's `where` block](#comments-near-an-effect-modules-where-block)
+    - [A comment right after `exposing` doesn't sort with the first name](#a-comment-right-after-exposing-doesnt-sort-with-the-first-name)
+    - [Verbatim block comment bodies](#verbatim-block-comment-bodies)
+  - [Comparison with elm-format](#comparison-with-elm-format)
+    - [The idea both formatters share](#the-idea-both-formatters-share)
+    - [The two ways they actually differ](#the-two-ways-they-actually-differ)
+    - [Minor/cosmetic — not acted on](#minorcosmetic-not-acted-on)
+    - [Out of scope for comparison](#out-of-scope-for-comparison)
+
+---
+
 ## Overview
 
 Turning your source file into its formatted version happens through a pipeline
@@ -1978,7 +2051,9 @@ config =
 An effect module's `where { … }` block — the `where`, the braces, the field
 name, the `=` — carries no position information from the parser. Only the
 handler name (e.g. `MyCmd`) has a known position. A comment's placement is
-therefore judged by how close it sits to that name.
+therefore judged by how close it sits to that name: is it close enough to
+still be "inside" the block, given that the block's own boundaries aren't
+really known?
 
 Right next to the name, the comment stays with it:
 
@@ -1992,22 +2067,35 @@ effect module MyModule where
     } exposing (..)
 ```
 
-Wider spacing severs the link and the comment lands below the module line:
+Concretely, "close enough" means within a couple of columns of where the
+handler name ends — just enough room for a single space plus the closing `}`
+that has no position of its own to check against. A comment that close is
+treated as attached to the handler name and travels with it.
+
+Wider spacing pushes the comment past that margin, so it no longer reads as
+attached to the handler name. Once that link is gone, the comment falls back
+to the same rule used for a comment trailing the module line in general: it
+stays glued to the end of the line instead of to the handler name:
 
 ```gren
 -- you wrote (only more spaces before the comment):
 effect module MyModule where { command = MyCmd      {- note -} } exposing (..)
 
 -- formats to:
-effect module MyModule where { command = MyCmd } exposing (..)
-
-{- note -}
+effect module MyModule where { command = MyCmd } exposing (..) {- note -}
 ```
+
+Whatever follows the module line always gets exactly one blank line before
+it, regardless of how tight or loose the original spacing was — otherwise the
+same file could format differently depending on how close together the
+author happened to type the module line and the next line, which would work
+against [idempotency](#idempotency).
 
 #### Doc comments (`{-| ... -}`)
 
 A doc comment sits directly above the declaration it documents with no blank
-line between them. A module doc comment comes right after the module line:
+line between them. A module doc comment is the exception: it comes after the
+module line with one blank line in between:
 
 ```gren
 module MyApp exposing ( foo )
@@ -2072,19 +2160,12 @@ total =
 
 A blank line always cuts the comment loose regardless of indentation.
 
-Two spots are handled specially: a comment at the end of a **type signature**
-or the **module line** always moves to the left margin, even when it would
-have fit inline:
+The same rule applies to a comment trailing a **type signature** or the
+**module line**: written right after them with no blank line, it stays glued
+there rather than reading as a leading comment of what follows next.
 
 ```gren
--- you wrote:
 foo : Int -> Int {- about foo -}
-foo n =
-    n
-
--- formats to:
-foo : Int -> Int
-{- about foo -}
 foo n =
     n
 ```
@@ -2210,9 +2291,6 @@ until this is resolved.
 
 As described in [When the formatter can't tell what you meant](#when-the-formatter-genuinely-cant-tell-what-you-meant), a comment beside `=`, `:`, `|`, or an import's `as` always snaps to one
 canonical side. Two different intents produce the same output.
-
-A comment at the end of a type signature or module line always moves to the
-left margin, even when it would have fit.
 
 #### A line break inside a declaration's head
 
