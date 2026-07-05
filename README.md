@@ -1945,8 +1945,20 @@ eligible =
         || isOwner
 ```
 
-A chain with a comment in it uses the fill-style flow renderer instead of the
-precedence-aware one (the comment can't be reordered to fit the structure).
+A chain with a comment in it uses a simpler flow renderer instead of the
+precedence-aware one (the comment can't be reordered to fit the structure), but
+still keeps the first operand on its own line when the author wrote the chain
+across rows, rather than collapsing the whole thing onto one line:
+
+```gren
+total =
+    leftComponent
+        ++ rightComponent ++ trailingValue {- note -}
+```
+
+Only that first split is guaranteed — with three or more operators, a
+comment can still leave the later ones glued together on one line even
+though the author broke each onto its own row.
 
 The same precedence-aware layout applies to a stacked `if` condition (see
 [If expressions](#if-expressions)).

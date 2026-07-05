@@ -6,7 +6,8 @@ joinUp pair =
         { leftComponent, rightComponent } =
             pair
     in
-    leftComponent ++ rightComponent ++ someTrailingValueToPushThisParticularLineOutTowardOneHundredColumns {- trailing the chain -}
+    leftComponent
+        ++ rightComponent ++ someTrailingValueToPushThisParticularLineOutTowardOneHundredColumns {- trailing the chain -}
 
 
 -- leading comment of the next declaration

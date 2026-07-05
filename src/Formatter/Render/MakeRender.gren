@@ -3250,8 +3250,24 @@ The inline and forced-vertical forms share the same doc (inline uses `R.nl`,
 forced uses `R.hardNl` so an outer `name = body` group can't collapse a
 multi-line chain), so they are byte-identical when flattened and formatting is a
 fixed point. A chain carrying any comment falls back to the `OpAndRhs` fill renderer
-(`buildFlowDoc grenIndent children`), so wrapped operators indent +4 like the
-precedence-aware form.
+(`buildFlowDoc`/`buildFlowDocBroken grenIndent children`, picked by `forceVertical`
+the same way the precedence-aware form is), so wrapped operators indent +4 like the
+precedence-aware form and the split between the first operand and the rest of the
+chain still follows the author's original layout.
+
+Known gap: this fallback only re-checks `forceVertical` at that single top-level
+join. A 3+-operand chain's *inner* operators (rendered through nested
+`OpAndRhs`/`makeOpAndRhsDoc` dispatch, which has no `forceVertical` of its own)
+still glue onto one line even when the author broke every operator onto its own
+row — e.g. `a ++ b ++ c {- note -}` keeps `a` on its own line but glues
+`++ b ++ c {- note -}` together. Giving every level its own break would mean
+threading `forceVertical` through `OpAndRhs` (which today carries none) and
+teaching the min-precedence group accumulation in `assembleBinopGroups` to
+tolerate operand docs that internally hard-break (an embedded own-line or
+multi-line comment) without doubling a break into a blank line or losing
+alignment — attempted and reverted as too fragile for the gain; the fix here
+is scoped to the concrete regression (a comment silently discarding the
+author's layout entirely), not full parity with the comment-free renderer.
 -}
 makeBinopDoc : Bool -> Array LPNode -> Result String Doc
 makeBinopDoc forceVertical children =
@@ -3260,7 +3276,16 @@ makeBinopDoc forceVertical children =
         -- continuation indent (grenIndent), matching the precedence-aware form
         -- and the comment-bearing signature fallback, so wrapped operators sit
         -- under the first operand rather than back at its own column.
-        buildFlowDoc grenIndent children
+        --
+        -- `forceVertical` still selects broken vs flowing at the top-level
+        -- join (operand0 vs the rest of the chain): a chain the author wrote
+        -- across rows keeps that layout even once a comment forces this
+        -- fallback, instead of collapsing back onto one line.
+        if forceVertical then
+            buildFlowDocBroken grenIndent children
+
+        else
+            buildFlowDoc grenIndent children
 
     else
         let
