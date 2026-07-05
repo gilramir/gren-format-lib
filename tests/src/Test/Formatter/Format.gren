@@ -365,10 +365,10 @@ commentsSuite fsPerm =
             , assertPretty fsPerm "trailing comment after a multi-line union variant stays on the variant's last row" "UnionVariantTrailingComment"
             , assertPretty fsPerm "own-line comment below the last union variant attaches at the variant indent" "UnionTrailingOwnLineComment"
             , assertPretty fsPerm "trailing comment on the closing `}` of a record-payload union variant stays there across reformats" "UnionRecordPayloadTrailingComment"
-            , assertPretty fsPerm "overflowing trailing comment in a bracket list lays the item out as if absent" "BracketListOverflowComment"
+            , assertPretty fsPerm "long trailing comment in a bracket list glues inline regardless of length" "BracketListOverflowComment"
             , assertPretty fsPerm "comment in an empty-bracket body slot is not absorbed into the brackets" "EmptyBracketTrailingComment"
             , assertPretty fsPerm "comments inside a record update and before its closing brace" "RecordUpdateFieldComment"
-            , assertPretty fsPerm "trailing comment on an overflowing when-branch body glues inline" "WhenBranchTrailingComment"
+            , assertPretty fsPerm "trailing comment on a long when-branch body glues inline regardless of length" "WhenBranchTrailingComment"
             , assertPretty fsPerm "single-line comment around the arrow of a wrapping signature soft-breaks" "SignatureArrowLineComment"
             , assertPretty fsPerm "comment after the exposing list of a vertical effect-module where block" "EffectModuleFxWhereComment"
             , assertPretty fsPerm "comment spaced too far from the handler name falls out of an effect-module where block" "EffectModuleWideSpacingComment"
@@ -380,7 +380,7 @@ commentsSuite fsPerm =
             -- Regression guards for the 2026-06-06 column-attachment fixes.
             , assertPretty fsPerm "comment trailing the then-body routes to leading the else-body" "ThenElseBoundaryComment"
             , assertPretty fsPerm "own-line comment before a record pattern's closing brace stays inside" "RecordPatternTrailingComment"
-            , assertPretty fsPerm "trailing comment below an overflowing binop chain stays at the chain indent" "BinopChainTrailingComment"
+            , assertPretty fsPerm "trailing comment on a long, author-broken binop chain keeps the chain's first split" "BinopChainTrailingComment"
             , assertPretty fsPerm "trailing comment below a wrapped import stays at the continuation indent" "ImportTrailingComment"
             , assertPretty fsPerm "trailing comments below a pipeline's last step stay at the step indent" "PipelineTrailingComment"
             ]
