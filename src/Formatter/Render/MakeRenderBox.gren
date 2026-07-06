@@ -462,8 +462,11 @@ pipelines (a comment node makes a step Err), and steps with a multi-line
 argument (which elm-format relocates) fall back to Doc. -}
 makePipelineBox : Bool -> String -> Array LPNode -> Result String Box
 makePipelineBox forceVertical op children =
-    if op /= "|>" then
-        Err "box: backward (<|) pipeline not ported"
+    if op == "<|" then
+        makeBackwardPipelineBox forceVertical children
+
+    else if op /= "|>" then
+        Err "box: unknown pipeline operator not ported"
 
     else
         let
@@ -505,6 +508,212 @@ renderPipelineStep stepNode =
 
                 else
                     Err "box: multi-line pipeline step not ported"
+            )
+
+
+-- Get a box's sole line, or Err if it is multi-line.
+boxLine : Box -> Result String B.Line
+boxLine box =
+    when B.isLine box is
+        Ok l ->
+            Ok l
+
+        Err _ ->
+            Err "box: expected single-line box"
+
+
+{-| Render a backward (`<|`) pipeline. Mirrors `MakeRender.makeBackwardPipelineDoc`:
+the `<|` trails the seed (or previous step body), and the next body drops to the
+line below at +4 (inline when the author kept the whole chain on one row). A
+lambda step body (`\x -> …` authored across rows) breaks with the head at +4 and
+its body at +8. A boundary comment, a mixed `|>`/`<|` chain, a multi-line
+non-lambda body, or an inline (`SoftIndentedBlock`) lambda all fall back. -}
+makeBackwardPipelineBox : Bool -> Array LPNode -> Result String Box
+makeBackwardPipelineBox forceVertical children =
+    let
+        stepNodes =
+            Array.keepIf isPipelineStepNode children
+
+        seedNodes =
+            Array.keepIf (\n -> not (isPipelineStepNode n)) children
+
+        stepFirstIsComment stepNode =
+            when Array.first (lpnChildren stepNode) is
+                Just firstChild ->
+                    nodeIsComment firstChild
+
+                Nothing ->
+                    False
+
+        stepLastIsComment stepNode =
+            when Array.last (lpnChildren stepNode) is
+                Just lastChild ->
+                    nodeIsComment lastChild
+
+                Nothing ->
+                    False
+
+        hasBoundaryComment =
+            Array.any
+                (\n ->
+                    if isPipelineStepNode n then
+                        stepFirstIsComment n || stepLastIsComment n
+
+                    else
+                        nodeIsComment n
+                )
+                children
+
+        stepOpIsBackward stepNode =
+            when Array.first (lpnChildren stepNode) is
+                Just opNode ->
+                    leafValue opNode == Just "<|"
+
+                Nothing ->
+                    False
+
+        allBackward =
+            Array.all stepOpIsBackward stepNodes
+    in
+    if hasBoundaryComment || not allBackward then
+        Err "box: backward pipeline with boundary comment / mixed ops not ported"
+
+    else
+        buildFlowBox 0 seedNodes
+            |> Result.andThen
+                (\seedBox ->
+                    boxLine seedBox
+                        |> Result.andThen
+                            (\seedLine ->
+                                traverseResult
+                                    (\stepNode ->
+                                        when Array.popFirst (lpnChildren stepNode) is
+                                            Just { rest = bodyNodes } ->
+                                                Ok bodyNodes
+
+                                            Nothing ->
+                                                Err "box: backward pipeline step has no children"
+                                    )
+                                    stepNodes
+                                    |> Result.andThen (assembleBackwardPipeline forceVertical seedLine)
+                            )
+                )
+
+
+assembleBackwardPipeline : Bool -> B.Line -> Array (Array LPNode) -> Result String Box
+assembleBackwardPipeline forceVertical seedLine stepBodies =
+    when stepBodies is
+        [ bodyNodes ] ->
+            backwardSingleStep forceVertical seedLine bodyNodes
+
+        _ ->
+            backwardMultiStep forceVertical seedLine stepBodies
+
+
+-- A single `seed <| body` step. A trailing `IndentedBlock` marks a lambda body
+-- authored across rows (`\head` at +4, its body at +8); otherwise a plain body
+-- drops to +4 (or stays inline when the chain isn't forced vertical).
+backwardSingleStep : Bool -> B.Line -> Array LPNode -> Result String Box
+backwardSingleStep forceVertical seedLine bodyNodes =
+    when Array.popLast bodyNodes is
+        Nothing ->
+            Err "box: backward pipeline empty body"
+
+        Just { last = lastNode, initial = headNodes } ->
+            when lpnBox lastNode is
+                IndentedBlock ->
+                    -- Lambda authored across rows: seed <| \n head+4 \n body+8.
+                    Result.map2
+                        (\headBox bodyBox ->
+                            B.stack1
+                                [ B.line (B.row [ seedLine, B.literal " <|" ])
+                                , B.indent headBox
+                                , applyIndent (2 * grenIndent) bodyBox
+                                ]
+                        )
+                        (buildFlowBox 0 headNodes)
+                        (buildFlowBox 0 (lpnChildren lastNode))
+
+                SoftIndentedBlock ->
+                    Err "box: inline-lambda backward pipeline body not ported"
+
+                _ ->
+                    buildBackwardBodyBox bodyNodes
+                        |> Result.andThen
+                            (\bodyBox ->
+                                if forceVertical then
+                                    Ok
+                                        (B.stack1
+                                            [ B.line (B.row [ seedLine, B.literal " <|" ])
+                                            , B.indent bodyBox
+                                            ]
+                                        )
+
+                                else
+                                    boxLine bodyBox
+                                        |> Result.map
+                                            (\bl -> B.line (B.row [ seedLine, B.literal " <| ", bl ]))
+                            )
+
+
+{-| Render a `<|` step body. Mirrors `MakeRender.buildBodyDoc`: a body that is a
+call with a child that renders multi-line (e.g. a record argument) is a broken
+call whose arguments land at +4 under the function name — not a plain flow (which
+would drop them at +0). Comment-leading bodies aren't ported (they fall back). -}
+buildBackwardBodyBox : Array LPNode -> Result String Box
+buildBackwardBodyBox bodyNodes =
+    renderFlowItems bodyNodes
+        |> Result.andThen
+            (\items ->
+                if Array.any .isBlock items then
+                    assembleBrokenCall grenIndent items
+
+                else
+                    assembleFlow 0 items
+            )
+
+
+-- Two or more `<|` steps. Inline `seed <| b0 <| b1 …` when the author kept it on
+-- one row; otherwise `seed <|` then each body at +4, the `<|` trailing the
+-- previous body. Only single-line bodies are ported.
+backwardMultiStep : Bool -> B.Line -> Array (Array LPNode) -> Result String Box
+backwardMultiStep forceVertical seedLine stepBodies =
+    traverseResult (\body -> buildFlowBox 0 body |> Result.andThen boxLine) stepBodies
+        |> Result.map
+            (\bodyLines ->
+                if not forceVertical then
+                    B.line
+                        (B.row
+                            (Array.flatten
+                                ([ [ seedLine ] ]
+                                    ++ Array.map (\bl -> [ B.literal " <| ", bl ]) bodyLines
+                                )
+                            )
+                        )
+
+                else
+                    let
+                        n =
+                            Array.length bodyLines
+                    in
+                    B.stack1
+                        ([ B.line (B.row [ seedLine, B.literal " <|" ]) ]
+                            ++ Array.indexedMap
+                                (\i bl ->
+                                    B.indent
+                                        (B.line
+                                            (B.row
+                                                (if i < n - 1 then
+                                                    [ bl, B.literal " <|" ]
+
+                                                 else
+                                                    [ bl ]
+                                                )
+                                            )
+                                        )
+                                )
+                                bodyLines
+                        )
             )
 
 
