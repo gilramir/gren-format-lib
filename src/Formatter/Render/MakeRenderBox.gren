@@ -12,7 +12,7 @@ byte-identical to the `Doc` output, so this is regression-proof: a shape this
 renderer gets wrong simply falls back.
 -}
 
-import Formatter.Render.Box as B exposing (Box)
+import Formatter.Render.Box as B exposing (Box(..))
 import Formatter.Render.ElmStructure as E
 import Formatter.Logical.LogicalPrintingTree exposing (LPBox(..), LPNode, ListBrackets(..), SyntaxType(..), lpnBox, lpnChildren, firstRowInSubtree, lpnMaxRow, lpnFirstPos)
 import Formatter.Logical.BinopPrecedence exposing (binopPrecedence, binopMinPrecedence)
@@ -896,6 +896,9 @@ makePBox box children =
         WhenBranchPattern ->
             makeWhenBranchPatternBox children
 
+        ParenBlock { forceVertical, checkContentVertical, isCallArgument } ->
+            makeParenBlockBox { forceVertical = forceVertical, checkContentVertical = checkContentVertical, isCallArgument = isCallArgument } children
+
         MultilineString loc ->
             -- A `"""…"""` literal: opening `"""`, one line per content element,
             -- closing `"""`, stacked. The Doc renderer wraps the same sequence
@@ -915,6 +918,154 @@ makePBox box children =
 
         _ ->
             Err "box: construct not ported"
+
+
+{-| Render a `ParenBlock`. Mirrors `MakeRender.makeParenBlockDoc`, but only the
+non-block shapes are ported: inline `(inner)` and the generic vertical form
+`(inner` … `)` with the closing paren on its own line. A `when`/`if`/`let`
+directly inside the parens uses elm-format's paren-block indentation
+(keyword at `(`+1, bodies at `(`+2 or `(`+4, `)` at the `(` column) — that
+`R.align`/`R.nest` arithmetic isn't ported yet, so those fall back.
+
+The Doc renderer wraps the vertical form in `R.align`, anchoring continuation
+lines and the closing `)` to the `(` column. Box stacking is intrinsically
+that align: the wrapped box's lines are all relative to its own origin, which
+becomes the `(` column once the enclosing flow indents it. -}
+makeParenBlockBox : { forceVertical : Bool, checkContentVertical : Bool, isCallArgument : Bool } -> Array LPNode -> Result String Box
+makeParenBlockBox flags children =
+    when Array.first children is
+        Nothing ->
+            Ok (B.line (B.punc "()"))
+
+        Just first ->
+            when lpnBox first is
+                WhenFlow _ ->
+                    Err "box: when-in-paren block layout not ported"
+
+                IfCondition _ ->
+                    Err "box: if-in-paren block layout not ported"
+
+                UnbreakableText loc ->
+                    if loc.value == "let" then
+                        Err "box: let-in-paren block layout not ported"
+
+                    else
+                        parenGenericFallbackBox flags children
+
+                _ ->
+                    parenGenericFallbackBox flags children
+
+
+{-| The non-block ParenBlock shapes: inline, or a generic vertical `(…\n)`. The
+vertical form triggers on either verticality signal or a multi-line lambda body
+(second child an `IndentedBlock`, or a `SoftIndentedBlock` whose sole bracket
+literal renders vertical — mirroring `makeParenBlockDoc`'s `isLambdaMultiline`). -}
+parenGenericFallbackBox : { forceVertical : Bool, checkContentVertical : Bool, isCallArgument : Bool } -> Array LPNode -> Result String Box
+parenGenericFallbackBox flags children =
+    buildFlowBox 0 children
+        |> Result.andThen
+            (\innerBox ->
+                let
+                    contentForcesVertical =
+                        flags.checkContentVertical && not (isSingleLine innerBox)
+
+                    goVertical =
+                        flags.forceVertical || contentForcesVertical || parenLambdaMultiline children
+                in
+                if goVertical then
+                    Ok (wrapParenVertical innerBox)
+
+                else
+                    when B.isLine innerBox is
+                        Ok l ->
+                            Ok (B.line (B.row [ B.punc "(", l, B.punc ")" ]))
+
+                        Err _ ->
+                            Err "box: inline paren over multi-line inner"
+            )
+
+
+{-| Glue `(` onto the inner box's first line and stack `)` as a new final line —
+the Box form of `R.align (concats [ "(", inner, hardNl, ")" ])`. -}
+wrapParenVertical : Box -> Box
+wrapParenVertical box =
+    let
+        withOpen =
+            when box is
+                SingleLine l ->
+                    SingleLine (B.row [ B.punc "(", l ])
+
+                Stack s ->
+                    Stack { s | first = B.row [ B.punc "(", s.first ] }
+
+                MustBreakBox l ->
+                    MustBreakBox (B.row [ B.punc "(", l ])
+    in
+    B.andThen [ B.line (B.punc ")") ] withOpen
+
+
+{-| Mirror of `makeParenBlockDoc`'s `isLambdaMultiline`: the second direct child
+is an `IndentedBlock` (lambda body on a separate row), or a `SoftIndentedBlock`
+whose sole child is a bracket literal that itself renders vertical. -}
+parenLambdaMultiline : Array LPNode -> Bool
+parenLambdaMultiline children =
+    when Array.popFirst children is
+        Just { rest } ->
+            when Array.first rest is
+                Just second ->
+                    when lpnBox second is
+                        IndentedBlock ->
+                            True
+
+                        SoftIndentedBlock ->
+                            softIndentedBlockChildForcesVerticalBox (lpnChildren second)
+
+                        _ ->
+                            False
+
+                Nothing ->
+                    False
+
+        Nothing ->
+            False
+
+
+{-| Box mirror of `MakeRender.softIndentedBlockChildForcesVertical`: the sole
+child is a record/array/update literal that renders multi-line. -}
+softIndentedBlockChildForcesVerticalBox : Array LPNode -> Bool
+softIndentedBlockChildForcesVerticalBox children =
+    when Array.popFirst children is
+        Just { first = only, rest } ->
+            if not (Array.isEmpty rest) then
+                False
+
+            else
+                let
+                    isBracketLiteral =
+                        when lpnBox only is
+                            AlwaysVertical _ ->
+                                True
+
+                            AllAcrossOrAllVertical _ ->
+                                True
+
+                            RecordUpdate _ ->
+                                True
+
+                            _ ->
+                                False
+                in
+                isBracketLiteral
+                    && (when makePBox (lpnBox only) (lpnChildren only) is
+                            Ok b ->
+                                not (isSingleLine b)
+
+                            Err _ ->
+                                False
+                       )
+
+        Nothing ->
+            False
 
 
 {-| A record / array literal via elm's `group'`. `AllAcrossOrAllVertical`
