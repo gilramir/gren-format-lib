@@ -890,6 +890,23 @@ makePBox box children =
         WhenBranchPattern ->
             makeWhenBranchPatternBox children
 
+        MultilineString loc ->
+            -- A `"""…"""` literal: opening `"""`, one line per content element,
+            -- closing `"""`, stacked. The Doc renderer wraps the same sequence
+            -- in `R.align` so continuation lines land at the opening `"""`'s
+            -- column; Box stacking aligns to the box's column intrinsically
+            -- when the flow indents it. A content line ending in whitespace, or
+            -- an interior blank line, renders differently under Box's per-line
+            -- trimRight and falls back via the self-verify guard.
+            let
+                quote =
+                    B.line (B.literal "\"\"\"")
+
+                contentLines =
+                    Array.map (\s -> B.line (B.literal s)) loc.value
+            in
+            Ok (B.stack1 ([ quote ] ++ contentLines ++ [ quote ]))
+
         _ ->
             Err "box: construct not ported"
 
