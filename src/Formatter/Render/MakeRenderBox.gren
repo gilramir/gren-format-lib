@@ -390,6 +390,94 @@ commentLineInfo node =
             Err "box: comment-line node not ported"
 
 
+blockCommentBodyOffset : Int
+blockCommentBodyOffset =
+    3
+
+
+leadingSpaceCount : String -> Int
+leadingSpaceCount s =
+    (String.foldl
+        (\c acc ->
+            if acc.done then
+                acc
+
+            else if c == ' ' then
+                { acc | count = acc.count + 1 }
+
+            else
+                { acc | done = True }
+        )
+        { count = 0, done = False }
+        s
+    ).count
+
+
+{-| Render a multi-line block comment as a stack of lines, mirroring the reindent
+branch of `MakeRender.blockCommentDoc`: the first line verbatim, each continuation
+line reindented so the smallest content indent maps to `blockCommentBodyOffset`
+(deeper indentation kept relative), a bare closing delimiter or blank line
+trimmed. Box stacking supplies the `R.align` that anchors the block under wherever
+the opener prints. The VERBATIM (opener-alone) branch renders the body at absolute
+column 0 via `R.reset`, which Box's uniform-prefix stacking cannot reproduce, so
+it returns Err and falls back.
+-}
+multiLineBlockCommentBox : String -> Result String Box
+multiLineBlockCommentBox value =
+    let
+        fullText =
+            "{-" ++ value ++ "-}"
+    in
+    when Array.popFirst (String.split "\n" fullText) is
+        Nothing ->
+            Ok (B.line (B.literal fullText))
+
+        Just { first = firstLine, rest = contLines } ->
+            let
+                openerAlone =
+                    String.trimLeft (String.dropFirst 2 firstLine) == ""
+            in
+            if openerAlone then
+                Err "box: verbatim (opener-alone) multi-line block comment not ported"
+
+            else
+                let
+                    isContentLine line =
+                        let
+                            t =
+                                String.trimLeft line
+                        in
+                        t /= "" && t /= "-}"
+
+                    base =
+                        contLines
+                            |> Array.keepIf isContentLine
+                            |> Array.map leadingSpaceCount
+                            |> Array.minimum
+                            |> Maybe.withDefault blockCommentBodyOffset
+
+                    reindent line =
+                        let
+                            t =
+                                String.trimLeft line
+                        in
+                        if t == "" || t == "-}" then
+                            t
+
+                        else
+                            let
+                                l =
+                                    leadingSpaceCount line
+                            in
+                            String.repeat (max 0 (blockCommentBodyOffset + l - base)) " "
+                                ++ String.dropFirst l line
+
+                    allLines =
+                        [ firstLine ] ++ Array.map reindent contLines
+                in
+                Ok (B.stack1 (Array.map (\ln -> B.line (B.literal ln)) allLines))
+
+
 -- ═══ TYPE ALIAS & UNION DECLARATIONS ═══
 
 
@@ -1505,13 +1593,13 @@ type alias FlowItem =
     , box : Box
     , isBlock : Bool
     , startRow : Int
-    , comment : Maybe { line : B.Line, isLineComment : Bool }
+    , comment : Maybe { box : Box, isLineComment : Bool, multiLine : Bool }
     }
 
 
 -- Render each flow node to a Box (Err if any is unported), tagging whether it
--- occupies its own block line, its start row, and — for a single-line comment —
--- the comment text so `assembleFlowImpl` can place it by row.
+-- occupies its own block line, its start row, and — for a comment — the rendered
+-- comment box so `assembleFlowImpl` can place it by row.
 renderFlowItems : Array LPNode -> Result String (Array FlowItem)
 renderFlowItems nodes =
     traverseResult renderFlowItem nodes
@@ -1526,12 +1614,21 @@ renderFlowItem node =
                 , box = B.blankLine
                 , isBlock = False
                 , startRow = loc.start.row
-                , comment = Just { line = B.literal ("--" ++ loc.value), isLineComment = True }
+                , comment = Just { box = B.line (B.literal ("--" ++ loc.value)), isLineComment = True, multiLine = False }
                 }
 
         BlockComment loc ->
             if String.contains "\n" loc.value then
-                Err "box: multi-line block comment in flow not ported"
+                multiLineBlockCommentBox loc.value
+                    |> Result.map
+                        (\cbox ->
+                            { node = node
+                            , box = B.blankLine
+                            , isBlock = False
+                            , startRow = loc.start.row
+                            , comment = Just { box = cbox, isLineComment = False, multiLine = True }
+                            }
+                        )
 
             else
                 Ok
@@ -1539,7 +1636,7 @@ renderFlowItem node =
                     , box = B.blankLine
                     , isBlock = False
                     , startRow = loc.start.row
-                    , comment = Just { line = B.literal ("{-" ++ loc.value ++ "-}"), isLineComment = False }
+                    , comment = Just { box = B.line (B.literal ("{-" ++ loc.value ++ "-}")), isLineComment = False, multiLine = False }
                     }
 
         _ ->
@@ -1743,22 +1840,45 @@ assembleFlowImpl flowIndent items =
 
                 standaloneLeading =
                     (not acc.started && Array.isEmpty acc.curRow) || acc.justTerminated
+
+                -- Flush the current row, then drop `box` onto its own line(s).
+                ownLine box =
+                    Ok { acc | rows = Array.pushLast box (flushRow acc.curRow acc.rows), curRow = [], prevRow = startRow, started = True, justTerminated = True }
             in
-            if c.isLineComment then
-                if sameRow then
-                    Ok { acc | rows = flushRow (Array.pushLast c.line acc.curRow) acc.rows, curRow = [], prevRow = startRow, started = True, justTerminated = True }
+            if c.multiLine then
+                -- A multi-line block comment occupies its own line(s). Only the
+                -- standalone-leading position is ported (e.g. between let
+                -- bindings): a trailing multi-line comment (a direct flow child
+                -- after content, as on an import or a body's last line) is
+                -- re-indented +4 by a context-specific rule not modelled here, so
+                -- it falls back.
+                if standaloneLeading then
+                    ownLine c.box
 
                 else
-                    Ok { acc | rows = Array.pushLast (B.line c.line) (flushRow acc.curRow acc.rows), curRow = [], prevRow = startRow, started = True, justTerminated = True }
-
-            else if standaloneLeading then
-                Ok { acc | rows = Array.pushLast (B.line c.line) (flushRow acc.curRow acc.rows), curRow = [], prevRow = startRow, started = True, justTerminated = True }
-
-            else if sameRow then
-                Ok { acc | curRow = Array.pushLast c.line acc.curRow, prevRow = startRow, started = True, justTerminated = False }
+                    Err "box: non-standalone multi-line block comment in flow not ported"
 
             else
-                Err "box: mid-flow own-line block comment not ported"
+                when B.isLine c.box is
+                    Err _ ->
+                        Err "box: single-line comment box was multi-line"
+
+                    Ok l ->
+                        if c.isLineComment then
+                            if sameRow then
+                                Ok { acc | rows = flushRow (Array.pushLast l acc.curRow) acc.rows, curRow = [], prevRow = startRow, started = True, justTerminated = True }
+
+                            else
+                                ownLine (B.line l)
+
+                        else if standaloneLeading then
+                            ownLine (B.line l)
+
+                        else if sameRow then
+                            Ok { acc | curRow = Array.pushLast l acc.curRow, prevRow = startRow, started = True, justTerminated = False }
+
+                        else
+                            Err "box: mid-flow own-line block comment not ported"
 
         step item accResult =
             accResult
