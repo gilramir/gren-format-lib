@@ -210,11 +210,11 @@ processConfiguration { tracing = tracingSection, scheduler = schedulerSection, f
                                                     | exponentialBackoffMillis = Math.max nestedConfiguration.exponentialBackoffMillis schedulerDecision
                                                     , jitterMillis = nestedConfiguration.jitterMillis + (schedulerDecision // 10)
                                                     , maxAttempts =
-                                                          if rolloutDecision "aggressive-retry" then
-                                                              nestedConfiguration.maxAttempts * 2
+                                                        if rolloutDecision "aggressive-retry" then
+                                                            nestedConfiguration.maxAttempts * 2
 
-                                                          else
-                                                              nestedConfiguration.maxAttempts
+                                                        else
+                                                            nestedConfiguration.maxAttempts
                                                 }
                         , payload = String.join " | " [ identifier, tracingSummary.kind, String.fromInt schedulerDecision, String.fromInt tracingSummary.header_count ]
                     }
@@ -239,12 +239,14 @@ applyOverlays leadingOverridePriority tracingIsEnabled ({ flags, nestedConfigura
 
         -- Single-field update inside a let that uses an if/then/else for the new field value.
         containerWithConditionallyTrimmedPayload =
-            { containerWithBumpedTimestamp | payload =
-                if String.length startingContainer.payload > 80 then
-                    String.left 80 startingContainer.payload ++ "…"
+            { containerWithBumpedTimestamp
+                | payload =
+                    if String.length startingContainer.payload > 80 then
+                        String.left 80 startingContainer.payload ++ "…"
 
-                else
-                    startingContainer.payload }
+                    else
+                        startingContainer.payload
+            }
 
         -- A lambda whose body is a multi-field update; one of the field
         -- values is itself a multi-field record update inline.
@@ -277,11 +279,11 @@ applyOverlays leadingOverridePriority tracingIsEnabled ({ flags, nestedConfigura
                                                     | retryCount = leadingOverridePriority
                                                     , exponentialBackoffMillis = nestedConfiguration.exponentialBackoffMillis * 2
                                                     , jitterMillis =
-                                                          if leadingOverridePriority > 10 then
-                                                              nestedConfiguration.jitterMillis * 3
+                                                        if leadingOverridePriority > 10 then
+                                                            nestedConfiguration.jitterMillis * 3
 
-                                                          else
-                                                              nestedConfiguration.jitterMillis + 1
+                                                        else
+                                                            nestedConfiguration.jitterMillis + 1
                                                     , maxAttempts = Math.max nestedConfiguration.maxAttempts leadingOverridePriority
                                                 }
                         , flags = { flags
@@ -295,7 +297,9 @@ applyOverlays leadingOverridePriority tracingIsEnabled ({ flags, nestedConfigura
     -- A pipeline whose intermediate steps each thread through an update lambda.
     adjustForLeadingOverridePriority
         |> applyTracingDecision
-        |> (\penultimateContainer -> { penultimateContainer | generatedAtMillis = penultimateContainer.generatedAtMillis + leadingOverridePriority })
+        |>
+            (\penultimateContainer -> { penultimateContainer | generatedAtMillis = penultimateContainer.generatedAtMillis + leadingOverridePriority }
+            )
 
 
 {-| Pipelines (both directions), function composition (both directions),

@@ -1129,6 +1129,28 @@ withDefault r =
     { r | x = 0 }
 ```
 
+But if that one field's value spans several lines — because it is an `if`,
+`let`, `when`, or lambda, or you wrote it across rows — the update opens up the
+same way a multi-field one does, rather than staying crammed onto the `{` line:
+
+```gren
+guard r =
+    { r
+        | field =
+            if cond then
+                yes
+
+            else
+                no
+    }
+```
+
+This is one shared rule for every record update, regardless of how many fields
+it has (matching elm-format). One case still differs from elm-format: when the
+field's value is a lambda, gren keeps the `\arg ->` on the `= ` line
+(`| field = \arg ->`) and drops only the body, whereas elm-format drops the
+whole lambda to its own line. This is a known remaining difference.
+
 A multi-field update follows your layout:
 
 ```gren

@@ -38,37 +38,39 @@ update model =
     { model
         | short = \v -> v + 1
         , parseFn = \args ->
-              if Array.length args /= 0 then
-                  Err Bad
+            if Array.length args /= 0 then
+                Err Bad
 
-              else
-                  Ok {}
+            else
+                Ok {}
         , ifField =
-              if cond then
-                  aaaaaaaaaaaaaaaaaaaa
+            if cond then
+                aaaaaaaaaaaaaaaaaaaa
 
-              else
-                  bbbbbbbbbbbbbbbbbbbb
+            else
+                bbbbbbbbbbbbbbbbbbbb
         , whenField =
-              when value is
-                  Foo ->
-                      aaaaaaaaaaaaaaaaa
+            when value is
+                Foo ->
+                    aaaaaaaaaaaaaaaaa
 
-                  Bar ->
-                      bbbbbbbbbbbbbbbbb
+                Bar ->
+                    bbbbbbbbbbbbbbbbb
         , letField =
-              let
-                  y =
-                      1
-              in
-              y
+            let
+                y =
+                    1
+            in
+            y
     }
 
 
 singleUpdate model =
-    { model | parseFn = \args ->
-        if Array.length args /= 0 then
-            Err Bad
+    { model
+        | parseFn = \args ->
+            if Array.length args /= 0 then
+                Err Bad
 
-        else
-            Ok {} }
+            else
+                Ok {}
+    }

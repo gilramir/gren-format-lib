@@ -1,0 +1,25 @@
+module RecordUpdateExtension exposing (..)
+
+
+singleInline r =
+    { r | name = 1 }
+
+
+singleIf r =
+    { r | field = if cond then aaaaa else bbbbb }
+
+
+singleLet r =
+    { r | field = let x = 1 in x }
+
+
+singleLambda r =
+    { r | field = \n -> if n then aaaaa else bbbbb }
+
+
+multiSimple r =
+    { r | a = 1, b = 2 }
+
+
+multiBlock r =
+    { r | first = if cond then aaaaa else bbbbb, second = 2 }

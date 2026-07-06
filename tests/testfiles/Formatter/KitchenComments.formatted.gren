@@ -211,25 +211,25 @@ reprice rawMultiplier ({ items, flags } as inboundCart) =
     { inboundCart
         -- comment before the first updated field
         | items = items
-                  |> Array.map
-                      (\itemRecord ->
-                          -- comment leading into a nested record update inside a pipeline step
-                          { itemRecord
-                              -- comment before the first updated field of a NESTED record update
-                              | unitPriceCents = round (toFloat itemRecord.unitPriceCents * clampedMultiplier)
-                              -- comment between two updated fields of a nested update
-                              , quantity = itemRecord.quantity
-                          }
-                      )
+                |> Array.map
+                    (\itemRecord ->
+                        -- comment leading into a nested record update inside a pipeline step
+                        { itemRecord
+                            -- comment before the first updated field of a NESTED record update
+                            | unitPriceCents = round (toFloat itemRecord.unitPriceCents * clampedMultiplier)
+                            -- comment between two updated fields of a nested update
+                            , quantity = itemRecord.quantity
+                        }
+                    )
         -- comment between two updated fields of the OUTER record update
         , flags =
-              -- comment before another nested record update
-              { flags
-                  -- comment before an updated boolean
-                  | isPriority = flags.isPriority || clampedMultiplier > 1.5
-                  {- block comment inside a record update -}
-                  , isGift = flags.isGift
-              }
+            -- comment before another nested record update
+            { flags
+                -- comment before an updated boolean
+                | isPriority = flags.isPriority || clampedMultiplier > 1.5
+                {- block comment inside a record update -}
+                , isGift = flags.isGift
+            }
     }
 
 
@@ -349,9 +349,11 @@ extremelyCommented {-c22-} {-c23-} {-c24-} ({ score {-c25-}
                             {-c80-}
                             {-c81-}
                             {-c82-}
-                            {-c83-}
-                            {-c84-}
-                            { r | label = {-c85-} {-c86-} "zero" {-c87-}
+                            { r
+                                {-c83-}
+                                {-c84-}
+                                | label = {-c85-} {-c86-} "zero"
+                                {-c87-}
                             } {-c88-} {-c89-}
 
                         _ ->

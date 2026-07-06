@@ -2117,29 +2117,52 @@ makeRecordUpdateDoc forceVertical baseName children =
             -- visual indent under the field name instead of leaking back out
             -- to the surrounding record's column.
             let
-                fieldDoc field =
-                    -- A lambda field uses an IndentedBlock container so its body
-                    -- block supplies the only +4; render its flow at +0 (mirrors
-                    -- the list-item path in listItemBoxDoc). Every other field
-                    -- flows at +4. R.align then anchors continuation lines under
-                    -- the field content (see folderInsertRecordField).
-                    let
-                        flowIndent =
-                            when lpnBox field is
-                                IndentedBlock ->
-                                    0
+                -- A lambda field uses an IndentedBlock container so its body
+                -- block supplies the only +4; render its flow at +0 (mirrors
+                -- the list-item path in listItemBoxDoc). Every other field
+                -- flows at +4.
+                fieldFlowIndent field =
+                    when lpnBox field is
+                        IndentedBlock ->
+                            0
 
-                                _ ->
-                                    grenIndent
-                    in
-                    buildFlowDoc flowIndent (lpnChildren field)
+                        _ ->
+                            grenIndent
+
+                -- Flow only, aligned at the field-content column. Used by the
+                -- inline (flat group) branch, where alignment is inert anyway.
+                fieldDoc field =
+                    buildFlowDoc (fieldFlowIndent field) (lpnChildren field)
                         |> Result.map R.align
+
+                -- One full line of the expanded form: 4-space record indent,
+                -- then the `| ` / `, ` prefix rendered INSIDE the R.align so a
+                -- block-bodied value anchors +4 from the `|` column (matching
+                -- elm-format's `extensionGroup`), not +4 from the field-content
+                -- column — the latter was 2 columns too deep (a `| `-width off).
+                fieldLine prefixText field =
+                    buildFlowDoc (fieldFlowIndent field) (lpnChildren field)
+                        |> Result.map
+                            (\flow ->
+                                R.concat (R.text "    ") (R.align (R.concat (R.text prefixText) flow))
+                            )
 
                 hasComment =
                     not (Array.isEmpty commentsBefore)
                         || Array.any nodeIsComment restFields
+
+                -- Render-time content check: expand the moment any field's
+                -- value renders multi-line (a block body, or a comment buried
+                -- inside a nested value), even if the author wrote the update
+                -- on one source row. This matches elm-format (any multi-line
+                -- field expands the whole update) AND is idempotent — deciding
+                -- from rendered content is a fixed point, whereas deciding from
+                -- source rows flips on reparse once the value visibly spans
+                -- rows (see `anyChildForcesVertical`).
+                contentForcesVertical =
+                    anyChildForcesVertical fields
             in
-            if forceVertical || hasComment then
+            if forceVertical || hasComment || contentForcesVertical then
                 -- Always-vertical form: base on its own line, each field
                 -- prefixed with `| ` / `, ` indented +4, close on its own line.
                 -- Used when the author wrote the fields across rows, and
@@ -2149,15 +2172,12 @@ makeRecordUpdateDoc forceVertical baseName children =
                     leadingCommentLines =
                         Array.map (\c -> R.concat (R.text "    ") (commentNodeDoc c)) commentsBefore
                 in
-                when fieldDoc firstField is
+                when fieldLine "| " firstField is
                     Err e ->
                         Err e
 
-                    Ok firstFieldDoc ->
+                    Ok firstLine ->
                         let
-                            firstLine =
-                                R.concat (R.text "    | ") firstFieldDoc
-
                             restResult =
                                 Array.foldl
                                     (\field accResult ->
@@ -2170,12 +2190,12 @@ makeRecordUpdateDoc forceVertical baseName children =
                                                     Ok (Array.pushLast (R.concat (R.text "    ") (commentNodeDoc field)) docs)
 
                                                 else
-                                                    when fieldDoc field is
+                                                    when fieldLine ", " field is
                                                         Err e ->
                                                             Err e
 
                                                         Ok d ->
-                                                            Ok (Array.pushLast (R.concat (R.text "    , ") d) docs)
+                                                            Ok (Array.pushLast d docs)
                                     )
                                     (Ok (leadingCommentLines ++ [ firstLine ]))
                                     restFields

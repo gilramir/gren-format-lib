@@ -1,0 +1,11 @@
+module BareIfListItem exposing (..)
+
+
+bareIf =
+    [ if cond then
+            aaaaa
+
+        else
+            bbbbb
+    , second
+    ]

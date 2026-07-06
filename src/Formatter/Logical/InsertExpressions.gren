@@ -33,7 +33,6 @@ import Formatter.Logical.LPTHelpers
         , mkZeroWidthText
         , mkTextFromLocString
         , resultFoldl
-        , tryMapFirstLeaf
         , tryMapLastLeaf
         , fixupParensChildrenNodes
         , itemsSpanRows
@@ -473,45 +472,25 @@ insertUpdate locExpr { record = record, newValues = newValues } =
     resultFoldl folderInsertRecordField [] newValues
         |> Result.map
             (\fieldNodes ->
-                when Array.popFirst fieldNodes is
-                    Nothing ->
-                        [ lpnLeaf (mkText locExpr.start "{}") ]
+                if Array.isEmpty fieldNodes then
+                    [ lpnLeaf (mkText locExpr.start "{}") ]
 
-                    Just { first = firstField, rest = restFields } ->
-                        if Array.isEmpty restFields then
-                            -- Single field update: inline, prepend "recName | " to first field text
-                            -- Zero-width merged "base | field" token (it
-                            -- spans base + `|` + field name in one leaf) so
-                            -- it can't overlap a comment between the field's
-                            -- `=` and its value; that comment then sorts
-                            -- after the field name consistently (idempotent).
-                            let
-                                updatedField =
-                                    when tryMapFirstLeaf (\loc -> mkZeroWidthText loc.start (recText ++ " | " ++ loc.value)) firstField is
-                                        Just updated ->
-                                            updated
-
-                                        Nothing ->
-                                            firstField
-                            in
-                            -- Close position so an own-line comment after the field but
-                            -- before `}` attaches inside the update (consistent with the
-                            -- inline form), matching the 2+ field case below.
-                            [ lpnBracketNode (AllAcrossOrAllVertical ListCurly) locExpr.end [ updatedField ] ]
-
-                        else
-                            -- 2+ field update: like a record literal, the
-                            -- author's layout chooses the shape. Fields on one
-                            -- line → inline `{ b | a, c }` (regardless of
-                            -- width); fields across rows → forced vertical.
-                            -- Close position so the descent guards classify a
-                            -- comment before/after the `}` correctly (inside
-                            -- stays; past it escapes), matching the single-field
-                            -- form above.
-                            [ lpnBracketNode (RecordUpdate
-                                    { name = recLoc
-                                    , forceVertical = recordFieldsSpanRows newValues
-                                    }) locExpr.end fieldNodes ]
+                else
+                    -- One uniform combinator for every record update, single-
+                    -- or multi-field (mirrors elm-format's `extensionGroup`):
+                    -- the author's layout chooses inline `{ b | a = 1, c = 2 }`
+                    -- vs the expanded `{ b` / `| a = 1` / `, c = 2` / `}` form.
+                    -- Single-field updates are no longer special-cased into a
+                    -- compact box — a single field whose value spans rows now
+                    -- expands the same way a multi-field update does, matching
+                    -- elm-format (previously it stayed `{ b | f = <block> }`).
+                    -- Close position (`locExpr.end`) so the descent guards
+                    -- classify a comment before/after the `}` correctly (inside
+                    -- stays; past it escapes).
+                    [ lpnBracketNode (RecordUpdate
+                            { name = recLoc
+                            , forceVertical = recordFieldsSpanRows newValues
+                            }) locExpr.end fieldNodes ]
             )
 
 

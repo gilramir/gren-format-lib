@@ -42,8 +42,11 @@ field r =
 
 -- Case 4 — record update `|`. Comment authored AFTER `|`, inside the braces.
 -- Canonical rendering lifts it OUT, before the whole update expression.
-relabel rec = {- authored after `|` -}
-    { rec | name = 1 }
+relabel rec =
+    { rec
+        {- authored after `|` -}
+        | name = 1
+    }
 
 
 -- Case 5 — union variant `|`. Comment authored AFTER `|` (between `|` and `B`).

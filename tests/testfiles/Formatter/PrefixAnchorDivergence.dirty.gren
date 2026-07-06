@@ -1,0 +1,31 @@
+module PrefixAnchorDivergence exposing (..)
+
+
+binShortOp =
+    someLongLeftOperandHere
+        && (if cond then
+                aaaaa
+
+            else
+                bbbbb
+           )
+
+
+negatedBlock =
+    -(if cond then
+        aaaaa
+
+      else
+        bbbbb
+     )
+
+
+directOperandPipe =
+    values
+        |> (\n ->
+                if n then
+                    aaaaa
+
+                else
+                    bbbbb
+           )

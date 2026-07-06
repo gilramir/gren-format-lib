@@ -10,5 +10,7 @@ multiFieldTrailing baseRecordValue =
 
 
 singleFieldTrailing baseRecordValue =
-    { baseRecordValue | onlyFieldName = computeReasonablyLongValue argumentOne argumentTwo {- trailing the value -}
+    { baseRecordValue
+        | onlyFieldName = computeReasonablyLongValue argumentOne argumentTwo
+        {- trailing the value -}
     }
