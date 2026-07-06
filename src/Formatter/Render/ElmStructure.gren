@@ -1,5 +1,6 @@
 module Formatter.Render.ElmStructure exposing
     ( groupBox
+    , extensionGroup
     )
 
 {-| Faithful port of the `ElmStructure.hs` combinators used by the Box-model
@@ -68,3 +69,38 @@ verticalGroup left sep right children =
                     ++ Array.map (B.prefix (B.row [ B.punc sep, B.space ])) rest
                     ++ [ B.line (B.punc right) ]
                 )
+
+
+{-| `extensionGroup` — a record update `{ base | f0, f1, … }`. Single line when
+not forced and every field fits on one line; otherwise the expanded
+
+    { base
+        | f0
+        , f1
+    }
+
+Each field box is an already-rendered `name = value`. Mirrors
+`ElmStructure.extensionGroup`. -}
+extensionGroup : Bool -> Box -> Box -> Array Box -> Box
+extensionGroup multiline base first rest =
+    when { m = multiline, b = B.isLine base, fs = B.allSingles ([ first ] ++ rest) } is
+        { m = False, b = Ok base_, fs = Ok fields_ } ->
+            B.line
+                (B.row
+                    ([ B.punc "{", B.space, base_, B.space, B.punc "|", B.space ]
+                        ++ Array.intersperse (B.row [ B.punc ",", B.space ]) fields_
+                        ++ [ B.space, B.punc "}" ]
+                    )
+                )
+
+        _ ->
+            B.stack1
+                [ B.prefix (B.row [ B.punc "{", B.space ]) base
+                , B.indent
+                    (B.stack1
+                        ([ B.prefix (B.row [ B.punc "|", B.space ]) first ]
+                            ++ Array.map (B.prefix (B.row [ B.punc ",", B.space ])) rest
+                        )
+                    )
+                , B.line (B.punc "}")
+                ]

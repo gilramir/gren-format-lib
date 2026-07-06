@@ -225,6 +225,40 @@ assembleBinopBox forceVertical minPrec operandLines ops =
             )
 
 
+-- ═══ RECORD UPDATE ═══
+
+
+{-| Render a record update `{ base | f = v, … }` via elm's `extensionGroup`.
+Each field node renders to a `name = value` box; the update expands (base on its
+own line, `| `/`, `-prefixed fields at +4, closing `}`) when the author broke it
+across rows or any field renders multi-line — matching elm-format and the
+Change-2 Doc renderer for `if`/`let`/`when`/simple/multi-field cases. (A
+lambda-valued field deliberately differs from the Doc renderer — Box drops the
+`\arg ->` head like elm — so those updates fall back via the self-verify guard.) -}
+makeRecordUpdateBox : String -> Bool -> Array LPNode -> Result String Box
+makeRecordUpdateBox baseName forceVertical children =
+    traverseResult (\node -> makePBox (lpnBox node) (lpnChildren node)) children
+        |> Result.andThen
+            (\fieldBoxes ->
+                when Array.popFirst fieldBoxes is
+                    Nothing ->
+                        Ok (B.line (B.literal ("{ " ++ baseName ++ " }")))
+
+                    Just { first = firstField, rest = restFields } ->
+                        let
+                            contentVertical =
+                                Array.any (\b -> not (isSingleLine b)) fieldBoxes
+                        in
+                        Ok
+                            (E.extensionGroup
+                                (forceVertical || contentVertical)
+                                (B.line (B.literal baseName))
+                                firstField
+                                restFields
+                            )
+            )
+
+
 -- ═══ WHEN ═══
 
 
@@ -551,6 +585,9 @@ makePBox box children =
 
         Binop { forceVertical } ->
             makeBinopBox forceVertical children
+
+        RecordUpdate { name, forceVertical } ->
+            makeRecordUpdateBox name.value forceVertical children
 
         WhenFlow { forceVertical } ->
             makeWhenFlowBox forceVertical children
