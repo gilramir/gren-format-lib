@@ -162,10 +162,18 @@ still returns Err and falls back. -}
 makeBinopBox : Bool -> Array LPNode -> Result String Box
 makeBinopBox forceVertical children =
     if Array.any subtreeHasComment children then
-        -- A comment anywhere in the chain routes the Doc renderer to its
-        -- comment-aware flow fallback (`makeBinopDoc`'s `subtreeHasComment`
-        -- branch), not the precedence layout — so fall back here too.
-        Err "box: comment-bearing binop not ported"
+        -- A comment anywhere in the chain routes the Doc renderer AWAY from the
+        -- precedence layout to its comment-aware flow fallback (`makeBinopDoc`'s
+        -- `subtreeHasComment` branch): `buildFlowDoc grenIndent` when inline,
+        -- `buildFlowDocBroken grenIndent` when forced vertical. Only the inline
+        -- form is ported (the flat flow builder is comment-aware and, together
+        -- with `OpAndRhs`, renders the chain on one line); a forced-vertical
+        -- comment chain falls back.
+        if forceVertical then
+            Err "box: forced-vertical comment-bearing binop not ported"
+
+        else
+            buildFlowBox grenIndent children
 
     else
         let
@@ -328,6 +336,34 @@ prefixOperator op box =
 
         Err _ ->
             B.prefix (B.row [ B.literal op, B.space ]) box
+
+
+{-| Render an `OpAndRhs` node (`op` + the right-hand side flow), mirroring
+`MakeRender.makeOpAndRhsDoc`. Reached only from the comment-bearing binop flow
+fallback (the comment-free path flattens `OpAndRhs` via `flattenBinopNodes`
+instead). Only a single-line rhs is ported. -}
+makeOpAndRhsBox : Array LPNode -> Result String Box
+makeOpAndRhsBox children =
+    when Array.popFirst children is
+        Nothing ->
+            Err "box: empty OpAndRhs"
+
+        Just { first = opNode, rest = rhsNodes } ->
+            when leafValue opNode is
+                Just op ->
+                    buildFlowBox 0 rhsNodes
+                        |> Result.andThen
+                            (\rhsBox ->
+                                when B.isLine rhsBox is
+                                    Ok l ->
+                                        Ok (B.line (B.row [ B.literal (op ++ " "), l ]))
+
+                                    Err _ ->
+                                        Err "box: multi-line OpAndRhs not ported"
+                            )
+
+                Nothing ->
+                    Err "box: OpAndRhs op is not a text leaf"
 
 
 -- ═══ COMMENT LINES ═══
@@ -1301,6 +1337,9 @@ makePBox box children =
 
         Binop { forceVertical } ->
             makeBinopBox forceVertical children
+
+        OpAndRhs ->
+            makeOpAndRhsBox children
 
         RecordUpdate { name, forceVertical } ->
             makeRecordUpdateBox name.value forceVertical children
