@@ -225,6 +225,72 @@ assembleBinopBox forceVertical minPrec operandLines ops =
             )
 
 
+-- ═══ PIPELINES ═══
+
+
+isPipelineStepNode : LPNode -> Bool
+isPipelineStepNode node =
+    when lpnBox node is
+        PipelineStep ->
+            True
+
+        _ ->
+            False
+
+
+{-| Render a forward (`|>`) pipeline: seed then each `|> step` on its own line
+at +4 (or inline `seed |> a |> b` when the author kept it on one line). Mirrors
+`MakeRender.makePipelineDoc`. Backward (`<|`) pipelines, comment-bearing
+pipelines (a comment node makes a step Err), and steps with a multi-line
+argument (which elm-format relocates) fall back to Doc. -}
+makePipelineBox : Bool -> String -> Array LPNode -> Result String Box
+makePipelineBox forceVertical op children =
+    if op /= "|>" then
+        Err "box: backward (<|) pipeline not ported"
+
+    else
+        let
+            seedNodes =
+                Array.keepIf (\n -> not (isPipelineStepNode n)) children
+
+            stepNodes =
+                Array.keepIf isPipelineStepNode children
+        in
+        buildFlowBox 0 seedNodes
+            |> Result.andThen
+                (\seedBox ->
+                    traverseResult renderPipelineStep stepNodes
+                        |> Result.andThen
+                            (\stepBoxes ->
+                                if forceVertical then
+                                    Ok (B.stack1 ([ seedBox ] ++ Array.map B.indent stepBoxes))
+
+                                else
+                                    when joinInline ([ seedBox ] ++ stepBoxes) is
+                                        Just l ->
+                                            Ok l
+
+                                        Nothing ->
+                                            Err "box: multi-line inline pipeline not ported"
+                            )
+                )
+
+
+-- One `|> step`, single-line only (a step whose argument relocates across rows
+-- has elm-format-specific layout that isn't ported).
+renderPipelineStep : LPNode -> Result String Box
+renderPipelineStep stepNode =
+    buildFlowBox 0 (lpnChildren stepNode)
+        |> Result.andThen
+            (\box ->
+                if isSingleLine box then
+                    Ok box
+
+                else
+                    Err "box: multi-line pipeline step not ported"
+            )
+
+
 -- ═══ IF ═══
 
 
@@ -635,6 +701,9 @@ makePBox box children =
 
         IfCondition { forceVertical } ->
             makeIfConditionBox forceVertical children
+
+        Pipeline { forceVertical, op } ->
+            makePipelineBox forceVertical op children
 
         EmptyLine ->
             Ok B.blankLine
