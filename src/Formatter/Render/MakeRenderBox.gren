@@ -679,6 +679,25 @@ makePBox box children =
         IndentedBlock ->
             buildFlowBox 0 children
 
+        SoftIndentedBlock ->
+            -- A lambda body: rendered inline when single-line, dropped +4 when
+            -- multi-line — the enclosing flow decides, via isBlockNode.
+            buildFlowBox 0 children
+
+        PrefixGlue prefix ->
+            -- Glue a prefix onto its inner with no space: `\x` (lambda arg),
+            -- `-x` (unary negation). Single-line inner only.
+            buildFlowBox 0 children
+                |> Result.andThen
+                    (\inner ->
+                        when B.isLine inner is
+                            Ok l ->
+                                Ok (B.line (B.row [ B.literal prefix.value, l ]))
+
+                            Err _ ->
+                                Err "box: multi-line prefix-glue not ported"
+                    )
+
         AllAcrossOrAllVertical bracket ->
             makeLiteralBox False bracket children
 
