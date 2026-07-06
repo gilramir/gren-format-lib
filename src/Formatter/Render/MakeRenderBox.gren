@@ -14,7 +14,7 @@ renderer gets wrong simply falls back.
 
 import Formatter.Render.Box as B exposing (Box)
 import Formatter.Render.ElmStructure as E
-import Formatter.Logical.LogicalPrintingTree exposing (LPBox(..), LPNode, ListBrackets(..), SyntaxType(..), lpnBox, lpnChildren, firstRowInSubtree, lpnMaxRow)
+import Formatter.Logical.LogicalPrintingTree exposing (LPBox(..), LPNode, ListBrackets(..), SyntaxType(..), lpnBox, lpnChildren, firstRowInSubtree, lpnMaxRow, lpnFirstPos)
 
 
 grenIndent : Int
@@ -261,12 +261,18 @@ makePBox box children =
         SynthesizedText s ->
             Ok (B.line (B.literal s))
 
-        AcrossOrVertical { forceVertical } ->
-            if forceVertical then
-                Err "box: forced-vertical flow not ported"
+        AcrossOrVertical { forceVertical, checkContentVertical } ->
+            renderFlowItems children
+                |> Result.andThen
+                    (\items ->
+                        if forceVertical || (checkContentVertical && Array.any .isBlock items) then
+                            -- A function application that must break: elm-format's
+                            -- `ElmStructure.application`.
+                            assembleBrokenCall grenIndent items
 
-            else
-                buildFlowBox grenIndent children
+                        else
+                            assembleFlow grenIndent items
+                    )
 
         BodyBlock ->
             buildFlowBox 0 children
@@ -275,25 +281,35 @@ makePBox box children =
             buildFlowBox 0 children
 
         AllAcrossOrAllVertical bracket ->
-            makeLiteralBox bracket children
+            makeLiteralBox False bracket children
+
+        AlwaysVertical bracket ->
+            makeLiteralBox True bracket children
+
+        EmptyBracketed loc ->
+            when bracketPunc loc.value is
+                Just { left, right } ->
+                    Ok (B.line (B.row [ B.punc left, B.punc right ]))
+
+                Nothing ->
+                    Err "box: empty bracket kind not ported"
 
         _ ->
-            Err "box: construct not ported (tranche 1)"
+            Err "box: construct not ported"
 
 
-{-| A record / array literal (`AllAcrossOrAllVertical`). Rendered inline unless
-its content is multi-line (a nested block), via elm's `group'`. -}
-makeLiteralBox : ListBrackets -> Array LPNode -> Result String Box
-makeLiteralBox bracket children =
+{-| A record / array literal via elm's `group'`. `AllAcrossOrAllVertical`
+(author wrote it inline) passes `forceMultiline = False` — `group'` still
+expands if a child is multi-line; `AlwaysVertical` (2+-field record, or author
+across rows) passes `forceMultiline = True`. -}
+makeLiteralBox : Bool -> ListBrackets -> Array LPNode -> Result String Box
+makeLiteralBox forceMultiline bracket children =
     traverseResult (\node -> makePBox (lpnBox node) (lpnChildren node)) children
         |> Result.andThen
             (\itemBoxes ->
                 when bracketPunc bracket is
                     Just { left, right } ->
-                        -- Author wrote it inline (AllAcrossOrAllVertical), so
-                        -- forceMultiline = False; `group'` still expands if a
-                        -- child is itself multi-line.
-                        Ok (E.groupBox True left "," right False itemBoxes)
+                        Ok (E.groupBox True left "," right forceMultiline itemBoxes)
 
                     Nothing ->
                         Err "box: bracket kind not ported"
@@ -313,19 +329,93 @@ bracketPunc bracket =
             Nothing
 
 
-{-| Assemble a flow: inline nodes join on one line with single spaces; a single
-trailing block node (BodyBlock / IndentedBlock / any multi-line node) drops to
-its own line indented by `indent`. Shapes outside "inline* block?" are `Err`
-(fall back) for now. -}
-buildFlowBox : Int -> Array LPNode -> Result String Box
-buildFlowBox indent nodes =
+type alias FlowItem =
+    { node : LPNode, box : Box, isBlock : Bool }
+
+
+-- Render each flow node to a Box (Err if any is unported), tagging whether it
+-- occupies its own block line.
+renderFlowItems : Array LPNode -> Result String (Array FlowItem)
+renderFlowItems nodes =
     traverseResult
         (\node ->
             makePBox (lpnBox node) (lpnChildren node)
                 |> Result.map (\box -> { node = node, box = box, isBlock = isBlockNode node box })
         )
         nodes
+
+
+{-| Assemble a flow: inline nodes join on one line with single spaces; a single
+trailing block node (BodyBlock / IndentedBlock / any multi-line node) drops to
+its own line indented by `indent`. Shapes outside "inline* block?" are `Err`
+(fall back) for now. -}
+buildFlowBox : Int -> Array LPNode -> Result String Box
+buildFlowBox indent nodes =
+    renderFlowItems nodes
         |> Result.andThen (assembleFlow indent)
+
+
+{-| A function application forced across lines — elm-format's
+`ElmStructure.application`. The first argument stays glued to the function on
+the opening line only when both are single-line and share a source row;
+otherwise the function stands alone. Every non-glued argument drops to its own
+line at +`indent`. -}
+assembleBrokenCall : Int -> Array FlowItem -> Result String Box
+assembleBrokenCall indent items =
+    when Array.popFirst items is
+        Nothing ->
+            Err "box: empty call"
+
+        Just { first = fnItem, rest = argItems } ->
+            when Array.popFirst argItems is
+                Nothing ->
+                    -- fn with no args — nothing to break
+                    Ok fnItem.box
+
+                Just { first = arg0Item, rest = laterArgs } ->
+                    if shouldGlueBox fnItem arg0Item then
+                        when joinInline [ fnItem.box, arg0Item.box ] is
+                            Nothing ->
+                                Err "box: glue join failed"
+
+                            Just glueLine ->
+                                if Array.isEmpty laterArgs then
+                                    Ok glueLine
+
+                                else
+                                    Ok (B.stack1 ([ glueLine ] ++ Array.map (\it -> applyIndent indent it.box) laterArgs))
+
+                    else
+                        Ok (B.stack1 ([ fnItem.box ] ++ Array.map (\it -> applyIndent indent it.box) argItems))
+
+
+-- Both single-line and on the same source row → keep glued on the opening line.
+shouldGlueBox : FlowItem -> FlowItem -> Bool
+shouldGlueBox fnItem arg0Item =
+    isSingleLine fnItem.box
+        && isSingleLine arg0Item.box
+        && nodesShareStartRow fnItem.node arg0Item.node
+
+
+nodesShareStartRow : LPNode -> LPNode -> Bool
+nodesShareStartRow a b =
+    when { pa = lpnFirstPos a, pb = lpnFirstPos b } is
+        { pa = Just posA, pb = Just posB } ->
+            posA.row == posB.row
+
+        _ ->
+            False
+
+
+-- Join boxes horizontally on one line with single spaces, iff all single-line.
+joinInline : Array Box -> Maybe Box
+joinInline boxes =
+    when B.allSingles boxes is
+        Ok lines ->
+            Just (B.line (B.row (Array.intersperse B.space lines)))
+
+        Err _ ->
+            Nothing
 
 
 isBlockNode : LPNode -> Box -> Bool
