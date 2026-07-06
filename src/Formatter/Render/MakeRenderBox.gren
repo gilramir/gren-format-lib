@@ -59,13 +59,10 @@ makePrettyLineBox node =
                     makeCommentLineBox (lpnChildren node)
 
                 StModule ->
-                    -- `module … exposing (..)` and plain/aliased imports are a
-                    -- leaf flow; a parenthesized exposing list (ListParen) isn't
-                    -- ported (bracketPunc has no ListParen) and falls back.
-                    buildFlowBox 0 (lpnChildren node)
+                    makeExposingLineBox StModule (lpnChildren node)
 
                 StImport ->
-                    buildFlowBox 0 (lpnChildren node)
+                    makeExposingLineBox StImport (lpnChildren node)
 
                 StInfixDecl ->
                     -- `infix left 6 (+) = add` — a flat single-line leaf flow,
@@ -1265,12 +1262,183 @@ makeSignatureBox children =
 -- One line: the given leaf nodes joined by single spaces.
 leafRow : Array LPNode -> Box
 leafRow nodes =
-    B.line
-        (B.row
-            (Array.intersperse B.space
-                (Array.map (\n -> B.literal (Maybe.withDefault "" (leafValue n))) nodes)
-            )
+    B.line (leafLineRow nodes)
+
+
+-- The `Line` (not boxed) of the given leaf nodes joined by single spaces. Only
+-- valid for all-leaf node arrays (caller must have checked `headerAllLeaves`);
+-- a non-leaf renders as "".
+leafLineRow : Array LPNode -> B.Line
+leafLineRow nodes =
+    B.row
+        (Array.intersperse B.space
+            (Array.map (\n -> B.literal (Maybe.withDefault "" (leafValue n))) nodes)
         )
+
+
+-- ═══ MODULE & IMPORT LINES ═══
+
+
+{-| Render a `module …` / `import …` line, mirroring
+`MakeRender.makeExposingLineDoc`. When it ends in an `exposing ( … )` list and
+the header before the list is all plain leaf tokens, render the list as a
+coupled all-or-nothing group; otherwise (a `(..)` wildcard, an effect-module
+`where` block, a comment in the header) fall back to the generic flow.
+
+For a `module` line, `exposing` always stays glued to the header even when the
+list goes vertical (list indented +4). For an `import` line whose list goes
+vertical, `exposing` drops to its own line (+4) with the list indented +8. -}
+makeExposingLineBox : SyntaxType -> Array LPNode -> Result String Box
+makeExposingLineBox stype children =
+    when Array.popLast children is
+        Just { last = lastNode, initial = headerNodes } ->
+            let
+                -- The exposing list's author-layout decision is carried by its
+                -- box type: `AllAcrossOrAllVertical ListParen` = written inline,
+                -- `AlwaysVertical ListParen` = across rows. Anything else means
+                -- the last node isn't a paren list (`(..)` wildcard, etc.).
+                exposingForceVertical =
+                    when lpnBox lastNode is
+                        AllAcrossOrAllVertical ListParen ->
+                            Just False
+
+                        AlwaysVertical ListParen ->
+                            Just True
+
+                        _ ->
+                            Nothing
+
+                headerAllLeaves =
+                    Array.all (\n -> leafValue n /= Nothing) headerNodes
+            in
+            when exposingForceVertical is
+                Just forceVertical ->
+                    if headerAllLeaves && not (Array.isEmpty headerNodes) then
+                        let
+                            listChildren =
+                                lpnChildren lastNode
+                        in
+                        if Array.any nodeIsComment listChildren then
+                            -- A comment among the exposed names forces the list
+                            -- vertical via the Doc's comment-aware
+                            -- `listBoxesWithBrackets`; not ported.
+                            Err "box: comment in exposing list not ported"
+
+                        else
+                            let
+                                -- A module line always keeps `exposing` glued;
+                                -- an import line drops it only when the list is
+                                -- vertical.
+                                keepExposingGlued =
+                                    stype == StModule || not forceVertical
+                            in
+                            makeExposingListBox forceVertical listChildren
+                                |> Result.andThen
+                                    (\listBox ->
+                                        if keepExposingGlued then
+                                            gluedExposingBox forceVertical headerNodes listBox
+
+                                        else
+                                            droppedExposingBox headerNodes listBox
+                                    )
+
+                    else
+                        buildFlowBox 0 children
+
+                Nothing ->
+                    buildFlowBox 0 children
+
+        Nothing ->
+            buildFlowBox 0 children
+
+
+-- `exposing` stays glued to the header. Inline list: `header (a, b, c)` on one
+-- line. Vertical list: header on line 1, list indented +4 beneath it.
+gluedExposingBox : Bool -> Array LPNode -> Box -> Result String Box
+gluedExposingBox forceVertical headerNodes listBox =
+    if forceVertical then
+        Ok (B.stack1 [ B.line (leafLineRow headerNodes), B.indent listBox ])
+
+    else
+        when B.isLine listBox is
+            Ok listLine ->
+                Ok (B.line (B.row [ leafLineRow headerNodes, B.space, listLine ]))
+
+            Err _ ->
+                Err "box: inline exposing list rendered multi-line"
+
+
+-- `exposing` drops to its own line (import + vertical list): header on line 1,
+-- `exposing` at +4, list at +8.
+droppedExposingBox : Array LPNode -> Box -> Result String Box
+droppedExposingBox headerNodes listBox =
+    when Array.popLast headerNodes is
+        Just { last = exposingNode, initial = preExposingNodes } ->
+            Ok
+                (B.stack1
+                    [ B.line (leafLineRow preExposingNodes)
+                    , B.indent
+                        (B.stack1
+                            [ B.line (leafLineRow [ exposingNode ])
+                            , B.indent listBox
+                            ]
+                        )
+                    ]
+                )
+
+        Nothing ->
+            Err "box: exposing line missing exposing keyword"
+
+
+{-| Render an exposing list's `( … )` body (no leading glue). Items are the
+already-sorted exposed names (leaves). Inline: `(a, b, c)`. Vertical:
+
+    ( a
+    , b
+    )
+
+Mirrors `MakeRender.makeExposingListDoc` (the comment-free path). -}
+makeExposingListBox : Bool -> Array LPNode -> Result String Box
+makeExposingListBox forceVertical children =
+    traverseResult (\n -> makePBox (lpnBox n) (lpnChildren n)) children
+        |> Result.andThen
+            (\itemBoxes ->
+                when B.allSingles itemBoxes is
+                    Err _ ->
+                        Err "box: multi-line exposing item not ported"
+
+                    Ok itemLines ->
+                        if Array.isEmpty itemLines then
+                            Ok (B.line (B.punc "()"))
+
+                        else if forceVertical then
+                            Ok (verticalExposingBox itemLines)
+
+                        else
+                            Ok
+                                (B.line
+                                    (B.row
+                                        ([ B.punc "(" ]
+                                            ++ Array.intersperse (B.row [ B.punc ",", B.space ]) itemLines
+                                            ++ [ B.punc ")" ]
+                                        )
+                                    )
+                                )
+            )
+
+
+verticalExposingBox : Array B.Line -> Box
+verticalExposingBox itemLines =
+    when Array.popFirst itemLines is
+        Just { first, rest } ->
+            B.stack1
+                ([ B.prefix (B.row [ B.punc "(", B.space ]) (B.line first) ]
+                    ++ Array.map (\l -> B.prefix (B.row [ B.punc ",", B.space ]) (B.line l)) rest
+                    ++ [ B.line (B.punc ")") ]
+                )
+
+        Nothing ->
+            B.line (B.punc "()")
 
 
 {-| Render one LPT box to a Box. Err for unported constructs. -}
