@@ -52,6 +52,15 @@ makePrettyLineBox node =
                 StTypeUnion ->
                     renderHeaderIndentedBody makeUnionBodyBox (lpnChildren node)
 
+                StModule ->
+                    -- `module … exposing (..)` and plain/aliased imports are a
+                    -- leaf flow; a parenthesized exposing list (ListParen) isn't
+                    -- ported (bracketPunc has no ListParen) and falls back.
+                    buildFlowBox 0 (lpnChildren node)
+
+                StImport ->
+                    buildFlowBox 0 (lpnChildren node)
+
                 _ ->
                     Err "box: stype not ported"
 
