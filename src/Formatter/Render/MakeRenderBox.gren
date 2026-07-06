@@ -67,6 +67,12 @@ makePrettyLineBox node =
                 StImport ->
                     buildFlowBox 0 (lpnChildren node)
 
+                StInfixDecl ->
+                    -- `infix left 6 (+) = add` — a flat single-line leaf flow,
+                    -- same shape as a funcDecl (both route through the Doc
+                    -- renderer's `_ -> makeFlowIndentableDoc`).
+                    buildFlowBox grenIndent (lpnChildren node)
+
                 _ ->
                     Err "box: stype not ported"
 
