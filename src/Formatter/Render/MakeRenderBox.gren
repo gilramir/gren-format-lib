@@ -14,7 +14,7 @@ renderer gets wrong simply falls back.
 
 import Formatter.Render.Box as B exposing (Box)
 import Formatter.Render.ElmStructure as E
-import Formatter.Logical.LogicalPrintingTree exposing (LPBox(..), LPNode, ListBrackets(..), SyntaxType(..), lpnBox, lpnChildren)
+import Formatter.Logical.LogicalPrintingTree exposing (LPBox(..), LPNode, ListBrackets(..), SyntaxType(..), lpnBox, lpnChildren, firstRowInSubtree, lpnMaxRow)
 
 
 grenIndent : Int
@@ -39,8 +39,14 @@ makePrettyLineBox node =
                     else
                         buildFlowBox grenIndent children
 
+                StFunctionSignature ->
+                    makeSignatureBox (lpnChildren node)
+
+                StPort ->
+                    makeSignatureBox (lpnChildren node)
+
                 _ ->
-                    Err "box: only funcDecl ported (tranche 1)"
+                    Err "box: stype not ported"
 
         _ ->
             Err "box: root child not an OriginalRows funcDecl"
@@ -60,6 +66,189 @@ nodeIsComment node =
 
         _ ->
             False
+
+
+-- ═══ SIGNATURES ═══
+
+
+{-| The literal text of a leaf node (`UnbreakableText` / `SynthesizedText`), or
+Nothing for any structured node. Tranche-2 signatures handle only flat leaf
+signatures; a nested type (record/paren/…) yields Nothing and falls back. -}
+leafValue : LPNode -> Maybe String
+leafValue node =
+    when lpnBox node is
+        UnbreakableText locs ->
+            Just locs.value
+
+        SynthesizedText s ->
+            Just s
+
+        _ ->
+            Nothing
+
+
+isArrowLeaf : LPNode -> Bool
+isArrowLeaf node =
+    leafValue node == Just "->"
+
+
+isColonLeaf : LPNode -> Bool
+isColonLeaf node =
+    leafValue node == Just ":"
+
+
+{-| Split a signature's type nodes at each top-level `->`: the first segment is
+the leading type; each later one begins with its `->`. Mirrors
+`MakeRender.splitSignatureSegments`. -}
+splitSignatureSegments : Array LPNode -> Array (Array LPNode)
+splitSignatureSegments nodes =
+    Array.foldl
+        (\node acc ->
+            if isArrowLeaf node then
+                Array.pushLast [ node ] acc
+
+            else
+                when Array.popLast acc is
+                    Just { last = seg, initial = front } ->
+                        Array.pushLast (Array.pushLast node seg) front
+
+                    Nothing ->
+                        [ [ node ] ]
+        )
+        []
+        nodes
+
+
+-- A segment's first / last content row, ignoring the leading arrow.
+segFirstRow : Array LPNode -> Int
+segFirstRow seg =
+    Array.foldl
+        (\node acc ->
+            if isArrowLeaf node then
+                acc
+
+            else
+                let
+                    r =
+                        firstRowInSubtree node
+                in
+                if acc < 0 then
+                    r
+
+                else if r < 0 then
+                    acc
+
+                else
+                    min acc r
+        )
+        -1
+        seg
+
+
+segLastRow : Array LPNode -> Int
+segLastRow seg =
+    Array.foldl
+        (\node acc ->
+            if isArrowLeaf node then
+                acc
+
+            else
+                max acc (lpnMaxRow node)
+        )
+        -1
+        seg
+
+
+{-| True when the author broke the type across rows at a `->` boundary (a later
+segment starts on a row after the previous segment ended). Mirrors
+`MakeRender.segmentsBrokenAtBoundary`. -}
+signatureForceVertical : Array (Array LPNode) -> Bool
+signatureForceVertical segments =
+    (Array.foldl
+        (\seg acc ->
+            let
+                first =
+                    segFirstRow seg
+
+                last =
+                    segLastRow seg
+            in
+            { broken =
+                acc.broken
+                    || (acc.prevLast >= 0 && first >= 0 && first > acc.prevLast)
+            , prevLast =
+                if last >= 0 then
+                    last
+
+                else
+                    acc.prevLast
+            }
+        )
+        { broken = False, prevLast = -1 }
+        segments
+    ).broken
+
+
+{-| Render a function/port signature. Inline (all leaves space-joined) when the
+author kept it on one line; header + one `->` segment per line at +4 when broken.
+Only flat leaf signatures are ported — a nested type or an embedded comment
+returns Err (fall back to Doc). -}
+makeSignatureBox : Array LPNode -> Result String Box
+makeSignatureBox children =
+    when traverseResult (\n -> Result.fromMaybe "box: non-leaf signature node" (leafValue n)) children is
+        Err e ->
+            Err e
+
+        Ok _ ->
+            let
+                colonSplit =
+                    Array.foldl
+                        (\node acc ->
+                            if acc.afterColon then
+                                { acc | typeNodes = Array.pushLast node acc.typeNodes }
+
+                            else if isColonLeaf node then
+                                { acc | header = Array.pushLast node acc.header, afterColon = True }
+
+                            else
+                                { acc | header = Array.pushLast node acc.header }
+                        )
+                        { header = [], typeNodes = [], afterColon = False }
+                        children
+            in
+            if not colonSplit.afterColon then
+                Err "box: signature has no colon"
+
+            else
+                let
+                    segments =
+                        splitSignatureSegments colonSplit.typeNodes
+
+                    forceVertical =
+                        signatureForceVertical segments
+                in
+                if not forceVertical then
+                    -- Inline: every leaf on one line, single-space separated.
+                    Ok (leafRow children)
+
+                else
+                    Ok
+                        (B.stack1
+                            ([ leafRow colonSplit.header ]
+                                ++ Array.map (\seg -> B.indent (leafRow seg)) segments
+                            )
+                        )
+
+
+-- One line: the given leaf nodes joined by single spaces.
+leafRow : Array LPNode -> Box
+leafRow nodes =
+    B.line
+        (B.row
+            (Array.intersperse B.space
+                (Array.map (\n -> B.literal (Maybe.withDefault "" (leafValue n))) nodes)
+            )
+        )
 
 
 {-| Render one LPT box to a Box. Err for unported constructs. -}
