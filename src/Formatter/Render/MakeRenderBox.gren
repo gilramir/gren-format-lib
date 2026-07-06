@@ -225,6 +225,50 @@ assembleBinopBox forceVertical minPrec operandLines ops =
             )
 
 
+-- ═══ IF ═══
+
+
+{-| Render an `if`/`else if` condition header: `if <cond> then` inline, or when
+the author broke it, `if` / cond +4 / `then`. The branch bodies and `else`
+keyword are siblings in the enclosing flow (an `if` is not a single node — see
+the flat `IfCondition`/`IndentedBlock`/`EmptyLine`/`else` sequence), assembled
+by `assembleFlow`. Mirrors `MakeRender.makeIfConditionDoc`. -}
+makeIfConditionBox : Bool -> Array LPNode -> Result String Box
+makeIfConditionBox forceVertical children =
+    when Array.popFirst children is
+        Nothing ->
+            Err "box: if-condition empty"
+
+        Just { first = ifNode, rest = afterIf } ->
+            when Array.popLast afterIf is
+                Nothing ->
+                    Err "box: if-condition missing then"
+
+                Just { initial = condNodes, last = thenNode } ->
+                    makePBox (lpnBox ifNode) (lpnChildren ifNode)
+                        |> Result.andThen
+                            (\ifBox ->
+                                buildFlowBox 0 condNodes
+                                    |> Result.andThen
+                                        (\condBox ->
+                                            makePBox (lpnBox thenNode) (lpnChildren thenNode)
+                                                |> Result.andThen
+                                                    (\thenBox ->
+                                                        if forceVertical then
+                                                            Ok (B.stack1 [ ifBox, B.indent condBox, thenBox ])
+
+                                                        else
+                                                            when joinInline [ ifBox, condBox, thenBox ] is
+                                                                Just l ->
+                                                                    Ok l
+
+                                                                Nothing ->
+                                                                    Err "box: multi-line if-condition not ported"
+                                                    )
+                                        )
+                            )
+
+
 -- ═══ RECORD UPDATE ═══
 
 
@@ -589,6 +633,12 @@ makePBox box children =
         RecordUpdate { name, forceVertical } ->
             makeRecordUpdateBox name.value forceVertical children
 
+        IfCondition { forceVertical } ->
+            makeIfConditionBox forceVertical children
+
+        EmptyLine ->
+            Ok B.blankLine
+
         WhenFlow { forceVertical } ->
             makeWhenFlowBox forceVertical children
 
@@ -745,54 +795,122 @@ isSingleLine box =
             False
 
 
+{-| Assemble a flow into a Box. Consecutive inline (single-line) items join on
+one line, space-separated; a block item (BodyBlock / IndentedBlock / any
+multi-line node) flushes the current line and drops to its own line(s) indented
+by `flowIndent` plus the block's own indent (IndentedBlock/SoftIndentedBlock add
++4, BodyBlock adds 0); an `EmptyLine` flushes and emits a blank line. This is
+the general shape `buildFlowDoc` produces — it covers the funcDecl header+body,
+plain calls, and the flat `if`/`else if`/`else` branch sequence alike. -}
 assembleFlow : Int -> Array { node : LPNode, box : Box, isBlock : Bool } -> Result String Box
-assembleFlow indent items =
-    let
-        blocks =
-            Array.keepIf .isBlock items
-    in
-    if Array.isEmpty blocks then
-        -- all inline → one row joined by spaces
-        Ok (rowOfInline items)
+assembleFlow flowIndent items =
+    if inlineDirectlyAfterBlock items then
+        -- An inline token right after a block (no blank line between) must glue
+        -- onto the block's last line (e.g. a multi-line record *pattern* arg
+        -- `{ … } =`, or an argument after a multi-line one) — the flat stacker
+        -- here can't do that. Fall back. (`if`/`else` always has an EmptyLine
+        -- before `else`, so this doesn't affect it.)
+        Err "box: inline token directly after a block not ported"
 
     else
-        -- support exactly "inline* block" (the funcDecl header+body shape)
-        when Array.popLast items is
-            Just { last = lastItem, initial = leading } ->
-                if lastItem.isBlock && not (Array.any .isBlock leading) then
-                    let
-                        blockBox =
-                            applyIndent indent lastItem.box
-                    in
-                    if Array.isEmpty leading then
-                        Ok blockBox
+        assembleFlowImpl flowIndent items
+
+
+-- True when a non-block, non-EmptyLine item immediately follows a block item.
+inlineDirectlyAfterBlock : Array { node : LPNode, box : Box, isBlock : Bool } -> Bool
+inlineDirectlyAfterBlock items =
+    (Array.foldl
+        (\item acc ->
+            let
+                isEmpty =
+                    isEmptyLine item.node
+
+                isBlk =
+                    item.isBlock && not isEmpty
+
+                isInline =
+                    not item.isBlock && not isEmpty
+            in
+            { prevBlock = isBlk
+            , bad = acc.bad || (isInline && acc.prevBlock)
+            }
+        )
+        { prevBlock = False, bad = False }
+        items
+    ).bad
+
+
+assembleFlowImpl : Int -> Array { node : LPNode, box : Box, isBlock : Bool } -> Result String Box
+assembleFlowImpl flowIndent items =
+    let
+        flushRow curRow rows =
+            if Array.isEmpty curRow then
+                rows
+
+            else
+                Array.pushLast (B.line (B.row (Array.intersperse B.space curRow))) rows
+
+        final =
+            Array.foldl
+                (\item acc ->
+                    if isEmptyLine item.node then
+                        { rows = Array.pushLast B.blankLine (flushRow acc.curRow acc.rows), curRow = [] }
+
+                    else if item.isBlock then
+                        let
+                            blockBox =
+                                applyIndent (flowIndent + blockOwnIndent item.node) item.box
+                        in
+                        { rows = Array.pushLast blockBox (flushRow acc.curRow acc.rows), curRow = [] }
 
                     else
-                        Ok (B.stack1 [ rowOfInline leading, blockBox ])
+                        when B.isLine item.box is
+                            Ok l ->
+                                { acc | curRow = Array.pushLast l acc.curRow }
 
-                else
-                    Err "box: interleaved blocks not ported (tranche 1)"
-
-            Nothing ->
-                Err "box: empty flow"
-
-
-rowOfInline : Array { node : LPNode, box : Box, isBlock : Bool } -> Box
-rowOfInline items =
-    let
-        lines =
-            Array.mapAndKeepJust
-                (\item ->
-                    when B.isLine item.box is
-                        Ok l ->
-                            Just l
-
-                        Err _ ->
-                            Nothing
+                            Err _ ->
+                                -- A single-line-tagged item that isn't a Line
+                                -- shouldn't happen; keep it as its own row.
+                                { rows = Array.pushLast item.box (flushRow acc.curRow acc.rows), curRow = [] }
                 )
+                { rows = [], curRow = [] }
                 items
+
+        allRows =
+            flushRow final.curRow final.rows
     in
-    B.line (B.row (Array.intersperse B.space lines))
+    when Array.popFirst allRows is
+        Nothing ->
+            Err "box: empty flow"
+
+        Just _ ->
+            Ok (B.stack1 allRows)
+
+
+isEmptyLine : LPNode -> Bool
+isEmptyLine node =
+    when lpnBox node is
+        EmptyLine ->
+            True
+
+        _ ->
+            False
+
+
+-- A block's own indent contribution (on top of the flow's indent): IndentedBlock
+-- and SoftIndentedBlock nest +4 by their rule; BodyBlock (and a plain multi-line
+-- node) nest 0, taking their indent from the flow.
+blockOwnIndent : LPNode -> Int
+blockOwnIndent node =
+    when lpnBox node is
+        IndentedBlock ->
+            grenIndent
+
+        SoftIndentedBlock ->
+            grenIndent
+
+        _ ->
+            0
 
 
 {-| Apply `B.indent` (a Tab, advancing to the next multiple of 4) enough times
