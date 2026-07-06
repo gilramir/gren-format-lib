@@ -70,6 +70,12 @@ makePrettyLineBox node =
                 _ ->
                     Err "box: stype not ported"
 
+        EmptyLine ->
+            -- A top-level blank separator. The Doc renderer emits `R.empty`
+            -- here (renders to ""); `B.blankLine` is `SingleLine (literal "")`,
+            -- also "" after the join's trimRight — byte-identical.
+            Ok B.blankLine
+
         _ ->
             Err "box: root child not an OriginalRows funcDecl"
 
