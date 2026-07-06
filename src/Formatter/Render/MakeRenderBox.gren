@@ -142,9 +142,15 @@ opText node =
 {-| Render a binary-operator chain. Groups break at minimum-precedence
 operators (tighter operators join inline within a group); the author's row
 layout picks inline vs one-group-per-line (+4, operator-led). Mirrors
-`MakeRender.makeBinopDoc` / `assembleBinopGroups`. Only chains whose operands
-all render single-line are ported; anything else (a multi-line operand, an
-embedded comment) returns Err and falls back. -}
+`MakeRender.makeBinopDoc` / `assembleBinopGroups`.
+
+A multi-line operand (e.g. a `(when …)` paren-block) is supported in the
+forced-vertical, one-group-per-line layout: its group is composed via
+`B.prefix (op ++ " ")`, which pads the operand's continuation lines by the
+operator width so they align under where the operand's first char lands (the
+Box form of `R.nest`/`R.align`). Any multi-line operand joined *inline* to a
+higher-precedence sibling, and any multi-line operand in a non-vertical chain,
+still returns Err and falls back. -}
 makeBinopBox : Bool -> Array LPNode -> Result String Box
 makeBinopBox forceVertical children =
     let
@@ -160,46 +166,64 @@ makeBinopBox forceVertical children =
                 buildFlowBox 0 operand0
 
             else
-                -- Render every operand; require each to be single-line.
-                traverseResult operandLine flat.operands
-                    |> Result.map
-                        (\operandLines ->
+                -- Render every operand to a Box (multi-line allowed).
+                traverseResult (buildFlowBox 0) flat.operands
+                    |> Result.andThen
+                        (\operandBoxes ->
                             assembleBinopBox forceVertical
                                 (binopMinPrecedence (Array.map opText flat.ops))
-                                operandLines
+                                operandBoxes
                                 (Array.map opText flat.ops)
                         )
 
 
--- Render an operand flow to a single Line, or Err if it renders multi-line.
-operandLine : Array LPNode -> Result String B.Line
-operandLine nodes =
-    buildFlowBox 0 nodes
-        |> Result.andThen
-            (\box ->
-                when B.isLine box is
-                    Ok l ->
-                        Ok l
+-- Render an operator-precedence group (parts joined inline by higher-precedence
+-- operators) to a single Box. A lone part is returned as-is (it may be
+-- multi-line); two or more parts must all be single-line to inline-join.
+renderBinopGroup : Array { op : String, box : Box } -> Result String Box
+renderBinopGroup parts =
+    when Array.popFirst parts is
+        Nothing ->
+            Err "box: empty binop group"
 
+        Just { first = p0, rest } ->
+            if Array.isEmpty rest then
+                Ok p0.box
+
+            else
+                when B.isLine p0.box is
                     Err _ ->
-                        Err "box: multi-line binop operand not ported"
-            )
+                        Err "box: multi-line operand joined inline not ported"
+
+                    Ok l0 ->
+                        traverseResult
+                            (\p ->
+                                when B.isLine p.box is
+                                    Ok l ->
+                                        Ok [ B.space, B.literal p.op, B.space, l ]
+
+                                    Err _ ->
+                                        Err "box: multi-line operand joined inline not ported"
+                            )
+                            rest
+                            |> Result.map
+                                (\segs -> B.line (B.row (Array.flatten ([ [ l0 ] ] ++ segs))))
 
 
-{-| Assemble the operand lines + operator texts into the precedence-aware
-layout. `ops[k]` sits between `operandLines[k]` and `operandLines[k+1]`. Groups
+{-| Assemble the operand boxes + operator texts into the precedence-aware
+layout. `ops[k]` sits between `operandBoxes[k]` and `operandBoxes[k+1]`. Groups
 break at operators whose precedence == `minPrec`; tighter operators join inline
 within a group. -}
-assembleBinopBox : Bool -> Int -> Array B.Line -> Array String -> Box
-assembleBinopBox forceVertical minPrec operandLines ops =
+assembleBinopBox : Bool -> Int -> Array Box -> Array String -> Result String Box
+assembleBinopBox forceVertical minPrec operandBoxes ops =
     let
-        firstLine =
-            Maybe.withDefault (B.literal "") (Array.first operandLines)
+        firstBox =
+            Maybe.withDefault (B.line (B.literal "")) (Array.first operandBoxes)
 
         paired =
-            Array.map2 (\op nextLine -> { op = op, nextLine = nextLine })
+            Array.map2 (\op nextBox -> { op = op, box = nextBox })
                 ops
-                (Array.dropFirst 1 operandLines)
+                (Array.dropFirst 1 operandBoxes)
 
         state =
             Array.foldl
@@ -210,52 +234,85 @@ assembleBinopBox forceVertical minPrec operandLines ops =
                                 acc.firstGroup
 
                             else
-                                acc.curRow
+                                acc.curParts
                         , started = True
                         , segments =
                             if acc.started then
-                                Array.pushLast { op = acc.pendingOp, row = acc.curRow } acc.segments
+                                Array.pushLast { op = acc.pendingOp, parts = acc.curParts } acc.segments
 
                             else
                                 acc.segments
                         , pendingOp = pair.op
-                        , curRow = [ pair.nextLine ]
+                        , curParts = [ { op = "", box = pair.box } ]
                         }
 
                     else
-                        { acc | curRow = acc.curRow ++ [ B.space, B.literal pair.op, B.space, pair.nextLine ] }
+                        { acc | curParts = Array.pushLast { op = pair.op, box = pair.box } acc.curParts }
                 )
-                { firstGroup = [ firstLine ]
+                { firstGroup = [ { op = "", box = firstBox } ]
                 , started = False
                 , segments = []
                 , pendingOp = ""
-                , curRow = [ firstLine ]
+                , curParts = [ { op = "", box = firstBox } ]
                 }
                 paired
 
         segments =
-            Array.pushLast { op = state.pendingOp, row = state.curRow } state.segments
+            Array.pushLast { op = state.pendingOp, parts = state.curParts } state.segments
     in
-    if not forceVertical then
-        -- Inline: whole chain on one line.
-        B.line
-            (B.row
-                (Array.foldl
-                    (\seg acc -> acc ++ [ B.space, B.literal seg.op, B.space ] ++ seg.row)
-                    state.firstGroup
+    renderBinopGroup state.firstGroup
+        |> Result.andThen
+            (\firstGroupBox ->
+                traverseResult
+                    (\seg -> Result.map (\b -> { op = seg.op, box = b }) (renderBinopGroup seg.parts))
                     segments
-                )
+                    |> Result.andThen
+                        (\segBoxes ->
+                            if not forceVertical then
+                                -- Inline: whole chain on one line — every group
+                                -- must be single-line.
+                                when B.isLine firstGroupBox is
+                                    Err _ ->
+                                        Err "box: multi-line operand in non-vertical binop not ported"
+
+                                    Ok firstLine ->
+                                        traverseResult
+                                            (\seg ->
+                                                when B.isLine seg.box is
+                                                    Ok l ->
+                                                        Ok [ B.space, B.literal seg.op, B.space, l ]
+
+                                                    Err _ ->
+                                                        Err "box: multi-line operand in non-vertical binop not ported"
+                                            )
+                                            segBoxes
+                                            |> Result.map
+                                                (\segs -> B.line (B.row (Array.flatten ([ [ firstLine ] ] ++ segs))))
+
+                            else
+                                -- One group per line: firstGroup at base, each
+                                -- later group `op group` at +4, operator-led.
+                                Ok
+                                    (B.stack1
+                                        ([ firstGroupBox ]
+                                            ++ Array.map (\seg -> B.indent (prefixOperator seg.op seg.box)) segBoxes
+                                        )
+                                    )
+                        )
             )
 
-    else
-        -- One group per line: firstGroup at base, each later group `op group`
-        -- at +4, operator-led.
-        B.stack1
-            ([ B.line (B.row state.firstGroup) ]
-                ++ Array.map
-                    (\seg -> B.indent (B.line (B.row ([ B.literal seg.op, B.space ] ++ seg.row))))
-                    segments
-            )
+
+-- Prepend `op ` to a group box. A single-line box becomes one line; a
+-- multi-line box uses `B.prefix`, which pads its continuation lines by the
+-- operator width so they align under the operand's first char.
+prefixOperator : String -> Box -> Box
+prefixOperator op box =
+    when B.isLine box is
+        Ok l ->
+            B.line (B.row [ B.literal op, B.space, l ])
+
+        Err _ ->
+            B.prefix (B.row [ B.literal op, B.space ]) box
 
 
 -- ═══ COMMENT LINES ═══
