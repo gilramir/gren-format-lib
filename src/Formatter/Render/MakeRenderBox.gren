@@ -1,0 +1,238 @@
+module Formatter.Render.MakeRenderBox exposing (makePrettyLineBox)
+
+{-| Box-model renderer — the target of the Change-1 strangler rollout. It
+renders an LPT node to elm-format's `Box` (Tab + prefix arithmetic), returning
+`Err` for any construct not yet ported so the caller (`MakeRender.makePrettyLine`)
+falls back to the legacy `Doc` renderer.
+
+TRANCHE 1: top-level definitions whose body is a simple flow — leaves, record /
+array literals, and nested single-line flows. Everything else is `Err`. A
+self-verify guard in `makePrettyLine` only *uses* Box output when it is
+byte-identical to the `Doc` output, so this is regression-proof: a shape this
+renderer gets wrong simply falls back.
+-}
+
+import Formatter.Render.Box as B exposing (Box)
+import Formatter.Render.ElmStructure as E
+import Formatter.Logical.LogicalPrintingTree exposing (LPBox(..), LPNode, ListBrackets(..), SyntaxType(..), lpnBox, lpnChildren)
+
+
+grenIndent : Int
+grenIndent =
+    4
+
+
+{-| Entry point: render one top-level root child to a Box, or Err to fall back. -}
+makePrettyLineBox : LPNode -> Result String Box
+makePrettyLineBox node =
+    when lpnBox node is
+        OriginalRows { stype = stype } ->
+            when stype is
+                StFunctionDeclaration ->
+                    let
+                        children =
+                            lpnChildren node
+                    in
+                    if Array.any nodeIsComment children then
+                        Err "box: comments not ported (tranche 1)"
+
+                    else
+                        buildFlowBox grenIndent children
+
+                _ ->
+                    Err "box: only funcDecl ported (tranche 1)"
+
+        _ ->
+            Err "box: root child not an OriginalRows funcDecl"
+
+
+nodeIsComment : LPNode -> Bool
+nodeIsComment node =
+    when lpnBox node is
+        SingleLineComment _ ->
+            True
+
+        BlockComment _ ->
+            True
+
+        DocComment _ ->
+            True
+
+        _ ->
+            False
+
+
+{-| Render one LPT box to a Box. Err for unported constructs. -}
+makePBox : LPBox -> Array LPNode -> Result String Box
+makePBox box children =
+    when box is
+        UnbreakableText locs ->
+            Ok (B.line (B.literal locs.value))
+
+        SynthesizedText s ->
+            Ok (B.line (B.literal s))
+
+        AcrossOrVertical { forceVertical } ->
+            if forceVertical then
+                Err "box: forced-vertical flow not ported"
+
+            else
+                buildFlowBox grenIndent children
+
+        BodyBlock ->
+            buildFlowBox 0 children
+
+        IndentedBlock ->
+            buildFlowBox 0 children
+
+        AllAcrossOrAllVertical bracket ->
+            makeLiteralBox bracket children
+
+        _ ->
+            Err "box: construct not ported (tranche 1)"
+
+
+{-| A record / array literal (`AllAcrossOrAllVertical`). Rendered inline unless
+its content is multi-line (a nested block), via elm's `group'`. -}
+makeLiteralBox : ListBrackets -> Array LPNode -> Result String Box
+makeLiteralBox bracket children =
+    traverseResult (\node -> makePBox (lpnBox node) (lpnChildren node)) children
+        |> Result.andThen
+            (\itemBoxes ->
+                when bracketPunc bracket is
+                    Just { left, right } ->
+                        -- Author wrote it inline (AllAcrossOrAllVertical), so
+                        -- forceMultiline = False; `group'` still expands if a
+                        -- child is itself multi-line.
+                        Ok (E.groupBox True left "," right False itemBoxes)
+
+                    Nothing ->
+                        Err "box: bracket kind not ported"
+            )
+
+
+bracketPunc : ListBrackets -> Maybe { left : String, right : String }
+bracketPunc bracket =
+    when bracket is
+        ListCurly ->
+            Just { left = "{", right = "}" }
+
+        ListSquare ->
+            Just { left = "[", right = "]" }
+
+        _ ->
+            Nothing
+
+
+{-| Assemble a flow: inline nodes join on one line with single spaces; a single
+trailing block node (BodyBlock / IndentedBlock / any multi-line node) drops to
+its own line indented by `indent`. Shapes outside "inline* block?" are `Err`
+(fall back) for now. -}
+buildFlowBox : Int -> Array LPNode -> Result String Box
+buildFlowBox indent nodes =
+    traverseResult
+        (\node ->
+            makePBox (lpnBox node) (lpnChildren node)
+                |> Result.map (\box -> { node = node, box = box, isBlock = isBlockNode node box })
+        )
+        nodes
+        |> Result.andThen (assembleFlow indent)
+
+
+isBlockNode : LPNode -> Box -> Bool
+isBlockNode node box =
+    when lpnBox node is
+        BodyBlock ->
+            True
+
+        IndentedBlock ->
+            True
+
+        _ ->
+            not (isSingleLine box)
+
+
+isSingleLine : Box -> Bool
+isSingleLine box =
+    when B.isLine box is
+        Ok _ ->
+            True
+
+        Err _ ->
+            False
+
+
+assembleFlow : Int -> Array { node : LPNode, box : Box, isBlock : Bool } -> Result String Box
+assembleFlow indent items =
+    let
+        blocks =
+            Array.keepIf .isBlock items
+    in
+    if Array.isEmpty blocks then
+        -- all inline → one row joined by spaces
+        Ok (rowOfInline items)
+
+    else
+        -- support exactly "inline* block" (the funcDecl header+body shape)
+        when Array.popLast items is
+            Just { last = lastItem, initial = leading } ->
+                if lastItem.isBlock && not (Array.any .isBlock leading) then
+                    let
+                        blockBox =
+                            applyIndent indent lastItem.box
+                    in
+                    if Array.isEmpty leading then
+                        Ok blockBox
+
+                    else
+                        Ok (B.stack1 [ rowOfInline leading, blockBox ])
+
+                else
+                    Err "box: interleaved blocks not ported (tranche 1)"
+
+            Nothing ->
+                Err "box: empty flow"
+
+
+rowOfInline : Array { node : LPNode, box : Box, isBlock : Bool } -> Box
+rowOfInline items =
+    let
+        lines =
+            Array.mapAndKeepJust
+                (\item ->
+                    when B.isLine item.box is
+                        Ok l ->
+                            Just l
+
+                        Err _ ->
+                            Nothing
+                )
+                items
+    in
+    B.line (B.row (Array.intersperse B.space lines))
+
+
+{-| Apply `B.indent` (a Tab, advancing to the next multiple of 4) enough times
+to reach `indent` columns from a multiple-of-4 origin. -}
+applyIndent : Int -> Box -> Box
+applyIndent indent box =
+    if indent <= 0 then
+        box
+
+    else
+        applyIndent (indent - 4) (B.indent box)
+
+
+-- Traverse an Array with a Result-returning function, short-circuiting on Err.
+traverseResult : (a -> Result e b) -> Array a -> Result e (Array b)
+traverseResult f items =
+    Array.foldl
+        (\item acc ->
+            acc
+                |> Result.andThen
+                    (\built ->
+                        f item |> Result.map (\b -> Array.pushLast b built)
+                    )
+        )
+        (Ok [])
+        items

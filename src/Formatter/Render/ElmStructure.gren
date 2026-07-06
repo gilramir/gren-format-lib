@@ -1,0 +1,70 @@
+module Formatter.Render.ElmStructure exposing
+    ( groupBox
+    )
+
+{-| Faithful port of the `ElmStructure.hs` combinators used by the Box-model
+renderer (`Formatter.Render.MakeRenderBox`). Verticality is driven by the
+caller's `forceMultiline` (author intent), NOT a page-width fit search.
+
+Only `groupBox` (elm's `group'`, for bracketed literals) is needed by tranche 1;
+more combinators (`equalsPair`, `extensionGroup`, …) get added as the strangler
+rollout ports more constructs.
+-}
+
+import Formatter.Render.Box as B exposing (Box)
+
+
+{-| `group` — a bracketed literal. Single line `{ c0, c1 }` (or `[ … ]`) when
+not forced and every child fits on one line; otherwise the expanded
+
+    { c0
+    , c1
+    }
+
+`innerSpaces` controls the space just inside the brackets on the flat form.
+-}
+groupBox : Bool -> String -> String -> String -> Bool -> Array Box -> Box
+groupBox innerSpaces left sep right forceMultiline children =
+    when { fm = forceMultiline, cs = B.allSingles children } is
+        { cs = Ok singles } ->
+            if Array.isEmpty singles then
+                B.line (B.row [ B.punc left, B.punc right ])
+
+            else if forceMultiline then
+                verticalGroup left sep right children
+
+            else
+                B.line
+                    (B.row
+                        ((if innerSpaces then
+                            [ B.punc left, B.space ]
+
+                          else
+                            [ B.punc left ]
+                         )
+                            ++ Array.intersperse (B.row [ B.punc sep, B.space ]) singles
+                            ++ (if innerSpaces then
+                                    [ B.space, B.punc right ]
+
+                                else
+                                    [ B.punc right ]
+                               )
+                        )
+                    )
+
+        { cs = Err _ } ->
+            verticalGroup left sep right children
+
+
+verticalGroup : String -> String -> String -> Array Box -> Box
+verticalGroup left sep right children =
+    when Array.popFirst children is
+        Nothing ->
+            B.line (B.row [ B.punc left, B.punc right ])
+
+        Just { first, rest } ->
+            B.stack1
+                ([ B.prefix (B.row [ B.punc left, B.space ]) first ]
+                    ++ Array.map (B.prefix (B.row [ B.punc sep, B.space ])) rest
+                    ++ [ B.line (B.punc right) ]
+                )

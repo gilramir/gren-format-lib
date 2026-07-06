@@ -86,6 +86,8 @@ import Formatter.Logical.BinopPrecedence exposing (binopPrecedence, binopMinPrec
 import Formatter.Strings exposing (joinResultStrings)
 
 import Formatter.Render.Doc as R exposing (Doc)
+import Formatter.Render.Box as RB
+import Formatter.Render.MakeRenderBox as MRB
 import Json.Encode as Json
 
 
@@ -193,8 +195,31 @@ makePrettyResult root =
 
 makePrettyLine : LPNode -> Result String String
 makePrettyLine node =
-    makePrettyLineDoc node
-        |> Result.map R.render
+    let
+        docResult =
+            makePrettyLineDoc node
+                |> Result.map R.render
+    in
+    -- Strangler self-verify (Change-1 rollout): render via the Box model too,
+    -- and use its output ONLY when it is byte-identical to the legacy Doc
+    -- output. Regression-proof — any shape the Box renderer hasn't ported, or
+    -- gets wrong, falls back to Doc. As constructs are ported and we
+    -- intentionally diverge (to match elm-format), those constructs graduate
+    -- out of the equality guard and their fixtures are regenerated.
+    when { boxR = MRB.makePrettyLineBox node, docR = docResult } is
+        { boxR = Ok boxDoc, docR = Ok docStr } ->
+            let
+                boxStr =
+                    RB.render boxDoc
+            in
+            if String.trimRight boxStr == String.trimRight docStr then
+                Ok boxStr
+
+            else
+                Ok docStr
+
+        _ ->
+            docResult
 
 
 -- True if the node is a line or block comment. (Doc comments are their own
