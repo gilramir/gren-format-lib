@@ -102,6 +102,14 @@ nodeIsComment node =
             False
 
 
+-- True when `node` or any descendant is a comment. Mirrors
+-- `MakeRender.subtreeHasComment`; used to route a comment-bearing construct to
+-- its comment-aware fallback rather than a comment-oblivious layout.
+subtreeHasComment : LPNode -> Bool
+subtreeHasComment node =
+    nodeIsComment node || Array.any subtreeHasComment (lpnChildren node)
+
+
 -- ═══ BINOPS ═══
 
 
@@ -153,28 +161,35 @@ higher-precedence sibling, and any multi-line operand in a non-vertical chain,
 still returns Err and falls back. -}
 makeBinopBox : Bool -> Array LPNode -> Result String Box
 makeBinopBox forceVertical children =
-    let
-        flat =
-            flattenBinopNodes children
-    in
-    when Array.popFirst flat.operands is
-        Nothing ->
-            Err "box: empty binop"
+    if Array.any subtreeHasComment children then
+        -- A comment anywhere in the chain routes the Doc renderer to its
+        -- comment-aware flow fallback (`makeBinopDoc`'s `subtreeHasComment`
+        -- branch), not the precedence layout — so fall back here too.
+        Err "box: comment-bearing binop not ported"
 
-        Just { first = operand0, rest = _ } ->
-            if Array.isEmpty flat.ops then
-                buildFlowBox 0 operand0
+    else
+        let
+            flat =
+                flattenBinopNodes children
+        in
+        when Array.popFirst flat.operands is
+            Nothing ->
+                Err "box: empty binop"
 
-            else
-                -- Render every operand to a Box (multi-line allowed).
-                traverseResult (buildFlowBox 0) flat.operands
-                    |> Result.andThen
-                        (\operandBoxes ->
-                            assembleBinopBox forceVertical
-                                (binopMinPrecedence (Array.map opText flat.ops))
-                                operandBoxes
-                                (Array.map opText flat.ops)
-                        )
+            Just { first = operand0, rest = _ } ->
+                if Array.isEmpty flat.ops then
+                    buildFlowBox 0 operand0
+
+                else
+                    -- Render every operand to a Box (multi-line allowed).
+                    traverseResult (buildFlowBox 0) flat.operands
+                        |> Result.andThen
+                            (\operandBoxes ->
+                                assembleBinopBox forceVertical
+                                    (binopMinPrecedence (Array.map opText flat.ops))
+                                    operandBoxes
+                                    (Array.map opText flat.ops)
+                            )
 
 
 -- Render an operator-precedence group (parts joined inline by higher-precedence
@@ -1710,40 +1725,47 @@ assembleFlowImpl flowIndent items =
             else
                 Array.pushLast (B.line (B.row (Array.intersperse B.space curRow))) rows
 
-        -- Place a single-line comment by row. `prevRow` is the source row of the
-        -- content currently on `curRow`; a comment on that same row trails it
-        -- (a `--` comment then terminates the line, a `{- -}` block comment can
-        -- continue it). A comment on a different row / at flow start is a
-        -- standalone own-line comment whose placement isn't ported yet, so it
-        -- falls back. Mirrors the same-row arms of `MakeRender.buildFlowDocImpl`.
+        -- Place a single-line comment. `prevRow` is the source row of the content
+        -- on `curRow`. Mirrors the comment arms of `MakeRender.buildFlowDocImpl`:
+        --   • a `--` line comment always terminates its line — trailing the
+        --     current row when on the same source row, else on its own line;
+        --   • a standalone-leading block comment (the first item of a
+        --     block-context flow, or one right after another terminated comment)
+        --     renders on its own line;
+        --   • a single-line block comment continuing a line (same row) glues
+        --     inline.
+        -- A mid-flow block comment on a different row, and inline-context leading
+        -- comments (paren/when-scrutinee bodies), aren't ported and fall back.
         placeComment acc c startRow =
             let
                 sameRow =
                     not (Array.isEmpty acc.curRow) && startRow == acc.prevRow
-            in
-            if not sameRow then
-                Err "box: standalone / own-line comment in flow not ported"
 
-            else if c.isLineComment then
-                Ok
-                    { rows = flushRow (Array.pushLast c.line acc.curRow) acc.rows
-                    , curRow = []
-                    , prevRow = startRow
-                    }
+                standaloneLeading =
+                    (not acc.started && Array.isEmpty acc.curRow) || acc.justTerminated
+            in
+            if c.isLineComment then
+                if sameRow then
+                    Ok { acc | rows = flushRow (Array.pushLast c.line acc.curRow) acc.rows, curRow = [], prevRow = startRow, started = True, justTerminated = True }
+
+                else
+                    Ok { acc | rows = Array.pushLast (B.line c.line) (flushRow acc.curRow acc.rows), curRow = [], prevRow = startRow, started = True, justTerminated = True }
+
+            else if standaloneLeading then
+                Ok { acc | rows = Array.pushLast (B.line c.line) (flushRow acc.curRow acc.rows), curRow = [], prevRow = startRow, started = True, justTerminated = True }
+
+            else if sameRow then
+                Ok { acc | curRow = Array.pushLast c.line acc.curRow, prevRow = startRow, started = True, justTerminated = False }
 
             else
-                Ok
-                    { acc
-                        | curRow = Array.pushLast c.line acc.curRow
-                        , prevRow = startRow
-                    }
+                Err "box: mid-flow own-line block comment not ported"
 
         step item accResult =
             accResult
                 |> Result.andThen
                     (\acc ->
                         if isEmptyLine item.node then
-                            Ok { rows = Array.pushLast B.blankLine (flushRow acc.curRow acc.rows), curRow = [], prevRow = -1 }
+                            Ok { acc | rows = Array.pushLast B.blankLine (flushRow acc.curRow acc.rows), curRow = [], prevRow = -1, started = True, justTerminated = False }
 
                         else
                             when item.comment is
@@ -1756,20 +1778,20 @@ assembleFlowImpl flowIndent items =
                                             blockBox =
                                                 applyIndent (flowIndent + blockOwnIndent item.node) item.box
                                         in
-                                        Ok { rows = Array.pushLast blockBox (flushRow acc.curRow acc.rows), curRow = [], prevRow = -1 }
+                                        Ok { acc | rows = Array.pushLast blockBox (flushRow acc.curRow acc.rows), curRow = [], prevRow = -1, started = True, justTerminated = False }
 
                                     else
                                         when B.isLine item.box is
                                             Ok l ->
-                                                Ok { acc | curRow = Array.pushLast l acc.curRow, prevRow = item.startRow }
+                                                Ok { acc | curRow = Array.pushLast l acc.curRow, prevRow = item.startRow, started = True, justTerminated = False }
 
                                             Err _ ->
                                                 -- A single-line-tagged item that isn't a Line
                                                 -- shouldn't happen; keep it as its own row.
-                                                Ok { rows = Array.pushLast item.box (flushRow acc.curRow acc.rows), curRow = [], prevRow = -1 }
+                                                Ok { acc | rows = Array.pushLast item.box (flushRow acc.curRow acc.rows), curRow = [], prevRow = -1, started = True, justTerminated = False }
                     )
     in
-    Array.foldl step (Ok { rows = [], curRow = [], prevRow = -1 }) items
+    Array.foldl step (Ok { rows = [], curRow = [], prevRow = -1, started = False, justTerminated = False }) items
         |> Result.andThen
             (\final ->
                 let
