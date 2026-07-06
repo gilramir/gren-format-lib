@@ -170,7 +170,7 @@ makeBinopBox forceVertical children =
         -- with `OpAndRhs`, renders the chain on one line); a forced-vertical
         -- comment chain falls back.
         if forceVertical then
-            Err "box: forced-vertical comment-bearing binop not ported"
+            buildFlowBoxBroken grenIndent children
 
         else
             buildFlowBox grenIndent children
@@ -1769,6 +1769,30 @@ buildFlowBox : Int -> Array LPNode -> Result String Box
 buildFlowBox indent nodes =
     renderFlowItems nodes
         |> Result.andThen (assembleFlow indent)
+
+
+{-| Assemble a *broken* flow — every item on its own line: the first at the base
+column, each remaining item at +`indent`. Mirrors `MakeRender.buildFlowDocBroken`
+(the `brokenFlow = True` path). Box already renders broken function applications
+via `assembleBrokenCall`, so the one caller here is the forced-vertical
+comment-bearing binop (`operand0` / `op … rest` at +4). Top-level comment items
+aren't handled — those flows fall back. -}
+buildFlowBoxBroken : Int -> Array LPNode -> Result String Box
+buildFlowBoxBroken indent nodes =
+    renderFlowItems nodes
+        |> Result.andThen
+            (\items ->
+                if Array.any isCommentItem items then
+                    Err "box: comment item in broken flow not ported"
+
+                else
+                    when Array.popFirst items is
+                        Nothing ->
+                            Err "box: empty broken flow"
+
+                        Just { first = firstItem, rest } ->
+                            Ok (B.stack1 ([ firstItem.box ] ++ Array.map (\it -> applyIndent indent it.box) rest))
+            )
 
 
 {-| A function application forced across lines — elm-format's
