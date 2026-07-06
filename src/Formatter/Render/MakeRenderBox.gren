@@ -1486,19 +1486,73 @@ bracketPunc bracket =
 
 
 type alias FlowItem =
-    { node : LPNode, box : Box, isBlock : Bool }
+    { node : LPNode
+    , box : Box
+    , isBlock : Bool
+    , startRow : Int
+    , comment : Maybe { line : B.Line, isLineComment : Bool }
+    }
 
 
 -- Render each flow node to a Box (Err if any is unported), tagging whether it
--- occupies its own block line.
+-- occupies its own block line, its start row, and — for a single-line comment —
+-- the comment text so `assembleFlowImpl` can place it by row.
 renderFlowItems : Array LPNode -> Result String (Array FlowItem)
 renderFlowItems nodes =
-    traverseResult
-        (\node ->
+    traverseResult renderFlowItem nodes
+
+
+renderFlowItem : LPNode -> Result String FlowItem
+renderFlowItem node =
+    when lpnBox node is
+        SingleLineComment loc ->
+            Ok
+                { node = node
+                , box = B.blankLine
+                , isBlock = False
+                , startRow = loc.start.row
+                , comment = Just { line = B.literal ("--" ++ loc.value), isLineComment = True }
+                }
+
+        BlockComment loc ->
+            if String.contains "\n" loc.value then
+                Err "box: multi-line block comment in flow not ported"
+
+            else
+                Ok
+                    { node = node
+                    , box = B.blankLine
+                    , isBlock = False
+                    , startRow = loc.start.row
+                    , comment = Just { line = B.literal ("{-" ++ loc.value ++ "-}"), isLineComment = False }
+                    }
+
+        _ ->
             makePBox (lpnBox node) (lpnChildren node)
-                |> Result.map (\box -> { node = node, box = box, isBlock = isBlockNode node box })
-        )
-        nodes
+                |> Result.map
+                    (\box ->
+                        { node = node
+                        , box = box
+                        , isBlock = isBlockNode node box
+                        , startRow = nodeStartRow node
+                        , comment = Nothing
+                        }
+                    )
+
+
+nodeStartRow : LPNode -> Int
+nodeStartRow node =
+    when lpnFirstPos node is
+        Just p ->
+            p.row
+
+        Nothing ->
+            -1
+
+
+isCommentItem : FlowItem -> Bool
+isCommentItem item =
+    item.comment /= Nothing
 
 
 {-| Assemble a flow: inline nodes join on one line with single spaces; a single
@@ -1518,31 +1572,35 @@ otherwise the function stands alone. Every non-glued argument drops to its own
 line at +`indent`. -}
 assembleBrokenCall : Int -> Array FlowItem -> Result String Box
 assembleBrokenCall indent items =
-    when Array.popFirst items is
-        Nothing ->
-            Err "box: empty call"
+    if Array.any isCommentItem items then
+        Err "box: comment in broken call not ported"
 
-        Just { first = fnItem, rest = argItems } ->
-            when Array.popFirst argItems is
-                Nothing ->
-                    -- fn with no args — nothing to break
-                    Ok fnItem.box
+    else
+        when Array.popFirst items is
+            Nothing ->
+                Err "box: empty call"
 
-                Just { first = arg0Item, rest = laterArgs } ->
-                    if shouldGlueBox fnItem arg0Item then
-                        when joinInline [ fnItem.box, arg0Item.box ] is
-                            Nothing ->
-                                Err "box: glue join failed"
+            Just { first = fnItem, rest = argItems } ->
+                when Array.popFirst argItems is
+                    Nothing ->
+                        -- fn with no args — nothing to break
+                        Ok fnItem.box
 
-                            Just glueLine ->
-                                if Array.isEmpty laterArgs then
-                                    Ok glueLine
+                    Just { first = arg0Item, rest = laterArgs } ->
+                        if shouldGlueBox fnItem arg0Item then
+                            when joinInline [ fnItem.box, arg0Item.box ] is
+                                Nothing ->
+                                    Err "box: glue join failed"
 
-                                else
-                                    Ok (B.stack1 ([ glueLine ] ++ Array.map (\it -> applyIndent indent it.box) laterArgs))
+                                Just glueLine ->
+                                    if Array.isEmpty laterArgs then
+                                        Ok glueLine
 
-                    else
-                        Ok (B.stack1 ([ fnItem.box ] ++ Array.map (\it -> applyIndent indent it.box) argItems))
+                                    else
+                                        Ok (B.stack1 ([ glueLine ] ++ Array.map (\it -> applyIndent indent it.box) laterArgs))
+
+                        else
+                            Ok (B.stack1 ([ fnItem.box ] ++ Array.map (\it -> applyIndent indent it.box) argItems))
 
 
 -- Both single-line and on the same source row → keep glued on the opening line.
@@ -1604,7 +1662,7 @@ by `flowIndent` plus the block's own indent (IndentedBlock/SoftIndentedBlock add
 +4, BodyBlock adds 0); an `EmptyLine` flushes and emits a blank line. This is
 the general shape `buildFlowDoc` produces — it covers the funcDecl header+body,
 plain calls, and the flat `if`/`else if`/`else` branch sequence alike. -}
-assembleFlow : Int -> Array { node : LPNode, box : Box, isBlock : Bool } -> Result String Box
+assembleFlow : Int -> Array FlowItem -> Result String Box
 assembleFlow flowIndent items =
     if inlineDirectlyAfterBlock items then
         -- An inline token right after a block (no blank line between) must glue
@@ -1619,7 +1677,7 @@ assembleFlow flowIndent items =
 
 
 -- True when a non-block, non-EmptyLine item immediately follows a block item.
-inlineDirectlyAfterBlock : Array { node : LPNode, box : Box, isBlock : Bool } -> Bool
+inlineDirectlyAfterBlock : Array FlowItem -> Bool
 inlineDirectlyAfterBlock items =
     (Array.foldl
         (\item acc ->
@@ -1642,7 +1700,7 @@ inlineDirectlyAfterBlock items =
     ).bad
 
 
-assembleFlowImpl : Int -> Array { node : LPNode, box : Box, isBlock : Bool } -> Result String Box
+assembleFlowImpl : Int -> Array FlowItem -> Result String Box
 assembleFlowImpl flowIndent items =
     let
         flushRow curRow rows =
@@ -1652,41 +1710,79 @@ assembleFlowImpl flowIndent items =
             else
                 Array.pushLast (B.line (B.row (Array.intersperse B.space curRow))) rows
 
-        final =
-            Array.foldl
-                (\item acc ->
-                    if isEmptyLine item.node then
-                        { rows = Array.pushLast B.blankLine (flushRow acc.curRow acc.rows), curRow = [] }
+        -- Place a single-line comment by row. `prevRow` is the source row of the
+        -- content currently on `curRow`; a comment on that same row trails it
+        -- (a `--` comment then terminates the line, a `{- -}` block comment can
+        -- continue it). A comment on a different row / at flow start is a
+        -- standalone own-line comment whose placement isn't ported yet, so it
+        -- falls back. Mirrors the same-row arms of `MakeRender.buildFlowDocImpl`.
+        placeComment acc c startRow =
+            let
+                sameRow =
+                    not (Array.isEmpty acc.curRow) && startRow == acc.prevRow
+            in
+            if not sameRow then
+                Err "box: standalone / own-line comment in flow not ported"
 
-                    else if item.isBlock then
-                        let
-                            blockBox =
-                                applyIndent (flowIndent + blockOwnIndent item.node) item.box
-                        in
-                        { rows = Array.pushLast blockBox (flushRow acc.curRow acc.rows), curRow = [] }
+            else if c.isLineComment then
+                Ok
+                    { rows = flushRow (Array.pushLast c.line acc.curRow) acc.rows
+                    , curRow = []
+                    , prevRow = startRow
+                    }
 
-                    else
-                        when B.isLine item.box is
-                            Ok l ->
-                                { acc | curRow = Array.pushLast l acc.curRow }
+            else
+                Ok
+                    { acc
+                        | curRow = Array.pushLast c.line acc.curRow
+                        , prevRow = startRow
+                    }
 
-                            Err _ ->
-                                -- A single-line-tagged item that isn't a Line
-                                -- shouldn't happen; keep it as its own row.
-                                { rows = Array.pushLast item.box (flushRow acc.curRow acc.rows), curRow = [] }
-                )
-                { rows = [], curRow = [] }
-                items
+        step item accResult =
+            accResult
+                |> Result.andThen
+                    (\acc ->
+                        if isEmptyLine item.node then
+                            Ok { rows = Array.pushLast B.blankLine (flushRow acc.curRow acc.rows), curRow = [], prevRow = -1 }
 
-        allRows =
-            flushRow final.curRow final.rows
+                        else
+                            when item.comment is
+                                Just c ->
+                                    placeComment acc c item.startRow
+
+                                Nothing ->
+                                    if item.isBlock then
+                                        let
+                                            blockBox =
+                                                applyIndent (flowIndent + blockOwnIndent item.node) item.box
+                                        in
+                                        Ok { rows = Array.pushLast blockBox (flushRow acc.curRow acc.rows), curRow = [], prevRow = -1 }
+
+                                    else
+                                        when B.isLine item.box is
+                                            Ok l ->
+                                                Ok { acc | curRow = Array.pushLast l acc.curRow, prevRow = item.startRow }
+
+                                            Err _ ->
+                                                -- A single-line-tagged item that isn't a Line
+                                                -- shouldn't happen; keep it as its own row.
+                                                Ok { rows = Array.pushLast item.box (flushRow acc.curRow acc.rows), curRow = [], prevRow = -1 }
+                    )
     in
-    when Array.popFirst allRows is
-        Nothing ->
-            Err "box: empty flow"
+    Array.foldl step (Ok { rows = [], curRow = [], prevRow = -1 }) items
+        |> Result.andThen
+            (\final ->
+                let
+                    allRows =
+                        flushRow final.curRow final.rows
+                in
+                when Array.popFirst allRows is
+                    Nothing ->
+                        Err "box: empty flow"
 
-        Just _ ->
-            Ok (B.stack1 allRows)
+                    Just _ ->
+                        Ok (B.stack1 allRows)
+            )
 
 
 isEmptyLine : LPNode -> Bool
