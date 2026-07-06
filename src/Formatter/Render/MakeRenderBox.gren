@@ -940,14 +940,14 @@ makeParenBlockBox flags children =
         Just first ->
             when lpnBox first is
                 WhenFlow _ ->
-                    Err "box: when-in-paren block layout not ported"
+                    makeWhenInParenBox flags.isCallArgument (lpnChildren first)
 
                 IfCondition _ ->
-                    Err "box: if-in-paren block layout not ported"
+                    makeBlockInParenBox flags.isCallArgument children
 
                 UnbreakableText loc ->
                     if loc.value == "let" then
-                        Err "box: let-in-paren block layout not ported"
+                        makeBlockInParenBox flags.isCallArgument children
 
                     else
                         parenGenericFallbackBox flags children
@@ -1002,6 +1002,126 @@ wrapParenVertical box =
                     MustBreakBox (B.row [ B.punc "(", l ])
     in
     B.andThen [ B.line (B.punc ")") ] withOpen
+
+
+{-| Indent every line of a box by exactly `n` spaces (elm's `prefix` with a
+run of spaces). Unlike `applyIndent`/`B.indent` (a column-sensitive `Tab`),
+this is a fixed-width shift — the Box form of the Doc renderer's `R.nest n`,
+needed for the paren-block offsets (`(`+1, `(`+2) that don't fall on tab
+stops. -}
+blockIndentSpaces : Int -> Box -> Box
+blockIndentSpaces n box =
+    if n <= 0 then
+        box
+
+    else
+        B.prefix (B.row (Array.repeat n B.space)) box
+
+
+{-| A `when` directly inside parens: `(when … is`, branches at `(`+2 (or `(`+4
+as a call argument), `)` on its own line at the `(` column. Mirrors the
+`WhenFlow` arm of `MakeRender.makeParenBlockDoc` (which calls `makeWhenFlowDoc`
+with `branchNest` 1/3 inside a second `R.align`). Only a single-line header is
+ported; a forced-vertical `when` header falls back. -}
+makeWhenInParenBox : Bool -> Array LPNode -> Result String Box
+makeWhenInParenBox isCallArg children =
+    when Array.popLast children is
+        Nothing ->
+            Err "box: when-in-paren has no children"
+
+        Just { last = branchesBlock, initial = withoutBranches } ->
+            let
+                branchOffset =
+                    if isCallArg then
+                        4
+
+                    else
+                        2
+
+                headerResult =
+                    buildFlowBox 0 withoutBranches
+                        |> Result.andThen
+                            (\hdr ->
+                                if isSingleLine hdr then
+                                    Ok hdr
+
+                                else
+                                    Err "box: forced-vertical when-in-paren header not ported"
+                            )
+
+                branchesResult =
+                    traverseResult
+                        (\n -> makePBox (lpnBox n) (lpnChildren n))
+                        (lpnChildren branchesBlock)
+                        |> Result.map stackWithBlanks
+            in
+            Result.map2
+                (\hdr brs ->
+                    wrapParenVertical (B.stack1 [ hdr, blockIndentSpaces branchOffset brs ])
+                )
+                headerResult
+                branchesResult
+
+
+{-| An `if`/`else` or `let` directly inside parens, using elm-format's
+paren-block layout: keyword at `(`+1, bodies at `(`+2 (or `(`+4 as a call
+argument), `else`/`in` and `else if` at `(`+1, `)` on its own line at the `(`
+column. Mirrors `MakeRender.makeBlockInParenDoc`: the paren's direct children
+are the flattened `if`/`let` pieces (an `IfCondition`/`let` head, `IndentedBlock`
+bodies, `SynthesizedText` keywords, `EmptyLine` blanks). -}
+makeBlockInParenBox : Bool -> Array LPNode -> Result String Box
+makeBlockInParenBox isCallArg children =
+    let
+        bodyOffset =
+            if isCallArg then
+                4
+
+            else
+                2
+
+        step node accResult =
+            accResult
+                |> Result.andThen
+                    (\acc ->
+                        let
+                            push box =
+                                { boxes = Array.pushLast box acc.boxes, isFirst = False }
+                        in
+                        when lpnBox node is
+                            IndentedBlock ->
+                                buildFlowBox 0 (lpnChildren node)
+                                    |> Result.map (\b -> push (blockIndentSpaces bodyOffset b))
+
+                            BodyBlock ->
+                                buildFlowBox 0 (lpnChildren node)
+                                    |> Result.map (\b -> push (blockIndentSpaces 1 b))
+
+                            EmptyLine ->
+                                Ok (push B.blankLine)
+
+                            SynthesizedText s ->
+                                Ok (push (blockIndentSpaces 1 (B.line (B.literal s))))
+
+                            IfCondition _ ->
+                                makePBox (lpnBox node) (lpnChildren node)
+                                    |> Result.map
+                                        (\b ->
+                                            push
+                                                (if acc.isFirst then
+                                                    b
+
+                                                 else
+                                                    blockIndentSpaces 1 b
+                                                )
+                                        )
+
+                            _ ->
+                                makePBox (lpnBox node) (lpnChildren node)
+                                    |> Result.map (\b -> push b)
+                    )
+    in
+    Array.foldl step (Ok { boxes = [], isFirst = True }) children
+        |> Result.map (\acc -> wrapParenVertical (B.stack1 acc.boxes))
 
 
 {-| Mirror of `makeParenBlockDoc`'s `isLambdaMultiline`: the second direct child
