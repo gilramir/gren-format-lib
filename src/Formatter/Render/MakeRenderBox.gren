@@ -52,6 +52,12 @@ makePrettyLineBox node =
                 StTypeUnion ->
                     renderHeaderIndentedBody makeUnionBodyBox (lpnChildren node)
 
+                StSingleLineComment ->
+                    makeCommentLineBox (lpnChildren node)
+
+                StBlockComment ->
+                    makeCommentLineBox (lpnChildren node)
+
                 StModule ->
                     -- `module … exposing (..)` and plain/aliased imports are a
                     -- leaf flow; a parenthesized exposing list (ListParen) isn't
@@ -238,6 +244,66 @@ assembleBinopBox forceVertical minPrec operandLines ops =
                     (\seg -> B.indent (B.line (B.row ([ B.literal seg.op, B.space ] ++ seg.row))))
                     segments
             )
+
+
+-- ═══ COMMENT LINES ═══
+
+
+{-| Render a standalone top-level comment-line item. Same-row block comments
+join with a space; a `--` line comment (or a row change) starts a new line.
+Mirrors `MakeRender.makeCommentLineDoc`. Only single-line comments are ported —
+a multi-line block comment (verbatim/reindent layout) or a doc comment falls
+back to Doc. -}
+makeCommentLineBox : Array LPNode -> Result String Box
+makeCommentLineBox children =
+    traverseResult commentLineInfo children
+        |> Result.andThen
+            (\infos ->
+                when Array.popFirst infos is
+                    Nothing ->
+                        Err "box: empty comment line"
+
+                    Just { first = first0, rest } ->
+                        let
+                            final =
+                                Array.foldl
+                                    (\info acc ->
+                                        if acc.prevLine || info.row /= acc.prevRow then
+                                            { rows = Array.pushLast (B.line (B.row acc.curLine)) acc.rows
+                                            , curLine = [ info.line ]
+                                            , prevRow = info.row
+                                            , prevLine = info.isLine
+                                            }
+
+                                        else
+                                            { acc
+                                                | curLine = acc.curLine ++ [ B.space, info.line ]
+                                                , prevRow = info.row
+                                                , prevLine = info.isLine
+                                            }
+                                    )
+                                    { rows = [], curLine = [ first0.line ], prevRow = first0.row, prevLine = first0.isLine }
+                                    rest
+                        in
+                        Ok (B.stack1 (Array.pushLast (B.line (B.row final.curLine)) final.rows))
+            )
+
+
+commentLineInfo : LPNode -> Result String { line : B.Line, row : Int, isLine : Bool }
+commentLineInfo node =
+    when lpnBox node is
+        SingleLineComment loc ->
+            Ok { line = B.literal ("--" ++ loc.value), row = loc.start.row, isLine = True }
+
+        BlockComment loc ->
+            if String.contains "\n" loc.value then
+                Err "box: multi-line block comment not ported"
+
+            else
+                Ok { line = B.literal ("{-" ++ loc.value ++ "-}"), row = loc.start.row, isLine = False }
+
+        _ ->
+            Err "box: comment-line node not ported"
 
 
 -- ═══ TYPE ALIAS & UNION DECLARATIONS ═══
