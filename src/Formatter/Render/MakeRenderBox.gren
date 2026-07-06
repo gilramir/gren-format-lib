@@ -225,6 +225,104 @@ assembleBinopBox forceVertical minPrec operandLines ops =
             )
 
 
+-- ═══ WHEN ═══
+
+
+{-| Render a `when … is` expression. Header `when <subject> is` stays inline
+unless the author broke it across rows (then `when` / subject +4 / `is`); each
+branch sits at +4 (`branchNest`), blank-line separated. Mirrors
+`MakeRender.makeWhenFlowDoc` + `renderWhenBranchNode`. -}
+makeWhenFlowBox : Bool -> Array LPNode -> Result String Box
+makeWhenFlowBox forceVertical children =
+    when Array.popLast children is
+        Nothing ->
+            Err "box: when has no children"
+
+        Just { last = branchesBlock, initial = withoutBranches } ->
+            when Array.popLast withoutBranches is
+                Nothing ->
+                    Err "box: when missing is"
+
+                Just { initial = headerNodes } ->
+                    when Array.popFirst headerNodes is
+                        Nothing ->
+                            Err "box: when missing when"
+
+                        Just { rest = scrutineeNodes } ->
+                            let
+                                headerResult =
+                                    if forceVertical then
+                                        buildFlowBox 0 scrutineeNodes
+                                            |> Result.map
+                                                (\scrut ->
+                                                    B.stack1
+                                                        [ B.line (B.keyword "when")
+                                                        , B.indent scrut
+                                                        , B.line (B.keyword "is")
+                                                        ]
+                                                )
+
+                                    else
+                                        buildFlowBox 0 withoutBranches
+
+                                branchesResult =
+                                    traverseResult
+                                        (\n -> makePBox (lpnBox n) (lpnChildren n))
+                                        (lpnChildren branchesBlock)
+                                        |> Result.map stackWithBlanks
+                            in
+                            Result.map2
+                                (\hdr brs -> B.stack1 [ hdr, B.indent brs ])
+                                headerResult
+                                branchesResult
+
+
+{-| One `when` branch: `<pattern> ->` then the body indented +4. -}
+makeWhenBranchBox : Array LPNode -> Result String Box
+makeWhenBranchBox children =
+    when Array.popFirst children is
+        Just { first = patNode, rest = afterPat } ->
+            when afterPat is
+                [ bodyNode ] ->
+                    Result.map2
+                        (\patBox bodyBox -> B.stack1 [ patBox, B.indent bodyBox ])
+                        (makePBox (lpnBox patNode) (lpnChildren patNode))
+                        (makePBox (lpnBox bodyNode) (lpnChildren bodyNode))
+
+                _ ->
+                    Err "box: when-branch shape not ported (pattern + body only)"
+
+        Nothing ->
+            Err "box: empty when-branch"
+
+
+{-| A `when` branch pattern, rendered as `<pattern> ->`. -}
+makeWhenBranchPatternBox : Array LPNode -> Result String Box
+makeWhenBranchPatternBox children =
+    buildFlowBox grenIndent children
+        |> Result.andThen
+            (\box ->
+                when B.isLine box is
+                    Ok l ->
+                        Ok (B.line (B.row [ l, B.literal " ->" ]))
+
+                    Err _ ->
+                        Err "box: multi-line when-pattern not ported"
+            )
+
+
+-- Stack boxes with a blank line between each (consecutive `when` branches).
+stackWithBlanks : Array Box -> Box
+stackWithBlanks boxes =
+    when Array.popFirst boxes is
+        Nothing ->
+            B.blankLine
+
+        Just { first = b0, rest } ->
+            B.stack1
+                (Array.foldl (\b acc -> acc ++ [ B.blankLine, b ]) [ b0 ] rest)
+
+
 -- ═══ SIGNATURES ═══
 
 
@@ -453,6 +551,15 @@ makePBox box children =
 
         Binop { forceVertical } ->
             makeBinopBox forceVertical children
+
+        WhenFlow { forceVertical } ->
+            makeWhenFlowBox forceVertical children
+
+        WhenBranch ->
+            makeWhenBranchBox children
+
+        WhenBranchPattern ->
+            makeWhenBranchPatternBox children
 
         _ ->
             Err "box: construct not ported"
