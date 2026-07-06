@@ -1776,21 +1776,32 @@ the general shape `buildFlowDoc` produces — it covers the funcDecl header+body
 plain calls, and the flat `if`/`else if`/`else` branch sequence alike. -}
 assembleFlow : Int -> Array FlowItem -> Result String Box
 assembleFlow flowIndent items =
-    if inlineDirectlyAfterBlock items then
-        -- An inline token right after a block (no blank line between) must glue
-        -- onto the block's last line (e.g. a multi-line record *pattern* arg
-        -- `{ … } =`, or an argument after a multi-line one) — the flat stacker
-        -- here can't do that. Fall back. (`if`/`else` always has an EmptyLine
-        -- before `else`, so this doesn't affect it.)
-        Err "box: inline token directly after a block not ported"
+    if inlineGluesToPrecedingBlock items then
+        -- An inline token right after a block (no blank line between) generally
+        -- must glue onto the block's last line (e.g. a multi-line record
+        -- *pattern* arg `{ … } =`, where `=` trails the closing `}`) — the flat
+        -- stacker here can't append to a block's last line, so fall back. The
+        -- one exception is `in` after the final `let` binding: `let … in` drops
+        -- `in` to its own line, which the stacker does correctly. (`else` is
+        -- always preceded by an `EmptyLine`, so it doesn't reach this test.)
+        -- The `=` and `in` are both synthesized tokens (no source row), so this
+        -- is decided by the token, not by row arithmetic.
+        Err "box: inline token gluing to a preceding block not ported"
 
     else
         assembleFlowImpl flowIndent items
 
 
--- True when a non-block, non-EmptyLine item immediately follows a block item.
-inlineDirectlyAfterBlock : Array FlowItem -> Bool
-inlineDirectlyAfterBlock items =
+isInKeyword : FlowItem -> Bool
+isInKeyword item =
+    leafValue item.node == Just "in"
+
+
+-- True when a non-block, non-EmptyLine item (other than the `let … in` keyword)
+-- immediately follows a block item and so must glue onto its last line — which
+-- the flat stacker can't do.
+inlineGluesToPrecedingBlock : Array FlowItem -> Bool
+inlineGluesToPrecedingBlock items =
     (Array.foldl
         (\item acc ->
             let
@@ -1801,7 +1812,7 @@ inlineDirectlyAfterBlock items =
                     item.isBlock && not isEmpty
 
                 isInline =
-                    not item.isBlock && not isEmpty
+                    not item.isBlock && not isEmpty && not (isInKeyword item)
             in
             { prevBlock = isBlk
             , bad = acc.bad || (isInline && acc.prevBlock)
