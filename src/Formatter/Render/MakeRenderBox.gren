@@ -46,6 +46,12 @@ makePrettyLineBox node =
                 StPort ->
                     makeSignatureBox (lpnChildren node)
 
+                StTypeAlias ->
+                    renderHeaderIndentedBody makeTypeAliasBody (lpnChildren node)
+
+                StTypeUnion ->
+                    renderHeaderIndentedBody makeUnionBodyBox (lpnChildren node)
+
                 _ ->
                     Err "box: stype not ported"
 
@@ -223,6 +229,73 @@ assembleBinopBox forceVertical minPrec operandLines ops =
                     (\seg -> B.indent (B.line (B.row ([ B.literal seg.op, B.space ] ++ seg.row))))
                     segments
             )
+
+
+-- ═══ TYPE ALIAS & UNION DECLARATIONS ═══
+
+
+{-| Header + indented body: `type alias Name =` / body, `type Name` / variants.
+Mirrors `MakeRender.renderHeaderIndentedBodyDoc` — header inline, body dropped
++4. -}
+renderHeaderIndentedBody : (Array LPNode -> Result String Box) -> Array LPNode -> Result String Box
+renderHeaderIndentedBody bodyRenderer children =
+    when Array.popLast children is
+        Nothing ->
+            Err "box: empty declaration"
+
+        Just { initial = header, last = bodyBlock } ->
+            buildFlowBox 0 header
+                |> Result.andThen
+                    (\headerBox ->
+                        bodyRenderer (lpnChildren bodyBlock)
+                            |> Result.map
+                                (\bodyBox -> B.stack1 [ headerBox, B.indent bodyBox ])
+                    )
+
+
+-- A type-alias body: a single type node (record, or a plain `= Int`-style
+-- type) renders as-is; a multi-line function type (`->` segments) isn't ported
+-- and falls back.
+makeTypeAliasBody : Array LPNode -> Result String Box
+makeTypeAliasBody nodes =
+    buildFlowBox 0 nodes
+
+
+{-| A union body: each variant (`= A`, `| B`) on its own line when the author
+wrote them across rows, or inline `= A | B | C` when on one line. Mirrors
+`MakeRender.makeUnionBodyDoc`. Comment-bearing unions fall back. -}
+makeUnionBodyBox : Array LPNode -> Result String Box
+makeUnionBodyBox nodes =
+    if Array.any nodeIsComment nodes then
+        Err "box: comment-bearing union not ported"
+
+    else
+        traverseResult (\n -> buildFlowBox 0 (lpnChildren n)) nodes
+            |> Result.andThen
+                (\variantBoxes ->
+                    if rowsSpanMultiple (Array.map firstRowInSubtree nodes) then
+                        Ok (B.stack1 variantBoxes)
+
+                    else
+                        when joinInline variantBoxes is
+                            Just l ->
+                                Ok l
+
+                            Nothing ->
+                                Err "box: multi-line inline union not ported"
+                )
+
+
+-- True when the given source rows are not all equal (the author spread items
+-- across rows). Mirrors `MakeRender.rowsSpanMultiple`.
+rowsSpanMultiple : Array Int -> Bool
+rowsSpanMultiple rows =
+    when Array.popFirst rows is
+        Nothing ->
+            False
+
+        Just { first, rest } ->
+            Array.any (\r -> r /= first) rest
 
 
 -- ═══ PIPELINES ═══
