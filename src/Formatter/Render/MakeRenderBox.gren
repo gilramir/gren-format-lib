@@ -939,10 +939,7 @@ makeWhenFlowBox forceVertical children =
                                         buildFlowBox 0 withoutBranches
 
                                 branchesResult =
-                                    traverseResult
-                                        (\n -> makePBox (lpnBox n) (lpnChildren n))
-                                        (lpnChildren branchesBlock)
-                                        |> Result.map stackWithBlanks
+                                    renderWhenBranchesBox (lpnChildren branchesBlock)
                             in
                             Result.map2
                                 (\hdr brs -> B.stack1 [ hdr, B.indent brs ])
@@ -994,6 +991,67 @@ stackWithBlanks boxes =
         Just { first = b0, rest } ->
             B.stack1
                 (Array.foldl (\b acc -> acc ++ [ B.blankLine, b ]) [ b0 ] rest)
+
+
+{-| Render a `when`'s branch block — the `WhenBranch` children stacked with a
+blank line between each. A single-line comment sibling that trails the previous
+branch's last line (same source row) is appended onto it via `B.addSuffix`,
+matching a comment claimed as a branch body's trailing comment. An own-line
+comment between branches, and a multi-line comment, aren't ported and fall back. -}
+renderWhenBranchesBox : Array LPNode -> Result String Box
+renderWhenBranchesBox children =
+    let
+        appendTrailing acc row commentText =
+            if row == acc.lastRow && acc.lastRow >= 0 then
+                when Array.popLast acc.boxes is
+                    Just { last = lastBox, initial } ->
+                        Ok
+                            { acc
+                                | boxes = Array.pushLast (B.addSuffix (B.row [ B.space, B.literal commentText ]) lastBox) initial
+                            }
+
+                    Nothing ->
+                        Err "box: comment before first when-branch not ported"
+
+            else
+                Err "box: own-line comment between when-branches not ported"
+    in
+    Array.foldl
+        (\child accResult ->
+            accResult
+                |> Result.andThen
+                    (\acc ->
+                        when lpnBox child is
+                            WhenBranch ->
+                                makeWhenBranchBox (lpnChildren child)
+                                    |> Result.map
+                                        (\bx -> { boxes = Array.pushLast bx acc.boxes, lastRow = lpnMaxRow child })
+
+                            SingleLineComment loc ->
+                                appendTrailing acc loc.start.row ("--" ++ loc.value)
+
+                            BlockComment loc ->
+                                if String.contains "\n" loc.value then
+                                    Err "box: multi-line comment between when-branches not ported"
+
+                                else
+                                    appendTrailing acc loc.start.row ("{-" ++ loc.value ++ "-}")
+
+                            _ ->
+                                Err "box: unexpected node among when-branches"
+                    )
+        )
+        (Ok { boxes = [], lastRow = -1 })
+        children
+        |> Result.andThen
+            (\acc ->
+                when Array.popFirst acc.boxes is
+                    Nothing ->
+                        Err "box: when has no branches"
+
+                    Just _ ->
+                        Ok (stackWithBlanks acc.boxes)
+            )
 
 
 -- ═══ SIGNATURES ═══
@@ -1419,10 +1477,7 @@ makeWhenInParenBox isCallArg children =
                             )
 
                 branchesResult =
-                    traverseResult
-                        (\n -> makePBox (lpnBox n) (lpnChildren n))
-                        (lpnChildren branchesBlock)
-                        |> Result.map stackWithBlanks
+                    renderWhenBranchesBox (lpnChildren branchesBlock)
             in
             Result.map2
                 (\hdr brs ->
