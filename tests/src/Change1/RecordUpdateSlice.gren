@@ -1,0 +1,100 @@
+module Change1.RecordUpdateSlice exposing (rendered)
+
+{-| Change-1 first slice: build the record-update examples as `Box` values
+using the ported `Box` + `ElmStructure` combinators, and render them. The
+output is compared byte-for-byte against `elm-format` in the test suite.
+
+The GO/NO-GO question: does elm's Box model (Tab + prefix + extensionGroup +
+equalsPair) reproduce the record-update layout with NO hand-tuned column
+arithmetic — unlike the bespoke `fieldLine`/`R.align` code in the shipping
+renderer? Field VALUES (`if`, `let`) are built here as faithful Box values
+(using the real primitives) so the wrapper's arithmetic is exercised for real.
+-}
+
+import Change1.Box as B exposing (Box)
+import Change1.ElmStructure as E
+
+
+id : String -> Box
+id s =
+    B.line (B.identifier s)
+
+
+-- Field value: `if <cond> then aaaaa else bbbbb`, rendered the elm way
+-- (branches +4, blank line before else).
+ifValueCond : String -> Box
+ifValueCond cond =
+    B.stack1
+        [ B.line (B.row [ B.keyword "if", B.space, B.identifier cond, B.space, B.keyword "then" ])
+        , B.indent (id "aaaaa")
+        , B.blankLine
+        , B.line (B.keyword "else")
+        , B.indent (id "bbbbb")
+        ]
+
+
+ifValue : Box
+ifValue =
+    ifValueCond "cond"
+
+
+-- Field value: `\n -> if n then aaaaa else bbbbb`, rendered the elm way
+-- (header `\n ->` on its own line, body indented +4).
+lambdaValue : Box
+lambdaValue =
+    B.stack1
+        [ B.line (B.row [ B.punc "\\", B.identifier "n", B.space, B.punc "->" ])
+        , B.indent (ifValueCond "n")
+        ]
+
+
+-- Field value: `let x = 1 in x`, rendered the elm way.
+letValue : Box
+letValue =
+    B.stack1
+        [ B.line (B.keyword "let")
+        , B.indent (E.equalsPair "=" True (id "x") (id "1"))
+        , B.line (B.keyword "in")
+        , id "x"
+        ]
+
+
+-- One field `key = value` for a record update.
+field : String -> Box -> Box
+field key value =
+    E.equalsPair "=" False (id key) value
+
+
+-- `name r = <updateBody>`
+def : String -> Box -> Box
+def name updateBody =
+    E.definition (id name) [ id "r" ] updateBody
+
+
+examples : Array Box
+examples =
+    [ def "singleInline"
+        (E.extensionGroup False (id "r") (field "name" (id "1")) [])
+    , def "singleIf"
+        (E.extensionGroup True (id "r") (field "field" ifValue) [])
+    , def "singleLet"
+        (E.extensionGroup True (id "r") (field "field" letValue) [])
+    , def "singleLambda"
+        (E.extensionGroup True (id "r") (field "field" lambdaValue) [])
+    , def "multiSimple"
+        (E.extensionGroup False (id "r") (field "a" (id "1")) [ field "b" (id "2") ])
+    , def "multiBlock"
+        (E.extensionGroup True (id "r") (field "first" ifValue) [ field "second" (id "2") ])
+    ]
+
+
+rendered : String
+rendered =
+    let
+        header =
+            "module RecordUpdateSlice exposing (..)\n"
+
+        defStrings =
+            Array.map B.render examples
+    in
+    String.join "\n\n" ([ header ] ++ defStrings)

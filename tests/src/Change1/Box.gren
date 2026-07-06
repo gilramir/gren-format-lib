@@ -1,0 +1,316 @@
+module Change1.Box exposing
+    ( Line(..), Box(..)
+    , identifier, keyword, punc, literal, row, space
+    , line, blankLine, mustBreak, stack1, andThen
+    , isLine, allSingles, lineLength
+    , indent, prefix, addSuffix
+    , render
+    )
+
+{-| Faithful port of elm-format's `Box.hs` for the Change-1 first slice.
+
+Two indent primitives, exactly as elm-format:
+  - `Tab` advances to the next multiple of 4 (a real tab stop, NOT fixed +4).
+  - `prefix` prepends a string to line 1 and pads the other lines by the
+    prefix's exact character width.
+
+Nothing here is gren-format-specific; it mirrors the Haskell 1:1 so the
+first-slice comparison is against elm's actual arithmetic, not an approximation.
+-}
+
+
+{-| A `Line` is always exactly one line. `Tab` aligns to the nearest multiple
+of 4 spaces; `Row` joins elements onto one line. -}
+type Line
+    = Text String
+    | Row (Array Line)
+    | Space
+    | Tab
+
+
+{-| A `Box` holds at least one line. `SingleLine` can appear mid-line; `Stack`
+(2+ lines) and `MustBreak` must appear on their own. `MustBreak` is elm's
+mechanism for `--` comments. -}
+type Box
+    = SingleLine Line
+    | Stack { first : Line, second : Line, rest : Array Line }
+    | MustBreakBox Line
+
+
+identifier : String -> Line
+identifier =
+    Text
+
+
+keyword : String -> Line
+keyword =
+    Text
+
+
+punc : String -> Line
+punc =
+    Text
+
+
+literal : String -> Line
+literal =
+    Text
+
+
+row : Array Line -> Line
+row =
+    Row
+
+
+space : Line
+space =
+    Space
+
+
+line : Line -> Box
+line l =
+    SingleLine l
+
+
+blankLine : Box
+blankLine =
+    line (literal "")
+
+
+mustBreak : Line -> Box
+mustBreak l =
+    MustBreakBox l
+
+
+destructure : Box -> { first : Line, rest : Array Line }
+destructure b =
+    when b is
+        SingleLine l1 ->
+            { first = l1, rest = [] }
+
+        Stack s ->
+            { first = s.first, rest = [ s.second ] ++ s.rest }
+
+        MustBreakBox l1 ->
+            { first = l1, rest = [] }
+
+
+stackPrime : Box -> Box -> Box
+stackPrime b1 b2 =
+    let
+        d1 =
+            destructure b1
+
+        d2 =
+            destructure b2
+
+        tailLines =
+            d1.rest ++ [ d2.first ] ++ d2.rest
+    in
+    when Array.popFirst tailLines is
+        Nothing ->
+            -- unreachable: tailLines always contains d2.first
+            SingleLine d1.first
+
+        Just { first = second, rest = more } ->
+            Stack { first = d1.first, second = second, rest = more }
+
+
+andThen : Array Box -> Box -> Box
+andThen rest first =
+    Array.foldl (\b acc -> stackPrime acc b) first rest
+
+
+{-| `stack1` = `foldr1 stackPrime`. -}
+stack1 : Array Box -> Box
+stack1 children =
+    when Array.popLast children is
+        Nothing ->
+            -- elm errors on empty; a blank line is a harmless stand-in here
+            blankLine
+
+        Just { last = lastB, initial = initial } ->
+            Array.foldr (\b acc -> stackPrime b acc) lastB initial
+
+
+mapFirstLine : (Line -> Line) -> (Line -> Line) -> Box -> Box
+mapFirstLine firstFn restFn b =
+    when b is
+        SingleLine l1 ->
+            SingleLine (firstFn l1)
+
+        Stack s ->
+            Stack { first = firstFn s.first, second = restFn s.second, rest = Array.map restFn s.rest }
+
+        MustBreakBox l1 ->
+            MustBreakBox (firstFn l1)
+
+
+mapLines : (Line -> Line) -> Box -> Box
+mapLines fn =
+    mapFirstLine fn fn
+
+
+indent : Box -> Box
+indent =
+    mapLines (\l -> row [ Tab, l ])
+
+
+isLine : Box -> Result Box Line
+isLine b =
+    when b is
+        SingleLine l ->
+            Ok l
+
+        _ ->
+            Err b
+
+
+allSingles : Array Box -> Result (Array Box) (Array Line)
+allSingles boxes =
+    Array.foldl
+        (\b acc ->
+            when acc is
+                Err _ ->
+                    acc
+
+                Ok ls ->
+                    when isLine b is
+                        Ok l ->
+                            Ok (Array.pushLast l ls)
+
+                        Err _ ->
+                            Err boxes
+        )
+        (Ok [])
+        boxes
+
+
+{-| Add the prefix to the first line, pad the other lines with spaces of the
+same length. -}
+prefix : Line -> Box -> Box
+prefix pref =
+    let
+        prefixLength =
+            lineLength 0 pref
+
+        paddingSpaces =
+            Array.repeat prefixLength space
+
+        padLineWithSpaces l =
+            row [ row paddingSpaces, l ]
+
+        addPrefixToLine l =
+            row [ pref, l ]
+    in
+    mapFirstLine addPrefixToLine padLineWithSpaces
+
+
+addSuffix : Line -> Box -> Box
+addSuffix suffix b =
+    let
+        d =
+            destructure b
+    in
+    when Array.popLast d.rest is
+        Nothing ->
+            line (row [ d.first, suffix ])
+
+        Just { last = lastLine, initial = initial } ->
+            line d.first
+                |> andThen (Array.map line initial)
+                |> andThen [ line (row [ lastLine, suffix ]) ]
+
+
+
+-- RENDER
+
+
+spacesInTab : Int
+spacesInTab =
+    4
+
+
+tabLength : Int -> Int
+tabLength startColumn =
+    let
+        remainder =
+            startColumn - ((startColumn // spacesInTab) * spacesInTab)
+    in
+    spacesInTab - remainder
+
+
+renderLine : Int -> Line -> String
+renderLine startColumn line_ =
+    when line_ is
+        Text text ->
+            text
+
+        Space ->
+            " "
+
+        Tab ->
+            String.repeat (tabLength startColumn) " "
+
+        Row lines_ ->
+            renderRow startColumn lines_
+
+
+lineLength : Int -> Line -> Int
+lineLength startColumn line_ =
+    startColumn
+        + (when line_ is
+            Text s ->
+                String.count s
+
+            Space ->
+                1
+
+            Tab ->
+                tabLength startColumn
+
+            Row lines_ ->
+                rowLength startColumn lines_
+          )
+
+
+{-| Fold a row's lines, tracking the running column so `Tab`s expand
+correctly. Returns { string, endColumn }. -}
+renderRowState : Int -> Array Line -> { string : String, endColumn : Int }
+renderRowState startColumn lines_ =
+    Array.foldl
+        (\l acc ->
+            { string = acc.string ++ renderLine acc.endColumn l
+            , endColumn = lineLength acc.endColumn l
+            }
+        )
+        { string = "", endColumn = startColumn }
+        lines_
+
+
+renderRow : Int -> Array Line -> String
+renderRow startColumn lines_ =
+    (renderRowState startColumn lines_).string
+
+
+rowLength : Int -> Array Line -> Int
+rowLength startColumn lines_ =
+    (renderRowState startColumn lines_).endColumn - startColumn
+
+
+renderOneLine : Line -> String
+renderOneLine l =
+    String.trimRight (renderLine 0 l)
+
+
+render : Box -> String
+render box_ =
+    when box_ is
+        SingleLine l ->
+            renderOneLine l ++ "\n"
+
+        Stack s ->
+            String.join "\n" (Array.map renderOneLine ([ s.first, s.second ] ++ s.rest)) ++ "\n"
+
+        MustBreakBox l ->
+            renderOneLine l ++ "\n"

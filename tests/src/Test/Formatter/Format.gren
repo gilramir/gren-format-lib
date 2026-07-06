@@ -16,6 +16,7 @@ import Formatter as PPrint
 import String.Parser.Advanced as Parser
 
 import UnifiedDiff exposing (unifiedDiffStrings)
+import Change1.RecordUpdateSlice as Change1RU
 
 
 suites : FileSystem.Permission -> Array U.Suite
@@ -25,7 +26,32 @@ suites fsPerm =
     , declarationSuite fsPerm
     , commentsSuite fsPerm
     , kitchenSinkSuite fsPerm
+    , change1SliceSuite fsPerm
     ]
+
+
+{-| Change-1 first slice: the record-update examples built with the ported
+elm-format Box model must render byte-identical to `elm-format` — with no
+hand-tuned column arithmetic. This is the go/no-go signal for Change 1. -}
+change1SliceSuite : FileSystem.Permission -> U.Suite
+change1SliceSuite fsPerm =
+    U.suite
+        { name = "Change 1 slice"
+        , setUpSuite = U.noSuiteFixture
+        , tearDownSuite = U.noTearDown
+        , setUp = U.noFixture
+        , tearDown = U.noTearDown
+        , tests =
+            [ U.test "record update via Box model matches elm-format byte-for-byte" <|
+                \_ ->
+                    readTestFile fsPerm "RecordUpdateSlice.expected.gren"
+                        |> Task.map
+                            (\expected ->
+                                Expect.equal Change1RU.rendered expected
+                                    |> Expect.onFail (unifiedDiffStrings expected Change1RU.rendered)
+                            )
+            ]
+        }
 
 
 {-| Format a dirty fixture and return the result.
