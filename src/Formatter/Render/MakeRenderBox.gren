@@ -15,6 +15,7 @@ renderer gets wrong simply falls back.
 import Formatter.Render.Box as B exposing (Box)
 import Formatter.Render.ElmStructure as E
 import Formatter.Logical.LogicalPrintingTree exposing (LPBox(..), LPNode, ListBrackets(..), SyntaxType(..), lpnBox, lpnChildren, firstRowInSubtree, lpnMaxRow, lpnFirstPos)
+import Formatter.Logical.BinopPrecedence exposing (binopPrecedence, binopMinPrecedence)
 
 
 grenIndent : Int
@@ -66,6 +67,162 @@ nodeIsComment node =
 
         _ ->
             False
+
+
+-- ═══ BINOPS ═══
+
+
+{-| Flatten the nested `Binop`/`OpAndRhs` tree into a flat operand + operator
+list. Mirrors `MakeRender.flattenBinopNodes`. Each operand is itself a flow
+(array of nodes). -}
+flattenBinopNodes : Array LPNode -> { operands : Array (Array LPNode), ops : Array LPNode }
+flattenBinopNodes children =
+    when Array.popLast children is
+        Nothing ->
+            { operands = [], ops = [] }
+
+        Just { last = lastNode, initial = operandNodes } ->
+            when lpnBox lastNode is
+                OpAndRhs ->
+                    when Array.popFirst (lpnChildren lastNode) is
+                        Just { first = opNode, rest = restChildren } ->
+                            let
+                                inner =
+                                    flattenBinopNodes restChildren
+                            in
+                            { operands = [ operandNodes ] ++ inner.operands
+                            , ops = [ opNode ] ++ inner.ops
+                            }
+
+                        Nothing ->
+                            { operands = [ operandNodes ], ops = [] }
+
+                _ ->
+                    { operands = [ children ], ops = [] }
+
+
+opText : LPNode -> String
+opText node =
+    Maybe.withDefault "" (leafValue node)
+
+
+{-| Render a binary-operator chain. Groups break at minimum-precedence
+operators (tighter operators join inline within a group); the author's row
+layout picks inline vs one-group-per-line (+4, operator-led). Mirrors
+`MakeRender.makeBinopDoc` / `assembleBinopGroups`. Only chains whose operands
+all render single-line are ported; anything else (a multi-line operand, an
+embedded comment) returns Err and falls back. -}
+makeBinopBox : Bool -> Array LPNode -> Result String Box
+makeBinopBox forceVertical children =
+    let
+        flat =
+            flattenBinopNodes children
+    in
+    when Array.popFirst flat.operands is
+        Nothing ->
+            Err "box: empty binop"
+
+        Just { first = operand0, rest = _ } ->
+            if Array.isEmpty flat.ops then
+                buildFlowBox 0 operand0
+
+            else
+                -- Render every operand; require each to be single-line.
+                traverseResult operandLine flat.operands
+                    |> Result.map
+                        (\operandLines ->
+                            assembleBinopBox forceVertical
+                                (binopMinPrecedence (Array.map opText flat.ops))
+                                operandLines
+                                (Array.map opText flat.ops)
+                        )
+
+
+-- Render an operand flow to a single Line, or Err if it renders multi-line.
+operandLine : Array LPNode -> Result String B.Line
+operandLine nodes =
+    buildFlowBox 0 nodes
+        |> Result.andThen
+            (\box ->
+                when B.isLine box is
+                    Ok l ->
+                        Ok l
+
+                    Err _ ->
+                        Err "box: multi-line binop operand not ported"
+            )
+
+
+{-| Assemble the operand lines + operator texts into the precedence-aware
+layout. `ops[k]` sits between `operandLines[k]` and `operandLines[k+1]`. Groups
+break at operators whose precedence == `minPrec`; tighter operators join inline
+within a group. -}
+assembleBinopBox : Bool -> Int -> Array B.Line -> Array String -> Box
+assembleBinopBox forceVertical minPrec operandLines ops =
+    let
+        firstLine =
+            Maybe.withDefault (B.literal "") (Array.first operandLines)
+
+        paired =
+            Array.map2 (\op nextLine -> { op = op, nextLine = nextLine })
+                ops
+                (Array.dropFirst 1 operandLines)
+
+        state =
+            Array.foldl
+                (\pair acc ->
+                    if binopPrecedence pair.op == minPrec then
+                        { firstGroup =
+                            if acc.started then
+                                acc.firstGroup
+
+                            else
+                                acc.curRow
+                        , started = True
+                        , segments =
+                            if acc.started then
+                                Array.pushLast { op = acc.pendingOp, row = acc.curRow } acc.segments
+
+                            else
+                                acc.segments
+                        , pendingOp = pair.op
+                        , curRow = [ pair.nextLine ]
+                        }
+
+                    else
+                        { acc | curRow = acc.curRow ++ [ B.space, B.literal pair.op, B.space, pair.nextLine ] }
+                )
+                { firstGroup = [ firstLine ]
+                , started = False
+                , segments = []
+                , pendingOp = ""
+                , curRow = [ firstLine ]
+                }
+                paired
+
+        segments =
+            Array.pushLast { op = state.pendingOp, row = state.curRow } state.segments
+    in
+    if not forceVertical then
+        -- Inline: whole chain on one line.
+        B.line
+            (B.row
+                (Array.foldl
+                    (\seg acc -> acc ++ [ B.space, B.literal seg.op, B.space ] ++ seg.row)
+                    state.firstGroup
+                    segments
+                )
+            )
+
+    else
+        -- One group per line: firstGroup at base, each later group `op group`
+        -- at +4, operator-led.
+        B.stack1
+            ([ B.line (B.row state.firstGroup) ]
+                ++ Array.map
+                    (\seg -> B.indent (B.line (B.row ([ B.literal seg.op, B.space ] ++ seg.row))))
+                    segments
+            )
 
 
 -- ═══ SIGNATURES ═══
@@ -293,6 +450,9 @@ makePBox box children =
 
                 Nothing ->
                     Err "box: empty bracket kind not ported"
+
+        Binop { forceVertical } ->
+            makeBinopBox forceVertical children
 
         _ ->
             Err "box: construct not ported"
