@@ -14,7 +14,7 @@ renderer gets wrong simply falls back.
 
 import Formatter.Render.Box as B exposing (Box(..))
 import Formatter.Render.ElmStructure as E
-import Formatter.Logical.LogicalPrintingTree exposing (LPBox(..), LPNode, ListBrackets(..), SyntaxType(..), lpnBox, lpnChildren, firstRowInSubtree, lpnMaxRow, lpnFirstPos, lpnBracketStart)
+import Formatter.Logical.LogicalPrintingTree exposing (LPBox(..), LPNode, ListBrackets(..), SyntaxType(..), lpnBox, lpnChildren, firstRowInSubtree, lpnMaxRow, lpnFirstPos, lpnBracketStart, lpnLastPos, lpnLastBracketEnd)
 import Formatter.Logical.BinopPrecedence exposing (binopPrecedence, binopMinPrecedence)
 
 
@@ -580,24 +580,107 @@ wrote them across rows, or inline `= A | B | C` when on one line. Mirrors
 `MakeRender.makeUnionBodyDoc`. Comment-bearing unions fall back. -}
 makeUnionBodyBox : Array LPNode -> Result String Box
 makeUnionBodyBox nodes =
-    if Array.any nodeIsComment nodes then
-        Err "box: comment-bearing union not ported"
+    let
+        variantNodes =
+            Array.keepIf (\n -> not (nodeIsComment n)) nodes
+
+        vertical =
+            Array.any nodeIsComment nodes
+                || rowsSpanMultiple (Array.map firstRowInSubtree variantNodes)
+    in
+    if vertical then
+        makeUnionBodyVerticalBox nodes
 
     else
-        traverseResult (\n -> buildFlowBox 0 (lpnChildren n)) nodes
+        traverseResult (\n -> buildFlowBox 0 (lpnChildren n)) variantNodes
             |> Result.andThen
                 (\variantBoxes ->
-                    if rowsSpanMultiple (Array.map firstRowInSubtree nodes) then
-                        Ok (B.stack1 variantBoxes)
+                    when joinInline variantBoxes is
+                        Just l ->
+                            Ok l
+
+                        Nothing ->
+                            Err "box: multi-line inline union not ported"
+                )
+
+
+{-| Always-vertical union body with comment siblings, mirroring
+`MakeRender.makeUnionBodyVertical`: one variant per line; a comment on the same
+row as the variant it trails is appended inline (`B.addSuffix`), one on its own
+row renders on its own line. A variant's "last row" is `max(lpnLastPos,
+lpnLastBracketEnd)` — NOT `lpnMaxRow`, which a multi-line block comment inside the
+variant would widen, shifting a trailing comment to its own line (non-idempotent).
+A multi-line block-comment SIBLING (rare) falls back. -}
+makeUnionBodyVerticalBox : Array LPNode -> Result String Box
+makeUnionBodyVerticalBox nodes =
+    let
+        placeComment acc row commentText =
+            when Array.popLast acc.boxes is
+                Just { last = lastBox, initial } ->
+                    if row == acc.prevRow && acc.prevRow >= 0 then
+                        { acc
+                            | boxes = Array.pushLast (B.addSuffix (B.row [ B.space, B.literal commentText ]) lastBox) initial
+                            , prevRow = row
+                        }
 
                     else
-                        when joinInline variantBoxes is
-                            Just l ->
-                                Ok l
+                        { acc | boxes = Array.pushLast (B.line (B.literal commentText)) acc.boxes, prevRow = row }
 
-                            Nothing ->
-                                Err "box: multi-line inline union not ported"
-                )
+                Nothing ->
+                    { acc | boxes = [ B.line (B.literal commentText) ], prevRow = row }
+
+        variantLastRow node =
+            let
+                tokenRow =
+                    lpnLastPos node |> Maybe.map (\p -> p.row) |> Maybe.withDefault -1
+
+                bracketRow =
+                    lpnLastBracketEnd node |> Maybe.map (\p -> p.row) |> Maybe.withDefault -1
+
+                maxR =
+                    max tokenRow bracketRow
+            in
+            if maxR >= 0 then
+                maxR
+
+            else
+                firstRowInSubtree node
+    in
+    Array.foldl
+        (\node accResult ->
+            accResult
+                |> Result.andThen
+                    (\acc ->
+                        when lpnBox node is
+                            SingleLineComment loc ->
+                                Ok (placeComment acc loc.start.row ("--" ++ loc.value))
+
+                            BlockComment loc ->
+                                if String.contains "\n" loc.value then
+                                    Err "box: multi-line block-comment union sibling not ported"
+
+                                else
+                                    Ok (placeComment acc loc.start.row ("{-" ++ loc.value ++ "-}"))
+
+                            _ ->
+                                buildFlowBox 0 (lpnChildren node)
+                                    |> Result.map
+                                        (\childBox ->
+                                            { boxes = Array.pushLast childBox acc.boxes, prevRow = variantLastRow node }
+                                        )
+                    )
+        )
+        (Ok { boxes = [], prevRow = -1 })
+        nodes
+        |> Result.andThen
+            (\acc ->
+                when Array.first acc.boxes is
+                    Nothing ->
+                        Err "box: union has no variants"
+
+                    Just _ ->
+                        Ok (B.stack1 acc.boxes)
+            )
 
 
 -- True when the given source rows are not all equal (the author spread items
