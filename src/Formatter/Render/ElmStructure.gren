@@ -54,7 +54,32 @@ groupBox innerSpaces left sep right forceMultiline children =
                     )
 
         { cs = Err _ } ->
-            verticalGroup left sep right children
+            when { fm = forceMultiline, cs = children } is
+                { fm = False, cs = [ only ] } ->
+                    -- A flat group (author wrote it inline) whose single element
+                    -- is multi-line: elm's `group'` keeps the brackets hugging the
+                    -- element — the close glues onto its last line (`} ]`), it does
+                    -- NOT drop to its own line. Mirrors the Doc's flat `R.group`,
+                    -- whose `R.nl` before the close renders as a space when flat.
+                    let
+                        leftPref =
+                            if innerSpaces then
+                                B.row [ B.punc left, B.space ]
+
+                            else
+                                B.row [ B.punc left ]
+
+                        rightSuf =
+                            if innerSpaces then
+                                B.row [ B.space, B.punc right ]
+
+                            else
+                                B.row [ B.punc right ]
+                    in
+                    B.addSuffix rightSuf (B.prefix leftPref only)
+
+                _ ->
+                    verticalGroup left sep right children
 
 
 verticalGroup : String -> String -> String -> Array Box -> Box

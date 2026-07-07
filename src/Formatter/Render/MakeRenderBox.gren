@@ -107,6 +107,32 @@ subtreeHasComment node =
     nodeIsComment node || Array.any subtreeHasComment (lpnChildren node)
 
 
+-- True when the subtree contains a bracketed literal (record/array/record-update)
+-- that holds a comment among its direct children — i.e. a comment that forces the
+-- bracket multi-line (`{ a : Int {- c -} }`). Used by `makeSignatureBox` to fall
+-- back on a comment nested in a signature's record type, which the Doc keeps glued
+-- inline but `assembleFlow` would drop to its own line.
+typeHasCommentBracket : LPNode -> Bool
+typeHasCommentBracket node =
+    let
+        isBracketBox =
+            when lpnBox node is
+                AllAcrossOrAllVertical _ ->
+                    True
+
+                AlwaysVertical _ ->
+                    True
+
+                RecordUpdate _ ->
+                    True
+
+                _ ->
+                    False
+    in
+    (isBracketBox && Array.any nodeIsComment (lpnChildren node))
+        || Array.any typeHasCommentBracket (lpnChildren node)
+
+
 -- ═══ BINOPS ═══
 
 
@@ -1414,7 +1440,15 @@ makeSignatureBox children =
             hasComment =
                 Array.any subtreeHasComment children
         in
-        if not forceVertical && hasComment then
+        if not forceVertical && hasComment && Array.any typeHasCommentBracket colonSplit.typeNodes then
+            -- A comment INSIDE a record/bracket type (`foo : { a : Int {- c -} }`)
+            -- renders that type multi-line. The Doc keeps it glued inline after
+            -- `:` (its `}` aligns under the `{`); `assembleFlow` instead drops a
+            -- multi-line item to its own +4 block, which diverges. Fall back to
+            -- Doc rather than emit the wrong layout.
+            Err "box: comment inside a signature's record/bracket type not ported"
+
+        else if not forceVertical && hasComment then
             -- Inline signature carrying a comment: the Doc routes to
             -- `makeFlowIndentableDoc` (`buildFlowDoc grenIndent`), NOT the group
             -- flatten, because a comment's break points have no stable inline
@@ -1757,8 +1791,23 @@ makePBox box children =
         Glue ->
             makeGlueBox children
 
+        SingleLineComment _ ->
+            Err "box: construct not ported [SingleLineComment]"
+
+        BlockComment _ ->
+            Err "box: construct not ported [BlockComment]"
+
+        DocComment _ ->
+            Err "box: construct not ported [DocComment]"
+
+        PipelineStep ->
+            Err "box: construct not ported [PipelineStep]"
+
+        AlignedFlow ->
+            Err "box: construct not ported [AlignedFlow]"
+
         _ ->
-            Err "box: construct not ported"
+            Err "box: construct not ported [other]"
 
 
 {-| Render a `Glue`: children concatenated with no separator — a postfix accessor
@@ -2069,16 +2118,182 @@ expands if a child is multi-line; `AlwaysVertical` (2+-field record, or author
 across rows) passes `forceMultiline = True`. -}
 makeLiteralBox : Bool -> ListBrackets -> Array LPNode -> Result String Box
 makeLiteralBox forceMultiline bracket children =
-    traverseResult (\node -> makePBox (lpnBox node) (lpnChildren node)) children
-        |> Result.andThen
-            (\itemBoxes ->
-                when bracketPunc bracket is
-                    Just { left, right } ->
-                        Ok (E.groupBox True left "," right forceMultiline itemBoxes)
+    if Array.any nodeIsComment children then
+        -- A line comment can't live inside a flat group, so a comment-bearing
+        -- literal is always vertical. Mirrors `makeAllAcrossOrAllVertical` /
+        -- `AlwaysVertical` delegating to `listBoxesWithBrackets` in the Doc.
+        commentBracketListBox bracket children
 
-                    Nothing ->
-                        Err "box: bracket kind not ported"
-            )
+    else
+        traverseResult (\node -> makePBox (lpnBox node) (lpnChildren node)) children
+            |> Result.andThen
+                (\itemBoxes ->
+                    when bracketPunc bracket is
+                        Just { left, right } ->
+                            Ok (E.groupBox True left "," right forceMultiline itemBoxes)
+
+                        Nothing ->
+                            Err "box: bracket kind not ported"
+                )
+
+
+{-| Render a comment-kind node (single-line `--`/`{- -}`, or a multi-line block
+comment) to a Box. Mirrors the comment arms of `renderFlowItem`. -}
+commentNodeBox : LPNode -> Result String Box
+commentNodeBox node =
+    when lpnBox node is
+        SingleLineComment loc ->
+            Ok (B.line (B.literal ("--" ++ loc.value)))
+
+        BlockComment loc ->
+            if String.contains "\n" loc.value then
+                multiLineBlockCommentBox loc.value
+
+            else
+                Ok (B.line (B.literal ("{-" ++ loc.value ++ "-}")))
+
+        _ ->
+            Err "box: not a comment node"
+
+
+{-| Render a bracketed literal that contains a comment child, as an always-
+vertical list — the Box mirror of `MakeRender.listBoxesWithBracketsUsing`'s
+default (single-render) path. Each item is on its own line prefixed `{ `/`[ `
+(first) or `, ` (rest); a comment on the same source row as the preceding item
+trails it with a space, a comment on its own row gets its own line at the
+bracket column; the closing bracket sits on its own line. Box stacking supplies
+the alignment the Doc gets from `R.align`. The uniform record-array coupling
+(a whole-list flat/expanded `P.choice`) is NOT reproduced — those fall back. -}
+commentBracketListBox : ListBrackets -> Array LPNode -> Result String Box
+commentBracketListBox bracket nodes =
+    when bracketPunc bracket is
+        Nothing ->
+            Err "box: bracket kind not ported"
+
+        Just { left, right } ->
+            let
+                placeComment commentRow node acc =
+                    commentNodeBox node
+                        |> Result.andThen
+                            (\cbox ->
+                                if commentRow == acc.prevRow then
+                                    -- Trailing the preceding item: attach with a
+                                    -- single space (layout is author-driven, not
+                                    -- width-driven). A multi-line trailing comment
+                                    -- can't glue onto the last line, so fall back.
+                                    when acc.pending is
+                                        Nothing ->
+                                            Ok
+                                                { acc
+                                                    | entries = Array.pushLast { box = cbox, isComment = True } acc.entries
+                                                    , pending = Nothing
+                                                }
+
+                                        Just e ->
+                                            when B.isLine cbox is
+                                                Ok l ->
+                                                    Ok
+                                                        { acc
+                                                            | entries = Array.pushLast { box = B.addSuffix (B.row [ B.space, l ]) e.box, isComment = False } acc.entries
+                                                            , pending = Nothing
+                                                        }
+
+                                                Err _ ->
+                                                    Err "box: multi-line trailing comment in bracket list not ported"
+
+                                else
+                                    let
+                                        flushed =
+                                            when acc.pending is
+                                                Nothing ->
+                                                    acc.entries
+
+                                                Just e ->
+                                                    Array.pushLast e acc.entries
+                                    in
+                                    Ok
+                                        { entries = Array.pushLast { box = cbox, isComment = True } flushed
+                                        , pending = Nothing
+                                        , prevRow = commentRow
+                                        }
+                            )
+
+                step node accResult =
+                    when accResult is
+                        Err e ->
+                            Err e
+
+                        Ok acc ->
+                            when lpnBox node is
+                                SingleLineComment loc ->
+                                    placeComment loc.start.row node acc
+
+                                BlockComment loc ->
+                                    placeComment loc.start.row node acc
+
+                                _ ->
+                                    makePBox (lpnBox node) (lpnChildren node)
+                                        |> Result.map
+                                            (\box ->
+                                                let
+                                                    itemRow =
+                                                        when lpnBox node is
+                                                            UnbreakableText l ->
+                                                                l.start.row
+
+                                                            _ ->
+                                                                lpnMaxRow node
+
+                                                    flushed =
+                                                        when acc.pending is
+                                                            Nothing ->
+                                                                acc.entries
+
+                                                            Just e ->
+                                                                Array.pushLast e acc.entries
+                                                in
+                                                { entries = flushed
+                                                , pending = Just { box = box, isComment = False }
+                                                , prevRow = itemRow
+                                                }
+                                            )
+            in
+            Array.foldl step (Ok { entries = [], pending = Nothing, prevRow = -1 }) nodes
+                |> Result.map
+                    (\state ->
+                        let
+                            allEntries =
+                                when state.pending is
+                                    Nothing ->
+                                        state.entries
+
+                                    Just e ->
+                                        Array.pushLast e state.entries
+
+                            assembled =
+                                Array.foldl
+                                    (\entry acc ->
+                                        if entry.isComment then
+                                            { acc | boxes = Array.pushLast entry.box acc.boxes }
+
+                                        else
+                                            let
+                                                pref =
+                                                    if acc.seenText then
+                                                        B.row [ B.punc ",", B.space ]
+
+                                                    else
+                                                        B.row [ B.punc left, B.space ]
+                                            in
+                                            { boxes = Array.pushLast (B.prefix pref entry.box) acc.boxes
+                                            , seenText = True
+                                            }
+                                    )
+                                    { boxes = [], seenText = False }
+                                    allEntries
+                        in
+                        B.stack1 (Array.pushLast (B.line (B.punc right)) assembled.boxes)
+                    )
 
 
 bracketPunc : ListBrackets -> Maybe { left : String, right : String }
