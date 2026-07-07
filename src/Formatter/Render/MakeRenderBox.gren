@@ -666,19 +666,46 @@ makePipelineBox forceVertical op children =
                 )
 
 
--- One `|> step`, single-line only (a step whose argument relocates across rows
--- has elm-format-specific layout that isn't ported).
+-- One `|> step`. Rendered via `buildFlowBox grenIndent`, mirroring the Doc's
+-- `buildStepChildrenDoc`: the operator + function stay inline (`|> f`) and a
+-- multi-line block argument (a record / array / `when` / `if` / `let` that forces
+-- vertical) relocates to the next line at +4. A single-line step renders
+-- identically at any flow indent, so this keeps the cases covered since tranche 8.
+--
+-- A multi-line step whose argument is a `ParenBlock` (a multi-line lambda `\x ->`,
+-- a parens-with-multiline-content, or a direct `|> (\x -> …)` operand) gets
+-- elm-format-specific relocation in the Doc (`makeMultilineLambdaArgDoc` /
+-- `makeMultilineParenArgDoc`, or stays glued) that `assembleFlow`'s generic block
+-- drop doesn't reproduce — so those fall back. A single-line ParenBlock argument
+-- (`|> f (g x)`) is fine (it renders inline).
 renderPipelineStep : LPNode -> Result String Box
 renderPipelineStep stepNode =
-    buildFlowBox 0 (lpnChildren stepNode)
+    let
+        children =
+            lpnChildren stepNode
+    in
+    buildFlowBox grenIndent children
         |> Result.andThen
             (\box ->
                 if isSingleLine box then
                     Ok box
 
+                else if Array.any isParenBlockNode children then
+                    Err "box: multi-line paren/lambda pipeline step relocation not ported"
+
                 else
-                    Err "box: multi-line pipeline step not ported"
+                    Ok box
             )
+
+
+isParenBlockNode : LPNode -> Bool
+isParenBlockNode node =
+    when lpnBox node is
+        ParenBlock _ ->
+            True
+
+        _ ->
+            False
 
 
 -- Get a box's sole line, or Err if it is multi-line.
