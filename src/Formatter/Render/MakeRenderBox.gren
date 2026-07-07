@@ -1544,29 +1544,42 @@ makeExposingLineBox stype children =
                             listChildren =
                                 lpnChildren lastNode
                         in
-                        if Array.any nodeIsComment listChildren then
+                        let
+                            hasComment =
+                                Array.any nodeIsComment listChildren
+
                             -- A comment among the exposed names forces the list
-                            -- vertical via the Doc's comment-aware
-                            -- `listBoxesWithBrackets`; not ported.
-                            Err "box: comment in exposing list not ported"
+                            -- vertical, exactly like the Doc's comment-aware
+                            -- `makeExposingListDoc` (`Array.any nodeIsComment ||
+                            -- forceVertical` → `listBoxesWithBrackets "( " ")"`).
+                            effectiveFV =
+                                forceVertical || hasComment
 
-                        else
-                            let
-                                -- A module line always keeps `exposing` glued;
-                                -- an import line drops it only when the list is
-                                -- vertical.
-                                keepExposingGlued =
-                                    stype == StModule || not forceVertical
-                            in
-                            makeExposingListBox forceVertical listChildren
-                                |> Result.andThen
-                                    (\listBox ->
-                                        if keepExposingGlued then
-                                            gluedExposingBox forceVertical headerNodes listBox
+                            -- A module line always keeps `exposing` glued; an
+                            -- import line drops it only when the list is vertical.
+                            keepExposingGlued =
+                                stype == StModule || not effectiveFV
 
-                                        else
-                                            droppedExposingBox headerNodes listBox
-                                    )
+                            -- The `( … )` comment form is structurally the same
+                            -- always-vertical list as a curly/square literal, so
+                            -- reuse `commentBracketListBox` with `ListParen` (its
+                            -- `( `/`, `/`)` prefixes match `listBoxesWithBrackets`).
+                            listBoxResult =
+                                if hasComment then
+                                    commentBracketListBox ListParen listChildren
+
+                                else
+                                    makeExposingListBox forceVertical listChildren
+                        in
+                        listBoxResult
+                            |> Result.andThen
+                                (\listBox ->
+                                    if keepExposingGlued then
+                                        gluedExposingBox effectiveFV headerNodes listBox
+
+                                    else
+                                        droppedExposingBox headerNodes listBox
+                                )
 
                     else
                         exposingLineFallback children
