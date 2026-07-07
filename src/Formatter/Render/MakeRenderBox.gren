@@ -1376,71 +1376,96 @@ line 1 with one `->` segment per line at +4 when the author broke it at an arrow
 boundary. The header and each segment render via `buildFlowBox 0`, so nested types
 (records, parens, function types) are handled — anything `buildFlowBox` can't yet
 render (or a deeper nested-record whose Tab arithmetic diverges from Doc) Errs and
-falls back. A comment anywhere in the signature falls back to the Doc's
-comment-aware flow. -}
+falls back.
+
+Comments: an inline signature that carries a comment renders via the Doc's
+`makeFlowIndentableDoc` (`buildFlowBox grenIndent`), NOT the group flatten — Box
+mirrors that. A signature the author broke at a `->` renders per-segment either
+way, and `buildFlowBox` places the segment's inline comments (tranche 20-26). -}
 makeSignatureBox : Array LPNode -> Result String Box
 makeSignatureBox children =
-    if Array.any subtreeHasComment children then
-        Err "box: comment in signature not ported"
+    let
+        colonSplit =
+            Array.foldl
+                (\node acc ->
+                    if acc.afterColon then
+                        { acc | typeNodes = Array.pushLast node acc.typeNodes }
+
+                    else if isColonLeaf node then
+                        { acc | header = Array.pushLast node acc.header, afterColon = True }
+
+                    else
+                        { acc | header = Array.pushLast node acc.header }
+                )
+                { header = [], typeNodes = [], afterColon = False }
+                children
+    in
+    if not colonSplit.afterColon then
+        Err "box: signature has no colon"
 
     else
         let
-            colonSplit =
-                Array.foldl
-                    (\node acc ->
-                        if acc.afterColon then
-                            { acc | typeNodes = Array.pushLast node acc.typeNodes }
+            segments =
+                splitSignatureSegments colonSplit.typeNodes
 
-                        else if isColonLeaf node then
-                            { acc | header = Array.pushLast node acc.header, afterColon = True }
+            forceVertical =
+                signatureForceVertical segments
 
-                        else
-                            { acc | header = Array.pushLast node acc.header }
-                    )
-                    { header = [], typeNodes = [], afterColon = False }
-                    children
+            hasComment =
+                Array.any subtreeHasComment children
         in
-        if not colonSplit.afterColon then
-            Err "box: signature has no colon"
+        if not forceVertical && hasComment then
+            -- Inline signature carrying a comment: the Doc routes to
+            -- `makeFlowIndentableDoc` (`buildFlowDoc grenIndent`), NOT the group
+            -- flatten, because a comment's break points have no stable inline
+            -- anchor. Mirror that with `buildFlowBox grenIndent`, but keep only a
+            -- single-line result: when a `--`/own-line comment forces a
+            -- continuation, `assembleFlow` doesn't yet indent the inline item
+            -- that starts the fresh line (the same gap as `exposingLineFallback`),
+            -- so those fall back to Doc rather than emit the wrong col-0 form.
+            buildFlowBox grenIndent children
+                |> Result.andThen
+                    (\box ->
+                        when B.isLine box is
+                            Ok _ ->
+                                Ok box
+
+                            Err _ ->
+                                Err "box: multi-line comment-bearing inline signature not ported"
+                    )
+
+        else if not forceVertical then
+            -- Inline, no comment: the whole signature on one line (the Doc's
+            -- `R.group` of header + space-joined segments == one flow over all
+            -- children). The Doc's `R.group` FLATTENS a segment the author broke
+            -- inside a record type or parens (a break not at a `->` boundary)
+            -- back onto the line; Box has no flatten, so if the flow comes back
+            -- multi-line we fall back to Doc rather than emit the (wrong) broken
+            -- form.
+            buildFlowBox 0 children
+                |> Result.andThen
+                    (\box ->
+                        when B.isLine box is
+                            Ok _ ->
+                                Ok box
+
+                            Err _ ->
+                                Err "box: inline signature broke inside a segment (Doc flattens, Box can't)"
+                    )
 
         else
-            let
-                segments =
-                    splitSignatureSegments colonSplit.typeNodes
-
-                forceVertical =
-                    signatureForceVertical segments
-            in
-            if not forceVertical then
-                -- Inline: the whole signature on one line (the Doc's `R.group`
-                -- of header + space-joined segments == one flow over all
-                -- children, since the segments just regroup the same nodes).
-                -- The Doc's `R.group` FLATTENS a segment the author broke inside
-                -- a record type or parens (a break not at a `->` boundary) back
-                -- onto the line; Box has no flatten, so if the flow comes back
-                -- multi-line we fall back to Doc rather than emit the (wrong)
-                -- broken form.
-                buildFlowBox 0 children
-                    |> Result.andThen
-                        (\box ->
-                            when B.isLine box is
-                                Ok _ ->
-                                    Ok box
-
-                                Err _ ->
-                                    Err "box: inline signature broke inside a segment (Doc flattens, Box can't)"
-                        )
-
-            else
-                buildFlowBox 0 colonSplit.header
-                    |> Result.andThen
-                        (\headerBox ->
-                            traverseResult (buildFlowBox 0) segments
-                                |> Result.map
-                                    (\segBoxes ->
-                                        B.stack1 ([ headerBox ] ++ Array.map B.indent segBoxes)
-                                    )
-                        )
+            -- Author broke at a `->`: header on line 1, one segment per line at
+            -- +4. `buildFlowBox 0` renders each segment, placing any inline
+            -- comment it carries.
+            buildFlowBox 0 colonSplit.header
+                |> Result.andThen
+                    (\headerBox ->
+                        traverseResult (buildFlowBox 0) segments
+                            |> Result.map
+                                (\segBoxes ->
+                                    B.stack1 ([ headerBox ] ++ Array.map B.indent segBoxes)
+                                )
+                    )
 
 
 -- The `Line` (not boxed) of the given leaf nodes joined by single spaces. Only
