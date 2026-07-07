@@ -1418,21 +1418,10 @@ makeSignatureBox children =
             -- Inline signature carrying a comment: the Doc routes to
             -- `makeFlowIndentableDoc` (`buildFlowDoc grenIndent`), NOT the group
             -- flatten, because a comment's break points have no stable inline
-            -- anchor. Mirror that with `buildFlowBox grenIndent`, but keep only a
-            -- single-line result: when a `--`/own-line comment forces a
-            -- continuation, `assembleFlow` doesn't yet indent the inline item
-            -- that starts the fresh line (the same gap as `exposingLineFallback`),
-            -- so those fall back to Doc rather than emit the wrong col-0 form.
+            -- anchor. Mirror that with `buildFlowBox grenIndent`; a `--`/own-line
+            -- comment that forces a continuation is now indented +4 by
+            -- `assembleFlow`.
             buildFlowBox grenIndent children
-                |> Result.andThen
-                    (\box ->
-                        when B.isLine box is
-                            Ok _ ->
-                                Ok box
-
-                            Err _ ->
-                                Err "box: multi-line comment-bearing inline signature not ported"
-                    )
 
         else if not forceVertical then
             -- Inline, no comment: the whole signature on one line (the Doc's
@@ -1558,26 +1547,13 @@ makeExposingLineBox stype children =
 -- The fallback path for a module/import line that isn't a plain leaf-header +
 -- paren-list (a `(..)` wildcard, an effect-module `where` block, or a
 -- comment-bearing header). Mirrors the Doc's `makeFlowIndentableDoc`
--- (`buildFlowDoc grenIndent`), but only KEEPS a single-line result: a header the
--- author broke across rows (a `--` line comment before the list, a multi-line
--- `{- -}`, or an effect-module `where` block that wraps) needs the continuation
--- indented, and `assembleFlow` doesn't yet indent an inline item that starts a
--- fresh line after a comment/break — so those fall back to Doc rather than emit
--- the (wrong, col-0) continuation. Single-line headers (`exposing (..)`, a plain
--- import, a one-line `{- -}`-commented exposing list) render identically at any
--- indent and are kept — this is what unlocks the single-line bracket-kind cases.
+-- (`buildFlowDoc grenIndent`): a header the author broke across rows (a `--` line
+-- comment before the list, a multi-line `{- -}`, or an effect-module `where`
+-- block that wraps) indents its continuation +4, which `assembleFlow` now does
+-- for an inline item on a fresh line after a comment/break.
 exposingLineFallback : Array LPNode -> Result String Box
 exposingLineFallback children =
     buildFlowBox grenIndent children
-        |> Result.andThen
-            (\box ->
-                when B.isLine box is
-                    Ok _ ->
-                        Ok box
-
-                    Err _ ->
-                        Err "box: multi-line comment/where-block header not ported"
-            )
 
 
 -- `exposing` stays glued to the header. Inline list: `header (a, b, c)` on one
@@ -2466,8 +2442,13 @@ assembleFlowImpl flowIndent items =
                                 Nothing ->
                                     if item.isBlock then
                                         let
+                                            -- Only the block's OWN indent here; the
+                                            -- flow indent is applied uniformly to
+                                            -- every continuation row at the end
+                                            -- (mirroring the Doc's single outer
+                                            -- `R.nest indent` around the whole flow).
                                             blockBox =
-                                                applyIndent (flowIndent + blockOwnIndent item.node) item.box
+                                                applyIndent (blockOwnIndent item.node) item.box
                                         in
                                         Ok { acc | rows = Array.pushLast blockBox (flushRow acc.curRow acc.rows), curRow = [], prevRow = -1, started = True, justTerminated = False }
 
@@ -2493,8 +2474,16 @@ assembleFlowImpl flowIndent items =
                     Nothing ->
                         Err "box: empty flow"
 
-                    Just _ ->
-                        Ok (B.stack1 allRows)
+                    Just { first, rest } ->
+                        -- The first row sits at the flow's own column; every
+                        -- continuation row is indented by `flowIndent`. This is
+                        -- the Box form of the Doc's `R.nest indent` wrapping the
+                        -- whole flow — and it finally indents an inline item that
+                        -- starts a fresh line after a `--`/own-line comment, which
+                        -- the per-block indent used to miss (it rendered col-0).
+                        -- Block rows already carry their `blockOwnIndent`, so this
+                        -- brings them to `flowIndent + blockOwnIndent` as before.
+                        Ok (B.stack1 ([ first ] ++ Array.map (applyIndent flowIndent) rest))
             )
 
 
