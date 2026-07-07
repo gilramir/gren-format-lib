@@ -14,7 +14,7 @@ renderer gets wrong simply falls back.
 
 import Formatter.Render.Box as B exposing (Box(..))
 import Formatter.Render.ElmStructure as E
-import Formatter.Logical.LogicalPrintingTree exposing (LPBox(..), LPNode, ListBrackets(..), SyntaxType(..), lpnBox, lpnChildren, firstRowInSubtree, lpnMaxRow, lpnFirstPos)
+import Formatter.Logical.LogicalPrintingTree exposing (LPBox(..), LPNode, ListBrackets(..), SyntaxType(..), lpnBox, lpnChildren, firstRowInSubtree, lpnMaxRow, lpnFirstPos, lpnBracketStart)
 import Formatter.Logical.BinopPrecedence exposing (binopPrecedence, binopMinPrecedence)
 
 
@@ -1139,6 +1139,12 @@ splitSignatureSegments nodes =
 
 
 -- A segment's first / last content row, ignoring the leading arrow.
+--
+-- A segment beginning with a bracketed type (`{ … }`, `( … )`) starts where its
+-- *opening bracket* sits, not at its first inner token — the bracket has no leaf,
+-- so `firstRowInSubtree` alone would report the first field's row, and a break
+-- just inside the bracket would masquerade as a break between `->` segments,
+-- flipping the whole signature to multi-line. Mirrors `segContentFirstRow`.
 segFirstRow : Array LPNode -> Int
 segFirstRow seg =
     Array.foldl
@@ -1148,8 +1154,20 @@ segFirstRow seg =
 
             else
                 let
-                    r =
+                    leafR =
                         firstRowInSubtree node
+
+                    r =
+                        when lpnBracketStart node is
+                            Just open ->
+                                if leafR < 0 then
+                                    open.row
+
+                                else
+                                    min open.row leafR
+
+                            Nothing ->
+                                leafR
                 in
                 if acc < 0 then
                     r
@@ -1208,61 +1226,77 @@ signatureForceVertical segments =
     ).broken
 
 
-{-| Render a function/port signature. Inline (all leaves space-joined) when the
-author kept it on one line; header + one `->` segment per line at +4 when broken.
-Only flat leaf signatures are ported — a nested type or an embedded comment
-returns Err (fall back to Doc). -}
+{-| Render a function/port signature, mirroring `MakeRender.makeSignaturePrettyDoc`.
+Inline (header + type on one line) when the author kept it on one line; header on
+line 1 with one `->` segment per line at +4 when the author broke it at an arrow
+boundary. The header and each segment render via `buildFlowBox 0`, so nested types
+(records, parens, function types) are handled — anything `buildFlowBox` can't yet
+render (or a deeper nested-record whose Tab arithmetic diverges from Doc) Errs and
+falls back. A comment anywhere in the signature falls back to the Doc's
+comment-aware flow. -}
 makeSignatureBox : Array LPNode -> Result String Box
 makeSignatureBox children =
-    when traverseResult (\n -> Result.fromMaybe "box: non-leaf signature node" (leafValue n)) children is
-        Err e ->
-            Err e
+    if Array.any subtreeHasComment children then
+        Err "box: comment in signature not ported"
 
-        Ok _ ->
+    else
+        let
+            colonSplit =
+                Array.foldl
+                    (\node acc ->
+                        if acc.afterColon then
+                            { acc | typeNodes = Array.pushLast node acc.typeNodes }
+
+                        else if isColonLeaf node then
+                            { acc | header = Array.pushLast node acc.header, afterColon = True }
+
+                        else
+                            { acc | header = Array.pushLast node acc.header }
+                    )
+                    { header = [], typeNodes = [], afterColon = False }
+                    children
+        in
+        if not colonSplit.afterColon then
+            Err "box: signature has no colon"
+
+        else
             let
-                colonSplit =
-                    Array.foldl
-                        (\node acc ->
-                            if acc.afterColon then
-                                { acc | typeNodes = Array.pushLast node acc.typeNodes }
+                segments =
+                    splitSignatureSegments colonSplit.typeNodes
 
-                            else if isColonLeaf node then
-                                { acc | header = Array.pushLast node acc.header, afterColon = True }
-
-                            else
-                                { acc | header = Array.pushLast node acc.header }
-                        )
-                        { header = [], typeNodes = [], afterColon = False }
-                        children
+                forceVertical =
+                    signatureForceVertical segments
             in
-            if not colonSplit.afterColon then
-                Err "box: signature has no colon"
+            if not forceVertical then
+                -- Inline: the whole signature on one line (the Doc's `R.group`
+                -- of header + space-joined segments == one flow over all
+                -- children, since the segments just regroup the same nodes).
+                -- The Doc's `R.group` FLATTENS a segment the author broke inside
+                -- a record type or parens (a break not at a `->` boundary) back
+                -- onto the line; Box has no flatten, so if the flow comes back
+                -- multi-line we fall back to Doc rather than emit the (wrong)
+                -- broken form.
+                buildFlowBox 0 children
+                    |> Result.andThen
+                        (\box ->
+                            when B.isLine box is
+                                Ok _ ->
+                                    Ok box
+
+                                Err _ ->
+                                    Err "box: inline signature broke inside a segment (Doc flattens, Box can't)"
+                        )
 
             else
-                let
-                    segments =
-                        splitSignatureSegments colonSplit.typeNodes
-
-                    forceVertical =
-                        signatureForceVertical segments
-                in
-                if not forceVertical then
-                    -- Inline: every leaf on one line, single-space separated.
-                    Ok (leafRow children)
-
-                else
-                    Ok
-                        (B.stack1
-                            ([ leafRow colonSplit.header ]
-                                ++ Array.map (\seg -> B.indent (leafRow seg)) segments
-                            )
+                buildFlowBox 0 colonSplit.header
+                    |> Result.andThen
+                        (\headerBox ->
+                            traverseResult (buildFlowBox 0) segments
+                                |> Result.map
+                                    (\segBoxes ->
+                                        B.stack1 ([ headerBox ] ++ Array.map B.indent segBoxes)
+                                    )
                         )
-
-
--- One line: the given leaf nodes joined by single spaces.
-leafRow : Array LPNode -> Box
-leafRow nodes =
-    B.line (leafLineRow nodes)
 
 
 -- The `Line` (not boxed) of the given leaf nodes joined by single spaces. Only
