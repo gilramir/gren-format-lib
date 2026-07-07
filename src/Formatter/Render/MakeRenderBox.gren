@@ -1584,8 +1584,48 @@ makePBox box children =
             in
             Ok (B.stack1 ([ quote ] ++ contentLines ++ [ quote ]))
 
+        Glue ->
+            makeGlueBox children
+
         _ ->
             Err "box: construct not ported"
+
+
+{-| Render a `Glue`: children concatenated with no separator — a postfix accessor
+(`.field`) glued after a bracketed base (`(f 1).value`, `{ a = 1 }.a`). Mirrors
+`MakeRender.makeGlueDoc` (concat with no separator). The base (first child) may be
+multi-line — the accessor glues onto its last line via `B.addSuffix` — but every
+following child (the `.field` accessors) must be single-line. -}
+makeGlueBox : Array LPNode -> Result String Box
+makeGlueBox children =
+    when Array.popFirst children is
+        Nothing ->
+            Err "box: empty glue"
+
+        Just { first, rest } ->
+            makePBox (lpnBox first) (lpnChildren first)
+                |> Result.andThen
+                    (\baseBox ->
+                        Array.foldl
+                            (\child accR ->
+                                accR
+                                    |> Result.andThen
+                                        (\acc ->
+                                            makePBox (lpnBox child) (lpnChildren child)
+                                                |> Result.andThen
+                                                    (\childBox ->
+                                                        when B.isLine childBox is
+                                                            Ok l ->
+                                                                Ok (B.addSuffix l acc)
+
+                                                            Err _ ->
+                                                                Err "box: multi-line glue suffix not ported"
+                                                    )
+                                        )
+                            )
+                            (Ok baseBox)
+                            rest
+                    )
 
 
 {-| Render a `ParenBlock`. Mirrors `MakeRender.makeParenBlockDoc`, but only the
