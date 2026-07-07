@@ -1070,6 +1070,56 @@ makeIfConditionBox forceVertical children =
 -- ═══ RECORD UPDATE ═══
 
 
+{-| True when a record-update field's value is a *soft* node (not a hard block —
+`if`/`when`/`let`/lambda) that renders multi-line. The Doc keeps such a value's
+first line glued to `= ` (soft `R.group` separator) and lets the value break
+internally; Box's flat stacker drops the whole value to its own line, so these
+fields diverge and the update must fall back. A hard-block value drops after `=`
+in both renderers and is fine. A comment child (no meaningful value) returns
+False. -}
+recordFieldValueDrops : LPNode -> Bool
+recordFieldValueDrops field =
+    when Array.last (lpnChildren field) is
+        Nothing ->
+            False
+
+        Just valueNode ->
+            let
+                isHardBlock =
+                    when lpnBox valueNode is
+                        BodyBlock ->
+                            True
+
+                        IndentedBlock ->
+                            True
+
+                        SoftIndentedBlock ->
+                            True
+
+                        WhenBranch ->
+                            True
+
+                        PipelineStep ->
+                            True
+
+                        EmptyLine ->
+                            True
+
+                        _ ->
+                            False
+            in
+            if isHardBlock then
+                False
+
+            else
+                when makePBox (lpnBox valueNode) (lpnChildren valueNode) is
+                    Ok b ->
+                        not (isSingleLine b)
+
+                    Err _ ->
+                        False
+
+
 {-| Render a record update `{ base | f = v, … }` via elm's `extensionGroup`.
 Each field node renders to a `name = value` box; the update expands (base on its
 own line, `| `/`, `-prefixed fields at +4, closing `}`) when the author broke it
@@ -1079,8 +1129,29 @@ lambda-valued field deliberately differs from the Doc renderer — Box drops the
 `\arg ->` head like elm — so those updates fall back via the self-verify guard.) -}
 makeRecordUpdateBox : String -> Bool -> Array LPNode -> Result String Box
 makeRecordUpdateBox baseName forceVertical children =
-    traverseResult (\node -> makePBox (lpnBox node) (lpnChildren node)) children
-        |> Result.andThen
+    if Array.any recordFieldValueDrops children then
+        -- A field whose value is a *soft* multi-line node (a broken call or
+        -- binop chain — `| f = Array.map (\x -> …) xs`) is kept glued to `= `
+        -- by the Doc (its flow separator is a soft `R.group`, always flat → a
+        -- space) and broken only by the value's own internal layout. Box's flat
+        -- stacker instead drops the whole value onto its own line, diverging, so
+        -- the update falls back. (A *block* value — `if`/`when`/`let`/lambda —
+        -- drops after `=` in BOTH renderers, so it is NOT gated here.) This gate
+        -- is shared by the comment and non-comment paths: a comment-bearing
+        -- update nested inside such a field must not let the outer update render
+        -- via Box either.
+        Err "box: record-update field with a soft multi-line value not ported"
+
+    else if Array.any nodeIsComment children then
+        -- A comment can't live in the inline (flat group) form, so a comment-
+        -- bearing update is always vertical. Mirrors `makeRecordUpdateDoc`'s
+        -- `hasComment → vertical` branch: comment children render own-line at
+        -- +4 (no `| `/`, ` prefix), the actual fields keep their prefixes.
+        makeRecordUpdateVerticalBox baseName children
+
+    else
+        traverseResult (\node -> makePBox (lpnBox node) (lpnChildren node)) children
+            |> Result.andThen
             (\fieldBoxes ->
                 when Array.popFirst fieldBoxes is
                     Nothing ->
@@ -1098,6 +1169,91 @@ makeRecordUpdateBox baseName forceVertical children =
                                 firstField
                                 restFields
                             )
+            )
+
+
+{-| Render a comment-bearing record update as the always-vertical form, mirroring
+`makeRecordUpdateDoc`'s `hasComment` branch: base on its own line (`{ base`),
+then each field prefixed `| ` (first) / `, ` (rest) and each comment child on its
+own line — all indented +4 — and the closing `}` on its own line at the `{`
+column. Comment children never carry a field prefix; the first *field* (not the
+first child) gets the `| `. Box `stack1` + `B.indent` + `B.prefix` supply the
+alignment the Doc gets from `R.align` around the `R.vcat`. A multi-line block
+comment falls back via `commentNodeBox`'s verbatim guard. -}
+makeRecordUpdateVerticalBox : String -> Array LPNode -> Result String Box
+makeRecordUpdateVerticalBox baseName children =
+    let
+        step node accResult =
+            accResult
+                |> Result.andThen
+                    (\acc ->
+                        if nodeIsComment node then
+                            commentNodeBox node
+                                |> Result.map
+                                    (\cbox ->
+                                        { acc | lines = Array.pushLast cbox acc.lines }
+                                    )
+
+                        else
+                            -- Render the field's CHILDREN as a flow (`name =
+                            -- value`), NOT `makePBox` on the field node — a field
+                            -- whose value is a broken call is an `AcrossOrVertical`
+                            -- that `makePBox` would mis-render as a function
+                            -- application (breaking `= value`). Mirrors
+                            -- `makeRecordUpdateDoc`'s `fieldLine`: a lambda field
+                            -- (IndentedBlock container) flows at +0 so its body
+                            -- block supplies the only +4; every other field +4.
+                            let
+                                fieldFlowIndent =
+                                    when lpnBox node is
+                                        IndentedBlock ->
+                                            0
+
+                                        _ ->
+                                            grenIndent
+                            in
+                            buildFlowBox fieldFlowIndent (lpnChildren node)
+                                |> Result.andThen
+                                    (\fieldBox ->
+                                        -- A multi-line field value is kept glued
+                                        -- to `= ` by the Doc (its flow separator
+                                        -- is a soft `R.group`, always flat → a
+                                        -- space), then broken by the value's own
+                                        -- internal layout — e.g. `| f = Array.map`
+                                        -- with the call's args below. Box's flat
+                                        -- stacker instead drops the whole value to
+                                        -- its own line, diverging, so fall back
+                                        -- (as this update did before this tranche).
+                                        -- Comment-bearing updates with single-line
+                                        -- field values (the common case) render
+                                        -- byte-identically.
+                                        if isSingleLine fieldBox then
+                                            let
+                                                pref =
+                                                    if acc.seenField then
+                                                        B.row [ B.punc ",", B.space ]
+
+                                                    else
+                                                        B.row [ B.punc "|", B.space ]
+                                            in
+                                            Ok
+                                                { lines = Array.pushLast (B.prefix pref fieldBox) acc.lines
+                                                , seenField = True
+                                                }
+
+                                        else
+                                            Err "box: multi-line field value in comment-bearing record update not ported"
+                                    )
+                    )
+    in
+    Array.foldl step (Ok { lines = [], seenField = False }) children
+        |> Result.map
+            (\acc ->
+                B.stack1
+                    [ B.prefix (B.row [ B.punc "{", B.space ]) (B.line (B.literal baseName))
+                    , B.indent (B.stack1 acc.lines)
+                    , B.line (B.punc "}")
+                    ]
             )
 
 
