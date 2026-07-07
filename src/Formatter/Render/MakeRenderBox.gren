@@ -1411,13 +1411,38 @@ makeExposingLineBox stype children =
                                     )
 
                     else
-                        buildFlowBox 0 children
+                        exposingLineFallback children
 
                 Nothing ->
-                    buildFlowBox 0 children
+                    exposingLineFallback children
 
         Nothing ->
-            buildFlowBox 0 children
+            exposingLineFallback children
+
+
+-- The fallback path for a module/import line that isn't a plain leaf-header +
+-- paren-list (a `(..)` wildcard, an effect-module `where` block, or a
+-- comment-bearing header). Mirrors the Doc's `makeFlowIndentableDoc`
+-- (`buildFlowDoc grenIndent`), but only KEEPS a single-line result: a header the
+-- author broke across rows (a `--` line comment before the list, a multi-line
+-- `{- -}`, or an effect-module `where` block that wraps) needs the continuation
+-- indented, and `assembleFlow` doesn't yet indent an inline item that starts a
+-- fresh line after a comment/break — so those fall back to Doc rather than emit
+-- the (wrong, col-0) continuation. Single-line headers (`exposing (..)`, a plain
+-- import, a one-line `{- -}`-commented exposing list) render identically at any
+-- indent and are kept — this is what unlocks the single-line bracket-kind cases.
+exposingLineFallback : Array LPNode -> Result String Box
+exposingLineFallback children =
+    buildFlowBox grenIndent children
+        |> Result.andThen
+            (\box ->
+                when B.isLine box is
+                    Ok _ ->
+                        Ok box
+
+                    Err _ ->
+                        Err "box: multi-line comment/where-block header not ported"
+            )
 
 
 -- `exposing` stays glued to the header. Inline list: `header (a, b, c)` on one
@@ -1954,8 +1979,14 @@ bracketPunc bracket =
         ListSquare ->
             Just { left = "[", right = "]" }
 
-        _ ->
-            Nothing
+        ListParen ->
+            -- A parenthesized list reached via the general list path rather than
+            -- makeExposingLineBox — i.e. a module/import exposing list whose
+            -- header carries a comment, so makeExposingLineBox fell back to the
+            -- flow. Rendered with inner spaces `( a, b )` (groupBox innerSpaces),
+            -- matching the Doc's bracketStrings ListParen — distinct from the
+            -- comment-free `(a, b)` makeExposingListBox emits.
+            Just { left = "(", right = ")" }
 
 
 type alias FlowItem =
