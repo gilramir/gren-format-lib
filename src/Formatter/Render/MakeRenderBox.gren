@@ -58,6 +58,9 @@ makePrettyLineBox node =
                 StBlockComment ->
                     makeCommentLineBox (lpnChildren node)
 
+                StDocComment ->
+                    makeCommentLineBox (lpnChildren node)
+
                 StModule ->
                     makeExposingLineBox StModule (lpnChildren node)
 
@@ -69,9 +72,6 @@ makePrettyLineBox node =
                     -- same shape as a funcDecl (both route through the Doc
                     -- renderer's `_ -> makeFlowIndentableDoc`).
                     buildFlowBox grenIndent (lpnChildren node)
-
-                _ ->
-                    Err "box: stype not ported"
 
         EmptyLine ->
             -- A top-level blank separator. The Doc renderer emits `R.empty`
@@ -419,8 +419,42 @@ commentLineInfo node =
             else
                 Ok { line = B.literal ("{-" ++ loc.value ++ "-}"), row = loc.start.row, isLine = False }
 
+        DocComment loc ->
+            -- A top-level `{-| … -}` doc comment. Mirrors `commentBoxDoc`'s
+            -- DocComment arm: the body is emitted verbatim (Box `literal`, like
+            -- the Doc's `R.text`, keeps embedded newlines — safe here because a
+            -- doc comment is always its own standalone root child and its text
+            -- ends in `-}` so the render's trailing trimRight is a no-op).
+            Ok { line = B.literal (docCommentString loc.value), row = loc.start.row, isLine = False }
+
         _ ->
             Err "box: comment-line node not ported"
+
+
+-- Render a doc comment's body into its `{-| … -}` string, mirroring
+-- `MakeRender.commentBoxDoc`'s DocComment arm: an empty body collapses to
+-- `{-| -}`; a body that both starts and ends with a single `\n` (a multi-line
+-- doc comment whose content begins on the next line) gains a trailing blank
+-- line before `-}` (elm-format's convention).
+docCommentString : String -> String
+docCommentString value =
+    if String.isEmpty (String.trim value) then
+        "{-| -}"
+
+    else
+        let
+            normalizedValue =
+                if
+                    String.startsWith "\n" value
+                        && String.endsWith "\n" value
+                        && not (String.endsWith "\n\n" value)
+                then
+                    value ++ "\n"
+
+                else
+                    value
+        in
+        "{-|" ++ normalizedValue ++ "-}"
 
 
 blockCommentBodyOffset : Int
