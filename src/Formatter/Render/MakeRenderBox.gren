@@ -394,12 +394,12 @@ makeOpAndRhsBox children =
 
 {-| Render a standalone top-level comment-line item. Same-row block comments
 join with a space; a `--` line comment (or a row change) starts a new line.
-Mirrors `MakeRender.makeCommentLineDoc`. Only single-line comments are ported —
-a multi-line block comment (verbatim/reindent layout) or a doc comment falls
-back to Doc. -}
+Mirrors `MakeRender.makeCommentLineDoc`. A multi-line block comment renders via
+`multiLineBlockCommentBox` (the reindent stack) — its verbatim (opener-alone)
+sub-case still falls back, as in the Doc. -}
 makeCommentLineBox : Array LPNode -> Result String Box
 makeCommentLineBox children =
-    traverseResult commentLineInfo children
+    traverseResult commentNodeToBox children
         |> Result.andThen
             (\infos ->
                 when Array.popFirst infos is
@@ -407,51 +407,65 @@ makeCommentLineBox children =
                         Err "box: empty comment line"
 
                     Just { first = first0, rest } ->
-                        let
-                            final =
-                                Array.foldl
-                                    (\info acc ->
-                                        if acc.prevLine || info.row /= acc.prevRow then
-                                            { rows = Array.pushLast (B.line (B.row acc.curLine)) acc.rows
-                                            , curLine = [ info.line ]
-                                            , prevRow = info.row
-                                            , prevLine = info.isLine
-                                            }
+                        Array.foldl
+                            (\info accResult ->
+                                accResult
+                                    |> Result.andThen
+                                        (\acc ->
+                                            if acc.prevLine || info.row /= acc.prevRow then
+                                                -- New line: stack the comment below.
+                                                Ok
+                                                    { box = B.stack1 [ acc.box, info.box ]
+                                                    , prevRow = info.row
+                                                    , prevLine = info.isLine
+                                                    }
 
-                                        else
-                                            { acc
-                                                | curLine = acc.curLine ++ [ B.space, info.line ]
-                                                , prevRow = info.row
-                                                , prevLine = info.isLine
-                                            }
-                                    )
-                                    { rows = [], curLine = [ first0.line ], prevRow = first0.row, prevLine = first0.isLine }
-                                    rest
-                        in
-                        Ok (B.stack1 (Array.pushLast (B.line (B.row final.curLine)) final.rows))
+                                            else
+                                                -- Same-row block comment: join with a
+                                                -- space onto the accumulator's last line.
+                                                -- A multi-line comment never reaches here
+                                                -- (it always changes the row), so the
+                                                -- box is single-line.
+                                                when B.isLine info.box is
+                                                    Ok l ->
+                                                        Ok
+                                                            { box = B.addSuffix (B.row [ B.space, l ]) acc.box
+                                                            , prevRow = info.row
+                                                            , prevLine = info.isLine
+                                                            }
+
+                                                    Err _ ->
+                                                        Err "box: multi-line comment cannot space-join"
+                                        )
+                            )
+                            (Ok { box = first0.box, prevRow = first0.row, prevLine = first0.isLine })
+                            rest
+                            |> Result.map .box
             )
 
 
-commentLineInfo : LPNode -> Result String { line : B.Line, row : Int, isLine : Bool }
-commentLineInfo node =
+-- Render one comment node to a Box, tagging its source row and whether it is a
+-- `--` line comment (which always terminates its line). Mirrors the comment arms
+-- of `MakeRender.makeCommentLineDoc` (`commentNodeDoc`): a multi-line block
+-- comment reindents via `multiLineBlockCommentBox` (its verbatim sub-case Errs
+-- and falls back); a doc comment's body is emitted verbatim as a single literal
+-- (safe — it is a standalone root child ending in `-}`).
+commentNodeToBox : LPNode -> Result String { box : Box, row : Int, isLine : Bool }
+commentNodeToBox node =
     when lpnBox node is
         SingleLineComment loc ->
-            Ok { line = B.literal ("--" ++ loc.value), row = loc.start.row, isLine = True }
+            Ok { box = B.line (B.literal ("--" ++ loc.value)), row = loc.start.row, isLine = True }
 
         BlockComment loc ->
             if String.contains "\n" loc.value then
-                Err "box: multi-line block comment not ported"
+                multiLineBlockCommentBox loc.value
+                    |> Result.map (\b -> { box = b, row = loc.start.row, isLine = False })
 
             else
-                Ok { line = B.literal ("{-" ++ loc.value ++ "-}"), row = loc.start.row, isLine = False }
+                Ok { box = B.line (B.literal ("{-" ++ loc.value ++ "-}")), row = loc.start.row, isLine = False }
 
         DocComment loc ->
-            -- A top-level `{-| … -}` doc comment. Mirrors `commentBoxDoc`'s
-            -- DocComment arm: the body is emitted verbatim (Box `literal`, like
-            -- the Doc's `R.text`, keeps embedded newlines — safe here because a
-            -- doc comment is always its own standalone root child and its text
-            -- ends in `-}` so the render's trailing trimRight is a no-op).
-            Ok { line = B.literal (docCommentString loc.value), row = loc.start.row, isLine = False }
+            Ok { box = B.line (B.literal (docCommentString loc.value)), row = loc.start.row, isLine = False }
 
         _ ->
             Err "box: comment-line node not ported"
