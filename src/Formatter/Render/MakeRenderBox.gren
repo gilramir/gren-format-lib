@@ -2957,11 +2957,23 @@ assembleFlowImpl flowIndent items =
                         else if standaloneLeading then
                             ownLine (B.line l)
 
-                        else if sameRow then
+                        else if not (Array.isEmpty acc.curRow) then
+                            -- A non-leading single-line block comment glues inline
+                            -- to the current row. Mirrors `buildFlowDocImpl`'s `else`
+                            -- branch (`joinDoc` with `FlowSep` — a soft group that
+                            -- flattens to a space, with NO row test): elm-format
+                            -- pulls a non-leading `{- … -}` onto the preceding
+                            -- content. This also covers a comment trailing an elided
+                            -- or synthesized token (`in`, `exposing`, `where`, the
+                            -- module-name slots) whose source row does not match the
+                            -- comment's — which the old strict `sameRow` gate missed.
                             Ok { acc | curRow = Array.pushLast l acc.curRow, prevRow = startRow, started = True, justTerminated = False }
 
                         else
-                            Err "box: mid-flow own-line block comment not ported"
+                            -- Empty current row: the comment directly follows a block
+                            -- item, which the Doc glues onto that block's last line —
+                            -- the flat stacker can't append there, so fall back.
+                            Err "box: mid-flow block comment after a block not ported"
 
         step item accResult =
             accResult
