@@ -374,7 +374,10 @@ makeOpAndRhsBox children =
         Just { first = opNode, rest = rhsNodes } ->
             when leafValue opNode is
                 Just op ->
-                    buildFlowBox 0 rhsNodes
+                    -- Inline-start flow: a leading `{- c -}` in the rhs stays on
+                    -- the operator's line (`* {- c -} 100`), mirroring the Doc's
+                    -- `buildFlowDocInline 0` in `makeOpAndRhsDoc`.
+                    buildFlowBoxInline 0 rhsNodes
                         |> Result.andThen
                             (\rhsBox ->
                                 when B.isLine rhsBox is
@@ -1127,7 +1130,7 @@ buildBackwardBodyBox bodyNodes =
                     assembleBrokenCall grenIndent items
 
                 else
-                    assembleFlow 0 items
+                    assembleFlow False 0 items
             )
 
 
@@ -2020,7 +2023,7 @@ makePBox box children =
                             assembleBrokenCall grenIndent items
 
                         else
-                            assembleFlow grenIndent items
+                            assembleFlow False grenIndent items
                     )
 
         BodyBlock ->
@@ -2722,7 +2725,18 @@ its own line indented by `indent`. Shapes outside "inline* block?" are `Err`
 buildFlowBox : Int -> Array LPNode -> Result String Box
 buildFlowBox indent nodes =
     renderFlowItems nodes
-        |> Result.andThen (assembleFlow indent)
+        |> Result.andThen (assembleFlow False indent)
+
+
+{-| Like `buildFlowBox`, but for a flow that continues on the same line as a
+token the caller already emitted (a binop/`OpAndRhs` rhs after its operator, a
+`( … )` body). A leading single-line block comment there stays inline instead of
+dropping to its own line. Mirrors `MakeRender.buildFlowDocInline` (`inlineStart`
+= True). -}
+buildFlowBoxInline : Int -> Array LPNode -> Result String Box
+buildFlowBoxInline indent nodes =
+    renderFlowItems nodes
+        |> Result.andThen (assembleFlow True indent)
 
 
 {-| Assemble a *broken* flow — every item on its own line: the first at the base
@@ -2846,8 +2860,8 @@ by `flowIndent` plus the block's own indent (IndentedBlock/SoftIndentedBlock add
 +4, BodyBlock adds 0); an `EmptyLine` flushes and emits a blank line. This is
 the general shape `buildFlowDoc` produces — it covers the funcDecl header+body,
 plain calls, and the flat `if`/`else if`/`else` branch sequence alike. -}
-assembleFlow : Int -> Array FlowItem -> Result String Box
-assembleFlow flowIndent items =
+assembleFlow : Bool -> Int -> Array FlowItem -> Result String Box
+assembleFlow inlineStart flowIndent items =
     if inlineGluesToPrecedingBlock items then
         -- An inline token right after a block (no blank line between) generally
         -- must glue onto the block's last line (e.g. a multi-line record
@@ -2861,7 +2875,7 @@ assembleFlow flowIndent items =
         Err "box: inline token gluing to a preceding block not ported"
 
     else
-        assembleFlowImpl flowIndent items
+        assembleFlowImpl inlineStart flowIndent items
 
 
 isInKeyword : FlowItem -> Bool
@@ -2895,8 +2909,8 @@ inlineGluesToPrecedingBlock items =
     ).bad
 
 
-assembleFlowImpl : Int -> Array FlowItem -> Result String Box
-assembleFlowImpl flowIndent items =
+assembleFlowImpl : Bool -> Int -> Array FlowItem -> Result String Box
+assembleFlowImpl inlineStart flowIndent items =
     let
         flushRow curRow rows =
             if Array.isEmpty curRow then
@@ -2921,8 +2935,13 @@ assembleFlowImpl flowIndent items =
                 sameRow =
                     not (Array.isEmpty acc.curRow) && startRow == acc.prevRow
 
+                -- In an inline-start flow (a binop/`OpAndRhs` rhs, a `( … )`
+                -- body — the Doc's `buildFlowDocInline`) the very first item
+                -- continues a line the caller already began, so a leading comment
+                -- there stays inline rather than dropping to its own line.
                 standaloneLeading =
-                    (not acc.started && Array.isEmpty acc.curRow) || acc.justTerminated
+                    (not inlineStart && not acc.started && Array.isEmpty acc.curRow)
+                        || acc.justTerminated
 
                 -- Flush the current row, then drop `box` onto its own line(s).
                 ownLine box =
@@ -2963,7 +2982,7 @@ assembleFlowImpl flowIndent items =
                         else if standaloneLeading then
                             ownLine (B.line l)
 
-                        else if not (Array.isEmpty acc.curRow) then
+                        else if not (Array.isEmpty acc.curRow) || not acc.started then
                             -- A non-leading single-line block comment glues inline
                             -- to the current row. Mirrors `buildFlowDocImpl`'s `else`
                             -- branch (`joinDoc` with `FlowSep` — a soft group that
@@ -2973,12 +2992,17 @@ assembleFlowImpl flowIndent items =
                             -- or synthesized token (`in`, `exposing`, `where`, the
                             -- module-name slots) whose source row does not match the
                             -- comment's — which the old strict `sameRow` gate missed.
+                            -- `not acc.started` catches the inline-start leading
+                            -- comment (empty current row, first item of a `( … )` /
+                            -- rhs flow): it starts the row inline rather than
+                            -- dropping to its own line.
                             Ok { acc | curRow = Array.pushLast l acc.curRow, prevRow = startRow, started = True, justTerminated = False }
 
                         else
-                            -- Empty current row: the comment directly follows a block
-                            -- item, which the Doc glues onto that block's last line —
-                            -- the flat stacker can't append there, so fall back.
+                            -- Empty current row after a *block*: the comment directly
+                            -- follows a block item, which the Doc glues onto that
+                            -- block's last line — the flat stacker can't append
+                            -- there, so fall back.
                             Err "box: mid-flow block comment after a block not ported"
 
         step item accResult =
