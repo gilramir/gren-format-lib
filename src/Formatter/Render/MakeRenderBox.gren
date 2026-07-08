@@ -730,7 +730,25 @@ makeUnionBodyVerticalBox nodes =
 
                             BlockComment loc ->
                                 if String.contains "\n" loc.value then
-                                    Err "box: multi-line block-comment union sibling not ported"
+                                    -- A multi-line block comment SIBLING between
+                                    -- variants renders on its own line via the
+                                    -- reindent stack, mirroring the Doc path's
+                                    -- `commentNodeDoc`. Same-row gluing of a
+                                    -- multi-line comment onto a preceding variant
+                                    -- (`B.addSuffix` appends only a single line)
+                                    -- is not modelled, so that rare case falls back.
+                                    if loc.start.row == acc.prevRow && acc.prevRow >= 0 then
+                                        Err "box: same-row multi-line block-comment union sibling not ported"
+
+                                    else
+                                        multiLineBlockCommentBox loc.value
+                                            |> Result.map
+                                                (\cbox ->
+                                                    { acc
+                                                        | boxes = Array.pushLast cbox acc.boxes
+                                                        , prevRow = loc.start.row
+                                                    }
+                                                )
 
                                 else
                                     Ok (placeComment acc loc.start.row ("{-" ++ loc.value ++ "-}"))
