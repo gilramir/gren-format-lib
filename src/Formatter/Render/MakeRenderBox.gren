@@ -2307,7 +2307,11 @@ parenGenericFallbackBox flags children =
                         flags.forceVertical || contentForcesVertical || parenLambdaMultiline children
                 in
                 if goVertical then
-                    Ok (wrapParenVertical innerBox)
+                    if parenContentLeadsWithMultilinePrefixGlue children then
+                        Ok (wrapParenVerticalPadded innerBox)
+
+                    else
+                        Ok (wrapParenVertical innerBox)
 
                 else
                     when B.isLine innerBox is
@@ -2336,6 +2340,18 @@ wrapParenVertical box =
                     MustBreakBox (B.row [ B.punc "(", l ])
     in
     B.andThen [ B.line (B.punc ")") ] withOpen
+
+
+{-| Paren-wrap a box whose continuation lines are positioned RELATIVE to its
+first line (an `R.align`-style inner — a lambda whose parameter is a multi-line
+bracket pattern, `(\{ … } …)`). Unlike `wrapParenVertical` (which shifts only the
+first line, correct for absolute-nested inners like binops/`when`/`if`), this pads
+every continuation by the `(` width so the inner's alignment rides along and its
+`,`/`}` stay under the opening bracket. `)` lands on its own line at the `(`
+column. -}
+wrapParenVerticalPadded : Box -> Box
+wrapParenVerticalPadded box =
+    B.andThen [ B.line (B.punc ")") ] (B.prefix (B.punc "(") box)
 
 
 {-| Indent every line of a box by exactly `n` spaces (elm's `prefix` with a
@@ -2453,6 +2469,38 @@ makeBlockInParenBox isCallArg children =
     in
     Array.foldl step (Ok { boxes = [], isFirst = True }) children
         |> Result.map (\acc -> wrapParenVertical (B.stack1 acc.boxes))
+
+
+{-| True when a paren's content is a lambda whose PARAMETER is a multi-line
+bracket pattern (`(\{ … } …)`, `(\[ … ] …)`) — the align-style case where the
+paren must pad continuations (`wrapParenVerticalPadded`) so the pattern's `,`/`}`
+stay under the opening bracket. A `\x -> <multi-line body>` lambda leads with a
+single-line `PrefixGlue`, so it does not match — its body is absolute-nested and
+must NOT be padded. -}
+parenContentLeadsWithMultilinePrefixGlue : Array LPNode -> Bool
+parenContentLeadsWithMultilinePrefixGlue children =
+    when Array.first children is
+        Just first ->
+            when lpnBox first is
+                -- The paren content is usually a single `AcrossOrVertical` flow
+                -- (`\{ … } param -> body`); descend into it to reach the leading
+                -- `PrefixGlue`.
+                AcrossOrVertical _ ->
+                    parenContentLeadsWithMultilinePrefixGlue (lpnChildren first)
+
+                PrefixGlue _ ->
+                    when makePBox (lpnBox first) (lpnChildren first) is
+                        Ok b ->
+                            not (isSingleLine b)
+
+                        Err _ ->
+                            False
+
+                _ ->
+                    False
+
+        Nothing ->
+            False
 
 
 {-| Mirror of `makeParenBlockDoc`'s `isLambdaMultiline`: the second direct child
@@ -2977,6 +3025,26 @@ isSoftGlueLiteral item =
             False
 
 
+-- True for a multi-line `PrefixGlue` flow item (`\{ … }`/`\[ … ]` lambda arg, a
+-- prefixed pattern). In the Doc's `buildFlowDoc` a `PrefixGlue` is a plain item
+-- that leaves `FlowSep`, so the tokens after it (`accumulatedSoFar ->`, `-> body`)
+-- glue with a space onto its last line rather than dropping to their own line.
+-- Box's flat stacker treats every multi-line node as a droppable block, so those
+-- followers are instead gathered by `assembleFlowImpl`'s glue path (`B.addSuffix`
+-- onto the block's last line). Scoped to `PrefixGlue` so a genuine call argument
+-- after a multi-line paren/record — which elm-format *drops* — is untouched.
+isGlueablePrefixBlock : FlowItem -> Bool
+isGlueablePrefixBlock item =
+    item.isBlock
+        && (when lpnBox item.node is
+                PrefixGlue _ ->
+                    True
+
+                _ ->
+                    False
+           )
+
+
 {-| Soft-glue a flow whose ONLY multi-line item is a bracket literal, mirroring
 the Doc's `buildFlowDoc` (its `FlowSep` group flattens to a space, so every item
 glues and the literal breaks internally): the single-line prefix items glue to
@@ -3089,8 +3157,12 @@ inlineGluesToPrecedingBlock items =
                 isEmpty =
                     isEmptyLine item.node
 
+                -- A multi-line `PrefixGlue` (lambda-arg pattern) is NOT counted as
+                -- a preceding block: the Doc glues the tokens after it onto its last
+                -- line, and `assembleFlowImpl` reproduces that with `B.addSuffix`, so
+                -- an inline follower must not trip the fallback Err.
                 isBlk =
-                    item.isBlock && not isEmpty
+                    item.isBlock && not isEmpty && not (isGlueablePrefixBlock item)
 
                 isInline =
                     not item.isBlock && not isEmpty && not (isInKeyword item)
@@ -3222,12 +3294,13 @@ assembleFlowImpl inlineStart flowIndent items =
                 |> Result.andThen
                     (\acc ->
                         if isEmptyLine item.node then
-                            Ok { acc | rows = Array.pushLast B.blankLine (flushRow acc.curRow acc.rows), curRow = [], prevRow = -1, started = True, justTerminated = False }
+                            Ok { acc | rows = Array.pushLast B.blankLine (flushRow acc.curRow acc.rows), curRow = [], prevRow = -1, started = True, justTerminated = False, glueable = False }
 
                         else
                             when item.comment is
                                 Just c ->
                                     placeComment acc c item.startRow
+                                        |> Result.map (\a -> { a | glueable = False })
 
                                 Nothing ->
                                     -- A `SoftIndentedBlock` renders inline while it
@@ -3276,23 +3349,39 @@ assembleFlowImpl inlineStart flowIndent items =
                                             blockBox =
                                                 applyIndent ownIndent item.box
                                         in
-                                        Ok { acc | rows = Array.pushLast blockBox (flushRow acc.curRow acc.rows), curRow = [], prevRow = -1, started = True, justTerminated = False }
+                                        Ok { acc | rows = Array.pushLast blockBox (flushRow acc.curRow acc.rows), curRow = [], prevRow = -1, started = True, justTerminated = False, glueable = isGlueablePrefixBlock item }
 
                                     else
                                         when B.isLine item.box is
                                             Ok l ->
-                                                -- Track whether this inline item is the
-                                                -- synthesized `->` so a multi-line comment
-                                                -- trailing it glues regardless of source row.
-                                                Ok { acc | curRow = Array.pushLast l acc.curRow, prevRow = item.startRow, started = True, justTerminated = False, prevElided = isElidedArrow item.node }
+                                                if acc.glueable && Array.isEmpty acc.curRow then
+                                                    -- The tokens following a multi-line
+                                                    -- `PrefixGlue` (lambda-arg pattern) glue
+                                                    -- onto its last line, mirroring the Doc's
+                                                    -- `FlowSep` after a plain item (`} accumulatedSoFar ->`,
+                                                    -- `] -> a`). `B.addSuffix` appends ` <token>`
+                                                    -- to the pushed block's last line; `glueable`
+                                                    -- stays set so a run of followers chains.
+                                                    when Array.popLast acc.rows is
+                                                        Just { last = lastBox, initial } ->
+                                                            Ok { acc | rows = Array.pushLast (B.addSuffix (B.row [ B.space, l ]) lastBox) initial, prevRow = item.startRow, started = True, justTerminated = False, prevElided = isElidedArrow item.node, glueable = True }
+
+                                                        Nothing ->
+                                                            Ok { acc | curRow = Array.pushLast l acc.curRow, prevRow = item.startRow, started = True, justTerminated = False, prevElided = isElidedArrow item.node, glueable = False }
+
+                                                else
+                                                    -- Track whether this inline item is the
+                                                    -- synthesized `->` so a multi-line comment
+                                                    -- trailing it glues regardless of source row.
+                                                    Ok { acc | curRow = Array.pushLast l acc.curRow, prevRow = item.startRow, started = True, justTerminated = False, prevElided = isElidedArrow item.node, glueable = False }
 
                                             Err _ ->
                                                 -- A single-line-tagged item that isn't a Line
                                                 -- shouldn't happen; keep it as its own row.
-                                                Ok { acc | rows = Array.pushLast item.box (flushRow acc.curRow acc.rows), curRow = [], prevRow = -1, started = True, justTerminated = False, prevElided = False }
+                                                Ok { acc | rows = Array.pushLast item.box (flushRow acc.curRow acc.rows), curRow = [], prevRow = -1, started = True, justTerminated = False, prevElided = False, glueable = False }
                     )
     in
-    Array.foldl step (Ok { rows = [], curRow = [], prevRow = -1, started = False, justTerminated = False, prevElided = False }) items
+    Array.foldl step (Ok { rows = [], curRow = [], prevRow = -1, started = False, justTerminated = False, prevElided = False, glueable = False }) items
         |> Result.andThen
             (\final ->
                 let
