@@ -2929,16 +2929,22 @@ assembleFlowImpl flowIndent items =
                     Ok { acc | rows = Array.pushLast box (flushRow acc.curRow acc.rows), curRow = [], prevRow = startRow, started = True, justTerminated = True }
             in
             if c.multiLine then
-                -- A multi-line block comment occupies its own line(s). Only the
-                -- standalone-leading position is ported (e.g. between let
-                -- bindings): a trailing multi-line comment (a direct flow child
-                -- after content, as on an import or a body's last line) is
-                -- re-indented +4 by a context-specific rule not modelled here, so
-                -- it falls back.
+                -- A multi-line block comment occupies its own line(s).
                 if standaloneLeading then
                     ownLine c.box
 
+                else if not (Array.isEmpty acc.curRow) && startRow /= acc.prevRow then
+                    -- Non-standalone, on a different source row from the current
+                    -- content: the Doc puts it on its own line (`concat acc.doc
+                    -- (hardNl ++ commentText)`), which `ownLine` reproduces — the
+                    -- final `flowIndent` then brings it to the flow's continuation
+                    -- column, matching the Doc's outer `R.nest indent`.
+                    ownLine c.box
+
                 else
+                    -- Same-row glue (`content {- multi… -}`, first line joined
+                    -- inline) and the empty-current-row-after-a-block case are not
+                    -- modelled — fall back.
                     Err "box: non-standalone multi-line block comment in flow not ported"
 
             else
