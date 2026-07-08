@@ -2035,18 +2035,16 @@ makePBox box children =
             buildFlowBox 0 children
 
         PrefixGlue prefix ->
-            -- Glue a prefix onto its inner with no space: `\x` (lambda arg),
-            -- `-x` (unary negation). Single-line inner only.
-            buildFlowBox 0 children
-                |> Result.andThen
-                    (\inner ->
-                        when B.isLine inner is
-                            Ok l ->
-                                Ok (B.line (B.row [ B.literal prefix.value, l ]))
-
-                            Err _ ->
-                                Err "box: multi-line prefix-glue not ported"
-                    )
+            -- Glue a prefix onto its inner with no space: `\x`/`\[ … ]` (lambda
+            -- args), `-x` (unary negation). Mirrors the Doc's `R.concat (R.text
+            -- prefix) innerDoc` over `buildFlowDocInline`: `B.prefix` prepends the
+            -- prefix to the inner's first line AND pads every continuation line by
+            -- the prefix's width — matching the `R.align` the inner (a multi-line
+            -- array/record pattern) carries, so a lambda whose arg pattern spans
+            -- rows (`\[ a {- c -}\n, b\n] -> …`) aligns under the opening bracket.
+            -- `buildFlowBoxInline` keeps a leading comment in the inner on-line.
+            buildFlowBoxInline 0 children
+                |> Result.map (\inner -> B.prefix (B.literal prefix.value) inner)
 
         AllAcrossOrAllVertical bracket ->
             makeLiteralBox False bracket children
