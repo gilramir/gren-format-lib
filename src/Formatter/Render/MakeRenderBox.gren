@@ -471,6 +471,39 @@ commentNodeToBox node =
             Err "box: comment-line node not ported"
 
 
+{-| Render one comment child of an otherwise-empty bracket (`{ {- c -} }`) as a
+single inline `Line`. Only a single-line block comment fits inline; anything
+else (multi-line block, `--` line comment) can't be glued onto the one-line
+bracket, so it Errs rather than silently drop the comment. -}
+emptyBracketedCommentLine : LPNode -> Result String B.Line
+emptyBracketedCommentLine node =
+    when lpnBox node is
+        BlockComment loc ->
+            if String.contains "\n" loc.value then
+                Err "box: multi-line comment in empty bracket not ported"
+
+            else
+                Ok (B.literal ("{-" ++ loc.value ++ "-}"))
+
+        _ ->
+            Err "box: non-block comment in empty bracket not ported"
+
+
+{-| Join `Line`s with a single space between each (`[a, b, c]` → `a b c`). -}
+spaceJoinLines : Array B.Line -> Array B.Line
+spaceJoinLines lines =
+    Array.foldl
+        (\ln acc ->
+            if Array.isEmpty acc then
+                [ ln ]
+
+            else
+                Array.pushLast ln (Array.pushLast B.space acc)
+        )
+        []
+        lines
+
+
 -- Render a doc comment's body into its `{-| … -}` string, mirroring
 -- `MakeRender.commentBoxDoc`'s DocComment arm: an empty body collapses to
 -- `{-| -}`; a body that both starts and ends with a single `\n` (a multi-line
@@ -2070,7 +2103,29 @@ makePBox box children =
         EmptyBracketed loc ->
             when bracketPunc loc.value is
                 Just { left, right } ->
-                    Ok (B.line (B.row [ B.punc left, B.punc right ]))
+                    if Array.isEmpty children then
+                        Ok (B.line (B.row [ B.punc left, B.punc right ]))
+
+                    else
+                        -- A bracket whose only content is a comment (`{ {- c -} }`,
+                        -- `[ {- c -} ]`). Mirror makeEmptyBracketedDoc: the open
+                        -- punc, a space, the comments space-joined, a space, the
+                        -- close punc — all on one line. Dropping the comment would
+                        -- lose source content, so a comment we can't render inline
+                        -- (multi-line block / `--` line) falls back via Err.
+                        traverseResult emptyBracketedCommentLine children
+                            |> Result.map
+                                (\commentLines ->
+                                    B.line
+                                        (B.row
+                                            (Array.flatten
+                                                [ [ B.punc left, B.space ]
+                                                , spaceJoinLines commentLines
+                                                , [ B.space, B.punc right ]
+                                                ]
+                                            )
+                                        )
+                                )
 
                 Nothing ->
                     Err "box: empty bracket kind not ported"
@@ -3147,8 +3202,32 @@ assembleFlowImpl inlineStart flowIndent items =
                                             -- every continuation row at the end
                                             -- (mirroring the Doc's single outer
                                             -- `R.nest indent` around the whole flow).
+                                            --
+                                            -- A bracket literal dropping AFTER an
+                                            -- inline head (`acc.curRow` non-empty) is
+                                            -- a type-application argument (`HasIdentifier
+                                            -- { … }`, `Array { … }`); elm-format
+                                            -- `ElmStructure.application` drops it
+                                            -- `grenIndent` under the head. The head sits
+                                            -- at flow-column 0 (it's on the `first` row,
+                                            -- which is emitted without `flowIndent`),
+                                            -- and every continuation row is later shifted
+                                            -- by `flowIndent`, so to land the arg at
+                                            -- exactly `grenIndent` its own indent must be
+                                            -- `grenIndent - flowIndent`. This is 0 in a
+                                            -- field-value flow (`fieldFlowIndent` is
+                                            -- already `grenIndent`) and `grenIndent` in a
+                                            -- flowIndent-0 type-alias/signature body, so
+                                            -- it neither under- nor double-indents.
+                                            ownIndent =
+                                                if not (Array.isEmpty acc.curRow) && isSoftGlueLiteral item then
+                                                    Basics.max 0 (grenIndent - flowIndent)
+
+                                                else
+                                                    blockOwnIndent item.node
+
                                             blockBox =
-                                                applyIndent (blockOwnIndent item.node) item.box
+                                                applyIndent ownIndent item.box
                                         in
                                         Ok { acc | rows = Array.pushLast blockBox (flushRow acc.curRow acc.rows), curRow = [], prevRow = -1, started = True, justTerminated = False }
 
