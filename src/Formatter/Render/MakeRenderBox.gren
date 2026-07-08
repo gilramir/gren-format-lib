@@ -30,15 +30,12 @@ makePrettyLineBox node =
         OriginalRows { stype = stype } ->
             when stype is
                 StFunctionDeclaration ->
-                    let
-                        children =
-                            lpnChildren node
-                    in
-                    if Array.any nodeIsComment children then
-                        Err "box: comments not ported (tranche 1)"
-
-                    else
-                        buildFlowBox grenIndent children
+                    -- The tranche-1 blanket "comment child → fall back" guard is
+                    -- gone: `buildFlowBox`'s comment machinery (tranches 20–43)
+                    -- places inline, standalone, and multi-line comments in a
+                    -- funcDecl body directly. Anything it still can't do returns
+                    -- Err from within the flow, so the self-verify guard covers it.
+                    buildFlowBox grenIndent (lpnChildren node)
 
                 StFunctionSignature ->
                     makeSignatureBox (lpnChildren node)
@@ -2557,29 +2554,44 @@ commentBracketListBox bracket nodes =
 
                                 _ ->
                                     makePBox (lpnBox node) (lpnChildren node)
-                                        |> Result.map
+                                        |> Result.andThen
                                             (\box ->
-                                                let
-                                                    itemRow =
-                                                        when lpnBox node is
-                                                            UnbreakableText l ->
-                                                                l.start.row
+                                                -- A multi-line item (a `when`/`if`/`let`
+                                                -- whose branches are indented with `B.indent`
+                                                -- = Tab) does not compose with the outer
+                                                -- `[ `/`, ` prefix: the Tab snaps to the next
+                                                -- multiple of 4 and swallows the prefix's
+                                                -- 2-space pad, landing the body 2 columns too
+                                                -- shallow. Fall back until the Tab-vs-prefix
+                                                -- interaction is modelled. Single-line items
+                                                -- (the common comment-bearing-literal case)
+                                                -- are unaffected.
+                                                if not (isSingleLine box) then
+                                                    Err "box: multi-line item in comment-bearing bracket list not ported"
 
-                                                            _ ->
-                                                                lpnMaxRow node
+                                                else
+                                                    let
+                                                        itemRow =
+                                                            when lpnBox node is
+                                                                UnbreakableText l ->
+                                                                    l.start.row
 
-                                                    flushed =
-                                                        when acc.pending is
-                                                            Nothing ->
-                                                                acc.entries
+                                                                _ ->
+                                                                    lpnMaxRow node
 
-                                                            Just e ->
-                                                                Array.pushLast e acc.entries
-                                                in
-                                                { entries = flushed
-                                                , pending = Just { box = box, isComment = False }
-                                                , prevRow = itemRow
-                                                }
+                                                        flushed =
+                                                            when acc.pending is
+                                                                Nothing ->
+                                                                    acc.entries
+
+                                                                Just e ->
+                                                                    Array.pushLast e acc.entries
+                                                    in
+                                                    Ok
+                                                        { entries = flushed
+                                                        , pending = Just { box = box, isComment = False }
+                                                        , prevRow = itemRow
+                                                        }
                                             )
             in
             Array.foldl step (Ok { entries = [], pending = Nothing, prevRow = -1 }) nodes
