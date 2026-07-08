@@ -1477,19 +1477,15 @@ makeWhenBranchBox children =
             Err "box: empty when-branch"
 
 
-{-| A `when` branch pattern, rendered as `<pattern> ->`. -}
+{-| A `when` branch pattern, rendered as `<pattern> ->`. A multi-line pattern (a
+record/array pattern the author spread across rows) gets ` ->` appended to its
+last line — mirroring the Doc's `R.concat (buildFlowDoc grenIndent children)
+(R.text " ->")`; `B.addSuffix` appends to the last line for single- and
+multi-line boxes alike. -}
 makeWhenBranchPatternBox : Array LPNode -> Result String Box
 makeWhenBranchPatternBox children =
     buildFlowBox grenIndent children
-        |> Result.andThen
-            (\box ->
-                when B.isLine box is
-                    Ok l ->
-                        Ok (B.line (B.row [ l, B.literal " ->" ]))
-
-                    Err _ ->
-                        Err "box: multi-line when-pattern not ported"
-            )
+        |> Result.map (\box -> B.addSuffix (B.literal " ->") box)
 
 
 -- Stack boxes with a blank line between each (consecutive `when` branches).
