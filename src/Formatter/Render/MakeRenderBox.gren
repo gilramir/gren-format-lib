@@ -3195,7 +3195,19 @@ assembleFlowImpl inlineStart flowIndent items =
                                     placeComment acc c item.startRow
 
                                 Nothing ->
-                                    if item.isBlock then
+                                    -- A `SoftIndentedBlock` renders inline while it
+                                    -- fits, but the moment it follows a comment that
+                                    -- terminated its line (`justTerminated`) the Doc's
+                                    -- `joinBlock`/`AlreadyTerminated` path drops it to a
+                                    -- new line at +grenIndent even when its content is
+                                    -- single-line (`| Square {- … -}` then `Int Int` at
+                                    -- +4). Box's `isBlockNode` only sees the rendered
+                                    -- box (single-line → not a block), so force the
+                                    -- block treatment here to match — this is what makes
+                                    -- the different-row comment case land at the same
+                                    -- column as the same-row fallback, so the two don't
+                                    -- oscillate across reformats.
+                                    if item.isBlock || (acc.justTerminated && isSoftIndentedBlockNode item.node) then
                                         let
                                             -- Only the block's OWN indent here; the
                                             -- flow indent is applied uniformly to
@@ -3270,6 +3282,19 @@ isEmptyLine : LPNode -> Bool
 isEmptyLine node =
     when lpnBox node is
         EmptyLine ->
+            True
+
+        _ ->
+            False
+
+
+-- A `SoftIndentedBlock` node (a lambda/type-app body that stays inline while it
+-- fits). Used to force a block drop when it follows a terminated comment, where
+-- the Doc's `AlreadyTerminated` path always nests it +grenIndent.
+isSoftIndentedBlockNode : LPNode -> Bool
+isSoftIndentedBlockNode node =
+    when lpnBox node is
+        SoftIndentedBlock ->
             True
 
         _ ->
