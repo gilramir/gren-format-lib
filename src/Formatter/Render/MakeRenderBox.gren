@@ -787,6 +787,154 @@ makePipelineBox forceVertical op children =
 -- `makeMultilineParenArgDoc`, or stays glued) that `assembleFlow`'s generic block
 -- drop doesn't reproduce — so those fall back. A single-line ParenBlock argument
 -- (`|> f (g x)`) is fine (it renders inline).
+-- ═══ pipeline-step trigger classification (Box mirror of buildStepChildrenDoc) ═══
+
+
+{-| True when `node`'s rendered Box spans multiple rows — the Box mirror of
+`MakeRender.nodeForcesVertical` (`R.hasHardBreak`). -}
+nodeForcesVerticalBox : LPNode -> Bool
+nodeForcesVerticalBox node =
+    when makePBox (lpnBox node) (lpnChildren node) is
+        Ok b ->
+            not (isSingleLine b)
+
+        Err _ ->
+            False
+
+
+-- Mirror of `MakeRender.flowChildForcesVertical`: a non-comment node that
+-- renders multi-line forces the surrounding flow vertical.
+flowChildForcesVerticalBox : LPNode -> Bool
+flowChildForcesVerticalBox node =
+    not (nodeIsComment node) && nodeForcesVerticalBox node
+
+
+-- Mirror of `MakeRender.subtreeHasVertical`: a subtree that always produces a
+-- hard break (an AlwaysVertical/RecordUpdate, or a comment-bearing literal).
+subtreeHasVerticalBox : LPNode -> Bool
+subtreeHasVerticalBox node =
+    when lpnBox node is
+        AlwaysVertical _ ->
+            True
+
+        RecordUpdate _ ->
+            True
+
+        AllAcrossOrAllVertical _ ->
+            Array.any nodeIsComment (lpnChildren node)
+                || Array.any subtreeHasVerticalBox (lpnChildren node)
+
+        _ ->
+            Array.any subtreeHasVerticalBox (lpnChildren node)
+
+
+-- Mirror of `MakeRender.isMultilineLambdaParenBlock`: a ParenBlock whose second
+-- child is an `IndentedBlock` (the author wrote the lambda body on a later row).
+isMultilineLambdaParenBlockBox : LPNode -> Bool
+isMultilineLambdaParenBlockBox node =
+    when lpnBox node is
+        ParenBlock _ ->
+            when Array.get 1 (lpnChildren node) is
+                Just secondChild ->
+                    when lpnBox secondChild is
+                        IndentedBlock ->
+                            True
+
+                        _ ->
+                            False
+
+                Nothing ->
+                    False
+
+        _ ->
+            False
+
+
+-- Mirror of `MakeRender.isMultilineLambdaParenBlockAnyBody`: broader than the
+-- above — an `IndentedBlock` body, or a `SoftIndentedBlock` body that its own
+-- content forces vertical. Used by the direct-operand guard.
+isMultilineLambdaParenBlockAnyBodyBox : LPNode -> Bool
+isMultilineLambdaParenBlockAnyBodyBox node =
+    when lpnBox node is
+        ParenBlock _ ->
+            when Array.get 1 (lpnChildren node) is
+                Just secondChild ->
+                    when lpnBox secondChild is
+                        IndentedBlock ->
+                            True
+
+                        SoftIndentedBlock ->
+                            softIndentedBlockChildForcesVerticalBox (lpnChildren secondChild)
+
+                        _ ->
+                            False
+
+                Nothing ->
+                    False
+
+        _ ->
+            False
+
+
+-- Mirror of `MakeRender.isMultilineContentParenBlock`: a ParenBlock whose
+-- content subtree will span rows (contains an AlwaysVertical / RecordUpdate).
+isMultilineContentParenBlockBox : LPNode -> Bool
+isMultilineContentParenBlockBox node =
+    when lpnBox node is
+        ParenBlock _ ->
+            Array.any subtreeHasVerticalBox (lpnChildren node)
+
+        _ ->
+            False
+
+
+{-| Does a pipeline step have a *trigger* — a node that `buildStepChildrenDoc`
+would break onto its own line (a multi-line lambda-argument paren, a multi-line
+content paren, or any other multi-line-forcing node such as a record argument)?
+Mirrors `buildStepChildrenDoc`'s left-to-right split, but we only need whether a
+trigger exists: when one does, Box's generic block-drop (`buildFlowBox
+grenIndent`) reproduces the relocation byte-for-byte (proven by
+`PipelineLambdaArg`). When none does but the step is still multi-line, it is
+either a *direct-operand* lambda paren (`|> (\x -> …)`, which the Doc keeps
+glued to `|>` — Box's flat stacker can't glue a soft multi-line item, so it
+falls back) or a comment-bearing step needing the Doc's comment-peeling — both
+fall back. -}
+stepHasTrigger : Array LPNode -> Bool
+stepHasTrigger stepChildren =
+    (Array.foldl
+        (\node acc ->
+            if acc.found then
+                acc
+
+            else
+                let
+                    isDirectOperandLambda =
+                        isMultilineLambdaParenBlockAnyBodyBox node
+                            && acc.preambleLen <= 1
+                in
+                if
+                    not isDirectOperandLambda
+                        && (isMultilineLambdaParenBlockBox node
+                                || isMultilineContentParenBlockBox node
+                                || flowChildForcesVerticalBox node
+                           )
+                then
+                    { found = True, preambleLen = acc.preambleLen }
+
+                else
+                    { found = False, preambleLen = acc.preambleLen + 1 }
+        )
+        { found = False, preambleLen = 0 }
+        stepChildren
+    ).found
+
+
+-- One `|> step`. A single-line step renders directly; a multi-line step with a
+-- *trigger* (see `stepHasTrigger`) is reproduced byte-for-byte by the generic
+-- block-drop in `buildFlowBox grenIndent`; a multi-line step with NO trigger (a
+-- direct-operand lambda paren that must stay glued to `|>`, or a comment-bearing
+-- step) needs Doc-specific handling `assembleFlow` can't reproduce, so it falls
+-- back.
 renderPipelineStep : LPNode -> Result String Box
 renderPipelineStep stepNode =
     let
@@ -799,22 +947,12 @@ renderPipelineStep stepNode =
                 if isSingleLine box then
                     Ok box
 
-                else if Array.any isParenBlockNode children then
-                    Err "box: multi-line paren/lambda pipeline step relocation not ported"
+                else if stepHasTrigger children then
+                    Ok box
 
                 else
-                    Ok box
+                    Err "box: multi-line pipeline step without a trigger (direct-operand paren glue / comment-peeling) not ported"
             )
-
-
-isParenBlockNode : LPNode -> Bool
-isParenBlockNode node =
-    when lpnBox node is
-        ParenBlock _ ->
-            True
-
-        _ ->
-            False
 
 
 -- Get a box's sole line, or Err if it is multi-line.
