@@ -3025,20 +3025,34 @@ isSoftGlueLiteral item =
             False
 
 
--- True for a multi-line `PrefixGlue` flow item (`\{ … }`/`\[ … ]` lambda arg, a
--- prefixed pattern). In the Doc's `buildFlowDoc` a `PrefixGlue` is a plain item
--- that leaves `FlowSep`, so the tokens after it (`accumulatedSoFar ->`, `-> body`)
--- glue with a space onto its last line rather than dropping to their own line.
--- Box's flat stacker treats every multi-line node as a droppable block, so those
--- followers are instead gathered by `assembleFlowImpl`'s glue path (`B.addSuffix`
--- onto the block's last line). Scoped to `PrefixGlue` so a genuine call argument
--- after a multi-line paren/record — which elm-format *drops* — is untouched.
+-- True for a multi-line flow item onto whose last line the following inline
+-- items glue — a lambda's arg pattern or its whole head. In the Doc's
+-- `buildFlowDoc` both are plain items that leave `FlowSep`, so the tokens after
+-- them (`accumulatedSoFar ->`, `-> body`) ride onto the same line rather than
+-- dropping. Box's flat stacker treats every multi-line node as a droppable
+-- block, so those followers are instead gathered by `assembleFlowImpl`'s glue
+-- path (`B.addSuffix` onto the block's last line). Two shapes:
+--   • `PrefixGlue` — a bare lambda-arg pattern (`\{ … }`, `\[ … ]`) whose
+--     following params/arrow glue on (a MULTI-param lambda `\{…} p ->`).
+--   • `AcrossOrVertical` ending in `->` — a lambda HEAD (`\[ … ] ->`) built as
+--     its own flow node with the body a sibling `SoftIndentedBlock`; a body kept
+--     inline in source (`] -> a`) glues onto the arrow.
+-- Scoped so a genuine call argument after a multi-line paren/record — which
+-- elm-format *drops* — is untouched (a call/application AoV does not end in `->`).
 isGlueablePrefixBlock : FlowItem -> Bool
 isGlueablePrefixBlock item =
     item.isBlock
         && (when lpnBox item.node is
                 PrefixGlue _ ->
                     True
+
+                AcrossOrVertical _ ->
+                    when Array.last (lpnChildren item.node) is
+                        Just lastChild ->
+                            isArrowLeaf lastChild
+
+                        Nothing ->
+                            False
 
                 _ ->
                     False
