@@ -3129,19 +3129,36 @@ assembleFlowImpl inlineStart flowIndent items =
                 if standaloneLeading then
                     ownLine c.box
 
-                else if not (Array.isEmpty acc.curRow) && startRow /= acc.prevRow then
+                else if not (Array.isEmpty acc.curRow) && startRow /= acc.prevRow && not acc.prevElided then
                     -- Non-standalone, on a different source row from the current
-                    -- content: the Doc puts it on its own line (`concat acc.doc
-                    -- (hardNl ++ commentText)`), which `ownLine` reproduces — the
-                    -- final `flowIndent` then brings it to the flow's continuation
-                    -- column, matching the Doc's outer `R.nest indent`.
+                    -- content (and not trailing an elided `->`): the Doc puts it on
+                    -- its own line (`concat acc.doc (hardNl ++ commentText)`), which
+                    -- `ownLine` reproduces — the final `flowIndent` then brings it to
+                    -- the flow's continuation column, matching the Doc's outer
+                    -- `R.nest indent`.
                     ownLine c.box
 
+                else if not (Array.isEmpty acc.curRow) then
+                    -- Same-row glue (`content {- multi… -}`), or a comment trailing
+                    -- an elided `->` (whose source row is unreliable — see
+                    -- `prevElided`): the comment's first line joins the current row
+                    -- and its body flows below. Mirrors the Doc's `R.concat curRow
+                    -- (R.text " ") commentDoc`: `B.prefix` prepends the current row
+                    -- (plus a space) onto the comment box's first line AND pads every
+                    -- continuation line by that width, so the reindented comment body
+                    -- lands aligned under the opening `{-`. `justTerminated` then lets
+                    -- the SoftIndentedBlock rule (above) drop any following block +4.
+                    let
+                        prefLine =
+                            B.row (Array.pushLast B.space (Array.intersperse B.space acc.curRow))
+                    in
+                    Ok { acc | rows = Array.pushLast (B.prefix prefLine c.box) acc.rows, curRow = [], prevRow = startRow, started = True, justTerminated = True, prevElided = False }
+
                 else
-                    -- Same-row glue (`content {- multi… -}`, first line joined
-                    -- inline) and the empty-current-row-after-a-block case are not
-                    -- modelled — fall back.
-                    Err "box: non-standalone multi-line block comment in flow not ported"
+                    -- Empty current row after a *block*: the comment follows a block
+                    -- item, which the Doc glues onto that block's last line — the flat
+                    -- stacker can't append there, so fall back.
+                    Err "box: multi-line block comment after a block not ported"
 
             else
                 when B.isLine c.box is
@@ -3246,15 +3263,18 @@ assembleFlowImpl inlineStart flowIndent items =
                                     else
                                         when B.isLine item.box is
                                             Ok l ->
-                                                Ok { acc | curRow = Array.pushLast l acc.curRow, prevRow = item.startRow, started = True, justTerminated = False }
+                                                -- Track whether this inline item is the
+                                                -- synthesized `->` so a multi-line comment
+                                                -- trailing it glues regardless of source row.
+                                                Ok { acc | curRow = Array.pushLast l acc.curRow, prevRow = item.startRow, started = True, justTerminated = False, prevElided = isElidedArrow item.node }
 
                                             Err _ ->
                                                 -- A single-line-tagged item that isn't a Line
                                                 -- shouldn't happen; keep it as its own row.
-                                                Ok { acc | rows = Array.pushLast item.box (flushRow acc.curRow acc.rows), curRow = [], prevRow = -1, started = True, justTerminated = False }
+                                                Ok { acc | rows = Array.pushLast item.box (flushRow acc.curRow acc.rows), curRow = [], prevRow = -1, started = True, justTerminated = False, prevElided = False }
                     )
     in
-    Array.foldl step (Ok { rows = [], curRow = [], prevRow = -1, started = False, justTerminated = False }) items
+    Array.foldl step (Ok { rows = [], curRow = [], prevRow = -1, started = False, justTerminated = False, prevElided = False }) items
         |> Result.andThen
             (\final ->
                 let
@@ -3296,6 +3316,24 @@ isSoftIndentedBlockNode node =
     when lpnBox node is
         SoftIndentedBlock ->
             True
+
+        _ ->
+            False
+
+
+-- The synthesized signature `->` — a zero-width `UnbreakableText` (start == end)
+-- built by `LPTHelpers.mkZeroWidthText`, anchored at the end of its `from` type,
+-- not where it renders. A comment directly trailing it must glue regardless of
+-- source row (mirrors `MakeRender`'s `prevElided`, scoped to `->` by value: other
+-- elided tokens precede a short neighbour or bracketed block where a comment on
+-- its own row legitimately stays own-line).
+isElidedArrow : LPNode -> Bool
+isElidedArrow node =
+    when lpnBox node is
+        UnbreakableText loc ->
+            loc.value == "->"
+                && loc.start.row == loc.end.row
+                && loc.start.col == loc.end.col
 
         _ ->
             False
