@@ -1747,10 +1747,29 @@ makeSignatureBox children =
         if not forceVertical && hasComment && Array.any typeHasCommentBracket colonSplit.typeNodes then
             -- A comment INSIDE a record/bracket type (`foo : { a : Int {- c -} }`)
             -- renders that type multi-line. The Doc keeps it glued inline after
-            -- `:` (its `}` aligns under the `{`); `assembleFlow` instead drops a
-            -- multi-line item to its own +4 block, which diverges. Fall back to
-            -- Doc rather than emit the wrong layout.
-            Err "box: comment inside a signature's record/bracket type not ported"
+            -- `:` (its `}` aligns under the `{`). When the whole type is exactly
+            -- that one record/bracket node, `B.prefix` glues it after the header
+            -- and pads its continuation by the header's width — reproducing the
+            -- `R.align` the record carries, so `}` lands under `{`. A multi-node
+            -- type (`{ … } -> …`) would need `assembleFlow` to soft-glue a
+            -- multi-line item, which it can't yet, so that still falls back.
+            when colonSplit.typeNodes is
+                [ _ ] ->
+                    buildFlowBox 0 colonSplit.header
+                        |> Result.andThen
+                            (\headerBox ->
+                                when B.isLine headerBox is
+                                    Ok headerLine ->
+                                        buildFlowBox 0 colonSplit.typeNodes
+                                            |> Result.map
+                                                (\typeBox -> B.prefix (B.row [ headerLine, B.space ]) typeBox)
+
+                                    Err _ ->
+                                        Err "box: multi-line header in comment-bearing signature not ported"
+                            )
+
+                _ ->
+                    Err "box: comment inside a multi-node signature type not ported"
 
         else if not forceVertical && hasComment then
             -- Inline signature carrying a comment: the Doc routes to
