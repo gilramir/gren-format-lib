@@ -387,10 +387,20 @@ prefixOperator op box =
             B.prefix (B.row [ B.literal op, B.space ]) box
 
 
+isOpAndRhsNode : LPNode -> Bool
+isOpAndRhsNode node =
+    when lpnBox node is
+        OpAndRhs ->
+            True
+
+        _ ->
+            False
+
+
 {-| Render an `OpAndRhs` node (`op` + the right-hand side flow), mirroring
 `MakeRender.makeOpAndRhsDoc`. Reached only from the comment-bearing binop flow
 fallback (the comment-free path flattens `OpAndRhs` via `flattenBinopNodes`
-instead). Only a single-line rhs is ported. -}
+instead). -}
 makeOpAndRhsBox : Array LPNode -> Result String Box
 makeOpAndRhsBox children =
     when Array.popFirst children is
@@ -407,8 +417,22 @@ makeOpAndRhsBox children =
                     -- rhs, or (via `B.prefix`, padding continuation by the operator
                     -- width) the first line of a multi-line rhs such as an operand
                     -- with a trailing multi-line comment (`+ b {- multi… -}`).
+                    --
+                    -- A rhs that also carries a NESTED `OpAndRhs` (a lower-precedence
+                    -- continuation operand, `+ b {- c -} * 2`) can't use `B.prefix`:
+                    -- the comment body must shift with the operator while the nested
+                    -- operand must stay at the operator's base column — a per-line
+                    -- mix (`R.align` vs `R.nest`) the uniform prefix can't produce, so
+                    -- a multi-line such rhs falls back.
                     buildFlowBoxInline 0 rhsNodes
-                        |> Result.map (\rhsBox -> prefixOperator op rhsBox)
+                        |> Result.andThen
+                            (\rhsBox ->
+                                if not (isSingleLine rhsBox) && Array.any isOpAndRhsNode rhsNodes then
+                                    Err "box: multi-line OpAndRhs with a continuation operand not ported"
+
+                                else
+                                    Ok (prefixOperator op rhsBox)
+                            )
 
                 Nothing ->
                     Err "box: OpAndRhs op is not a text leaf"
@@ -2950,18 +2974,54 @@ aren't handled — those flows fall back. -}
 buildFlowBoxBroken : Int -> Array LPNode -> Result String Box
 buildFlowBoxBroken indent nodes =
     renderFlowItems nodes
+        |> Result.andThen (assembleBrokenWithComments indent)
+
+
+{-| Assemble a broken flow (head at base, each following item at +`indent`) that
+may carry comments. A comment trailing the preceding item on the same source row
+glues onto that item's last line — for a single-line item, its line plus a space
+is prepended onto the comment box (`B.prefix`), so a multi-line comment's body
+reindents under it (`f {- multi… -}`, `+ b {- multi… -}`). A comment on its own
+row, or one trailing a multi-line item (no single last line to glue onto), isn't
+modelled and falls back. Mirrors the comment-bearing `buildFlowDocBroken` path. -}
+assembleBrokenWithComments : Int -> Array FlowItem -> Result String Box
+assembleBrokenWithComments indent items =
+    let
+        step item accResult =
+            accResult
+                |> Result.andThen
+                    (\acc ->
+                        when item.comment is
+                            Just c ->
+                                when Array.popLast acc.entries is
+                                    Just { last = lastBox, initial } ->
+                                        if item.startRow == acc.lastRow && acc.lastRow >= 0 then
+                                            when B.isLine lastBox is
+                                                Ok l ->
+                                                    Ok { acc | entries = Array.pushLast (B.prefix (B.row [ l, B.space ]) c.box) initial }
+
+                                                Err _ ->
+                                                    Err "box: comment trailing a multi-line item in broken flow not ported"
+
+                                        else
+                                            Err "box: own-line comment in broken flow not ported"
+
+                                    Nothing ->
+                                        Err "box: leading comment in broken flow not ported"
+
+                            Nothing ->
+                                Ok { acc | entries = Array.pushLast item.box acc.entries, lastRow = lpnMaxRow item.node }
+                    )
+    in
+    Array.foldl step (Ok { entries = [], lastRow = -1 }) items
         |> Result.andThen
-            (\items ->
-                if Array.any isCommentItem items then
-                    Err "box: comment item in broken flow not ported"
+            (\acc ->
+                when Array.popFirst acc.entries is
+                    Nothing ->
+                        Err "box: empty broken flow"
 
-                else
-                    when Array.popFirst items is
-                        Nothing ->
-                            Err "box: empty broken flow"
-
-                        Just { first = firstItem, rest } ->
-                            Ok (B.stack1 ([ firstItem.box ] ++ Array.map (\it -> applyIndent indent it.box) rest))
+                    Just { first = head, rest } ->
+                        Ok (B.stack1 ([ head ] ++ Array.map (applyIndent indent) rest))
             )
 
 
@@ -2973,7 +3033,10 @@ line at +`indent`. -}
 assembleBrokenCall : Int -> Array FlowItem -> Result String Box
 assembleBrokenCall indent items =
     if Array.any isCommentItem items then
-        Err "box: comment in broken call not ported"
+        -- A comment-bearing broken call (`f {- c -} 1 {- c -} (g 2)`): no
+        -- function+arg0 gluing (a comment between them already breaks the row),
+        -- each arg on its own line at +indent, same-row comments glued on.
+        assembleBrokenWithComments indent items
 
     else
         when Array.popFirst items is
