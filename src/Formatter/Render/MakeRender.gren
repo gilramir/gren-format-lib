@@ -1460,7 +1460,7 @@ makePDoc box children =
             listBoxesForBracket bracket children
 
         RecordUpdate { name, forceVertical } ->
-            makeRecordUpdateDoc forceVertical name.value children
+            makeRecordUpdateDoc 0 forceVertical name.value children
 
         EmptyBracketed loc ->
             makeEmptyBracketedDoc loc children
@@ -1792,8 +1792,11 @@ listItemBoxDoc node =
         AlwaysVertical bracket ->
             Just (listBoxesForBracket bracket children |> Result.map (R.nest 2))
 
+        -- An array element is printed after a 2-wide `[ `/`, ` prefix, so pass
+        -- that width: the update's field lines subtract it to indent from the
+        -- element's line-start (+4) rather than from the printed `{` column.
         RecordUpdate { name, forceVertical } ->
-            Just (makeRecordUpdateDoc forceVertical name.value children)
+            Just (makeRecordUpdateDoc 2 forceVertical name.value children)
 
         -- An inline `when ... is`, a prefix-glued expr (`-1`), an empty literal
         -- (`[]` / `{}` / `()`), a synthesised keyword, a pipeline, or a binop
@@ -2121,13 +2124,25 @@ lineComment s =
 -- ═══ RECORD UPDATES ═══
 
 
-makeRecordUpdateDoc : Bool -> String -> Array LPNode -> Result String Doc
-makeRecordUpdateDoc forceVertical baseName children =
+makeRecordUpdateDoc : Int -> Bool -> String -> Array LPNode -> Result String Doc
+makeRecordUpdateDoc listPrefixWidth forceVertical baseName children =
     -- Skip any leading comment children so we can find the actual first field
     -- (the comment-bearing children get rendered as their own lines below).
     let
         { leading = commentsBefore, rest = fields } =
             splitLeadingComments children
+
+        -- The `| `/`, ` fields indent +4 from the update's own *line-start*
+        -- (the ambient indent), NOT +4 from the `{` column. When the update is
+        -- an array element it is printed after a `[ `/`, ` prefix, so its `{`
+        -- sits `listPrefixWidth` columns right of the line-start; the vertical
+        -- form wraps everything in `R.align` (anchoring `{`/`}` at that printed
+        -- `{` column), so the field lines must subtract the prefix width to land
+        -- back at line-start+4 rather than `{`+4 (which was 2 columns too deep
+        -- for an in-array update). Standalone (`listPrefixWidth == 0`) keeps the
+        -- original 4-space indent. Matches elm-format v0.8.8 and the Box renderer.
+        fieldIndent =
+            R.text (String.repeat (max 0 (grenIndent - listPrefixWidth)) " ")
     in
     when Array.popFirst fields is
         Nothing ->
@@ -2139,7 +2154,7 @@ makeRecordUpdateDoc forceVertical baseName children =
                     Ok (R.align
                             (R.vcat
                                 ([ R.text ("{ " ++ baseName) ]
-                                    ++ Array.map (\c -> R.concat (R.text "    ") (commentNodeDoc c)) commentsBefore
+                                    ++ Array.map (\c -> R.concat fieldIndent (commentNodeDoc c)) commentsBefore
                                     ++ [ R.text "}" ])))
 
         Just { first = firstField, rest = restFields } ->
@@ -2177,7 +2192,7 @@ makeRecordUpdateDoc forceVertical baseName children =
                     buildFlowDoc (fieldFlowIndent field) (lpnChildren field)
                         |> Result.map
                             (\flow ->
-                                R.concat (R.text "    ") (R.align (R.concat (R.text prefixText) flow))
+                                R.concat fieldIndent (R.align (R.concat (R.text prefixText) flow))
                             )
 
                 hasComment =
@@ -2203,7 +2218,7 @@ makeRecordUpdateDoc forceVertical baseName children =
                 -- inline form).
                 let
                     leadingCommentLines =
-                        Array.map (\c -> R.concat (R.text "    ") (commentNodeDoc c)) commentsBefore
+                        Array.map (\c -> R.concat fieldIndent (commentNodeDoc c)) commentsBefore
                 in
                 when fieldLine "| " firstField is
                     Err e ->
