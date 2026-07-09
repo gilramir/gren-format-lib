@@ -1122,8 +1122,10 @@ makeBackwardPipelineBox forceVertical children =
                 )
                 children
 
+        -- The operator is the first NON-comment child (a step may lead with an
+        -- own-line comment before `<|`).
         stepOpIsBackward stepNode =
-            when Array.first (lpnChildren stepNode) is
+            when Array.first (Array.keepIf (\n -> not (nodeIsComment n)) (lpnChildren stepNode)) is
                 Just opNode ->
                     leafValue opNode == Just "<|"
 
@@ -1132,71 +1134,138 @@ makeBackwardPipelineBox forceVertical children =
 
         allBackward =
             Array.all stepOpIsBackward stepNodes
-
-        -- A single `<|` step whose ONLY boundary comment is a leading own-line
-        -- comment before the operator (`seed \n {- c -} \n <| body`). Peel the
-        -- comment onto its own line at +4, with the `<| body` below it — the one
-        -- boundary-comment shape we model; everything else falls back.
-        singleLeadingComment =
-            when stepNodes is
-                [ stepNode ] ->
-                    when Array.popFirst (lpnChildren stepNode) is
-                        Just { first = firstChild, rest = afterComment } ->
-                            if
-                                nodeIsComment firstChild
-                                    && not (Array.any nodeIsComment afterComment)
-                                    && not (Array.any nodeIsComment seedNodes)
-                                    && (Array.first afterComment |> Maybe.map (\n -> leafValue n == Just "<|") |> Maybe.withDefault False)
-                            then
-                                Just { comment = firstChild, body = Array.dropFirst 1 afterComment }
-
-                            else
-                                Nothing
-
-                        Nothing ->
-                            Nothing
-
-                _ ->
-                    Nothing
     in
-    when singleLeadingComment is
-        Just { comment, body } ->
-            Result.map3
-                (\seedBox commentBox bodyBox ->
-                    B.stack1
-                        [ seedBox
-                        , B.indent commentBox
-                        , B.indent (prefixOperator "<|" bodyBox)
-                        ]
-                )
-                (buildFlowBox 0 seedNodes)
-                (commentNodeBox comment)
-                (buildBackwardBodyBox body)
+    if not allBackward then
+        Err "box: backward pipeline with mixed ops not ported"
 
-        Nothing ->
-            if hasBoundaryComment || not allBackward then
-                Err "box: backward pipeline with boundary comment / mixed ops not ported"
+    else if hasBoundaryComment then
+        -- A comment at a step boundary (own-line leading comment before `<|`, or a
+        -- trailing comment after a step body) switches to operator-LEADING layout,
+        -- mirroring the Doc's `buildFlowDoc 0 children` fallback: seed on its own
+        -- line, then each step at +4 as `<| body` with leading comments own-line
+        -- above it and trailing comments glued to the body's last line.
+        makeBackwardCommentedPipeline seedNodes stepNodes
 
-            else
-                buildFlowBox 0 seedNodes
-                    |> Result.andThen
-                        (\seedBox ->
-                            boxLine seedBox
-                                |> Result.andThen
-                                    (\seedLine ->
-                                        traverseResult
-                                            (\stepNode ->
-                                                when Array.popFirst (lpnChildren stepNode) is
-                                                    Just { rest = bodyNodes } ->
-                                                        Ok bodyNodes
+    else
+        buildFlowBox 0 seedNodes
+            |> Result.andThen
+                (\seedBox ->
+                    boxLine seedBox
+                        |> Result.andThen
+                            (\seedLine ->
+                                traverseResult
+                                    (\stepNode ->
+                                        when Array.popFirst (lpnChildren stepNode) is
+                                            Just { rest = bodyNodes } ->
+                                                Ok bodyNodes
 
-                                                    Nothing ->
-                                                        Err "box: backward pipeline step has no children"
-                                            )
-                                            stepNodes
-                                            |> Result.andThen (assembleBackwardPipeline forceVertical seedLine)
+                                            Nothing ->
+                                                Err "box: backward pipeline step has no children"
                                     )
+                                    stepNodes
+                                    |> Result.andThen (assembleBackwardPipeline forceVertical seedLine)
+                            )
+                )
+
+
+-- Split a run of leading comment nodes off the front of a step's children.
+spanLeadingComments : Array LPNode -> { leading : Array LPNode, rest : Array LPNode }
+spanLeadingComments nodes =
+    let
+        go remaining acc =
+            when Array.popFirst remaining is
+                Just { first, rest } ->
+                    if nodeIsComment first then
+                        go rest (Array.pushLast first acc)
+
+                    else
+                        { leading = acc, rest = remaining }
+
+                Nothing ->
+                    { leading = acc, rest = [] }
+    in
+    go nodes []
+
+
+-- Split a run of trailing comment nodes off the end of a step's children.
+spanTrailingComments : Array LPNode -> { body : Array LPNode, trailing : Array LPNode }
+spanTrailingComments nodes =
+    let
+        go remaining acc =
+            when Array.popLast remaining is
+                Just { last, initial } ->
+                    if nodeIsComment last then
+                        go initial ([ last ] ++ acc)
+
+                    else
+                        { body = remaining, trailing = acc }
+
+                Nothing ->
+                    { body = [], trailing = acc }
+    in
+    go nodes []
+
+
+-- Glue single-line trailing comments onto a box's last line, each with a space.
+glueTrailingComments : Box -> Array LPNode -> Result String Box
+glueTrailingComments box trailing =
+    Array.foldl
+        (\c accResult ->
+            accResult
+                |> Result.andThen
+                    (\b ->
+                        commentNodeBox c
+                            |> Result.andThen
+                                (\cbox ->
+                                    when B.isLine cbox is
+                                        Ok l ->
+                                            Ok (B.addSuffix (B.row [ B.space, l ]) b)
+
+                                        Err _ ->
+                                            Err "box: multi-line trailing comment in backward pipeline not ported"
+                                )
+                    )
+        )
+        (Ok box)
+        trailing
+
+
+{-| Render a comment-bearing backward (`<|`) pipeline in operator-LEADING layout,
+mirroring the Doc's `buildFlowDoc 0 children` fallback: the seed on its own line,
+then each step at +grenIndent. A step renders as its leading comments (own line)
+stacked above `<| body`, with trailing comments glued onto the body's last line. -}
+makeBackwardCommentedPipeline : Array LPNode -> Array LPNode -> Result String Box
+makeBackwardCommentedPipeline seedNodes stepNodes =
+    buildFlowBox 0 seedNodes
+        |> Result.andThen
+            (\seedBox ->
+                traverseResult renderCommentedBackwardStep stepNodes
+                    |> Result.map
+                        (\stepBoxLists ->
+                            B.stack1 ([ seedBox ] ++ Array.map (applyIndent grenIndent) (Array.flatten stepBoxLists))
                         )
+            )
+
+
+renderCommentedBackwardStep : LPNode -> Result String (Array Box)
+renderCommentedBackwardStep stepNode =
+    let
+        { leading, rest } =
+            spanLeadingComments (lpnChildren stepNode)
+
+        { body, trailing } =
+            spanTrailingComments rest
+    in
+    traverseResult commentNodeBox leading
+        |> Result.andThen
+            (\leadingBoxes ->
+                buildFlowBox 0 body
+                    |> Result.andThen
+                        (\bodyBox ->
+                            glueTrailingComments bodyBox trailing
+                                |> Result.map (\bodyWithTrailing -> leadingBoxes ++ [ bodyWithTrailing ])
+                        )
+            )
 
 
 assembleBackwardPipeline : Bool -> B.Line -> Array (Array LPNode) -> Result String Box
