@@ -1581,27 +1581,38 @@ stackWithBlanks boxes =
 
 
 {-| Render a `when`'s branch block — the `WhenBranch` children stacked with a
-blank line between each. A single-line comment sibling that trails the previous
-branch's last line (same source row) is appended onto it via `B.addSuffix`,
-matching a comment claimed as a branch body's trailing comment. An own-line
-comment between branches, and a multi-line comment, aren't ported and fall back. -}
+blank line between each. A comment sibling that trails the previous branch's last
+line (same source row) is appended onto it via `B.addSuffix`. A comment on its
+own row LEADS the following branch: it is held in `pending` and stacked directly
+above that branch (no blank line between comment and its pattern), matching the
+Doc's `AlreadyTerminated` join. Single-line and multi-line block comments alike
+are supported (the latter via `commentNodeBox`'s reindent stack). A same-row
+multi-line comment (can't glue onto a last line), or a comment after the last
+branch (no branch to lead), still fall back. -}
 renderWhenBranchesBox : Array LPNode -> Result String Box
 renderWhenBranchesBox children =
     let
-        appendTrailing acc row commentText =
+        handleComment acc row node commentText isMulti =
             if row == acc.lastRow && acc.lastRow >= 0 then
-                when Array.popLast acc.boxes is
-                    Just { last = lastBox, initial } ->
-                        Ok
-                            { acc
-                                | boxes = Array.pushLast (B.addSuffix (B.row [ B.space, B.literal commentText ]) lastBox) initial
-                            }
+                -- Trailing the previous branch on its last line.
+                if isMulti then
+                    Err "box: multi-line trailing comment between when-branches not ported"
 
-                    Nothing ->
-                        Err "box: comment before first when-branch not ported"
+                else
+                    when Array.popLast acc.boxes is
+                        Just { last = lastBox, initial } ->
+                            Ok
+                                { acc
+                                    | boxes = Array.pushLast (B.addSuffix (B.row [ B.space, B.literal commentText ]) lastBox) initial
+                                }
+
+                        Nothing ->
+                            Err "box: comment before first when-branch not ported"
 
             else
-                Err "box: own-line comment between when-branches not ported"
+                -- Own line: this comment leads the next branch.
+                commentNodeBox node
+                    |> Result.map (\cbox -> { acc | pending = Array.pushLast cbox acc.pending })
     in
     Array.foldl
         (\child accResult ->
@@ -1612,32 +1623,42 @@ renderWhenBranchesBox children =
                             WhenBranch ->
                                 makeWhenBranchBox (lpnChildren child)
                                     |> Result.map
-                                        (\bx -> { boxes = Array.pushLast bx acc.boxes, lastRow = lpnMaxRow child })
+                                        (\bx ->
+                                            let
+                                                combined =
+                                                    if Array.isEmpty acc.pending then
+                                                        bx
+
+                                                    else
+                                                        B.stack1 (Array.pushLast bx acc.pending)
+                                            in
+                                            { boxes = Array.pushLast combined acc.boxes, lastRow = lpnMaxRow child, pending = [] }
+                                        )
 
                             SingleLineComment loc ->
-                                appendTrailing acc loc.start.row ("--" ++ loc.value)
+                                handleComment acc loc.start.row child ("--" ++ loc.value) False
 
                             BlockComment loc ->
-                                if String.contains "\n" loc.value then
-                                    Err "box: multi-line comment between when-branches not ported"
-
-                                else
-                                    appendTrailing acc loc.start.row ("{-" ++ loc.value ++ "-}")
+                                handleComment acc loc.start.row child ("{-" ++ loc.value ++ "-}") (String.contains "\n" loc.value)
 
                             _ ->
                                 Err "box: unexpected node among when-branches"
                     )
         )
-        (Ok { boxes = [], lastRow = -1 })
+        (Ok { boxes = [], lastRow = -1, pending = [] })
         children
         |> Result.andThen
             (\acc ->
-                when Array.popFirst acc.boxes is
-                    Nothing ->
-                        Err "box: when has no branches"
+                if not (Array.isEmpty acc.pending) then
+                    Err "box: comment after last when-branch not ported"
 
-                    Just _ ->
-                        Ok (stackWithBlanks acc.boxes)
+                else
+                    when Array.popFirst acc.boxes is
+                        Nothing ->
+                            Err "box: when has no branches"
+
+                        Just _ ->
+                            Ok (stackWithBlanks acc.boxes)
             )
 
 
