@@ -57,6 +57,38 @@ guard to *trust-Box-when-Ok* + regenerate the affected fixtures (cheap, but drop
 the equality safety net globally), or (b) fix the specific Doc-renderer bugs so
 Doc == Box + regenerate (keeps the safety net, more work), or (c) freeze as-is.
 
+### Chosen: option (b) — fix Doc bugs, keep the safety net. Progress:
+
+- **fix 1 (`6ef4adc`) — array sibling coupling.** `makeAllAcrossOrAllVertical`
+  now goes vertical when `anyChildForcesVertical`, so a one-line-authored list
+  with a multi-line element breaks one-per-line instead of leaving it dangling.
+  Fixes UniformRecordArray (mixedAuthor, commentInRecord) + improves
+  BracketTrailingComments (nested, was ok-but-wrong in both renderers).
+- **fix 2 (`c8e356d`) — record-update field indent in an array element.**
+  `makeRecordUpdateDoc` takes a `listPrefixWidth`; array elements indent fields
+  `grenIndent - 2` so `| `/`, ` land at line-start+4 (= `{`+2), not `{`+4.
+  Fixes UniformUpdateArray (updates).
+
+Both verified against the elm-format binary; gates green (139/139, fuzzers 0).
+
+**4 mismatch nodes remain, all deep-gap-hard (drop-vs-glue / comment-reindent in
+`buildFlowDoc`, which is shared across signatures / type bodies / record fields /
+let bindings — corpus-wide blast radius, needs per-context handling):**
+
+- **KitchenSink type-app `HasIdentifier { record }` + field-value `tracing :
+  { record }`** — a multi-line record type after a union-variant head or a
+  field `:` must DROP to its own line +4 (elm-format + Box), but the Doc
+  soft-glues the `AlwaysVertical` record onto the head line via `FlowSep`. Fixing
+  needs `buildFlowDoc` to treat a multi-line record as a dropping block in the
+  *type* context without disturbing the expression contexts that share it.
+- **MultilineBlockComments sig `-> { record }` + `{ x } {- mlbc -}` glue** — the
+  same drop plus a multi-line-block-comment reindent inside a signature type
+  (the mlbc-in-flow deep gap, also unported in the Box renderer).
+
+These are the same difficulty as the 23 `Err` deep-gaps; each is a separate
+focused effort, not a quick fix. Until done, the guard ships Doc's (wrong)
+output for these 4 nodes — a documented, bounded residual.
+
 ### Residual census recipe
 
 Instrument `makePrettyResult` (see session notes): classify each `lpnChildren
