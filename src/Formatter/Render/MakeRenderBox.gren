@@ -1132,30 +1132,71 @@ makeBackwardPipelineBox forceVertical children =
 
         allBackward =
             Array.all stepOpIsBackward stepNodes
+
+        -- A single `<|` step whose ONLY boundary comment is a leading own-line
+        -- comment before the operator (`seed \n {- c -} \n <| body`). Peel the
+        -- comment onto its own line at +4, with the `<| body` below it — the one
+        -- boundary-comment shape we model; everything else falls back.
+        singleLeadingComment =
+            when stepNodes is
+                [ stepNode ] ->
+                    when Array.popFirst (lpnChildren stepNode) is
+                        Just { first = firstChild, rest = afterComment } ->
+                            if
+                                nodeIsComment firstChild
+                                    && not (Array.any nodeIsComment afterComment)
+                                    && not (Array.any nodeIsComment seedNodes)
+                                    && (Array.first afterComment |> Maybe.map (\n -> leafValue n == Just "<|") |> Maybe.withDefault False)
+                            then
+                                Just { comment = firstChild, body = Array.dropFirst 1 afterComment }
+
+                            else
+                                Nothing
+
+                        Nothing ->
+                            Nothing
+
+                _ ->
+                    Nothing
     in
-    if hasBoundaryComment || not allBackward then
-        Err "box: backward pipeline with boundary comment / mixed ops not ported"
-
-    else
-        buildFlowBox 0 seedNodes
-            |> Result.andThen
-                (\seedBox ->
-                    boxLine seedBox
-                        |> Result.andThen
-                            (\seedLine ->
-                                traverseResult
-                                    (\stepNode ->
-                                        when Array.popFirst (lpnChildren stepNode) is
-                                            Just { rest = bodyNodes } ->
-                                                Ok bodyNodes
-
-                                            Nothing ->
-                                                Err "box: backward pipeline step has no children"
-                                    )
-                                    stepNodes
-                                    |> Result.andThen (assembleBackwardPipeline forceVertical seedLine)
-                            )
+    when singleLeadingComment is
+        Just { comment, body } ->
+            Result.map3
+                (\seedBox commentBox bodyBox ->
+                    B.stack1
+                        [ seedBox
+                        , B.indent commentBox
+                        , B.indent (prefixOperator "<|" bodyBox)
+                        ]
                 )
+                (buildFlowBox 0 seedNodes)
+                (commentNodeBox comment)
+                (buildBackwardBodyBox body)
+
+        Nothing ->
+            if hasBoundaryComment || not allBackward then
+                Err "box: backward pipeline with boundary comment / mixed ops not ported"
+
+            else
+                buildFlowBox 0 seedNodes
+                    |> Result.andThen
+                        (\seedBox ->
+                            boxLine seedBox
+                                |> Result.andThen
+                                    (\seedLine ->
+                                        traverseResult
+                                            (\stepNode ->
+                                                when Array.popFirst (lpnChildren stepNode) is
+                                                    Just { rest = bodyNodes } ->
+                                                        Ok bodyNodes
+
+                                                    Nothing ->
+                                                        Err "box: backward pipeline step has no children"
+                                            )
+                                            stepNodes
+                                            |> Result.andThen (assembleBackwardPipeline forceVertical seedLine)
+                                    )
+                        )
 
 
 assembleBackwardPipeline : Bool -> B.Line -> Array (Array LPNode) -> Result String Box
