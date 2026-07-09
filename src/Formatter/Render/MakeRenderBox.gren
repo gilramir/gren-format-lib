@@ -2753,10 +2753,14 @@ commentBracketListBox bracket nodes =
                                                 -- multiple of 4 and swallows the prefix's
                                                 -- 2-space pad, landing the body 2 columns too
                                                 -- shallow. Fall back until the Tab-vs-prefix
-                                                -- interaction is modelled. Single-line items
-                                                -- (the common comment-bearing-literal case)
-                                                -- are unaffected.
-                                                if not (isSingleLine box) then
+                                                -- interaction is modelled. A field whose value
+                                                -- is dropped to its own line BY A COMMENT
+                                                -- (`, beta = {- c -} 2`) is exempt: like the
+                                                -- record-update path (`fieldValueDropsToOwnLine`)
+                                                -- its value flows at a fixed +4 that composes
+                                                -- with the prefix. Single-line items (the common
+                                                -- comment-bearing-literal case) are unaffected.
+                                                if not (isSingleLine box) && not (fieldValueDropsToOwnLine node) then
                                                     Err "box: multi-line item in comment-bearing bracket list not ported"
 
                                                 else
