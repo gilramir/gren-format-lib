@@ -3100,9 +3100,38 @@ assembler) unless the shape matches exactly: no comments/blank lines/hard blocks
 a non-empty single-line prefix, exactly one multi-line item, and it is a bracket
 literal. Only reached from `assembleFlow` (the Doc's gluing `buildFlowDoc` path)
 — a call whose record arg *drops* goes through `assembleBrokenCall` instead. -}
+-- Render a prefix/suffix flow item to the single inline `Line` it contributes to
+-- a soft-glue flow. A plain item uses its box (which must be single-line); a
+-- single-line block-comment item (`{- c -}`) uses its rendered comment box, so a
+-- trailing comment (`… exposing (..) {- c -}`) glues onto the soft literal's last
+-- line. A `--` line comment or a multi-line block comment can't glue inline, so it
+-- Errs — dropping the whole flow back to the general assembler.
+flowItemInlineLine : FlowItem -> Result String B.Line
+flowItemInlineLine item =
+    let
+        asLine box =
+            when B.isLine box is
+                Ok l ->
+                    Ok l
+
+                Err _ ->
+                    Err "box: multi-line item in soft-glue flow"
+    in
+    when item.comment is
+        Just c ->
+            if c.isLineComment || c.multiLine then
+                Err "box: non-inline comment in soft-glue flow"
+
+            else
+                asLine c.box
+
+        Nothing ->
+            asLine item.box
+
+
 trySoftGlueFlow : Array FlowItem -> Maybe Box
 trySoftGlueFlow items =
-    if Array.any (\it -> isCommentItem it || isEmptyLine it.node) items then
+    if Array.any (\it -> isEmptyLine it.node) items then
         Nothing
 
     else
@@ -3125,7 +3154,7 @@ trySoftGlueFlow items =
                     suffix =
                         Array.dropFirst (idx + 1) items
                 in
-                when { s = softItem, pl = B.allSingles (Array.map .box prefix), sl = B.allSingles (Array.map .box suffix) } is
+                when { s = softItem, pl = traverseResult flowItemInlineLine prefix, sl = traverseResult flowItemInlineLine suffix } is
                     { s = Just soft, pl = Ok prefixLines, sl = Ok suffixLines } ->
                         -- Require BOTH a non-empty single-line prefix AND a
                         -- non-empty single-line suffix. The suffix (a trailing
