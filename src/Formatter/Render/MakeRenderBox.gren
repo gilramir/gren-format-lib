@@ -402,17 +402,13 @@ makeOpAndRhsBox children =
                 Just op ->
                     -- Inline-start flow: a leading `{- c -}` in the rhs stays on
                     -- the operator's line (`* {- c -} 100`), mirroring the Doc's
-                    -- `buildFlowDocInline 0` in `makeOpAndRhsDoc`.
+                    -- `buildFlowDocInline 0` in `makeOpAndRhsDoc`. `prefixOperator`
+                    -- glues `op ` onto the rhs — its first line for a single-line
+                    -- rhs, or (via `B.prefix`, padding continuation by the operator
+                    -- width) the first line of a multi-line rhs such as an operand
+                    -- with a trailing multi-line comment (`+ b {- multi… -}`).
                     buildFlowBoxInline 0 rhsNodes
-                        |> Result.andThen
-                            (\rhsBox ->
-                                when B.isLine rhsBox is
-                                    Ok l ->
-                                        Ok (B.line (B.row [ B.literal (op ++ " "), l ]))
-
-                                    Err _ ->
-                                        Err "box: multi-line OpAndRhs not ported"
-                            )
+                        |> Result.map (\rhsBox -> prefixOperator op rhsBox)
 
                 Nothing ->
                     Err "box: OpAndRhs op is not a text leaf"
