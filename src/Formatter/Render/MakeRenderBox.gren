@@ -1412,6 +1412,15 @@ column. Comment children never carry a field prefix; the first *field* (not the
 first child) gets the `| `. Box `stack1` + `B.indent` + `B.prefix` supply the
 alignment the Doc gets from `R.align` around the `R.vcat`. A multi-line block
 comment falls back via `commentNodeBox`'s verbatim guard. -}
+-- True when a record-update field's value is forced onto its own line(s) by a
+-- comment among the field's children (e.g. `gamma = {- c -} 3`). Both the Doc and
+-- `buildFlowBox` drop such a value below `= `, so it composes with the field's
+-- `| `/`, ` prefix — unlike a soft broken-call/binop value the Doc keeps glued.
+fieldValueDropsToOwnLine : LPNode -> Bool
+fieldValueDropsToOwnLine node =
+    Array.any nodeIsComment (lpnChildren node)
+
+
 makeRecordUpdateVerticalBox : String -> Array LPNode -> Result String Box
 makeRecordUpdateVerticalBox baseName children =
     let
@@ -1447,27 +1456,24 @@ makeRecordUpdateVerticalBox baseName children =
                             buildFlowBox fieldFlowIndent (lpnChildren node)
                                 |> Result.andThen
                                     (\fieldBox ->
-                                        -- A multi-line field value is kept glued
-                                        -- to `= ` by the Doc (its flow separator
-                                        -- is a soft `R.group`, always flat → a
-                                        -- space), then broken by the value's own
-                                        -- internal layout — e.g. `| f = Array.map`
-                                        -- with the call's args below. Box's flat
-                                        -- stacker instead drops the whole value to
-                                        -- its own line, diverging, so fall back
-                                        -- (as this update did before this tranche).
-                                        -- Comment-bearing updates with single-line
-                                        -- field values (the common case) render
-                                        -- byte-identically.
-                                        if isSingleLine fieldBox then
-                                            let
-                                                pref =
-                                                    if acc.seenField then
-                                                        B.row [ B.punc ",", B.space ]
+                                        let
+                                            pref =
+                                                if acc.seenField then
+                                                    B.row [ B.punc ",", B.space ]
 
-                                                    else
-                                                        B.row [ B.punc "|", B.space ]
-                                            in
+                                                else
+                                                    B.row [ B.punc "|", B.space ]
+                                        in
+                                        -- A multi-line field value that DROPS to its
+                                        -- own line (a leading own-line comment, or a
+                                        -- block value) is rendered by `buildFlowBox`
+                                        -- exactly as the Doc does, so it composes with
+                                        -- the `| `/`, ` prefix. A multi-line value the
+                                        -- Doc keeps GLUED to `= ` (a soft broken
+                                        -- call/binop — its flow separator is a flat
+                                        -- `R.group` → a space) still diverges (Box's
+                                        -- flat stacker drops it), so those fall back.
+                                        if isSingleLine fieldBox || fieldValueDropsToOwnLine node then
                                             Ok
                                                 { lines = Array.pushLast (B.prefix pref fieldBox) acc.lines
                                                 , seenField = True
