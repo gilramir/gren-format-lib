@@ -3,9 +3,11 @@ module UniformRecordArray exposing (..)
 
 -- One author-broken record makes every sibling expand
 mixedAuthor =
-    [ { name = "circle", sides = 0 }, { name = "triangle"
-                                      , sides = 3
-                                      } ]
+    [ { name = "circle", sides = 0 }
+    , { name = "triangle"
+      , sides = 3
+      }
+    ]
 
 
 -- All flat and fitting stays flat
@@ -36,7 +38,9 @@ oneWide =
 commentInRecord =
     [ { name = "circle" {- why -}
       , sides = 0
-      }, { name = "tri", sides = 3 } ]
+      }
+    , { name = "tri", sides = 3 }
+    ]
 
 
 -- A comment between items leaves fitting records flat

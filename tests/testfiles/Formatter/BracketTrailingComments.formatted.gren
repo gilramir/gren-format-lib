@@ -23,4 +23,5 @@ nested =
     [ { gamma = 3
       , delta = 4
       {- inside nested record -}
-      } ]
+      }
+    ]

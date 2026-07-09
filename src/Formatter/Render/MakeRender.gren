@@ -1667,8 +1667,16 @@ makeAllAcrossOrAllVertical brackets children =
         -- into the flat group, producing non-idempotent output.
         hasVerticalPipeline =
             Array.any pipelineItemHasHardBreak children
+
+        -- Sibling coupling (matches elm-format and the Box renderer): if any
+        -- element renders multi-line — an author-broken record, a record whose
+        -- internal comment forces it vertical, etc. — the whole list breaks
+        -- one-element-per-line rather than leaving that element hanging inside
+        -- an otherwise-flat group (which produced a mangled dangling layout).
+        hasVerticalChild =
+            anyChildForcesVertical children
     in
-    if hasComment || hasVerticalPipeline then
+    if hasComment || hasVerticalPipeline || hasVerticalChild then
         listBoxesWithBrackets bs.open bs.close children
 
     else

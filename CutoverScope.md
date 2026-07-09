@@ -5,7 +5,69 @@ Scoping document for retiring the legacy `Render.Doc` renderer in favour of the
 26 (commit `3afd9ea`). This is the plan to get from "Box covers 90%, guarded by
 Doc" to "Box is the only renderer".
 
-## Where we are
+---
+
+## CUTOVER DECISION (2026-07-09, HEAD `3157780`)
+
+**Decision: keep the self-verifying hybrid as the architecture. Do NOT pursue
+full `Render.Doc` deletion this cycle.** The strangler is treated as *complete
+as a shipping architecture*, not as a temporary scaffold to be torn down.
+
+### Why (fresh census, 2026-07-09)
+
+Full deletion requires every top-level root child to render via Box. After 60
+tranches the corpus residual is **23 `Err` root children + 7 `mismatch` root
+children** (Box renders but differs from Doc). The 23 `Err`s span four *hard*
+architecture problem-classes, two of which already have reverted attempts:
+
+| class | fixtures | portable? |
+|---|---|---|
+| per-row exact-space indent (Tab can't do non-mult-of-4) | WhenInCommentedArray, KitchenComments if-condition, post-mlbc decl/lambda | needs new Box primitive; **reverted twice** (t42/t43, decl/lambda) |
+| `R.align`-inside-`R.nest` mix (soft value glued to `=`, nested OpAndRhs) | LambdaBracketBodyNestedInCall, KitchenSink recupd×2, KitchenComments recupd, MultilineBlockComments OpAndRhs | flat Box's uniform prefix can't express it |
+| comment-in-multi-node-signature idempotency | TrickyComments, KitchenComments | **reverted (t61)** — renders right but non-idempotent |
+| rare / not-easily-portable | BlockCommentBodyIndent (nested verbatim → needs col-0 `reset`), backward-pipeline-mixed-ops, "unexpected node among when-branches" (KitchenSink, KitchenComments) | corner cases; low value |
+
+Plus ~6 **tracked-intentional** `Err`s (direct-operand pipeline `|> (\x -> …)`
+glue: CallArgBlockRelocation, CommentsPipeline, PrefixAnchorDivergence,
+PipelineLambdaArg, + one each in KitchenComments/MultilineBlockComments) that
+Box deliberately Errs on so it falls back to Doc's shipped layout.
+
+The payoff of deletion is **internal only** (remove the Doc renderer code); it
+delivers **zero** user-facing benefit, because the guard already ships correct
+output everywhere. The remaining work is multi-session and revert-prone. The
+guard is not debt — it is a *correctness feature*: Box never ships output that
+hasn't been proven byte-equal to the reference renderer, and the census IS a
+self-documenting coverage map.
+
+### The one real quality gap (worth acting on)
+
+For the **7 `mismatch` nodes** the guard ships *Doc* output, and for the
+elm-format-verified subset that output is **wrong**:
+
+- **UniformRecordArray (×2) / UniformUpdateArray (×1)** — Doc emits a mangled
+  mixed layout (`{ … }, { name = "triangle"\n  , sides = 3\n  }`) and over-indents
+  `| field` to `{`+4; Box (= elm-format v0.8.8, verified Phase B) emits clean
+  one-record-per-line at `{`+2.
+- **KitchenSink nested-record-type (×2)** — Box matches elm-format; Doc diverges.
+- **MultilineBlockComments `-> {record}` sig (×2)** — adopt-Box.
+
+These 7 are the only place a cutover action improves shipped output. See the
+open product question at the top of the session log; options are (a) flip the
+guard to *trust-Box-when-Ok* + regenerate the affected fixtures (cheap, but drops
+the equality safety net globally), or (b) fix the specific Doc-renderer bugs so
+Doc == Box + regenerate (keeps the safety net, more work), or (c) freeze as-is.
+
+### Residual census recipe
+
+Instrument `makePrettyResult` (see session notes): classify each `lpnChildren
+root` node as `ok` / `MISMATCH` / `ERR:<msg>`, prepend a `-- CENSUS n=… :: …`
+header, rebuild the CLI, sweep `*.formatted.gren` via `node ../../gren-format/app
+--show` (the header trips the reparse, so read it from the wrapped `1| … 2|`
+error dump). Revert the instrumentation after.
+
+---
+
+## Where we are (historical — pre-decision plan, counts from tranche 26)
 
 `MakeRender.makePrettyLine` is a **self-verifying strangler**: it renders each
 top-level item via BOTH Box and Doc and only *uses* the Box output when it is
