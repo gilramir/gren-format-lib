@@ -312,25 +312,54 @@ assembleBinopBox forceVertical minPrec operandBoxes ops =
                     |> Result.andThen
                         (\segBoxes ->
                             if not forceVertical then
-                                -- Inline: whole chain on one line — every group
-                                -- must be single-line.
+                                -- Inline: the chain flows on one line. Every group
+                                -- must be single-line EXCEPT the very last operand,
+                                -- which may be a multi-line node whose own lines break
+                                -- below (a `"""…"""` literal opened mid-line). The Doc
+                                -- keeps the whole chain concatenated and lets that
+                                -- operand's `R.align` land its continuation under its
+                                -- opening column; Box builds the single-line prefix
+                                -- (`"a " ++ b ++`) and `B.prefix`es it onto the trailing
+                                -- box, padding its continuation to the same column.
                                 when B.isLine firstGroupBox is
                                     Err _ ->
                                         Err "box: multi-line operand in non-vertical binop not ported"
 
                                     Ok firstLine ->
-                                        traverseResult
-                                            (\seg ->
-                                                when B.isLine seg.box is
-                                                    Ok l ->
-                                                        Ok [ B.space, B.literal seg.op, B.space, l ]
+                                        when Array.popLast segBoxes is
+                                            Nothing ->
+                                                Ok (B.line firstLine)
 
-                                                    Err _ ->
-                                                        Err "box: multi-line operand in non-vertical binop not ported"
-                                            )
-                                            segBoxes
-                                            |> Result.map
-                                                (\segs -> B.line (B.row (Array.flatten ([ [ firstLine ] ] ++ segs))))
+                                            Just { last = lastSeg, initial = initSegs } ->
+                                                traverseResult
+                                                    (\seg ->
+                                                        when B.isLine seg.box is
+                                                            Ok l ->
+                                                                Ok [ B.space, B.literal seg.op, B.space, l ]
+
+                                                            Err _ ->
+                                                                Err "box: multi-line operand in non-vertical binop not ported"
+                                                    )
+                                                    initSegs
+                                                    |> Result.andThen
+                                                        (\initParts ->
+                                                            when B.isLine lastSeg.box is
+                                                                Ok lastLine ->
+                                                                    -- All single-line: the whole chain on one row.
+                                                                    Ok (B.line (B.row (Array.flatten ([ [ firstLine ] ] ++ initParts ++ [ [ B.space, B.literal lastSeg.op, B.space, lastLine ] ]))))
+
+                                                                Err _ ->
+                                                                    -- Trailing operand is multi-line: glue the
+                                                                    -- single-line prefix onto its first line and
+                                                                    -- pad its continuation to align (a mid-chain
+                                                                    -- multi-line operand can't glue inline, so
+                                                                    -- `initParts` above still Errs on those).
+                                                                    let
+                                                                        prefixRow =
+                                                                            B.row (Array.flatten ([ [ firstLine ] ] ++ initParts ++ [ [ B.space, B.literal lastSeg.op, B.space ] ]))
+                                                                    in
+                                                                    Ok (B.prefix prefixRow lastSeg.box)
+                                                        )
 
                             else
                                 -- One group per line: firstGroup at base, each
