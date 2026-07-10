@@ -165,28 +165,38 @@ single glued `} {- trail -}` in the TypeRecordLeadingComment fixture. Gates:
 normal 140/140 + all fuzzers 0; trust-Box fuzzers 0, trust-Box effectful fail
 set = the 2 known pre-existing divergences only.
 
-### Remaining work (plan as of 2026-07-10, after fix 5b `b40d8a3`)
+### Items 1–2 LANDED (2026-07-10, after fix 5b `b40d8a3`)
 
-Ordered by value-per-risk. Items 1–2 are scoped; 3–4 are the hard tail; 5 is
+**Item 1 `a391cec`: closed the comment-count verification gap.** Fix 5b's
+duplication bug was invisible to every gate (AST equality ignores comments;
+idempotency compares format¹ vs format² — never Context(original) vs
+Context(format¹)). Two hardenings: `fuzz-idempotency.py` now asserts the
+formatted output contains the exact expected number of `¤` markers (fast
+all-gaps path checks `== len(gaps)`, slow per-gap path checks `== 1`); the
+effectful harness's `assertPretty` gained `checkCommentCountPreserved`, which
+reparses the formatted output and compares its comment count against the
+original parse's. Gates: effectful 140/140, idempotency + whitespace fuzzers 0.
+
+**Item 2 (this commit): BracketTrailingComments — ported fix 1 to Box, the
+last easy Doc-ahead node.** Fix 1 (`6ef4adc`) made the Doc's
+`makeAllAcrossOrAllVertical` go vertical when any child forces vertical; the
+Box renderer's `ElmStructure.groupBox` had the mirror-image bug — a special
+case for `{ fm = False, cs = [ only ] }` (a flat-authored list with exactly one
+multi-line child) that hugged the closing bracket onto the child's last line
+(`} ]`) instead of dropping it to its own line. Deleted that special case so a
+multi-line child of ANY count (including one) falls through to `verticalGroup`,
+matching elm-format and the Doc renderer. Verified with the trust-Box-always
+guard (sed `if True then`, rebuilt `gren-format`, ran both fuzzers, reverted):
+trust-Box effectful dropped from "BracketTrailingComments 1 + MultilineBlockComments 2"
+to just the 2 known pre-existing MultilineBlockComments deep-gap failures (item
+3/4 below, untouched); trust-Box fuzzers 0/0. Normal-guard gates after
+reverting: effectful 140/140, idempotency + whitespace fuzzers 0 — the guard
+now picks Box's output for this node since it's byte-identical to Doc's.
+
+### Remaining work (plan as of 2026-07-10, after items 1–2)
+
+Items 3–4 (numbered to match the original plan above) are the hard tail; 5 is
 parked by the cutover decision.
-
-1. **Close the comment-count verification gap (cheap, do first).** Fix 5b's
-   duplication bug was invisible to every gate: AST equality ignores comments,
-   and the idempotency check compares format¹ vs format² — never
-   Context(original) vs Context(format¹). Two small hardenings:
-   - `fuzz-idempotency.py`: it inserts exactly one `{- ¤ -}` per gap — assert
-     the formatted output contains exactly one `¤` (catches duplication AND
-     silent drops, corpus-wide, for free).
-   - The effectful harness (`assertPretty`): compare the original parse's
-     comment count against the formatted output's reparse (full Context
-     equality is position-sensitive by design; the *count* is stable).
-
-2. **BracketTrailingComments — port fix 1 to Box (the last easy Doc-ahead
-   node).** Fix 1 (`6ef4adc`) made the Doc's `makeAllAcrossOrAllVertical` go
-   vertical when any child forces vertical; Box's bracket-list renderer has the
-   same single-element coupling bug (noted "ok-but-wrong in both renderers" at
-   fix 1, Doc-ahead since). Same shape of work as fix 5b: mirror the predicate,
-   verify with the trust-Box effectful run + fuzzers.
 
 3. **MultilineBlockComments deep-gap A: `-> { record }` return-record drop.**
    elm-format drops a multi-line record that is a function signature's return
