@@ -60,7 +60,7 @@ change1SliceSuite fsPerm =
 Parse and format failures ride the success channel as `Err message` and become
 `Expect.fail` in `assertPretty` → test Failed, with the message printed verbatim.
 -}
-runPrettyPrinter : FileSystem.Permission -> String -> Task String (Result String { ast : Src.Module, rendered : String })
+runPrettyPrinter : FileSystem.Permission -> String -> Task String (Result String { ast : Src.Module, context : Context.Context, rendered : String })
 runPrettyPrinter fsPerm filename =
     readTestFile fsPerm filename
         |> Task.map
@@ -75,7 +75,7 @@ runPrettyPrinter fsPerm filename =
                     Ok { ast = ast, payload = payload } ->
                         when PPrint.prettyPrint ast payload is
                             Ok rendered ->
-                                Ok { ast = ast, rendered = rendered ++ "\n" }
+                                Ok { ast = ast, context = payload, rendered = rendered ++ "\n" }
 
                             Err errorString ->
                                 Err errorString
@@ -113,7 +113,7 @@ assertPretty fsPerm testDescription filenameBase =
                             Err message ->
                                 Task.succeed (Expect.fail message)
 
-                            Ok { ast = ast1, rendered = rendered } ->
+                            Ok { ast = ast1, context = context1, rendered = rendered } ->
                                 readTestFile fsPerm (filenameBase ++ ".formatted.gren")
                                     |> Task.map
                                         (\expectedFormatting ->
@@ -125,6 +125,8 @@ assertPretty fsPerm testDescription filenameBase =
                                                         checkAstEquivalence ast1 rendered
                                                 , \_ ->
                                                         checkIdempotent expectedFormatting
+                                                , \_ ->
+                                                        checkCommentCountPreserved context1 rendered
                                                 ]
                                                 {}
                                         )
@@ -150,6 +152,38 @@ checkAstEquivalence ast1 rendered =
 
                 Err explanation ->
                     Expect.fail ("AST mismatch: " ++ explanation)
+
+
+{-| AST equivalence ignores comments entirely, so a formatter bug that drops or
+duplicates a comment can slip through it undetected (as happened with the fix-5b
+duplication bug, which was only ever caught by the trust-Box fuzzer). This is a
+cheap structural guard: reparse the formatted output and require its comment
+*count* to match the original's. Position-sensitive full-Context equality is
+covered separately by `checkIdempotent`; this only guards the count. -}
+checkCommentCountPreserved : Context.Context -> String -> Expectation
+checkCommentCountPreserved originalContext rendered =
+    when parseModuleAndContext rendered is
+        Err err ->
+            Expect.fail ("Could not reparse formatted output to count comments: " ++ err)
+
+        Ok { context = renderedContext } ->
+            let
+                originalCount =
+                    Array.length (Builder.toArray originalContext.comments)
+
+                renderedCount =
+                    Array.length (Builder.toArray renderedContext.comments)
+            in
+            if originalCount == renderedCount then
+                Expect.pass
+
+            else
+                Expect.fail
+                    ("Comment count changed after formatting: original had "
+                        ++ String.fromInt originalCount
+                        ++ ", formatted output has "
+                        ++ String.fromInt renderedCount
+                        ++ " (a dropped or duplicated comment)")
 
 
 -- Parse a source string into its Module AST and parse Context, or an error.

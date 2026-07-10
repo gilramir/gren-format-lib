@@ -20,6 +20,12 @@ A gap whose comment makes the file fail to PARSE is skipped (those are parser
 limitations, e.g. a comment between two type variables, not idempotency bugs)
 and counted separately. Exit status is non-zero if any non-idempotent gap is
 found.
+
+Beyond the format¹==format² check, each candidate's output is also checked for
+containing the expected number of markers ("¤"). A formatter bug can drop or
+duplicate a comment while still being a stable fixed point (the duplicate
+persists identically on reformat), which the format¹==format² check alone
+cannot see — the marker-count check catches that class directly.
 """
 
 import argparse
@@ -154,7 +160,8 @@ def fast_check(base, src, gaps):
     Returns:
       "ok"         — idempotent (file is clean, no per-gap work needed)
       "parse-fail" — all-at-once variant didn't parse (fall back to per-gap)
-      "fail"       — non-idempotent or other error (fall back to per-gap)
+      "fail"       — non-idempotent, wrong marker count, or other error
+                     (fall back to per-gap)
     """
     workdir = worker_workdir(base)
     r = run_show(workdir, all_gaps_variant(src, gaps))
@@ -162,6 +169,8 @@ def fast_check(base, src, gaps):
     if "FAILED TO PARSE" in blob or "Could not format" in blob:
         return "parse-fail"
     if r.returncode != 0 or not r.stdout.strip():
+        return "fail"
+    if r.stdout.count("¤") != len(gaps):
         return "fail"
     return "ok"
 
@@ -177,6 +186,9 @@ def check_gap(base, src, g):
         return ("skip", g, "")
     if r.returncode != 0 or not r.stdout.strip():
         return ("bug", g, r.stderr.strip())
+    count = r.stdout.count("¤")
+    if count != 1:
+        return ("bug", g, f"expected exactly one '¤' in output, found {count} (dropped or duplicated comment)")
     return ("ok", g, "")
 
 
