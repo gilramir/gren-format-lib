@@ -89,7 +89,27 @@ These are the same difficulty as the 23 `Err` deep-gaps; each is a separate
 focused effort, not a quick fix. Until done, the guard ships Doc's (wrong)
 output for these 4 nodes — a documented, bounded residual.
 
-#### Attempted + REVERTED: KitchenSink type-record-drop (2026-07-09)
+#### LANDED (scoped): KitchenSink type-record-drop (fix 3, `2694b95`)
+
+The scoped version cleared the idempotency wall and shipped. A multi-line **type**
+record following a real head in a flow now drops to +grenIndent (elm-format's
+rule), gated four ways: `isTypeRecordLiteral` (`:`-vs-`=` first field),
+`separator == FlowSep` (real head precedes), NOT `flowIsFunctionType` (scopes out
+the `-> { record }` arrow-oscillation case), and **no comment anywhere in the
+flow** (a comment trailing the dropped `}` oscillates +4↔col-0 — backing off to
+the glued form keeps every comment position a fixed point). Drop rule is
+indent-aware (`indentedBlockRule` at indent 0, else `bodyBlockRule`). Fixes the
+**2 KitchenSink mismatch nodes** + 2 bonus whole-sig-type fixtures
+(SignatureTrailingComment, CommentPlacement). Effectful 139/139, all 3 fuzzers 0.
+
+**Now 5 of the original 7 mismatch nodes are fixed.** The 2 remaining are both in
+MultilineBlockComments and both deferred by design: the `-> { record }` return
+record (function-type, scoped out to avoid the arrow-oscillation) and the
+`{ x } {- mlbc -}` comment-reindent (the mlbc-in-flow deep gap). Fully closing
+them needs the arrow-break made a reparse fixed point + the mlbc reindent — the
+same fixed-point work the drop currently sidesteps.
+
+#### Attempted + REVERTED (superseded by the scoped landing above): first try
 
 Pressed on with the 2 KitchenSink nodes. The *output* side is fully solved and
 was elm-format-verified — the two pitfalls both have clean answers:
