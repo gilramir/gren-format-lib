@@ -1110,7 +1110,6 @@ buildFlowDocImpl indent inlineStart brokenFlow nodes =
                     && R.hasHardBreak itemDoc
                     && isTypeRecordLiteral node
                     && not (flowIsFunctionType nodes)
-                    && not (Array.any nodeIsComment nodes)
             then
                 let
                     dropRule =
@@ -1120,8 +1119,19 @@ buildFlowDocImpl indent inlineStart brokenFlow nodes =
                         else
                             bodyBlockRule
                 in
+                -- Carry the record's closing-bracket row as `prevRow` (not -1) so
+                -- a single-line block comment on that same source row glues onto
+                -- the record's `}` line (`} {- c -}`) instead of dropping to a
+                -- fresh line — which would reparse as an own-line comment and
+                -- detach (a +4 ↔ col-0 oscillation). Keeping `dropRule.nextSep`
+                -- (HardNl / FlowSep) means a following *type node* still breaks to
+                -- its own line; only a same-row comment glues (see the
+                -- BlockComment branch's same-row path).
                 { doc = joinBlock dropRule acc.separator acc.doc itemDoc
-                , prevRow = -1
+                , prevRow =
+                    lpnLastBracketEnd node
+                        |> Maybe.map (\p -> p.row)
+                        |> Maybe.withDefault -1
                 , prevElided = False
                 , separator = dropRule.nextSep
                 }
@@ -1269,7 +1279,25 @@ buildFlowDocImpl indent inlineStart brokenFlow nodes =
                                                 Err e
 
                                             Ok itemDoc ->
-                                                Ok { doc = joinDoc acc.separator acc.doc itemDoc
+                                                let
+                                                    -- A comment on the same source row as the previous
+                                                    -- item glues onto that item's last rendered line
+                                                    -- with a space. This matters after a *block* (a
+                                                    -- dropped type record, whose `prevRow` is its `}`
+                                                    -- row): `joinDoc`'s HardNl separator would push the
+                                                    -- comment to a fresh line, which reparses as an
+                                                    -- own-line comment and detaches (a +4 ↔ col-0
+                                                    -- oscillation). For an inline previous item the
+                                                    -- `FlowSep` join already renders a space, so this is
+                                                    -- a no-op there.
+                                                    joined =
+                                                        if acc.prevRow >= 0 && loc.start.row == acc.prevRow then
+                                                            R.concat acc.doc (R.concat (R.text " ") itemDoc)
+
+                                                        else
+                                                            joinDoc acc.separator acc.doc itemDoc
+                                                in
+                                                Ok { doc = joined
                                                     , prevRow = -1
                                                     , prevElided = False
                                                     , separator = FlowSep
