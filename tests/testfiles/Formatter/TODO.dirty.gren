@@ -18,7 +18,8 @@ module TODO exposing (..)
 --
 -- Matching that needs the comment moved below the head AND proven a reparse fixed
 -- point (the leading-comment placement work). These declarations pin the current
--- (glued-leading-comment) layout; regenerate them if that is ever closed.
+-- (glued-leading-comment) layout; regenerate them if that is ever closed. See
+-- README "Comparison with elm-format", point 12.
 
 
 -- comment in the flow of a type application whose record arg spans rows

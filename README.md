@@ -2548,6 +2548,42 @@ decision and why.
     both formatters (see [Pipelines](#pipelines)). Rare, and the shape is stable
     when reformatted, so it's left as is.
 
+12. **A comment that leads a dropped type record stays glued to the head — keep
+    as is (for now).** When a multi-line record type follows a head or a field
+    `:` — a type application argument (`HasIdentifier { … }`), or a record-type
+    field value (`tracing : { … }`) — both formatters drop the record onto its
+    own line. But when a comment sits *between* the head and the record,
+    gren-format keeps that comment glued to the head's line:
+
+    ```gren
+    type alias Container =
+        HasIdentifier {- note -}
+            { payload : String
+            , flags : Int
+            }
+    ```
+
+    elm-format instead drops the comment onto its own line above the record, at
+    the record's indent:
+
+    ```gren
+    type alias Container =
+        HasIdentifier
+            {- note -}
+            { payload : String
+            , flags : Int
+            }
+    ```
+
+    The record placement itself already matches; only the leading comment
+    differs. Matching elm-format here means moving the comment below the head —
+    which has to be proven a reparse fixed point first (the leading-comment
+    placement is reconstructed from source positions, per the "How comments are
+    tracked" note above, so a naive move oscillates). A *trailing* comment on the
+    dropped record's `}` already glues idempotently (`} {- c -}`); it is only the
+    *leading* position that stays put. Pinned in the `TODO.dirty.gren` /
+    `TODO.formatted.gren` fixtures.
+
 #### Minor/cosmetic — not acted on
 
 - `infix left  6 (+) = add` — elm-format inserts a double space after `left`;
