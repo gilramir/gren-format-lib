@@ -89,6 +89,39 @@ These are the same difficulty as the 23 `Err` deep-gaps; each is a separate
 focused effort, not a quick fix. Until done, the guard ships Doc's (wrong)
 output for these 4 nodes — a documented, bounded residual.
 
+#### Attempted + REVERTED: KitchenSink type-record-drop (2026-07-09)
+
+Pressed on with the 2 KitchenSink nodes. The *output* side is fully solved and
+was elm-format-verified — the two pitfalls both have clean answers:
+
+- **Shared-code blast radius** (`buildFlowDoc`/`listItemBoxDoc` serve types AND
+  expressions; a naive drop broke 13 expression fixtures): gate the drop on a
+  new `isTypeRecordLiteral node` — a curly literal whose first field uses a
+  `SynthesizedText ":"` separator (type field) vs `"="` (expression field). This
+  fires only for type records, leaving expression records/arrays/patterns inline.
+- **Leading-comment false-trigger** (a record-type-alias body with a leading
+  comment wrongly dropped): gate on `acc.separator == FlowSep` (real head
+  precedes) rather than "not first" — a leading comment leaves the separator
+  `AlreadyTerminated`, so it no longer counts as a head.
+- **Double-indent** (field-value flow is already `buildFlowDoc grenIndent`): pick
+  the drop rule by the flow's `indent` — `indentedBlockRule` (+grenIndent) when
+  `indent == 0`, `bodyBlockRule` (hardNl only) otherwise.
+
+With all three, effectful was **139/139** and the whitespace fuzzers **0**; the
+drop even corrected 3 more previously-glued fixtures (SignatureTrailingComment,
+CommentPlacement, KitchenComments `extremelyCommented`) — elm-format drops *every*
+multi-line record type below its head/`:`, so the rule generalizes.
+
+**BUT the idempotency fuzzer found 3 non-idempotent gaps in KitchenSink — the
+hard wall:** (1) a trailing block comment after a *dropped* record's `}`
+oscillates +4 ↔ col-0 (comment-after-dropped-block instability — hits the primary
+`HasIdentifier` case); (2,3) `interpretMicroCommand : … -> { record }` — a
+function-type signature whose *return* record now drops makes the whole sig
+multi-line, so the `->` arrows re-break on the second pass. The drop entangles
+with arrow-layout and trailing-comment placement idempotency, which need more
+machinery. **Reverted** (source + 6 fixtures) to `497c1ae`. The output solution
+above is reusable; the remaining work is making the drop a reparse fixed point.
+
 ### Residual census recipe
 
 Instrument `makePrettyResult` (see session notes): classify each `lpnChildren
