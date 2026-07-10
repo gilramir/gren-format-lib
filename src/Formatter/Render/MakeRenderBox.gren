@@ -1991,7 +1991,7 @@ makeSignatureBox children =
             -- type (`{ … } -> …`) would need `assembleFlow` to soft-glue a
             -- multi-line item, which it can't yet, so that still falls back.
             when colonSplit.typeNodes is
-                [ _ ] ->
+                [ single ] ->
                     buildFlowBox 0 colonSplit.header
                         |> Result.andThen
                             (\headerBox ->
@@ -1999,7 +1999,19 @@ makeSignatureBox children =
                                     Ok headerLine ->
                                         buildFlowBox 0 colonSplit.typeNodes
                                             |> Result.map
-                                                (\typeBox -> B.prefix (B.row [ headerLine, B.space ]) typeBox)
+                                                (\typeBox ->
+                                                    -- A multi-line type RECORD drops below the
+                                                    -- header at +4 (the Doc's type-record-drop,
+                                                    -- `joinBracketLiteralFlowItem`) — elm-format
+                                                    -- drops every multi-line record type below
+                                                    -- its head/`:`. Other bracket types (parens,
+                                                    -- extensible records) keep the inline glue.
+                                                    if isTypeRecordLiteralBox single && not (isSingleLine typeBox) then
+                                                        B.stack1 [ B.line headerLine, B.indent typeBox ]
+
+                                                    else
+                                                        B.prefix (B.row [ headerLine, B.space ]) typeBox
+                                                )
 
                                     Err _ ->
                                         Err "box: multi-line header in comment-bearing signature not ported"
@@ -3228,13 +3240,52 @@ isSingleLine box =
             False
 
 
-{-| Assemble a flow into a Box. Consecutive inline (single-line) items join on
-one line, space-separated; a block item (BodyBlock / IndentedBlock / any
-multi-line node) flushes the current line and drops to its own line(s) indented
-by `flowIndent` plus the block's own indent (IndentedBlock/SoftIndentedBlock add
-+4, BodyBlock adds 0); an `EmptyLine` flushes and emits a blank line. This is
-the general shape `buildFlowDoc` produces — it covers the funcDecl header+body,
-plain calls, and the flat `if`/`else if`/`else` branch sequence alike. -}
+{-| True when `node` is a curly-bracket *type* record literal (`{ a : T, … }`,
+first field separated by `SynthesizedText ":"`) — a verbatim mirror of
+`MakeRender.isTypeRecordLiteral` (can't be imported: MakeRender imports this
+module). Keeping the predicate identical keeps the two renderers' type-record
+drop decisions byte-equal under the self-verify guard. -}
+isTypeRecordLiteralBox : LPNode -> Bool
+isTypeRecordLiteralBox node =
+    let
+        isCurly =
+            when lpnBox node is
+                AlwaysVertical ListCurly ->
+                    True
+
+                AllAcrossOrAllVertical ListCurly ->
+                    True
+
+                _ ->
+                    False
+
+        fieldHasColonSep field =
+            Array.any
+                (\c ->
+                    when lpnBox c is
+                        SynthesizedText ":" ->
+                            True
+
+                        _ ->
+                            False
+                )
+                (lpnChildren field)
+
+        firstField =
+            lpnChildren node
+                |> Array.keepIf (\c -> not (nodeIsComment c))
+                |> Array.first
+    in
+    isCurly
+        && (when firstField is
+                Just f ->
+                    fieldHasColonSep f
+
+                Nothing ->
+                    False
+           )
+
+
 -- True for a flow item whose node is a bracket LITERAL (record / array / record
 -- update) — the shapes that carry `R.align`, so a `B.prefix` glue of their first
 -- line pads continuation lines to stay aligned under the opening bracket.
@@ -3448,6 +3499,84 @@ inlineGluesToPrecedingBlock items =
     ).bad
 
 
+{-| Pair each single-line block-comment item with an immediately following
+type-record literal item, removing the comment from the item list and attaching
+it to the record's entry — the Box mirror of
+`MakeRender.pairLeadingRecordComments`. `assembleFlowImpl`'s fold then decides
+whether the pair drops together or replays the plain unpaired steps. A flow
+containing an arrow (a function type) never pairs — the Doc's
+`typeRecordDropFires` excludes it (`flowIsFunctionType`), so its fallback is
+identical to not pairing at all. -}
+pairTypeRecordComments : Array FlowItem -> Array { item : FlowItem, leading : Maybe FlowItem }
+pairTypeRecordComments items =
+    let
+        unpaired =
+            Array.map (\it -> { item = it, leading = Nothing }) items
+
+        pairableComment it =
+            when it.comment is
+                Just c ->
+                    not c.isLineComment && not c.multiLine
+
+                Nothing ->
+                    False
+
+        -- NB Gren's `Array.get -1` wraps to the LAST element — see the same
+        -- guard in `MakeRender.pairLeadingRecordComments`: without it, a record
+        -- at index 0 would pair with a comment TRAILING the flow and duplicate it.
+        at i =
+            if i < 0 then
+                Nothing
+
+            else
+                Array.get i items
+    in
+    if Array.any (\it -> isArrowLeaf it.node) items then
+        unpaired
+
+    else
+        items
+            |> Array.indexedMap (\i it -> { i = i, it = it })
+            |> Array.mapAndKeepJust
+                (\{ i, it } ->
+                    if
+                        pairableComment it
+                            && (at (i + 1)
+                                    |> Maybe.map (\n -> isTypeRecordLiteralBox n.node)
+                                    |> Maybe.withDefault False
+                               )
+                    then
+                        -- Consumed: attached to the record that follows.
+                        Nothing
+
+                    else
+                        Just
+                            { item = it
+                            , leading =
+                                if isTypeRecordLiteralBox it.node then
+                                    at (i - 1)
+                                        |> Maybe.andThen
+                                            (\prev ->
+                                                if pairableComment prev then
+                                                    Just prev
+
+                                                else
+                                                    Nothing
+                                            )
+
+                                else
+                                    Nothing
+                            }
+                )
+
+
+{-| Assemble a flow into a Box. Consecutive inline (single-line) items join on
+one line, space-separated; a block item (BodyBlock / IndentedBlock / any
+multi-line node) flushes the current line and drops to its own line(s) indented
+by `flowIndent` plus the block's own indent (IndentedBlock/SoftIndentedBlock add
++4, BodyBlock adds 0); an `EmptyLine` flushes and emits a blank line. This is
+the general shape `buildFlowDoc` produces — it covers the funcDecl header+body,
+plain calls, and the flat `if`/`else if`/`else` branch sequence alike. -}
 assembleFlowImpl : Bool -> Int -> Array FlowItem -> Result String Box
 assembleFlowImpl inlineStart flowIndent items =
     let
@@ -3561,20 +3690,10 @@ assembleFlowImpl inlineStart flowIndent items =
                             -- there, so fall back.
                             Err "box: mid-flow block comment after a block not ported"
 
-        step item accResult =
-            accResult
-                |> Result.andThen
-                    (\acc ->
-                        if isEmptyLine item.node then
-                            Ok { acc | rows = Array.pushLast B.blankLine (flushRow acc.curRow acc.rows), curRow = [], prevRow = -1, started = True, justTerminated = False, glueable = False }
-
-                        else
-                            when item.comment is
-                                Just c ->
-                                    placeComment acc c item.startRow
-                                        |> Result.map (\a -> { a | glueable = False })
-
-                                Nothing ->
+        -- One fold step for a non-comment, non-EmptyLine item (a block drops to
+        -- its own line, an inline item joins/glues the current row). Factored
+        -- out of `step` so the paired-leading-comment fallback can replay it.
+        nonCommentStep acc item =
                                     -- A `SoftIndentedBlock` renders inline while it
                                     -- fits, but the moment it follows a comment that
                                     -- terminated its line (`justTerminated`) the Doc's
@@ -3651,9 +3770,73 @@ assembleFlowImpl inlineStart flowIndent items =
                                                 -- A single-line-tagged item that isn't a Line
                                                 -- shouldn't happen; keep it as its own row.
                                                 Ok { acc | rows = Array.pushLast item.box (flushRow acc.curRow acc.rows), curRow = [], prevRow = -1, started = True, justTerminated = False, prevElided = False, glueable = False }
+
+        step paired accResult =
+            accResult
+                |> Result.andThen
+                    (\acc ->
+                        let
+                            item =
+                                paired.item
+                        in
+                        if isEmptyLine item.node then
+                            Ok { acc | rows = Array.pushLast B.blankLine (flushRow acc.curRow acc.rows), curRow = [], prevRow = -1, started = True, justTerminated = False, glueable = False }
+
+                        else
+                            when item.comment is
+                                Just c ->
+                                    placeComment acc c item.startRow
+                                        |> Result.map (\a -> { a | glueable = False })
+
+                                Nothing ->
+                                    when paired.leading is
+                                        Nothing ->
+                                            nonCommentStep acc item
+
+                                        Just leadItem ->
+                                            -- A single-line block comment paired with this
+                                            -- type record (see `pairTypeRecordComments`).
+                                            -- When the record drops after an inline head,
+                                            -- the comment drops WITH it — its own line
+                                            -- directly above the `{`, both at the record's
+                                            -- indent (the Doc's `joinBracketLiteralFlowItem`
+                                            -- leading-comment drop / elm-format's placement).
+                                            -- Otherwise replay the exact unpaired steps.
+                                            if not (Array.isEmpty acc.curRow) && not acc.justTerminated && item.isBlock then
+                                                let
+                                                    ownIndent =
+                                                        if isSoftGlueLiteral item then
+                                                            Basics.max 0 (grenIndent - flowIndent)
+
+                                                        else
+                                                            blockOwnIndent item.node
+
+                                                    commentBox =
+                                                        when leadItem.comment is
+                                                            Just lc ->
+                                                                lc.box
+
+                                                            Nothing ->
+                                                                -- unreachable: pairing only holds comment items
+                                                                B.blankLine
+
+                                                    blockBox =
+                                                        applyIndent ownIndent (B.stack1 [ commentBox, item.box ])
+                                                in
+                                                Ok { acc | rows = Array.pushLast blockBox (flushRow acc.curRow acc.rows), curRow = [], prevRow = -1, started = True, justTerminated = False, glueable = isGlueablePrefixBlock item }
+
+                                            else
+                                                when leadItem.comment is
+                                                    Just lc ->
+                                                        placeComment acc lc leadItem.startRow
+                                                            |> Result.map (\a -> { a | glueable = False })
+                                                            |> Result.andThen (\a -> nonCommentStep a item)
+
+                                                    Nothing ->
+                                                        nonCommentStep acc item
                     )
     in
-    Array.foldl step (Ok { rows = [], curRow = [], prevRow = -1, started = False, justTerminated = False, prevElided = False, glueable = False }) items
+    Array.foldl step (Ok { rows = [], curRow = [], prevRow = -1, started = False, justTerminated = False, prevElided = False, glueable = False }) (pairTypeRecordComments items)
         |> Result.andThen
             (\final ->
                 let

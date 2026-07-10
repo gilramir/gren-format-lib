@@ -134,10 +134,36 @@ unpaired fold steps byte-for-byte (`blockCommentStep`, factored out of the
 fold). elm-format-verified (alias-body form byte-identical); README point 12
 rewritten as resolved; fixtures `TODO.*` renamed
 `TypeRecordLeadingComment.*` and regenerated. Effectful 140/140, all fuzzers 0.
-**Box census note:** the Doc is now *ahead* of Box on the 3 fixture nodes
-(Box still glues the leading comment) — same Doc-ahead category as fix 1's
-BracketTrailingComments; the guard ships Doc, so output is correct. Porting the
-pairing to `assembleFlowImpl` joins the Box comment-in-flow backlog.
+**Box census note:** the Doc was briefly *ahead* of Box on the 3 fixture nodes;
+the Box port landed the next day (fix 5b, below), restoring guard agreement.
+
+#### LANDED: fix 5b — Box port of the type-record drop + a duplication fix
+
+Two Box-side changes bring the Box renderer back into byte-agreement:
+`pairTypeRecordComments` (the `assembleFlowImpl` mirror of the Doc pairing —
+paired drop when a real head is on the current row, exact unpaired replay
+otherwise) and a `makeSignatureBox` t47 change (a multi-line single-node type
+RECORD stacks below the header at +4 — the fix-3 drop — instead of the
+`B.prefix` align-glue; other bracket types keep the glue). Clears the
+CommentPlacement + SignatureTrailingComment mismatches (Doc-ahead since fix 3)
+and the 3 TypeRecordLeadingComment nodes. Remaining Doc-ahead census:
+BracketTrailingComments 1 (fix-1 class) + MultilineBlockComments 2 (deferred
+deep-gaps).
+
+**Bug found by the trust-Box idempotency fuzzer, fixed in both renderers:
+Gren's `Array.get -1` wraps to the LAST element**, so a record at flow index 0
+whose flow *ended* in a pairable comment (`type alias R = { … } {- c -}`)
+paired with that TRAILING comment via `at (0 - 1)` and rendered it TWICE. The
+duplicated output was string-idempotent (the reparse re-derives the same two
+positions), so the normal idempotency fuzzer and the pipeline's own checks
+(AST equality ignores comments; the idempotency check compares format¹ vs
+format², never Context(original) vs Context(format¹)) all passed silently —
+only the trust-Box fuzzer tripped, because Box's `trySoftGlueFlow` renders the
+duplicated two-comment form differently than Doc. Both `at` helpers now return
+`Nothing` for negative indices, and a TrailingOnly regression decl pins the
+single glued `} {- trail -}` in the TypeRecordLeadingComment fixture. Gates:
+normal 140/140 + all fuzzers 0; trust-Box fuzzers 0, trust-Box effectful fail
+set = the 2 known pre-existing divergences only.
 
 #### Attempted + REVERTED (superseded by the scoped landing above): first try
 

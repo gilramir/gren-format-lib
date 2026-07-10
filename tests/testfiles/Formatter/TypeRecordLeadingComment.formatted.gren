@@ -39,3 +39,13 @@ fieldValueWithComment :
     }
 fieldValueWithComment =
     something
+
+
+-- a comment TRAILING the record stays glued to its `}` — and stays single.
+-- Regression: the record sits at flow index 0, and Gren's `Array.get -1` wraps
+-- to the last element, so an unguarded leading-comment pairing would fetch this
+-- trailing comment as a "leading" one and render it twice.
+type alias TrailingOnly =
+    { ok : Maybe Int
+    , err : Maybe String
+    } {- trail -}

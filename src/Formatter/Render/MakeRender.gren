@@ -1575,8 +1575,18 @@ pairLeadingRecordComments nodes =
                 _ ->
                     False
 
+        -- NB Gren's `Array.get -1` wraps to the LAST element (negative indices
+        -- count from the end) — without this guard, a record at index 0 whose
+        -- flow ends in a pairable comment (`{ … } {- c -}`) would fetch that
+        -- TRAILING comment via `at (0 - 1)` as its "leading" one and render it
+        -- twice (a silent comment duplication that is string-idempotent, so the
+        -- idempotency fuzzer alone does not catch it).
         at i =
-            Array.get i nodes
+            if i < 0 then
+                Nothing
+
+            else
+                Array.get i nodes
     in
     nodes
         |> Array.indexedMap (\i n -> { i = i, n = n })
