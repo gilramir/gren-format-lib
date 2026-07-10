@@ -165,6 +165,61 @@ single glued `} {- trail -}` in the TypeRecordLeadingComment fixture. Gates:
 normal 140/140 + all fuzzers 0; trust-Box fuzzers 0, trust-Box effectful fail
 set = the 2 known pre-existing divergences only.
 
+### Remaining work (plan as of 2026-07-10, after fix 5b `b40d8a3`)
+
+Ordered by value-per-risk. Items 1–2 are scoped; 3–4 are the hard tail; 5 is
+parked by the cutover decision.
+
+1. **Close the comment-count verification gap (cheap, do first).** Fix 5b's
+   duplication bug was invisible to every gate: AST equality ignores comments,
+   and the idempotency check compares format¹ vs format² — never
+   Context(original) vs Context(format¹). Two small hardenings:
+   - `fuzz-idempotency.py`: it inserts exactly one `{- ¤ -}` per gap — assert
+     the formatted output contains exactly one `¤` (catches duplication AND
+     silent drops, corpus-wide, for free).
+   - The effectful harness (`assertPretty`): compare the original parse's
+     comment count against the formatted output's reparse (full Context
+     equality is position-sensitive by design; the *count* is stable).
+
+2. **BracketTrailingComments — port fix 1 to Box (the last easy Doc-ahead
+   node).** Fix 1 (`6ef4adc`) made the Doc's `makeAllAcrossOrAllVertical` go
+   vertical when any child forces vertical; Box's bracket-list renderer has the
+   same single-element coupling bug (noted "ok-but-wrong in both renderers" at
+   fix 1, Doc-ahead since). Same shape of work as fix 5b: mirror the predicate,
+   verify with the trust-Box effectful run + fuzzers.
+
+3. **MultilineBlockComments deep-gap A: `-> { record }` return-record drop.**
+   elm-format drops a multi-line record that is a function signature's return
+   type; we glue (scoped out via `flowIsFunctionType` since fix 3). Landing it
+   requires making the signature arrow-break decision a reparse fixed point:
+   after the drop the whole signature is multi-line, so the `->` chain
+   re-breaks on the second pass (the fix-3 first-attempt revert, and the same
+   class as the t61 revert). Approach sketch: make `signatureForceVertical` /
+   the Doc's segment-break decision depend on a structural property that the
+   dropped form also has (e.g. "any segment is multi-line"), THEN delete the
+   `flowIsFunctionType` gate. Run both fuzzer modes before trusting it.
+
+4. **MultilineBlockComments deep-gap B: `{ x } {- mlbc -}` reindent.** A
+   multi-line block comment trailing a record in a flow — the mlbc-in-flow
+   fixed-point class (t42/t43/t61 territory; comment position shifts on
+   reparse). Needs the comment's claimed position to be a fixed point of the
+   rendered layout before any layout change; do not retry naively (three
+   reverts on record).
+
+5. **Parked (by the cutover decision): the 23 Box `Err` root children.** Full
+   Doc deletion needs them at 0; they span 4 hard architecture classes
+   (post-mlbc continuation indent, Tab-vs-prefix bracket items, soft-value
+   glue, verbatim opener / nested OpAndRhs / multi-step backward pipes). The
+   guard keeps them correct; revisit only if the hybrid's dual-render cost
+   ever matters.
+
+Process notes for whoever picks this up: run the trust-Box fuzzers after ANY
+comment-pairing or attachment change (sed the guard to `if True then`, rebuild
+`gren-format`, fuzz, sed back — don't `cp`-restore over other edits); verify
+divergences against the elm-format binary
+(`/home/gram/prj/gren/node_modules/.bin/elm-format --stdin`) before matching
+it; census recipe is in "Residual census recipe" above.
+
 #### Attempted + REVERTED (superseded by the scoped landing above): first try
 
 Pressed on with the 2 KitchenSink nodes. The *output* side is fully solved and
