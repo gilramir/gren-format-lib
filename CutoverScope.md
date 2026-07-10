@@ -109,6 +109,36 @@ record (function-type, scoped out to avoid the arrow-oscillation) and the
 them needs the arrow-break made a reparse fixed point + the mlbc reindent — the
 same fixed-point work the drop currently sidesteps.
 
+#### LANDED: drop with a comment in the flow (fix 4, `8786dcf`)
+
+Fix 3's fourth gate (no comment anywhere in the flow) is deleted — a type record
+now drops even when a comment shares the flow. The trailing-comment oscillation
+that motivated the gate is fixed at its root: the drop carries the record's
+closing-bracket row as `prevRow` (was `-1`), so a single-line block comment on
+that source row glues onto the `}` line (`} {- c -}`) — a reparse fixed point.
+`dropRule.nextSep` is kept (an interim `FlowSep` experiment glued a following
+type argument, `Dict { … } String` → `} String` — a correctness regression).
+
+#### LANDED: leading comment drops with the record (fix 5)
+
+The residual fix 4 left behind — a comment *between* the head and the record
+stayed glued to the head's line, where elm-format drops it onto its own line
+directly above the record — is closed. `pairLeadingRecordComments` pairs a
+single-line block comment with an immediately following type-record literal
+before `buildFlowDocImpl`'s fold; at the record's step, if the exact
+`typeRecordDropFires` gates pass, comment + record drop together as one block
+(same wrap/nest → same indent). The move is a reparse fixed point because the
+decision is keyed off the *next node's structure*, not source rows — the naive
+row-based move oscillated (glued↔dropped). Every non-drop case replays the
+unpaired fold steps byte-for-byte (`blockCommentStep`, factored out of the
+fold). elm-format-verified (alias-body form byte-identical); README point 12
+rewritten as resolved; fixtures `TODO.*` renamed
+`TypeRecordLeadingComment.*` and regenerated. Effectful 140/140, all fuzzers 0.
+**Box census note:** the Doc is now *ahead* of Box on the 3 fixture nodes
+(Box still glues the leading comment) — same Doc-ahead category as fix 1's
+BracketTrailingComments; the guard ships Doc, so output is correct. Porting the
+pairing to `assembleFlowImpl` joins the Box comment-in-flow backlog.
+
 #### Attempted + REVERTED (superseded by the scoped landing above): first try
 
 Pressed on with the 2 KitchenSink nodes. The *output* side is fully solved and

@@ -1,0 +1,41 @@
+module TypeRecordLeadingComment exposing (..)
+
+-- A comment between a head and a multi-line type record — a type-application
+-- argument (`HasIdentifier { … }`), a record-type field value (`tracing :
+-- { … }`), or a type-alias body — drops onto its own line directly above the
+-- record, at the record's indent, matching elm-format. The decision is keyed
+-- off the record that follows (not off source rows), so the moved comment
+-- reparses to itself. See README "Comparison with elm-format" point 12 and
+-- MakeRender.pairLeadingRecordComments / joinPairedBracketItem.
+
+
+-- comment glued to the alias head in source: moves below the head
+type alias Container =
+    HasIdentifier
+        {- note -}
+        { payload : String
+        , flags : Int
+        }
+
+
+-- comment in the flow of a type application whose record arg spans rows
+typeAppWithComment : HasIdentifier
+    {- note -}
+    { payload : String
+    , flags : Int
+    }
+typeAppWithComment =
+    something
+
+
+-- comment in the flow of a record-type field whose value spans rows
+fieldValueWithComment :
+    { tracing :
+        {- t -}
+        { isEnabled : Bool
+        , sinks : Int
+        }
+    , scheduler : Int
+    }
+fieldValueWithComment =
+    something

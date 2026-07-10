@@ -385,7 +385,7 @@ commentsSuite fsPerm =
             , assertPretty fsPerm "multiple comments sharing a top-level comment line" "AdjacentTopLevelComments"
             , assertPretty fsPerm "own-line comment before a container's closing bracket stays inside" "BracketTrailingComments"
             , assertPretty fsPerm "comment trailing a signature's last token stays glued inline" "SignatureTrailingComment"
-            , assertPretty fsPerm "REVISIT: a type record with a comment in its flow stays glued instead of dropping (elm-format drops); pinned for a future fixed-point fix" "TODO"
+            , assertPretty fsPerm "a comment leading a multi-line type record drops onto its own line above the record (elm-format match)" "TypeRecordLeadingComment"
             , assertPretty fsPerm "comment trailing the last let binding routes after `in` (not own-line, which would oscillate)" "LetInTrailingComment"
             , assertPretty fsPerm "comment trailing a non-last let binding's value sits at the bindings-block indent" "BetweenLetBindingsComment"
             , assertPretty fsPerm "comment after a wrapping module exposing list stays glued to the module line" "ModuleExposingTrailingComment"

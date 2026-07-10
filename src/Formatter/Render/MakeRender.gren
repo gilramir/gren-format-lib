@@ -1095,7 +1095,7 @@ buildFlowDocImpl indent inlineStart brokenFlow nodes =
         -- (+grenIndent) when the flow is unnested (`indent == 0`, a type-alias
         -- body / union variant), `bodyBlockRule` (hardNl only) when the flow is
         -- already nested +grenIndent (a record-type field value).
-        joinBracketLiteralFlowItem acc node itemDoc =
+        typeRecordDropFires acc node itemDoc =
             let
                 followsRealHead =
                     when acc.separator is
@@ -1105,12 +1105,13 @@ buildFlowDocImpl indent inlineStart brokenFlow nodes =
                         _ ->
                             False
             in
-            if
-                followsRealHead
-                    && R.hasHardBreak itemDoc
-                    && isTypeRecordLiteral node
-                    && not (flowIsFunctionType nodes)
-            then
+            followsRealHead
+                && R.hasHardBreak itemDoc
+                && isTypeRecordLiteral node
+                && not (flowIsFunctionType nodes)
+
+        joinBracketLiteralFlowItem leadingComment acc node itemDoc =
+            if typeRecordDropFires acc node itemDoc then
                 let
                     dropRule =
                         if indent == 0 then
@@ -1118,6 +1119,19 @@ buildFlowDocImpl indent inlineStart brokenFlow nodes =
 
                         else
                             bodyBlockRule
+
+                    -- A leading single-line block comment paired with this record
+                    -- (see `pairLeadingRecordComments`) drops WITH it — the
+                    -- comment on its own line directly above the `{`, both at the
+                    -- drop indent (elm-format's placement). Bundling them into one
+                    -- dropped child gives them the same wrap/nest for free.
+                    droppedDoc =
+                        when leadingComment is
+                            Just commentDoc ->
+                                R.concat commentDoc (R.concat R.hardNl itemDoc)
+
+                            Nothing ->
+                                itemDoc
                 in
                 -- Carry the record's closing-bracket row as `prevRow` (not -1) so
                 -- a single-line block comment on that same source row glues onto
@@ -1127,7 +1141,7 @@ buildFlowDocImpl indent inlineStart brokenFlow nodes =
                 -- (HardNl / FlowSep) means a following *type node* still breaks to
                 -- its own line; only a same-row comment glues (see the
                 -- BlockComment branch's same-row path).
-                { doc = joinBlock dropRule acc.separator acc.doc itemDoc
+                { doc = joinBlock dropRule acc.separator acc.doc droppedDoc
                 , prevRow =
                     lpnLastBracketEnd node
                         |> Maybe.map (\p -> p.row)
@@ -1142,6 +1156,143 @@ buildFlowDocImpl indent inlineStart brokenFlow nodes =
                 , prevElided = False
                 , separator = FlowSep
                 }
+
+        -- One fold step for a `BlockComment` node: multi-line comments and
+        -- standalone leading comments end their line (AlreadyTerminated); a
+        -- single-line comment continuing a line glues inline. Factored out of
+        -- the fold so `joinPairedBracketItem`'s no-drop fallback can replay the
+        -- exact unpaired behavior.
+        blockCommentStep acc commentNode loc =
+            let
+                box =
+                    lpnBox commentNode
+
+                nodeChildren =
+                    lpnChildren commentNode
+
+                -- A block comment forces an own-line break (so the next
+                -- token starts fresh at the right column) when it is
+                -- multi-line, OR when it is a standalone leading comment
+                -- in a vertical context — the first item of a flow that
+                -- does not continue a line the caller already started
+                -- (e.g. before a non-first `let` binding), OR when a
+                -- previous comment already ended the line (AlreadyTerminated):
+                -- a run of own-line comments must each stay on their own
+                -- line, not glue the following token onto the last one.
+                -- A single-line block comment that continues a line stays
+                -- inline (`a * {- c -} b`, a binop RHS, a `( … )` body).
+                standaloneLeading =
+                    (acc.separator == FirstItem && not inlineStart)
+                        || acc.separator == AlreadyTerminated
+            in
+            if isMultiLineCommentValue loc.value || standaloneLeading then
+                let
+                    commentText =
+                        commentBoxDoc box
+
+                    docWithComment =
+                        when acc.separator is
+                            FirstItem ->
+                                commentText
+
+                            AlreadyTerminated ->
+                                R.concat acc.doc commentText
+
+                            _ ->
+                                -- `|| acc.prevElided` mirrors
+                                -- `renderSingleLineCommentNode`: a comment
+                                -- directly trailing a zero-width elided token
+                                -- (e.g. a signature's synthesized `->`) is
+                                -- anchored at that token's left-neighbour row,
+                                -- not where the token renders, so a pure row
+                                -- test flips across reformats when the
+                                -- neighbour wraps onto its own line.
+                                if loc.start.row == acc.prevRow || acc.prevElided then
+                                    R.concat acc.doc (R.concat (R.text " ") commentText)
+
+                                else
+                                    R.concat acc.doc (R.concat R.hardNl commentText)
+                in
+                Ok { doc = R.concat docWithComment R.hardNl
+                    , prevRow = loc.start.row
+                    , prevElided = False
+                    , separator = AlreadyTerminated
+                    }
+
+            else
+                -- Single-line block comment continuing a line: inline.
+                when makePDoc box nodeChildren is
+                    Err e ->
+                        Err e
+
+                    Ok itemDoc ->
+                        let
+                            -- A comment on the same source row as the previous
+                            -- item glues onto that item's last rendered line
+                            -- with a space. This matters after a *block* (a
+                            -- dropped type record, whose `prevRow` is its `}`
+                            -- row): `joinDoc`'s HardNl separator would push the
+                            -- comment to a fresh line, which reparses as an
+                            -- own-line comment and detaches (a +4 ↔ col-0
+                            -- oscillation). For an inline previous item the
+                            -- `FlowSep` join already renders a space, so this is
+                            -- a no-op there.
+                            joined =
+                                if acc.prevRow >= 0 && loc.start.row == acc.prevRow then
+                                    R.concat acc.doc (R.concat (R.text " ") itemDoc)
+
+                                else
+                                    joinDoc acc.separator acc.doc itemDoc
+                        in
+                        Ok { doc = joined
+                            , prevRow = -1
+                            , prevElided = False
+                            , separator = FlowSep
+                            }
+
+        -- Join an `AllAcrossOrAllVertical` / `AlwaysVertical` flow item,
+        -- honoring a paired leading comment (`pairLeadingRecordComments`).
+        -- When the record drops (the exact `typeRecordDropFires` gates) and the
+        -- comment isn't glued to the previous item's row, the comment drops
+        -- WITH the record — own line directly above the `{`, both at the drop
+        -- indent (elm-format's placement, README "Comparison with elm-format"
+        -- point 12). This is a reparse fixed point because the decision is
+        -- keyed off the *next node's structure*, not source rows: after the
+        -- move the comment sits on its own row, the reparse re-pairs it with
+        -- the record and drops it again. In every other case the fallback
+        -- replays the exact unpaired steps (comment via `blockCommentStep`,
+        -- record via the normal join), so behavior is unchanged there.
+        joinPairedBracketItem acc item node itemDoc =
+            when item.pairedComment is
+                Nothing ->
+                    Ok (joinBracketLiteralFlowItem Nothing acc node itemDoc)
+
+                Just commentNode ->
+                    when lpnBox commentNode is
+                        BlockComment loc ->
+                            -- Note the drop deliberately ignores `acc.prevRow`
+                            -- row-glue: even a comment written on the head's own
+                            -- row (`HasIdentifier {- note -} { … }`) moves below —
+                            -- elm-format's placement, and row-independent, so the
+                            -- moved form reparses to itself. (A comment *trailing*
+                            -- a dropped record with no record after it is never
+                            -- paired, so fix 4's `} {- c -}` glue is untouched.)
+                            if typeRecordDropFires acc node itemDoc then
+                                Ok
+                                    (joinBracketLiteralFlowItem
+                                        (Just (commentBoxDoc (lpnBox commentNode)))
+                                        acc
+                                        node
+                                        itemDoc)
+
+                            else
+                                blockCommentStep acc commentNode loc
+                                    |> Result.map
+                                        (\accAfterComment ->
+                                            joinBracketLiteralFlowItem Nothing accAfterComment node itemDoc)
+
+                        _ ->
+                            Err "paired leading comment is not a block comment"
 
         -- elm-format keeps a short leading block comment glued to the very next
         -- term (`fn arg0 {- c -} arg1` → arg1 stays on the comment's line)
@@ -1194,23 +1345,26 @@ buildFlowDocImpl indent inlineStart brokenFlow nodes =
             when mergedFirstStep is
                 Just merged ->
                     { seed = Ok { doc = merged.doc, prevRow = -1, prevElided = False, separator = FlowSep }
-                    , items = merged.remaining
+                    , items = pairLeadingRecordComments merged.remaining
                     }
 
                 Nothing ->
                     { seed = Ok { doc = R.empty, prevRow = -1, prevElided = False, separator = FirstItem }
-                    , items = nodes
+                    , items = pairLeadingRecordComments nodes
                     }
 
         foldResult =
             Array.foldl
-                (\node accResult ->
+                (\item accResult ->
                     when accResult is
                         Err e ->
                             Err e
 
                         Ok acc ->
                             let
+                                node =
+                                    item.node
+
                                 box =
                                     lpnBox node
 
@@ -1222,86 +1376,7 @@ buildFlowDocImpl indent inlineStart brokenFlow nodes =
                                     Ok (renderSingleLineCommentNode acc box loc)
 
                                 BlockComment loc ->
-                                    let
-                                        -- A block comment forces an own-line break (so the next
-                                        -- token starts fresh at the right column) when it is
-                                        -- multi-line, OR when it is a standalone leading comment
-                                        -- in a vertical context — the first item of a flow that
-                                        -- does not continue a line the caller already started
-                                        -- (e.g. before a non-first `let` binding), OR when a
-                                        -- previous comment already ended the line (AlreadyTerminated):
-                                        -- a run of own-line comments must each stay on their own
-                                        -- line, not glue the following token onto the last one.
-                                        -- A single-line block comment that continues a line stays
-                                        -- inline (`a * {- c -} b`, a binop RHS, a `( … )` body).
-                                        standaloneLeading =
-                                            (acc.separator == FirstItem && not inlineStart)
-                                                || acc.separator == AlreadyTerminated
-                                    in
-                                    if isMultiLineCommentValue loc.value || standaloneLeading then
-                                        let
-                                            commentText =
-                                                commentBoxDoc box
-
-                                            docWithComment =
-                                                when acc.separator is
-                                                    FirstItem ->
-                                                        commentText
-
-                                                    AlreadyTerminated ->
-                                                        R.concat acc.doc commentText
-
-                                                    _ ->
-                                                        -- `|| acc.prevElided` mirrors
-                                                        -- `renderSingleLineCommentNode`: a comment
-                                                        -- directly trailing a zero-width elided token
-                                                        -- (e.g. a signature's synthesized `->`) is
-                                                        -- anchored at that token's left-neighbour row,
-                                                        -- not where the token renders, so a pure row
-                                                        -- test flips across reformats when the
-                                                        -- neighbour wraps onto its own line.
-                                                        if loc.start.row == acc.prevRow || acc.prevElided then
-                                                            R.concat acc.doc (R.concat (R.text " ") commentText)
-
-                                                        else
-                                                            R.concat acc.doc (R.concat R.hardNl commentText)
-                                        in
-                                        Ok { doc = R.concat docWithComment R.hardNl
-                                            , prevRow = loc.start.row
-                                            , prevElided = False
-                                            , separator = AlreadyTerminated
-                                            }
-
-                                    else
-                                        -- Single-line block comment continuing a line: inline.
-                                        when makePDoc box nodeChildren is
-                                            Err e ->
-                                                Err e
-
-                                            Ok itemDoc ->
-                                                let
-                                                    -- A comment on the same source row as the previous
-                                                    -- item glues onto that item's last rendered line
-                                                    -- with a space. This matters after a *block* (a
-                                                    -- dropped type record, whose `prevRow` is its `}`
-                                                    -- row): `joinDoc`'s HardNl separator would push the
-                                                    -- comment to a fresh line, which reparses as an
-                                                    -- own-line comment and detaches (a +4 ↔ col-0
-                                                    -- oscillation). For an inline previous item the
-                                                    -- `FlowSep` join already renders a space, so this is
-                                                    -- a no-op there.
-                                                    joined =
-                                                        if acc.prevRow >= 0 && loc.start.row == acc.prevRow then
-                                                            R.concat acc.doc (R.concat (R.text " ") itemDoc)
-
-                                                        else
-                                                            joinDoc acc.separator acc.doc itemDoc
-                                                in
-                                                Ok { doc = joined
-                                                    , prevRow = -1
-                                                    , prevElided = False
-                                                    , separator = FlowSep
-                                                    }
+                                    blockCommentStep acc node loc
 
                                 AllAcrossOrAllVertical bracket ->
                                     when makeAllAcrossOrAllVertical bracket nodeChildren is
@@ -1309,7 +1384,7 @@ buildFlowDocImpl indent inlineStart brokenFlow nodes =
                                             Err e
 
                                         Ok itemDoc ->
-                                            Ok (joinBracketLiteralFlowItem acc node itemDoc)
+                                            joinPairedBracketItem acc item node itemDoc
 
                                 AlwaysVertical bracket ->
                                     when listBoxesForBracket bracket nodeChildren is
@@ -1317,7 +1392,7 @@ buildFlowDocImpl indent inlineStart brokenFlow nodes =
                                             Err e
 
                                         Ok itemDoc ->
-                                            Ok (joinBracketLiteralFlowItem acc node itemDoc)
+                                            joinPairedBracketItem acc item node itemDoc
 
                                 IndentedBlock ->
                                     renderBlockNode indentedBlockRule acc nodeChildren
@@ -1478,6 +1553,64 @@ isTypeRecordLiteral node =
                 Nothing ->
                     False
            )
+
+
+{-| Pair each single-line block comment with an immediately following type
+record literal, removing the comment from the item list and attaching it to the
+record's entry. `buildFlowDocImpl`'s fold then decides — with the exact
+`typeRecordDropFires` gates — whether the pair drops together (comment on its
+own line directly above the record, elm-format's placement) or replays the
+plain unpaired steps. Pairing is deliberately loose (structural only); the
+tight gating happens at the record's fold step, where the separator state and
+the rendered doc are known.
+-}
+pairLeadingRecordComments : Array LPNode -> Array { node : LPNode, pairedComment : Maybe LPNode }
+pairLeadingRecordComments nodes =
+    let
+        pairableComment n =
+            when lpnBox n is
+                BlockComment loc ->
+                    not (isMultiLineCommentValue loc.value)
+
+                _ ->
+                    False
+
+        at i =
+            Array.get i nodes
+    in
+    nodes
+        |> Array.indexedMap (\i n -> { i = i, n = n })
+        |> Array.mapAndKeepJust
+            (\{ i, n } ->
+                if
+                    pairableComment n
+                        && (at (i + 1)
+                                |> Maybe.map isTypeRecordLiteral
+                                |> Maybe.withDefault False
+                           )
+                then
+                    -- Consumed: attached to the record that follows.
+                    Nothing
+
+                else
+                    Just
+                        { node = n
+                        , pairedComment =
+                            if isTypeRecordLiteral n then
+                                at (i - 1)
+                                    |> Maybe.andThen
+                                        (\prev ->
+                                            if pairableComment prev then
+                                                Just prev
+
+                                            else
+                                                Nothing
+                                        )
+
+                            else
+                                Nothing
+                        }
+            )
 
 
 {-| True when the flow is a function *type* (`A -> B -> …`) — it contains an
