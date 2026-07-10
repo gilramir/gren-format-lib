@@ -1,0 +1,34 @@
+module TODO exposing (..)
+
+-- REVISIT: a multi-line TYPE record following a head/`:` in a flow normally
+-- drops to its own line at +4 (elm-format's rule; see the type-record-drop in
+-- MakeRender.joinBracketLiteralFlowItem). But when a comment sits in the same
+-- flow as the record, the drop currently BACKS OFF and glues the record to the
+-- head line instead. The reason is idempotency: a comment trailing a dropped
+-- record's `}` oscillates between +4 and column 0 on successive reformats, so
+-- the glued form is used as a stable fixed point. elm-format instead drops the
+-- record AND puts the comment on its own line at +4. Closing this gap needs the
+-- comment-placement/mlbc work to be made a reparse fixed point first.
+--
+-- These declarations exercise the currently-glued (divergent) layout so the
+-- behaviour is pinned; regenerate them if the drop is ever extended to the
+-- commented case.
+
+
+-- comment in the flow of a type application whose record arg spans rows
+typeAppWithComment : HasIdentifier {- note -} { payload : String
+                                              , flags : Int
+                                              }
+typeAppWithComment =
+    something
+
+
+-- comment in the flow of a record-type field whose value spans rows
+fieldValueWithComment :
+    { tracing : {- t -} { isEnabled : Bool
+                        , sinks : Int
+                        }
+    , scheduler : Int
+    }
+fieldValueWithComment =
+    something
