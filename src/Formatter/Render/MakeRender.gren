@@ -1080,6 +1080,59 @@ buildFlowDocImpl indent inlineStart brokenFlow nodes =
                 AlreadyTerminated ->
                     R.concat accDoc itemDoc
 
+        -- Join a bracket-literal child (`AllAcrossOrAllVertical` /
+        -- `AlwaysVertical`). A multi-line *type* record that follows a real head
+        -- in a flow DROPS to its own line at +grenIndent — matching elm-format's
+        -- application rule (`HasIdentifier\n    { … }`, `tracing :\n    { … }`) —
+        -- instead of gluing its first line onto the head. Gates:
+        --   • `isTypeRecordLiteral` — only type records, so expression flows
+        --     (records / arrays / patterns) that share `buildFlowDoc` stay inline.
+        --   • `acc.separator == FlowSep` — real content precedes (not `FirstItem`,
+        --     a leading comment's `AlreadyTerminated`, or `HardNl` after a block).
+        --   • NOT `flowIsFunctionType nodes` — a `A -> … -> { record }` return
+        --     record is scoped out (dropping it oscillates the `->` chain).
+        -- Drop rule lands the record at flow-base + grenIndent: `indentedBlockRule`
+        -- (+grenIndent) when the flow is unnested (`indent == 0`, a type-alias
+        -- body / union variant), `bodyBlockRule` (hardNl only) when the flow is
+        -- already nested +grenIndent (a record-type field value).
+        joinBracketLiteralFlowItem acc node itemDoc =
+            let
+                followsRealHead =
+                    when acc.separator is
+                        FlowSep ->
+                            True
+
+                        _ ->
+                            False
+            in
+            if
+                followsRealHead
+                    && R.hasHardBreak itemDoc
+                    && isTypeRecordLiteral node
+                    && not (flowIsFunctionType nodes)
+                    && not (Array.any nodeIsComment nodes)
+            then
+                let
+                    dropRule =
+                        if indent == 0 then
+                            indentedBlockRule
+
+                        else
+                            bodyBlockRule
+                in
+                { doc = joinBlock dropRule acc.separator acc.doc itemDoc
+                , prevRow = -1
+                , prevElided = False
+                , separator = dropRule.nextSep
+                }
+
+            else
+                { doc = joinDoc acc.separator acc.doc itemDoc
+                , prevRow = -1
+                , prevElided = False
+                , separator = FlowSep
+                }
+
         -- elm-format keeps a short leading block comment glued to the very next
         -- term (`fn arg0 {- c -} arg1` → arg1 stays on the comment's line)
         -- instead of always forcing an own-line break — a break only happens
@@ -1228,11 +1281,15 @@ buildFlowDocImpl indent inlineStart brokenFlow nodes =
                                             Err e
 
                                         Ok itemDoc ->
-                                            Ok { doc = joinDoc acc.separator acc.doc itemDoc
-                                                , prevRow = -1
-                                                , prevElided = False
-                                                , separator = FlowSep
-                                                }
+                                            Ok (joinBracketLiteralFlowItem acc node itemDoc)
+
+                                AlwaysVertical bracket ->
+                                    when listBoxesForBracket bracket nodeChildren is
+                                        Err e ->
+                                            Err e
+
+                                        Ok itemDoc ->
+                                            Ok (joinBracketLiteralFlowItem acc node itemDoc)
 
                                 IndentedBlock ->
                                     renderBlockNode indentedBlockRule acc nodeChildren
@@ -1342,6 +1399,82 @@ nodeForcesVertical node =
 
         Err _ ->
             False
+
+
+{-| True when `node` is a curly-bracket *type* record literal (`{ a : T, … }`),
+as opposed to an *expression* record (`{ a = v }`), a record update, an array,
+or a pattern. The discriminator is the field separator: a type field is built
+with `SynthesizedText ":"`, an expression field with `SynthesizedText "="`.
+
+Used to decide whether a multi-line record child in a flow drops to its own
+line (elm-format's application rule for type applications / type field values)
+without disturbing the many *expression* flows that share `buildFlowDoc` and
+must keep their records/arrays/patterns inline.
+-}
+isTypeRecordLiteral : LPNode -> Bool
+isTypeRecordLiteral node =
+    let
+        isCurly =
+            when lpnBox node is
+                AlwaysVertical ListCurly ->
+                    True
+
+                AllAcrossOrAllVertical ListCurly ->
+                    True
+
+                _ ->
+                    False
+
+        fieldHasColonSep field =
+            Array.any
+                (\c ->
+                    when lpnBox c is
+                        SynthesizedText ":" ->
+                            True
+
+                        _ ->
+                            False
+                )
+                (lpnChildren field)
+
+        firstField =
+            lpnChildren node
+                |> Array.keepIf (\c -> not (nodeIsComment c))
+                |> Array.first
+    in
+    isCurly
+        && (when firstField is
+                Just f ->
+                    fieldHasColonSep f
+
+                Nothing ->
+                    False
+           )
+
+
+{-| True when the flow is a function *type* (`A -> B -> …`) — it contains an
+elided `->` token. A record that is the return type of such a signature is NOT
+dropped to its own line by `joinBracketLiteralFlowItem`: dropping it makes the
+whole signature multi-line, which then re-breaks the `->` chain on the next
+reparse (a non-idempotent oscillation). Scoped out until the arrow-break
+decision is made a reparse fixed point. (Type applications and record-type
+field values have no arrow, so they still drop.)
+-}
+flowIsFunctionType : Array LPNode -> Bool
+flowIsFunctionType nodes =
+    Array.any
+        (\n ->
+            when lpnBox n is
+                UnbreakableText loc ->
+                    loc.value == "->"
+
+                SynthesizedText "->" ->
+                    True
+
+                _ ->
+                    False
+        )
+        nodes
 
 
 {-| True when `node` forces vertical (`nodeForcesVertical`) in a way that

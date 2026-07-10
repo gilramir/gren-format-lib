@@ -82,21 +82,24 @@ type alias HasIdentifier r =
 
 
 type alias Container =
-    HasIdentifier { payload : String
-                  , flags : { isReady : Bool, isVerified : Bool, isPersisted : Bool, isShadowBanned : Bool, isQuarantined : Bool }
-                  , nestedConfiguration : { retryCount : Int, exponentialBackoffMillis : Int, jitterMillis : Int, maxAttempts : Int }
-                  , recentMessages : Array { author : String, timestampMillis : Int, body : String, replyToIdentifier : Maybe String }
-                  }
+    HasIdentifier
+        { payload : String
+        , flags : { isReady : Bool, isVerified : Bool, isPersisted : Bool, isShadowBanned : Bool, isQuarantined : Bool }
+        , nestedConfiguration : { retryCount : Int, exponentialBackoffMillis : Int, jitterMillis : Int, maxAttempts : Int }
+        , recentMessages : Array { author : String, timestampMillis : Int, body : String, replyToIdentifier : Maybe String }
+        }
 
 
 {-| A configuration record with deeply nested option groups. -}
 type alias Configuration =
-    { tracing : { isEnabled : Bool
-                , sinks : Array { kind : String, endpoint : String, headers : Array { headerName : String, headerValue : String } }
-                }
-    , scheduler : { defaultTickMillis : Int
-                  , overrides : Array { lane : String, tickMillis : Int, priority : Int }
-                  }
+    { tracing :
+        { isEnabled : Bool
+        , sinks : Array { kind : String, endpoint : String, headers : Array { headerName : String, headerValue : String } }
+        }
+    , scheduler :
+        { defaultTickMillis : Int
+        , overrides : Array { lane : String, tickMillis : Int, priority : Int }
+        }
     , featureFlags : Array { flagName : String, isOn : Bool, rolloutPercent : Int }
     }
 
