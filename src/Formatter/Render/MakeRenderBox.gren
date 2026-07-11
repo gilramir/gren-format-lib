@@ -3504,9 +3504,12 @@ type-record literal item, removing the comment from the item list and attaching
 it to the record's entry — the Box mirror of
 `MakeRender.pairLeadingRecordComments`. `assembleFlowImpl`'s fold then decides
 whether the pair drops together or replays the plain unpaired steps. A flow
-containing an arrow (a function type) never pairs — the Doc's
-`typeRecordDropFires` excludes it (`flowIsFunctionType`), so its fallback is
-identical to not pairing at all. -}
+containing an arrow (a function type) never pairs: the Doc now drops a
+function type's return-type record too (`MakeRender.segmentHasDroppingRecord`
+folds that into the signature's own `forceVertical` decision so it's a reparse
+fixed point), but Box has no such per-segment awareness here yet — leaving this
+case unpaired falls back to Doc's output via the self-verify guard rather than
+risking Box producing a differently-shaped (and unverified) drop. -}
 pairTypeRecordComments : Array FlowItem -> Array { item : FlowItem, leading : Maybe FlowItem }
 pairTypeRecordComments items =
     let

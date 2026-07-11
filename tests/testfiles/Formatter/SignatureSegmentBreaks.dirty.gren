@@ -21,3 +21,13 @@ keptMultiLine : Int
     -> { x : Int, y : Int }
 keptMultiLine n =
     { x = n, y = n }
+
+
+-- A comment forcing the RETURN record vertical, even though the author wrote
+-- the whole signature on one row, explodes every `->` part (elm-format
+-- match) rather than gluing the dropped record under a lone broken arrow —
+-- that glued form would make `segmentsBrokenAtBoundary` see a boundary break
+-- only on reparse, flipping the layout a second time.
+returnRecordComment : Int -> { x : Int, y : Int {- note -} }
+returnRecordComment n =
+    { x = n, y = n }

@@ -1089,8 +1089,10 @@ buildFlowDocImpl indent inlineStart brokenFlow nodes =
         --     (records / arrays / patterns) that share `buildFlowDoc` stay inline.
         --   • `acc.separator == FlowSep` — real content precedes (not `FirstItem`,
         --     a leading comment's `AlreadyTerminated`, or `HardNl` after a block).
-        --   • NOT `flowIsFunctionType nodes` — a `A -> … -> { record }` return
-        --     record is scoped out (dropping it oscillates the `->` chain).
+        -- A `A -> … -> { record }` return record also drops (fixed-point since
+        -- `makeSignaturePrettyDoc`'s `forceVertical` folds in
+        -- `segmentHasDroppingRecord`, committing to the fully-broken signature
+        -- layout up front instead of oscillating on reparse).
         -- Drop rule lands the record at flow-base + grenIndent: `indentedBlockRule`
         -- (+grenIndent) when the flow is unnested (`indent == 0`, a type-alias
         -- body / union variant), `bodyBlockRule` (hardNl only) when the flow is
@@ -1108,7 +1110,6 @@ buildFlowDocImpl indent inlineStart brokenFlow nodes =
             followsRealHead
                 && R.hasHardBreak itemDoc
                 && isTypeRecordLiteral node
-                && not (flowIsFunctionType nodes)
 
         joinBracketLiteralFlowItem leadingComment acc node itemDoc =
             if typeRecordDropFires acc node itemDoc then
@@ -1621,31 +1622,6 @@ pairLeadingRecordComments nodes =
                                 Nothing
                         }
             )
-
-
-{-| True when the flow is a function *type* (`A -> B -> …`) — it contains an
-elided `->` token. A record that is the return type of such a signature is NOT
-dropped to its own line by `joinBracketLiteralFlowItem`: dropping it makes the
-whole signature multi-line, which then re-breaks the `->` chain on the next
-reparse (a non-idempotent oscillation). Scoped out until the arrow-break
-decision is made a reparse fixed point. (Type applications and record-type
-field values have no arrow, so they still drop.)
--}
-flowIsFunctionType : Array LPNode -> Bool
-flowIsFunctionType nodes =
-    Array.any
-        (\n ->
-            when lpnBox n is
-                UnbreakableText loc ->
-                    loc.value == "->"
-
-                SynthesizedText "->" ->
-                    True
-
-                _ ->
-                    False
-        )
-        nodes
 
 
 {-| True when `node` forces vertical (`nodeForcesVertical`) in a way that
@@ -2979,6 +2955,40 @@ segmentsBrokenAtBoundary segments =
     folded.broken
 
 
+{-| True when rendering `segment` will trigger `joinBracketLiteralFlowItem`'s
+type-record drop (see `typeRecordDropFires`) on one of its own nodes — i.e. a
+type record literal that follows real content within the segment (index > 0:
+the segment's own leading `->`, or an earlier type node, counts as the "real
+head") and itself renders with a hard break (comment-forced, or the author
+wrote its fields across rows).
+
+Used by `makeSignaturePrettyDoc` to fold the drop's effect into the signature's
+own `forceVertical` decision *before* rendering: the drop makes this segment
+span multiple rows regardless of whether the author originally wrote a boundary
+break, so a reparse of the dropped output would see a boundary break here that
+the first pass didn't — flipping `segmentsBrokenAtBoundary` from False to True
+and re-breaking every arrow (a non-idempotent oscillation, the historical
+`flowIsFunctionType` bug). Committing to `forceVertical = True` up front — the
+same structural property the dropped form has on every subsequent pass — makes
+the decision a fixed point instead.
+
+Only meaningful when there are 2+ segments (i.e. the type actually contains an
+arrow) — `makeSignaturePrettyDoc` only consults this alongside that check. A
+single-segment type (no arrow at all — a plain type application or record with
+no function arrow, e.g. `HasIdentifier {- note -} { payload : String, … }`) has
+no boundary to protect and keeps using the existing single-flow fallback
+(`makeFlowIndentableDoc`), which already renders its embedded drop correctly.
+-}
+segmentHasDroppingRecord : Array LPNode -> Bool
+segmentHasDroppingRecord segment =
+    segment
+        |> Array.indexedMap (\i n -> { i = i, n = n })
+        |> Array.any
+            (\{ i, n } ->
+                i > 0 && isTypeRecordLiteral n && nodeForcesVertical n
+            )
+
+
 {-| Render a function/port signature with the author's one-line-vs-multi-line
 layout (all-or-nothing, mirroring lists/records).
 
@@ -3034,6 +3044,10 @@ makeSignaturePrettyDoc children =
 
             forceVertical =
                 segmentsBrokenAtBoundary segments
+                    || (Array.length segments
+                            > 1
+                            && Array.any segmentHasDroppingRecord segments
+                       )
         in
         if not forceVertical && Array.any subtreeHasComment children then
             makeFlowIndentableDoc children

@@ -193,21 +193,67 @@ to just the 2 known pre-existing MultilineBlockComments deep-gap failures (item
 reverting: effectful 140/140, idempotency + whitespace fuzzers 0 — the guard
 now picks Box's output for this node since it's byte-identical to Doc's.
 
-### Remaining work (plan as of 2026-07-10, after items 1–2)
+### Item 3 LANDED (2026-07-10): MultilineBlockComments deep-gap A, `-> { record }` return-record drop
 
-Items 3–4 (numbered to match the original plan above) are the hard tail; 5 is
-parked by the cutover decision.
+elm-format drops a multi-line record that is a function signature's return
+type; the Doc renderer used to glue it instead (scoped out via
+`flowIsFunctionType` since fix 3, precisely to dodge the arrow-oscillation
+bug documented in the "Attempted + REVERTED" section below). Landed by making
+the signature's own `forceVertical` decision a reparse fixed point instead of
+just deleting the gate:
 
-3. **MultilineBlockComments deep-gap A: `-> { record }` return-record drop.**
-   elm-format drops a multi-line record that is a function signature's return
-   type; we glue (scoped out via `flowIsFunctionType` since fix 3). Landing it
-   requires making the signature arrow-break decision a reparse fixed point:
-   after the drop the whole signature is multi-line, so the `->` chain
-   re-breaks on the second pass (the fix-3 first-attempt revert, and the same
-   class as the t61 revert). Approach sketch: make `signatureForceVertical` /
-   the Doc's segment-break decision depend on a structural property that the
-   dropped form also has (e.g. "any segment is multi-line"), THEN delete the
-   `flowIsFunctionType` gate. Run both fuzzer modes before trusting it.
+- New `segmentHasDroppingRecord : Array LPNode -> Bool` mirrors
+  `typeRecordDropFires`'s trigger condition (a type record literal at index >
+  0 within a segment — i.e. following the segment's own leading `->`, or an
+  earlier type node — that itself renders with a hard break) but evaluates it
+  per-segment, independent of the fold's accumulator, so it can run *before*
+  the segments are rendered.
+- `makeSignaturePrettyDoc`'s `forceVertical` is now
+  `segmentsBrokenAtBoundary segments || (Array.length segments > 1 &&
+  Array.any segmentHasDroppingRecord segments)` — i.e. commit to the fully-
+  exploded one-segment-per-line layout up front whenever the return-type drop
+  is *going* to happen, rather than discovering after the fact (on reparse)
+  that a boundary now exists. The `Array.length segments > 1` guard matters:
+  a single-segment type (no arrow at all, e.g. a type application with an
+  embedded record like `HasIdentifier {- note -} { payload : String, … }`,
+  the TypeRecordLeadingComment fixture) has no boundary to protect and must
+  keep going through the existing single-flow fallback
+  (`makeFlowIndentableDoc`) — an earlier attempt without this guard broke that
+  fixture by exploding a plain non-function type into a spurious per-segment
+  layout.
+- Deleted the now-dead `flowIsFunctionType` gate/function entirely.
+- Box's `pairTypeRecordComments` (fix 5b) still refuses to pair a comment with
+  a type record when the flow contains an arrow — Box hasn't been ported for
+  this specific drop yet, so this is a **new, tracked Doc-ahead node**
+  (KitchenComments `extremelyCommented`); the self-verify guard safely falls
+  back to Doc's (elm-verified) output for it in the meantime.
+
+Verified: reproduced the historical oscillation standalone (`foo : A -> B ->
+{ record }` with a comment forcing the record vertical), confirmed the fix
+makes it idempotent, and confirmed the fully-exploded shape matches real
+`elm-format` output structurally (translated the repro to `.elm` and ran the
+`elm-format` binary — it also explodes every `->` segment in this case; the
+remaining difference is an unrelated, pre-existing intentional divergence in
+how comments are spaced inside a dropped record). Regenerated the stale
+KitchenComments fixture (only that one decl changed) and added a dedicated
+`returnRecordComment` case to SignatureSegmentBreaks pinning the exact shape.
+Ran the full trust-Box drill (sed guard → rebuild → both fuzzers → revert):
+trust-Box effectful mismatches are now the pre-existing 2 MultilineBlockComments
+deep-gap-B hunks (item 4, untouched, all three of its hunks — the earlier "2"
+count undercounted because a prior trust-Box run's output had been truncated
+by `tail`) plus the one new Box-lag node noted above; trust-Box fuzzers 0/0.
+Normal-guard gates: effectful 140/140, idempotency + whitespace fuzzers 0.
+
+Also discovered along the way (unrelated, not investigated further): `gren
+format --show` hangs indefinitely self-formatting `MakeRender.gren` (4512
+lines) — reproduces on the pre-item-3 source too, so pre-existing and not a
+regression from this work. Repro steps and a bisection plan are recorded
+separately (session memory, not committed to this repo) for whoever picks it
+up next.
+
+### Remaining work (plan as of 2026-07-10, after items 1–3)
+
+Item 4 is the hard tail; 5 is parked by the cutover decision.
 
 4. **MultilineBlockComments deep-gap B: `{ x } {- mlbc -}` reindent.** A
    multi-line block comment trailing a record in a flow — the mlbc-in-flow

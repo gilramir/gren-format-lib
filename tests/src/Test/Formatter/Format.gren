@@ -361,7 +361,7 @@ expressionSuite fsPerm =
             , assertPretty fsPerm "block comment or multiple single-line comments before a let-binding signature do not insert a blank between signature and definition" "LetCommentedSignatureVariants"
             , assertPretty fsPerm "one blank line is forced between let bindings regardless of authored blanks; a comment or signature sticks to the binding below it" "LetBlankLines"
             , assertPretty fsPerm "a wrapped infix declaration leaves no phantom row gap below it" "InfixWrapped"
-            , assertPretty fsPerm "only a break between -> parts makes a signature multi-line; breaks inside a record type or parens do not" "SignatureSegmentBreaks"
+            , assertPretty fsPerm "only a break between -> parts makes a signature multi-line; breaks inside a record type or parens do not; a comment-forced return record explodes every -> part" "SignatureSegmentBreaks"
             , assertPretty fsPerm "a multi-line block comment claimed as a declaration's trailing comment leaves no trailing-whitespace line" "ClaimedMultilineComment"
             , assertPretty fsPerm "two blank lines are forced before every top-level declaration unit (function/alias/union/port), regardless of authored blanks; the unit begins at its doc comment, else signature, else declaration" "ForcedDeclBlankLines"
             , assertPretty fsPerm "float literals round-trip (decimal stays decimal, scientific stays scientific)" "FloatLiterals"

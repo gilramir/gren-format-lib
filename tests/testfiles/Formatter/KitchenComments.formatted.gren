@@ -287,13 +287,20 @@ torturedComments primaryIntValue secondaryStringValue tertiaryBoolValue =
 {-| EXTREME case: one function that uses let, when, if, record destructuring,
     record updating, and pipelines — with a multi-line `{- -}` comment crammed
     into every whitespace position between tokens. -}
-extremelyCommented : {-c1-} {-c2-} {-c3-} { score : {-c4-} {-c5-} Int {-c6-}
-                                          {-c7-}
-                                          , label : {-c8-} {-c9-} String {-c10-}
-                                          } -> {-c11-} {-c12-} {-c13-} { score : {-c14-} {-c15-} Int {-c16-}
-                                                                       {-c17-}
-                                                                       , label : {-c18-} {-c19-} String {-c20-}
-                                                                       } {-c21-}
+extremelyCommented :
+    {-c1-}
+    {-c2-}
+    {-c3-}
+    { score : {-c4-} {-c5-} Int {-c6-}
+    {-c7-}
+    , label : {-c8-} {-c9-} String {-c10-}
+    }
+    -> {-c11-} {-c12-}
+        {-c13-}
+        { score : {-c14-} {-c15-} Int {-c16-}
+        {-c17-}
+        , label : {-c18-} {-c19-} String {-c20-}
+        } {-c21-}
 extremelyCommented {-c22-} {-c23-} {-c24-} ({ score {-c25-}
                                             {-c26-}
                                             , label {-c27-}
