@@ -23,14 +23,13 @@ import Dict
 -- a single-line comment between two imports
 import Math
 {- a block comment between two imports -}
-import String
-    exposing
-        ( fromInt
-        -- comment in the middle of an exposing list
-        , toInt
-        {- block comment in the middle of an exposing list -}
-        , trim
-        )
+import String exposing
+    ( fromInt
+    -- comment in the middle of an exposing list
+    , toInt
+    {- block comment in the middle of an exposing list -}
+    , trim
+    )
 
 
 {-| Doc comment on a type alias. -}

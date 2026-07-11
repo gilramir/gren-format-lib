@@ -2335,9 +2335,9 @@ the header before the list is all plain leaf tokens, render the list as a
 coupled all-or-nothing group; otherwise (a `(..)` wildcard, an effect-module
 `where` block, a comment in the header) fall back to the generic flow.
 
-For a `module` line, `exposing` always stays glued to the header even when the
-list goes vertical (list indented +4). For an `import` line whose list goes
-vertical, `exposing` drops to its own line (+4) with the list indented +8. -}
+For BOTH `module` and `import` lines, `exposing` stays glued to the header even
+when the list goes vertical (list indented +4). gren-format deliberately does
+not drop an import's `exposing` to its own line the way elm-format does. -}
 makeExposingLineBox : SyntaxType -> Array LPNode -> Result String Box
 makeExposingLineBox stype children =
     when Array.popLast children is
@@ -2379,11 +2379,6 @@ makeExposingLineBox stype children =
                             effectiveFV =
                                 forceVertical || hasComment
 
-                            -- A module line always keeps `exposing` glued; an
-                            -- import line drops it only when the list is vertical.
-                            keepExposingGlued =
-                                stype == StModule || not effectiveFV
-
                             -- The `( … )` comment form is structurally the same
                             -- always-vertical list as a curly/square literal, so
                             -- reuse `commentBracketListBox` with `ListParen` (its
@@ -2397,12 +2392,12 @@ makeExposingLineBox stype children =
                         in
                         listBoxResult
                             |> Result.andThen
+                                -- Both `module` and `import` keep `exposing`
+                                -- glued to the header (list at +4); gren-format
+                                -- does not drop an import's `exposing` to its
+                                -- own line the way elm-format does.
                                 (\listBox ->
-                                    if keepExposingGlued then
-                                        gluedExposingBox effectiveFV headerNodes listBox
-
-                                    else
-                                        droppedExposingBox headerNodes listBox
+                                    gluedExposingBox effectiveFV headerNodes listBox
                                 )
 
                     else
@@ -2441,28 +2436,6 @@ gluedExposingBox forceVertical headerNodes listBox =
 
             Err _ ->
                 Err "box: inline exposing list rendered multi-line"
-
-
--- `exposing` drops to its own line (import + vertical list): header on line 1,
--- `exposing` at +4, list at +8.
-droppedExposingBox : Array LPNode -> Box -> Result String Box
-droppedExposingBox headerNodes listBox =
-    when Array.popLast headerNodes is
-        Just { last = exposingNode, initial = preExposingNodes } ->
-            Ok
-                (B.stack1
-                    [ B.line (leafLineRow preExposingNodes)
-                    , B.indent
-                        (B.stack1
-                            [ B.line (leafLineRow [ exposingNode ])
-                            , B.indent listBox
-                            ]
-                        )
-                    ]
-                )
-
-        Nothing ->
-            Err "box: exposing line missing exposing keyword"
 
 
 {-| Render an exposing list's `( … )` body (no leading glue). Items are the

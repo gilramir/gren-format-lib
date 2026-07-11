@@ -533,11 +533,10 @@ import Array
 ```
 
 An alias uses `as`. An exposing list follows your layout — flat if you wrote
-it flat, vertical if you wrote it across rows. Unlike a module's `exposing`
-(which always stays glued to the module name — see
-[Module declaration](#module-declaration)), an import's `exposing` drops to
-its own line, indented +4, when the list goes vertical, with the list itself
-indented +8 below that:
+it flat, vertical if you wrote it across rows. Just like a module's `exposing`
+(see [Module declaration](#module-declaration)), an import's `exposing` stays
+glued to the header as its last word; when the list goes vertical it starts on
+the next line, indented +4:
 
 ```gren
 -- flat:
@@ -546,14 +545,17 @@ import String exposing (fromInt, toInt)
 import Array.Extra as AE exposing (filterMap, unique)
 
 -- vertical:
-import Dict
-    exposing
-        ( Dict
-        , empty
-        , fromArray
-        , get
-        )
+import Dict exposing
+    ( Dict
+    , empty
+    , fromArray
+    , get
+    )
 ```
+
+(elm-format instead drops the import's `exposing` onto its own line; keeping it
+on the header line is a deliberate divergence — see
+[Comparison with elm-format](#comparison-with-elm-format), point 4.)
 
 ### An import's exposing list sorts automatically
 
@@ -2487,11 +2489,23 @@ decision and why.
    crosses. See
    [Import statements sort within unbroken runs](#import-statements-sort-within-unbroken-runs).
 
-4. **`import X exposing (...)` wrapping style — changed.** gren-format used to
-   keep `import Dict exposing` together with the list indented +4. It now
-   matches elm-format: `import Dict` alone on the first line, `exposing` on
-   its own line indented +4, and the list indented +8. See
-   [Import statements](#import-statements) for the new canonical shape.
+4. **`import X exposing (...)` wrapping style — deliberate divergence.** When an
+   import's exposing list wraps, gren-format keeps `exposing` on the `import`
+   line as its last word and indents the list +4 below it:
+
+   ```gren
+   import Dict exposing
+       ( Dict
+       , empty
+       )
+   ```
+
+   elm-format instead drops `exposing` onto its own line (`import Dict` /
+   `exposing` at +4 / list at +8). gren-format deliberately does not: this makes
+   a wrapped `import` line look exactly like a wrapped `module` line (both keep
+   `exposing` as the header's last word, list at +4), so the two statement kinds
+   are consistent. See [Import statements](#import-statements) for the canonical
+   shape.
 
 5. **Type-signature wrapping when a comment is present — changed.** A
    multi-row signature now always uses the canonical per-`->`-segment vertical
