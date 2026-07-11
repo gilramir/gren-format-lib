@@ -607,6 +607,43 @@ tracked-intentional direct-operand glue (3); fenced-by-design (1);
 t61-dangerous (1); unexamined onesies (5: OpAndRhs-continuation ×2,
 broken-flow comment, if-condition, inline-paren, backward-mixed-ops).
 
+**All five onesies LANDED (2026-07-11). Frontier now 17 Errs, 0 mismatches
+— the pure hard/intentional tail.** The four earlier onesies
+(`159731c`/`b935ad0`/`ea0233c`/`548f1de`) took 19 → 17; the fifth and last,
+backward-mixed-ops (`3a09973`), cleared its class but surfaced KitchenSink
+`transform` one construct deeper (a soft-glue multi-line lambda step body,
+exact-space class), so the count held at 17. The mixed-`|>`/`<|` port is a
+one-line mirror: `makeBackwardPipelineBox`'s `not allBackward` arm now calls
+`buildFlowBox 0 children` (the FlowPolicy-unified fold), exactly like the
+Doc's `makeBackwardPipelineDoc` routes `not allStepsBackward` to
+`buildFlowDoc 0 children`. Corpus doesn't exercise it to a full Ok (the only
+mixed decl Errs deeper), so a dedicated `PipelineMixedOps` fixture
+(chain/oneLine/withLambda, all render fully via Box) pins the byte-equality.
+Full trust-Box drill green (effectful 141/141, both fuzzers 0 both modes).
+
+**Post-onesie frontier census (2026-07-11, HEAD `3a09973` — 17 Errs, 0
+mismatches):**
+- exact-space/Tab class (10): record-update soft field ×4 (KitchenSink×2,
+  KitchenComments, LambdaBracketBodyNestedInCall); soft-glue multi-line item
+  ×3 of the non-intentional kind (KitchenSink `transform` lambda body,
+  KitchenComments, MultilineBlockComments `#12` RecordUpdate); `#13`
+  nest-carrying-first-item mlbc fence (MultilineBlockComments); verbatim
+  opener-alone mlbc (BlockCommentBodyIndent, col-0 reset); Tab-vs-prefix
+  bracket item (WhenInCommentedArray)
+- leading comment in broken flow ×2 (KitchenComments) — mlbc/exact-space
+  adjacent; NOT the already-landed own-line-comment onesie (`b935ad0`),
+  a distinct deeper construct
+- tracked-intentional direct-operand glue (3): CallArgBlockRelocation,
+  PrefixAnchorDivergence, MultilineBlockComments no-trigger step
+- fenced-by-design #37 (1): MultilineBlockComments leading mlbc inline-start
+- t61-dangerous (1): TrickyComments comment in multi-node signature type
+
+No onesies remain. Every residual is either exact-space/Tab (the
+per-construct-only class — global Tab→spaces FALSIFIED, see below),
+tracked-intentional, fenced-by-design, or t61 (renders right, breaks
+idempotency). This is the natural stopping point for the Err-frontier
+burndown; the guard ships correct output for all 17 via Doc fallback.
+
 **Tried + REVERTED (2026-07-11): global Tab → exact-4-spaces in `B.indent`.**
 Hypothesis: every "Tab-poisoned" Err (RecordUpdate/AlignedFlow soft-glue,
 record-update field values, WhenInCommentedArray's Tab-vs-prefix bracket
