@@ -533,6 +533,30 @@ fence +1, net −2 from 24; the OpAndRhs-continuation and inline-paren
 KitchenComments nodes also shifted classes). Gates: effectful 140/140 +
 all three fuzzer runs 0 under BOTH guards.
 
+**Phase 2d LANDED (2026-07-11) — the pipeline-step comment peel.** The full
+structural mirror of the Doc's comment-bearing-pipeline path:
+`makePipelineBox` routes comment-bearing forward pipelines to the generic
+fold (`buildFlowBox 0`, mirroring `makePipelineDoc`'s dispatch); `makePBox`
+gained a `PipelineStep` arm and `factsFor` classifies steps as
+`FP.PipelineStepItem` (hasLeadingComment = first child is a comment);
+`renderPipelineStepChildren` peels leading comments (own-line above `|>`,
+`spanLeadingComments` + `commentNodeBox`) and trailing inline comments
+(`peelTrailingCommentNodes`, the exact `peelTrailingComments True` mirror:
+single-line block comments freely, at most one rightmost `--`, stop at an
+mlbc) around the trigger split; the `BlockJoin` materializer now honors
+`blankBefore` (blank line above a commented step that follows another
+step). Mid-flow comments stay in the body and ride the preamble/suffix
+folds exactly as the Doc's do — the Phase 2b′ comment gate is deleted.
+
+Census after: **21 Errs, 0 mismatches** — the comment-bearing-triggered-
+step node cleared, and the no-trigger class 3 → 1 (only the
+MultilineBlockComments direct-operand glue remains, tracked-intentional;
+CommentsPipeline + KitchenComments cleared). Two KitchenComments nodes now
+Err DEEPER ("unexpected node among when-branches" 1 → 3) — the pipeline
+Err had been shadowing a pre-existing when-branch limitation; same nodes,
+more machinery exercised. Gates: effectful 140/140 + all three fuzzer runs
+0 under BOTH guards, first pass.
+
 **Tried + REVERTED (2026-07-11): global Tab → exact-4-spaces in `B.indent`.**
 Hypothesis: every "Tab-poisoned" Err (RecordUpdate/AlignedFlow soft-glue,
 record-update field values, WhenInCommentedArray's Tab-vs-prefix bracket

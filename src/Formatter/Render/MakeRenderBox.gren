@@ -864,9 +864,11 @@ isPipelineStepNode node =
 
 {-| Render a forward (`|>`) pipeline: seed then each `|> step` on its own line
 at +4 (or inline `seed |> a |> b` when the author kept it on one line). Mirrors
-`MakeRender.makePipelineDoc`. Backward (`<|`) pipelines, comment-bearing
-pipelines (a comment node makes a step Err), and steps with a multi-line
-argument (which elm-format relocates) fall back to Doc. -}
+`MakeRender.makePipelineDoc`, including its comment dispatch: a comment-bearing
+pipeline routes through the generic fold (`buildFlowBox 0`), where the
+PipelineStepItem placement and `renderPipelineStepChildren`'s peels reproduce
+the Doc's per-step comment handling. Backward (`<|`) pipelines have their own
+mirrored path. -}
 makePipelineBox : Bool -> String -> Array LPNode -> Result String Box
 makePipelineBox forceVertical op children =
     if op == "<|" then
@@ -874,6 +876,14 @@ makePipelineBox forceVertical op children =
 
     else if op /= "|>" then
         Err "box: unknown pipeline operator not ported"
+
+    else if Array.any subtreeHasComment children then
+        -- Comment-bearing forward pipeline: route through the generic fold,
+        -- mirroring `makePipelineDoc`'s dispatch — the per-step comment
+        -- handling (leading peel, trailing glue, blank-before-commented-step)
+        -- lives in the fold's PipelineStepItem placement + the PipelineStep
+        -- arm of `makePBox`.
+        buildFlowBox 0 children
 
     else
         let
@@ -1116,10 +1126,39 @@ makeMultilineParenArgBox children =
 -- back.
 renderPipelineStep : LPNode -> Result String Box
 renderPipelineStep stepNode =
+    renderPipelineStepChildren (lpnChildren stepNode)
+
+
+{-| The Box mirror of the Doc's `renderPipelineStepNode` inner render: peel
+ALL leading comments (each on its own line above the `|>`, at the step's own
+column — the caller's step wrap indents the whole box), peel trailing inline
+comments off the END (`peelTrailingCommentNodes`, glued onto the step's last
+line with a space), then render the remaining children via the trigger split
+(`buildStepChildrenDoc`'s mirror). Mid-flow comments stay in the body and
+flow through the preamble/suffix folds exactly as the Doc's do. -}
+renderPipelineStepChildren : Array LPNode -> Result String Box
+renderPipelineStepChildren allChildren =
     let
-        children =
-            lpnChildren stepNode
+        { leading, rest } =
+            spanLeadingComments allChildren
+
+        { bodyNodes, trailing } =
+            peelTrailingCommentNodes rest
     in
+    traverseResult commentNodeBox leading
+        |> Result.andThen
+            (\leadingBoxes ->
+                stepBodyBox bodyNodes
+                    |> Result.andThen (\bodyBox -> glueTrailingComments bodyBox trailing)
+                    |> Result.map (\withTrailing -> B.stack1 (leadingBoxes ++ [ withTrailing ]))
+            )
+
+
+-- The comment-free core of a pipeline step: the trigger split over the body
+-- children (leading/trailing comments already peeled by
+-- `renderPipelineStepChildren`).
+stepBodyBox : Array LPNode -> Result String Box
+stepBodyBox children =
     when splitStepTrigger children is
         Nothing ->
             buildFlowBox grenIndent children
@@ -1129,53 +1168,42 @@ renderPipelineStep stepNode =
                             Ok box
 
                         else
-                            Err "box: multi-line pipeline step without a trigger (direct-operand paren glue / comment-peeling) not ported"
+                            Err "box: multi-line pipeline step without a trigger (direct-operand paren glue) not ported"
                     )
 
         Just { preamble, trigger, suffix } ->
-            if Array.any FP.nodeIsComment children then
-                -- The Doc peels leading comments (own-line above the step) and
-                -- trailing comments (glued inline onto the step's last line)
-                -- in `renderPipelineStepNode` BEFORE the trigger split. Without
-                -- that peel a step-level comment lands in the suffix and gets
-                -- stacked at the relocation indent — an own-line placement that
-                -- shifts on reparse (caught by the trust-Box idempotency
-                -- fuzzer). Fall back until the peel is ported.
-                Err "box: comment-bearing triggered pipeline step not ported"
+            let
+                triggerBoxResult =
+                    if isMultilineLambdaParenBlockBox trigger then
+                        makeMultilineLambdaArgBox (lpnChildren trigger)
 
-            else
-                let
-                    triggerBoxResult =
-                        if isMultilineLambdaParenBlockBox trigger then
-                            makeMultilineLambdaArgBox (lpnChildren trigger)
+                    else if isMultilineContentParenBlockBox trigger then
+                        makeMultilineParenArgBox (lpnChildren trigger)
 
-                        else if isMultilineContentParenBlockBox trigger then
-                            makeMultilineParenArgBox (lpnChildren trigger)
+                    else
+                        makePBox (lpnBox trigger) (lpnChildren trigger)
+            in
+            buildFlowBoxInline 0 preamble
+                |> Result.andThen
+                    (\preambleBox ->
+                        triggerBoxResult
+                            |> Result.andThen
+                                (\triggerBox ->
+                                    if Array.isEmpty suffix then
+                                        Ok (B.stack1 [ preambleBox, applyIndent grenIndent triggerBox ])
 
-                        else
-                            makePBox (lpnBox trigger) (lpnChildren trigger)
-                in
-                buildFlowBoxInline 0 preamble
-                    |> Result.andThen
-                        (\preambleBox ->
-                            triggerBoxResult
-                                |> Result.andThen
-                                    (\triggerBox ->
-                                        if Array.isEmpty suffix then
-                                            Ok (B.stack1 [ preambleBox, applyIndent grenIndent triggerBox ])
-
-                                        else
-                                            buildFlowBox 0 suffix
-                                                |> Result.map
-                                                    (\suffixBox ->
-                                                        B.stack1
-                                                            [ preambleBox
-                                                            , applyIndent grenIndent triggerBox
-                                                            , applyIndent grenIndent suffixBox
-                                                            ]
-                                                    )
-                                    )
-                        )
+                                    else
+                                        buildFlowBox 0 suffix
+                                            |> Result.map
+                                                (\suffixBox ->
+                                                    B.stack1
+                                                        [ preambleBox
+                                                        , applyIndent grenIndent triggerBox
+                                                        , applyIndent grenIndent suffixBox
+                                                        ]
+                                                )
+                                )
+                    )
 
 
 -- Get a box's sole line, or Err if it is multi-line.
@@ -1313,6 +1341,44 @@ spanTrailingComments nodes =
                     { body = [], trailing = acc }
     in
     go nodes []
+
+
+-- The Box mirror of the Doc's `peelTrailingComments True` (block bodies /
+-- forward pipeline steps): peel trailing single-line block comments freely
+-- and at most ONE `--` line comment — the rightmost, since a `--` consumes
+-- the rest of its line and a second one to its left would swallow it. A
+-- multi-line block comment stops the peel (it legitimately breaks the line
+-- and stays in the flow). Unlike `spanTrailingComments` (the backward-
+-- pipeline helper, which takes every trailing comment), this reproduces the
+-- Doc's discipline exactly, so the peeled run is always inline-gluable.
+peelTrailingCommentNodes : Array LPNode -> { bodyNodes : Array LPNode, trailing : Array LPNode }
+peelTrailingCommentNodes nodes =
+    let
+        go remaining acc sawLineComment =
+            when Array.popLast remaining is
+                Just { last, initial } ->
+                    when lpnBox last is
+                        SingleLineComment _ ->
+                            if sawLineComment then
+                                { bodyNodes = remaining, trailing = acc }
+
+                            else
+                                go initial ([ last ] ++ acc) True
+
+                        BlockComment loc ->
+                            if String.contains "\n" loc.value then
+                                { bodyNodes = remaining, trailing = acc }
+
+                            else
+                                go initial ([ last ] ++ acc) sawLineComment
+
+                        _ ->
+                            { bodyNodes = remaining, trailing = acc }
+
+                Nothing ->
+                    { bodyNodes = remaining, trailing = acc }
+    in
+    go nodes [] False
 
 
 -- Glue single-line trailing comments onto a box's last line, each with a space.
@@ -2548,7 +2614,12 @@ makePBox box children =
             Err "box: construct not ported [DocComment]"
 
         PipelineStep ->
-            Err "box: construct not ported [PipelineStep]"
+            -- A `|> step` inside the generic fold (a comment-bearing pipeline
+            -- routed to `buildFlowBox 0`, mirroring `makePipelineDoc`'s
+            -- comment dispatch). The step's own leading/trailing comments are
+            -- peeled inside; the fold's PipelineStepItem placement supplies
+            -- the +grenIndent step wrap and the blank-before-commented-step.
+            renderPipelineStepChildren children
 
         AlignedFlow ->
             Err "box: construct not ported [AlignedFlow]"
@@ -3731,6 +3802,14 @@ assembleFlowImpl inlineStart flowIndent items =
                         EmptyLine ->
                             FP.EmptyLineItem
 
+                        PipelineStep ->
+                            FP.PipelineStepItem
+                                { hasLeadingComment =
+                                    Array.first (lpnChildren item.node)
+                                        |> Maybe.map nodeIsComment
+                                        |> Maybe.withDefault False
+                                }
+
                         UnbreakableText loc ->
                             FP.LeafItem { startRow = loc.start.row, isElidedArrow = isElidedArrow item.node }
 
@@ -3994,18 +4073,29 @@ assembleFlowImpl inlineStart flowIndent items =
                         , state = decision.next
                         }
 
-                FP.BlockJoin { rule } ->
+                FP.BlockJoin { rule, blankBefore } ->
+                    let
+                        -- A commented pipeline step following another step gets
+                        -- a blank line above its comment (the Doc's `blankBefore`
+                        -- `R.text "\n"` before the block wrap).
+                        rowsBefore =
+                            if blankBefore then
+                                Array.pushLast B.blankLine (flushRow acc.curRow acc.rows)
+
+                            else
+                                flushRow acc.curRow acc.rows
+                    in
                     when rule is
                         FP.IndentedRule ->
                             Ok
-                                { rows = Array.pushLast (applyIndent grenIndent item.box) (flushRow acc.curRow acc.rows)
+                                { rows = Array.pushLast (applyIndent grenIndent item.box) rowsBefore
                                 , curRow = []
                                 , state = decision.next
                                 }
 
                         FP.BodyRule ->
                             Ok
-                                { rows = Array.pushLast item.box (flushRow acc.curRow acc.rows)
+                                { rows = Array.pushLast item.box rowsBefore
                                 , curRow = []
                                 , state = decision.next
                                 }
@@ -4014,6 +4104,9 @@ assembleFlowImpl inlineStart flowIndent items =
                             -- The Doc's soft wrap is a group: flat content glues
                             -- onto the current line with a space; multi-line
                             -- content would soft-glue at +grenIndent (Phase 2).
+                            -- (`blankBefore` never accompanies a soft rule — the
+                            -- policy only sets it on the pipeline step's
+                            -- IndentedRule — so the glue paths ignore `rowsBefore`.)
                             when B.isLine item.box is
                                 Ok l ->
                                     if Array.isEmpty acc.curRow then
