@@ -1908,6 +1908,30 @@ segLastRow seg =
         seg
 
 
+{-| True when a signature segment contains a multi-line type record in a
+non-head position — the type-record drop will fire inside it, so the whole
+signature must commit to the broken layout. The Box analogue of
+`MakeRender.segmentHasDroppingRecord`: verticality comes from this renderer's
+own box (`isSingleLine`; an unrenderable node counts as not-forcing, like the
+Doc's `Err -> False`). -}
+segmentHasDroppingRecordBox : Array LPNode -> Bool
+segmentHasDroppingRecordBox segment =
+    segment
+        |> Array.indexedMap (\i n -> { i = i, n = n })
+        |> Array.any
+            (\{ i, n } ->
+                i > 0
+                    && FP.isTypeRecordLiteral n
+                    && (when makePBox (lpnBox n) (lpnChildren n) is
+                            Ok b ->
+                                not (isSingleLine b)
+
+                            Err _ ->
+                                False
+                       )
+            )
+
+
 {-| True when the author broke the type across rows at a `->` boundary (a later
 segment starts on a row after the previous segment ended). Mirrors
 `MakeRender.segmentsBrokenAtBoundary`. -}
@@ -1976,8 +2000,17 @@ makeSignatureBox children =
             segments =
                 splitSignatureSegments colonSplit.typeNodes
 
+            -- Mirrors the Doc's `makeSignaturePrettyDoc`: a multi-segment type
+            -- whose segment carries a dropping record commits to the
+            -- fully-broken layout up front (`segmentHasDroppingRecordBox`), so
+            -- the drop's extra rows can't flip the boundary-break decision on
+            -- reparse (the item-3 fixed-point rule).
             forceVertical =
                 signatureForceVertical segments
+                    || (Array.length segments
+                            > 1
+                            && Array.any segmentHasDroppingRecordBox segments
+                       )
 
             hasComment =
                 Array.any subtreeHasComment children
@@ -3385,7 +3418,14 @@ trySoftGlueFlow items =
                         -- record instead DROPS to its own line (via the pipeline
                         -- trigger / broken-call path). Without this gate a
                         -- multi-line record call arg would be wrongly glued.
-                        if isSoftGlueLiteral soft && not (Array.isEmpty prefixLines) && not (Array.isEmpty suffixLines) then
+                        --
+                        -- A multi-line TYPE record after a real head is the
+                        -- policy's DropBlock (the type-record drop) — the fold
+                        -- must handle it, not this glue: a trailing comment
+                        -- item (`} {- c -}`) would otherwise satisfy the
+                        -- non-empty-suffix gate and wrongly glue a signature
+                        -- segment's dropping record.
+                        if isSoftGlueLiteral soft && not (Array.isEmpty prefixLines) && not (Array.isEmpty suffixLines) && not (FP.isTypeRecordLiteral soft.node) then
                             let
                                 prefixLine =
                                     B.row (Array.intersperse B.space prefixLines)
@@ -3472,19 +3512,15 @@ inlineGluesToPrecedingBlock items =
 type-record literal item, removing the comment from the item list and attaching
 it to the record's entry — the Box mirror of
 `MakeRender.pairLeadingRecordComments`. `assembleFlowImpl`'s fold then decides
-whether the pair drops together or replays the plain unpaired steps. A flow
-containing an arrow (a function type) never pairs: the Doc now drops a
-function type's return-type record too (`MakeRender.segmentHasDroppingRecord`
-folds that into the signature's own `forceVertical` decision so it's a reparse
-fixed point), but Box has no such per-segment awareness here yet — leaving this
-case unpaired falls back to Doc's output via the self-verify guard rather than
-risking Box producing a differently-shaped (and unverified) drop. -}
+whether the pair drops together or replays the plain unpaired steps. Flows
+containing an arrow (a function type's segments) pair too, exactly like the
+Doc: the drop's reparse fixed point is guaranteed by `makeSignatureBox`
+folding `segmentHasDroppingRecordBox` into the signature's own
+`forceVertical` decision (the item-3 rule), mirroring
+`MakeRender.segmentHasDroppingRecord`. -}
 pairTypeRecordComments : Array FlowItem -> Array { item : FlowItem, leading : Maybe FlowItem }
 pairTypeRecordComments items =
     let
-        unpaired =
-            Array.map (\it -> { item = it, leading = Nothing }) items
-
         pairableComment it =
             when it.comment is
                 Just c ->
@@ -3503,43 +3539,39 @@ pairTypeRecordComments items =
             else
                 Array.get i items
     in
-    if Array.any (\it -> isArrowLeaf it.node) items then
-        unpaired
+    items
+        |> Array.indexedMap (\i it -> { i = i, it = it })
+        |> Array.mapAndKeepJust
+            (\{ i, it } ->
+                if
+                    pairableComment it
+                        && (at (i + 1)
+                                |> Maybe.map (\n -> FP.isTypeRecordLiteral n.node)
+                                |> Maybe.withDefault False
+                           )
+                then
+                    -- Consumed: attached to the record that follows.
+                    Nothing
 
-    else
-        items
-            |> Array.indexedMap (\i it -> { i = i, it = it })
-            |> Array.mapAndKeepJust
-                (\{ i, it } ->
-                    if
-                        pairableComment it
-                            && (at (i + 1)
-                                    |> Maybe.map (\n -> FP.isTypeRecordLiteral n.node)
-                                    |> Maybe.withDefault False
-                               )
-                    then
-                        -- Consumed: attached to the record that follows.
-                        Nothing
+                else
+                    Just
+                        { item = it
+                        , leading =
+                            if FP.isTypeRecordLiteral it.node then
+                                at (i - 1)
+                                    |> Maybe.andThen
+                                        (\prev ->
+                                            if pairableComment prev then
+                                                Just prev
 
-                    else
-                        Just
-                            { item = it
-                            , leading =
-                                if FP.isTypeRecordLiteral it.node then
-                                    at (i - 1)
-                                        |> Maybe.andThen
-                                            (\prev ->
-                                                if pairableComment prev then
-                                                    Just prev
+                                            else
+                                                Nothing
+                                        )
 
-                                                else
-                                                    Nothing
-                                            )
-
-                                else
-                                    Nothing
-                            }
-                )
+                            else
+                                Nothing
+                        }
+            )
 
 
 {-| Assemble a flow into a Box, taking every join decision from

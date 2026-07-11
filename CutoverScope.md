@@ -418,12 +418,31 @@ The single remaining effectful failure is the tracked KitchenComments
 generic flow) — Phase 2/2b territory, together with the 2 fuzzer gaps.
 Normal gates: 140/140, both fuzzers 0.
 
-**Phase 2 (remaining):** the soft-glue materializer per the static alignment
-table (`B.prefix` for align-carrying content, first-line-only glue for
-nest-carrying content), comment-after-block glue, and 2b — mirror
-`segmentHasDroppingRecord` in `makeSignatureBox` and delete
-`pairTypeRecordComments`' arrow-refusal (the `extremelyCommented` +
-`returnRecordComment` class).
+**Phase 2b LANDED (2026-07-11) — trust-Box-always is now FULLY GREEN:
+effectful 140/140, idempotency fuzzer 0 gaps, whitespace fuzzers 0 both
+modes. Zero Box-vs-Doc mismatches remain anywhere the corpus or fuzzers
+reach; every remaining Box gap is an `Err` fallback (correct by
+construction).** Three changes: (1) `makeSignatureBox`'s `forceVertical`
+folds in a new `segmentHasDroppingRecordBox` (the Box analogue of
+`segmentHasDroppingRecord`, verticality from `isSingleLine` on the segment
+node's own box) — the item-3 fixed-point rule, mirrored; (2)
+`pairTypeRecordComments`' arrow-refusal deleted — function-type segments now
+pair, exactly like the Doc, since (1) guarantees the fixed point; (3)
+`trySoftGlueFlow` refuses a multi-line TYPE record after a real head
+(`FP.isTypeRecordLiteral soft.node`) — the drill showed `extremelyCommented`'s
+glued output actually came from this pre-fold glue: the segment's trailing
+`{-c21-}` comment satisfied the non-empty-suffix gate, so the soft glue fired
+before the fold's `DropBlock` could. This cleared the last effectful failure
+(KitchenComments `extremelyCommented`) and both remaining fuzzer gaps
+(KitchenComments line 297, SignatureSegmentBreaks `returnRecordComment`).
+
+**Phase 2 (remaining, now purely Err-frontier work — no known mismatches):**
+the soft-glue materializer per the static alignment table (`B.prefix` for
+align-carrying content, first-line-only glue for nest-carrying content) and
+the multi-line-comment-after-block glue. These convert `Err` fallbacks into
+Box coverage (the old parked-23-Errs frontier, which should be re-censused —
+Phase 1's generalized `B.addSuffix` glue and placement-driven fold likely
+moved several classes).
 
 **Baseline correction discovered during the Phase 0 drill:** the earlier
 "trust-Box fuzzers 0/0" note is stale. At clean `7054ae8` (pre-Phase-0) the
