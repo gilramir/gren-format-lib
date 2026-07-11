@@ -557,6 +557,27 @@ Err had been shadowing a pre-existing when-branch limitation; same nodes,
 more machinery exercised. Gates: effectful 140/140 + all three fuzzer runs
 0 under BOTH guards, first pass.
 
+**Phase 2e LANDED (2026-07-11) — `EmptyLine` among when-branches.** The
+"unexpected node among when-branches" class (×3 after 2d un-shadowed two
+KitchenComments nodes) was the blank-line marker preceding an own-line
+comment that leads the next branch (`[WB, EmptyLine, comment, WB]`). The
+Doc emits the one blank from the marker's `BlankLineOnly` and then joins
+the comment-led branch blank-free (`GlueNoSep`); Box's `stackWithBlanks`
+already supplies exactly that blank between branch boxes — so the marker
+is a no-op, gated to that shape (leading position or after a pending
+comment still falls back), with `lastRow` reset so nothing row-glues
+across the blank.
+
+Census after: **19 Errs, 0 mismatches** (when-branches 3 → 0; one
+KitchenComments node surfaced deeper as "multi-line OpAndRhs with a
+continuation operand" ×2). The frontier is now the hard/intentional tail:
+record-update soft fields ×4 + `#13` fence + verbatim-opener +
+bracket-list Tab item (exact-space class), soft-glue ×3 + no-trigger step
+(direct-operand glue, tracked-intentional), sig-type comment (t61),
+OpAndRhs-continuation ×2, own-line-comment-in-broken-flow, if-condition,
+inline-paren, backward-mixed-ops (unexamined onesies). Gates: effectful
+140/140 + all fuzzers 0 under BOTH guards, first pass.
+
 **Tried + REVERTED (2026-07-11): global Tab → exact-4-spaces in `B.indent`.**
 Hypothesis: every "Tab-poisoned" Err (RecordUpdate/AlignedFlow soft-glue,
 record-update field values, WhenInCommentedArray's Tab-vs-prefix bracket

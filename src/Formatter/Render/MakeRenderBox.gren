@@ -1952,6 +1952,23 @@ renderWhenBranchesBox children =
                             BlockComment loc ->
                                 handleComment acc loc.start.row child ("{-" ++ loc.value ++ "-}") (String.contains "\n" loc.value)
 
+                            EmptyLine ->
+                                -- The blank-line marker that precedes an own-line
+                                -- comment leading the next branch ([WB, EmptyLine,
+                                -- comment, WB]). The one blank line between branch
+                                -- boxes is supplied by `stackWithBlanks` (the Doc
+                                -- gets it from the marker's BlankLineOnly, and the
+                                -- comment-led branch then joins blank-free via
+                                -- GlueNoSep — same net bytes), so the marker is a
+                                -- no-op here. `lastRow` resets so nothing glues
+                                -- across the blank. Any other position (leading, or
+                                -- after a pending comment) falls back.
+                                if Array.isEmpty acc.pending && not (Array.isEmpty acc.boxes) then
+                                    Ok { acc | lastRow = -1 }
+
+                                else
+                                    Err "box: unexpected blank line among when-branches"
+
                             _ ->
                                 Err "box: unexpected node among when-branches"
                     )
