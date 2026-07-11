@@ -385,6 +385,46 @@ whitespace fuzzers (both modes) 0; trust-Box drill byte-identical to the
 pre-refactor baseline (same 2 effectful failures, same fuzzer gaps — see
 next paragraph).
 
+**Phase 1 LANDED (2026-07-11).** `assembleFlowImpl` keeps no layout policy of
+its own: each `FlowItem` is classified into `ItemFacts` (verticality facts
+from `isSingleLine` on the rendered box — the Box analogue of
+`R.hasHardBreak`), every join decision comes from `FP.decide`, and the fold
+only materializes placements with Box primitives. Deleted: `isBlockNode`'s
+role in the fold (any-multi-line-is-a-block), the Box-local `prevRow`
+tracking (`nonCommentStep` set it for every inline item; the policy's
+leaf-only discipline replaces it), the `glueable` flag (generalized: a
+`SoftSep`/soft-`BlockJoin` placement with an empty current row glues onto the
+last row's last line via `B.addSuffix` — "separator is FlowSep after *any*
+item", which is what the Doc always did), `isSoftIndentedBlockNode` +
+`blockOwnIndent` (the placement carries the rule), and the
+`isTypeRecordLiteralBox` verbatim mirror (both renderers now import
+`FP.isTypeRecordLiteral`). Placements Box can't materialize Err → self-verify
+fallback: soft-glue of a multi-line item (`SoftSep`/soft `BlockJoin`), a
+multi-line comment gluing onto a block's last line, and a leading multi-line
+comment in an inline-start flow (a first-row box's continuation lines are out
+of the enclosing `flowIndent`'s reach — the Doc gets that re-indent from its
+outer nest; discovered as a `#37` regression during the drill and re-fenced).
+
+**Phase 1 census: strictly better.** Trust-Box effectful failures 2 → **1**
+— MultilineBlockComments now passes entirely (`#12` and `#44` BOTH clear:
+with the shared decisions the record/comment either renders Doc-equal or
+Errs into the fallback, instead of producing a Box-only layout). Item 4's
+original 3-hunk residual is now fully resolved. Trust-Box idempotency fuzzer
+gaps 6 → **2** (the four KitchenComments line-377/378 signature-record gaps
+cleared; remaining: KitchenComments line 297 + SignatureSegmentBreaks
+`returnRecordComment` line 31). Trust-Box whitespace fuzzers both modes 0.
+The single remaining effectful failure is the tracked KitchenComments
+`extremelyCommented` Box-lag node (`makeSignatureBox`'s segment path, not the
+generic flow) — Phase 2/2b territory, together with the 2 fuzzer gaps.
+Normal gates: 140/140, both fuzzers 0.
+
+**Phase 2 (remaining):** the soft-glue materializer per the static alignment
+table (`B.prefix` for align-carrying content, first-line-only glue for
+nest-carrying content), comment-after-block glue, and 2b — mirror
+`segmentHasDroppingRecord` in `makeSignatureBox` and delete
+`pairTypeRecordComments`' arrow-refusal (the `extremelyCommented` +
+`returnRecordComment` class).
+
 **Baseline correction discovered during the Phase 0 drill:** the earlier
 "trust-Box fuzzers 0/0" note is stale. At clean `7054ae8` (pre-Phase-0) the
 trust-Box idempotency fuzzer already showed **6 non-idempotent gaps**:

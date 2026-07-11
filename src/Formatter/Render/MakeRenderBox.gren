@@ -14,6 +14,7 @@ renderer gets wrong simply falls back.
 
 import Formatter.Render.Box as B exposing (Box(..))
 import Formatter.Render.ElmStructure as E
+import Formatter.Render.FlowPolicy as FP
 import Formatter.Logical.LogicalPrintingTree exposing (LPBox(..), LPNode, ListBrackets(..), SyntaxType(..), lpnBox, lpnChildren, firstRowInSubtree, lpnMaxRow, lpnFirstPos, lpnBracketStart, lpnLastPos, lpnLastBracketEnd)
 import Formatter.Logical.BinopPrecedence exposing (binopPrecedence, binopMinPrecedence)
 
@@ -2006,7 +2007,7 @@ makeSignatureBox children =
                                                     -- drops every multi-line record type below
                                                     -- its head/`:`. Other bracket types (parens,
                                                     -- extensible records) keep the inline glue.
-                                                    if isTypeRecordLiteralBox single && not (isSingleLine typeBox) then
+                                                    if FP.isTypeRecordLiteral single && not (isSingleLine typeBox) then
                                                         B.stack1 [ B.line headerLine, B.indent typeBox ]
 
                                                     else
@@ -3254,52 +3255,6 @@ isSingleLine box =
             False
 
 
-{-| True when `node` is a curly-bracket *type* record literal (`{ a : T, … }`,
-first field separated by `SynthesizedText ":"`) — a verbatim mirror of
-`MakeRender.isTypeRecordLiteral` (can't be imported: MakeRender imports this
-module). Keeping the predicate identical keeps the two renderers' type-record
-drop decisions byte-equal under the self-verify guard. -}
-isTypeRecordLiteralBox : LPNode -> Bool
-isTypeRecordLiteralBox node =
-    let
-        isCurly =
-            when lpnBox node is
-                AlwaysVertical ListCurly ->
-                    True
-
-                AllAcrossOrAllVertical ListCurly ->
-                    True
-
-                _ ->
-                    False
-
-        fieldHasColonSep field =
-            Array.any
-                (\c ->
-                    when lpnBox c is
-                        SynthesizedText ":" ->
-                            True
-
-                        _ ->
-                            False
-                )
-                (lpnChildren field)
-
-        firstField =
-            lpnChildren node
-                |> Array.keepIf (\c -> not (nodeIsComment c))
-                |> Array.first
-    in
-    isCurly
-        && (when firstField is
-                Just f ->
-                    fieldHasColonSep f
-
-                Nothing ->
-                    False
-           )
-
-
 -- True for a flow item whose node is a bracket LITERAL (record / array / record
 -- update) — the shapes that carry `R.align`, so a `B.prefix` glue of their first
 -- line pads continuation lines to stay aligned under the opening bracket.
@@ -3559,7 +3514,7 @@ pairTypeRecordComments items =
                     if
                         pairableComment it
                             && (at (i + 1)
-                                    |> Maybe.map (\n -> isTypeRecordLiteralBox n.node)
+                                    |> Maybe.map (\n -> FP.isTypeRecordLiteral n.node)
                                     |> Maybe.withDefault False
                                )
                     then
@@ -3570,7 +3525,7 @@ pairTypeRecordComments items =
                         Just
                             { item = it
                             , leading =
-                                if isTypeRecordLiteralBox it.node then
+                                if FP.isTypeRecordLiteral it.node then
                                     at (i - 1)
                                         |> Maybe.andThen
                                             (\prev ->
@@ -3587,16 +3542,28 @@ pairTypeRecordComments items =
                 )
 
 
-{-| Assemble a flow into a Box. Consecutive inline (single-line) items join on
-one line, space-separated; a block item (BodyBlock / IndentedBlock / any
-multi-line node) flushes the current line and drops to its own line(s) indented
-by `flowIndent` plus the block's own indent (IndentedBlock/SoftIndentedBlock add
-+4, BodyBlock adds 0); an `EmptyLine` flushes and emits a blank line. This is
-the general shape `buildFlowDoc` produces — it covers the funcDecl header+body,
-plain calls, and the flat `if`/`else if`/`else` branch sequence alike. -}
+{-| Assemble a flow into a Box, taking every join decision from
+`FlowPolicy.decide` — the shared decision core both renderers consume (see
+CutoverScope.md "Item 4 design", Phase 1). This fold keeps NO layout policy of
+its own: it classifies each item into `ItemFacts`, asks the policy for a
+`Placement`, and materializes that placement with Box primitives. A placement
+this renderer cannot materialize yet returns `Err`, falling back to the Doc
+renderer via the self-verify guard.
+
+Materialization state: `curRow` is the line being assembled (single-line items
+join space-separated); `rows` are the completed lines/blocks above it. The
+first row sits at the flow's own column; every continuation row is indented by
+`flowIndent` at the end (the Box form of the Doc's outer `R.nest indent`).
+-}
 assembleFlowImpl : Bool -> Int -> Array FlowItem -> Result String Box
 assembleFlowImpl inlineStart flowIndent items =
     let
+        config =
+            { indent = flowIndent
+            , inlineStart = inlineStart
+            , brokenFlow = False
+            }
+
         flushRow curRow rows =
             if Array.isEmpty curRow then
                 rows
@@ -3604,69 +3571,132 @@ assembleFlowImpl inlineStart flowIndent items =
             else
                 Array.pushLast (B.line (B.row (Array.intersperse B.space curRow))) rows
 
-        -- Place a single-line comment. `prevRow` is the source row of the content
-        -- on `curRow`. Mirrors the comment arms of `MakeRender.buildFlowDocImpl`:
-        --   • a `--` line comment always terminates its line — trailing the
-        --     current row when on the same source row, else on its own line;
-        --   • a standalone-leading block comment (the first item of a
-        --     block-context flow, or one right after another terminated comment)
-        --     renders on its own line;
-        --   • a single-line block comment continuing a line (same row) glues
-        --     inline.
-        -- A mid-flow block comment on a different row, and inline-context leading
-        -- comments (paren/when-scrutinee bodies), aren't ported and fall back.
-        placeComment acc c startRow =
+        -- Classify one flow item into the policy's fact vocabulary. The
+        -- verticality facts come from this renderer's own IR (`isSingleLine`
+        -- on the rendered box — the Box analogue of the Doc's
+        -- `R.hasHardBreak`).
+        factsFor item =
+            when item.comment is
+                Just c ->
+                    if c.isLineComment then
+                        FP.LineCommentItem { startRow = item.startRow }
+
+                    else
+                        FP.BlockCommentItem { startRow = item.startRow, multiLine = c.multiLine }
+
+                Nothing ->
+                    when lpnBox item.node is
+                        AllAcrossOrAllVertical _ ->
+                            bracketFacts item
+
+                        AlwaysVertical _ ->
+                            bracketFacts item
+
+                        IndentedBlock ->
+                            FP.IndentedBlockItem
+
+                        BodyBlock ->
+                            FP.BodyBlockItem
+
+                        SoftIndentedBlock ->
+                            FP.SoftBlockItem { childForcesVertical = softBlockChildForcesVerticalBox item }
+
+                        EmptyLine ->
+                            FP.EmptyLineItem
+
+                        UnbreakableText loc ->
+                            FP.LeafItem { startRow = loc.start.row, isElidedArrow = isElidedArrow item.node }
+
+                        _ ->
+                            FP.LeafItem { startRow = -1, isElidedArrow = False }
+
+        bracketFacts item =
+            FP.BracketLiteralItem
+                { forcesVertical = not (isSingleLine item.box)
+                , isTypeRecord = FP.isTypeRecordLiteral item.node
+                , closingRow =
+                    lpnLastBracketEnd item.node
+                        |> Maybe.map (\p -> p.row)
+                        |> Maybe.withDefault -1
+                }
+
+        -- Glue a single line onto the last completed row's last line — the
+        -- materialization of a FlowSep-style join whose left side is a block
+        -- (the Doc's `group nl` flattens to a space onto the running doc).
+        -- Covers the ex-`glueable` lambda-pattern/lambda-head followers and a
+        -- same-row comment gluing onto a dropped record's `}` line.
+        glueOntoLastRow acc l next =
+            when Array.popLast acc.rows is
+                Just { last = lastBox, initial } ->
+                    Ok
+                        { rows = Array.pushLast (B.addSuffix (B.row [ B.space, l ]) lastBox) initial
+                        , curRow = []
+                        , state = next
+                        }
+
+                Nothing ->
+                    Err "box: glue with nothing before"
+
+        -- Materialize a comment item's placement. An own-line comment (the
+        -- policy leaves `AlreadyTerminated`) flushes and stands alone; an
+        -- inline one joins the current row. `GlueSpace` with an empty current
+        -- row means the previous item was a block (a dropped record): glue
+        -- onto its last line.
+        placeCommentItem acc decision c =
             let
-                sameRow =
-                    not (Array.isEmpty acc.curRow) && startRow == acc.prevRow
-
-                -- In an inline-start flow (a binop/`OpAndRhs` rhs, a `( … )`
-                -- body — the Doc's `buildFlowDocInline`) the very first item
-                -- continues a line the caller already began, so a leading comment
-                -- there stays inline rather than dropping to its own line.
-                standaloneLeading =
-                    (not inlineStart && not acc.started && Array.isEmpty acc.curRow)
-                        || acc.justTerminated
-
-                -- Flush the current row, then drop `box` onto its own line(s).
                 ownLine box =
-                    Ok { acc | rows = Array.pushLast box (flushRow acc.curRow acc.rows), curRow = [], prevRow = startRow, started = True, justTerminated = True }
+                    Ok
+                        { rows = Array.pushLast box (flushRow acc.curRow acc.rows)
+                        , curRow = []
+                        , state = decision.next
+                        }
             in
             if c.multiLine then
-                -- A multi-line block comment occupies its own line(s).
-                if standaloneLeading then
-                    ownLine c.box
+                when decision.placement is
+                    FP.AsFirst ->
+                        -- In an inline-start flow (a PrefixGlue/paren body whose
+                        -- box the caller embeds mid-line) the content following
+                        -- the comment's own lines must be re-indented by the
+                        -- ENCLOSING flow's nest — which the Doc gets for free
+                        -- (its hardNl re-indents at the outer nest) but this
+                        -- box, once embedded as a first-row item, cannot: its
+                        -- continuation lines are out of the enclosing
+                        -- `flowIndent`'s reach. Fall back.
+                        if inlineStart then
+                            Err "box: leading multi-line comment in an inline-start flow not ported"
 
-                else if not (Array.isEmpty acc.curRow) && startRow /= acc.prevRow && not acc.prevElided then
-                    -- Non-standalone, on a different source row from the current
-                    -- content (and not trailing an elided `->`): the Doc puts it on
-                    -- its own line (`concat acc.doc (hardNl ++ commentText)`), which
-                    -- `ownLine` reproduces — the final `flowIndent` then brings it to
-                    -- the flow's continuation column, matching the Doc's outer
-                    -- `R.nest indent`.
-                    ownLine c.box
+                        else
+                            ownLine c.box
 
-                else if not (Array.isEmpty acc.curRow) then
-                    -- Same-row glue (`content {- multi… -}`), or a comment trailing
-                    -- an elided `->` (whose source row is unreliable — see
-                    -- `prevElided`): the comment's first line joins the current row
-                    -- and its body flows below. Mirrors the Doc's `R.concat curRow
-                    -- (R.text " ") commentDoc`: `B.prefix` prepends the current row
-                    -- (plus a space) onto the comment box's first line AND pads every
-                    -- continuation line by that width, so the reindented comment body
-                    -- lands aligned under the opening `{-`. `justTerminated` then lets
-                    -- the SoftIndentedBlock rule (above) drop any following block +4.
-                    let
-                        prefLine =
-                            B.row (Array.pushLast B.space (Array.intersperse B.space acc.curRow))
-                    in
-                    Ok { acc | rows = Array.pushLast (B.prefix prefLine c.box) acc.rows, curRow = [], prevRow = startRow, started = True, justTerminated = True, prevElided = False }
+                    FP.GlueNoSep ->
+                        ownLine c.box
 
-                else
-                    -- Empty current row after a *block*: the comment follows a block
-                    -- item, which the Doc glues onto that block's last line — the flat
-                    -- stacker can't append there, so fall back.
-                    Err "box: multi-line block comment after a block not ported"
+                    FP.OwnLine ->
+                        ownLine c.box
+
+                    FP.GlueSpace ->
+                        if Array.isEmpty acc.curRow then
+                            Err "box: multi-line comment glue onto a block's last line not ported"
+
+                        else
+                            -- The comment's first line joins the current row and
+                            -- its body flows below. `B.prefix` prepends the row
+                            -- (plus a space) onto the comment box's first line
+                            -- AND pads every continuation line by that width, so
+                            -- the reindented comment body lands aligned under
+                            -- the opening `{-`.
+                            let
+                                prefLine =
+                                    B.row (Array.pushLast B.space (Array.intersperse B.space acc.curRow))
+                            in
+                            Ok
+                                { rows = Array.pushLast (B.prefix prefLine c.box) acc.rows
+                                , curRow = []
+                                , state = decision.next
+                                }
+
+                    _ ->
+                        Err "box: unexpected multi-line comment placement"
 
             else
                 when B.isLine c.box is
@@ -3674,119 +3704,191 @@ assembleFlowImpl inlineStart flowIndent items =
                         Err "box: single-line comment box was multi-line"
 
                     Ok l ->
-                        if c.isLineComment then
-                            if sameRow then
-                                Ok { acc | rows = flushRow (Array.pushLast l acc.curRow) acc.rows, curRow = [], prevRow = startRow, started = True, justTerminated = True }
+                        if decision.next.separator == FP.AlreadyTerminated then
+                            -- Line-terminating comment (a `--`, or a block
+                            -- comment the policy put on its own line).
+                            when decision.placement is
+                                FP.AsFirst ->
+                                    ownLine (B.line l)
 
-                            else
-                                ownLine (B.line l)
+                                FP.GlueNoSep ->
+                                    ownLine (B.line l)
 
-                        else if standaloneLeading then
-                            ownLine (B.line l)
+                                FP.OwnLine ->
+                                    ownLine (B.line l)
 
-                        else if not (Array.isEmpty acc.curRow) || not acc.started then
-                            -- A non-leading single-line block comment glues inline
-                            -- to the current row. Mirrors `buildFlowDocImpl`'s `else`
-                            -- branch (`joinDoc` with `FlowSep` — a soft group that
-                            -- flattens to a space, with NO row test): elm-format
-                            -- pulls a non-leading `{- … -}` onto the preceding
-                            -- content. This also covers a comment trailing an elided
-                            -- or synthesized token (`in`, `exposing`, `where`, the
-                            -- module-name slots) whose source row does not match the
-                            -- comment's — which the old strict `sameRow` gate missed.
-                            -- `not acc.started` catches the inline-start leading
-                            -- comment (empty current row, first item of a `( … )` /
-                            -- rhs flow): it starts the row inline rather than
-                            -- dropping to its own line.
-                            Ok { acc | curRow = Array.pushLast l acc.curRow, prevRow = startRow, started = True, justTerminated = False }
-
-                        else
-                            -- Empty current row after a *block*: the comment directly
-                            -- follows a block item, which the Doc glues onto that
-                            -- block's last line — the flat stacker can't append
-                            -- there, so fall back.
-                            Err "box: mid-flow block comment after a block not ported"
-
-        -- One fold step for a non-comment, non-EmptyLine item (a block drops to
-        -- its own line, an inline item joins/glues the current row). Factored
-        -- out of `step` so the paired-leading-comment fallback can replay it.
-        nonCommentStep acc item =
-                                    -- A `SoftIndentedBlock` renders inline while it
-                                    -- fits, but the moment it follows a comment that
-                                    -- terminated its line (`justTerminated`) the Doc's
-                                    -- `joinBlock`/`AlreadyTerminated` path drops it to a
-                                    -- new line at +grenIndent even when its content is
-                                    -- single-line (`| Square {- … -}` then `Int Int` at
-                                    -- +4). Box's `isBlockNode` only sees the rendered
-                                    -- box (single-line → not a block), so force the
-                                    -- block treatment here to match — this is what makes
-                                    -- the different-row comment case land at the same
-                                    -- column as the same-row fallback, so the two don't
-                                    -- oscillate across reformats.
-                                    if item.isBlock || (acc.justTerminated && isSoftIndentedBlockNode item.node) then
-                                        let
-                                            -- Only the block's OWN indent here; the
-                                            -- flow indent is applied uniformly to
-                                            -- every continuation row at the end
-                                            -- (mirroring the Doc's single outer
-                                            -- `R.nest indent` around the whole flow).
-                                            --
-                                            -- A bracket literal dropping AFTER an
-                                            -- inline head (`acc.curRow` non-empty) is
-                                            -- a type-application argument (`HasIdentifier
-                                            -- { … }`, `Array { … }`); elm-format
-                                            -- `ElmStructure.application` drops it
-                                            -- `grenIndent` under the head. The head sits
-                                            -- at flow-column 0 (it's on the `first` row,
-                                            -- which is emitted without `flowIndent`),
-                                            -- and every continuation row is later shifted
-                                            -- by `flowIndent`, so to land the arg at
-                                            -- exactly `grenIndent` its own indent must be
-                                            -- `grenIndent - flowIndent`. This is 0 in a
-                                            -- field-value flow (`fieldFlowIndent` is
-                                            -- already `grenIndent`) and `grenIndent` in a
-                                            -- flowIndent-0 type-alias/signature body, so
-                                            -- it neither under- nor double-indents.
-                                            ownIndent =
-                                                if not (Array.isEmpty acc.curRow) && isSoftGlueLiteral item then
-                                                    Basics.max 0 (grenIndent - flowIndent)
-
-                                                else
-                                                    blockOwnIndent item.node
-
-                                            blockBox =
-                                                applyIndent ownIndent item.box
-                                        in
-                                        Ok { acc | rows = Array.pushLast blockBox (flushRow acc.curRow acc.rows), curRow = [], prevRow = -1, started = True, justTerminated = False, glueable = isGlueablePrefixBlock item }
+                                FP.GlueSpace ->
+                                    -- Same-row glue; the comment still ends the
+                                    -- line.
+                                    if Array.isEmpty acc.curRow then
+                                        glueOntoLastRow acc l decision.next
 
                                     else
-                                        when B.isLine item.box is
-                                            Ok l ->
-                                                if acc.glueable && Array.isEmpty acc.curRow then
-                                                    -- The tokens following a multi-line
-                                                    -- `PrefixGlue` (lambda-arg pattern) glue
-                                                    -- onto its last line, mirroring the Doc's
-                                                    -- `FlowSep` after a plain item (`} accumulatedSoFar ->`,
-                                                    -- `] -> a`). `B.addSuffix` appends ` <token>`
-                                                    -- to the pushed block's last line; `glueable`
-                                                    -- stays set so a run of followers chains.
-                                                    when Array.popLast acc.rows is
-                                                        Just { last = lastBox, initial } ->
-                                                            Ok { acc | rows = Array.pushLast (B.addSuffix (B.row [ B.space, l ]) lastBox) initial, prevRow = item.startRow, started = True, justTerminated = False, prevElided = isElidedArrow item.node, glueable = True }
+                                        Ok
+                                            { rows = flushRow (Array.pushLast l acc.curRow) acc.rows
+                                            , curRow = []
+                                            , state = decision.next
+                                            }
 
-                                                        Nothing ->
-                                                            Ok { acc | curRow = Array.pushLast l acc.curRow, prevRow = item.startRow, started = True, justTerminated = False, prevElided = isElidedArrow item.node, glueable = False }
+                                _ ->
+                                    Err "box: unexpected terminating comment placement"
 
-                                                else
-                                                    -- Track whether this inline item is the
-                                                    -- synthesized `->` so a multi-line comment
-                                                    -- trailing it glues regardless of source row.
-                                                    Ok { acc | curRow = Array.pushLast l acc.curRow, prevRow = item.startRow, started = True, justTerminated = False, prevElided = isElidedArrow item.node, glueable = False }
+                        else
+                            -- Inline single-line block comment: joins the flow
+                            -- like a token.
+                            when decision.placement is
+                                FP.AsFirst ->
+                                    Ok { rows = acc.rows, curRow = [ l ], state = decision.next }
 
-                                            Err _ ->
-                                                -- A single-line-tagged item that isn't a Line
-                                                -- shouldn't happen; keep it as its own row.
-                                                Ok { acc | rows = Array.pushLast item.box (flushRow acc.curRow acc.rows), curRow = [], prevRow = -1, started = True, justTerminated = False, prevElided = False, glueable = False }
+                                FP.GlueSpace ->
+                                    if Array.isEmpty acc.curRow then
+                                        glueOntoLastRow acc l decision.next
+
+                                    else
+                                        Ok { rows = acc.rows, curRow = Array.pushLast l acc.curRow, state = decision.next }
+
+                                FP.SoftSep ->
+                                    if Array.isEmpty acc.curRow then
+                                        glueOntoLastRow acc l decision.next
+
+                                    else
+                                        Ok { rows = acc.rows, curRow = Array.pushLast l acc.curRow, state = decision.next }
+
+                                FP.OwnLine ->
+                                    Ok { rows = flushRow acc.curRow acc.rows, curRow = [ l ], state = decision.next }
+
+                                _ ->
+                                    Err "box: unexpected inline comment placement"
+
+        -- Materialize a non-comment item's placement. `leading` carries a
+        -- paired leading comment box for the type-record drop (it drops WITH
+        -- the record, stacked directly above the `{` at the drop indent).
+        placeNonComment acc decision leading item =
+            when decision.placement is
+                FP.AsFirst ->
+                    -- First item of the flow: the bare item (the Doc's
+                    -- FirstItem join applies no wrap).
+                    when B.isLine item.box is
+                        Ok l ->
+                            Ok { rows = acc.rows, curRow = [ l ], state = decision.next }
+
+                        Err _ ->
+                            Ok { rows = Array.pushLast item.box acc.rows, curRow = [], state = decision.next }
+
+                FP.GlueNoSep ->
+                    -- Content begins on the fresh line the previous comment's
+                    -- hardNl opened (the current row is empty after the
+                    -- comment's flush).
+                    when B.isLine item.box is
+                        Ok l ->
+                            Ok { rows = acc.rows, curRow = Array.pushLast l acc.curRow, state = decision.next }
+
+                        Err _ ->
+                            Ok { rows = Array.pushLast item.box (flushRow acc.curRow acc.rows), curRow = [], state = decision.next }
+
+                FP.SoftSep ->
+                    when B.isLine item.box is
+                        Ok l ->
+                            if Array.isEmpty acc.curRow then
+                                glueOntoLastRow acc l decision.next
+
+                            else
+                                Ok { rows = acc.rows, curRow = Array.pushLast l acc.curRow, state = decision.next }
+
+                        Err _ ->
+                            -- The Doc soft-glues a multi-line non-block item's
+                            -- first line onto the running line (its `group nl`
+                            -- flattens to a space; inner hard breaks land per
+                            -- the item's own align/nest). Needs the
+                            -- alignment-table glue primitives — Phase 2.
+                            Err "box: soft-glue of a multi-line item not ported"
+
+                FP.OwnLine ->
+                    when B.isLine item.box is
+                        Ok l ->
+                            Ok { rows = flushRow acc.curRow acc.rows, curRow = [ l ], state = decision.next }
+
+                        Err _ ->
+                            Ok { rows = Array.pushLast item.box (flushRow acc.curRow acc.rows), curRow = [], state = decision.next }
+
+                FP.IndentNoBreak ->
+                    -- Block after a line-terminating comment: the item lands on
+                    -- the fresh line at +grenIndent, with no extra break.
+                    Ok
+                        { rows = Array.pushLast (applyIndent grenIndent item.box) (flushRow acc.curRow acc.rows)
+                        , curRow = []
+                        , state = decision.next
+                        }
+
+                FP.BlockJoin { rule } ->
+                    when rule is
+                        FP.IndentedRule ->
+                            Ok
+                                { rows = Array.pushLast (applyIndent grenIndent item.box) (flushRow acc.curRow acc.rows)
+                                , curRow = []
+                                , state = decision.next
+                                }
+
+                        FP.BodyRule ->
+                            Ok
+                                { rows = Array.pushLast item.box (flushRow acc.curRow acc.rows)
+                                , curRow = []
+                                , state = decision.next
+                                }
+
+                        FP.SoftIndentedRule ->
+                            -- The Doc's soft wrap is a group: flat content glues
+                            -- onto the current line with a space; multi-line
+                            -- content would soft-glue at +grenIndent (Phase 2).
+                            when B.isLine item.box is
+                                Ok l ->
+                                    if Array.isEmpty acc.curRow then
+                                        glueOntoLastRow acc l decision.next
+
+                                    else
+                                        Ok { rows = acc.rows, curRow = Array.pushLast l acc.curRow, state = decision.next }
+
+                                Err _ ->
+                                    Err "box: soft-glue of a multi-line soft block not ported"
+
+                FP.DropBlock rule ->
+                    -- The type-record drop: the record (with its paired leading
+                    -- comment stacked directly above the `{`, when present)
+                    -- drops below the head. IndentedRule (unnested flow) lands
+                    -- it at +grenIndent; BodyRule (the flow is already nested)
+                    -- at the flow's continuation column.
+                    let
+                        dropIndent =
+                            when rule is
+                                FP.IndentedRule ->
+                                    grenIndent
+
+                                _ ->
+                                    0
+
+                        droppedBox =
+                            when leading is
+                                Just commentBox ->
+                                    B.stack1 [ commentBox, item.box ]
+
+                                Nothing ->
+                                    item.box
+                    in
+                    Ok
+                        { rows = Array.pushLast (applyIndent dropIndent droppedBox) (flushRow acc.curRow acc.rows)
+                        , curRow = []
+                        , state = decision.next
+                        }
+
+                FP.BlankLineOnly ->
+                    Ok
+                        { rows = Array.pushLast B.blankLine (flushRow acc.curRow acc.rows)
+                        , curRow = []
+                        , state = decision.next
+                        }
+
+                _ ->
+                    Err "box: unexpected flow placement"
 
         step paired accResult =
             accResult
@@ -3795,65 +3897,58 @@ assembleFlowImpl inlineStart flowIndent items =
                         let
                             item =
                                 paired.item
+
+                            decision =
+                                FP.decide config acc.state (factsFor item)
                         in
-                        if isEmptyLine item.node then
-                            Ok { acc | rows = Array.pushLast B.blankLine (flushRow acc.curRow acc.rows), curRow = [], prevRow = -1, started = True, justTerminated = False, glueable = False }
+                        when item.comment is
+                            Just c ->
+                                placeCommentItem acc decision c
 
-                        else
-                            when item.comment is
-                                Just c ->
-                                    placeComment acc c item.startRow
-                                        |> Result.map (\a -> { a | glueable = False })
+                            Nothing ->
+                                when paired.leading is
+                                    Nothing ->
+                                        placeNonComment acc decision Nothing item
 
-                                Nothing ->
-                                    when paired.leading is
-                                        Nothing ->
-                                            nonCommentStep acc item
+                                    Just leadItem ->
+                                        -- A single-line block comment paired with a
+                                        -- type record (`pairTypeRecordComments`).
+                                        -- When the policy drops the record, the
+                                        -- comment drops WITH it; otherwise replay
+                                        -- the exact unpaired steps (comment first,
+                                        -- then re-decide the record against the
+                                        -- state the comment left).
+                                        when decision.placement is
+                                            FP.DropBlock _ ->
+                                                placeNonComment acc
+                                                    decision
+                                                    (leadItem.comment |> Maybe.map (\lc -> lc.box))
+                                                    item
 
-                                        Just leadItem ->
-                                            -- A single-line block comment paired with this
-                                            -- type record (see `pairTypeRecordComments`).
-                                            -- When the record drops after an inline head,
-                                            -- the comment drops WITH it — its own line
-                                            -- directly above the `{`, both at the record's
-                                            -- indent (the Doc's `joinBracketLiteralFlowItem`
-                                            -- leading-comment drop / elm-format's placement).
-                                            -- Otherwise replay the exact unpaired steps.
-                                            if not (Array.isEmpty acc.curRow) && not acc.justTerminated && item.isBlock then
-                                                let
-                                                    ownIndent =
-                                                        if isSoftGlueLiteral item then
-                                                            Basics.max 0 (grenIndent - flowIndent)
-
-                                                        else
-                                                            blockOwnIndent item.node
-
-                                                    commentBox =
-                                                        when leadItem.comment is
-                                                            Just lc ->
-                                                                lc.box
-
-                                                            Nothing ->
-                                                                -- unreachable: pairing only holds comment items
-                                                                B.blankLine
-
-                                                    blockBox =
-                                                        applyIndent ownIndent (B.stack1 [ commentBox, item.box ])
-                                                in
-                                                Ok { acc | rows = Array.pushLast blockBox (flushRow acc.curRow acc.rows), curRow = [], prevRow = -1, started = True, justTerminated = False, glueable = isGlueablePrefixBlock item }
-
-                                            else
+                                            _ ->
                                                 when leadItem.comment is
                                                     Just lc ->
-                                                        placeComment acc lc leadItem.startRow
-                                                            |> Result.map (\a -> { a | glueable = False })
-                                                            |> Result.andThen (\a -> nonCommentStep a item)
+                                                        let
+                                                            leadDecision =
+                                                                FP.decide config acc.state (factsFor leadItem)
+                                                        in
+                                                        placeCommentItem acc leadDecision lc
+                                                            |> Result.andThen
+                                                                (\a ->
+                                                                    let
+                                                                        recDecision =
+                                                                            FP.decide config a.state (factsFor item)
+                                                                    in
+                                                                    placeNonComment a recDecision Nothing item
+                                                                )
 
                                                     Nothing ->
-                                                        nonCommentStep acc item
+                                                        placeNonComment acc decision Nothing item
                     )
     in
-    Array.foldl step (Ok { rows = [], curRow = [], prevRow = -1, started = False, justTerminated = False, prevElided = False, glueable = False }) (pairTypeRecordComments items)
+    Array.foldl step
+        (Ok { rows = [], curRow = [], state = FP.initialFlowState })
+        (pairTypeRecordComments items)
         |> Result.andThen
             (\final ->
                 let
@@ -3868,32 +3963,52 @@ assembleFlowImpl inlineStart flowIndent items =
                         -- The first row sits at the flow's own column; every
                         -- continuation row is indented by `flowIndent`. This is
                         -- the Box form of the Doc's `R.nest indent` wrapping the
-                        -- whole flow — and it finally indents an inline item that
-                        -- starts a fresh line after a `--`/own-line comment, which
-                        -- the per-block indent used to miss (it rendered col-0).
-                        -- Block rows already carry their `blockOwnIndent`, so this
-                        -- brings them to `flowIndent + blockOwnIndent` as before.
+                        -- whole flow. Block rows already carry their own indent
+                        -- (the placement applied it), so this brings them to
+                        -- `flowIndent + ownIndent`.
                         Ok (B.stack1 ([ first ] ++ Array.map (applyIndent flowIndent) rest))
             )
+
+
+-- The Box analogue of `MakeRender.softIndentedBlockChildForcesVertical`: a
+-- `SoftIndentedBlock` whose SOLE child is a bracket literal (record, record
+-- update, or array) that renders vertical switches from the soft glue to the
+-- hard indented drop. The structural test is on the LPNode; the verticality
+-- fact comes from this renderer's own box (single-line ⇔ the sole child is
+-- single-line, since it is the block's only content).
+softBlockChildForcesVerticalBox : FlowItem -> Bool
+softBlockChildForcesVerticalBox item =
+    when Array.popFirst (lpnChildren item.node) is
+        Just { first = only, rest } ->
+            if not (Array.isEmpty rest) then
+                False
+
+            else
+                let
+                    isBracketLiteral =
+                        when lpnBox only is
+                            AlwaysVertical _ ->
+                                True
+
+                            AllAcrossOrAllVertical _ ->
+                                True
+
+                            RecordUpdate _ ->
+                                True
+
+                            _ ->
+                                False
+                in
+                isBracketLiteral && not (isSingleLine item.box)
+
+        Nothing ->
+            False
 
 
 isEmptyLine : LPNode -> Bool
 isEmptyLine node =
     when lpnBox node is
         EmptyLine ->
-            True
-
-        _ ->
-            False
-
-
--- A `SoftIndentedBlock` node (a lambda/type-app body that stays inline while it
--- fits). Used to force a block drop when it follows a terminated comment, where
--- the Doc's `AlreadyTerminated` path always nests it +grenIndent.
-isSoftIndentedBlockNode : LPNode -> Bool
-isSoftIndentedBlockNode node =
-    when lpnBox node is
-        SoftIndentedBlock ->
             True
 
         _ ->
@@ -3916,22 +4031,6 @@ isElidedArrow node =
 
         _ ->
             False
-
-
--- A block's own indent contribution (on top of the flow's indent): IndentedBlock
--- and SoftIndentedBlock nest +4 by their rule; BodyBlock (and a plain multi-line
--- node) nest 0, taking their indent from the flow.
-blockOwnIndent : LPNode -> Int
-blockOwnIndent node =
-    when lpnBox node is
-        IndentedBlock ->
-            grenIndent
-
-        SoftIndentedBlock ->
-            grenIndent
-
-        _ ->
-            0
 
 
 {-| Apply `B.indent` (a Tab, advancing to the next multiple of 4) enough times
