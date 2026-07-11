@@ -433,16 +433,20 @@ makeOpAndRhsBox children =
                     -- with a trailing multi-line comment (`+ b {- multi… -}`).
                     --
                     -- A rhs that also carries a NESTED `OpAndRhs` (a lower-precedence
-                    -- continuation operand, `+ b {- c -} * 2`) can't use `B.prefix`:
+                    -- continuation operand, `+ b {- mlbc -} * 2`) can't use `B.prefix`:
                     -- the comment body must shift with the operator while the nested
                     -- operand must stay at the operator's base column — a per-line
-                    -- mix (`R.align` vs `R.nest`) the uniform prefix can't produce, so
-                    -- a multi-line such rhs falls back.
+                    -- mix (`R.align` vs `R.nest`) the uniform prefix can't produce.
+                    -- The FOLD can, though: render the operator as the flow's own
+                    -- first item — the glued comment commits as its own
+                    -- prefix-padded row (align preserved) and the nested group
+                    -- lands on a fresh row at the flow's ambient column, exactly
+                    -- the Doc's `op <> " " <> buildFlowDocInline 0 rhs` bytes.
                     buildFlowBoxInline 0 rhsNodes
                         |> Result.andThen
                             (\rhsBox ->
                                 if not (isSingleLine rhsBox) && Array.any isOpAndRhsNode rhsNodes then
-                                    Err "box: multi-line OpAndRhs with a continuation operand not ported"
+                                    buildFlowBoxInline 0 ([ opNode ] ++ rhsNodes)
 
                                 else
                                     Ok (prefixOperator op rhsBox)
