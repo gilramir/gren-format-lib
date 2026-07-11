@@ -638,11 +638,44 @@ mismatches):**
 - fenced-by-design #37 (1): MultilineBlockComments leading mlbc inline-start
 - t61-dangerous (1): TrickyComments comment in multi-node signature type
 
-No onesies remain. Every residual is either exact-space/Tab (the
-per-construct-only class — global Tab→spaces FALSIFIED, see below),
-tracked-intentional, fenced-by-design, or t61 (renders right, breaks
-idempotency). This is the natural stopping point for the Err-frontier
-burndown; the guard ships correct output for all 17 via Doc fallback.
+#### LANDED (`c35c353`): leading comment in a broken flow — 17 → 15 Errs
+
+The "leading comment in broken flow ×2" pair turned out NOT to be
+exact-space — it was a plain unported comment placement in
+`assembleBrokenWithComments`, which Erred whenever a broken flow's first item
+was a comment (the comment step popped a non-existent preceding entry). Full
+mirror of `MakeRender.buildFlowDocImpl`, two parts: (1) a pre-fold
+`mergedFirst` lookahead = the Doc's `mergedFirstStep`, gluing a leading
+single-line block comment onto the next non-comment single-line term
+(`{- c -} nextTerm` via `B.prefix (B.row [ commentLine, B.space ]) nextBox`),
+fold continues from the remainder with `lastRow = -1`; (2) the fold's
+leading-comment arm now places a `--`/own-line comment as the flow's first
+own-line entry (`lastRow = -1`) instead of Erring. Clears both KitchenComments
+decls — `summariseCart` (two leading `--` before a join's list arg → own-line)
+and `torturedComments` (`String.append secondaryStringValue` glued, then
+`{- block -} "!"` → the mergedFirst glue). Both fully clear, no deeper Err,
+0 mismatches. Full trust-Box drill green (comment-attachment change — the
+`Array.get -1` safety net clean).
+
+**Frontier now 15 Errs, 0 mismatches (HEAD `c35c353`) — no clean-mirror
+onesies remain.** Every residual is exact-space/Tab (10), tracked-intentional
+(3), fenced-#37 (1), or t61 (1). Class breakdown:
+- exact-space/Tab (10): record-update soft field ×4 (KitchenSink @148/@237,
+  KitchenComments @194, LambdaBracketBodyNestedInCall @4); soft-glue
+  multi-line item ×3 non-intentional (KitchenSink @311 mixed-ops lambda body,
+  KitchenComments @304, MultilineBlockComments @73 `#12` RecordUpdate); `#13`
+  fence (MultilineBlockComments @93); verbatim opener-alone mlbc
+  (BlockCommentBodyIndent @31, col-0 reset); Tab bracket item
+  (WhenInCommentedArray @4)
+- tracked-intentional direct-operand glue (3): CallArgBlockRelocation @71,
+  PrefixAnchorDivergence @23, MultilineBlockComments @216 no-trigger step
+- fenced-#37 (1): MultilineBlockComments @238 leading mlbc inline-start
+- t61-dangerous (1): TrickyComments @92 comment in multi-node signature type
+
+This is the natural stopping point for the Err-frontier burndown; the guard
+ships correct output for all 15 via Doc fallback. Further reduction needs the
+per-construct exact-space machinery (global Tab→spaces FALSIFIED, see below)
+or the t61 fixed-point work — not more mirror ports.
 
 **Tried + REVERTED (2026-07-11): global Tab → exact-4-spaces in `B.indent`.**
 Hypothesis: every "Tab-poisoned" Err (RecordUpdate/AlignedFlow soft-glue,
