@@ -1595,7 +1595,18 @@ makeIfConditionBox forceVertical children =
                     makePBox (lpnBox ifNode) (lpnChildren ifNode)
                         |> Result.andThen
                             (\ifBox ->
-                                buildFlowBox 0 condNodes
+                                -- Mirror `makeIfConditionDoc`'s arm split: the
+                                -- author-broken form renders the condition as a
+                                -- standalone flow; the inline form continues the
+                                -- `if `-line, so a leading single-line block
+                                -- comment stays inline
+                                -- (`if {- c -} tertiaryBoolValue then`).
+                                (if forceVertical then
+                                    buildFlowBox 0 condNodes
+
+                                 else
+                                    buildFlowBoxInline 0 condNodes
+                                )
                                     |> Result.andThen
                                         (\condBox ->
                                             makePBox (lpnBox thenNode) (lpnChildren thenNode)
