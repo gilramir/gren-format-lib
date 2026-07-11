@@ -2,7 +2,7 @@ port module KitchenSink exposing
     ( Configuration
     , Container
     , Result
-    , Tree (..)
+    , Tree(..)
     , fold
     , initialContainer
     , port_in_message
@@ -39,10 +39,10 @@ import Result.Extra as ResultExtra
 import String exposing (fromInt, toInt, toLower, toUpper, trim, words)
 import Task exposing (Task)
 
-infix left 6 (+) = add
-infix left 6 (-) = sub
-infix left 7 (*) = mul
-infix non 4 (==) = eq
+infix left  6 (+) = add
+infix left  6 (-) = sub
+infix left  7 (*) = mul
+infix non   4 (==) = eq
 infix right 5 (<|) = apL
 
 -- A simple line comment introducing the next section.

@@ -364,7 +364,7 @@ moduleLineClosesBelow modAst =
 {-| Render a single item in an `exposing (...)` list.
 
     foo               -- ExposedLower
-    Maybe (..)        -- ExposedUpper Public
+    Maybe(..)         -- ExposedUpper Public
     Maybe             -- ExposedUpper Private
     (+)               -- ExposedOperator
 -}
@@ -377,7 +377,7 @@ processExposed exposed =
         Src.ExposedUpper { name = sp, privacy = privacy } ->
             when privacy is
                 Src.Public ->
-                    lpnLeaf (UnbreakableText { sp | value = sp.value ++ " (..)" })
+                    lpnLeaf (UnbreakableText { sp | value = sp.value ++ "(..)" })
 
                 Src.Private ->
                     lpnLeaf (UnbreakableText sp)
@@ -883,8 +883,12 @@ processInfixDecl locInfix root =
         keywordNode =
             lpnLeaf (mkText { row = locInfix.start.row, col = 1 } "infix")
 
+        -- elm-format pads the associativity keyword to the width of the widest
+        -- one (`right` = 5) so the precedence column lines up across all infix
+        -- declarations; the flow's own single separator space then sits on top
+        -- (`infix left  6`, `infix non   4`, `infix right 5`).
         assocNode =
-            lpnLeaf (SynthesizedText assocStr)
+            lpnLeaf (SynthesizedText (String.padRight 5 ' ' assocStr))
 
         precNode =
             lpnLeaf (SynthesizedText (String.fromInt infix_.precedence))

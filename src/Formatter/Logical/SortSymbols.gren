@@ -563,7 +563,7 @@ exposedSortKey node =
 groups -- operators (0), types/unions (1), values (2) -- and its base name
 for alphabetical comparison within the group. A closed, exhaustive match
 over exactly the three shapes `MakeLogical.processExposed` ever renders
-(`(op)`, `Name` / `Name (..)`, `name`); keep this in sync if that function's
+(`(op)`, `Name` / `Name(..)`, `name`); keep this in sync if that function's
 output shapes ever change. -}
 classifyExposedText : String -> { rank : Int, baseName : String }
 classifyExposedText text =
@@ -573,8 +573,8 @@ classifyExposedText text =
     else if startsWithUpper text then
         { rank = 1
         , baseName =
-            if String.endsWith " (..)" text then
-                String.dropLast 5 text
+            if String.endsWith "(..)" text then
+                String.dropLast 4 text
 
             else
                 text
