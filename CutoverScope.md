@@ -354,6 +354,148 @@ with arrow-layout and trailing-comment placement idempotency, which need more
 machinery. **Reverted** (source + 6 fixtures) to `497c1ae`. The output solution
 above is reusable; the remaining work is making the drop a reparse fixed point.
 
+### Item 4 design (2026-07-10, user-approved, NOT yet implemented): shared FlowPolicy decision core
+
+Approach chosen (over a fourth scoped patch): extract the flow fold's
+*decision layer* into one shared module both renderers consume, with a
+**complete-to-the-Doc** placement vocabulary from day one. Rationale, spec,
+and phasing below; implementation has not started.
+
+#### Diagnosis — why this class reverted three times
+
+The `#12`/`#44` hunks are two symptoms of one fact: **Box's flow fold runs a
+different decision state machine than the Doc's, and only the Doc's has been
+hammered into reparse-fixed-point shape** (fix 4's synthetic `prevRow`, fix
+5's structural pairing, item 3's `segmentHasDroppingRecord` pre-commitment,
+`prevElided`). The two machines diverge in exactly two places:
+
+1. **Block classification.** Box's `isBlockNode` says "block" for
+   `BodyBlock`/`IndentedBlock` *or any node whose rendered box is
+   multi-line*. The Doc dispatches by box type: only `IndentedBlock`,
+   `BodyBlock`, `SoftIndentedBlock`, `WhenBranch`, `PipelineStep`,
+   `EmptyLine`, and the gated type-record drop get block treatment;
+   **everything else — however multi-line — glues via `FlowSep`** (first
+   line joins the current line; continuation lands wherever its own
+   `R.align`/`R.nest` puts it). Hence `#12`: the multi-line extension record
+   glues as `-> { a` in the Doc (it fails `isTypeRecordLiteral`, so no drop
+   fires) while Box unconditionally drops any multi-line bracket literal.
+2. **`prevRow` discipline.** The Doc sets `prevRow` only for
+   `UnbreakableText` leaves (plus the synthetic closing-`}` row after a
+   record drop); records and everything else reset it to `-1`. Box's
+   `nonCommentStep` sets `prevRow = item.startRow` for *every* inline item.
+   Hence `#44`: the mlbc trails `{ x }` on the same source row, so Box's
+   richer row-tracking glues it where the Doc (prevRow `-1` after a record)
+   puts it own-line — and the Doc's placement is the proven fixed point.
+
+t42/t43/t61 all failed the same way: a locally-plausible Box glue rule keyed
+off real rows or rendered multi-line-ness fired in slightly different
+contexts than the Doc's corresponding rule, producing **Box-only layouts**
+whose idempotency nothing had ever proven (t61: "rendered right" on the
+target, broke idempotency in two *other* flows).
+
+#### Design principle
+
+**Box has no layout policy of its own.** Byte-equality with the Doc is the
+only correctness target; fixed-point-ness is then *inherited* from the Doc's
+discipline instead of re-proven per tranche. Any Box decision input richer
+than the Doc's (real rows where the Doc tracks `-1`, rendered-box shape
+where the Doc dispatches on type) is not extra precision — it is a
+divergence generator. So: make the glue decision *the same function* in both
+renderers, leaving exactly one decision procedure to keep fixed-point-clean.
+
+#### Module spec — `Formatter.Render.FlowPolicy`
+
+- **`FlowState`** — exactly the Doc's fold accumulator minus the Doc itself:
+  `{ separator : NextSeparator, prevRow : Int, prevElided : Bool }`.
+  `NextSeparator` (`FirstItem | FlowSep | HardNl | AlreadyTerminated`) moves
+  here from MakeRender.
+- **`ItemFacts`** — the *complete legal input set* for decisions (anything
+  not listed is banned): `kind` (classification of `lpnBox`: hard-block
+  rule / soft block / bracket literal / comment kind / leaf / empty line),
+  `startRow`, `forcesVertical` (caller-supplied from its own IR — Doc:
+  `R.hasHardBreak`, Box: `not isSingleLine`), `isTypeRecordLiteral`,
+  `pairedComment` (fix-5 pairing, already structural), `isElidedArrow`,
+  `lastBracketEndRow` (for fix 4's synthetic `prevRow`).
+- **`decide : { inlineStart, brokenFlow, indent } -> FlowState -> ItemFacts
+  -> Result String { placement : Placement, next : FlowState }`**, where
+  `Placement` enumerates exactly the join shapes the Doc's arms produce
+  today (complete-to-the-Doc, per the approved scope):
+  - `GlueSpace` — the `FlowSep` flat join (single-line items AND multi-line
+    soft items like `#12`'s record)
+  - `GlueNoSep` — `AlreadyTerminated` continuation
+  - `OwnLine` — `HardNl` join (covers `#44`'s comment)
+  - `CommentGlueSameRow` — fix 4's `} {- c -}` row-glue and the
+    `prevElided` glue
+  - `Block BlockRule` — indented / body / soft-indented drop
+  - `DroppedRecord { leadingComment }` — the fix-5/item-3 type-record drop
+  - `BlankLine`
+- **Materialization stays per-renderer.** Doc: the existing
+  `joinDoc`/`joinBlock`/`commentBoxDoc` snippets, keyed by `Placement`.
+  Box: existing `B.stack1`/`applyIndent` plus two glue primitives keyed by
+  a **static per-box-type alignment table** (verified against the Doc
+  source, not curve-fit): bracket literals, multiline strings, and
+  block-comment bodies render under `R.align` → glue with `B.prefix` (pads
+  continuation by prefix width); `AcrossOrVertical`/`OpAndRhs`/call flows
+  render under base-relative `R.nest` → glue first-line-only
+  (`mapFirstLine`). A follower after a glued multi-line item glues onto its
+  last line via `B.addSuffix` — the existing `glueable` mechanism
+  generalized to "separator is `FlowSep` after *any* item", which is what
+  the Doc has always done. Any `Placement` Box can't yet materialize stays
+  an `Err` → self-verify fallback, so partial coverage remains safe.
+
+How the hunks fall out: `#12` — `decide` returns `GlueSpace` for the
+extension record (drop gate is `isTypeRecordLiteral`, which it fails) → Box
+materializes `B.prefix (line "-> " …) recordBox`; byte-equal to the Doc,
+whose idempotency the fuzzers already prove. `#44` — with Doc `prevRow`
+discipline the same-row test fails after the record → `OwnLine` → comment
+stacks, `as whole` continues fresh; again byte-equal to shipped Doc output.
+
+#### Phasing (each phase lands separately; full drill after each)
+
+1. **Phase 0 — characterize the Doc.** Extract `decide` out of
+   `buildFlowDocImpl` with *zero behavior change*; Doc consumes it.
+   Mechanical extraction — move code, don't rewrite; one arm per commit if
+   needed. Gate: output byte-identical (140 fixtures + both fuzzers + the
+   trust-Box drill verify exactly that).
+2. **Phase 1 — Box consumes `decide`.** Rewrite `assembleFlowImpl`'s fold to
+   take placements from the shared core, keeping existing materializers and
+   existing `Err`s. Delete `isBlockNode`'s multi-line fallback, the
+   Box-local `prevRow` tracking, and the ad-hoc gates (`isSoftGlueLiteral`
+   drop condition, `trySoftGlueFlow`'s shape test) *only where* the policy
+   now decides. Gate: trust-Box census same-or-better, normal gates green.
+3. **Phase 2 — the two missing Box materializers**: soft-glue of a
+   multi-line item per the alignment table; comment-after-block via
+   `B.addSuffix`/stack. This is where `#12`/`#44` clear. Then **2b**: mirror
+   `segmentHasDroppingRecord` in `makeSignatureBox` and delete
+   `pairTypeRecordComments`' arrow-refusal, clearing the tracked
+   KitchenComments `extremelyCommented` Box-lag node.
+
+Drill per phase: effectful 140, `fuzz-idempotency.py -j 12`,
+`fuzz-whitespace.py` both modes, and the trust-Box sed-guard drill
+**including trust-Box fuzzers** (the `Array.get -1` incident: comment-pairing
+changes are invisible to every other gate).
+
+Likely free wins to track (not promised): the generalized `addSuffix`-glue
+materializer is the same machinery the parked Err classes "inline token
+gluing to a preceding block" (4 decls, the `{ … } =` headers —
+`assembleFlowFallback`'s explicit Err) and "multi-line/mid-flow block
+comment after a block" (3 decls, `placeComment`'s two Errs) are waiting on.
+
+#### Risks / invariants
+
+- **Phase 0 refactor risk** on `buildFlowDocImpl` (the most battle-hardened
+  function in the codebase) — mitigated by the byte-identity gate; a
+  transcription slip in a rarely-exercised arm is the failure mode, hence
+  mechanical extraction discipline.
+- **`forcesVertical` asymmetry** (Doc tests its Doc, Box tests its Box):
+  they agree whenever the two renderers agree on the child; disagreement is
+  exactly what the self-verify guard catches. Accepted.
+- **The alignment table is load-bearing and static**: any new
+  `R.align`-carrying builder on the Doc side must update it. Documented
+  invariant, same class as the existing `isTypeRecordLiteralBox`
+  verbatim-mirror comment — the shared core shrinks this class but can't
+  eliminate it while materialization stays dual.
+
 ### Residual census recipe
 
 Instrument `makePrettyResult` (see session notes): classify each `lpnChildren
