@@ -506,6 +506,33 @@ class), inline-token-after-block ×4, soft-glue residual ×3 (RecordUpdate/
 AlignedFlow-class content), direct-operand/no-trigger steps ×3
 (tracked-intentional). Gates: full drill green under both guards.
 
+**Phase 2c LANDED (2026-07-11) — the "inline token gluing to a preceding
+block" guard is deleted.** The pre-Phase-1 `inlineGluesToPrecedingBlock`
+fence in `assembleFlowFallback` (plus `isInKeyword` /
+`isGlueablePrefixBlock`) is gone: the placement fold already glues an
+inline follower onto a block's last line itself (`glueOntoLastRow`'s
+`B.addSuffix`), so the `{ … } =` record-pattern headers and their kin
+materialize directly. **Two-iteration fence lesson:** deleting the guard
+exposed MultilineBlockComments `#13` (`decl {- mlbc -} x =`): the decl
+header is an `AcrossOrVertical` first item of the indented decl flow, and
+inside its box the mlbc body lines are align-anchored (`B.prefix` padding)
+while the follower's fresh row is ambient-anchored — the Doc gives the
+ambient lines the outer flow's nest on top, and no uniform per-box shift
+satisfies both anchors (the t42/t43 exact-space class). A first, broad
+fence ("anything after a prefix-glued mlbc") cost 8 Errs including ~6
+previously-green nodes (HeaderCommentNameWrap's module header,
+UnionVariantTrailingComment's variant — both *uniform* consumers where the
+bare push is correct); the landed fence is at the OUTER placement and
+three-gated: AsFirst + multi-line + `NestCarrying` + `flowIndent > 0` +
+`subtreeHasMultilineBlockComment` (without an mlbc the box is homogeneous
+— broken record-pattern headers, PatternLayoutByAuthor — and the bare
+push is the proven materialization). It catches exactly the 1 `#13` node.
+
+Census after: **22 Errs, 0 mismatches** (inline-token class 4 → 0, `#13`
+fence +1, net −2 from 24; the OpAndRhs-continuation and inline-paren
+KitchenComments nodes also shifted classes). Gates: effectful 140/140 +
+all three fuzzer runs 0 under BOTH guards.
+
 **Baseline correction discovered during the Phase 0 drill:** the earlier
 "trust-Box fuzzers 0/0" note is stale. At clean `7054ae8` (pre-Phase-0) the
 trust-Box idempotency fuzzer already showed **6 non-idempotent gaps**:

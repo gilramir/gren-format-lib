@@ -105,6 +105,19 @@ subtreeHasComment node =
     nodeIsComment node || Array.any subtreeHasComment (lpnChildren node)
 
 
+-- True if the subtree contains a MULTI-LINE block comment — the align-anchored
+-- content that makes a nest-carrying first item's box heterogeneous (see the
+-- AsFirst fence in `assembleFlowImpl`).
+subtreeHasMultilineBlockComment : LPNode -> Bool
+subtreeHasMultilineBlockComment node =
+    when lpnBox node is
+        BlockComment loc ->
+            String.contains "\n" loc.value
+
+        _ ->
+            Array.any subtreeHasMultilineBlockComment (lpnChildren node)
+
+
 -- True when the subtree contains a bracketed literal (record/array/record-update)
 -- that holds a comment among its direct children — i.e. a comment that forces the
 -- bracket multi-line (`{ a : Int {- c -} }`). Used by `makeSignatureBox` to fall
@@ -3471,40 +3484,6 @@ isSoftGlueLiteral item =
             False
 
 
--- True for a multi-line flow item onto whose last line the following inline
--- items glue — a lambda's arg pattern or its whole head. In the Doc's
--- `buildFlowDoc` both are plain items that leave `FlowSep`, so the tokens after
--- them (`accumulatedSoFar ->`, `-> body`) ride onto the same line rather than
--- dropping. Box's flat stacker treats every multi-line node as a droppable
--- block, so those followers are instead gathered by `assembleFlowImpl`'s glue
--- path (`B.addSuffix` onto the block's last line). Two shapes:
---   • `PrefixGlue` — a bare lambda-arg pattern (`\{ … }`, `\[ … ]`) whose
---     following params/arrow glue on (a MULTI-param lambda `\{…} p ->`).
---   • `AcrossOrVertical` ending in `->` — a lambda HEAD (`\[ … ] ->`) built as
---     its own flow node with the body a sibling `SoftIndentedBlock`; a body kept
---     inline in source (`] -> a`) glues onto the arrow.
--- Scoped so a genuine call argument after a multi-line paren/record — which
--- elm-format *drops* — is untouched (a call/application AoV does not end in `->`).
-isGlueablePrefixBlock : FlowItem -> Bool
-isGlueablePrefixBlock item =
-    item.isBlock
-        && (when lpnBox item.node is
-                PrefixGlue _ ->
-                    True
-
-                AcrossOrVertical _ ->
-                    when Array.last (lpnChildren item.node) is
-                        Just lastChild ->
-                            isArrowLeaf lastChild
-
-                        Nothing ->
-                            False
-
-                _ ->
-                    False
-           )
-
-
 {-| Soft-glue a flow whose ONLY multi-line item is a bracket literal, mirroring
 the Doc's `buildFlowDoc` (its `FlowSep` group flattens to a space, so every item
 glues and the literal breaks internally): the single-line prefix items glue to
@@ -3616,60 +3595,12 @@ assembleFlow inlineStart flowIndent items =
             Ok box
 
         Nothing ->
-            assembleFlowFallback inlineStart flowIndent items
-
-
-assembleFlowFallback : Bool -> Int -> Array FlowItem -> Result String Box
-assembleFlowFallback inlineStart flowIndent items =
-    if inlineGluesToPrecedingBlock items then
-        -- An inline token right after a block (no blank line between) generally
-        -- must glue onto the block's last line (e.g. a multi-line record
-        -- *pattern* arg `{ … } =`, where `=` trails the closing `}`) — the flat
-        -- stacker here can't append to a block's last line, so fall back. The
-        -- one exception is `in` after the final `let` binding: `let … in` drops
-        -- `in` to its own line, which the stacker does correctly. (`else` is
-        -- always preceded by an `EmptyLine`, so it doesn't reach this test.)
-        -- The `=` and `in` are both synthesized tokens (no source row), so this
-        -- is decided by the token, not by row arithmetic.
-        Err "box: inline token gluing to a preceding block not ported"
-
-    else
-        assembleFlowImpl inlineStart flowIndent items
-
-
-isInKeyword : FlowItem -> Bool
-isInKeyword item =
-    leafValue item.node == Just "in"
-
-
--- True when a non-block, non-EmptyLine item (other than the `let … in` keyword)
--- immediately follows a block item and so must glue onto its last line — which
--- the flat stacker can't do.
-inlineGluesToPrecedingBlock : Array FlowItem -> Bool
-inlineGluesToPrecedingBlock items =
-    (Array.foldl
-        (\item acc ->
-            let
-                isEmpty =
-                    isEmptyLine item.node
-
-                -- A multi-line `PrefixGlue` (lambda-arg pattern) is NOT counted as
-                -- a preceding block: the Doc glues the tokens after it onto its last
-                -- line, and `assembleFlowImpl` reproduces that with `B.addSuffix`, so
-                -- an inline follower must not trip the fallback Err.
-                isBlk =
-                    item.isBlock && not isEmpty && not (isGlueablePrefixBlock item)
-
-                isInline =
-                    not item.isBlock && not isEmpty && not (isInKeyword item)
-            in
-            { prevBlock = isBlk
-            , bad = acc.bad || (isInline && acc.prevBlock)
-            }
-        )
-        { prevBlock = False, bad = False }
-        items
-    ).bad
+            -- (The pre-Phase-1 "inline token gluing to a preceding block"
+            -- guard is gone: the placement fold glues an inline follower onto
+            -- a block's last line itself — `glueOntoLastRow`'s `B.addSuffix`
+            -- — exactly where the policy decides a `SoftSep`/`GlueSpace`
+            -- lands with an empty current row.)
+            assembleFlowImpl inlineStart flowIndent items
 
 
 {-| Pair each single-line block-comment item with an immediately following
@@ -3969,7 +3900,27 @@ assembleFlowImpl inlineStart flowIndent items =
                             Ok { rows = acc.rows, curRow = [ l ], state = decision.next }
 
                         Err _ ->
-                            Ok { rows = Array.pushLast item.box acc.rows, curRow = [], state = decision.next }
+                            if flowIndent > 0 && softGlueAlignment item.node == NestCarrying && subtreeHasMultilineBlockComment item.node then
+                                -- A multi-line nest-carrying first item, in an
+                                -- INDENTED flow, containing a multi-line block
+                                -- comment: the comment's body lines are
+                                -- align-anchored at their printed column
+                                -- (`B.prefix` padding) while content on a fresh
+                                -- line after it is ambient-anchored — and the
+                                -- Doc gives the ambient lines the flow's
+                                -- `R.nest indent` on top of the item's own.
+                                -- The first row escapes the final uniform
+                                -- `applyIndent`, and no single per-box shift
+                                -- satisfies both anchors (the post-mlbc
+                                -- continuation-indent hard class, t42/t43 —
+                                -- MultilineBlockComments `#13`). Without an
+                                -- mlbc the box is homogeneous and the bare
+                                -- push is the proven materialization (broken
+                                -- record-pattern headers, PatternLayoutByAuthor).
+                                Err "box: nest-carrying first item with a multi-line comment in an indented flow not ported"
+
+                            else
+                                Ok { rows = Array.pushLast item.box acc.rows, curRow = [], state = decision.next }
 
                 FP.GlueNoSep ->
                     -- Content begins on the fresh line the previous comment's
@@ -4114,60 +4065,59 @@ assembleFlowImpl inlineStart flowIndent items =
                     Err "box: unexpected flow placement"
 
         step paired accResult =
-            accResult
-                |> Result.andThen
-                    (\acc ->
-                        let
-                            item =
-                                paired.item
+            accResult |> Result.andThen (stepUnwrapped paired)
 
-                            decision =
-                                FP.decide config acc.state (factsFor item)
-                        in
-                        when item.comment is
-                            Just c ->
-                                placeCommentItem acc decision c
+        stepUnwrapped paired acc =
+            let
+                item =
+                    paired.item
 
-                            Nothing ->
-                                when paired.leading is
-                                    Nothing ->
-                                        placeNonComment acc decision Nothing item
+                decision =
+                    FP.decide config acc.state (factsFor item)
+            in
+            when item.comment is
+                Just c ->
+                    placeCommentItem acc decision c
 
-                                    Just leadItem ->
-                                        -- A single-line block comment paired with a
-                                        -- type record (`pairTypeRecordComments`).
-                                        -- When the policy drops the record, the
-                                        -- comment drops WITH it; otherwise replay
-                                        -- the exact unpaired steps (comment first,
-                                        -- then re-decide the record against the
-                                        -- state the comment left).
-                                        when decision.placement is
-                                            FP.DropBlock _ ->
-                                                placeNonComment acc
-                                                    decision
-                                                    (leadItem.comment |> Maybe.map (\lc -> lc.box))
-                                                    item
+                Nothing ->
+                    when paired.leading is
+                        Nothing ->
+                            placeNonComment acc decision Nothing item
 
-                                            _ ->
-                                                when leadItem.comment is
-                                                    Just lc ->
+                        Just leadItem ->
+                            -- A single-line block comment paired with a
+                            -- type record (`pairTypeRecordComments`).
+                            -- When the policy drops the record, the
+                            -- comment drops WITH it; otherwise replay
+                            -- the exact unpaired steps (comment first,
+                            -- then re-decide the record against the
+                            -- state the comment left).
+                            when decision.placement is
+                                FP.DropBlock _ ->
+                                    placeNonComment acc
+                                        decision
+                                        (leadItem.comment |> Maybe.map (\lc -> lc.box))
+                                        item
+
+                                _ ->
+                                    when leadItem.comment is
+                                        Just lc ->
+                                            let
+                                                leadDecision =
+                                                    FP.decide config acc.state (factsFor leadItem)
+                                            in
+                                            placeCommentItem acc leadDecision lc
+                                                |> Result.andThen
+                                                    (\a ->
                                                         let
-                                                            leadDecision =
-                                                                FP.decide config acc.state (factsFor leadItem)
+                                                            recDecision =
+                                                                FP.decide config a.state (factsFor item)
                                                         in
-                                                        placeCommentItem acc leadDecision lc
-                                                            |> Result.andThen
-                                                                (\a ->
-                                                                    let
-                                                                        recDecision =
-                                                                            FP.decide config a.state (factsFor item)
-                                                                    in
-                                                                    placeNonComment a recDecision Nothing item
-                                                                )
+                                                        placeNonComment a recDecision Nothing item
+                                                    )
 
-                                                    Nothing ->
-                                                        placeNonComment acc decision Nothing item
-                    )
+                                        Nothing ->
+                                            placeNonComment acc decision Nothing item
     in
     Array.foldl step
         (Ok { rows = [], curRow = [], state = FP.initialFlowState })
