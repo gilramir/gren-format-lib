@@ -444,6 +444,44 @@ Box coverage (the old parked-23-Errs frontier, which should be re-censused —
 Phase 1's generalized `B.addSuffix` glue and placement-driven fold likely
 moved several classes).
 
+**Phase 2a LANDED (2026-07-11) — the soft-glue materializer + the
+pipeline-step trigger split.** Fresh census at the Phase 2b baseline
+(`d9d80c8`) first: **31 Errs, 0 mismatches** (the parked-23 figure was
+stale; Phase 1 reshaped the classes). Biggest class: "soft-glue of a
+multi-line item" ×11. Two changes:
+
+- `assembleFlowImpl`'s `SoftSep` arm materializes a multi-line item per a
+  new static alignment table (`softGlueAlignment` in MakeRenderBox,
+  verified against the Doc source): bracket literals and multiline strings
+  are align-carrying → `B.prefix` glue (their continuation lines are
+  punctuation/verbatim-prefixed, so exact-width space padding is sound);
+  `AcrossOrVertical`/`OpAndRhs`/`Glue`/`PrefixGlue`/`Pipeline` are
+  nest-carrying → first-line-only glue (`B.mapFirstLine`, newly exported;
+  continuation lines keep their own Tab offsets, completed by the flow's
+  final `applyIndent`). **`RecordUpdate` and `AlignedFlow` are deliberately
+  UNclassified**: align-carrying on the Doc side but their Box continuation
+  lines carry `Tab`s, which `B.prefix`'s space padding quantizes to the
+  next multiple of 4 — the drill caught the `#12` extension record landing
+  3 columns short (the "per-row exact-space indent" hard class). They stay
+  `Err`.
+- **Drill lesson (a new instance of the #37 pattern): a "renderable now!"
+  widening must audit CALLERS that relied on the Err.** `renderPipelineStep`
+  returned its raw `buildFlowBox` for triggered multi-line steps — correct
+  only because the record/lambda trigger used to Err inside the fold and
+  fall back. With the soft glue landing, `|> AST.TType { … }` rendered
+  GLUED where the Doc relocates the trigger below the step. Fixed by
+  mirroring `buildStepChildrenDoc`'s split 1:1 (`splitStepTrigger`, which
+  replaces `stepHasTrigger`): preamble glues inline, the trigger drops at
+  +grenIndent, suffix args below it. The two ParenBlock trigger kinds
+  (`makeMultilineLambdaArgDoc`/`makeMultilineParenArgDoc` reshaping) Err.
+
+Census after: **30 Errs, 0 mismatches** (soft-glue 11 → 2 — the
+`RecordUpdate` `#12` node + PrefixAnchorDivergence; the step split
+re-classifies 9 nodes as "paren-arg pipeline-step trigger not ported", now
+the biggest class and the next target). Gates: effectful 140/140 +
+idempotency/whitespace fuzzers 0 under BOTH the normal guard and
+trust-Box-always; trust-Box drill fully green.
+
 **Baseline correction discovered during the Phase 0 drill:** the earlier
 "trust-Box fuzzers 0/0" note is stale. At clean `7054ae8` (pre-Phase-0) the
 trust-Box idempotency fuzzer already showed **6 non-idempotent gaps**:

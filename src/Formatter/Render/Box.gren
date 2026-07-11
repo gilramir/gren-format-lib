@@ -3,7 +3,7 @@ module Formatter.Render.Box exposing
     , identifier, keyword, punc, literal, row, space
     , line, blankLine, mustBreak, stack1, andThen
     , isLine, allSingles, lineLength
-    , indent, prefix, addSuffix
+    , indent, prefix, addSuffix, mapFirstLine
     , render
     )
 

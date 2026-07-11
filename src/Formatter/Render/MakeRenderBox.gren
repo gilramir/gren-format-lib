@@ -1003,71 +1003,97 @@ isMultilineContentParenBlockBox node =
             False
 
 
-{-| Does a pipeline step have a *trigger* — a node that `buildStepChildrenDoc`
-would break onto its own line (a multi-line lambda-argument paren, a multi-line
-content paren, or any other multi-line-forcing node such as a record argument)?
-Mirrors `buildStepChildrenDoc`'s left-to-right split, but we only need whether a
-trigger exists: when one does, Box's generic block-drop (`buildFlowBox
-grenIndent`) reproduces the relocation byte-for-byte (proven by
-`PipelineLambdaArg`). When none does but the step is still multi-line, it is
-either a *direct-operand* lambda paren (`|> (\x -> …)`, which the Doc keeps
-glued to `|>` — Box's flat stacker can't glue a soft multi-line item, so it
-falls back) or a comment-bearing step needing the Doc's comment-peeling — both
-fall back. -}
-stepHasTrigger : Array LPNode -> Bool
-stepHasTrigger stepChildren =
+{-| Split a pipeline step's children at its *trigger* — the first node that
+`buildStepChildrenDoc` (the Doc) breaks onto its own line: a multi-line
+lambda-argument paren, a multi-line content paren, or any other
+multi-line-forcing node such as a record argument. A 1:1 mirror of the Doc's
+left-to-right split, including the direct-operand-lambda exclusion (`|>
+(\x -> …)` stays glued to the operator). `Nothing` = no trigger. -}
+splitStepTrigger : Array LPNode -> Maybe { preamble : Array LPNode, trigger : LPNode, suffix : Array LPNode }
+splitStepTrigger stepChildren =
     (Array.foldl
         (\node acc ->
-            if acc.found then
-                acc
+            when acc.split is
+                Just s ->
+                    { acc | split = Just { s | suffix = Array.pushLast node s.suffix } }
 
-            else
-                let
-                    isDirectOperandLambda =
-                        isMultilineLambdaParenBlockAnyBodyBox node
-                            && acc.preambleLen <= 1
-                in
-                if
-                    not isDirectOperandLambda
-                        && (isMultilineLambdaParenBlockBox node
-                                || isMultilineContentParenBlockBox node
-                                || flowChildForcesVerticalBox node
-                           )
-                then
-                    { found = True, preambleLen = acc.preambleLen }
+                Nothing ->
+                    let
+                        isDirectOperandLambda =
+                            isMultilineLambdaParenBlockAnyBodyBox node
+                                && Array.length acc.preamble <= 1
+                    in
+                    if
+                        not isDirectOperandLambda
+                            && (isMultilineLambdaParenBlockBox node
+                                    || isMultilineContentParenBlockBox node
+                                    || flowChildForcesVerticalBox node
+                               )
+                    then
+                        { acc | split = Just { preamble = acc.preamble, trigger = node, suffix = [] } }
 
-                else
-                    { found = False, preambleLen = acc.preambleLen + 1 }
+                    else
+                        { acc | preamble = Array.pushLast node acc.preamble }
         )
-        { found = False, preambleLen = 0 }
+        { preamble = [], split = Nothing }
         stepChildren
-    ).found
+    ).split
 
 
--- One `|> step`. A single-line step renders directly; a multi-line step with a
--- *trigger* (see `stepHasTrigger`) is reproduced byte-for-byte by the generic
--- block-drop in `buildFlowBox grenIndent`; a multi-line step with NO trigger (a
--- direct-operand lambda paren that must stay glued to `|>`, or a comment-bearing
--- step) needs Doc-specific handling `assembleFlow` can't reproduce, so it falls
--- back.
+-- One `|> step`, mirroring the Doc's `buildStepChildrenDoc`. A step with a
+-- *trigger* (see `splitStepTrigger`) relocates it: the preamble (`|> fn …`)
+-- glues inline, the trigger drops to its own line at +grenIndent (relative to
+-- the step's own base — the pipeline assembler adds the step's +4 from the
+-- seed), and any suffix args land below it at the same indent. The two
+-- ParenBlock trigger kinds (`makeMultilineLambdaArgDoc` /
+-- `makeMultilineParenArgDoc` on the Doc side) have paren-arg reshaping that
+-- isn't ported, so they fall back. A multi-line step with NO trigger (a
+-- direct-operand lambda paren that must stay glued to `|>`, or a
+-- comment-bearing step needing the Doc's comment-peeling) also falls back.
 renderPipelineStep : LPNode -> Result String Box
 renderPipelineStep stepNode =
     let
         children =
             lpnChildren stepNode
     in
-    buildFlowBox grenIndent children
-        |> Result.andThen
-            (\box ->
-                if isSingleLine box then
-                    Ok box
+    when splitStepTrigger children is
+        Nothing ->
+            buildFlowBox grenIndent children
+                |> Result.andThen
+                    (\box ->
+                        if isSingleLine box then
+                            Ok box
 
-                else if stepHasTrigger children then
-                    Ok box
+                        else
+                            Err "box: multi-line pipeline step without a trigger (direct-operand paren glue / comment-peeling) not ported"
+                    )
 
-                else
-                    Err "box: multi-line pipeline step without a trigger (direct-operand paren glue / comment-peeling) not ported"
-            )
+        Just { preamble, trigger, suffix } ->
+            if isMultilineLambdaParenBlockBox trigger || isMultilineContentParenBlockBox trigger then
+                Err "box: paren-arg pipeline-step trigger not ported"
+
+            else
+                buildFlowBoxInline 0 preamble
+                    |> Result.andThen
+                        (\preambleBox ->
+                            makePBox (lpnBox trigger) (lpnChildren trigger)
+                                |> Result.andThen
+                                    (\triggerBox ->
+                                        if Array.isEmpty suffix then
+                                            Ok (B.stack1 [ preambleBox, applyIndent grenIndent triggerBox ])
+
+                                        else
+                                            buildFlowBox 0 suffix
+                                                |> Result.map
+                                                    (\suffixBox ->
+                                                        B.stack1
+                                                            [ preambleBox
+                                                            , applyIndent grenIndent triggerBox
+                                                            , applyIndent grenIndent suffixBox
+                                                            ]
+                                                    )
+                                    )
+                        )
 
 
 -- Get a box's sole line, or Err if it is multi-line.
@@ -3288,6 +3314,75 @@ isSingleLine box =
             False
 
 
+{-| Which indent discipline a multi-line box's continuation lines carry —
+the static per-box-type alignment table (CutoverScope.md "Item 4 design"),
+verified against the Doc renderer's source, not curve-fit. It decides which
+primitive materializes a soft glue (the Doc's `FlowSep` `group nl`, which
+always flattens to a space, so the item's first line joins the running line
+and its continuation lines land per the item's own align/nest):
+
+  - `AlignCarrying` — the Doc wraps these in `R.align`, anchoring
+    continuation lines at the item's printed start column: bracket literals
+    (`listBoxesWithBrackets`) and multiline strings
+    (`makeMultilineStringDoc`). Glue with `B.prefix`, which pads every
+    continuation line by the glued prefix's exact character width. This is
+    only sound because these boxes' continuation lines are punctuation- or
+    verbatim-prefixed (`, item`, `}`, string content) — NOT `Tab`-indented.
+    `RecordUpdate` and `AlignedFlow` are align-carrying on the Doc side too,
+    but their Box continuation lines carry `Tab`s, which `B.prefix`'s space
+    padding quantizes to the next multiple of 4 (the census's "per-row
+    exact-space indent" hard class) — so they stay unclassified.
+  - `NestCarrying` — the Doc nests these relative to the flow's base, not
+    the glue column: `AcrossOrVertical` (`buildFlowDoc grenIndent` /
+    `buildCallDocBroken grenIndent`), `OpAndRhs` / `Glue` / `PrefixGlue`
+    (inline flows at +0), and pipelines (steps at `R.nest grenIndent`).
+    Glue first-line-only: the continuation lines already carry the item's
+    own indent relative to the flow base, which the flow's final
+    `applyIndent flowIndent` (its outer nest) completes.
+  - `UnclassifiedCarrying` — everything else must stay an `Err` fallback:
+    guessing produces a Box-only layout, the exact divergence class the
+    shared FlowPolicy core exists to prevent.
+
+LOAD-BEARING invariant: any new `R.align`-carrying builder on the Doc side
+must update this table (same class as the other Doc↔Box mirror comments).
+-}
+type SoftGlueAlignment
+    = AlignCarrying
+    | NestCarrying
+    | UnclassifiedCarrying
+
+
+softGlueAlignment : LPNode -> SoftGlueAlignment
+softGlueAlignment node =
+    when lpnBox node is
+        AlwaysVertical _ ->
+            AlignCarrying
+
+        AllAcrossOrAllVertical _ ->
+            AlignCarrying
+
+        MultilineString _ ->
+            AlignCarrying
+
+        AcrossOrVertical _ ->
+            NestCarrying
+
+        OpAndRhs ->
+            NestCarrying
+
+        Glue ->
+            NestCarrying
+
+        PrefixGlue _ ->
+            NestCarrying
+
+        Pipeline _ ->
+            NestCarrying
+
+        _ ->
+            UnclassifiedCarrying
+
+
 -- True for a flow item whose node is a bracket LITERAL (record / array / record
 -- update) — the shapes that carry `R.align`, so a `B.prefix` glue of their first
 -- line pads continuation lines to stay aligned under the opening bracket.
@@ -3831,9 +3926,36 @@ assembleFlowImpl inlineStart flowIndent items =
                             -- The Doc soft-glues a multi-line non-block item's
                             -- first line onto the running line (its `group nl`
                             -- flattens to a space; inner hard breaks land per
-                            -- the item's own align/nest). Needs the
-                            -- alignment-table glue primitives — Phase 2.
-                            Err "box: soft-glue of a multi-line item not ported"
+                            -- the item's own align/nest — see
+                            -- `softGlueAlignment`, the static alignment table).
+                            if Array.isEmpty acc.curRow then
+                                -- The item follows a block (nothing on the
+                                -- current row): its first line would have to
+                                -- glue onto the block's last line.
+                                Err "box: soft-glue of a multi-line item after a block not ported"
+
+                            else
+                                let
+                                    prefLine =
+                                        B.row (Array.pushLast B.space (Array.intersperse B.space acc.curRow))
+                                in
+                                when softGlueAlignment item.node is
+                                    AlignCarrying ->
+                                        Ok
+                                            { rows = Array.pushLast (B.prefix prefLine item.box) acc.rows
+                                            , curRow = []
+                                            , state = decision.next
+                                            }
+
+                                    NestCarrying ->
+                                        Ok
+                                            { rows = Array.pushLast (B.mapFirstLine (\l -> B.row [ prefLine, l ]) identity item.box) acc.rows
+                                            , curRow = []
+                                            , state = decision.next
+                                            }
+
+                                    UnclassifiedCarrying ->
+                                        Err "box: soft-glue of a multi-line item not ported"
 
                 FP.OwnLine ->
                     when B.isLine item.box is
