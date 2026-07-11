@@ -1072,12 +1072,20 @@ multi-line lambda argument `(\args ->` … `)` — head glued to `(`, body at
 `(` + grenIndent, `)` on its own line at the `(` column. The Doc anchors
 everything with `R.align` at the `(` column; here the box's own origin IS
 that column (the caller drops the trigger box at its indent), so plain
-stacking reproduces it. `B.prefix` pads a multi-line head's continuation
-lines by the `(` width — sound for the align-carrying pattern literals a
-lambda head can contain (their continuation lines are punctuation-prefixed,
-not `Tab`-indented). -}
+stacking reproduces it. The `(` glue is FIRST-LINE-ONLY: the head flow's
+own breaks (an own-line comment between lambda params) land at the align
+level — the `(` COLUMN, one left of the head's first character — so the
+head box's continuation rows must stay at the box origin, not be padded by
+the `(` width (`B.prefix` put them one column deep — KitchenComments'
+destructuring-lambda-head comment). Align-carrying content INSIDE the head
+(a multi-line pattern literal) already carries its own prefix-padding from
+the head's inner fold, which survives the first-line glue untouched. -}
 makeMultilineLambdaArgBox : Array LPNode -> Result String Box
 makeMultilineLambdaArgBox children =
+    let
+        glueParen headBox =
+            B.mapFirstLine (\l -> B.row [ B.punc "(", l ]) identity headBox
+    in
     when Array.popFirst children is
         Nothing ->
             Err "box: multiline lambda paren: no children"
@@ -1088,14 +1096,14 @@ makeMultilineLambdaArgBox children =
                     (\headBox ->
                         when Array.first afterHead is
                             Nothing ->
-                                Ok (B.addSuffix (B.punc ")") (B.prefix (B.punc "(") headBox))
+                                Ok (B.addSuffix (B.punc ")") (glueParen headBox))
 
                             Just bodyNode ->
                                 buildFlowBox 0 (lpnChildren bodyNode)
                                     |> Result.map
                                         (\bodyBox ->
                                             B.stack1
-                                                [ B.prefix (B.punc "(") headBox
+                                                [ glueParen headBox
                                                 , applyIndent grenIndent bodyBox
                                                 , B.line (B.punc ")")
                                                 ]
@@ -3374,7 +3382,20 @@ assembleBrokenWithComments indent items =
                                                     Err "box: comment trailing a multi-line item in broken flow not ported"
 
                                         else
-                                            Err "box: own-line comment in broken flow not ported"
+                                            -- Own row: the comment stands as its
+                                            -- own entry at the flow's +indent —
+                                            -- the Doc's broken-flow OwnLine +
+                                            -- terminating hardNl, with the next
+                                            -- item joining GlueNoSep on a fresh
+                                            -- line (= its own entry here). After
+                                            -- a comment nothing row-glues (the
+                                            -- policy is AlreadyTerminated), so
+                                            -- `lastRow` resets.
+                                            Ok
+                                                { acc
+                                                    | entries = Array.pushLast c.box (Array.pushLast lastBox initial)
+                                                    , lastRow = -1
+                                                }
 
                                     Nothing ->
                                         Err "box: leading comment in broken flow not ported"
@@ -3402,38 +3423,44 @@ otherwise the function stands alone. Every non-glued argument drops to its own
 line at +`indent`. -}
 assembleBrokenCall : Int -> Array FlowItem -> Result String Box
 assembleBrokenCall indent items =
-    if Array.any isCommentItem items then
-        -- A comment-bearing broken call (`f {- c -} 1 {- c -} (g 2)`): no
-        -- function+arg0 gluing (a comment between them already breaks the row),
-        -- each arg on its own line at +indent, same-row comments glued on.
-        assembleBrokenWithComments indent items
+    let
+        -- The fn+arg0 glue survives comments AFTER arg0 (`String.join " "
+        -- -- c` keeps `" "` on the opening line, comments drop below with the
+        -- args) — only a comment IN the fn/arg0 positions blocks it, exactly
+        -- `shouldGlueFirstArg`'s comment gates on the Doc side.
+        glueHead =
+            when { fn = Array.get 0 items, arg0 = Array.get 1 items } is
+                { fn = Just fnItem, arg0 = Just arg0Item } ->
+                    if not (isCommentItem fnItem) && not (isCommentItem arg0Item) && shouldGlueBox fnItem arg0Item then
+                        joinInline [ fnItem.box, arg0Item.box ]
 
-    else
-        when Array.popFirst items is
-            Nothing ->
-                Err "box: empty call"
+                    else
+                        Nothing
 
-            Just { first = fnItem, rest = argItems } ->
-                when Array.popFirst argItems is
-                    Nothing ->
-                        -- fn with no args — nothing to break
-                        Ok fnItem.box
+                _ ->
+                    Nothing
+    in
+    when glueHead is
+        Just glueLine ->
+            let
+                rest =
+                    Array.dropFirst 2 items
+            in
+            if Array.isEmpty rest then
+                -- Just `fn arg0` — nothing forces a break after all.
+                Ok glueLine
 
-                    Just { first = arg0Item, rest = laterArgs } ->
-                        if shouldGlueBox fnItem arg0Item then
-                            when joinInline [ fnItem.box, arg0Item.box ] is
-                                Nothing ->
-                                    Err "box: glue join failed"
+            else
+                -- `preamble <> nest indent (hardNl <> brokenRest)`: the rest
+                -- (args and comments alike) assembles as a broken flow at +0
+                -- and the whole block shifts to +indent under the glued line.
+                assembleBrokenWithComments 0 rest
+                    |> Result.map (\restBox -> B.stack1 [ glueLine, applyIndent indent restBox ])
 
-                                Just glueLine ->
-                                    if Array.isEmpty laterArgs then
-                                        Ok glueLine
-
-                                    else
-                                        Ok (B.stack1 ([ glueLine ] ++ Array.map (\it -> applyIndent indent it.box) laterArgs))
-
-                        else
-                            Ok (B.stack1 ([ fnItem.box ] ++ Array.map (\it -> applyIndent indent it.box) argItems))
+        Nothing ->
+            -- No glue: head at the base column, every later item (and any
+            -- same-row/own-line comment) per the broken-flow fold.
+            assembleBrokenWithComments indent items
 
 
 -- Both single-line and on the same source row → keep glued on the opening line.
