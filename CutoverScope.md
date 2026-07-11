@@ -533,6 +533,22 @@ fence +1, net −2 from 24; the OpAndRhs-continuation and inline-paren
 KitchenComments nodes also shifted classes). Gates: effectful 140/140 +
 all three fuzzer runs 0 under BOTH guards.
 
+**Tried + REVERTED (2026-07-11): global Tab → exact-4-spaces in `B.indent`.**
+Hypothesis: every "Tab-poisoned" Err (RecordUpdate/AlignedFlow soft-glue,
+record-update field values, WhenInCommentedArray's Tab-vs-prefix bracket
+item) traces to `Tab` snapping to the next multiple of 4 under a
+`B.prefix` pad, and the Doc never quantizes, so 0 mismatches implied the
+snap was never load-bearing where green. **Falsified: 9 trust-Box
+effectful failures** (record-update coupling/extensionGroup, bare-if list
+item, comment-leading type record, record-pattern closing brace, three
+KitchenSinks…). The two renderers reach the same bytes by DIFFERENT
+arithmetic: the Doc compensates prefix widths explicitly
+(`makeRecordUpdateDoc`'s `grenIndent - listPrefixWidth`), the Box gets the
+same columns from Tab snapping. Killing the snap globally breaks every
+construct whose Doc side compensates. Conclusion: the Tab/exact-space
+class can only fall per-construct (a targeted spaces-indent or per-line
+anchor where the Doc does NOT compensate), never via the primitive.
+
 **Baseline correction discovered during the Phase 0 drill:** the earlier
 "trust-Box fuzzers 0/0" note is stale. At clean `7054ae8` (pre-Phase-0) the
 trust-Box idempotency fuzzer already showed **6 non-idempotent gaps**:
