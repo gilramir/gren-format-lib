@@ -251,16 +251,61 @@ regression from this work. Repro steps and a bisection plan are recorded
 separately (session memory, not committed to this repo) for whoever picks it
 up next.
 
-### Remaining work (plan as of 2026-07-10, after items 1–3)
+### Item 4 progress (2026-07-10, after items 1–3): one of three hunks landed
 
-Item 4 is the hard tail; 5 is parked by the cutover decision.
+Re-ran the trust-Box-always drill (unrelated to this item — done first to
+verify an unrelated exponential-blowup perf fix in `Box.gren`'s
+`renderRowState`, see the `gren-format` hang fix commits). It re-confirmed
+the item-4 residual is exactly **3 hunks in MultilineBlockComments**, all in
+the `#10`–`#12`/`#43`/`#44` numbered-comment region: `sig`'s arg-position
+extension-record type (`#12`), `parensAccessor`'s binop operand comment
+(`#43`), and `asPattern`'s record-pattern trailing comment (`#44`) — plus
+one pre-existing, unrelated KitchenComments hunk (item 3's tracked
+`extremelyCommented` Box-lag node, untouched).
 
-4. **MultilineBlockComments deep-gap B: `{ x } {- mlbc -}` reindent.** A
-   multi-line block comment trailing a record in a flow — the mlbc-in-flow
-   fixed-point class (t42/t43/t61 territory; comment position shifts on
-   reparse). Needs the comment's claimed position to be a fixed point of the
-   rendered layout before any layout change; do not retry naively (three
-   reverts on record).
+**LANDED (`2fd515e`): `#43` — paren `(` width not padded onto comment
+continuation lines.** Root cause was narrower than the other two:
+`wrapParenVertical` (used to close a generic vertical `( … )`) only
+prepended `(` to the box's first line, leaving continuation lines alone —
+correct for Tab-based "absolute-nested" content (`when`/`if`/lambda
+bodies, which re-derive their own indent from the ambient block
+independent of the paren's width) but wrong whenever a comment forced the
+content multi-line via the comment-aware flow builders' `B.prefix` glue,
+which aligns by *exact character width* and so needs the `(` width folded
+in on every line. Fixed by routing comment-bearing, non-lambda-body paren
+content through the existing `wrapParenVerticalPadded` (already used for
+the one other case needing this — the bracket-pattern-lambda). This was a
+pure rendering-width bug, no comment-position/attachment logic touched, so
+it carried none of the fixed-point risk the other two hunks have. Gates:
+effectful 140/140, idempotency + whitespace fuzzers (both modes) 0.
+
+**NOT ATTEMPTED — `#12` and `#44` both trace to the same deep architecture
+gap.** Investigated both before touching code: `sig`'s extension-record arg
+type (`#12`) goes through `makeSignatureBox`'s general per-segment
+`buildFlowBox`, not the narrow `isTypeRecordLiteralBox`-gated special case
+(which already correctly excludes extension records — that gate isn't the
+bug). `asPattern`'s `{ x } {- mlbc -} as whole` (`#44`, the literal
+mlbc-reindent case) is a plain LPT flow (`[recordPattern, "as", name]`, no
+dedicated pattern box type), so its glue-vs-drop decision also runs through
+the same general flow builder. Both bottom out in `assembleFlow`'s generic
+"is this child a droppable block" check, which treats *every* multi-line
+node as droppable/glueable uniformly — unlike Doc, which drops only
+specific hard-block types and soft-glues the rest via node-specific
+predicates (`isTypeRecordLiteral`, etc.). This is the same "assembleFlow's
+isBlockNode treats EVERY multiline node as a droppable block" gap flagged
+elsewhere as the single biggest, riskiest lever in the whole cutover, and
+matches the "mlbc-in-flow fixed-point class (t42/t43/t61 territory)"
+description below — the exact class with **three prior reverts**. Left
+alone this session; below is the original (still-accurate) description of
+the remaining 2-hunk residual.
+
+4. **MultilineBlockComments deep-gap B: `{ x } {- mlbc -}` reindent** (now
+   2 of the original 3 hunks — `#12`, `#44`). A multi-line block comment
+   trailing a record in a flow — the mlbc-in-flow fixed-point class
+   (t42/t43/t61 territory; comment position shifts on reparse). Needs the
+   comment's claimed position to be a fixed point of the rendered layout
+   before any layout change; do not retry naively (three reverts on
+   record).
 
 5. **Parked (by the cutover decision): the 23 Box `Err` root children.** Full
    Doc deletion needs them at 0; they span 4 hard architecture classes
