@@ -2508,6 +2508,20 @@ parenGenericFallbackBox flags children =
                     if parenContentLeadsWithMultilinePrefixGlue children then
                         Ok (wrapParenVerticalPadded innerBox)
 
+                    else if Array.any subtreeHasComment children && not (parenLambdaMultiline children) then
+                        -- A comment forced this content multi-line via the
+                        -- comment-aware flow builders' `B.prefix` glue (exact
+                        -- character-width alignment, not a Tab stop), so the
+                        -- paren's own `(` width must ride along on every
+                        -- continuation line too — same reasoning as the
+                        -- bracket-pattern-lambda case above, just reached by a
+                        -- different LPT shape (binop/call, not PrefixGlue).
+                        -- Excludes the lambda-body case (`parenLambdaMultiline`):
+                        -- its body is Tab-indented relative to the ambient
+                        -- block, not the `(` column, even if a comment sits
+                        -- somewhere inside it.
+                        Ok (wrapParenVerticalPadded innerBox)
+
                     else
                         Ok (wrapParenVertical innerBox)
 
