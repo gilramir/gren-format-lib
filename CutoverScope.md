@@ -578,6 +578,35 @@ OpAndRhs-continuation ×2, own-line-comment-in-broken-flow, if-condition,
 inline-paren, backward-mixed-ops (unexamined onesies). Gates: effectful
 140/140 + all fuzzers 0 under BOTH guards, first pass.
 
+**Phase 2 frontier map (2026-07-11, post-2e — 19 Errs, 0 mismatches).**
+Row ranges are in each fixture's `.formatted.gren`; one Err per top-level
+decl (a decl reports only its FIRST unrenderable construct — clearing one
+class can surface the next, as 2d/2e showed):
+
+- KitchenComments @59-151 OpAndRhs-continuation; @159-189 own-line comment
+  in broken flow; @194-233 record-update soft field; @245-284 multi-line
+  if-condition; @304-373 inline paren over multi-line inner
+- KitchenSink @148-229 + @237-305 record-update soft field; @311-342
+  backward pipeline mixed ops
+- MultilineBlockComments @73-88 soft-glue (`#12`, RecordUpdate/Tab);
+  @93-100 `#13` fence; @206-213 OpAndRhs-continuation; @216-225 no-trigger
+  step (direct-operand glue, INTENTIONAL); @238-249 leading mlbc in
+  inline-start flow (fenced by design, the `#37` class)
+- TrickyComments @92-96 comment in multi-node signature type (t61 —
+  renders right, breaks idempotency; do not retry naively)
+- BlockCommentBodyIndent @31-38 verbatim opener-alone mlbc (needs col-0
+  reset); WhenInCommentedArray @4-20 Tab-vs-prefix bracket item;
+  LambdaBracketBodyNestedInCall @4-14 record-update soft field;
+  CallArgBlockRelocation @71-87 + PrefixAnchorDivergence @23-31 soft-glue
+  (ParenBlock direct-operand glue, INTENTIONAL per the tracked list)
+
+Class buckets: exact-space/Tab class (7: record-update fields ×4, `#12`,
+`#13`, WhenInCommentedArray, BlockCommentBodyIndent) — needs per-construct
+exact-space work, see the falsified global experiment below;
+tracked-intentional direct-operand glue (3); fenced-by-design (1);
+t61-dangerous (1); unexamined onesies (5: OpAndRhs-continuation ×2,
+broken-flow comment, if-condition, inline-paren, backward-mixed-ops).
+
 **Tried + REVERTED (2026-07-11): global Tab → exact-4-spaces in `B.indent`.**
 Hypothesis: every "Tab-poisoned" Err (RecordUpdate/AlignedFlow soft-glue,
 record-update field values, WhenInCommentedArray's Tab-vs-prefix bracket
