@@ -274,15 +274,42 @@ lineLength startColumn line_ =
           )
 
 
+{-| Render one `Line`, returning both its string and the resulting column in
+a single pass. `renderRowState` uses this (rather than calling `renderLine`
+and `lineLength` separately) so a nested `Row` is traversed once per fold
+step, not twice — the two calls used to recurse into the same nested content
+independently, doubling the work at every nesting level. -}
+renderLineState : Int -> Line -> { string : String, endColumn : Int }
+renderLineState startColumn line_ =
+    when line_ is
+        Text text ->
+            { string = text, endColumn = startColumn + String.count text }
+
+        Space ->
+            { string = " ", endColumn = startColumn + 1 }
+
+        Tab ->
+            let
+                tabLen =
+                    tabLength startColumn
+            in
+            { string = String.repeat tabLen " ", endColumn = startColumn + tabLen }
+
+        Row lines_ ->
+            renderRowState startColumn lines_
+
+
 {-| Fold a row's lines, tracking the running column so `Tab`s expand
 correctly. Returns { string, endColumn }. -}
 renderRowState : Int -> Array Line -> { string : String, endColumn : Int }
 renderRowState startColumn lines_ =
     Array.foldl
         (\l acc ->
-            { string = acc.string ++ renderLine acc.endColumn l
-            , endColumn = lineLength acc.endColumn l
-            }
+            let
+                r =
+                    renderLineState acc.endColumn l
+            in
+            { string = acc.string ++ r.string, endColumn = r.endColumn }
         )
         { string = "", endColumn = startColumn }
         lines_
