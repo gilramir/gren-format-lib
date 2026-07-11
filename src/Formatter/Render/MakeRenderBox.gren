@@ -1040,16 +1040,67 @@ splitStepTrigger stepChildren =
     ).split
 
 
+{-| The Box mirror of `MakeRender.makeMultilineLambdaArgDoc`: a relocated
+multi-line lambda argument `(\args ->` … `)` — head glued to `(`, body at
+`(` + grenIndent, `)` on its own line at the `(` column. The Doc anchors
+everything with `R.align` at the `(` column; here the box's own origin IS
+that column (the caller drops the trigger box at its indent), so plain
+stacking reproduces it. `B.prefix` pads a multi-line head's continuation
+lines by the `(` width — sound for the align-carrying pattern literals a
+lambda head can contain (their continuation lines are punctuation-prefixed,
+not `Tab`-indented). -}
+makeMultilineLambdaArgBox : Array LPNode -> Result String Box
+makeMultilineLambdaArgBox children =
+    when Array.popFirst children is
+        Nothing ->
+            Err "box: multiline lambda paren: no children"
+
+        Just { first = headNode, rest = afterHead } ->
+            buildFlowBoxInline 0 (lpnChildren headNode)
+                |> Result.andThen
+                    (\headBox ->
+                        when Array.first afterHead is
+                            Nothing ->
+                                Ok (B.addSuffix (B.punc ")") (B.prefix (B.punc "(") headBox))
+
+                            Just bodyNode ->
+                                buildFlowBox 0 (lpnChildren bodyNode)
+                                    |> Result.map
+                                        (\bodyBox ->
+                                            B.stack1
+                                                [ B.prefix (B.punc "(") headBox
+                                                , applyIndent grenIndent bodyBox
+                                                , B.line (B.punc ")")
+                                                ]
+                                        )
+                    )
+
+
+{-| The Box mirror of `MakeRender.makeMultilineParenArgDoc`: a relocated
+non-lambda multi-line paren argument — content glued to `(`, `)` on its own
+line at the `(` column. The Doc writes `"(" <> innerDoc <> hardNl <> ")"`
+with the vertical content (an `AlwaysVertical` / bracket literal) aligning
+itself at the `(` + 1 column via its own `R.align`; `B.prefix`'s exact-width
+padding reproduces that for punctuation-prefixed continuation lines. -}
+makeMultilineParenArgBox : Array LPNode -> Result String Box
+makeMultilineParenArgBox children =
+    buildFlowBoxInline 0 children
+        |> Result.map
+            (\innerBox ->
+                B.stack1 [ B.prefix (B.punc "(") innerBox, B.line (B.punc ")") ]
+            )
+
+
 -- One `|> step`, mirroring the Doc's `buildStepChildrenDoc`. A step with a
 -- *trigger* (see `splitStepTrigger`) relocates it: the preamble (`|> fn …`)
 -- glues inline, the trigger drops to its own line at +grenIndent (relative to
 -- the step's own base — the pipeline assembler adds the step's +4 from the
--- seed), and any suffix args land below it at the same indent. The two
--- ParenBlock trigger kinds (`makeMultilineLambdaArgDoc` /
--- `makeMultilineParenArgDoc` on the Doc side) have paren-arg reshaping that
--- isn't ported, so they fall back. A multi-line step with NO trigger (a
--- direct-operand lambda paren that must stay glued to `|>`, or a
--- comment-bearing step needing the Doc's comment-peeling) also falls back.
+-- seed), and any suffix args land below it at the same indent. The trigger
+-- box mirrors the Doc's `makeArgDoc` dispatch: the two ParenBlock kinds get
+-- the paren-arg reshaping, everything else its normal box. A multi-line step
+-- with NO trigger (a direct-operand lambda paren that must stay glued to
+-- `|>`, or a comment-bearing step needing the Doc's comment-peeling) falls
+-- back.
 renderPipelineStep : LPNode -> Result String Box
 renderPipelineStep stepNode =
     let
@@ -1069,14 +1120,32 @@ renderPipelineStep stepNode =
                     )
 
         Just { preamble, trigger, suffix } ->
-            if isMultilineLambdaParenBlockBox trigger || isMultilineContentParenBlockBox trigger then
-                Err "box: paren-arg pipeline-step trigger not ported"
+            if Array.any FP.nodeIsComment children then
+                -- The Doc peels leading comments (own-line above the step) and
+                -- trailing comments (glued inline onto the step's last line)
+                -- in `renderPipelineStepNode` BEFORE the trigger split. Without
+                -- that peel a step-level comment lands in the suffix and gets
+                -- stacked at the relocation indent — an own-line placement that
+                -- shifts on reparse (caught by the trust-Box idempotency
+                -- fuzzer). Fall back until the peel is ported.
+                Err "box: comment-bearing triggered pipeline step not ported"
 
             else
+                let
+                    triggerBoxResult =
+                        if isMultilineLambdaParenBlockBox trigger then
+                            makeMultilineLambdaArgBox (lpnChildren trigger)
+
+                        else if isMultilineContentParenBlockBox trigger then
+                            makeMultilineParenArgBox (lpnChildren trigger)
+
+                        else
+                            makePBox (lpnBox trigger) (lpnChildren trigger)
+                in
                 buildFlowBoxInline 0 preamble
                     |> Result.andThen
                         (\preambleBox ->
-                            makePBox (lpnBox trigger) (lpnChildren trigger)
+                            triggerBoxResult
                                 |> Result.andThen
                                     (\triggerBox ->
                                         if Array.isEmpty suffix then

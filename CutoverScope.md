@@ -482,6 +482,30 @@ the biggest class and the next target). Gates: effectful 140/140 +
 idempotency/whitespace fuzzers 0 under BOTH the normal guard and
 trust-Box-always; trust-Box drill fully green.
 
+**Phase 2b′ LANDED (2026-07-11) — paren-arg trigger materializers.**
+`makeMultilineLambdaArgBox` and `makeMultilineParenArgBox` mirror the Doc's
+`makeMultilineLambdaArgDoc` / `makeMultilineParenArgDoc`: the relocated
+lambda arg stacks `(\args ->` / body at +grenIndent / `)` at the `(` column
+(the box's own origin plays the Doc's `R.align` anchor); the non-lambda
+paren arg glues `(` via `B.prefix` (its vertical content is a bracket
+literal whose continuation lines are punctuation-prefixed — `B.prefix`
+sound) with `)` on its own line. `renderPipelineStep`'s trigger dispatch
+now mirrors the Doc's `makeArgDoc` 1:1. **Drill catch: comment-bearing
+triggered steps must Err** — the Doc peels leading/trailing comments in
+`renderPipelineStepNode` BEFORE the split; without the peel a step-level
+comment lands in the suffix at the relocation indent, which shifts on
+reparse (4 trust-Box idempotency gaps in PipelineLambdaArg, all from
+fuzzer-inserted comments). Gated on any direct comment child; the peel
+port is future work.
+
+Census after: **24 Errs, 0 mismatches** — the paren-arg class fully
+cleared (9 → 0; one KitchenComments node re-classified as the
+comment-bearing-step gate). Remaining top classes: record-update soft
+field values ×4 (Tab-poisoned `RecordUpdate`, the exact-space-indent hard
+class), inline-token-after-block ×4, soft-glue residual ×3 (RecordUpdate/
+AlignedFlow-class content), direct-operand/no-trigger steps ×3
+(tracked-intentional). Gates: full drill green under both guards.
+
 **Baseline correction discovered during the Phase 0 drill:** the earlier
 "trust-Box fuzzers 0/0" note is stale. At clean `7054ae8` (pre-Phase-0) the
 trust-Box idempotency fuzzer already showed **6 non-idempotent gaps**:
