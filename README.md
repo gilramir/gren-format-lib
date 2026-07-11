@@ -479,7 +479,12 @@ constructors, including an import's exposing list (see
 
 Regardless of the order you wrote them in, an `exposing ( ... )` list sorts
 into three groups — operators, then types, then plain values — and
-alphabetically within each group. This matches `elm-format`.
+alphabetically within each group. This is always the order, independent of the
+module's doc comment. (elm-format instead reorders a module's exposing list to
+follow the `@docs` directives in its doc comment when they're present, falling
+back to this alphabetical order only when they're absent; gren-format
+deliberately doesn't couple the two — see
+[Comparison with elm-format](#comparison-with-elm-format), point 3.)
 
 ```gren
 module ExposingListSort exposing (zebra, Kiwi, apple, Mango)
@@ -2455,16 +2460,31 @@ decision and why.
    broader "your line breaks are your layout decisions" philosophy; elm-format's
    rule is a fixed convention, not obviously better.
 
-3. **Exposing list sorting — changed to match; import statement sorting —
-   changed, but narrower.** gren-format now alphabetizes every
-   `exposing ( ... )` list the same way elm-format does — operators, then
-   types, then values, alphabetically within each group. See
-   [Exposed names sort automatically](#exposed-names-sort-automatically).
-   `import` statements sort alphabetically too, but — unlike elm-format,
-   which always alphabetizes the whole `import` block regardless of the
-   author's spacing — gren-format only sorts within a run of imports that
-   sit with nothing between them; a blank line or a comment on its own
-   line is a boundary the sort never crosses. See
+3. **Exposing list ordering — alphabetical, deliberately independent of
+   `@docs`; import sorting — narrower than elm-format.** gren-format
+   alphabetizes every `exposing ( ... )` list — operators, then types, then
+   values, alphabetically within each group (see
+   [Exposed names sort automatically](#exposed-names-sort-automatically)).
+
+   elm-format does something different for a **module's** exposing list: when
+   the module's doc comment carries `@docs` directives — as every published
+   package's does — elm-format orders and groups the exposing list to *match
+   the `@docs`*: one exposing line per `@docs` line, listing exactly that
+   line's names in that order, so the public-API list mirrors the rendered
+   documentation. (It falls back to alphabetical only when the module has no
+   `@docs` at all.) **gren-format deliberately does not copy this.** Tying the
+   exposing list's order to doc-comment prose would make a purely structural
+   part of the file depend on documentation content — and would need a policy
+   for exposed names that no `@docs` line mentions. gren-format instead keeps
+   the list alphabetical and independent of the doc comment: simpler,
+   predictable, and unaffected by how the docs happen to be written.
+
+   `import` statements sort alphabetically too (they carry no `@docs`, so both
+   formatters just alphabetize them) — but, unlike elm-format, which always
+   alphabetizes the whole `import` block regardless of the author's spacing,
+   gren-format only sorts within a run of imports that sit with nothing between
+   them; a blank line or a comment on its own line is a boundary the sort never
+   crosses. See
    [Import statements sort within unbroken runs](#import-statements-sort-within-unbroken-runs).
 
 4. **`import X exposing (...)` wrapping style — changed.** gren-format used to
@@ -2609,11 +2629,23 @@ decision and why.
     adopt elm-format's precedence-aware stripping if the extra parens prove
     noisy in practice.
 
+14. **Open-type `(..)` spacing in exposing/import lists — changed to match.**
+    An exposed or imported union type whose constructors are all exposed used
+    to render with a space, `Maybe (..)`; elm-format writes `Maybe(..)` with no
+    space between the type name and `(..)`. gren-format now matches
+    (`import Maybe exposing (Maybe(..))`, `( Order(..)`). Found in the
+    `core/src` audit; covered by the `KitchenSink` fixture.
+
+15. **`infix` associativity padding — changed to match.** elm-format pads the
+    associativity keyword in an `infix` declaration to the width of the widest
+    one (`right`) so the precedence column lines up: `infix left  6 (+) = add`,
+    `infix non   4 (==) = eq`, `infix right 5 (++) = ap`. gren-format used to
+    emit a single space (`infix left 6`); it now applies the same padding.
+    (`infix` declarations only appear in a handful of core packages.) Covered
+    by the `InfixWrapped` and `KitchenSink` fixtures.
+
 #### Minor/cosmetic — not acted on
 
-- `infix left  6 (+) = add` — elm-format inserts a double space after `left`;
-  looks like an elm-format quirk on a construct Elm 0.19 itself no longer
-  supports at the compiler level. Not worth matching.
 - A handful of comment-attachment micro-differences around pipeline steps,
   binop operands, and lambda arrows/`in` — elm-format sometimes pushes a
   trailing comment to its own line where gren-format keeps it inline, or vice
