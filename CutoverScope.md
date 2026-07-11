@@ -354,12 +354,49 @@ with arrow-layout and trailing-comment placement idempotency, which need more
 machinery. **Reverted** (source + 6 fixtures) to `497c1ae`. The output solution
 above is reusable; the remaining work is making the drop a reparse fixed point.
 
-### Item 4 design (2026-07-10, user-approved, NOT yet implemented): shared FlowPolicy decision core
+### Item 4 design (2026-07-10, user-approved): shared FlowPolicy decision core
 
 Approach chosen (over a fourth scoped patch): extract the flow fold's
 *decision layer* into one shared module both renderers consume, with a
 **complete-to-the-Doc** placement vocabulary from day one. Rationale, spec,
-and phasing below; implementation has not started.
+and phasing below.
+
+**Phase 0 LANDED (2026-07-11).** `Formatter.Render.FlowPolicy` now holds
+`NextSeparator`, `FlowState`, `FlowConfig`, `BlockKind`, `ItemFacts`,
+`Placement`, and `decide`, plus the renderer-neutral structural classifiers
+(`nodeIsComment`, `isMultiLineCommentValue`, `isTypeRecordLiteral`,
+`pairLeadingRecordComments`) moved out of MakeRender. `buildFlowDocImpl` and
+every per-box renderer (`renderSingleLineCommentNode`,
+`renderBlockCommentNode` — ex-`blockCommentStep`, `renderBracketLiteralNode`
+— ex-`joinPairedBracketItem`/`joinBracketLiteralFlowItem`, the block / when-
+branch / pipeline-step renderers) now take their join decisions from
+`FP.decide` and materialize via one `applyPlacement : Placement -> Doc ->
+Doc -> Doc` map plus `blockWrap : BlockKind -> Doc -> Doc` (the ex-
+`BlockRule` wraps). Deviations from the spec sketch, both deliberate:
+`ItemFacts` is a sum type (one constructor per item kind, facts in the
+payload) rather than a flat record, and `decide` is total (the one Err — a
+paired "comment" that isn't a `BlockComment` — is a caller-side
+classification error and stays in MakeRender). The `mergedFirstStep`
+pre-fold lookahead and the peeling helpers stay in MakeRender for now
+(node-list surgery, not join decisions). An own-line comment is recognized
+by `decide`'s `next.separator == AlreadyTerminated` and gets its terminating
+hardNl in the materializer. Gates: effectful 140/140, idempotency +
+whitespace fuzzers (both modes) 0; trust-Box drill byte-identical to the
+pre-refactor baseline (same 2 effectful failures, same fuzzer gaps — see
+next paragraph).
+
+**Baseline correction discovered during the Phase 0 drill:** the earlier
+"trust-Box fuzzers 0/0" note is stale. At clean `7054ae8` (pre-Phase-0) the
+trust-Box idempotency fuzzer already showed **6 non-idempotent gaps**:
+KitchenComments 5 (line 297 `}⏎-> {-c11-}` and 4 around the line 377/378
+`Array/Maybe { code, basisPoints }` signature records) +
+SignatureSegmentBreaks 1 (line 31, item 3's `returnRecordComment` fixture —
+`Int⏎->⏎{ x }` with an inserted comment). All are the type-record-drop /
+comment-in-flow class this item exists to fix; they predate Phase 0
+(verified by stash + re-run at `7054ae8`) and were presumably introduced
+with the item-3 drop landing or the `#43` fix, after the last true-0
+trust-Box fuzzer run. Trust-Box whitespace fuzzers: both modes still 0.
+Track these 6 as part of the Phase 1/2 acceptance measurement.
 
 #### Diagnosis — why this class reverted three times
 

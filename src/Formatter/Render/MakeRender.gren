@@ -85,6 +85,13 @@ import Formatter.Logical.BinopPrecedence exposing (binopPrecedence, binopMinPrec
 
 import Formatter.Strings exposing (joinResultStrings)
 
+import Formatter.Render.FlowPolicy as FP
+    exposing
+        ( nodeIsComment
+        , isMultiLineCommentValue
+        , isTypeRecordLiteral
+        , pairLeadingRecordComments
+        )
 import Formatter.Render.Doc as R exposing (Doc)
 import Formatter.Render.Box as RB
 import Formatter.Render.MakeRenderBox as MRB
@@ -220,21 +227,6 @@ makePrettyLine node =
 
         _ ->
             docResult
-
-
--- True if the node is a line or block comment. (Doc comments are their own
--- top-level OriginalRows so they don't appear in mid-flow positions.)
-nodeIsComment : LPNode -> Bool
-nodeIsComment node =
-    when lpnBox node is
-        SingleLineComment _ ->
-            True
-
-        BlockComment _ ->
-            True
-
-        _ ->
-            False
 
 
 -- Take a prefix of comment nodes off `nodes`, returning the comments and
@@ -411,101 +403,97 @@ makeTypeBodyDoc typeNodes =
 -- ends of blocks so they render stably across reformats.
 
 
-{-| What separator to place before the next item.
-
-  - `FirstItem` — nothing precedes; emit no separator.
-  - `FlowSep` — normal flow: space or newline (via `group nl`).
-  - `HardNl` — after an `IndentedBlock`: forced newline.
-  - `AlreadyTerminated` — after a comment's `hardNl`: no extra separator.
--}
-type NextSeparator
-    = FirstItem
-    | FlowSep
-    | HardNl
-    | AlreadyTerminated
-
-
 -- The accumulator threaded through `buildFlowDocImpl`'s fold (and the per-box
--- node renderers it delegates to): the doc built so far, the source row of the
--- previous positioned leaf (`-1` if none), whether that leaf was an elided `->`
--- (see the `prevElided` note in the fold), and the separator to apply before the
--- next item.
+-- node renderers it delegates to): the doc built so far plus the decision
+-- state (previous leaf's row, elided-`->` flag, pending separator) that
+-- `FlowPolicy.decide` consumes and produces.
 type alias FlowAcc =
     { doc : Doc
-    , prevRow : Int
-    , prevElided : Bool
-    , separator : NextSeparator
+    , state : FP.FlowState
     }
 
 
--- Layout rule for a block-style child (IndentedBlock, BodyBlock, etc.):
---   `wrap` decorates the child doc (indenting, hardNl-prefixing, grouping…).
---   `bypassAlreadyTerminated = True` means the wrap is skipped when the
---     previous item ended its own line (no extra separator needed).
---   `nextSep` is the separator state to set after rendering this block.
-type alias BlockRule =
-    { wrap : Doc -> Doc
-    , bypassAlreadyTerminated : Bool
-    , nextSep : NextSeparator
-    }
+-- The Doc materialization of a `BlockKind`'s wrap: how a block-style child
+-- decorates itself before joining (indent + forced break / forced break only
+-- / groupable soft break + indent).
+blockWrap : FP.BlockKind -> Doc -> Doc
+blockWrap rule childDoc =
+    when rule is
+        FP.IndentedRule ->
+            R.nest grenIndent (R.concat R.hardNl childDoc)
+
+        FP.BodyRule ->
+            R.concat R.hardNl childDoc
+
+        FP.SoftIndentedRule ->
+            R.group (R.nest grenIndent (R.concat R.nl childDoc))
 
 
-indentedBlockRule : BlockRule
-indentedBlockRule =
-    { wrap = \c -> R.nest grenIndent (R.concat R.hardNl c)
-    , bypassAlreadyTerminated = False
-    , nextSep = HardNl
-    }
+-- The Doc materialization of a `FlowPolicy.Placement`: join `itemDoc` onto
+-- `accDoc` per the fully-resolved join shape. Pure combinator dispatch — all
+-- decisions (separator state, same-row glue, drop gating) already happened in
+-- `FlowPolicy.decide`.
+applyPlacement : FP.Placement -> Doc -> Doc -> Doc
+applyPlacement placement accDoc itemDoc =
+    when placement is
+        FP.AsFirst ->
+            itemDoc
 
+        FP.GlueNoSep ->
+            R.concat accDoc itemDoc
 
-bodyBlockRule : BlockRule
-bodyBlockRule =
-    { wrap = \c -> R.concat R.hardNl c
-    , bypassAlreadyTerminated = True
-    , nextSep = FlowSep
-    }
+        FP.GlueSpace ->
+            R.concat accDoc (R.concat (R.text " ") itemDoc)
 
+        FP.SoftSep ->
+            R.concat accDoc (R.group (R.concat R.nl itemDoc))
 
-softIndentedBlockRule : BlockRule
-softIndentedBlockRule =
-    { wrap = \c -> R.group (R.nest grenIndent (R.concat R.nl c))
-    , bypassAlreadyTerminated = False
-    , nextSep = FlowSep
-    }
+        FP.OwnLine ->
+            R.concat accDoc (R.concat R.hardNl itemDoc)
 
+        FP.OwnLineAfterBlank ->
+            R.concat accDoc (R.concat (R.concat (R.text "\n") R.hardNl) itemDoc)
 
--- Join a block's child doc onto the accumulator, honoring the rule's
--- FirstItem / AlreadyTerminated bypasses.
-joinBlock : BlockRule -> NextSeparator -> Doc -> Doc -> Doc
-joinBlock rule sep accDoc childDoc =
-    when sep is
-        FirstItem ->
-            childDoc
+        FP.IndentNoBreak ->
+            -- The previous item (a comment) already ended its line with a
+            -- hardNl, so applying the normal block wrap — which begins with its
+            -- own nl/hardNl — would emit a *second* newline: a whitespace-only
+            -- blank line (the break re-emits the current indentation). Instead
+            -- indent the child to the wrap's level without a leading break:
+            -- `nest grenIndent` so the child's own line breaks land at
+            -- +grenIndent, plus a literal run of spaces to push its first line
+            -- there too (there is no leading break to do that). The two
+            -- non-bypass rules (IndentedBlock, SoftIndentedBlock) both nest by
+            -- exactly grenIndent, so this matches their broken form minus the
+            -- spurious blank line.
+            R.concat
+                accDoc
+                (R.nest
+                    grenIndent
+                    (R.concat (R.text (String.repeat grenIndent " ")) itemDoc))
 
-        AlreadyTerminated ->
-            if rule.bypassAlreadyTerminated then
-                R.concat accDoc childDoc
+        FP.BlockJoin { rule, blankBefore } ->
+            let
+                wrapped =
+                    blockWrap rule itemDoc
+            in
+            R.concat
+                accDoc
+                (if blankBefore then
+                    R.concat (R.text "\n") wrapped
 
-            else
-                -- The previous item (a comment) already ended its line with a
-                -- hardNl, so applying the normal wrap — which begins with its own
-                -- nl/hardNl — would emit a *second* newline: a whitespace-only
-                -- blank line (the break re-emits the current indentation).
-                -- Instead indent the child to the wrap's level without a leading
-                -- break: `nest grenIndent` so the child's own line breaks land at
-                -- +grenIndent, plus a literal run of spaces to push its first line
-                -- there too (there is no leading break to do that). The two
-                -- non-bypass rules (IndentedBlock, SoftIndentedBlock) both nest by
-                -- exactly grenIndent, so this matches their broken form minus the
-                -- spurious blank line.
-                R.concat
-                    accDoc
-                    (R.nest
-                        grenIndent
-                        (R.concat (R.text (String.repeat grenIndent " ")) childDoc))
+                 else
+                    wrapped
+                )
 
-        _ ->
-            R.concat accDoc (rule.wrap childDoc)
+        FP.DropBlock rule ->
+            R.concat accDoc (blockWrap rule itemDoc)
+
+        FP.BlankLineOnly ->
+            -- Emit one raw "\n" (not R.hardNl, which would re-emit indentation
+            -- and leave trailing whitespace on the blank line). `itemDoc` is
+            -- ignored; the caller passes R.empty.
+            R.concat accDoc (R.text "\n")
 
 
 -- Peel a run of trailing single-line comments off the end of a block's
@@ -579,27 +567,30 @@ peelTrailingComments peelLineComments nodes =
 -- Render a body-block child (BodyBlock) inside buildFlowDoc's
 -- fold: peel its trailing inline comments, render the body via `renderBlockNode`,
 -- then glue the comments back onto the result. Shared by both arms.
-renderBodyBlockNode : BlockRule -> FlowAcc -> Array LPNode -> Result String FlowAcc
-renderBodyBlockNode rule acc nodeChildren =
+renderBodyBlockNode : FP.FlowConfig -> FlowAcc -> Array LPNode -> Result String FlowAcc
+renderBodyBlockNode config acc nodeChildren =
     let
         { bodyNodes, trailingCommentDoc } =
             peelTrailingComments True nodeChildren
     in
-    renderBlockNode rule acc bodyNodes
+    renderBlockNode config FP.BodyBlockItem acc bodyNodes
         |> Result.map (\r -> { r | doc = R.concat r.doc trailingCommentDoc })
 
 
 -- Render a block-style child node inside buildFlowDoc's fold: recurse
--- into the children, then join via joinBlock and produce the next acc.
-renderBlockNode : BlockRule -> FlowAcc -> Array LPNode -> Result String FlowAcc
-renderBlockNode rule acc nodeChildren =
+-- into the children, then join per the policy's placement and produce the
+-- next acc.
+renderBlockNode : FP.FlowConfig -> FP.ItemFacts -> FlowAcc -> Array LPNode -> Result String FlowAcc
+renderBlockNode config facts acc nodeChildren =
     buildFlowDoc 0 nodeChildren
         |> Result.map
             (\childrenDoc ->
-                { doc = joinBlock rule acc.separator acc.doc childrenDoc
-                , prevRow = -1
-                , prevElided = False
-                , separator = rule.nextSep
+                let
+                    decision =
+                        FP.decide config acc.state facts
+                in
+                { doc = applyPlacement decision.placement acc.doc childrenDoc
+                , state = decision.next
                 }
             )
 
@@ -754,8 +745,8 @@ buildStepChildrenDoc stepChildren =
 -- handles the multi-comment case) so the suffix is always free of
 -- trailing inline comments; the next step's leading hardNl handles line
 -- termination at the correct outer indent.
-renderPipelineStepNode : FlowAcc -> Array LPNode -> Result String FlowAcc
-renderPipelineStepNode acc nodeChildren =
+renderPipelineStepNode : FP.FlowConfig -> FlowAcc -> Array LPNode -> Result String FlowAcc
+renderPipelineStepNode config acc nodeChildren =
     let
         { commentDoc, withoutLeading, hasComment } =
             -- Peel ALL leading comments, not just the first. Each
@@ -793,47 +784,22 @@ renderPipelineStepNode acc nodeChildren =
 
         Ok childrenDoc ->
             let
-                -- Only add a blank line before a commented step if it
-                -- follows another PipelineStep (separator = HardNl).
-                blankLinePrefix =
-                    when acc.separator is
-                        HardNl ->
-                            if hasComment then
-                                R.text "\n"
-
-                            else
-                                R.empty
-
-                        _ ->
-                            R.empty
-
                 -- commentDoc (if any) fires at step level; childrenDoc
-                -- (|> and args) is wrapped in R.nest grenIndent so
-                -- continuation args break at |>-column + 4. The
-                -- trailingCommentDoc (if any) is glued onto the end of
-                -- the children with a leading space — it lives inside
-                -- the same inner nest, but with NO trailing hardNl,
-                -- so the next step's leading hardNl is the one that
-                -- ends the line and re-establishes the outer indent.
-                indentedDoc =
-                    R.concat
-                        blankLinePrefix
-                        (R.nest
-                            grenIndent
-                            (R.concats [ R.hardNl, commentDoc, childrenDoc, trailingCommentDoc ]))
+                -- (|> and args) is wrapped (by the BlockJoin placement's
+                -- IndentedRule wrap) in R.nest grenIndent so continuation
+                -- args break at |>-column + 4. The trailingCommentDoc (if
+                -- any) is glued onto the end of the children with a leading
+                -- space — it lives inside the same inner nest, but with NO
+                -- trailing hardNl, so the next step's leading hardNl is the
+                -- one that ends the line and re-establishes the outer indent.
+                itemDoc =
+                    R.concats [ commentDoc, childrenDoc, trailingCommentDoc ]
 
-                newDoc =
-                    when acc.separator is
-                        FirstItem ->
-                            R.concats [ commentDoc, childrenDoc, trailingCommentDoc ]
-
-                        _ ->
-                            R.concat acc.doc indentedDoc
+                decision =
+                    FP.decide config acc.state (FP.PipelineStepItem { hasLeadingComment = hasComment })
             in
-            Ok { doc = newDoc
-                , prevRow = -1
-                , prevElided = False
-                , separator = HardNl
+            Ok { doc = applyPlacement decision.placement acc.doc itemDoc
+                , state = decision.next
                 }
 
 
@@ -848,8 +814,8 @@ renderPipelineStepNode acc nodeChildren =
 -- keeps it on the body's last row, inside the branch, across reformats. A
 -- trailing `--` is left in place (peelLineComments = False) — its own soft-break
 -- handling keeps it stable. The next branch's leading hardNl terminates the line.
-renderWhenBranchNode : FlowAcc -> Array LPNode -> Result String FlowAcc
-renderWhenBranchNode acc nodeChildren =
+renderWhenBranchNode : FP.FlowConfig -> FlowAcc -> Array LPNode -> Result String FlowAcc
+renderWhenBranchNode config acc nodeChildren =
     let
         { bodyNodes, trailingCommentDoc } =
             peelTrailingComments False nodeChildren
@@ -863,30 +829,14 @@ renderWhenBranchNode acc nodeChildren =
                 childrenDoc =
                     R.concat bodyDoc trailingCommentDoc
 
-                -- Always blank-separate consecutive branches,
-                -- regardless of whether either body is multi-line.
-                blankOrNewline =
-                    R.concat (R.text "\n") R.hardNl
-
-                newDoc =
-                    when acc.separator is
-                        FirstItem ->
-                            childrenDoc
-
-                        -- A preceding comment has already ended its
-                        -- line with hardNl, so attach the branch
-                        -- directly to avoid inserting an extra blank
-                        -- line between the comment and its pattern.
-                        AlreadyTerminated ->
-                            R.concat acc.doc childrenDoc
-
-                        _ ->
-                            R.concat acc.doc (R.concat blankOrNewline childrenDoc)
+                -- The policy blank-separates consecutive branches
+                -- (OwnLineAfterBlank) and glues a branch directly after a
+                -- preceding comment's own hardNl (GlueNoSep).
+                decision =
+                    FP.decide config acc.state FP.WhenBranchItem
             in
-            Ok { doc = newDoc
-                , prevRow = -1
-                , prevElided = False
-                , separator = FlowSep
+            Ok { doc = applyPlacement decision.placement acc.doc childrenDoc
+                , state = decision.next
                 }
 
 
@@ -894,49 +844,133 @@ renderWhenBranchNode acc nodeChildren =
 -- the same row as the preceding item (or one trailing an elided `->`) glues with
 -- a soft break; on a different row it forces an own-line break. Either way it
 -- ends its line with a hardNl so the next item starts fresh (`AlreadyTerminated`).
-renderSingleLineCommentNode : FlowAcc -> LPBox -> Located String -> FlowAcc
-renderSingleLineCommentNode acc box loc =
+renderSingleLineCommentNode : FP.FlowConfig -> FlowAcc -> LPBox -> Located String -> FlowAcc
+renderSingleLineCommentNode config acc box loc =
     let
-        commentText =
-            commentBoxDoc box
-
-        docWithComment =
-            when acc.separator is
-                FirstItem ->
-                    commentText
-
-                AlreadyTerminated ->
-                    -- Previous comment already ended its line with hardNl;
-                    -- concatenate directly to avoid a blank line between
-                    -- consecutive comments.
-                    R.concat acc.doc commentText
-
-                _ ->
-                    if loc.start.row == acc.prevRow || acc.prevElided then
-                        -- Same row as preceding item: attach with a single
-                        -- space.
-                        --
-                        -- `prevElided` also takes this branch: a comment that
-                        -- directly trails a zero-width elided token (`->`, `:`,
-                        -- `=`, …) is anchored at that token's *left-neighbour*
-                        -- row, not where the token renders. If the token wraps
-                        -- onto its own continuation line, the comment's own row
-                        -- no longer equals that anchor — so a pure row test
-                        -- would flip it to its own line on the next format even
-                        -- though it stays glued beside the (wrapped) token.
-                        -- Gluing whenever it trails an elided token keeps the
-                        -- rendering stable across reformats.
-                        R.concat acc.doc (R.concat (R.text " ") commentText)
-
-                    else
-                        -- Different row: force a line break before the comment
-                        R.concat acc.doc (R.concat R.hardNl commentText)
+        -- Same-row / prevElided glue vs own-line break is the policy's
+        -- `commentPlacement` decision; the comment always ends its line
+        -- with a hardNl so the next item starts fresh (AlreadyTerminated).
+        decision =
+            FP.decide config acc.state (FP.LineCommentItem { startRow = loc.start.row })
     in
-    { doc = R.concat docWithComment R.hardNl
-    , prevRow = loc.start.row
-    , prevElided = False
-    , separator = AlreadyTerminated
+    { doc = R.concat (applyPlacement decision.placement acc.doc (commentBoxDoc box)) R.hardNl
+    , state = decision.next
     }
+
+
+-- One fold step for a `BlockComment` node: multi-line comments and standalone
+-- leading comments end their line (AlreadyTerminated); a single-line comment
+-- continuing a line glues inline. Which one — and the same-row glue after a
+-- dropped record — is the policy's BlockCommentItem decision; an own-line
+-- comment is recognizable by its AlreadyTerminated next-separator and gets
+-- its terminating hardNl here. A top-level function (not a fold-local) so
+-- `renderBracketLiteralNode`'s no-drop fallback can replay the exact
+-- unpaired behavior.
+renderBlockCommentNode : FP.FlowConfig -> FlowAcc -> LPNode -> Located String -> Result String FlowAcc
+renderBlockCommentNode config acc commentNode loc =
+    let
+        box =
+            lpnBox commentNode
+
+        decision =
+            FP.decide config
+                acc.state
+                (FP.BlockCommentItem
+                    { startRow = loc.start.row
+                    , multiLine = isMultiLineCommentValue loc.value
+                    }
+                )
+    in
+    if decision.next.separator == FP.AlreadyTerminated then
+        -- Own-line arm: the comment ends its own line so the next item
+        -- starts fresh at the right column.
+        Ok
+            { doc = R.concat (applyPlacement decision.placement acc.doc (commentBoxDoc box)) R.hardNl
+            , state = decision.next
+            }
+
+    else
+        -- Single-line block comment continuing a line: inline.
+        makePDoc box (lpnChildren commentNode)
+            |> Result.map
+                (\itemDoc ->
+                    { doc = applyPlacement decision.placement acc.doc itemDoc
+                    , state = decision.next
+                    }
+                )
+
+
+-- Join an `AllAcrossOrAllVertical` / `AlwaysVertical` flow item, honoring a
+-- paired leading comment (`pairLeadingRecordComments`). Whether the item
+-- drops (the type-record drop) is the policy's BracketLiteralItem decision.
+-- When it drops and a comment is paired, the comment drops WITH the record —
+-- own line directly above the `{`, both at the drop indent (elm-format's
+-- placement, README "Comparison with elm-format" point 12). This is a
+-- reparse fixed point because the decision is keyed off the *next node's
+-- structure*, not source rows: after the move the comment sits on its own
+-- row, the reparse re-pairs it with the record and drops it again. (The drop
+-- deliberately ignores prevRow row-glue: even a comment written on the
+-- head's own row (`HasIdentifier {- note -} { … }`) moves below —
+-- elm-format's placement, and row-independent, so the moved form reparses to
+-- itself. A comment *trailing* a dropped record with no record after it is
+-- never paired, so the `} {- c -}` same-row glue is untouched.) In every
+-- other case the fallback replays the exact unpaired steps (comment via
+-- `renderBlockCommentNode`, then this function again without the pairing),
+-- so behavior is unchanged there.
+renderBracketLiteralNode : FP.FlowConfig -> FlowAcc -> Maybe LPNode -> LPNode -> Doc -> Result String FlowAcc
+renderBracketLiteralNode config acc pairedComment node itemDoc =
+    let
+        decision =
+            FP.decide config
+                acc.state
+                (FP.BracketLiteralItem
+                    { forcesVertical = R.hasHardBreak itemDoc
+                    , isTypeRecord = isTypeRecordLiteral node
+                    , closingRow =
+                        lpnLastBracketEnd node
+                            |> Maybe.map (\p -> p.row)
+                            |> Maybe.withDefault -1
+                    }
+                )
+    in
+    when decision.placement is
+        FP.DropBlock _ ->
+            let
+                -- A paired leading comment drops with the record as ONE
+                -- block — comment, hard break, record — so both get the
+                -- same wrap/nest from the placement for free.
+                droppedDoc =
+                    when pairedComment is
+                        Just commentNode ->
+                            R.concat (commentBoxDoc (lpnBox commentNode)) (R.concat R.hardNl itemDoc)
+
+                        Nothing ->
+                            itemDoc
+            in
+            Ok
+                { doc = applyPlacement decision.placement acc.doc droppedDoc
+                , state = decision.next
+                }
+
+        _ ->
+            when pairedComment is
+                Nothing ->
+                    Ok
+                        { doc = applyPlacement decision.placement acc.doc itemDoc
+                        , state = decision.next
+                        }
+
+                Just commentNode ->
+                    when lpnBox commentNode is
+                        BlockComment loc ->
+                            renderBlockCommentNode config acc commentNode loc
+                                |> Result.andThen
+                                    (\accAfterComment ->
+                                        renderBracketLiteralNode config accAfterComment Nothing node itemDoc
+                                    )
+
+                        _ ->
+                            Err "paired leading comment is not a block comment"
 
 
 -- ═══ THE FLOW BUILDER — core (buildFlowDoc / buildFlowDocImpl) ═══
@@ -1058,242 +1092,11 @@ nodesShareStartRow a b =
 buildFlowDocImpl : Int -> Bool -> Bool -> Array LPNode -> Result String Doc
 buildFlowDocImpl indent inlineStart brokenFlow nodes =
     let
-        -- separator: either "same line with space" or "new line with indent"
-        flowSep accDoc nextDoc =
-            if brokenFlow then
-                R.concat accDoc (R.concat R.hardNl nextDoc)
-
-            else
-                R.concat accDoc (R.group (R.concat R.nl nextDoc))
-
-        joinDoc sep accDoc itemDoc =
-            when sep is
-                FirstItem ->
-                    itemDoc
-
-                FlowSep ->
-                    flowSep accDoc itemDoc
-
-                HardNl ->
-                    R.concat (R.concat accDoc R.hardNl) itemDoc
-
-                AlreadyTerminated ->
-                    R.concat accDoc itemDoc
-
-        -- Join a bracket-literal child (`AllAcrossOrAllVertical` /
-        -- `AlwaysVertical`). A multi-line *type* record that follows a real head
-        -- in a flow DROPS to its own line at +grenIndent — matching elm-format's
-        -- application rule (`HasIdentifier\n    { … }`, `tracing :\n    { … }`) —
-        -- instead of gluing its first line onto the head. Gates:
-        --   • `isTypeRecordLiteral` — only type records, so expression flows
-        --     (records / arrays / patterns) that share `buildFlowDoc` stay inline.
-        --   • `acc.separator == FlowSep` — real content precedes (not `FirstItem`,
-        --     a leading comment's `AlreadyTerminated`, or `HardNl` after a block).
-        -- A `A -> … -> { record }` return record also drops (fixed-point since
-        -- `makeSignaturePrettyDoc`'s `forceVertical` folds in
-        -- `segmentHasDroppingRecord`, committing to the fully-broken signature
-        -- layout up front instead of oscillating on reparse).
-        -- Drop rule lands the record at flow-base + grenIndent: `indentedBlockRule`
-        -- (+grenIndent) when the flow is unnested (`indent == 0`, a type-alias
-        -- body / union variant), `bodyBlockRule` (hardNl only) when the flow is
-        -- already nested +grenIndent (a record-type field value).
-        typeRecordDropFires acc node itemDoc =
-            let
-                followsRealHead =
-                    when acc.separator is
-                        FlowSep ->
-                            True
-
-                        _ ->
-                            False
-            in
-            followsRealHead
-                && R.hasHardBreak itemDoc
-                && isTypeRecordLiteral node
-
-        joinBracketLiteralFlowItem leadingComment acc node itemDoc =
-            if typeRecordDropFires acc node itemDoc then
-                let
-                    dropRule =
-                        if indent == 0 then
-                            indentedBlockRule
-
-                        else
-                            bodyBlockRule
-
-                    -- A leading single-line block comment paired with this record
-                    -- (see `pairLeadingRecordComments`) drops WITH it — the
-                    -- comment on its own line directly above the `{`, both at the
-                    -- drop indent (elm-format's placement). Bundling them into one
-                    -- dropped child gives them the same wrap/nest for free.
-                    droppedDoc =
-                        when leadingComment is
-                            Just commentDoc ->
-                                R.concat commentDoc (R.concat R.hardNl itemDoc)
-
-                            Nothing ->
-                                itemDoc
-                in
-                -- Carry the record's closing-bracket row as `prevRow` (not -1) so
-                -- a single-line block comment on that same source row glues onto
-                -- the record's `}` line (`} {- c -}`) instead of dropping to a
-                -- fresh line — which would reparse as an own-line comment and
-                -- detach (a +4 ↔ col-0 oscillation). Keeping `dropRule.nextSep`
-                -- (HardNl / FlowSep) means a following *type node* still breaks to
-                -- its own line; only a same-row comment glues (see the
-                -- BlockComment branch's same-row path).
-                { doc = joinBlock dropRule acc.separator acc.doc droppedDoc
-                , prevRow =
-                    lpnLastBracketEnd node
-                        |> Maybe.map (\p -> p.row)
-                        |> Maybe.withDefault -1
-                , prevElided = False
-                , separator = dropRule.nextSep
-                }
-
-            else
-                { doc = joinDoc acc.separator acc.doc itemDoc
-                , prevRow = -1
-                , prevElided = False
-                , separator = FlowSep
-                }
-
-        -- One fold step for a `BlockComment` node: multi-line comments and
-        -- standalone leading comments end their line (AlreadyTerminated); a
-        -- single-line comment continuing a line glues inline. Factored out of
-        -- the fold so `joinPairedBracketItem`'s no-drop fallback can replay the
-        -- exact unpaired behavior.
-        blockCommentStep acc commentNode loc =
-            let
-                box =
-                    lpnBox commentNode
-
-                nodeChildren =
-                    lpnChildren commentNode
-
-                -- A block comment forces an own-line break (so the next
-                -- token starts fresh at the right column) when it is
-                -- multi-line, OR when it is a standalone leading comment
-                -- in a vertical context — the first item of a flow that
-                -- does not continue a line the caller already started
-                -- (e.g. before a non-first `let` binding), OR when a
-                -- previous comment already ended the line (AlreadyTerminated):
-                -- a run of own-line comments must each stay on their own
-                -- line, not glue the following token onto the last one.
-                -- A single-line block comment that continues a line stays
-                -- inline (`a * {- c -} b`, a binop RHS, a `( … )` body).
-                standaloneLeading =
-                    (acc.separator == FirstItem && not inlineStart)
-                        || acc.separator == AlreadyTerminated
-            in
-            if isMultiLineCommentValue loc.value || standaloneLeading then
-                let
-                    commentText =
-                        commentBoxDoc box
-
-                    docWithComment =
-                        when acc.separator is
-                            FirstItem ->
-                                commentText
-
-                            AlreadyTerminated ->
-                                R.concat acc.doc commentText
-
-                            _ ->
-                                -- `|| acc.prevElided` mirrors
-                                -- `renderSingleLineCommentNode`: a comment
-                                -- directly trailing a zero-width elided token
-                                -- (e.g. a signature's synthesized `->`) is
-                                -- anchored at that token's left-neighbour row,
-                                -- not where the token renders, so a pure row
-                                -- test flips across reformats when the
-                                -- neighbour wraps onto its own line.
-                                if loc.start.row == acc.prevRow || acc.prevElided then
-                                    R.concat acc.doc (R.concat (R.text " ") commentText)
-
-                                else
-                                    R.concat acc.doc (R.concat R.hardNl commentText)
-                in
-                Ok { doc = R.concat docWithComment R.hardNl
-                    , prevRow = loc.start.row
-                    , prevElided = False
-                    , separator = AlreadyTerminated
-                    }
-
-            else
-                -- Single-line block comment continuing a line: inline.
-                when makePDoc box nodeChildren is
-                    Err e ->
-                        Err e
-
-                    Ok itemDoc ->
-                        let
-                            -- A comment on the same source row as the previous
-                            -- item glues onto that item's last rendered line
-                            -- with a space. This matters after a *block* (a
-                            -- dropped type record, whose `prevRow` is its `}`
-                            -- row): `joinDoc`'s HardNl separator would push the
-                            -- comment to a fresh line, which reparses as an
-                            -- own-line comment and detaches (a +4 ↔ col-0
-                            -- oscillation). For an inline previous item the
-                            -- `FlowSep` join already renders a space, so this is
-                            -- a no-op there.
-                            joined =
-                                if acc.prevRow >= 0 && loc.start.row == acc.prevRow then
-                                    R.concat acc.doc (R.concat (R.text " ") itemDoc)
-
-                                else
-                                    joinDoc acc.separator acc.doc itemDoc
-                        in
-                        Ok { doc = joined
-                            , prevRow = -1
-                            , prevElided = False
-                            , separator = FlowSep
-                            }
-
-        -- Join an `AllAcrossOrAllVertical` / `AlwaysVertical` flow item,
-        -- honoring a paired leading comment (`pairLeadingRecordComments`).
-        -- When the record drops (the exact `typeRecordDropFires` gates) and the
-        -- comment isn't glued to the previous item's row, the comment drops
-        -- WITH the record — own line directly above the `{`, both at the drop
-        -- indent (elm-format's placement, README "Comparison with elm-format"
-        -- point 12). This is a reparse fixed point because the decision is
-        -- keyed off the *next node's structure*, not source rows: after the
-        -- move the comment sits on its own row, the reparse re-pairs it with
-        -- the record and drops it again. In every other case the fallback
-        -- replays the exact unpaired steps (comment via `blockCommentStep`,
-        -- record via the normal join), so behavior is unchanged there.
-        joinPairedBracketItem acc item node itemDoc =
-            when item.pairedComment is
-                Nothing ->
-                    Ok (joinBracketLiteralFlowItem Nothing acc node itemDoc)
-
-                Just commentNode ->
-                    when lpnBox commentNode is
-                        BlockComment loc ->
-                            -- Note the drop deliberately ignores `acc.prevRow`
-                            -- row-glue: even a comment written on the head's own
-                            -- row (`HasIdentifier {- note -} { … }`) moves below —
-                            -- elm-format's placement, and row-independent, so the
-                            -- moved form reparses to itself. (A comment *trailing*
-                            -- a dropped record with no record after it is never
-                            -- paired, so fix 4's `} {- c -}` glue is untouched.)
-                            if typeRecordDropFires acc node itemDoc then
-                                Ok
-                                    (joinBracketLiteralFlowItem
-                                        (Just (commentBoxDoc (lpnBox commentNode)))
-                                        acc
-                                        node
-                                        itemDoc)
-
-                            else
-                                blockCommentStep acc commentNode loc
-                                    |> Result.map
-                                        (\accAfterComment ->
-                                            joinBracketLiteralFlowItem Nothing accAfterComment node itemDoc)
-
-                        _ ->
-                            Err "paired leading comment is not a block comment"
+        config =
+            { indent = indent
+            , inlineStart = inlineStart
+            , brokenFlow = brokenFlow
+            }
 
         -- elm-format keeps a short leading block comment glued to the very next
         -- term (`fn arg0 {- c -} arg1` → arg1 stays on the comment's line)
@@ -1345,12 +1148,16 @@ buildFlowDocImpl indent inlineStart brokenFlow nodes =
         foldSetup =
             when mergedFirstStep is
                 Just merged ->
-                    { seed = Ok { doc = merged.doc, prevRow = -1, prevElided = False, separator = FlowSep }
+                    { seed =
+                        Ok
+                            { doc = merged.doc
+                            , state = { prevRow = -1, prevElided = False, separator = FP.FlowSep }
+                            }
                     , items = pairLeadingRecordComments merged.remaining
                     }
 
                 Nothing ->
-                    { seed = Ok { doc = R.empty, prevRow = -1, prevElided = False, separator = FirstItem }
+                    { seed = Ok { doc = R.empty, state = FP.initialFlowState }
                     , items = pairLeadingRecordComments nodes
                     }
 
@@ -1374,10 +1181,10 @@ buildFlowDocImpl indent inlineStart brokenFlow nodes =
                             in
                             when box is
                                 SingleLineComment loc ->
-                                    Ok (renderSingleLineCommentNode acc box loc)
+                                    Ok (renderSingleLineCommentNode config acc box loc)
 
                                 BlockComment loc ->
-                                    blockCommentStep acc node loc
+                                    renderBlockCommentNode config acc node loc
 
                                 AllAcrossOrAllVertical bracket ->
                                     when makeAllAcrossOrAllVertical bracket nodeChildren is
@@ -1385,7 +1192,7 @@ buildFlowDocImpl indent inlineStart brokenFlow nodes =
                                             Err e
 
                                         Ok itemDoc ->
-                                            joinPairedBracketItem acc item node itemDoc
+                                            renderBracketLiteralNode config acc item.pairedComment node itemDoc
 
                                 AlwaysVertical bracket ->
                                     when listBoxesForBracket bracket nodeChildren is
@@ -1393,30 +1200,29 @@ buildFlowDocImpl indent inlineStart brokenFlow nodes =
                                             Err e
 
                                         Ok itemDoc ->
-                                            joinPairedBracketItem acc item node itemDoc
+                                            renderBracketLiteralNode config acc item.pairedComment node itemDoc
 
                                 IndentedBlock ->
-                                    renderBlockNode indentedBlockRule acc nodeChildren
+                                    renderBlockNode config FP.IndentedBlockItem acc nodeChildren
 
                                 PipelineStep ->
-                                    renderPipelineStepNode acc nodeChildren
+                                    renderPipelineStepNode config acc nodeChildren
 
                                 BodyBlock ->
-                                    renderBodyBlockNode bodyBlockRule acc nodeChildren
+                                    renderBodyBlockNode config acc nodeChildren
 
                                 WhenBranch ->
-                                    renderWhenBranchNode acc nodeChildren
+                                    renderWhenBranchNode config acc nodeChildren
 
                                 SoftIndentedBlock ->
-                                    let
-                                        rule =
-                                            if softIndentedBlockChildForcesVertical nodeChildren then
-                                                indentedBlockRule
-
-                                            else
-                                                softIndentedBlockRule
-                                    in
-                                    renderBlockNode rule acc nodeChildren
+                                    renderBlockNode config
+                                        (FP.SoftBlockItem
+                                            { childForcesVertical =
+                                                softIndentedBlockChildForcesVertical nodeChildren
+                                            }
+                                        )
+                                        acc
+                                        nodeChildren
 
                                 EmptyLine ->
                                     -- A blank-line marker between `let` bindings,
@@ -1426,12 +1232,14 @@ buildFlowDocImpl indent inlineStart brokenFlow nodes =
                                     -- on the blank line — cf. the WhenBranch/PipelineStep
                                     -- blanks). The following binding's IndentedBlock
                                     -- supplies its own leading hardNl, so each EmptyLine
-                                    -- nets exactly one blank line. Keep separator = HardNl
+                                    -- nets exactly one blank line. Separator stays HardNl
                                     -- so that binding still wraps onto its own line.
-                                    Ok { doc = R.concat acc.doc (R.text "\n")
-                                        , prevRow = -1
-                                        , prevElided = False
-                                        , separator = HardNl
+                                    let
+                                        decision =
+                                            FP.decide config acc.state FP.EmptyLineItem
+                                    in
+                                    Ok { doc = applyPlacement decision.placement acc.doc R.empty
+                                        , state = decision.next
                                         }
 
                                 _ ->
@@ -1441,39 +1249,45 @@ buildFlowDocImpl indent inlineStart brokenFlow nodes =
 
                                         Ok itemDoc ->
                                             let
-                                                prevRow =
+                                                -- Only an `UnbreakableText` leaf carries a real
+                                                -- row into the fold state; everything else
+                                                -- resets it (part of the policy's fixed-point
+                                                -- discipline).
+                                                --
+                                                -- isElidedArrow: the synthesized signature `->`
+                                                -- is a zero-width `UnbreakableText` (start == end)
+                                                -- built by `LPTHelpers.mkZeroWidthText`, anchored
+                                                -- at the end of its `from` type — not where it
+                                                -- renders. Its left neighbour is a whole type,
+                                                -- which can fill the line and push the `->` onto a
+                                                -- continuation row. A comment directly trailing it
+                                                -- must then glue regardless of row (the policy's
+                                                -- commentPlacement). Scoped to `->` by value (cf.
+                                                -- the `value == "in"` test in the boundary check):
+                                                -- other elided tokens (`exposing`, `:`) precede a
+                                                -- short neighbour or a bracketed block, where a
+                                                -- comment on its own row legitimately stays
+                                                -- own-line.
+                                                leafFacts =
                                                     when box is
                                                         UnbreakableText loc ->
-                                                            loc.start.row
+                                                            { startRow = loc.start.row
+                                                            , isElidedArrow =
+                                                                loc.value == "->"
+                                                                    && loc.start.row == loc.end.row
+                                                                    && loc.start.col == loc.end.col
+                                                            }
 
                                                         _ ->
-                                                            -1
+                                                            { startRow = -1
+                                                            , isElidedArrow = False
+                                                            }
 
-                                                -- The synthesized signature `->` is a zero-width
-                                                -- `UnbreakableText` (start == end) built by
-                                                -- `LPTHelpers.mkZeroWidthText`, anchored at the end of its
-                                                -- `from` type — not where it renders. Its left neighbour is a
-                                                -- whole type, which can fill the line and push the `->` onto a
-                                                -- continuation row. A comment directly trailing it must then
-                                                -- glue regardless of row (see the SingleLineComment branch).
-                                                -- Scoped to `->` by value (cf. the `value == "in"` test in
-                                                -- the boundary check): other elided tokens (`exposing`, `:`)
-                                                -- precede a short neighbour or a bracketed block, where a
-                                                -- comment on its own row legitimately stays own-line.
-                                                prevElided =
-                                                    when box is
-                                                        UnbreakableText loc ->
-                                                            loc.value == "->"
-                                                                && loc.start.row == loc.end.row
-                                                                && loc.start.col == loc.end.col
-
-                                                        _ ->
-                                                            False
+                                                decision =
+                                                    FP.decide config acc.state (FP.LeafItem leafFacts)
                                             in
-                                            Ok { doc = joinDoc acc.separator acc.doc itemDoc
-                                                , prevRow = prevRow
-                                                , prevElided = prevElided
-                                                , separator = FlowSep
+                                            Ok { doc = applyPlacement decision.placement acc.doc itemDoc
+                                                , state = decision.next
                                                 }
                 )
                 foldSetup.seed
@@ -1503,125 +1317,6 @@ nodeForcesVertical node =
 
         Err _ ->
             False
-
-
-{-| True when `node` is a curly-bracket *type* record literal (`{ a : T, … }`),
-as opposed to an *expression* record (`{ a = v }`), a record update, an array,
-or a pattern. The discriminator is the field separator: a type field is built
-with `SynthesizedText ":"`, an expression field with `SynthesizedText "="`.
-
-Used to decide whether a multi-line record child in a flow drops to its own
-line (elm-format's application rule for type applications / type field values)
-without disturbing the many *expression* flows that share `buildFlowDoc` and
-must keep their records/arrays/patterns inline.
--}
-isTypeRecordLiteral : LPNode -> Bool
-isTypeRecordLiteral node =
-    let
-        isCurly =
-            when lpnBox node is
-                AlwaysVertical ListCurly ->
-                    True
-
-                AllAcrossOrAllVertical ListCurly ->
-                    True
-
-                _ ->
-                    False
-
-        fieldHasColonSep field =
-            Array.any
-                (\c ->
-                    when lpnBox c is
-                        SynthesizedText ":" ->
-                            True
-
-                        _ ->
-                            False
-                )
-                (lpnChildren field)
-
-        firstField =
-            lpnChildren node
-                |> Array.keepIf (\c -> not (nodeIsComment c))
-                |> Array.first
-    in
-    isCurly
-        && (when firstField is
-                Just f ->
-                    fieldHasColonSep f
-
-                Nothing ->
-                    False
-           )
-
-
-{-| Pair each single-line block comment with an immediately following type
-record literal, removing the comment from the item list and attaching it to the
-record's entry. `buildFlowDocImpl`'s fold then decides — with the exact
-`typeRecordDropFires` gates — whether the pair drops together (comment on its
-own line directly above the record, elm-format's placement) or replays the
-plain unpaired steps. Pairing is deliberately loose (structural only); the
-tight gating happens at the record's fold step, where the separator state and
-the rendered doc are known.
--}
-pairLeadingRecordComments : Array LPNode -> Array { node : LPNode, pairedComment : Maybe LPNode }
-pairLeadingRecordComments nodes =
-    let
-        pairableComment n =
-            when lpnBox n is
-                BlockComment loc ->
-                    not (isMultiLineCommentValue loc.value)
-
-                _ ->
-                    False
-
-        -- NB Gren's `Array.get -1` wraps to the LAST element (negative indices
-        -- count from the end) — without this guard, a record at index 0 whose
-        -- flow ends in a pairable comment (`{ … } {- c -}`) would fetch that
-        -- TRAILING comment via `at (0 - 1)` as its "leading" one and render it
-        -- twice (a silent comment duplication that is string-idempotent, so the
-        -- idempotency fuzzer alone does not catch it).
-        at i =
-            if i < 0 then
-                Nothing
-
-            else
-                Array.get i nodes
-    in
-    nodes
-        |> Array.indexedMap (\i n -> { i = i, n = n })
-        |> Array.mapAndKeepJust
-            (\{ i, n } ->
-                if
-                    pairableComment n
-                        && (at (i + 1)
-                                |> Maybe.map isTypeRecordLiteral
-                                |> Maybe.withDefault False
-                           )
-                then
-                    -- Consumed: attached to the record that follows.
-                    Nothing
-
-                else
-                    Just
-                        { node = n
-                        , pairedComment =
-                            if isTypeRecordLiteral n then
-                                at (i - 1)
-                                    |> Maybe.andThen
-                                        (\prev ->
-                                            if pairableComment prev then
-                                                Just prev
-
-                                            else
-                                                Nothing
-                                        )
-
-                            else
-                                Nothing
-                        }
-            )
 
 
 {-| True when `node` forces vertical (`nodeForcesVertical`) in a way that
@@ -2240,12 +1935,6 @@ commentBoxDoc box =
 
         _ ->
             R.empty
-
-
--- True if a comment body spans more than one source line.
-isMultiLineCommentValue : String -> Bool
-isMultiLineCommentValue value =
-    String.contains "\n" value
 
 
 -- Count leading space characters in a string.
