@@ -2644,6 +2644,21 @@ decision and why.
     (`infix` declarations only appear in a handful of core packages.) Covered
     by the `InfixWrapped` and `KitchenSink` fixtures.
 
+16. **Doc-comment body contents — keep verbatim.** elm-format reaches *inside*
+    a `{-| … -}` doc comment and reformats its contents: it re-spaces `@docs`
+    lines (inserting blank lines between groups), rewrites Markdown (bullet
+    style `*` → `-`, emphasis `_italic_` → `*italic*`), re-indents fenced
+    example code, and inserts blank lines between example statements.
+    gren-format leaves the entire doc-comment body exactly as the author wrote
+    it. This is the largest single difference in output on real library source
+    (module doc comments are long), and it is a deliberate choice: gren-format
+    never rewrites the contents of a comment, only its placement. Matching
+    elm-format here would mean embedding a Markdown-and-code reflow engine and
+    tying code formatting to prose conventions — out of scope, and inconsistent
+    with the verbatim-preservation stance in point 9. (This applies to plain
+    `{- … -}` block comments and `--` line comments too — their text is always
+    preserved verbatim.)
+
 #### Minor/cosmetic — not acted on
 
 - A handful of comment-attachment micro-differences around pipeline steps,
