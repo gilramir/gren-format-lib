@@ -3422,13 +3422,64 @@ assembleBrokenWithComments indent items =
                                                 }
 
                                     Nothing ->
-                                        Err "box: leading comment in broken flow not ported"
+                                        -- Leading comment with no preceding
+                                        -- entry to glue onto: it stands as the
+                                        -- flow's first own-line entry. The
+                                        -- mergedFirstStep block-comment glue
+                                        -- (`{- c -} nextTerm`) is handled before
+                                        -- the fold; this arm is the Doc fold's
+                                        -- own-line render of a first-position
+                                        -- `--`/own-line comment. After a comment
+                                        -- nothing row-glues, so `lastRow = -1`.
+                                        Ok { acc | entries = [ c.box ], lastRow = -1 }
 
                             Nothing ->
                                 Ok { acc | entries = Array.pushLast item.box acc.entries, lastRow = lpnMaxRow item.node }
                     )
+
+        -- Mirror of the Doc's `mergedFirstStep` (MakeRender.buildFlowDocImpl):
+        -- a leading single-line block comment in a broken flow glues onto the
+        -- very next term (`{- c -} nextTerm`) when that term is a non-comment,
+        -- single-line (non-force-vertical) node.
+        mergedFirst =
+            when { first = Array.first items, next = Array.get 1 items } is
+                { first = Just firstItem, next = Just nextItem } ->
+                    when firstItem.comment is
+                        Just c ->
+                            if
+                                not c.isLineComment
+                                    && not c.multiLine
+                                    && not (isCommentItem nextItem)
+                                    && isSingleLine nextItem.box
+                            then
+                                when B.isLine c.box is
+                                    Ok cl ->
+                                        Just
+                                            { box = B.prefix (B.row [ cl, B.space ]) nextItem.box
+                                            , remaining = Array.dropFirst 2 items
+                                            }
+
+                                    Err _ ->
+                                        Nothing
+
+                            else
+                                Nothing
+
+                        Nothing ->
+                            Nothing
+
+                _ ->
+                    Nothing
+
+        foldSetup =
+            when mergedFirst is
+                Just m ->
+                    { seed = { entries = [ m.box ], lastRow = -1 }, foldItems = m.remaining }
+
+                Nothing ->
+                    { seed = { entries = [], lastRow = -1 }, foldItems = items }
     in
-    Array.foldl step (Ok { entries = [], lastRow = -1 }) items
+    Array.foldl step (Ok foldSetup.seed) foldSetup.foldItems
         |> Result.andThen
             (\acc ->
                 when Array.popFirst acc.entries is
