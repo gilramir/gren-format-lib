@@ -2747,7 +2747,10 @@ vertical form triggers on either verticality signal or a multi-line lambda body
 literal renders vertical — mirroring `makeParenBlockDoc`'s `isLambdaMultiline`). -}
 parenGenericFallbackBox : { forceVertical : Bool, checkContentVertical : Bool, isCallArgument : Bool } -> Array LPNode -> Result String Box
 parenGenericFallbackBox flags children =
-    buildFlowBox 0 children
+    -- Inline-start, mirroring the Doc's `buildFlowDocInline 0 children`: the
+    -- content continues the `(`-line, so a leading single-line block comment
+    -- stays inline (`({- c -} expr)`).
+    buildFlowBoxInline 0 children
         |> Result.andThen
             (\innerBox ->
                 let
@@ -2784,7 +2787,13 @@ parenGenericFallbackBox flags children =
                             Ok (B.line (B.row [ B.punc "(", l, B.punc ")" ]))
 
                         Err _ ->
-                            Err "box: inline paren over multi-line inner"
+                            -- A formatter-synthesized wrap (`checkContentVertical
+                            -- = False`) around content a comment forced
+                            -- multi-line: the Doc's inline arm is a plain
+                            -- `"(" <> inner <> ")"` — no align, `)` glued onto
+                            -- the inner's last line, continuation lines at the
+                            -- ambient column (= the box origin here).
+                            Ok (B.addSuffix (B.punc ")") (B.mapFirstLine (\l -> B.row [ B.punc "(", l ]) identity innerBox))
             )
 
 
