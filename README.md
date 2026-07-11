@@ -2583,6 +2583,32 @@ decision and why.
     Covered by the `TypeRecordLeadingComment.dirty.gren` /
     `TypeRecordLeadingComment.formatted.gren` fixtures.
 
+13. **Redundant parens around a binary-operator operand — keep as is (may
+    revisit).** When you parenthesize an applied function that is the operand of
+    a binary operator, gren-format keeps your parens; elm-format strips them,
+    because operator precedence already makes them redundant (application binds
+    tighter than any binary operator):
+
+    ```gren
+    -- you wrote (and gren-format keeps):
+    logBase base number =
+        (Gren.Kernel.Math.log number) / (Gren.Kernel.Math.log base)
+
+    -- elm-format strips to:
+    logBase base number =
+        Gren.Kernel.Math.log number / Gren.Kernel.Math.log base
+    ```
+
+    This is the same family as point 10, but the other direction: point 10
+    strips parens around a *call argument* (a positional slot where they can
+    never be load-bearing), whereas here the parens wrap an *operator operand*,
+    where stripping requires reasoning about the operator's precedence to know
+    they're redundant. For now gren-format leaves an operand's parens exactly as
+    written — the author's grouping is preserved and nothing about the output is
+    wrong, only more explicit than elm-format's. We may revisit this later and
+    adopt elm-format's precedence-aware stripping if the extra parens prove
+    noisy in practice.
+
 #### Minor/cosmetic — not acted on
 
 - `infix left  6 (+) = add` — elm-format inserts a double space after `left`;
