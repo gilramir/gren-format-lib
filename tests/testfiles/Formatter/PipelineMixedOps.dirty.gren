@@ -1,0 +1,20 @@
+module PipelineMixedOps exposing (chain, oneLine, withLambda)
+
+
+chain x =
+    x
+      |> bar
+      |> baz
+      |> identity
+      <| 0
+
+
+oneLine y =
+    y |> f |> g <| 0
+
+
+withLambda z =
+    z
+        |> Array.map (\n -> n + 1)
+        |> identity
+        <| 0

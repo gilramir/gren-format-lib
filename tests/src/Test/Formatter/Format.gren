@@ -347,6 +347,7 @@ expressionSuite fsPerm =
             , assertPretty fsPerm "pipeline step argument indentation" "PipelineArgIndent"
             , assertPretty fsPerm "multi-line lambda arg in pipeline step uses elm-format style" "PipelineLambdaArg"
             , assertPretty fsPerm "backward pipeline (<|) treated like forward pipeline (|>)" "BackwardPipeline"
+            , assertPretty fsPerm "mixed |>/<| pipeline chain renders operator-leading" "PipelineMixedOps"
             , assertPretty fsPerm "string escape sequences preserved" "StringEscapes"
             , assertPretty fsPerm "non-printable ASCII in strings escaped as \\u{XXXX}" "NonPrintableEscapes"
             , assertPretty fsPerm "string and char escape sequences in when patterns" "StringAndCharPatterns"

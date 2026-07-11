@@ -1285,7 +1285,11 @@ makeBackwardPipelineBox forceVertical children =
             Array.all stepOpIsBackward stepNodes
     in
     if not allBackward then
-        Err "box: backward pipeline with mixed ops not ported"
+        -- A mixed `|>`/`<|` chain (flattenPipeline merges them into one flat
+        -- array tagged by the outermost op) renders operator-LEADING via the
+        -- generic flow fold, mirroring the Doc's `buildFlowDoc 0 children`
+        -- fallback for the same `not allStepsBackward` case.
+        buildFlowBox 0 children
 
     else if hasBoundaryComment then
         -- A comment at a step boundary (own-line leading comment before `<|`, or a
