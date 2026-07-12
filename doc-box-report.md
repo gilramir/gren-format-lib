@@ -5,10 +5,15 @@ renderer still cannot render, why, and what fixing each would cost. All ship
 correct output via the Doc fallback — this is cutover-completion analysis, not a
 bug list.*
 
-> **Update (`a08e85b`): Class A landed.** The recommended cheap win below was
-> taken — no-trigger multi-line pipeline steps now render via Box. The corpus is
-> **14 `Err`s** as of that commit (was 15). The Class A section is kept below for
-> the record, marked LANDED.
+> **Update (`a08e85b`): Class A landed.** No-trigger multi-line pipeline steps
+> render via Box (15 → 14).
+>
+> **Update (`e8fd6c9`): Class B landed.** Re-inspection showed the premise was
+> wrong — elm-format DROPS a soft multi-line field value below `= ` (its
+> `equalsPair`); our Doc *glued* it (an unintentional divergence) and Box
+> disagreed on the indent. Both renderers now drop, matching elm-format
+> byte-for-byte. All 4 record-update-field Errs cleared: **corpus now 10 `Err`s,
+> 0 mismatches.** Sections A and B are kept below, marked LANDED.
 
 ---
 
@@ -52,7 +57,7 @@ census. That splits every `Err` into one of three buckets:
 | # | Class | Count | Bucket | Fix cost | Ships correct today? |
 |---|---|---|---|---|---|
 | A | No-trigger multi-line pipeline step | 1 | **CONSERVATIVE — ✅ LANDED (`a08e85b`)** | done | yes |
-| B | Record-update field w/ soft multi-line value | 4 | GENUINE | medium–hard | yes |
+| B | Record-update field w/ soft multi-line value | 4 | **✅ LANDED (`e8fd6c9`)** — was a Doc divergence from elm | done | yes |
 | C1 | Direct-operand lambda glue `\|> (\x -> …)` | 2 | GENUINE | hard | yes |
 | C2 | Soft-glue of RecordUpdate/AlignedFlow item | 3 | GENUINE | hard | yes |
 | D | Verbatim (opener-alone) block comment | 1 | UNIMPLEMENTED | medium | yes |
@@ -104,7 +109,21 @@ instead of the box it already computed.
 
 ---
 
-## B. Record-update field with a soft multi-line value — 4 — GENUINE
+## B. Record-update field with a soft multi-line value — 4 — **✅ LANDED (`e8fd6c9`)**
+
+> **Correction / resolution.** This section originally claimed "gren matches
+> elm-format for record updates" and that Box diverged — both wrong. Re-inspection
+> (feeding elm-format the value *already broken across rows*, since elm is
+> author-driven, not width-fitting) showed elm-format **DROPS** a soft multi-line
+> field value below `= ` via its `equalsPair` combinator, and our **Doc** was the
+> one *gluing* (`| f = Array.map` / args) — an unintentional divergence from elm.
+> Fix: both renderers now drop soft values below `name =` (`dropFieldValueBox` /
+> `fieldInnerDoc`, mirroring `equalsPair`), verified byte-for-byte against
+> elm-format. Deleted the Box gate; the KitchenSink nested updates (previously
+> hanging-indented to ~column 40) are now clean. The head-comment sub-case
+> (`f = {- c -} …`) keeps the existing path. **All 4 cleared, 0 mismatches.**
+
+_Original analysis, for the record:_
 
 **Fixtures:** `KitchenSink` @148, @237; `KitchenComments` @193;
 `LambdaBracketBodyNestedInCall` @4 (plus a nested comment-bearing variant that
@@ -380,9 +399,11 @@ adopt elm-format's indent (then likely cheap).
    confirm it's hard.
 
 ### Bottom line
-Of the original 15: **1 was a free win (A) — now landed**, leaving **14**:
-**8 genuine exact-space divergences (B, C)**, **5 comment-position/idempotency
-work (D, E, F, G)**, and **1 gated on a product decision (H)**. The self-verify
-guard already ships correct output for every one of them, so none of the
-remaining 14 is required — it is purely cutover-completion work with no
-user-facing payoff beyond eventually deleting the Doc renderer.
+Of the original 15: **A (1) and B (4) are now landed** — B turned out not to be
+"exact-space" at all but an unintentional Doc divergence from elm-format, fixed
+for a real user-facing improvement. **10 remain:** **4 genuine exact-space
+divergences (C)**, **5 comment-position/idempotency work (D, E, F, G)**, and
+**1 gated on a product decision (H)**. The self-verify guard already ships
+correct output for every one of them, so the remaining 10 are cutover-completion
+work with little user-facing payoff — except **H**, where gren's *current*
+shipped output diverges from elm-format and is worth a product decision.
