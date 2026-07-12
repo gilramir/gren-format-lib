@@ -465,6 +465,15 @@ commentsSuite fsPerm =
             , assertPretty fsPerm "multi-line block comment trailing a bracket-list item glues onto its last line" "ListItemMultilineTrailingComment"
             , assertPretty fsPerm "multi-line block comment trailing a backward-pipeline step glues onto its last line" "BackwardPipeMultilineTrailingComment"
             , assertPretty fsPerm "multi-line block comment trailing a multi-line item in a broken call glues onto its last line" "BrokenCallMultilineTrailingComment"
+            -- Regression guards for the broken/blockrec oscillation fix: a multi-line
+            -- comment trailing a dropped EXPRESSION block (list / record, incl. under
+            -- a call) glues onto its closing bracket instead of dropping own-line and
+            -- detaching (+4 ↔ col-0). Fixed via the closing-row carry in FlowPolicy
+            -- (bracket literals) + factsFor (bracket-ending calls).
+            , assertPretty fsPerm "multi-line comment trailing a dropped list under a call glues onto its `]`" "CallListMultilineTrailingComment"
+            , assertPretty fsPerm "multi-line comment trailing a dropped record under a call glues onto its `}`" "CallRecordMultilineTrailingComment"
+            , assertPretty fsPerm "multi-line comment trailing a list-body glues onto its `]`" "ListBodyMultilineTrailingComment"
+            , assertPretty fsPerm "multi-line comment trailing a dropped type-record block glues onto its `}`" "TypeRecordMultilineTrailingComment"
             ]
         }
 

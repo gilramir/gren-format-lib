@@ -4061,6 +4061,25 @@ assembleFlowImpl inlineStart flowIndent items =
                         AlwaysVertical _ ->
                             bracketFacts item
 
+                        AcrossOrVertical _ ->
+                            -- A call / flow that ENDS IN A CLOSING BRACKET
+                            -- (`foo`⏎`  [ … ]`): carry the bracket's row as
+                            -- `prevRow` so a same-row trailing comment glues onto
+                            -- that `]`/`}` line instead of dropping to its own line —
+                            -- the multi-line-comment counterpart of the bracket-
+                            -- literal carry in `FlowPolicy` (without it the comment
+                            -- reparses own-line and detaches, +4 ↔ col-0). Gated on
+                            -- ending in a bracket: a call ending in a plain token
+                            -- (`decl x`, incl. one a comment inflated to multi-row)
+                            -- keeps the `-1` catch-all, so a following body-leading
+                            -- comment is unaffected.
+                            when lpnLastBracketEnd item.node is
+                                Just p ->
+                                    FP.LeafItem { startRow = p.row, isElidedArrow = False }
+
+                                Nothing ->
+                                    FP.LeafItem { startRow = -1, isElidedArrow = False }
+
                         IndentedBlock ->
                             FP.IndentedBlockItem
 

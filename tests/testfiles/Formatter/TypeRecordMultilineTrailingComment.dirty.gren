@@ -1,0 +1,9 @@
+module M exposing (T)
+
+
+type alias T =
+    Foo
+        { a : Int
+        , b : Int
+        } {- one
+line two -}

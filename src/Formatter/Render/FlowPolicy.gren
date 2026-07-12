@@ -277,7 +277,14 @@ decide config state facts =
                     else
                         joinPlacement config state.separator
                 , next =
-                    { prevRow = -1
+                    -- Carry this comment's row forward (not -1) so a FURTHER
+                    -- same-row trailing comment glues onto the same line too — a
+                    -- run like `] {- a -} {- b -}` keeps all of them on the `]`
+                    -- line instead of dropping the second to its own line (which
+                    -- would detach on reparse). Only following comments read
+                    -- `prevRow`; plain items join by separator, so this is inert
+                    -- for them.
+                    { prevRow = f.startRow
                     , prevElided = False
                     , separator = FlowSep
                     }
@@ -326,6 +333,23 @@ decide config state facts =
                     { prevRow = f.closingRow
                     , prevElided = False
                     , separator = blockNextSep rule
+                    }
+                }
+
+            else if f.forcesVertical then
+                -- A multi-line EXPRESSION bracket (list / record / update as a
+                -- value). Like the type-record path above, carry its closing-
+                -- bracket row as `prevRow` so a same-row trailing comment glues
+                -- onto the `]`/`}` line (`] {- c -}`) — a reparse fixed point —
+                -- instead of dropping to its own line at the body indent, which
+                -- reparses as an own-line comment and detaches (the +4 ↔ col-0
+                -- oscillation). A following non-comment item still breaks
+                -- (`separator = FlowSep`); only a same-row comment glues.
+                { placement = joinPlacement config state.separator
+                , next =
+                    { prevRow = f.closingRow
+                    , prevElided = False
+                    , separator = FlowSep
                     }
                 }
 

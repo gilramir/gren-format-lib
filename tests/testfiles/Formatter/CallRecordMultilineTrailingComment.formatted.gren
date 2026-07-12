@@ -1,0 +1,9 @@
+module M exposing (x)
+
+
+x =
+    foo
+        { a = 1
+        , b = 2
+        } {- one
+             line two -}
