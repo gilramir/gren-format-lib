@@ -29,12 +29,14 @@ indented x =
 
 
 {-
-      An opener ALONE on its first line is the author's signal for verbatim
-  mode: every body line keeps its absolute column, untouched.
+       An opener alone on its first line is reindented like any other multi-line
+   block comment (matching elm-format): the smallest content line maps to offset
+   3, everything else relative -- so hand-aligned art keeps its RELATIVE shape,
+   but not its exact source column.
 
-         /\
-        /  \    hand-aligned art must not be re-anchored
-       /____\
+          /\
+         /  \    art keeps its relative shape after reindenting
+        /____\
 -}
-verbatimGuard =
+openerAloneReindented =
     2

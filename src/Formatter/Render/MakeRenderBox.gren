@@ -620,14 +620,15 @@ leadingSpaceCount s =
     ).count
 
 
-{-| Render a multi-line block comment as a stack of lines, mirroring the reindent
-branch of `MakeRender.blockCommentDoc`: the first line verbatim, each continuation
-line reindented so the smallest content indent maps to `blockCommentBodyOffset`
+{-| Render a multi-line block comment as a stack of lines, mirroring
+`MakeRender.blockCommentDoc`: the first line verbatim, each continuation line
+reindented so the smallest content indent maps to `blockCommentBodyOffset`
 (deeper indentation kept relative), a bare closing delimiter or blank line
-trimmed. Box stacking supplies the `R.align` that anchors the block under wherever
-the opener prints. The VERBATIM (opener-alone) branch renders the body at absolute
-column 0 via `R.reset`, which Box's uniform-prefix stacking cannot reproduce, so
-it returns Err and falls back.
+trimmed. Box stacking supplies the `R.align` that anchors the block under
+wherever the opener prints. This reindent applies to every multi-line block
+comment, including the opener-alone form (the opener sitting on its own first
+line) — matching elm-format, which likewise reindents rather than preserving
+the author's absolute columns.
 -}
 multiLineBlockCommentBox : String -> Result String Box
 multiLineBlockCommentBox value =
@@ -641,48 +642,40 @@ multiLineBlockCommentBox value =
 
         Just { first = firstLine, rest = contLines } ->
             let
-                openerAlone =
-                    String.trimLeft (String.dropFirst 2 firstLine) == ""
+                isContentLine line =
+                    let
+                        t =
+                            String.trimLeft line
+                    in
+                    t /= "" && t /= "-}"
+
+                base =
+                    contLines
+                        |> Array.keepIf isContentLine
+                        |> Array.map leadingSpaceCount
+                        |> Array.minimum
+                        |> Maybe.withDefault blockCommentBodyOffset
+
+                reindent line =
+                    let
+                        t =
+                            String.trimLeft line
+                    in
+                    if t == "" || t == "-}" then
+                        t
+
+                    else
+                        let
+                            l =
+                                leadingSpaceCount line
+                        in
+                        String.repeat (max 0 (blockCommentBodyOffset + l - base)) " "
+                            ++ String.dropFirst l line
+
+                allLines =
+                    [ firstLine ] ++ Array.map reindent contLines
             in
-            if openerAlone then
-                Err "box: verbatim (opener-alone) multi-line block comment not ported"
-
-            else
-                let
-                    isContentLine line =
-                        let
-                            t =
-                                String.trimLeft line
-                        in
-                        t /= "" && t /= "-}"
-
-                    base =
-                        contLines
-                            |> Array.keepIf isContentLine
-                            |> Array.map leadingSpaceCount
-                            |> Array.minimum
-                            |> Maybe.withDefault blockCommentBodyOffset
-
-                    reindent line =
-                        let
-                            t =
-                                String.trimLeft line
-                        in
-                        if t == "" || t == "-}" then
-                            t
-
-                        else
-                            let
-                                l =
-                                    leadingSpaceCount line
-                            in
-                            String.repeat (max 0 (blockCommentBodyOffset + l - base)) " "
-                                ++ String.dropFirst l line
-
-                    allLines =
-                        [ firstLine ] ++ Array.map reindent contLines
-                in
-                Ok (B.stack1 (Array.map (\ln -> B.line (B.literal ln)) allLines))
+            Ok (B.stack1 (Array.map (\ln -> B.line (B.literal ln)) allLines))
 
 
 -- ═══ TYPE ALIAS & UNION DECLARATIONS ═══

@@ -9,7 +9,6 @@ module Formatter.Render.Doc
         , breakDoc
         , nest
         , align
-        , reset
         , group
         , concats
         , vcat
@@ -39,7 +38,6 @@ type Doc
     | BreakDoc
     | Nest { n : Int, doc : Doc }
     | Align Doc
-    | Reset Doc
     | Group Doc
 
 
@@ -97,11 +95,6 @@ nest n d =
 align : Doc -> Doc
 align d =
     Align d
-
-
-reset : Doc -> Doc
-reset d =
-    Reset d
 
 
 {-| Group always renders flat (no page-width test). -}
@@ -202,13 +195,6 @@ renderState state flat doc =
             in
             { innerState | indent = state.indent }
 
-        Reset inner ->
-            let
-                innerState =
-                    renderState { state | indent = 0 } flat inner
-            in
-            { innerState | indent = state.indent }
-
         Group inner ->
             -- Group always renders flat: layout is author-driven, so a group's
             -- only job is to force its content onto one line.
@@ -243,9 +229,6 @@ hasHardBreak doc =
             hasHardBreak inner
 
         Align inner ->
-            hasHardBreak inner
-
-        Reset inner ->
             hasHardBreak inner
 
         Group inner ->
@@ -300,9 +283,6 @@ docToJson doc =
 
         Align inner ->
             wrap "Align" [ child inner ]
-
-        Reset inner ->
-            wrap "Reset" [ child inner ]
 
         Group inner ->
             wrap "Group" [ child inner ]

@@ -73,7 +73,7 @@ This section is a guided tour of *how* it does that, at a conceptual level.
     - [A line break inside a declaration's head](#a-line-break-inside-a-declarations-head)
     - [Comments near an effect module's `where` block](#comments-near-an-effect-modules-where-block)
     - [A comment right after `exposing` doesn't sort with the first name](#a-comment-right-after-exposing-doesnt-sort-with-the-first-name)
-    - [Verbatim block comment bodies](#verbatim-block-comment-bodies)
+    - [Block comment body indentation](#block-comment-body-indentation)
   - [Comparison with elm-format](#comparison-with-elm-format)
     - [The idea both formatters share](#the-idea-both-formatters-share)
     - [The two ways they actually differ](#the-two-ways-they-actually-differ)
@@ -2061,31 +2061,34 @@ The re-anchoring uses the body's *own structure*: its shallowest line aligns
 just past the `{- ` prefix, and deeper lines stay deeper by the same relative
 amount. Sloppy or accidental input indentation is cleaned up.
 
-**Want the body kept verbatim? Put `{-` alone on its first line.** That is
-the signal for *verbatim mode*: every body line keeps its exact columns. Only
-the `{-` itself moves. This protects ASCII art and hand-aligned tables:
+The same re-anchoring applies when `{-` sits alone on its first line — there is
+no separate "verbatim" mode. Hand-aligned content (ASCII art, an aligned table)
+keeps its *relative* shape; the block is re-anchored under the `{-` rather than
+pinned to the exact columns you typed:
 
 ```gren
--- you wrote (the {- alone on its line):
+-- you wrote (the {- alone on its line, body indented however):
 config =
         {-
-      this body is kept verbatim
+      an aligned diagram
          /\
         /  \
        /____\
--}
+    -}
         42
 
--- formats to (only the {- moved to column 4; body untouched):
+-- formats to (block re-anchored under the {-, relative shape preserved):
 config =
     {-
-      this body is kept verbatim
-         /\
-        /  \
-       /____\
--}
+       an aligned diagram
+          /\
+         /  \
+        /____\
+    -}
     42
 ```
+
+This matches elm-format, which re-indents block comment bodies the same way.
 
 ##### Comments in an effect module's header
 
@@ -2383,13 +2386,22 @@ A comment before any *other* name in the list (not the first) doesn't have
 this issue — it travels with its name normally, as shown in
 [Exposed names sort automatically](#exposed-names-sort-automatically).
 
-#### Verbatim block comment bodies
+#### Block comment body indentation
 
-When a multi-line block comment opens with `{-` alone on its first line, the
-body is kept verbatim — columns are not canonicalized. Two inputs that differ
-only in the body's indentation format to two different outputs. This is
-deliberate (it protects ASCII art and aligned tables), but it means this class
-of comment is not whitespace-canonical.
+A multi-line block comment's body is re-indented from its **own** structure: the
+least-indented content line is placed a few columns in from the `{-`, and every
+other line keeps its position *relative* to that. So hand-aligned content — an
+ASCII diagram, an aligned table — keeps its shape; the block as a whole is
+anchored under the comment's opener rather than pinned to the exact columns you
+typed. Because the indentation is derived only from the body (never from the
+whitespace around the comment), two inputs that differ only in that surrounding
+whitespace format to the same output — it is whitespace-canonical.
+
+This applies to every multi-line block comment, including the form where `{-`
+sits alone on its first line. (An earlier version of gren-format treated that
+opener-alone form as a "keep my exact columns" signal and left the body
+verbatim; that was a divergence from elm-format, which re-indents the body the
+same way described here, so it was removed.)
 
 ---
 

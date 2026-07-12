@@ -1972,12 +1972,11 @@ leadingSpaceCount s =
 --     shift the body indentation.
 --
 -- Comment *content* indented past that base is preserved relative to it, so
--- internal structure (lists, ASCII art) keeps its relative shape.
---
--- Exception: when the author wrote the `{-` ALONE on its first line, the body
--- is kept verbatim — absolute columns, untouched — and only the `{-` moves.
--- That opener-alone form is the explicit, text-derived signal for "do not
--- re-indent my comment body" (see the verbatim branch below).
+-- internal structure (lists, ASCII art) keeps its relative shape. This applies
+-- uniformly, including when the author wrote `{-` ALONE on its first line:
+-- elm-format reindents that form the same way (it does not preserve the body's
+-- absolute columns), so gren-format matches it rather than treating an
+-- opener-alone comment as a "verbatim, don't touch my columns" signal.
 blockCommentDoc : Located String -> Doc
 blockCommentDoc loc =
     if not (isMultiLineCommentValue loc.value) then
@@ -2005,73 +2004,45 @@ blockCommentDoc loc =
                         in
                         t /= "" && t /= "-}"
 
-                    contentCols =
+                    base =
                         contLines
                             |> Array.keepIf isContentLine
                             |> Array.map leadingSpaceCount
+                            |> Array.minimum
+                            |> Maybe.withDefault blockCommentBodyOffset
 
-                    -- `{-` sits alone on its first line (nothing after the
-                    -- opener). This is the author's signal — and the only
-                    -- trigger — for verbatim mode below. It is a property of
-                    -- the comment's own text, so the mode cannot flip when
-                    -- the whitespace *around* the comment changes. (An earlier
-                    -- trigger also compared the body's columns to the `{-`'s
-                    -- source column; that read `loc.start.col`, so widening
-                    -- the gap before the opener changed the rendering.)
-                    openerAlone =
-                        String.trimLeft (String.dropFirst 2 firstLine) == ""
-                in
-                if openerAlone then
-                    -- Verbatim mode: the body is left exactly as written,
-                    -- column for column — only the `{-` moves (to the
-                    -- construct's indent). Protects ASCII art and hand-aligned
-                    -- blocks. Body lines render at absolute columns (via
-                    -- `reset`, so nesting doesn't shift them). The output's
-                    -- opener is again alone on its line, so this re-enters
-                    -- verbatim mode on reparse — a fixed point.
-                    let
-                        contDoc =
-                            Array.foldl
-                                (\line acc -> R.concat acc (R.concat R.hardNl (R.text line)))
-                                R.empty
-                                contLines
-                    in
-                    R.concat (R.text "{-") (R.reset contDoc)
+                    -- Map the base to `blockCommentBodyOffset` and keep any
+                    -- deeper internal indentation relative to it. Blank lines
+                    -- and a bare `-}` emit as-is (trimmed): `R.align` places
+                    -- them at the `{-` column, keeping `-}` aligned with its
+                    -- opener. This reindent applies to EVERY multi-line block
+                    -- comment, including the opener-alone (`{-` on its own line)
+                    -- form: elm-format likewise reindents the body (smallest
+                    -- content line → `blockCommentBodyOffset`, everything else
+                    -- relative) rather than preserving the author's absolute
+                    -- columns, and `R.align` re-derives the anchor on each format
+                    -- so ASCII art stays intact and the layout is a fixed point.
+                    reindent line =
+                        let
+                            t =
+                                String.trimLeft line
+                        in
+                        if t == "" || t == "-}" then
+                            t
 
-                else
-                    let
-                        base =
-                            contentCols
-                                |> Array.minimum
-                                |> Maybe.withDefault blockCommentBodyOffset
-
-                        -- Map the base to `blockCommentBodyOffset` and keep any
-                        -- deeper internal indentation relative to it. Blank lines
-                        -- and a bare `-}` emit as-is (trimmed): `R.align` will
-                        -- place them at the `{-` column, keeping `-}` aligned
-                        -- with its opener. The formula would give them
-                        -- `blockCommentBodyOffset` extra spaces, which is wrong.
-                        reindent line =
+                        else
                             let
-                                t =
-                                    String.trimLeft line
+                                l =
+                                    leadingSpaceCount line
                             in
-                            if t == "" || t == "-}" then
-                                t
-
-                            else
-                                let
-                                    l =
-                                        leadingSpaceCount line
-                                in
-                                String.repeat (max 0 (blockCommentBodyOffset + l - base)) " "
-                                    ++ String.dropFirst l line
-                    in
-                    Array.foldl
-                        (\line acc -> R.concat acc (R.concat R.hardNl (R.text (reindent line))))
-                        (R.text firstLine)
-                        contLines
-                        |> R.align
+                            String.repeat (max 0 (blockCommentBodyOffset + l - base)) " "
+                                ++ String.dropFirst l line
+                in
+                Array.foldl
+                    (\line acc -> R.concat acc (R.concat R.hardNl (R.text (reindent line))))
+                    (R.text firstLine)
+                    contLines
+                    |> R.align
 
 
 -- LPNode-form of commentBoxDoc.
