@@ -14,6 +14,12 @@ bug list.*
 > disagreed on the indent. Both renderers now drop, matching elm-format
 > byte-for-byte. All 4 record-update-field Errs cleared: **corpus now 10 `Err`s,
 > 0 mismatches.** Sections A and B are kept below, marked LANDED.
+>
+> **Update (`aafdf01`): Class D landed.** The opener-alone "verbatim" block
+> comment turned out to be a divergence from elm-format (which reindents the
+> body, it doesn't keep absolute columns). Removed the verbatim special-case in
+> both renderers; every multi-line block comment now reindents. **Corpus now 9
+> `Err`s, 0 mismatches.** Sections A, B, D marked LANDED below.
 
 ---
 
@@ -60,7 +66,7 @@ census. That splits every `Err` into one of three buckets:
 | B | Record-update field w/ soft multi-line value | 4 | **✅ LANDED (`e8fd6c9`)** — was a Doc divergence from elm | done | yes |
 | C1 | Direct-operand lambda glue `\|> (\x -> …)` | 2 | GENUINE | hard | yes |
 | C2 | Soft-glue of RecordUpdate/AlignedFlow item | 3 | GENUINE | hard | yes |
-| D | Verbatim (opener-alone) block comment | 1 | UNIMPLEMENTED | medium | yes |
+| D | Verbatim (opener-alone) block comment | 1 | **✅ LANDED (`aafdf01`)** — was a Doc divergence from elm | done | yes |
 | E | mlbc as nest-carrying first item (`#13`) | 1 | UNIMPLEMENTED | hard | yes |
 | F | Leading mlbc in inline-start flow (`#37`) | 1 | UNIMPLEMENTED | hard | yes |
 | G | Comment inside a multi-node signature type (`t61`) | 1 | UNIMPLEMENTED | hard | yes |
@@ -242,7 +248,21 @@ fall **per-construct**, with a targeted spaces-indent or per-line anchor.
 
 ---
 
-## D. Verbatim (opener-alone) multi-line block comment — 1 — UNIMPLEMENTED
+## D. Verbatim (opener-alone) multi-line block comment — 1 — **✅ LANDED (`aafdf01`)**
+
+> **Resolution.** The premise ("verbatim col-0 preservation is needed for ASCII
+> art") was wrong twice over. First, dropping the `R.reset` naively breaks
+> *nested* opener-alone comments (the body grows by the ambient indent on each
+> reformat — `hardNl` compounds the nest). Second, and decisively: **elm-format
+> reindents** an opener-alone body (smallest content line → offset 3, everything
+> relative) — it does **not** preserve absolute columns. So gren-format's
+> verbatim mode was a divergence. Fix: route every multi-line block comment
+> through the existing `R.align`-based reindent path (Box already had it) — ASCII
+> art keeps its *relative* shape, it's idempotent for top-level and nested, and
+> Box can render it. Verified byte-identical to elm-format. Deleted the verbatim
+> branch in both renderers plus the dead `R.reset`/`Reset` machinery.
+
+_Original analysis, for the record:_
 
 **Fixture:** `BlockCommentBodyIndent` @31. **Err site:** line ~648.
 
@@ -424,11 +444,13 @@ adopt elm-format's indent (then likely cheap).
    confirm it's hard.
 
 ### Bottom line
-Of the original 15: **A (1) and B (4) are now landed** — B turned out not to be
-"exact-space" at all but an unintentional Doc divergence from elm-format, fixed
-for a real user-facing improvement. **10 remain:** **4 genuine exact-space
-divergences (C)**, **5 comment-position/idempotency work (D, E, F, G)**, and
-**1 gated on a product decision (H)**. The self-verify guard already ships
-correct output for every one of them, so the remaining 10 are cutover-completion
-work with little user-facing payoff — except **H**, where gren's *current*
-shipped output diverges from elm-format and is worth a product decision.
+Of the original 15: **A (1), B (4), and D (1) are now landed** — and both B and D
+turned out to be *unintentional divergences from elm-format* rather than
+"unportable" constructs, so fixing them was a genuine user-facing improvement,
+not just cutover plumbing. **9 remain:** **4 genuine exact-space divergences
+(C)**, **4 comment-position/idempotency work (E, F, G)**, and **1 gated on a
+product decision (H)**. The self-verify guard already ships correct output for
+every one of them. The pattern worth noting: several "hard exact-space" Errs
+were misdiagnosed — the real issue was the Doc renderer quietly diverging from
+elm-format, which the Box (elm-aligned) correctly refused to reproduce. Class H
+is the remaining known case where gren's shipped output diverges from elm.
