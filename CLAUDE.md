@@ -115,6 +115,7 @@ Both the standalone CLI and the legacy `gren format` subcommand accept debug fla
 ```bash
 node ../gren-format/app --show       MyFile.gren   # formatted output to stdout
 node ../gren-format/app --pre-ast    MyFile.gren   # parsed AST + context as JSON
+node ../gren-format/app --pre-context MyFile.gren   # just the parse Context (comments) as JSON
 node ../gren-format/app --lpt        MyFile.gren   # Logical Printing Tree as JSON
 node ../gren-format/app --render-doc MyFile.gren   # Formatter.Render.Doc tree as JSON
 node ../gren-format/app --check      MyFile.gren   # format, verify ASTs match
