@@ -64,8 +64,8 @@ census. That splits every `Err` into one of three buckets:
 |---|---|---|---|---|---|
 | A | No-trigger multi-line pipeline step | 1 | **CONSERVATIVE — ✅ LANDED (`a08e85b`)** | done | yes |
 | B | Record-update field w/ soft multi-line value | 4 | **✅ LANDED (`e8fd6c9`)** — was a Doc divergence from elm | done | yes |
-| C1 | Direct-operand lambda glue `\|> (\x -> …)` | 2 | GENUINE | hard | yes |
-| C2 | Soft-glue of RecordUpdate/AlignedFlow item | 3 | GENUINE | hard | yes |
+| C1 | Direct-operand lambda glue `\|> (\x -> …)` | 2 | GENUINE | hard — **attack after Box cutover** | yes |
+| C2 | Soft-glue of RecordUpdate/AlignedFlow item | 3 | GENUINE | hard — **attack after Box cutover** | yes |
 | D | Verbatim (opener-alone) block comment | 1 | **✅ LANDED (`aafdf01`)** — was a Doc divergence from elm | done | yes |
 | E | mlbc as nest-carrying first item (`#13`) | 1 | UNIMPLEMENTED — **cutover target = Box `+4`** (verified idempotent) | at cutover | yes |
 | F | Leading mlbc in inline-start flow (`#37`) | 1 | UNIMPLEMENTED | hard | yes |
