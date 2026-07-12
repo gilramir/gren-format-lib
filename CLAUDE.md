@@ -117,7 +117,6 @@ node ../gren-format/app --show       MyFile.gren   # formatted output to stdout
 node ../gren-format/app --pre-ast    MyFile.gren   # parsed AST + context as JSON
 node ../gren-format/app --pre-context MyFile.gren   # just the parse Context (comments) as JSON
 node ../gren-format/app --lpt        MyFile.gren   # Logical Printing Tree as JSON
-node ../gren-format/app --render-doc MyFile.gren   # Formatter.Render.Doc tree as JSON
 node ../gren-format/app --check      MyFile.gren   # format, verify ASTs match
 ```
 
@@ -125,7 +124,7 @@ node ../gren-format/app --check      MyFile.gren   # format, verify ASTs match
 
 ## Formatter architecture
 
-Pipeline: `Src.Module + Ctx.Context → LPT → Formatter.Render.Doc → String`
+Pipeline: `Src.Module + Ctx.Context → LPT → Box → String`
 
 ```
 Formatter                              entry point: prettyPrint
@@ -138,15 +137,19 @@ Formatter                              entry point: prettyPrint
         Formatter.Logical.Comments            re-attaches comments from parse context
         Formatter.Logical.SortSymbols         sorts exposing lists + import groups
         Formatter.Logical.VerticalSpace       inserts blank lines between top-level items
-    Formatter.Render.MakeRender        LPT → Formatter.Render.Doc → String
-        Formatter.Render.Doc           custom Doc IR + renderer (no page-width optimizer)
+    Formatter.Render.MakeRender        thin orchestrator: maps each RootBox child through the Box renderer, joins with newlines
+        Formatter.Render.MakeRenderBox LPT → Box (one builder per LPBox constructor)
+        Formatter.Render.Box           elm-format's Box IR (Line/Box, Tab tab-stops, prefix)
+        Formatter.Render.FlowPolicy    shared inline/break decision layer
 ```
+
+The Box renderer is the **sole backend** — the earlier `Formatter.Render.Doc`
+renderer and the self-verifying Box/Doc guard were deleted at the full cutover.
 
 Layout is **author-driven, not fit-driven**: there is no page width and no
 layout search. Each box already knows whether it renders inline or vertical —
-decided from the author's original source rows (`forceVertical`) — and
-`Formatter.Render.Doc`'s `group` always renders flat. Indent step: **4** spaces
-(`grenIndent`, in `Render/MakeRender.gren`).
+decided from the author's original source rows (`forceVertical`). Indent step:
+**4** spaces (`grenIndent`, in `Render/MakeRenderBox.gren`).
 
 **Key invariant:** every top-level declaration becomes exactly one `OriginalRows`
 node directly under `RootBox`. Comments and blank lines are inserted as sibling
