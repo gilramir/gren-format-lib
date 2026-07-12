@@ -1173,15 +1173,12 @@ stepBodyBox : Array LPNode -> Result String Box
 stepBodyBox children =
     when splitStepTrigger children is
         Nothing ->
+            -- No relocatable trigger arg: render the step body as a plain flow.
+            -- It can still be multi-line (e.g. a block comment among the tokens
+            -- forces a break, as in `|> {- … -} Array.foldl (+) 0`) — there is
+            -- nothing to relocate, and `buildFlowBox` lays that out
+            -- byte-identically to the Doc, so ship it directly.
             buildFlowBox grenIndent children
-                |> Result.andThen
-                    (\box ->
-                        if isSingleLine box then
-                            Ok box
-
-                        else
-                            Err "box: multi-line pipeline step without a trigger (direct-operand paren glue) not ported"
-                    )
 
         Just { preamble, trigger, suffix } ->
             let

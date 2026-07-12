@@ -1,0 +1,16 @@
+module PipelineNoTriggerStep exposing (total, chained)
+
+
+total xs =
+    xs
+        |> Array.map identity
+        |> {- fold the values
+              into a single sum -} Array.foldl (+) 0
+
+
+chained xs =
+    xs
+        {- leading note
+           spanning rows -}
+        |> Array.filter isEven
+        |> Array.length
