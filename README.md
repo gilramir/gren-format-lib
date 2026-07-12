@@ -253,67 +253,43 @@ any other target, it's reproducing the shape you already chose.
 
 Continuing the same example, the Logical Printing Tree from Step 1 becomes
 this render plan — one entry per root item, each a small tree of concrete
-building blocks (`X › Y` means `X` wraps a single child `Y`; branches use
-`├──`/`└──`):
+building blocks. A `Stack` is a box that is already committed to printing as
+2 or more actual lines; everything else (`Seq`, and the bare pieces inside
+it — text, `Space`, `Tab`) stays on the current line:
 
 ```
-[0] Seq
-    ├── "module Sample exposing"
-    └── Nest 4
-        └── Group › Seq[ Nl, "(greet)" ]
+[0] Seq[ "module", Space, "Sample", Space, "exposing", Space, "(", "greet", ")" ]
 
-[1] Empty
+[1] ""
 
-[2] Nest 4
-    └── Seq
-        ├── "import"
-        └── Group › Seq[ Nl, "String" ]
+[2] Seq[ "import", Space, "String" ]
 
-[3] Empty
-[4] Empty
+[3] ""
+[4] ""
 
-[5] Text "-- Greets someone by name"
+[5] "-- Greets someone by name"
 
-[6] Group
-    └── Seq
-        ├── "greet"
-        ├── Group › Seq[ Nl, ":" ]
-        └── Nest 4
-            └── Seq
-                ├── Nl
-                ├── "String"
-                ├── Nl
-                ├── "->"
-                └── Group › Seq[ Nl, "String" ]
+[6] Seq[ "greet", Space, ":", Space, "String", Space, "->", Space, "String" ]
 
-[7] Nest 4
-    ├── Nest 4
-    │   └── Seq
-    │       ├── "greet"
-    │       ├── Group › Seq[ Nl, "name" ]
-    │       └── Group › Seq[ Nl, "=" ]
-    └── Seq
-        ├── HardNl
-        └── Group › Seq[ "\"Hello, \"", Nest 4 › Seq[ Nl, "++ name" ] ]
+[7] Stack
+    ├── Seq[ "greet", Space, "name", Space, "=" ]
+    └── Seq[ Tab, "\"Hello, \"", Space, "++", Space, "name" ]
 ```
 
-The comment (entry `[5]`) is just a bare `Text` node sitting between two
-`Empty` placeholders and the signature's `Group` — nothing left to decide
-about it. The whole signature (entry `[6]`) sits inside one outer `Group`,
-so every `Nl` inside it — around `:`, `->`, even the ones separating
-`String` from its neighbors — collapses to a single space no matter what;
-that's what "written on one line, stays on one line" (see [Type
-signatures](#type-signatures)) looks like at this stage. And every choice
-about line breaks in the function itself is already made here too, not in
-Step 3: `Group` always renders flat, so every `Nl` above (around `name`,
-`=`, and `++ name`) is really just a space — because you wrote `greet
-name = "Hello, " ++ name` on one row, nothing here forces those breaks
-open. The one break that *does* happen, the `HardNl` between `greet name
-=` and its body, is unconditional regardless of `Group` — that's the
-"function body always starts on the next line" rule, and it fires no
-matter how the call was written. Step 3 doesn't choose between staying
-flat or breaking; it just executes whichever this tree already committed
-to.
+The comment (entry `[5]`) is just a bare piece of text sitting between two
+blank lines (entries `[3]`/`[4]`, each a bare empty string) and the
+signature — nothing left to decide about it. The whole
+signature (entry `[6]`) is one `Seq` with an ordinary `Space` between every
+token; there's no separate "could this become a newline?" node the way
+there was in Step 1, because a signature you wrote on one line is already
+settled at this stage (see [Type signatures](#type-signatures)). The
+function (entry `[7]`) is where a real decision shows up: it's a `Stack`,
+meaning it *will* print as 2 lines no matter what, because you wrote `=`
+and the body on separate rows. The `Tab` at the start of the second line is
+what becomes the body's indentation once Step 3 renders it — not a fixed
+"4 spaces" but a jump to the next indent stop, the same primitive
+elm-format itself uses. Step 3 doesn't choose between staying flat or
+breaking; it just executes whichever this tree already committed to.
 
 ---
 

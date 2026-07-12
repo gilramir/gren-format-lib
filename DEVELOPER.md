@@ -14,8 +14,8 @@ example-driven description of *what every rule does*) open while you work.
 ## The pipeline in one line
 
 ```
-Src.Module + Ctx.Context  ──►  LPT  ──►  R.Doc  ──►  String
-                          MakeLogical   MakeRender
+Src.Module + Ctx.Context  ──►  LPT  ──►  Box  ──►  String
+                          MakeLogical   MakeRenderBox
 ```
 
 - **Input** is two things from the parser: the AST (`Src.Module`) *and* a
@@ -24,11 +24,16 @@ Src.Module + Ctx.Context  ──►  LPT  ──►  R.Doc  ──►  String
   should be grouped with what* and *how each group may break across lines* — but
   not the exact spaces. It also carries enough source-position information to put
   comments back where the author wrote them.
-- **`Formatter.Render.Doc`** turns the LPT into a concrete string. It is a simple
-  greedy renderer: `Group` always renders flat (no optimizer), `HardNl` always
-  breaks, `Nl`/`BreakDoc` are soft (space in flat context, newline otherwise).
-  There is no page width. Author layout is encoded at LPT-build time via
-  `forceVertical` flags on certain boxes (see below).
+- **`Formatter.Render.Box`** turns the LPT into a concrete string. It is a
+  faithful port of elm-format's own `Box.hs` render IR: every node is already
+  either `SingleLine` or `Stack` (2+ actual output lines) — there is no
+  intermediate "could become a newline" node and nothing to resolve at render
+  time. The flat-vs-vertical choice is made once, at LPT-build time, via
+  `forceVertical` flags on certain boxes (see below); rendering just executes
+  whichever shape the tree already committed to. See [Why Box replaced Doc (and
+  PrettyExpressive before it)](#why-box-replaced-doc-and-prettyexpressive-before-it)
+  for how this backend got here and why it looks nothing like a typical
+  Wadler-style pretty-printer.
 
 Entry point: `Formatter.prettyPrint : Src.Module -> Ctx.Context ->
 Result String String`. It calls `MakeLogical.makeLogicalPrintingTree` (build the
@@ -60,8 +65,11 @@ Formatter/Logical/              AST + comments → LPT
   SortSymbols.gren                sort exposing lists + import groups
   VerticalSpace.gren              insert blank lines
 Formatter/Render/               LPT → String
-  MakeRender.gren                 LPT → R.Doc → String
-  Doc.gren                        the custom Doc IR + renderer
+  MakeRender.gren                 thin orchestrator: maps RootBox children through MakeRenderBox, joins with "\n"
+  MakeRenderBox.gren               LPT → Box, one builder per LPBox constructor
+  Box.gren                         elm-format's Box IR (Line/Box, Tab tab-stops, prefix) + renderer
+  FlowPolicy.gren                  shared inline/break decision layer for flow sequences
+  ElmStructure.gren                faithful port of elm-format's ElmStructure.hs layout combinators
 ```
 
 `LogicalPrintingTree.gren` is the hub every module depends on; its module doc
@@ -214,34 +222,115 @@ its predecessor. If yes → `forceVertical = True`; the renderer does the rest.
 
 ---
 
-## `Formatter.Render.Doc` — the backend
+## `Formatter.Render.Box` — the backend
 
-`Formatter.Render.Doc` is a small custom Doc renderer. Key combinators:
+`Formatter.Render.Box` (`Box.gren`) is a faithful port of elm-format's own
+`Box.hs`. Two types, both closed (no page-width machinery anywhere in them):
 
-- `R.text s` — literal text, width = `String.count s`
-- `R.concat a b` — sequence
-- `R.concats docs` — sequence a whole list (right-leaning, so it matches a
-  hand-nested `R.concat a (R.concat b …)`); prefer it over deep `R.concat` nests
-- `R.hardNl` — unconditional newline + indent padding
-- `R.nl` — soft break: space in flat context, newline+indent otherwise
-- `R.breakDoc` — soft break: nothing in flat context, newline+indent otherwise
-- `R.nest n doc` — increase indent by `n` inside `doc`
-- `R.align doc` — set indent to current column inside `doc`
-- `R.reset doc` — set indent to 0 inside `doc`
-- `R.group doc` — render `doc` in flat mode (all `Nl`/`BreakDoc` become spaces or nothing)
-- `R.vcat docs` — join with `hardNl`
-- `R.foldDoc f docs` — fold with a combining function
+```gren
+type Line = Text String | Row (Array Line) | Space | Tab
+type Box  = SingleLine Line
+          | Stack { first : Line, second : Line, rest : Array Line }  -- 2+ lines
+          | MustBreakBox Line
+```
 
-**`Group` always renders flat.** There is no optimizer and no page-width test.
-A `group` simply forces flat mode on for its subtree. This replaces the old
-`P.group`/`P.choice` pattern: where you used to write `P.group (a |> P.nl |> b)`
-to get "try flat, break if needed", now you write `R.group (R.concat a (R.concat R.nl b))`,
-which just always stays flat.
+A `Box` is never "maybe one line, maybe more" — it already *is* one or the
+other, decided by whoever built it. `Tab` isn't "+4 spaces"; it's a real tab
+stop (advance to the next multiple of 4), and `prefix` glues a string onto
+line 1 while padding the other lines by its exact character width — the same
+two primitives elm-format uses to make e.g. a `Stack`-shaped record update
+line up correctly no matter what column it starts rendering at. `freezeTabs`
+rewrites a box's `Tab`s to literal spaces so it can be `prefix`-glued
+somewhere the tab-stop arithmetic would otherwise re-snap incorrectly.
 
-When you add a new box type to `makePDoc`, return `Result String Doc` built from
-these combinators. Reuse an existing box shape if one fits — a new `LPBox`
-constructor requires new arms in *every* `when box is` in `MakeRender` plus
-`selfBoxBounds` in `LogicalPrintingTree`.
+Key functions, mirroring `Box.hs`:
+
+- `B.line l` — wrap one `Line` as a `SingleLine` box
+- `B.mustBreak l` — wrap one `Line` as a `MustBreakBox` (a `--` comment: it
+  must own its line, no matter what glues around it)
+- `B.stack1 boxes` — stack 2+ boxes into one multi-line `Box`
+- `B.indent box` — prepend a `Tab` to every line
+- `B.prefix pref box` — glue `pref` onto line 1, pad the rest
+- `B.addSuffix suffix box` — append to the *last* line only
+- `B.freezeTabs box` — see above
+- `B.render box` — the final `String`, right-trimmed line by line
+
+There is no `Group`, no `nl`/`breakDoc`, and nothing to "render flat and see
+if it fits." The flat-vs-vertical decision is made once, upstream of this
+module, when an LPT box is built with `forceVertical = True`/`False`; the two
+layers above `Box.gren` just materialize that decision:
+
+- **`Formatter.Render.FlowPolicy`** (`decide`) — given the running flow state
+  and the next item's facts (its row position, its rendered box shape), says
+  *how* the item joins: glued with a space, dropped to its own line, wrapped
+  as an indented block, … This is the one place every join decision lives —
+  the module doc calls out explicitly that the renderer must not carry any
+  layout policy of its own, because a second copy of a join decision is a
+  divergence generator, not extra precision.
+- **`Formatter.Render.ElmStructure`** — a faithful port of the `ElmStructure.hs`
+  combinators (`groupBox`, `extensionGroup`, …) for shapes like bracketed
+  literals: single line when every child is a `SingleLine` and the caller
+  didn't force multiline, otherwise the fully-expanded vertical form.
+- **`Formatter.Render.MakeRenderBox`** (`makePrettyLineBox`) — the actual
+  dispatch: one builder per `LPBox` constructor, calling into `FlowPolicy` and
+  `ElmStructure` and assembling the result with `Box.gren`'s primitives.
+
+When you add a new box type, add an arm to `makePrettyLineBox`'s `when box is
+…` dispatch returning `Result String Box`. Reuse an existing box shape if one
+fits — a new `LPBox` constructor requires new arms in *every* `when box is` in
+`MakeRenderBox` plus `selfBoxBounds` in `LogicalPrintingTree`.
+
+### Why Box replaced Doc (and PrettyExpressive before it)
+
+This backend has had three incarnations; each replacement removed a layer of
+machinery that turned out to be solving a problem gren-format doesn't have.
+
+**1. PrettyExpressive → a custom `Doc` (June 2026).** The formatter originally
+rendered through `gilramir/gren-pretty-expressive` (kept for reference at
+`../gren-pretty-expressive/`), a Wadler/Prettier-style pretty-printer with a
+genuine cost-based layout *optimizer*: given a page width, it searched for the
+best place to break each group. But gren-format's actual rule is "your line
+breaks are your layout decisions" — there is no 80-column target to optimize
+for, and every construct's flat-vs-vertical choice is already decided from the
+author's source positions (`forceVertical`) before rendering starts. Running
+an optimizer over a decision that was already made is dead weight at best and,
+at worst, a second source of truth that can disagree with the first. It was
+replaced with a small custom `Doc` type (`Group`/`Nest`/`Nl`/`HardNl`) whose
+`Group` *always* rendered flat — no search, no page width, just a fixed
+choice — while keeping the general Wadler-style vocabulary.
+
+**2. Custom `Doc` → `Box` (June–July 2026, the "Change-1" strangler).** With
+the optimizer gone, `Doc`'s `Group`/`Nest`/`Nl` combinators were still a
+*reinvented* layout vocabulary — our own abstraction, not elm-format's —
+and matching elm-format's exact output through it meant hand-tuning column
+arithmetic construct by construct (bespoke `fieldLine`/`R.align` code for
+record updates, for instance) and still landing on documented divergences the
+arithmetic couldn't reach — e.g. a lambda field value's `\arg ->` head
+dropping to its own line, which elm-format does unconditionally but the `Doc`
+renderer couldn't reproduce.
+
+A proof-of-concept (commit `7f3a536`) tried something more direct: port
+elm-format's actual `Box.hs`/`ElmStructure.hs` combinators verbatim, instead
+of re-deriving their behavior through a different abstraction. The result was
+byte-identical to real `elm-format` output on every case tried, including the
+lambda-field case, **with zero hand-tuned column arithmetic** — because it
+uses elm-format's own primitives (`Tab` tab-stops, `prefix` padding) rather
+than approximating them. That result justified a full rewrite: a "strangler
+fig" migration ported one construct at a time behind a self-verifying guard
+that compared `Box` output against the live `Doc` output and only trusted
+`Box` where they agreed (see the many `Change-1 strangler tranche N` commits).
+Once every construct crossed over with 0 `Box` `Err`s across the whole corpus,
+`fa25ba0` deleted `Doc.gren` and the guard — `Box` has been the sole backend
+since.
+
+The throughline: each step removed a layer that was re-deciding something
+already decided elsewhere. PrettyExpressive re-decided layout via cost search
+when the author already decided it. `Doc` re-derived elm-format's rendering
+behavior through a different vocabulary when the shortest path was to just
+port elm-format's actual code. `Box` doesn't re-decide or re-derive
+anything — it's the same IR elm-format itself renders through, which is also
+why the [comments section below](#why-the-architecture-is-comment-driven--contrasted-with-elm-format)
+can now describe our render-time behavior and elm-format's in the same terms.
 
 ---
 
@@ -320,14 +409,15 @@ construct") is required reading, but the short version:
   if `fuzz-idempotency.py` flags a trailing-comment gap, fix it in those shared
   places.
 
-### 6. Render it — `MakeRender.makePDoc`
-Add an arm to the `makePDoc` `when box is …` dispatch (and to the parallel
-flow/aligned dispatches if your box appears there) returning a `Result String Doc`
-built from `Formatter.Render.Doc` combinators. Reuse an existing box shape if one
-fits — prefer `AcrossOrVertical`, `AllAcrossOrAllVertical`, `IndentedBlock` etc.
-over inventing a new box. Only add a new `LPBox` constructor when no existing
-shape expresses the breaking behaviour you need; a new constructor means new arms
-in *every* `when box is` in `MakeRender` plus `selfBoxBounds` in
+### 6. Render it — `MakeRenderBox.makePrettyLineBox`
+Add an arm to the `makePrettyLineBox` `when box is …` dispatch (and to the
+parallel flow dispatches in `FlowPolicy`/`ElmStructure` if your box appears
+there) returning a `Result String Box` built from `Formatter.Render.Box`
+primitives. Reuse an existing box shape if one fits — prefer
+`AcrossOrVertical`, `AllAcrossOrAllVertical`, `IndentedBlock` etc. over
+inventing a new box. Only add a new `LPBox` constructor when no existing shape
+expresses the breaking behaviour you need; a new constructor means new arms in
+*every* `when box is` in `MakeRenderBox` plus `selfBoxBounds` in
 `LogicalPrintingTree`.
 
 ### 7. Blank lines (top-level only)
@@ -434,6 +524,17 @@ upstream decision: **gren-format reuses the production Gren compiler's parser
 opposite choice, and comparing the two is the fastest way to understand why this
 codebase looks the way it does.
 
+Note this is a *parser*-level divergence, not a render-level one: since the
+[Box cutover](#why-box-replaced-doc-and-prettyexpressive-before-it), our
+render IR literally *is* elm-format's `Box`/`Line` types, ported rather than
+reinvented. So everything below about how elm-format's `Box` renders a
+comment once it's in the tree (`MustBreak` for `--`, `SingleLine` for an
+inline `{- -}`, the `Tab`/`prefix` indentation mechanism) describes our
+renderer too. What's still genuinely different — and what the rest of this
+section is really about — is how a comment *gets into* that tree in the
+first place: elm-format's parser puts it there directly, in a typed slot;
+ours puts it there afterward, by matching source positions.
+
 ### elm-format: comments live inside the AST
 
 elm-format ships its own parser, purpose-built for formatting, whose AST is
@@ -483,8 +584,11 @@ whichever token its position falls between. Everything that looks like incidenta
 bookkeeping in this codebase is forced by that one fact:
 
 - **The LPT carries source positions on every node** (`firstPos`/`lastPos`/
-  `minRow`/`maxRow`, computed by the smart constructors). elm-format's `Box`
-  carries *no* positions — it never needs to *locate* a comment. Ours does.
+  `minRow`/`maxRow`, computed by the smart constructors) — `Box` itself still
+  carries none, on either side; the positions live one layer up, in the LPT,
+  precisely because *something* upstream of `Box` has to be able to *locate*
+  a comment before rendering, and elm-format's AST slots make that
+  unnecessary.
 - **Attachment must survive a reformat.** We format, our output is re-parsed, and
   comments are re-attached from their *new* positions. If a comment lands in a
   different relative gap the second time, the output shifts — the "comment moved
@@ -527,4 +631,9 @@ comment-bearing fixture so the fuzzers exercise the reconstruction.
   phase 1 (top-level slot) and phase 2 (inner descent).
 - `Logical/BinopPrecedence.gren` — the operator fixity table and why its
   `binopMinPrecedence` seam is shared by `InsertExpressions` and `MakeRender`.
-- `Formatter.Render.Doc` (`Render/Doc.gren`) — the Doc type and renderer; small enough to read in full.
+- `Formatter.Render.Box` (`Render/Box.gren`) — the `Line`/`Box` types and
+  renderer; small enough to read in full.
+- `Formatter.Render.MakeRenderBox` (`Render/MakeRenderBox.gren`) — the
+  per-`LPBox` dispatch that builds `Box` values.
+- `Formatter.Render.FlowPolicy` — the flow-item join decision layer
+  (`decide`); read its module doc before adding a new kind of flow item.
