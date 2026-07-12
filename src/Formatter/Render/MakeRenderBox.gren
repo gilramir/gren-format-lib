@@ -1,15 +1,12 @@
 module Formatter.Render.MakeRenderBox exposing (makePrettyLineBox)
 
-{-| Box-model renderer — the target of the Change-1 strangler rollout. It
-renders an LPT node to elm-format's `Box` (Tab + prefix arithmetic), returning
-`Err` for any construct not yet ported so the caller (`MakeRender.makePrettyLine`)
-falls back to the legacy `Doc` renderer.
+{-| Box-model renderer — the sole backend. It renders an LPT node to
+elm-format's `Box` (Tab + prefix arithmetic), returning `Err` for any construct
+it cannot render (the caller, `MakeRender.makePrettyLine`, surfaces that `Err`).
 
-TRANCHE 1: top-level definitions whose body is a simple flow — leaves, record /
-array literals, and nested single-line flows. Everything else is `Err`. A
-self-verify guard in `makePrettyLine` only *uses* Box output when it is
-byte-identical to the `Doc` output, so this is regression-proof: a shape this
-renderer gets wrong simply falls back.
+It handles every top-level definition kind: leaves, record / array literals,
+flows and nested flows, blocks, pipelines, binops, `when`/`if`/`let`,
+signatures, and comments — each laid out to match elm-format.
 -}
 
 import Formatter.Render.Box as B exposing (Box(..))
@@ -31,11 +28,10 @@ makePrettyLineBox node =
         OriginalRows { stype = stype } ->
             when stype is
                 StFunctionDeclaration ->
-                    -- The tranche-1 blanket "comment child → fall back" guard is
-                    -- gone: `buildFlowBox`'s comment machinery (tranches 20–43)
-                    -- places inline, standalone, and multi-line comments in a
-                    -- funcDecl body directly. Anything it still can't do returns
-                    -- Err from within the flow, so the self-verify guard covers it.
+                    -- `buildFlowBox`'s comment machinery places inline,
+                    -- standalone, and multi-line comments in a funcDecl body
+                    -- directly. Anything it can't handle returns Err from within
+                    -- the flow, which propagates to the caller.
                     buildFlowBox grenIndent (lpnChildren node)
 
                 StFunctionSignature ->
@@ -67,14 +63,12 @@ makePrettyLineBox node =
 
                 StInfixDecl ->
                     -- `infix left 6 (+) = add` — a flat single-line leaf flow,
-                    -- same shape as a funcDecl (both route through the Doc
-                    -- renderer's `_ -> makeFlowIndentableDoc`).
+                    -- same shape as a funcDecl (both render via `buildFlowBox`).
                     buildFlowBox grenIndent (lpnChildren node)
 
         EmptyLine ->
-            -- A top-level blank separator. The Doc renderer emits `R.empty`
-            -- here (renders to ""); `B.blankLine` is `SingleLine (literal "")`,
-            -- also "" after the join's trimRight — byte-identical.
+            -- A top-level blank separator. `B.blankLine` is `SingleLine (literal
+            -- "")`, which renders to "" after the join's trimRight.
             Ok B.blankLine
 
         _ ->
@@ -97,9 +91,9 @@ nodeIsComment node =
             False
 
 
--- True when `node` or any descendant is a comment. Mirrors
--- `MakeRender.subtreeHasComment`; used to route a comment-bearing construct to
--- its comment-aware fallback rather than a comment-oblivious layout.
+-- True when `node` or any descendant is a comment. Used to route a
+-- comment-bearing construct to its comment-aware fallback rather than a
+-- comment-oblivious layout.
 subtreeHasComment : LPNode -> Bool
 subtreeHasComment node =
     nodeIsComment node || Array.any subtreeHasComment (lpnChildren node)
@@ -120,9 +114,9 @@ subtreeHasMultilineBlockComment node =
 
 -- True when the subtree contains a bracketed literal (record/array/record-update)
 -- that holds a comment among its direct children — i.e. a comment that forces the
--- bracket multi-line (`{ a : Int {- c -} }`). Used by `makeSignatureBox` to fall
--- back on a comment nested in a signature's record type, which the Doc keeps glued
--- inline but `assembleFlow` would drop to its own line.
+-- bracket multi-line (`{ a : Int {- c -} }`). Used by `makeSignatureBox` to
+-- detect a comment nested in a signature's record type, which elm-format keeps
+-- glued inline but `assembleFlow` would otherwise drop to its own line.
 typeHasCommentBracket : LPNode -> Bool
 typeHasCommentBracket node =
     let
@@ -148,8 +142,7 @@ typeHasCommentBracket node =
 
 
 {-| Flatten the nested `Binop`/`OpAndRhs` tree into a flat operand + operator
-list. Mirrors `MakeRender.flattenBinopNodes`. Each operand is itself a flow
-(array of nodes). -}
+list. Each operand is itself a flow (array of nodes). -}
 flattenBinopNodes : Array LPNode -> { operands : Array (Array LPNode), ops : Array LPNode }
 flattenBinopNodes children =
     when Array.popLast children is
@@ -183,26 +176,24 @@ opText node =
 
 {-| Render a binary-operator chain. Groups break at minimum-precedence
 operators (tighter operators join inline within a group); the author's row
-layout picks inline vs one-group-per-line (+4, operator-led). Mirrors
-`MakeRender.makeBinopDoc` / `assembleBinopGroups`.
+layout picks inline vs one-group-per-line (+4, operator-led) — matching
+elm-format.
 
 A multi-line operand (e.g. a `(when …)` paren-block) is supported in the
 forced-vertical, one-group-per-line layout: its group is composed via
 `B.prefix (op ++ " ")`, which pads the operand's continuation lines by the
-operator width so they align under where the operand's first char lands (the
-Box form of `R.nest`/`R.align`). Any multi-line operand joined *inline* to a
-higher-precedence sibling, and any multi-line operand in a non-vertical chain,
-still returns Err and falls back. -}
+operator width so they align under where the operand's first char lands. Any
+multi-line operand joined *inline* to a higher-precedence sibling, and any
+multi-line operand in a non-vertical chain, still returns Err. -}
 makeBinopBox : Bool -> Array LPNode -> Result String Box
 makeBinopBox forceVertical children =
     if Array.any subtreeHasComment children then
-        -- A comment anywhere in the chain routes the Doc renderer AWAY from the
-        -- precedence layout to its comment-aware flow fallback (`makeBinopDoc`'s
-        -- `subtreeHasComment` branch): `buildFlowDoc grenIndent` when inline,
-        -- `buildFlowDocBroken grenIndent` when forced vertical. Only the inline
-        -- form is ported (the flat flow builder is comment-aware and, together
-        -- with `OpAndRhs`, renders the chain on one line); a forced-vertical
-        -- comment chain falls back.
+        -- A comment anywhere in the chain routes AWAY from the precedence layout
+        -- to the comment-aware flow: `buildFlowBox grenIndent` when inline,
+        -- `buildFlowBoxBroken grenIndent` when forced vertical. The flat flow
+        -- builder is comment-aware and, together with `OpAndRhs`, renders the
+        -- inline chain on one line; a forced-vertical comment chain the
+        -- broken-flow builder can't lay out returns Err.
         if forceVertical then
             buildFlowBoxBroken grenIndent children
 
@@ -329,9 +320,9 @@ assembleBinopBox forceVertical minPrec operandBoxes ops =
                                 -- Inline: the chain flows on one line. Every group
                                 -- must be single-line EXCEPT the very last operand,
                                 -- which may be a multi-line node whose own lines break
-                                -- below (a `"""…"""` literal opened mid-line). The Doc
-                                -- keeps the whole chain concatenated and lets that
-                                -- operand's `R.align` land its continuation under its
+                                -- below (a `"""…"""` literal opened mid-line).
+                                -- elm-format keeps the whole chain concatenated and
+                                -- lets that operand's continuation land under its
                                 -- opening column; Box builds the single-line prefix
                                 -- (`"a " ++ b ++`) and `B.prefix`es it onto the trailing
                                 -- box, padding its continuation to the same column.
@@ -411,10 +402,9 @@ isOpAndRhsNode node =
             False
 
 
-{-| Render an `OpAndRhs` node (`op` + the right-hand side flow), mirroring
-`MakeRender.makeOpAndRhsDoc`. Reached only from the comment-bearing binop flow
-fallback (the comment-free path flattens `OpAndRhs` via `flattenBinopNodes`
-instead). -}
+{-| Render an `OpAndRhs` node (`op` + the right-hand side flow). Reached only
+from the comment-bearing binop flow (the comment-free path flattens `OpAndRhs`
+via `flattenBinopNodes` instead). -}
 makeOpAndRhsBox : Array LPNode -> Result String Box
 makeOpAndRhsBox children =
     when Array.popFirst children is
@@ -425,23 +415,23 @@ makeOpAndRhsBox children =
             when leafValue opNode is
                 Just op ->
                     -- Inline-start flow: a leading `{- c -}` in the rhs stays on
-                    -- the operator's line (`* {- c -} 100`), mirroring the Doc's
-                    -- `buildFlowDocInline 0` in `makeOpAndRhsDoc`. `prefixOperator`
-                    -- glues `op ` onto the rhs — its first line for a single-line
-                    -- rhs, or (via `B.prefix`, padding continuation by the operator
-                    -- width) the first line of a multi-line rhs such as an operand
-                    -- with a trailing multi-line comment (`+ b {- multi… -}`).
+                    -- the operator's line (`* {- c -} 100`), via
+                    -- `buildFlowBoxInline 0`. `prefixOperator` glues `op ` onto
+                    -- the rhs — its first line for a single-line rhs, or (via
+                    -- `B.prefix`, padding continuation by the operator width) the
+                    -- first line of a multi-line rhs such as an operand with a
+                    -- trailing multi-line comment (`+ b {- multi… -}`).
                     --
                     -- A rhs that also carries a NESTED `OpAndRhs` (a lower-precedence
                     -- continuation operand, `+ b {- mlbc -} * 2`) can't use `B.prefix`:
                     -- the comment body must shift with the operator while the nested
                     -- operand must stay at the operator's base column — a per-line
-                    -- mix (`R.align` vs `R.nest`) the uniform prefix can't produce.
+                    -- mix of align vs ambient nest the uniform prefix can't produce.
                     -- The FOLD can, though: render the operator as the flow's own
                     -- first item — the glued comment commits as its own
                     -- prefix-padded row (align preserved) and the nested group
-                    -- lands on a fresh row at the flow's ambient column, exactly
-                    -- the Doc's `op <> " " <> buildFlowDocInline 0 rhs` bytes.
+                    -- lands on a fresh row at the flow's ambient column, matching
+                    -- elm-format's `op ` + inline rhs.
                     buildFlowBoxInline 0 rhsNodes
                         |> Result.andThen
                             (\rhsBox ->
@@ -461,9 +451,8 @@ makeOpAndRhsBox children =
 
 {-| Render a standalone top-level comment-line item. Same-row block comments
 join with a space; a `--` line comment (or a row change) starts a new line.
-Mirrors `MakeRender.makeCommentLineDoc`. A multi-line block comment renders via
-`multiLineBlockCommentBox` (the reindent stack) — its verbatim (opener-alone)
-sub-case still falls back, as in the Doc. -}
+A multi-line block comment renders via `multiLineBlockCommentBox` (the reindent
+stack). -}
 makeCommentLineBox : Array LPNode -> Result String Box
 makeCommentLineBox children =
     traverseResult commentNodeToBox children
@@ -512,11 +501,10 @@ makeCommentLineBox children =
 
 
 -- Render one comment node to a Box, tagging its source row and whether it is a
--- `--` line comment (which always terminates its line). Mirrors the comment arms
--- of `MakeRender.makeCommentLineDoc` (`commentNodeDoc`): a multi-line block
--- comment reindents via `multiLineBlockCommentBox` (its verbatim sub-case Errs
--- and falls back); a doc comment's body is emitted verbatim as a single literal
--- (safe — it is a standalone root child ending in `-}`).
+-- `--` line comment (which always terminates its line): a multi-line block
+-- comment reindents via `multiLineBlockCommentBox`; a doc comment's body is
+-- emitted verbatim as a single literal (safe — it is a standalone root child
+-- ending in `-}`).
 commentNodeToBox : LPNode -> Result String { box : Box, row : Int, isLine : Bool }
 commentNodeToBox node =
     when lpnBox node is
@@ -571,11 +559,10 @@ spaceJoinLines lines =
         lines
 
 
--- Render a doc comment's body into its `{-| … -}` string, mirroring
--- `MakeRender.commentBoxDoc`'s DocComment arm: an empty body collapses to
--- `{-| -}`; a body that both starts and ends with a single `\n` (a multi-line
--- doc comment whose content begins on the next line) gains a trailing blank
--- line before `-}` (elm-format's convention).
+-- Render a doc comment's body into its `{-| … -}` string: an empty body
+-- collapses to `{-| -}`; a body that both starts and ends with a single `\n`
+-- (a multi-line doc comment whose content begins on the next line) gains a
+-- trailing blank line before `-}` (elm-format's convention).
 docCommentString : String -> String
 docCommentString value =
     if String.isEmpty (String.trim value) then
@@ -620,12 +607,11 @@ leadingSpaceCount s =
     ).count
 
 
-{-| Render a multi-line block comment as a stack of lines, mirroring
-`MakeRender.blockCommentDoc`: the first line verbatim, each continuation line
-reindented so the smallest content indent maps to `blockCommentBodyOffset`
-(deeper indentation kept relative), a bare closing delimiter or blank line
-trimmed. Box stacking supplies the `R.align` that anchors the block under
-wherever the opener prints. This reindent applies to every multi-line block
+{-| Render a multi-line block comment as a stack of lines: the first line
+verbatim, each continuation line reindented so the smallest content indent maps
+to `blockCommentBodyOffset` (deeper indentation kept relative), a bare closing
+delimiter or blank line trimmed. Box stacking anchors the block under wherever
+the opener prints. This reindent applies to every multi-line block
 comment, including the opener-alone form (the opener sitting on its own first
 line) — matching elm-format, which likewise reindents rather than preserving
 the author's absolute columns.
@@ -681,9 +667,8 @@ multiLineBlockCommentBox value =
 -- ═══ TYPE ALIAS & UNION DECLARATIONS ═══
 
 
-{-| Header + indented body: `type alias Name =` / body, `type Name` / variants.
-Mirrors `MakeRender.renderHeaderIndentedBodyDoc` — header inline, body dropped
-+4. -}
+{-| Header + indented body: `type alias Name =` / body, `type Name` / variants —
+header inline, body dropped +4 (elm-format). -}
 renderHeaderIndentedBody : (Array LPNode -> Result String Box) -> Array LPNode -> Result String Box
 renderHeaderIndentedBody bodyRenderer children =
     when Array.popLast children is
@@ -709,8 +694,8 @@ makeTypeAliasBody nodes =
 
 
 {-| A union body: each variant (`= A`, `| B`) on its own line when the author
-wrote them across rows, or inline `= A | B | C` when on one line. Mirrors
-`MakeRender.makeUnionBodyDoc`. Comment-bearing unions fall back. -}
+wrote them across rows, or inline `= A | B | C` when on one line. Comment-bearing
+unions render vertically. -}
 makeUnionBodyBox : Array LPNode -> Result String Box
 makeUnionBodyBox nodes =
     let
@@ -737,9 +722,9 @@ makeUnionBodyBox nodes =
                 )
 
 
-{-| Always-vertical union body with comment siblings, mirroring
-`MakeRender.makeUnionBodyVertical`: one variant per line; a comment on the same
-row as the variant it trails is appended inline (`B.addSuffix`), one on its own
+{-| Always-vertical union body with comment siblings: one variant per line; a
+comment on the same row as the variant it trails is appended inline
+(`B.addSuffix`), one on its own
 row renders on its own line. A variant's "last row" is `max(lpnLastPos,
 lpnLastBracketEnd)` — NOT `lpnMaxRow`, which a multi-line block comment inside the
 variant would widen, shifting a trailing comment to its own line (non-idempotent).
@@ -792,11 +777,11 @@ makeUnionBodyVerticalBox nodes =
                                 if String.contains "\n" loc.value then
                                     -- A multi-line block comment SIBLING between
                                     -- variants renders on its own line via the
-                                    -- reindent stack, mirroring the Doc path's
-                                    -- `commentNodeDoc`. Same-row gluing of a
-                                    -- multi-line comment onto a preceding variant
-                                    -- (`B.addSuffix` appends only a single line)
-                                    -- is not modelled, so that rare case falls back.
+                                    -- reindent stack (`multiLineBlockCommentBox`).
+                                    -- Same-row gluing of a multi-line comment onto
+                                    -- a preceding variant (`B.addSuffix` appends
+                                    -- only a single line) is not modelled, so that
+                                    -- rare case falls back.
                                     if loc.start.row == acc.prevRow && acc.prevRow >= 0 then
                                         Err "box: same-row multi-line block-comment union sibling not ported"
 
@@ -835,7 +820,7 @@ makeUnionBodyVerticalBox nodes =
 
 
 -- True when the given source rows are not all equal (the author spread items
--- across rows). Mirrors `MakeRender.rowsSpanMultiple`.
+-- across rows).
 rowsSpanMultiple : Array Int -> Bool
 rowsSpanMultiple rows =
     when Array.popFirst rows is
@@ -860,12 +845,11 @@ isPipelineStepNode node =
 
 
 {-| Render a forward (`|>`) pipeline: seed then each `|> step` on its own line
-at +4 (or inline `seed |> a |> b` when the author kept it on one line). Mirrors
-`MakeRender.makePipelineDoc`, including its comment dispatch: a comment-bearing
-pipeline routes through the generic fold (`buildFlowBox 0`), where the
-PipelineStepItem placement and `renderPipelineStepChildren`'s peels reproduce
-the Doc's per-step comment handling. Backward (`<|`) pipelines have their own
-mirrored path. -}
+at +4 (or inline `seed |> a |> b` when the author kept it on one line), matching
+elm-format. A comment-bearing pipeline routes through the generic fold
+(`buildFlowBox 0`), where the PipelineStepItem placement and
+`renderPipelineStepChildren`'s peels handle each step's comments. Backward (`<|`)
+pipelines have their own path. -}
 makePipelineBox : Bool -> String -> Array LPNode -> Result String Box
 makePipelineBox forceVertical op children =
     if op == "<|" then
@@ -875,11 +859,10 @@ makePipelineBox forceVertical op children =
         Err "box: unknown pipeline operator not ported"
 
     else if Array.any subtreeHasComment children then
-        -- Comment-bearing forward pipeline: route through the generic fold,
-        -- mirroring `makePipelineDoc`'s dispatch — the per-step comment
-        -- handling (leading peel, trailing glue, blank-before-commented-step)
-        -- lives in the fold's PipelineStepItem placement + the PipelineStep
-        -- arm of `makePBox`.
+        -- Comment-bearing forward pipeline: route through the generic fold —
+        -- the per-step comment handling (leading peel, trailing glue,
+        -- blank-before-commented-step) lives in the fold's PipelineStepItem
+        -- placement + the PipelineStep arm of `makePBox`.
         buildFlowBox 0 children
 
     else
@@ -910,23 +893,21 @@ makePipelineBox forceVertical op children =
                 )
 
 
--- One `|> step`. Rendered via `buildFlowBox grenIndent`, mirroring the Doc's
--- `buildStepChildrenDoc`: the operator + function stay inline (`|> f`) and a
--- multi-line block argument (a record / array / `when` / `if` / `let` that forces
--- vertical) relocates to the next line at +4. A single-line step renders
--- identically at any flow indent, so this keeps the cases covered since tranche 8.
+-- One `|> step`. Rendered via `buildFlowBox grenIndent`: the operator + function
+-- stay inline (`|> f`) and a multi-line block argument (a record / array /
+-- `when` / `if` / `let` that forces vertical) relocates to the next line at +4.
+-- A single-line step renders identically at any flow indent.
 --
 -- A multi-line step whose argument is a `ParenBlock` (a multi-line lambda `\x ->`,
 -- a parens-with-multiline-content, or a direct `|> (\x -> …)` operand) gets
--- elm-format-specific relocation in the Doc (`makeMultilineLambdaArgDoc` /
--- `makeMultilineParenArgDoc`, or stays glued) that `assembleFlow`'s generic block
--- drop doesn't reproduce — so those fall back. A single-line ParenBlock argument
--- (`|> f (g x)`) is fine (it renders inline).
--- ═══ pipeline-step trigger classification (Box mirror of buildStepChildrenDoc) ═══
+-- elm-format-specific relocation (`makeMultilineLambdaArgBox` /
+-- `makeMultilineParenArgBox`, or stays glued) that `assembleFlow`'s generic block
+-- drop doesn't reproduce — so those take the trigger-split path. A single-line
+-- ParenBlock argument (`|> f (g x)`) is fine (it renders inline).
+-- ═══ pipeline-step trigger classification ═══
 
 
-{-| True when `node`'s rendered Box spans multiple rows — the Box mirror of
-`MakeRender.nodeForcesVertical` (`R.hasHardBreak`). -}
+{-| True when `node`'s rendered Box spans multiple rows. -}
 nodeForcesVerticalBox : LPNode -> Bool
 nodeForcesVerticalBox node =
     when makePBox (lpnBox node) (lpnChildren node) is
@@ -937,15 +918,15 @@ nodeForcesVerticalBox node =
             False
 
 
--- Mirror of `MakeRender.flowChildForcesVertical`: a non-comment node that
--- renders multi-line forces the surrounding flow vertical.
+-- A non-comment node that renders multi-line forces the surrounding flow
+-- vertical.
 flowChildForcesVerticalBox : LPNode -> Bool
 flowChildForcesVerticalBox node =
     not (nodeIsComment node) && nodeForcesVerticalBox node
 
 
--- Mirror of `MakeRender.subtreeHasVertical`: a subtree that always produces a
--- hard break (an AlwaysVertical/RecordUpdate, or a comment-bearing literal).
+-- A subtree that always produces a hard break (an AlwaysVertical/RecordUpdate,
+-- or a comment-bearing literal).
 subtreeHasVerticalBox : LPNode -> Bool
 subtreeHasVerticalBox node =
     when lpnBox node is
@@ -963,8 +944,8 @@ subtreeHasVerticalBox node =
             Array.any subtreeHasVerticalBox (lpnChildren node)
 
 
--- Mirror of `MakeRender.isMultilineLambdaParenBlock`: a ParenBlock whose second
--- child is an `IndentedBlock` (the author wrote the lambda body on a later row).
+-- A ParenBlock whose second child is an `IndentedBlock` (the author wrote the
+-- lambda body on a later row).
 isMultilineLambdaParenBlockBox : LPNode -> Bool
 isMultilineLambdaParenBlockBox node =
     when lpnBox node is
@@ -985,9 +966,8 @@ isMultilineLambdaParenBlockBox node =
             False
 
 
--- Mirror of `MakeRender.isMultilineLambdaParenBlockAnyBody`: broader than the
--- above — an `IndentedBlock` body, or a `SoftIndentedBlock` body that its own
--- content forces vertical. Used by the direct-operand guard.
+-- Broader than the above — an `IndentedBlock` body, or a `SoftIndentedBlock`
+-- body that its own content forces vertical. Used by the direct-operand guard.
 isMultilineLambdaParenBlockAnyBodyBox : LPNode -> Bool
 isMultilineLambdaParenBlockAnyBodyBox node =
     when lpnBox node is
@@ -1011,8 +991,8 @@ isMultilineLambdaParenBlockAnyBodyBox node =
             False
 
 
--- Mirror of `MakeRender.isMultilineContentParenBlock`: a ParenBlock whose
--- content subtree will span rows (contains an AlwaysVertical / RecordUpdate).
+-- A ParenBlock whose content subtree will span rows (contains an AlwaysVertical
+-- / RecordUpdate).
 isMultilineContentParenBlockBox : LPNode -> Bool
 isMultilineContentParenBlockBox node =
     when lpnBox node is
@@ -1024,11 +1004,10 @@ isMultilineContentParenBlockBox node =
 
 
 {-| Split a pipeline step's children at its *trigger* — the first node that
-`buildStepChildrenDoc` (the Doc) breaks onto its own line: a multi-line
-lambda-argument paren, a multi-line content paren, or any other
-multi-line-forcing node such as a record argument. A 1:1 mirror of the Doc's
-left-to-right split, including the direct-operand-lambda exclusion (`|>
-(\x -> …)` stays glued to the operator). `Nothing` = no trigger. -}
+breaks onto its own line: a multi-line lambda-argument paren, a multi-line
+content paren, or any other multi-line-forcing node such as a record argument.
+A left-to-right split matching elm-format, including the direct-operand-lambda
+exclusion (`|> (\x -> …)` stays glued to the operator). `Nothing` = no trigger. -}
 splitStepTrigger : Array LPNode -> Maybe { preamble : Array LPNode, trigger : LPNode, suffix : Array LPNode }
 splitStepTrigger stepChildren =
     (Array.foldl
@@ -1060,12 +1039,11 @@ splitStepTrigger stepChildren =
     ).split
 
 
-{-| The Box mirror of `MakeRender.makeMultilineLambdaArgDoc`: a relocated
-multi-line lambda argument `(\args ->` … `)` — head glued to `(`, body at
-`(` + grenIndent, `)` on its own line at the `(` column. The Doc anchors
-everything with `R.align` at the `(` column; here the box's own origin IS
-that column (the caller drops the trigger box at its indent), so plain
-stacking reproduces it. The `(` glue is FIRST-LINE-ONLY: the head flow's
+{-| Render a relocated multi-line lambda argument `(\args ->` … `)` — head glued
+to `(`, body at `(` + grenIndent, `)` on its own line at the `(` column
+(elm-format). elm-format anchors everything at the `(` column; here the box's
+own origin IS that column (the caller drops the trigger box at its indent), so
+plain stacking reproduces it. The `(` glue is FIRST-LINE-ONLY: the head flow's
 own breaks (an own-line comment between lambda params) land at the align
 level — the `(` COLUMN, one left of the head's first character — so the
 head box's continuation rows must stay at the box origin, not be padded by
@@ -1105,8 +1083,8 @@ makeMultilineLambdaArgBox children =
 
 
 -- True when a ParenBlock's content is a lambda (`(\x -> …)`) rather than an
--- `if`/`when`/`let` — identified by the first child's box, mirroring the Doc's
--- `makeParenBlockDoc` content dispatch. Guards the direct-operand lambda split
+-- `if`/`when`/`let` — identified by the first child's box (matching
+-- `makeParenBlockBox`'s content dispatch). Guards the direct-operand lambda split
 -- against mangling a paren-`if`/`when` (whose branches are also blocks).
 parenContentIsLambdaHead : LPNode -> Bool
 parenContentIsLambdaHead node =
@@ -1139,7 +1117,7 @@ directOperandLambdaSplit node =
     -- block, which is also true for a paren-`if`/`when` (its first branch is a
     -- block) — splitting one as `[head, body]` would drop the remaining
     -- branches. Require the FIRST child to be a lambda head (not an
-    -- `if`/`when`/`let`), mirroring `makeParenBlockDoc`'s content dispatch.
+    -- `if`/`when`/`let`), matching `makeParenBlockBox`'s content dispatch.
     if not (isMultilineLambdaParenBlockAnyBodyBox node) || not (parenContentIsLambdaHead node) then
         Nothing
 
@@ -1171,12 +1149,11 @@ directOperandLambdaSplit node =
                 Nothing
 
 
-{-| The Box mirror of `MakeRender.makeMultilineParenArgDoc`: a relocated
-non-lambda multi-line paren argument — content glued to `(`, `)` on its own
-line at the `(` column. The Doc writes `"(" <> innerDoc <> hardNl <> ")"`
-with the vertical content (an `AlwaysVertical` / bracket literal) aligning
-itself at the `(` + 1 column via its own `R.align`; `B.prefix`'s exact-width
-padding reproduces that for punctuation-prefixed continuation lines. -}
+{-| Render a relocated non-lambda multi-line paren argument — content glued to
+`(`, `)` on its own line at the `(` column (elm-format). The vertical content
+(an `AlwaysVertical` / bracket literal) aligns itself at the `(` + 1 column;
+`B.prefix`'s exact-width padding produces that for punctuation-prefixed
+continuation lines. -}
 makeMultilineParenArgBox : Array LPNode -> Result String Box
 makeMultilineParenArgBox children =
     buildFlowBoxInline 0 children
@@ -1186,28 +1163,25 @@ makeMultilineParenArgBox children =
             )
 
 
--- One `|> step`, mirroring the Doc's `buildStepChildrenDoc`. A step with a
--- *trigger* (see `splitStepTrigger`) relocates it: the preamble (`|> fn …`)
--- glues inline, the trigger drops to its own line at +grenIndent (relative to
--- the step's own base — the pipeline assembler adds the step's +4 from the
--- seed), and any suffix args land below it at the same indent. The trigger
--- box mirrors the Doc's `makeArgDoc` dispatch: the two ParenBlock kinds get
--- the paren-arg reshaping, everything else its normal box. A multi-line step
--- with NO trigger (a direct-operand lambda paren that must stay glued to
--- `|>`, or a comment-bearing step needing the Doc's comment-peeling) falls
--- back.
+-- One `|> step`. A step with a *trigger* (see `splitStepTrigger`) relocates it:
+-- the preamble (`|> fn …`) glues inline, the trigger drops to its own line at
+-- +grenIndent (relative to the step's own base — the pipeline assembler adds
+-- the step's +4 from the seed), and any suffix args land below it at the same
+-- indent. The trigger box dispatch: the two ParenBlock kinds get the paren-arg
+-- reshaping, everything else its normal box. A multi-line step with NO trigger
+-- (a direct-operand lambda paren that must stay glued to `|>`, or a
+-- comment-bearing step needing comment-peeling) falls back.
 renderPipelineStep : LPNode -> Result String Box
 renderPipelineStep stepNode =
     renderPipelineStepChildren (lpnChildren stepNode)
 
 
-{-| The Box mirror of the Doc's `renderPipelineStepNode` inner render: peel
-ALL leading comments (each on its own line above the `|>`, at the step's own
-column — the caller's step wrap indents the whole box), peel trailing inline
-comments off the END (`peelTrailingCommentNodes`, glued onto the step's last
-line with a space), then render the remaining children via the trigger split
-(`buildStepChildrenDoc`'s mirror). Mid-flow comments stay in the body and
-flow through the preamble/suffix folds exactly as the Doc's do. -}
+{-| Render a pipeline step's children: peel ALL leading comments (each on its
+own line above the `|>`, at the step's own column — the caller's step wrap
+indents the whole box), peel trailing inline comments off the END
+(`peelTrailingCommentNodes`, glued onto the step's last line with a space),
+then render the remaining children via the trigger split. Mid-flow comments
+stay in the body and flow through the preamble/suffix folds. -}
 renderPipelineStepChildren : Array LPNode -> Result String Box
 renderPipelineStepChildren allChildren =
     let
@@ -1236,8 +1210,7 @@ stepBodyBox children =
             -- No relocatable trigger arg: render the step body as a plain flow.
             -- It can still be multi-line (e.g. a block comment among the tokens
             -- forces a break, as in `|> {- … -} Array.foldl (+) 0`) — there is
-            -- nothing to relocate, and `buildFlowBox` lays that out
-            -- byte-identically to the Doc, so ship it directly.
+            -- nothing to relocate, so `buildFlowBox` lays it out directly.
             buildFlowBox grenIndent children
 
         Just { preamble, trigger, suffix } ->
@@ -1286,9 +1259,9 @@ boxLine box =
             Err "box: expected single-line box"
 
 
-{-| Render a backward (`<|`) pipeline. Mirrors `MakeRender.makeBackwardPipelineDoc`:
-the `<|` trails the seed (or previous step body), and the next body drops to the
-line below at +4 (inline when the author kept the whole chain on one row). A
+{-| Render a backward (`<|`) pipeline: the `<|` trails the seed (or previous step
+body), and the next body drops to the line below at +4 (inline when the author
+kept the whole chain on one row). A
 lambda step body (`\x -> …` authored across rows) breaks with the head at +4 and
 its body at +8. A boundary comment, a mixed `|>`/`<|` chain, a multi-line
 non-lambda body, or an inline (`SoftIndentedBlock`) lambda all fall back. -}
@@ -1344,16 +1317,16 @@ makeBackwardPipelineBox forceVertical children =
     if not allBackward then
         -- A mixed `|>`/`<|` chain (flattenPipeline merges them into one flat
         -- array tagged by the outermost op) renders operator-LEADING via the
-        -- generic flow fold, mirroring the Doc's `buildFlowDoc 0 children`
-        -- fallback for the same `not allStepsBackward` case.
+        -- generic flow fold (`buildFlowBox 0 children`) for the same
+        -- `not allStepsBackward` case.
         buildFlowBox 0 children
 
     else if hasBoundaryComment then
         -- A comment at a step boundary (own-line leading comment before `<|`, or a
-        -- trailing comment after a step body) switches to operator-LEADING layout,
-        -- mirroring the Doc's `buildFlowDoc 0 children` fallback: seed on its own
-        -- line, then each step at +4 as `<| body` with leading comments own-line
-        -- above it and trailing comments glued to the body's last line.
+        -- trailing comment after a step body) switches to operator-LEADING layout:
+        -- seed on its own line, then each step at +4 as `<| body` with leading
+        -- comments own-line above it and trailing comments glued to the body's
+        -- last line.
         makeBackwardCommentedPipeline seedNodes stepNodes
 
     else
@@ -1416,14 +1389,13 @@ spanTrailingComments nodes =
     go nodes []
 
 
--- The Box mirror of the Doc's `peelTrailingComments True` (block bodies /
--- forward pipeline steps): peel trailing single-line block comments freely
--- and at most ONE `--` line comment — the rightmost, since a `--` consumes
--- the rest of its line and a second one to its left would swallow it. A
--- multi-line block comment stops the peel (it legitimately breaks the line
--- and stays in the flow). Unlike `spanTrailingComments` (the backward-
--- pipeline helper, which takes every trailing comment), this reproduces the
--- Doc's discipline exactly, so the peeled run is always inline-gluable.
+-- Peel trailing comments off a block body / forward pipeline step: single-line
+-- block comments freely and at most ONE `--` line comment — the rightmost,
+-- since a `--` consumes the rest of its line and a second one to its left would
+-- swallow it. A multi-line block comment stops the peel (it legitimately breaks
+-- the line and stays in the flow). Unlike `spanTrailingComments` (the backward-
+-- pipeline helper, which takes every trailing comment), this keeps the discipline
+-- that the peeled run is always inline-gluable (elm-format).
 peelTrailingCommentNodes : Array LPNode -> { bodyNodes : Array LPNode, trailing : Array LPNode }
 peelTrailingCommentNodes nodes =
     let
@@ -1478,10 +1450,10 @@ glueTrailingComments box trailing =
         trailing
 
 
-{-| Render a comment-bearing backward (`<|`) pipeline in operator-LEADING layout,
-mirroring the Doc's `buildFlowDoc 0 children` fallback: the seed on its own line,
-then each step at +grenIndent. A step renders as its leading comments (own line)
-stacked above `<| body`, with trailing comments glued onto the body's last line. -}
+{-| Render a comment-bearing backward (`<|`) pipeline in operator-LEADING layout:
+the seed on its own line, then each step at +grenIndent. A step renders as its
+leading comments (own line) stacked above `<| body`, with trailing comments glued
+onto the body's last line. -}
 makeBackwardCommentedPipeline : Array LPNode -> Array LPNode -> Result String Box
 makeBackwardCommentedPipeline seedNodes stepNodes =
     buildFlowBox 0 seedNodes
@@ -1572,10 +1544,10 @@ backwardSingleStep forceVertical seedLine bodyNodes =
                             )
 
 
-{-| Render a `<|` step body. Mirrors `MakeRender.buildBodyDoc`: a body that is a
-call with a child that renders multi-line (e.g. a record argument) is a broken
-call whose arguments land at +4 under the function name — not a plain flow (which
-would drop them at +0). Comment-leading bodies aren't ported (they fall back). -}
+{-| Render a `<|` step body: a body that is a call with a child that renders
+multi-line (e.g. a record argument) is a broken call whose arguments land at +4
+under the function name — not a plain flow (which would drop them at +0).
+Comment-leading bodies aren't ported (they fall back). -}
 buildBackwardBodyBox : Array LPNode -> Result String Box
 buildBackwardBodyBox bodyNodes =
     renderFlowItems bodyNodes
@@ -1640,7 +1612,7 @@ backwardMultiStep forceVertical seedLine stepBodies =
 the author broke it, `if` / cond +4 / `then`. The branch bodies and `else`
 keyword are siblings in the enclosing flow (an `if` is not a single node — see
 the flat `IfCondition`/`IndentedBlock`/`EmptyLine`/`else` sequence), assembled
-by `assembleFlow`. Mirrors `MakeRender.makeIfConditionDoc`. -}
+by `assembleFlow`. -}
 makeIfConditionBox : Bool -> Array LPNode -> Result String Box
 makeIfConditionBox forceVertical children =
     when Array.popFirst children is
@@ -1656,11 +1628,10 @@ makeIfConditionBox forceVertical children =
                     makePBox (lpnBox ifNode) (lpnChildren ifNode)
                         |> Result.andThen
                             (\ifBox ->
-                                -- Mirror `makeIfConditionDoc`'s arm split: the
-                                -- author-broken form renders the condition as a
-                                -- standalone flow; the inline form continues the
-                                -- `if `-line, so a leading single-line block
-                                -- comment stays inline
+                                -- Arm split: the author-broken form renders the
+                                -- condition as a standalone flow; the inline form
+                                -- continues the `if `-line, so a leading
+                                -- single-line block comment stays inline
                                 -- (`if {- c -} tertiaryBoolValue then`).
                                 (if forceVertical then
                                     buildFlowBox 0 condNodes
@@ -1779,16 +1750,14 @@ renderUpdateFieldBox field =
 {-| Render a record update `{ base | f = v, … }` via elm's `extensionGroup`.
 Each field node renders to a `name = value` box; the update expands (base on its
 own line, `| `/`, `-prefixed fields at +4, closing `}`) when the author broke it
-across rows or any field renders multi-line — matching elm-format and the
-Change-2 Doc renderer for `if`/`let`/`when`/simple/multi-field cases. (A
-lambda-valued field deliberately differs from the Doc renderer — Box drops the
-`\arg ->` head like elm — so those updates fall back via the self-verify guard.) -}
+across rows or any field renders multi-line — matching elm-format for
+`if`/`let`/`when`/simple/multi-field cases. A lambda-valued field drops the
+`\arg ->` head like elm-format. -}
 makeRecordUpdateBox : String -> Bool -> Array LPNode -> Result String Box
 makeRecordUpdateBox baseName forceVertical children =
     if Array.any nodeIsComment children then
         -- A comment can't live in the inline (flat group) form, so a comment-
-        -- bearing update is always vertical. Mirrors `makeRecordUpdateDoc`'s
-        -- `hasComment → vertical` branch: comment children render own-line at
+        -- bearing update is always vertical: comment children render own-line at
         -- +4 (no `| `/`, ` prefix), the actual fields keep their prefixes.
         makeRecordUpdateVerticalBox baseName children
 
@@ -1815,18 +1784,17 @@ makeRecordUpdateBox baseName forceVertical children =
             )
 
 
-{-| Render a comment-bearing record update as the always-vertical form, mirroring
-`makeRecordUpdateDoc`'s `hasComment` branch: base on its own line (`{ base`),
-then each field prefixed `| ` (first) / `, ` (rest) and each comment child on its
-own line — all indented +4 — and the closing `}` on its own line at the `{`
-column. Comment children never carry a field prefix; the first *field* (not the
-first child) gets the `| `. Box `stack1` + `B.indent` + `B.prefix` supply the
-alignment the Doc gets from `R.align` around the `R.vcat`. A multi-line block
-comment falls back via `commentNodeBox`'s verbatim guard. -}
+{-| Render a comment-bearing record update as the always-vertical form: base on
+its own line (`{ base`), then each field prefixed `| ` (first) / `, ` (rest) and
+each comment child on its own line — all indented +4 — and the closing `}` on its
+own line at the `{` column (elm-format). Comment children never carry a field
+prefix; the first *field* (not the first child) gets the `| `. Box `stack1` +
+`B.indent` + `B.prefix` supply the alignment. A multi-line block comment falls
+back via `commentNodeBox`'s verbatim guard. -}
 -- True when a record-update field's value is forced onto its own line(s) by a
--- comment among the field's children (e.g. `gamma = {- c -} 3`). Both the Doc and
--- `buildFlowBox` drop such a value below `= `, so it composes with the field's
--- `| `/`, ` prefix — unlike a soft broken-call/binop value the Doc keeps glued.
+-- comment among the field's children (e.g. `gamma = {- c -} 3`). `buildFlowBox`
+-- drops such a value below `= `, so it composes with the field's `| `/`, `
+-- prefix — unlike a soft broken-call/binop value, which stays glued (elm-format).
 fieldValueDropsToOwnLine : LPNode -> Bool
 fieldValueDropsToOwnLine node =
     Array.any nodeIsComment (lpnChildren node)
@@ -1851,8 +1819,7 @@ makeRecordUpdateVerticalBox baseName children =
                             -- value`), NOT `makePBox` on the field node — a field
                             -- whose value is a broken call is an `AcrossOrVertical`
                             -- that `makePBox` would mis-render as a function
-                            -- application (breaking `= value`). Mirrors
-                            -- `makeRecordUpdateDoc`'s `fieldLine`: a lambda field
+                            -- application (breaking `= value`). A lambda field
                             -- (IndentedBlock container) flows at +0 so its body
                             -- block supplies the only +4; every other field +4.
                             let
@@ -1916,8 +1883,7 @@ makeRecordUpdateVerticalBox baseName children =
 
 {-| Render a `when … is` expression. Header `when <subject> is` stays inline
 unless the author broke it across rows (then `when` / subject +4 / `is`); each
-branch sits at +4 (`branchNest`), blank-line separated. Mirrors
-`MakeRender.makeWhenFlowDoc` + `renderWhenBranchNode`. -}
+branch sits at +4 (`branchNest`), blank-line separated (elm-format). -}
 makeWhenFlowBox : Bool -> Array LPNode -> Result String Box
 makeWhenFlowBox forceVertical children =
     when Array.popLast children is
@@ -1981,8 +1947,7 @@ makeWhenBranchBox children =
 
 {-| A `when` branch pattern, rendered as `<pattern> ->`. A multi-line pattern (a
 record/array pattern the author spread across rows) gets ` ->` appended to its
-last line — mirroring the Doc's `R.concat (buildFlowDoc grenIndent children)
-(R.text " ->")`; `B.addSuffix` appends to the last line for single- and
+last line via `B.addSuffix`, which appends to the last line for single- and
 multi-line boxes alike. -}
 makeWhenBranchPatternBox : Array LPNode -> Result String Box
 makeWhenBranchPatternBox children =
@@ -2006,11 +1971,11 @@ stackWithBlanks boxes =
 blank line between each. A comment sibling that trails the previous branch's last
 line (same source row) is appended onto it via `B.addSuffix`. A comment on its
 own row LEADS the following branch: it is held in `pending` and stacked directly
-above that branch (no blank line between comment and its pattern), matching the
-Doc's `AlreadyTerminated` join. Single-line and multi-line block comments alike
-are supported (the latter via `commentNodeBox`'s reindent stack). A same-row
-multi-line comment (can't glue onto a last line), or a comment after the last
-branch (no branch to lead), still fall back. -}
+above that branch (no blank line between comment and its pattern), matching
+elm-format. Single-line and multi-line block comments alike are supported (the
+latter via `commentNodeBox`'s reindent stack). A same-row multi-line comment
+(can't glue onto a last line), or a comment after the last branch (no branch to
+lead), still fall back. -}
 renderWhenBranchesBox : Array LPNode -> Result String Box
 renderWhenBranchesBox children =
     let
@@ -2067,13 +2032,11 @@ renderWhenBranchesBox children =
                                 -- The blank-line marker that precedes an own-line
                                 -- comment leading the next branch ([WB, EmptyLine,
                                 -- comment, WB]). The one blank line between branch
-                                -- boxes is supplied by `stackWithBlanks` (the Doc
-                                -- gets it from the marker's BlankLineOnly, and the
-                                -- comment-led branch then joins blank-free via
-                                -- GlueNoSep — same net bytes), so the marker is a
-                                -- no-op here. `lastRow` resets so nothing glues
-                                -- across the blank. Any other position (leading, or
-                                -- after a pending comment) falls back.
+                                -- boxes is supplied by `stackWithBlanks`, so the
+                                -- marker is a no-op here. `lastRow` resets so
+                                -- nothing glues across the blank. Any other
+                                -- position (leading, or after a pending comment)
+                                -- falls back.
                                 if Array.isEmpty acc.pending && not (Array.isEmpty acc.boxes) then
                                     Ok { acc | lastRow = -1 }
 
@@ -2131,8 +2094,7 @@ isColonLeaf node =
 
 
 {-| Split a signature's type nodes at each top-level `->`: the first segment is
-the leading type; each later one begins with its `->`. Mirrors
-`MakeRender.splitSignatureSegments`. -}
+the leading type; each later one begins with its `->`. -}
 splitSignatureSegments : Array LPNode -> Array (Array LPNode)
 splitSignatureSegments nodes =
     Array.foldl
@@ -2158,7 +2120,7 @@ splitSignatureSegments nodes =
 -- *opening bracket* sits, not at its first inner token — the bracket has no leaf,
 -- so `firstRowInSubtree` alone would report the first field's row, and a break
 -- just inside the bracket would masquerade as a break between `->` segments,
--- flipping the whole signature to multi-line. Mirrors `segContentFirstRow`.
+-- flipping the whole signature to multi-line.
 segFirstRow : Array LPNode -> Int
 segFirstRow seg =
     Array.foldl
@@ -2212,10 +2174,9 @@ segLastRow seg =
 
 {-| True when a signature segment contains a multi-line type record in a
 non-head position — the type-record drop will fire inside it, so the whole
-signature must commit to the broken layout. The Box analogue of
-`MakeRender.segmentHasDroppingRecord`: verticality comes from this renderer's
-own box (`isSingleLine`; an unrenderable node counts as not-forcing, like the
-Doc's `Err -> False`). -}
+signature must commit to the broken layout. Verticality comes from this
+renderer's own box (`isSingleLine`; an unrenderable node counts as not-forcing,
+i.e. `Err -> False`). -}
 segmentHasDroppingRecordBox : Array LPNode -> Bool
 segmentHasDroppingRecordBox segment =
     segment
@@ -2235,8 +2196,7 @@ segmentHasDroppingRecordBox segment =
 
 
 {-| True when the author broke the type across rows at a `->` boundary (a later
-segment starts on a row after the previous segment ended). Mirrors
-`MakeRender.segmentsBrokenAtBoundary`. -}
+segment starts on a row after the previous segment ended). -}
 signatureForceVertical : Array (Array LPNode) -> Bool
 signatureForceVertical segments =
     (Array.foldl
@@ -2264,18 +2224,17 @@ signatureForceVertical segments =
     ).broken
 
 
-{-| Render a function/port signature, mirroring `MakeRender.makeSignaturePrettyDoc`.
-Inline (header + type on one line) when the author kept it on one line; header on
-line 1 with one `->` segment per line at +4 when the author broke it at an arrow
-boundary. The header and each segment render via `buildFlowBox 0`, so nested types
-(records, parens, function types) are handled — anything `buildFlowBox` can't yet
-render (or a deeper nested-record whose Tab arithmetic diverges from Doc) Errs and
-falls back.
+{-| Render a function/port signature. Inline (header + type on one line) when the
+author kept it on one line; header on line 1 with one `->` segment per line at +4
+when the author broke it at an arrow boundary. The header and each segment render
+via `buildFlowBox 0`, so nested types (records, parens, function types) are
+handled — anything `buildFlowBox` can't render Errs.
 
-Comments: an inline signature that carries a comment renders via the Doc's
-`makeFlowIndentableDoc` (`buildFlowBox grenIndent`), NOT the group flatten — Box
-mirrors that. A signature the author broke at a `->` renders per-segment either
-way, and `buildFlowBox` places the segment's inline comments (tranche 20-26). -}
+Comments: an inline signature that carries a comment renders via the
+comment-aware flow (`buildFlowBox grenIndent`), NOT a flat group — a comment's
+break points have no stable inline anchor (elm-format). A signature the author
+broke at a `->` renders per-segment either way, and `buildFlowBox` places the
+segment's inline comments. -}
 makeSignatureBox : Array LPNode -> Result String Box
 makeSignatureBox children =
     let
@@ -2302,11 +2261,11 @@ makeSignatureBox children =
             segments =
                 splitSignatureSegments colonSplit.typeNodes
 
-            -- Mirrors the Doc's `makeSignaturePrettyDoc`: a multi-segment type
-            -- whose segment carries a dropping record commits to the
-            -- fully-broken layout up front (`segmentHasDroppingRecordBox`), so
-            -- the drop's extra rows can't flip the boundary-break decision on
-            -- reparse (the item-3 fixed-point rule).
+            -- A multi-segment type whose segment carries a dropping record
+            -- commits to the fully-broken layout up front
+            -- (`segmentHasDroppingRecordBox`), so the drop's extra rows can't
+            -- flip the boundary-break decision on reparse (the idempotency
+            -- fixed-point rule).
             forceVertical =
                 signatureForceVertical segments
                     || (Array.length segments
@@ -2319,13 +2278,13 @@ makeSignatureBox children =
         in
         if not forceVertical && hasComment && Array.any typeHasCommentBracket colonSplit.typeNodes then
             -- A comment INSIDE a record/bracket type (`foo : { a : Int {- c -} }`)
-            -- renders that type multi-line. The Doc keeps it glued inline after
+            -- renders that type multi-line. elm-format keeps it glued inline after
             -- `:` (its `}` aligns under the `{`). When the whole type is exactly
             -- that one record/bracket node, `B.prefix` glues it after the header
-            -- and pads its continuation by the header's width — reproducing the
-            -- `R.align` the record carries, so `}` lands under `{`. A multi-node
-            -- type (`{ … } -> …`) goes through the generic comment-flow path
-            -- below, which the Doc uses too — byte-identical (see the `_` arm).
+            -- and pads its continuation by the header's width — so the record's
+            -- alignment holds and `}` lands under `{`. A multi-node type
+            -- (`{ … } -> …`) goes through the generic comment-flow path below
+            -- (see the `_` arm).
             when colonSplit.typeNodes is
                 [ single ] ->
                     buildFlowBox 0 colonSplit.header
@@ -2337,11 +2296,10 @@ makeSignatureBox children =
                                             |> Result.map
                                                 (\typeBox ->
                                                     -- A multi-line type RECORD drops below the
-                                                    -- header at +4 (the Doc's type-record-drop,
-                                                    -- `joinBracketLiteralFlowItem`) — elm-format
-                                                    -- drops every multi-line record type below
-                                                    -- its head/`:`. Other bracket types (parens,
-                                                    -- extensible records) keep the inline glue.
+                                                    -- header at +4 — elm-format drops every
+                                                    -- multi-line record type below its head/`:`.
+                                                    -- Other bracket types (parens, extensible
+                                                    -- records) keep the inline glue.
                                                     if FP.isTypeRecordLiteral single && not (isSingleLine typeBox) then
                                                         B.stack1 [ B.line headerLine, B.indent typeBox ]
 
@@ -2356,31 +2314,27 @@ makeSignatureBox children =
                 _ ->
                     -- A multi-node comment-bearing type (`{ … } -> …`) renders
                     -- via the same generic comment-flow the `else if …
-                    -- hasComment` arm below uses (`buildFlowBox grenIndent`),
-                    -- which is byte-identical to the Doc's own path for this
-                    -- construct — verified 0-mismatch corpus-wide. (This was
-                    -- previously an `Err`; the earlier "breaks idempotency"
-                    -- concern was about a *different*, reverted layout, not this
-                    -- one — the shipped output here is a proven fixed point.)
+                    -- hasComment` arm below uses (`buildFlowBox grenIndent`).
+                    -- (This was previously an `Err`; the earlier "breaks
+                    -- idempotency" concern was about a *different*, reverted
+                    -- layout, not this one — the shipped output here is a proven
+                    -- fixed point.)
                     buildFlowBox grenIndent children
 
         else if not forceVertical && hasComment then
-            -- Inline signature carrying a comment: the Doc routes to
-            -- `makeFlowIndentableDoc` (`buildFlowDoc grenIndent`), NOT the group
-            -- flatten, because a comment's break points have no stable inline
-            -- anchor. Mirror that with `buildFlowBox grenIndent`; a `--`/own-line
-            -- comment that forces a continuation is now indented +4 by
-            -- `assembleFlow`.
+            -- Inline signature carrying a comment: render via the comment-aware
+            -- flow (`buildFlowBox grenIndent`), NOT a flat group, because a
+            -- comment's break points have no stable inline anchor (elm-format);
+            -- a `--`/own-line comment that forces a continuation is indented +4
+            -- by `assembleFlow`.
             buildFlowBox grenIndent children
 
         else if not forceVertical then
-            -- Inline, no comment: the whole signature on one line (the Doc's
-            -- `R.group` of header + space-joined segments == one flow over all
-            -- children). The Doc's `R.group` FLATTENS a segment the author broke
+            -- Inline, no comment: the whole signature on one line (one flow over
+            -- all children). elm-format flattens a segment the author broke
             -- inside a record type or parens (a break not at a `->` boundary)
             -- back onto the line; Box has no flatten, so if the flow comes back
-            -- multi-line we fall back to Doc rather than emit the (wrong) broken
-            -- form.
+            -- multi-line we Err rather than emit the (wrong) broken form.
             buildFlowBox 0 children
                 |> Result.andThen
                     (\box ->
@@ -2389,7 +2343,7 @@ makeSignatureBox children =
                                 Ok box
 
                             Err _ ->
-                                Err "box: inline signature broke inside a segment (Doc flattens, Box can't)"
+                                Err "box: inline signature segment unexpectedly broke across lines"
                     )
 
         else
@@ -2421,10 +2375,9 @@ leafLineRow nodes =
 -- ═══ MODULE & IMPORT LINES ═══
 
 
-{-| Render a `module …` / `import …` line, mirroring
-`MakeRender.makeExposingLineDoc`. When it ends in an `exposing ( … )` list and
-the header before the list is all plain leaf tokens, render the list as a
-coupled all-or-nothing group; otherwise (a `(..)` wildcard, an effect-module
+{-| Render a `module …` / `import …` line. When it ends in an `exposing ( … )`
+list and the header before the list is all plain leaf tokens, render the list as
+a coupled all-or-nothing group; otherwise (a `(..)` wildcard, an effect-module
 `where` block, a comment in the header) fall back to the generic flow.
 
 For BOTH `module` and `import` lines, `exposing` stays glued to the header even
@@ -2465,9 +2418,9 @@ makeExposingLineBox stype children =
                                 Array.any nodeIsComment listChildren
 
                             -- A comment among the exposed names forces the list
-                            -- vertical, exactly like the Doc's comment-aware
-                            -- `makeExposingListDoc` (`Array.any nodeIsComment ||
-                            -- forceVertical` → `listBoxesWithBrackets "( " ")"`).
+                            -- vertical (elm-format): `Array.any nodeIsComment ||
+                            -- forceVertical` routes to the always-vertical
+                            -- bracketed list.
                             effectiveFV =
                                 forceVertical || hasComment
 
@@ -2504,11 +2457,11 @@ makeExposingLineBox stype children =
 
 -- The fallback path for a module/import line that isn't a plain leaf-header +
 -- paren-list (a `(..)` wildcard, an effect-module `where` block, or a
--- comment-bearing header). Mirrors the Doc's `makeFlowIndentableDoc`
--- (`buildFlowDoc grenIndent`): a header the author broke across rows (a `--` line
+-- comment-bearing header): renders via the comment-aware flow
+-- (`buildFlowBox grenIndent`). A header the author broke across rows (a `--` line
 -- comment before the list, a multi-line `{- -}`, or an effect-module `where`
--- block that wraps) indents its continuation +4, which `assembleFlow` now does
--- for an inline item on a fresh line after a comment/break.
+-- block that wraps) indents its continuation +4, which `assembleFlow` does for
+-- an inline item on a fresh line after a comment/break.
 exposingLineFallback : Array LPNode -> Result String Box
 exposingLineFallback children =
     buildFlowBox grenIndent children
@@ -2537,7 +2490,7 @@ already-sorted exposed names (leaves). Inline: `(a, b, c)`. Vertical:
     , b
     )
 
-Mirrors `MakeRender.makeExposingListDoc` (the comment-free path). -}
+The comment-free exposing-list path. -}
 makeExposingListBox : Bool -> Array LPNode -> Result String Box
 makeExposingListBox forceVertical children =
     traverseResult (\n -> makePBox (lpnBox n) (lpnChildren n)) children
@@ -2617,12 +2570,11 @@ makePBox box children =
 
         PrefixGlue prefix ->
             -- Glue a prefix onto its inner with no space: `\x`/`\[ … ]` (lambda
-            -- args), `-x` (unary negation). Mirrors the Doc's `R.concat (R.text
-            -- prefix) innerDoc` over `buildFlowDocInline`: `B.prefix` prepends the
-            -- prefix to the inner's first line AND pads every continuation line by
-            -- the prefix's width — matching the `R.align` the inner (a multi-line
-            -- array/record pattern) carries, so a lambda whose arg pattern spans
-            -- rows (`\[ a {- c -}\n, b\n] -> …`) aligns under the opening bracket.
+            -- args), `-x` (unary negation). `B.prefix` prepends the prefix to the
+            -- inner's first line AND pads every continuation line by the prefix's
+            -- width — matching the alignment the inner (a multi-line array/record
+            -- pattern) carries, so a lambda whose arg pattern spans rows
+            -- (`\[ a {- c -}\n, b\n] -> …`) aligns under the opening bracket.
             -- `buildFlowBoxInline` keeps a leading comment in the inner on-line.
             buildFlowBoxInline 0 children
                 |> Result.map (\inner -> B.prefix (B.literal prefix.value) inner)
@@ -2641,11 +2593,11 @@ makePBox box children =
 
                     else
                         -- A bracket whose only content is a comment (`{ {- c -} }`,
-                        -- `[ {- c -} ]`). Mirror makeEmptyBracketedDoc: the open
-                        -- punc, a space, the comments space-joined, a space, the
-                        -- close punc — all on one line. Dropping the comment would
-                        -- lose source content, so a comment we can't render inline
-                        -- (multi-line block / `--` line) falls back via Err.
+                        -- `[ {- c -} ]`): the open punc, a space, the comments
+                        -- space-joined, a space, the close punc — all on one line.
+                        -- Dropping the comment would lose source content, so a
+                        -- comment we can't render inline (multi-line block / `--`
+                        -- line) falls back via Err.
                         traverseResult emptyBracketedCommentLine children
                             |> Result.map
                                 (\commentLines ->
@@ -2695,12 +2647,11 @@ makePBox box children =
 
         MultilineString loc ->
             -- A `"""…"""` literal: opening `"""`, one line per content element,
-            -- closing `"""`, stacked. The Doc renderer wraps the same sequence
-            -- in `R.align` so continuation lines land at the opening `"""`'s
-            -- column; Box stacking aligns to the box's column intrinsically
-            -- when the flow indents it. A content line ending in whitespace, or
-            -- an interior blank line, renders differently under Box's per-line
-            -- trimRight and falls back via the self-verify guard.
+            -- closing `"""`, stacked. Box stacking aligns to the box's column
+            -- intrinsically when the flow indents it, so continuation lines land
+            -- at the opening `"""`'s column. Box applies per-line trimRight, so a
+            -- content line ending in whitespace, or an interior blank line, is not
+            -- preserved verbatim.
             let
                 quote =
                     B.line (B.literal "\"\"\"")
@@ -2724,10 +2675,10 @@ makePBox box children =
 
         PipelineStep ->
             -- A `|> step` inside the generic fold (a comment-bearing pipeline
-            -- routed to `buildFlowBox 0`, mirroring `makePipelineDoc`'s
-            -- comment dispatch). The step's own leading/trailing comments are
-            -- peeled inside; the fold's PipelineStepItem placement supplies
-            -- the +grenIndent step wrap and the blank-before-commented-step.
+            -- routed to `buildFlowBox 0`). The step's own leading/trailing
+            -- comments are peeled inside; the fold's PipelineStepItem placement
+            -- supplies the +grenIndent step wrap and the blank-before-commented-
+            -- step.
             renderPipelineStepChildren children
 
         AlignedFlow ->
@@ -2738,10 +2689,10 @@ makePBox box children =
 
 
 {-| Render a `Glue`: children concatenated with no separator — a postfix accessor
-(`.field`) glued after a bracketed base (`(f 1).value`, `{ a = 1 }.a`). Mirrors
-`MakeRender.makeGlueDoc` (concat with no separator). The base (first child) may be
-multi-line — the accessor glues onto its last line via `B.addSuffix` — but every
-following child (the `.field` accessors) must be single-line. -}
+(`.field`) glued after a bracketed base (`(f 1).value`, `{ a = 1 }.a`). The base
+(first child) may be multi-line — the accessor glues onto its last line via
+`B.addSuffix` — but every following child (the `.field` accessors) must be
+single-line. -}
 makeGlueBox : Array LPNode -> Result String Box
 makeGlueBox children =
     when Array.popFirst children is
@@ -2774,17 +2725,16 @@ makeGlueBox children =
                     )
 
 
-{-| Render a `ParenBlock`. Mirrors `MakeRender.makeParenBlockDoc`, but only the
-non-block shapes are ported: inline `(inner)` and the generic vertical form
-`(inner` … `)` with the closing paren on its own line. A `when`/`if`/`let`
-directly inside the parens uses elm-format's paren-block indentation
-(keyword at `(`+1, bodies at `(`+2 or `(`+4, `)` at the `(` column) — that
-`R.align`/`R.nest` arithmetic isn't ported yet, so those fall back.
+{-| Render a `ParenBlock`: inline `(inner)`, the generic vertical form
+`(inner` … `)` with the closing paren on its own line, and the block shapes.
+A `when`/`if`/`let` directly inside the parens uses elm-format's paren-block
+indentation (keyword at `(`+1, bodies at `(`+2 or `(`+4, `)` at the `(` column),
+via `makeWhenInParenBox` / `makeBlockInParenBox`.
 
-The Doc renderer wraps the vertical form in `R.align`, anchoring continuation
-lines and the closing `)` to the `(` column. Box stacking is intrinsically
-that align: the wrapped box's lines are all relative to its own origin, which
-becomes the `(` column once the enclosing flow indents it. -}
+The vertical form anchors continuation lines and the closing `)` to the `(`
+column. Box stacking is intrinsically that anchor: the wrapped box's lines are
+all relative to its own origin, which becomes the `(` column once the enclosing
+flow indents it. -}
 makeParenBlockBox : { forceVertical : Bool, checkContentVertical : Bool, isCallArgument : Bool } -> Array LPNode -> Result String Box
 makeParenBlockBox flags children =
     when Array.first children is
@@ -2813,12 +2763,12 @@ makeParenBlockBox flags children =
 {-| The non-block ParenBlock shapes: inline, or a generic vertical `(…\n)`. The
 vertical form triggers on either verticality signal or a multi-line lambda body
 (second child an `IndentedBlock`, or a `SoftIndentedBlock` whose sole bracket
-literal renders vertical — mirroring `makeParenBlockDoc`'s `isLambdaMultiline`). -}
+literal renders vertical — see `parenLambdaMultiline`). -}
 parenGenericFallbackBox : { forceVertical : Bool, checkContentVertical : Bool, isCallArgument : Bool } -> Array LPNode -> Result String Box
 parenGenericFallbackBox flags children =
-    -- Inline-start, mirroring the Doc's `buildFlowDocInline 0 children`: the
-    -- content continues the `(`-line, so a leading single-line block comment
-    -- stays inline (`({- c -} expr)`).
+    -- Inline-start via `buildFlowBoxInline 0 children`: the content continues the
+    -- `(`-line, so a leading single-line block comment stays inline
+    -- (`({- c -} expr)`).
     buildFlowBoxInline 0 children
         |> Result.andThen
             (\innerBox ->
@@ -2858,17 +2808,16 @@ parenGenericFallbackBox flags children =
                         Err _ ->
                             -- A formatter-synthesized wrap (`checkContentVertical
                             -- = False`) around content a comment forced
-                            -- multi-line: the Doc's inline arm is a plain
-                            -- `"(" <> inner <> ")"`, `)` glued onto the inner's
-                            -- last line. When the inner carries an `R.align`
-                            -- (a bracket literal / record — its continuation
-                            -- lines anchor at its own start column), the `(`
-                            -- width must ride along on every continuation line
-                            -- (`B.prefix`) so the inner's `,`/`}` stay under the
-                            -- opening bracket, not the `(`. Otherwise (a
-                            -- nest-carrying inner) the continuation lines belong
-                            -- at the ambient column, so only the first line gets
-                            -- the `(` (`B.mapFirstLine`).
+                            -- multi-line: elm-format's inline form is a plain
+                            -- `( inner )`, `)` glued onto the inner's last line.
+                            -- When the inner is align-carrying (a bracket literal
+                            -- / record — its continuation lines anchor at its own
+                            -- start column), the `(` width must ride along on
+                            -- every continuation line (`B.prefix`) so the inner's
+                            -- `,`/`}` stay under the opening bracket, not the `(`.
+                            -- Otherwise (a nest-carrying inner) the continuation
+                            -- lines belong at the ambient column, so only the
+                            -- first line gets the `(` (`B.mapFirstLine`).
                             if parenInnerIsAlignCarrying children then
                                 Ok (B.addSuffix (B.punc ")") (B.prefix (B.punc "(") innerBox))
 
@@ -2877,8 +2826,8 @@ parenGenericFallbackBox flags children =
             )
 
 
-{-| Glue `(` onto the inner box's first line and stack `)` as a new final line —
-the Box form of `R.align (concats [ "(", inner, hardNl, ")" ])`. -}
+{-| Glue `(` onto the inner box's first line and stack `)` as a new final line,
+anchoring both to the `(` column. -}
 wrapParenVertical : Box -> Box
 wrapParenVertical box =
     let
@@ -2897,7 +2846,7 @@ wrapParenVertical box =
 
 
 {-| Paren-wrap a box whose continuation lines are positioned RELATIVE to its
-first line (an `R.align`-style inner — a lambda whose parameter is a multi-line
+first line (an align-carrying inner — a lambda whose parameter is a multi-line
 bracket pattern, `(\{ … } …)`). Unlike `wrapParenVertical` (which shifts only the
 first line, correct for absolute-nested inners like binops/`when`/`if`), this pads
 every continuation by the `(` width so the inner's alignment rides along and its
@@ -2910,9 +2859,8 @@ wrapParenVerticalPadded box =
 
 {-| Indent every line of a box by exactly `n` spaces (elm's `prefix` with a
 run of spaces). Unlike `applyIndent`/`B.indent` (a column-sensitive `Tab`),
-this is a fixed-width shift — the Box form of the Doc renderer's `R.nest n`,
-needed for the paren-block offsets (`(`+1, `(`+2) that don't fall on tab
-stops. -}
+this is a fixed-width shift — needed for the paren-block offsets (`(`+1, `(`+2)
+that don't fall on tab stops. -}
 blockIndentSpaces : Int -> Box -> Box
 blockIndentSpaces n box =
     if n <= 0 then
@@ -2923,10 +2871,8 @@ blockIndentSpaces n box =
 
 
 {-| A `when` directly inside parens: `(when … is`, branches at `(`+2 (or `(`+4
-as a call argument), `)` on its own line at the `(` column. Mirrors the
-`WhenFlow` arm of `MakeRender.makeParenBlockDoc` (which calls `makeWhenFlowDoc`
-with `branchNest` 1/3 inside a second `R.align`). Only a single-line header is
-ported; a forced-vertical `when` header falls back. -}
+as a call argument), `)` on its own line at the `(` column (elm-format). Only a
+single-line header is ported; a forced-vertical `when` header falls back. -}
 makeWhenInParenBox : Bool -> Array LPNode -> Result String Box
 makeWhenInParenBox isCallArg children =
     when Array.popLast children is
@@ -2967,9 +2913,9 @@ makeWhenInParenBox isCallArg children =
 {-| An `if`/`else` or `let` directly inside parens, using elm-format's
 paren-block layout: keyword at `(`+1, bodies at `(`+2 (or `(`+4 as a call
 argument), `else`/`in` and `else if` at `(`+1, `)` on its own line at the `(`
-column. Mirrors `MakeRender.makeBlockInParenDoc`: the paren's direct children
-are the flattened `if`/`let` pieces (an `IfCondition`/`let` head, `IndentedBlock`
-bodies, `SynthesizedText` keywords, `EmptyLine` blanks). -}
+column. The paren's direct children are the flattened `if`/`let` pieces (an
+`IfCondition`/`let` head, `IndentedBlock` bodies, `SynthesizedText` keywords,
+`EmptyLine` blanks). -}
 makeBlockInParenBox : Bool -> Array LPNode -> Result String Box
 makeBlockInParenBox isCallArg children =
     let
@@ -3057,9 +3003,9 @@ parenContentLeadsWithMultilinePrefixGlue children =
             False
 
 
-{-| Mirror of `makeParenBlockDoc`'s `isLambdaMultiline`: the second direct child
-is an `IndentedBlock` (lambda body on a separate row), or a `SoftIndentedBlock`
-whose sole child is a bracket literal that itself renders vertical. -}
+{-| The second direct child is an `IndentedBlock` (lambda body on a separate
+row), or a `SoftIndentedBlock` whose sole child is a bracket literal that itself
+renders vertical. -}
 parenLambdaMultiline : Array LPNode -> Bool
 parenLambdaMultiline children =
     when Array.popFirst children is
@@ -3083,8 +3029,8 @@ parenLambdaMultiline children =
             False
 
 
-{-| Box mirror of `MakeRender.softIndentedBlockChildForcesVertical`: the sole
-child is a record/array/update literal that renders multi-line. -}
+{-| True when the sole child is a record/array/update literal that renders
+multi-line. -}
 softIndentedBlockChildForcesVerticalBox : Array LPNode -> Bool
 softIndentedBlockChildForcesVerticalBox children =
     when Array.popFirst children is
@@ -3129,8 +3075,7 @@ makeLiteralBox : Bool -> ListBrackets -> Array LPNode -> Result String Box
 makeLiteralBox forceMultiline bracket children =
     if Array.any nodeIsComment children then
         -- A line comment can't live inside a flat group, so a comment-bearing
-        -- literal is always vertical. Mirrors `makeAllAcrossOrAllVertical` /
-        -- `AlwaysVertical` delegating to `listBoxesWithBrackets` in the Doc.
+        -- literal is always vertical (via `commentBracketListBox`).
         commentBracketListBox bracket children
 
     else
@@ -3166,13 +3111,12 @@ commentNodeBox node =
 
 
 {-| Render a bracketed literal that contains a comment child, as an always-
-vertical list — the Box mirror of `MakeRender.listBoxesWithBracketsUsing`'s
-default (single-render) path. Each item is on its own line prefixed `{ `/`[ `
-(first) or `, ` (rest); a comment on the same source row as the preceding item
-trails it with a space, a comment on its own row gets its own line at the
-bracket column; the closing bracket sits on its own line. Box stacking supplies
-the alignment the Doc gets from `R.align`. The uniform record-array coupling
-(a whole-list flat/expanded `P.choice`) is NOT reproduced — those fall back. -}
+vertical list. Each item is on its own line prefixed `{ `/`[ ` (first) or `, `
+(rest); a comment on the same source row as the preceding item trails it with a
+space, a comment on its own row gets its own line at the bracket column; the
+closing bracket sits on its own line. Box stacking supplies the alignment
+(elm-format). The uniform record-array coupling (a whole-list flat/expanded
+choice) is NOT reproduced — those fall back. -}
 commentBracketListBox : ListBrackets -> Array LPNode -> Result String Box
 commentBracketListBox bracket nodes =
     when bracketPunc bracket is
@@ -3338,7 +3282,7 @@ bracketPunc bracket =
             -- makeExposingLineBox — i.e. a module/import exposing list whose
             -- header carries a comment, so makeExposingLineBox fell back to the
             -- flow. Rendered with inner spaces `( a, b )` (groupBox innerSpaces),
-            -- matching the Doc's bracketStrings ListParen — distinct from the
+            -- matching elm-format's parenthesized-list spacing — distinct from the
             -- comment-free `(a, b)` makeExposingListBox emits.
             Just { left = "(", right = ")" }
 
@@ -3435,8 +3379,7 @@ buildFlowBox indent nodes =
 {-| Like `buildFlowBox`, but for a flow that continues on the same line as a
 token the caller already emitted (a binop/`OpAndRhs` rhs after its operator, a
 `( … )` body). A leading single-line block comment there stays inline instead of
-dropping to its own line. Mirrors `MakeRender.buildFlowDocInline` (`inlineStart`
-= True). -}
+dropping to its own line (`inlineStart = True`). -}
 buildFlowBoxInline : Int -> Array LPNode -> Result String Box
 buildFlowBoxInline indent nodes =
     renderFlowItems nodes
@@ -3444,11 +3387,11 @@ buildFlowBoxInline indent nodes =
 
 
 {-| Assemble a *broken* flow — every item on its own line: the first at the base
-column, each remaining item at +`indent`. Mirrors `MakeRender.buildFlowDocBroken`
-(the `brokenFlow = True` path). Box already renders broken function applications
-via `assembleBrokenCall`, so the one caller here is the forced-vertical
-comment-bearing binop (`operand0` / `op … rest` at +4). Top-level comment items
-aren't handled — those flows fall back. -}
+column, each remaining item at +`indent` (the `brokenFlow = True` path). Box
+already renders broken function applications via `assembleBrokenCall`, so the one
+caller here is the forced-vertical comment-bearing binop (`operand0` /
+`op … rest` at +4). Top-level comment items aren't handled — those flows fall
+back. -}
 buildFlowBoxBroken : Int -> Array LPNode -> Result String Box
 buildFlowBoxBroken indent nodes =
     renderFlowItems nodes
@@ -3461,7 +3404,7 @@ glues onto that item's last line — for a single-line item, its line plus a spa
 is prepended onto the comment box (`B.prefix`), so a multi-line comment's body
 reindents under it (`f {- multi… -}`, `+ b {- multi… -}`). A comment on its own
 row, or one trailing a multi-line item (no single last line to glue onto), isn't
-modelled and falls back. Mirrors the comment-bearing `buildFlowDocBroken` path. -}
+modelled and falls back. -}
 assembleBrokenWithComments : Int -> Array FlowItem -> Result String Box
 assembleBrokenWithComments indent items =
     let
@@ -3483,14 +3426,12 @@ assembleBrokenWithComments indent items =
 
                                         else
                                             -- Own row: the comment stands as its
-                                            -- own entry at the flow's +indent —
-                                            -- the Doc's broken-flow OwnLine +
-                                            -- terminating hardNl, with the next
-                                            -- item joining GlueNoSep on a fresh
-                                            -- line (= its own entry here). After
-                                            -- a comment nothing row-glues (the
-                                            -- policy is AlreadyTerminated), so
-                                            -- `lastRow` resets.
+                                            -- own entry at the flow's +indent,
+                                            -- with the next item starting on a
+                                            -- fresh line (= its own entry here).
+                                            -- After a comment nothing row-glues
+                                            -- (the policy is AlreadyTerminated),
+                                            -- so `lastRow` resets.
                                             Ok
                                                 { acc
                                                     | entries = Array.pushLast c.box (Array.pushLast lastBox initial)
@@ -3503,18 +3444,17 @@ assembleBrokenWithComments indent items =
                                         -- flow's first own-line entry. The
                                         -- mergedFirstStep block-comment glue
                                         -- (`{- c -} nextTerm`) is handled before
-                                        -- the fold; this arm is the Doc fold's
-                                        -- own-line render of a first-position
-                                        -- `--`/own-line comment. After a comment
-                                        -- nothing row-glues, so `lastRow = -1`.
+                                        -- the fold; this arm renders a
+                                        -- first-position `--`/own-line comment on
+                                        -- its own line. After a comment nothing
+                                        -- row-glues, so `lastRow = -1`.
                                         Ok { acc | entries = [ c.box ], lastRow = -1 }
 
                             Nothing ->
                                 Ok { acc | entries = Array.pushLast item.box acc.entries, lastRow = lpnMaxRow item.node }
                     )
 
-        -- Mirror of the Doc's `mergedFirstStep` (MakeRender.buildFlowDocImpl):
-        -- a leading single-line block comment in a broken flow glues onto the
+        -- A leading single-line block comment in a broken flow glues onto the
         -- very next term (`{- c -} nextTerm`) when that term is a non-comment,
         -- single-line (non-force-vertical) node.
         mergedFirst =
@@ -3577,8 +3517,8 @@ assembleBrokenCall indent items =
     let
         -- The fn+arg0 glue survives comments AFTER arg0 (`String.join " "
         -- -- c` keeps `" "` on the opening line, comments drop below with the
-        -- args) — only a comment IN the fn/arg0 positions blocks it, exactly
-        -- `shouldGlueFirstArg`'s comment gates on the Doc side.
+        -- args) — only a comment IN the fn/arg0 positions blocks it, matching
+        -- elm-format's `ElmStructure.application` glue gates.
         glueHead =
             when { fn = Array.get 0 items, arg0 = Array.get 1 items } is
                 { fn = Just fnItem, arg0 = Just arg0Item } ->
@@ -3602,9 +3542,9 @@ assembleBrokenCall indent items =
                 Ok glueLine
 
             else
-                -- `preamble <> nest indent (hardNl <> brokenRest)`: the rest
-                -- (args and comments alike) assembles as a broken flow at +0
-                -- and the whole block shifts to +indent under the glued line.
+                -- The rest (args and comments alike) assembles as a broken flow
+                -- at +0 and the whole block shifts to +indent under the glued
+                -- line.
                 assembleBrokenWithComments 0 rest
                     |> Result.map (\restBox -> B.stack1 [ glueLine, applyIndent indent restBox ])
 
@@ -3668,39 +3608,35 @@ isSingleLine box =
 
 {-| Which indent discipline a multi-line box's continuation lines carry —
 the static per-box-type alignment table (CutoverScope.md "Item 4 design"),
-verified against the Doc renderer's source, not curve-fit. It decides which
-primitive materializes a soft glue (the Doc's `FlowSep` `group nl`, which
-always flattens to a space, so the item's first line joins the running line
-and its continuation lines land per the item's own align/nest):
+verified against elm-format's layout, not curve-fit. It decides which
+primitive materializes a soft glue (elm-format's flow separator flattens to a
+space, so the item's first line joins the running line and its continuation
+lines land per the item's own alignment):
 
-  - `AlignCarrying` — the Doc wraps these in `R.align`, anchoring
-    continuation lines at the item's printed start column: bracket literals
-    (`listBoxesWithBrackets`) and multiline strings
-    (`makeMultilineStringDoc`). Glue with `B.prefix`, which pads every
-    continuation line by the glued prefix's exact character width. This is
-    only sound because these boxes' continuation lines are punctuation- or
-    verbatim-prefixed (`, item`, `}`, string content) — NOT `Tab`-indented.
+  - `AlignCarrying` — elm-format anchors these continuation lines at the item's
+    printed start column: bracket literals and multiline strings. Glue with
+    `B.prefix`, which pads every continuation line by the glued prefix's exact
+    character width. This is only sound because these boxes' continuation lines
+    are punctuation- or verbatim-prefixed (`, item`, `}`, string content) — NOT
+    `Tab`-indented.
   - `AlignCarryingTabbed` — `RecordUpdate` and `AlignedFlow`: align-carrying
-    on the Doc side too (anchored at the item's start column), but their Box
-    continuation lines carry `Tab`s, which a bare `B.prefix`'s space padding
-    would quantize to the next multiple of 4 (the census's "per-row
-    exact-space indent" hard class). `B.freezeTabs` first rewrites those
-    `Tab`s to the literal spaces they render to at their standalone columns,
-    so the following `B.prefix` shifts every line by the prefix's exact width
-    — matching the Doc's `R.align` anchor.
-  - `NestCarrying` — the Doc nests these relative to the flow's base, not
-    the glue column: `AcrossOrVertical` (`buildFlowDoc grenIndent` /
-    `buildCallDocBroken grenIndent`), `OpAndRhs` / `Glue` / `PrefixGlue`
-    (inline flows at +0), and pipelines (steps at `R.nest grenIndent`).
-    Glue first-line-only: the continuation lines already carry the item's
-    own indent relative to the flow base, which the flow's final
+    too (anchored at the item's start column), but their Box continuation lines
+    carry `Tab`s, which a bare `B.prefix`'s space padding would quantize to the
+    next multiple of 4 (the census's "per-row exact-space indent" hard class).
+    `B.freezeTabs` first rewrites those `Tab`s to the literal spaces they render
+    to at their standalone columns, so the following `B.prefix` shifts every
+    line by the prefix's exact width — matching the align anchor.
+  - `NestCarrying` — nested relative to the flow's base, not the glue column:
+    `AcrossOrVertical` (the flow fold / broken call at +grenIndent), `OpAndRhs`
+    / `Glue` / `PrefixGlue` (inline flows at +0), and pipelines (steps at
+    +grenIndent). Glue first-line-only: the continuation lines already carry the
+    item's own indent relative to the flow base, which the flow's final
     `applyIndent flowIndent` (its outer nest) completes.
   - `UnclassifiedCarrying` — everything else must stay an `Err` fallback:
     guessing produces a Box-only layout, the exact divergence class the
     shared FlowPolicy core exists to prevent.
 
-LOAD-BEARING invariant: any new `R.align`-carrying builder on the Doc side
-must update this table (same class as the other Doc↔Box mirror comments).
+LOAD-BEARING invariant: any new align-carrying builder must update this table.
 -}
 type SoftGlueAlignment
     = AlignCarrying
@@ -3778,8 +3714,8 @@ softGlueAlignment node =
 
 
 -- True for a flow item whose node is a bracket LITERAL (record / array / record
--- update) — the shapes that carry `R.align`, so a `B.prefix` glue of their first
--- line pads continuation lines to stay aligned under the opening bracket.
+-- update) — the align-carrying shapes, so a `B.prefix` glue of their first line
+-- pads continuation lines to stay aligned under the opening bracket.
 isSoftGlueLiteral : FlowItem -> Bool
 isSoftGlueLiteral item =
     when lpnBox item.node is
@@ -3796,18 +3732,17 @@ isSoftGlueLiteral item =
             False
 
 
-{-| Soft-glue a flow whose ONLY multi-line item is a bracket literal, mirroring
-the Doc's `buildFlowDoc` (its `FlowSep` group flattens to a space, so every item
-glues and the literal breaks internally): the single-line prefix items glue to
-the literal's first line, its continuation pads to align under the bracket
-(`B.prefix`), and any single-line suffix items (a trailing `=`) glue onto its
-last line (`B.addSuffix`). Covers a multi-line record/array *pattern* function
+{-| Soft-glue a flow whose ONLY multi-line item is a bracket literal (elm-format
+glues every item and lets the literal break internally): the single-line prefix
+items glue to the literal's first line, its continuation pads to align under the
+bracket (`B.prefix`), and any single-line suffix items (a trailing `=`) glue onto
+its last line (`B.addSuffix`). Covers a multi-line record/array *pattern* function
 argument (`multilineRecord { alpha\n, beta\n} =`), which `assembleFlowImpl`'s
 flat stacker would instead drop to its own line. Returns Nothing (→ general
 assembler) unless the shape matches exactly: no comments/blank lines/hard blocks,
 a non-empty single-line prefix, exactly one multi-line item, and it is a bracket
-literal. Only reached from `assembleFlow` (the Doc's gluing `buildFlowDoc` path)
-— a call whose record arg *drops* goes through `assembleBrokenCall` instead. -}
+literal. Only reached from `assembleFlow` (the gluing flow path) — a call whose
+record arg *drops* goes through `assembleBrokenCall` instead. -}
 -- Render a prefix/suffix flow item to the single inline `Line` it contributes to
 -- a soft-glue flow. A plain item uses its box (which must be single-line); a
 -- single-line block-comment item (`{- c -}`) uses its rendered comment box, so a
@@ -3867,9 +3802,9 @@ trySoftGlueFlow items =
                         -- Require BOTH a non-empty single-line prefix AND a
                         -- non-empty single-line suffix. The suffix (a trailing
                         -- synthesized `=`) is what marks a funcDecl/`let`
-                        -- destructuring HEADER — where the Doc's `buildFlowDoc`
-                        -- glues the pattern and appends `=` — apart from a call
-                        -- argument (`fn { record }`, no trailing token) where the
+                        -- destructuring HEADER — where the flow glues the pattern
+                        -- and appends `=` — apart from a call argument
+                        -- (`fn { record }`, no trailing token) where the
                         -- record instead DROPS to its own line (via the pipeline
                         -- trigger / broken-call path). Without this gate a
                         -- multi-line record call arg would be wrongly glued.
@@ -3917,14 +3852,11 @@ assembleFlow inlineStart flowIndent items =
 
 {-| Pair each single-line block-comment item with an immediately following
 type-record literal item, removing the comment from the item list and attaching
-it to the record's entry — the Box mirror of
-`MakeRender.pairLeadingRecordComments`. `assembleFlowImpl`'s fold then decides
-whether the pair drops together or replays the plain unpaired steps. Flows
-containing an arrow (a function type's segments) pair too, exactly like the
-Doc: the drop's reparse fixed point is guaranteed by `makeSignatureBox`
-folding `segmentHasDroppingRecordBox` into the signature's own
-`forceVertical` decision (the item-3 rule), mirroring
-`MakeRender.segmentHasDroppingRecord`. -}
+it to the record's entry. `assembleFlowImpl`'s fold then decides whether the
+pair drops together or replays the plain unpaired steps. Flows containing an
+arrow (a function type's segments) pair too: the drop's reparse fixed point is
+guaranteed by `makeSignatureBox` folding `segmentHasDroppingRecordBox` into the
+signature's own `forceVertical` decision (the idempotency rule). -}
 pairTypeRecordComments : Array FlowItem -> Array { item : FlowItem, leading : Maybe FlowItem }
 pairTypeRecordComments items =
     let
@@ -3936,9 +3868,9 @@ pairTypeRecordComments items =
                 Nothing ->
                     False
 
-        -- NB Gren's `Array.get -1` wraps to the LAST element — see the same
-        -- guard in `MakeRender.pairLeadingRecordComments`: without it, a record
-        -- at index 0 would pair with a comment TRAILING the flow and duplicate it.
+        -- NB Gren's `Array.get -1` wraps to the LAST element: without this guard,
+        -- a record at index 0 would pair with a comment TRAILING the flow and
+        -- duplicate it.
         at i =
             if i < 0 then
                 Nothing
@@ -3982,17 +3914,16 @@ pairTypeRecordComments items =
 
 
 {-| Assemble a flow into a Box, taking every join decision from
-`FlowPolicy.decide` — the shared decision core both renderers consume (see
-CutoverScope.md "Item 4 design", Phase 1). This fold keeps NO layout policy of
-its own: it classifies each item into `ItemFacts`, asks the policy for a
-`Placement`, and materializes that placement with Box primitives. A placement
-this renderer cannot materialize yet returns `Err`, falling back to the Doc
-renderer via the self-verify guard.
+`FlowPolicy.decide` — the shared decision core (see CutoverScope.md "Item 4
+design", Phase 1). This fold keeps NO layout policy of its own: it classifies
+each item into `ItemFacts`, asks the policy for a `Placement`, and materializes
+that placement with Box primitives. A placement this renderer cannot materialize
+returns `Err`.
 
 Materialization state: `curRow` is the line being assembled (single-line items
 join space-separated); `rows` are the completed lines/blocks above it. The
 first row sits at the flow's own column; every continuation row is indented by
-`flowIndent` at the end (the Box form of the Doc's outer `R.nest indent`).
+`flowIndent` at the end (the outer nest wrapping the whole flow).
 -}
 assembleFlowImpl : Bool -> Int -> Array FlowItem -> Result String Box
 assembleFlowImpl inlineStart flowIndent items =
@@ -4012,8 +3943,7 @@ assembleFlowImpl inlineStart flowIndent items =
 
         -- Classify one flow item into the policy's fact vocabulary. The
         -- verticality facts come from this renderer's own IR (`isSingleLine`
-        -- on the rendered box — the Box analogue of the Doc's
-        -- `R.hasHardBreak`).
+        -- on the rendered box).
         factsFor item =
             when item.comment is
                 Just c ->
@@ -4068,8 +3998,8 @@ assembleFlowImpl inlineStart flowIndent items =
                 }
 
         -- Glue a single line onto the last completed row's last line — the
-        -- materialization of a FlowSep-style join whose left side is a block
-        -- (the Doc's `group nl` flattens to a space onto the running doc).
+        -- materialization of a soft-separator join whose left side is a block
+        -- (the separator flattens to a space onto the running line).
         -- Covers the ex-`glueable` lambda-pattern/lambda-head followers and a
         -- same-row comment gluing onto a dropped record's `}` line.
         glueOntoLastRow acc l next =
@@ -4104,11 +4034,9 @@ assembleFlowImpl inlineStart flowIndent items =
                         -- In an inline-start flow (a PrefixGlue/paren body whose
                         -- box the caller embeds mid-line) the content following
                         -- the comment's own lines must be re-indented by the
-                        -- ENCLOSING flow's nest — which the Doc gets for free
-                        -- (its hardNl re-indents at the outer nest) but this
-                        -- box, once embedded as a first-row item, cannot: its
-                        -- continuation lines are out of the enclosing
-                        -- `flowIndent`'s reach. Fall back.
+                        -- ENCLOSING flow's nest — but this box, once embedded as a
+                        -- first-row item, cannot: its continuation lines are out
+                        -- of the enclosing `flowIndent`'s reach. Fall back.
                         ownLine c.box
 
                     FP.GlueNoSep ->
@@ -4209,8 +4137,7 @@ assembleFlowImpl inlineStart flowIndent items =
         placeNonComment acc decision leading item =
             when decision.placement is
                 FP.AsFirst ->
-                    -- First item of the flow: the bare item (the Doc's
-                    -- FirstItem join applies no wrap).
+                    -- First item of the flow: the bare item (no wrap).
                     when B.isLine item.box is
                         Ok l ->
                             Ok { rows = acc.rows, curRow = [ l ], state = decision.next }
@@ -4222,9 +4149,9 @@ assembleFlowImpl inlineStart flowIndent items =
                                 -- comment: the comment's body lines are
                                 -- align-anchored at their printed column
                                 -- (`B.prefix` padding) while content on a fresh
-                                -- line after it is ambient-anchored — and the
-                                -- Doc gives the ambient lines the flow's
-                                -- `R.nest indent` on top of the item's own.
+                                -- line after it is ambient-anchored — the ambient
+                                -- lines take the flow's indent on top of the
+                                -- item's own.
                                 -- The first row escapes the final uniform
                                 -- `applyIndent`, and no single per-box shift
                                 -- satisfies both anchors (the post-mlbc
@@ -4239,9 +4166,9 @@ assembleFlowImpl inlineStart flowIndent items =
                                 Ok { rows = Array.pushLast item.box acc.rows, curRow = [], state = decision.next }
 
                 FP.GlueNoSep ->
-                    -- Content begins on the fresh line the previous comment's
-                    -- hardNl opened (the current row is empty after the
-                    -- comment's flush).
+                    -- Content begins on the fresh line the previous comment
+                    -- opened (the current row is empty after the comment's
+                    -- flush).
                     when B.isLine item.box is
                         Ok l ->
                             Ok { rows = acc.rows, curRow = Array.pushLast l acc.curRow, state = decision.next }
@@ -4259,11 +4186,11 @@ assembleFlowImpl inlineStart flowIndent items =
                                 Ok { rows = acc.rows, curRow = Array.pushLast l acc.curRow, state = decision.next }
 
                         Err _ ->
-                            -- The Doc soft-glues a multi-line non-block item's
-                            -- first line onto the running line (its `group nl`
-                            -- flattens to a space; inner hard breaks land per
-                            -- the item's own align/nest — see
-                            -- `softGlueAlignment`, the static alignment table).
+                            -- Soft-glue a multi-line non-block item's first line
+                            -- onto the running line (the separator flattens to a
+                            -- space; inner hard breaks land per the item's own
+                            -- alignment — see `softGlueAlignment`, the static
+                            -- alignment table).
                             if Array.isEmpty acc.curRow then
                                 -- The item follows a block (nothing on the
                                 -- current row): its first line would have to
@@ -4373,8 +4300,8 @@ assembleFlowImpl inlineStart flowIndent items =
                 FP.BlockJoin { rule, blankBefore } ->
                     let
                         -- A commented pipeline step following another step gets
-                        -- a blank line above its comment (the Doc's `blankBefore`
-                        -- `R.text "\n"` before the block wrap).
+                        -- a blank line above its comment (the policy's
+                        -- `blankBefore` flag).
                         rowsBefore =
                             if blankBefore then
                                 Array.pushLast B.blankLine (flushRow acc.curRow acc.rows)
@@ -4398,12 +4325,12 @@ assembleFlowImpl inlineStart flowIndent items =
                                 }
 
                         FP.SoftIndentedRule ->
-                            -- The Doc's soft wrap is a group: flat content glues
-                            -- onto the current line with a space; multi-line
-                            -- content would soft-glue at +grenIndent (Phase 2).
-                            -- (`blankBefore` never accompanies a soft rule — the
-                            -- policy only sets it on the pipeline step's
-                            -- IndentedRule — so the glue paths ignore `rowsBefore`.)
+                            -- Soft wrap: flat content glues onto the current line
+                            -- with a space; multi-line content would soft-glue at
+                            -- +grenIndent (Phase 2). (`blankBefore` never
+                            -- accompanies a soft rule — the policy only sets it on
+                            -- the pipeline step's IndentedRule — so the glue paths
+                            -- ignore `rowsBefore`.)
                             when B.isLine item.box is
                                 Ok l ->
                                     if Array.isEmpty acc.curRow then
@@ -4524,17 +4451,15 @@ assembleFlowImpl inlineStart flowIndent items =
 
                     Just { first, rest } ->
                         -- The first row sits at the flow's own column; every
-                        -- continuation row is indented by `flowIndent`. This is
-                        -- the Box form of the Doc's `R.nest indent` wrapping the
-                        -- whole flow. Block rows already carry their own indent
-                        -- (the placement applied it), so this brings them to
-                        -- `flowIndent + ownIndent`.
+                        -- continuation row is indented by `flowIndent`, the outer
+                        -- nest wrapping the whole flow. Block rows already carry
+                        -- their own indent (the placement applied it), so this
+                        -- brings them to `flowIndent + ownIndent`.
                         Ok (B.stack1 ([ first ] ++ Array.map (applyIndent flowIndent) rest))
             )
 
 
--- The Box analogue of `MakeRender.softIndentedBlockChildForcesVertical`: a
--- `SoftIndentedBlock` whose SOLE child is a bracket literal (record, record
+-- A `SoftIndentedBlock` whose SOLE child is a bracket literal (record, record
 -- update, or array) that renders vertical switches from the soft glue to the
 -- hard indented drop. The structural test is on the LPNode; the verticality
 -- fact comes from this renderer's own box (single-line ⇔ the sole child is
@@ -4581,9 +4506,9 @@ isEmptyLine node =
 -- The synthesized signature `->` — a zero-width `UnbreakableText` (start == end)
 -- built by `LPTHelpers.mkZeroWidthText`, anchored at the end of its `from` type,
 -- not where it renders. A comment directly trailing it must glue regardless of
--- source row (mirrors `MakeRender`'s `prevElided`, scoped to `->` by value: other
--- elided tokens precede a short neighbour or bracketed block where a comment on
--- its own row legitimately stays own-line).
+-- source row (scoped to `->` by value: other elided tokens precede a short
+-- neighbour or bracketed block where a comment on its own row legitimately stays
+-- own-line).
 isElidedArrow : LPNode -> Bool
 isElidedArrow node =
     when lpnBox node is

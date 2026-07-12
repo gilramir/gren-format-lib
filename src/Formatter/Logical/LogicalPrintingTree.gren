@@ -27,7 +27,7 @@ module Formatter.Logical.LogicalPrintingTree
 {-| The Logical Printing Tree (LPT): the intermediate representation between the
 parsed AST and the rendered string. `MakeLogical` builds it, the `Insert*`
 modules populate it, `Comments`/`SortSymbols`/`VerticalSpace` transform it, and
-`MakeRender` turns it into a `Formatter.Render` `Doc`.
+`MakeRender` turns it into the final string via the `Formatter.Render.Box` backend.
 
 Two core types:
 
@@ -269,7 +269,7 @@ type LPBox
     --   (`seed <| \patterns ->\n    body`).
     | Pipeline { forceVertical : Bool, op : String }
     -- Function body block: forces a hard newline before children, no extra nesting
-    -- (the outer buildFlowDoc's P.nest 4 provides the 4-space indent).
+    -- (the enclosing flow already supplies the 4-space indent).
     --
     --     foo =
     --         body
@@ -285,7 +285,7 @@ type LPBox
     -- the closing } of a broken record pattern.
     | WhenBranchPattern
     -- Parenthesized expression: renders children with ( prefix and ) suffix
-    -- using P.concat (immediate adjacency, no space). Used instead of
+    -- concatenated with immediate adjacency (no space). Used instead of
     -- text-modification so that bracket-rendered containers (like arrays) render
     -- correctly: ([...] ++ x) not [( ... ] ++ x).
     --
@@ -336,10 +336,10 @@ type LPBox
     --
     -- `forceVertical` is True when the author wrote the lowest-precedence split
     -- groups across rows. A chain carrying any comment falls back to the existing
-    -- `OpAndRhs` fill rendering (`buildFlowDoc 0 children`), unchanged.
+    -- `OpAndRhs` fill rendering (children laid out as a plain flow), unchanged.
     | Binop { forceVertical : Bool }
     -- A flow whose internal newlines are aligned to the column where the
-    -- flow starts (via P.align). Used to wrap indentation-sensitive
+    -- flow starts. Used to wrap indentation-sensitive
     -- constructs (if/then/else, let/in) so their bodies indent
     -- relative to the keyword's actual column, even when comments have
     -- shifted that keyword to the right.
@@ -410,7 +410,7 @@ can answer "what's the first/last positioned token in this subtree?",
 "what's its row range?", and "where does the last bracketed sublist
 begin/end?" in O(1) instead of by recursive descent. The heaviest
 consumer is the comment-placement heuristic in `Formatter.Logical.Comments`,
-but the bounds are shared infrastructure: `MakeRender` also reads
+but the bounds are shared infrastructure: `MakeRenderBox` also reads
 `firstPos`/`lastPos`/`maxRow`/`lastBracketEnd` (and `bracketStart`,
 added later for signature-segment row computation, not comments). The
 cache is populated bottom-up by `lpnNode` at construction time. ALL
@@ -534,7 +534,7 @@ bounds this is a property of the node itself, not aggregated from children.
 
 The opening bracket has no leaf of its own in the tree, so a container whose
 first item dropped to the next input row looks like it *starts* on that row.
-`MakeRender.segContentFirstRow` uses this to read a signature segment's true
+`MakeRenderBox.segFirstRow` uses this to read a signature segment's true
 start row (`-> { ⏎ x : Int }` begins at the `{`, not the field), so a break
 inside the braces doesn't masquerade as a break between `->` segments.
 -}

@@ -11,8 +11,8 @@ sub-terms inline (`a + b * c` breaks at `+`, keeps `b * c` together). Two halves
 of the layout share `binopMinPrecedence` and MUST agree on it:
 `InsertExpressions.binopForceVertical` groups the operand *ranges* at that tier
 to decide whether the author wrote the chain across rows, and
-`MakeRender.assembleBinopGroups` groups the operand *docs* at that tier to render
-them. Deriving both from this one module keeps the two groupings in lockstep.
+`MakeRenderBox.makeBinopBox` groups the operand *boxes* at that tier to
+render them. Deriving both from this one module keeps the two groupings in lockstep.
 
 @docs binopPrecedence, binopMinPrecedence
 -}

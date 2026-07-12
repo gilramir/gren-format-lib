@@ -177,8 +177,8 @@ sub-terms inline), so the author "wrote it across rows" exactly when a newline
 sits at one of those split points. A group is a maximal run of operands joined by
 higher-than-minimum-precedence operators.
 
-This grouping mirrors `MakeRender.assembleBinopGroups`, which renders the same
-groups; both break at `binopMinPrecedence ops`, so they stay in lockstep.
+This grouping matches the Box binop renderer (`MakeRenderBox.makeBinopBox`), which
+renders the same groups; both break at `binopMinPrecedence ops`, so they stay in lockstep.
 -}
 binopForceVertical : Array Src.Expression -> Array (Located String) -> Bool
 binopForceVertical operands ops =
@@ -527,10 +527,10 @@ insertBinops locExpr { operator = locStringOp } =
                             insertStepBody locStringOp.value step.body
                                 |> Result.map
                                     (\bodyNodes ->
-                                        -- PipelineStep's buildFlowDoc grenIndent already provides
-                                        -- +4 continuation, so unwrap a lone AcrossOrVertical (from
-                                        -- a function call) to keep the token flow directly under the
-                                        -- step, avoiding a second +4 of indentation.
+                                        -- PipelineStep already indents its body +4, so unwrap a
+                                        -- lone AcrossOrVertical (from a function call) to keep the
+                                        -- token flow directly under the step, avoiding a second +4
+                                        -- of indentation.
                                         let
                                             flatBodyNodes =
                                                 when Array.popFirst bodyNodes is
@@ -1032,8 +1032,8 @@ body block adds a second +4.
 
   - A **lambda** keeps its `\args ->` header inline on the `=` line, with its
     body one level under the field. Its body is already a `SoftIndentedBlock`
-    (which nests +4), so the field flow is rendered at +0 (`IndentedBlock` as a
-    list item = `buildFlowDoc 0`); the body's own +4 is then the only one.
+    (which nests +4), so the field flow is rendered at +0 (an `IndentedBlock`
+    list item adds no indent of its own); the body's own +4 is then the only one.
   - An **`if`/`let`** value drops its header onto the next line (the same shape
     `when` already produces on its own), so the construct's aligned keywords
     (`else`, `in`) sit one level under the field. `BodyBlock` forces that drop
@@ -1043,9 +1043,9 @@ body block adds a second +4.
     indents a continuation the author wrote across rows +4.
 
 This applies to both record literals and record updates: the literal renders a
-field through the nest-based list-item path (`listItemBoxDoc`), and the update
-through the column-`align`-based `makeRecordUpdateDoc`; both dispatch on the
-container box so the `IndentedBlock`/`BodyBlock` intent is honored either way.
+field through the list-item rendering path, and the update through
+`makeRecordUpdateBox`; both dispatch on the container box so the
+`IndentedBlock`/`BodyBlock` intent is honored either way.
 -}
 folderInsertRecordField : Src.RecordField -> Array LPNode -> Result String (Array LPNode)
 folderInsertRecordField field accNodes =
@@ -1149,7 +1149,7 @@ folderInsertLetDef locDef accNodes =
 
                                                     -- Same rule as the top-level (processFunctionBody):
                                                     -- the body always drops to the next line
-                                                    -- (IndentedBlock = forced hardNl).
+                                                    -- (IndentedBlock = forced hard newline).
                                                     bodyWrapper =
                                                         lpnNode IndentedBlock bodyNodes
 

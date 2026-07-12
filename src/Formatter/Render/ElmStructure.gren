@@ -55,10 +55,9 @@ groupBox innerSpaces left sep right forceMultiline children =
 
         { cs = Err _ } ->
             -- At least one child renders multi-line: sibling coupling (matches
-            -- elm-format and the Doc renderer's `anyChildForcesVertical`) — the
-            -- whole list breaks one-element-per-line, closing bracket on its
-            -- own line, rather than hugging the close onto the element's last
-            -- line. Applies even to a single-element list.
+            -- elm-format) — the whole list breaks one-element-per-line, closing
+            -- bracket on its own line, rather than hugging the close onto the
+            -- element's last line. Applies even to a single-element list.
             verticalGroup left sep right children
 
 

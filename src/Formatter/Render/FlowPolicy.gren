@@ -15,24 +15,23 @@ module Formatter.Render.FlowPolicy
         , pairLeadingRecordComments
         )
 
-{-| The flow fold's decision layer, shared by both renderers.
+{-| The flow fold's decision layer, consumed by the Box renderer.
 
-`buildFlowDoc` (the Doc renderer) and `assembleFlow` (the Box renderer) each
-walk a sequence of sibling LPNodes and join every item onto the flow built so
-far. *How* an item joins — glued with a space, dropped to its own line,
-wrapped as an indented block, … — is a layout decision whose reparse
-fixed-point-ness has been proven for exactly one decision procedure: the
-Doc's. This module IS that procedure, extracted so the Box renderer can
-consume the identical decisions instead of approximating them with its own
-state machine (the divergence generator behind the `#12`/`#44` hunks — see
-CutoverScope.md, "Item 4 design").
+The Box renderer's flow fold (`assembleFlow`) walks a sequence of sibling
+LPNodes and joins every item onto the flow built so far. *How* an item joins
+— glued with a space, dropped to its own line, wrapped as an indented block,
+… — is a layout decision whose reparse fixed-point-ness the idempotency and
+whitespace fuzzers have proven. This module holds that decision procedure,
+kept out of the renderer so every join decision lives in one place (matching
+elm-format's ElmStructure layout rules) instead of being scattered through
+the renderer's own state machine.
 
-The invariant: **Box has no layout policy of its own.** Any decision input
-richer than what `ItemFacts` carries (real source rows where the Doc tracks
-`-1`, rendered-box shape where the Doc dispatches on box type) is not extra
+The invariant: **the renderer has no layout policy of its own.** Any decision
+input richer than what `ItemFacts` carries (real source rows where this layer
+tracks `-1`, rendered-box shape where it dispatches on box type) is not extra
 precision — it is a divergence generator. All join decisions go through
-`decide`; the renderers keep only *materialization* (turning a `Placement`
-into a `Doc` or a `Box`).
+`decide`; the renderer keeps only *materialization* (turning a `Placement`
+into a `Box`).
 
 `decide` is total: the one error case in this area — a paired "comment" that
 is not actually a block comment — is a caller-side classification error,
@@ -58,9 +57,10 @@ import Formatter.Logical.LogicalPrintingTree
 {-| What separator to place before the next item.
 
   - `FirstItem` — nothing precedes; emit no separator.
-  - `FlowSep` — normal flow: space or newline (via `group nl`).
+  - `FlowSep` — normal flow: space or newline (a groupable soft break).
   - `HardNl` — after an `IndentedBlock`: forced newline.
-  - `AlreadyTerminated` — after a comment's `hardNl`: no extra separator.
+  - `AlreadyTerminated` — after a comment has ended its own line: no extra
+    separator.
 
 -}
 type NextSeparator
@@ -95,7 +95,7 @@ initialFlowState =
 
 {-| Per-flow configuration, fixed for the whole fold.
 
-  - `indent` — the flow's own indent (`buildFlowDoc`'s first argument); the
+  - `indent` — the flow's own indent (the fold's base indent); the
     type-record drop uses it to pick the drop rule (`IndentedRule` when the
     flow is unnested, `BodyRule` when the caller already indented it).
   - `inlineStart` — the first node continues a line the caller already
@@ -112,9 +112,9 @@ type alias FlowConfig =
     }
 
 
-{-| Which block layout rule a block-style item joins with. The renderers map
-these to their wrap materializations (Doc: `nest grenIndent (hardNl <> _)` /
-`hardNl <> _` / `group (nest grenIndent (nl <> _))`).
+{-| Which block layout rule a block-style item joins with. The Box renderer
+maps these to its wrap materializations: an indented hard break, a bare hard
+break, and a soft indented break, respectively.
 -}
 type BlockKind
     = IndentedRule
@@ -126,9 +126,8 @@ type BlockKind
 input set; anything not listed here is banned as a decision input.
 
 Renderer-supplied facts (`forcesVertical`, `childForcesVertical`) are computed
-by the caller from its own IR (Doc: `R.hasHardBreak`; Box: `not isSingleLine`)
-— the two agree whenever the renderers agree on the child, and a disagreement
-is exactly what the self-verify guard exists to catch.
+by the caller from the rendered box shape (`not isSingleLine`) — whether the
+child ended up multi-line.
 
   - `LeafItem.isElidedArrow` — the synthesized signature `->` is a zero-width
     `UnbreakableText` (start == end) anchored at the end of its `from` type,
@@ -157,14 +156,14 @@ type ItemFacts
     | EmptyLineItem
 
 
-{-| The fully-resolved join shape for one item — exactly the join shapes the
-Doc renderer's fold arms produce. `decide` resolves all separator-state
+{-| The fully-resolved join shape for one item — the complete set of join
+shapes the flow fold's arms produce. `decide` resolves all separator-state
 branching (`FirstItem` / `AlreadyTerminated` bypasses, same-row glue tests,
 `brokenFlow`), so a materializer is a straight `Placement -> combinator` map
 with no decisions of its own.
 
   - `AsFirst` — the item stands alone (nothing precedes).
-  - `GlueNoSep` — direct concatenation (after a comment's own `hardNl`).
+  - `GlueNoSep` — direct concatenation (after a comment has ended its own line).
   - `GlueSpace` — glue with a single space (same-row comment, `FlowSep`'s
     flat join).
   - `SoftSep` — the normal flow separator: a groupable soft break.
@@ -206,9 +205,7 @@ type alias Decision =
 
 
 {-| THE decision procedure: how does this item join the flow, and what state
-does the fold carry forward. Pure and total; transcribed 1:1 from the Doc
-fold's arms (`buildFlowDocImpl` as of the extraction — see CutoverScope.md
-"Item 4 design", Phase 0), which is the procedure the idempotency and
+does the fold carry forward. Pure and total; the procedure the idempotency and
 whitespace fuzzers have proven to be a reparse fixed point.
 -}
 decide : FlowConfig -> FlowState -> ItemFacts -> Decision
@@ -227,8 +224,8 @@ decide config state facts =
             -- A comment on the same row as the preceding item (or one
             -- trailing an elided `->`) glues with a space; on a different
             -- row it forces an own-line break. Either way it ends its line
-            -- with a hardNl (the materializer appends it), so the next item
-            -- starts fresh: AlreadyTerminated.
+            -- with a forced newline (the materializer appends it), so the next
+            -- item starts fresh: AlreadyTerminated.
             { placement = commentPlacement config state f.startRow
             , next =
                 { prevRow = f.startRow
@@ -360,7 +357,7 @@ decide config state facts =
         WhenBranchItem ->
             -- Always blank-separate consecutive branches, regardless of
             -- whether either body is multi-line. A preceding comment has
-            -- already ended its line with hardNl, so attach the branch
+            -- already ended its line with a forced newline, so attach the branch
             -- directly (GlueNoSep) to avoid inserting an extra blank line
             -- between the comment and its pattern.
             { placement =
@@ -412,9 +409,9 @@ decide config state facts =
             }
 
 
--- The plain-item join (the Doc's `joinDoc`): how a non-comment, non-block
--- item follows the pending separator. In a broken flow the normal soft
--- separator is a forced newline instead.
+-- The plain-item join: how a non-comment, non-block item follows the pending
+-- separator. In a broken flow the normal soft separator is a forced newline
+-- instead.
 joinPlacement : FlowConfig -> NextSeparator -> Placement
 joinPlacement config sep =
     when sep is
@@ -463,9 +460,9 @@ commentPlacement _ state startRow =
                 OwnLine
 
 
--- The block-style join (the Doc's `joinBlock`): FirstItem stands alone; after
--- AlreadyTerminated the BodyRule (whose wrap begins with its own hardNl)
--- glues directly, while the two nesting rules take the no-leading-break
+-- The block-style join: FirstItem stands alone; after AlreadyTerminated the
+-- BodyRule (whose wrap begins with its own forced newline) glues directly,
+-- while the two nesting rules take the no-leading-break
 -- indent path (see `IndentNoBreak`); otherwise the rule's wrap applies.
 blockDecision : BlockKind -> FlowState -> Decision
 blockDecision rule state =
