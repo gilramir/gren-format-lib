@@ -1,0 +1,11 @@
+module M exposing (f)
+
+
+f x =
+    when x is
+        A ->
+            1 {- one
+                 line two -}
+
+        B ->
+            2

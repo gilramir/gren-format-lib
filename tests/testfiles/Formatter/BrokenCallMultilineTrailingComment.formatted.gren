@@ -1,0 +1,10 @@
+module M exposing (x)
+
+
+x =
+    foo
+        (bar
+            baz
+        ) {- one
+             line two -}
+        qux

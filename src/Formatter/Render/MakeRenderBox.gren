@@ -785,20 +785,20 @@ A multi-line block-comment SIBLING (rare) falls back. -}
 makeUnionBodyVerticalBox : Array LPNode -> Result String Box
 makeUnionBodyVerticalBox nodes =
     let
-        placeComment acc row commentText =
+        placeComment acc row commentBox =
             when Array.popLast acc.boxes is
                 Just { last = lastBox, initial } ->
                     if row == acc.prevRow && acc.prevRow >= 0 then
                         { acc
-                            | boxes = Array.pushLast (B.addSuffix (B.row [ B.space, B.literal commentText ]) lastBox) initial
+                            | boxes = Array.pushLast (glueCommentSuffix commentBox lastBox) initial
                             , prevRow = row
                         }
 
                     else
-                        { acc | boxes = Array.pushLast (B.line (B.literal commentText)) acc.boxes, prevRow = row }
+                        { acc | boxes = Array.pushLast commentBox acc.boxes, prevRow = row }
 
                 Nothing ->
-                    { acc | boxes = [ B.line (B.literal commentText) ], prevRow = row }
+                    { acc | boxes = [ commentBox ], prevRow = row }
 
         variantLastRow node =
             let
@@ -824,32 +824,16 @@ makeUnionBodyVerticalBox nodes =
                     (\acc ->
                         when lpnBox node is
                             SingleLineComment loc ->
-                                Ok (placeComment acc loc.start.row ("--" ++ loc.value))
+                                commentNodeBox node
+                                    |> Result.map (\cbox -> placeComment acc loc.start.row cbox)
 
                             BlockComment loc ->
-                                if String.contains "\n" loc.value then
-                                    -- A multi-line block comment SIBLING between
-                                    -- variants renders on its own line via the
-                                    -- reindent stack (`multiLineBlockCommentBox`).
-                                    -- Same-row gluing of a multi-line comment onto
-                                    -- a preceding variant (`B.addSuffix` appends
-                                    -- only a single line) is not modelled, so that
-                                    -- rare case falls back.
-                                    if loc.start.row == acc.prevRow && acc.prevRow >= 0 then
-                                        Err "box: same-row multi-line block-comment union sibling not ported"
-
-                                    else
-                                        multiLineBlockCommentBox loc.value
-                                            |> Result.map
-                                                (\cbox ->
-                                                    { acc
-                                                        | boxes = Array.pushLast cbox acc.boxes
-                                                        , prevRow = loc.start.row
-                                                    }
-                                                )
-
-                                else
-                                    Ok (placeComment acc loc.start.row ("{-" ++ loc.value ++ "-}"))
+                                -- Same-row: glue onto the preceding variant's last
+                                -- line (multi-line comments padded under their start
+                                -- by `glueCommentSuffix`). Own row: the comment box
+                                -- (reindented if multi-line) stands on its own line.
+                                commentNodeBox node
+                                    |> Result.map (\cbox -> placeComment acc loc.start.row cbox)
 
                             _ ->
                                 buildFlowBox 0 (lpnChildren node)
@@ -1503,15 +1487,7 @@ glueTrailingComments box trailing =
                 |> Result.andThen
                     (\b ->
                         commentNodeBox c
-                            |> Result.andThen
-                                (\cbox ->
-                                    when B.isLine cbox is
-                                        Ok l ->
-                                            Ok (B.addSuffix (B.row [ B.space, l ]) b)
-
-                                        Err _ ->
-                                            Err "box: multi-line trailing comment in backward pipeline not ported"
-                                )
+                            |> Result.map (\cbox -> glueCommentSuffix cbox b)
                     )
         )
         (Ok box)
@@ -2056,27 +2032,28 @@ lead), still fall back. -}
 renderWhenBranchesBox : Array LPNode -> Result String Box
 renderWhenBranchesBox children =
     let
-        handleComment acc row node commentText isMulti =
+        handleComment acc row node =
             if row == acc.lastRow && acc.lastRow >= 0 then
-                -- Trailing the previous branch on its last line.
-                if isMulti then
-                    Err "box: multi-line trailing comment between when-branches not ported"
+                -- Trailing the previous branch on its last line (multi-line
+                -- comments padded under their start by `glueCommentSuffix`).
+                commentNodeBox node
+                    |> Result.andThen
+                        (\cbox ->
+                            when Array.popLast acc.boxes is
+                                Just { last = lastBox, initial } ->
+                                    Ok
+                                        { acc
+                                            | boxes = Array.pushLast (glueCommentSuffix cbox lastBox) initial
+                                        }
 
-                else
-                    when Array.popLast acc.boxes is
-                        Just { last = lastBox, initial } ->
-                            Ok
-                                { acc
-                                    | boxes = Array.pushLast (B.addSuffix (B.row [ B.space, B.literal commentText ]) lastBox) initial
-                                }
-
-                        Nothing ->
-                            -- unreachable: lastRow only ever becomes >= 0 in the
-                            -- same fold step that pushes onto boxes (the
-                            -- WhenBranch arm below), so boxes being empty here
-                            -- implies lastRow == -1 — contradicting the guard
-                            -- above that required lastRow >= 0 to reach this arm.
-                            Err "unreachable: comment before first when-branch"
+                                Nothing ->
+                                    -- unreachable: lastRow only ever becomes >= 0 in the
+                                    -- same fold step that pushes onto boxes (the
+                                    -- WhenBranch arm below), so boxes being empty here
+                                    -- implies lastRow == -1 — contradicting the guard
+                                    -- above that required lastRow >= 0 to reach this arm.
+                                    Err "unreachable: comment before first when-branch"
+                        )
 
             else
                 -- Own line: this comment leads the next branch.
@@ -2105,10 +2082,10 @@ renderWhenBranchesBox children =
                                         )
 
                             SingleLineComment loc ->
-                                handleComment acc loc.start.row child ("--" ++ loc.value) False
+                                handleComment acc loc.start.row child
 
                             BlockComment loc ->
-                                handleComment acc loc.start.row child ("{-" ++ loc.value ++ "-}") (String.contains "\n" loc.value)
+                                handleComment acc loc.start.row child
 
                             EmptyLine ->
                                 -- The blank-line marker that precedes an own-line
@@ -2685,13 +2662,16 @@ makePBox box children =
                         -- A bracket whose only content is a comment (`{ {- c -} }`,
                         -- `[ {- c -} ]`): the open punc, a space, the comments
                         -- space-joined, a space, the close punc — all on one line.
-                        -- Dropping the comment would lose source content, so a
-                        -- comment we can't render inline (multi-line block / `--`
-                        -- line) falls back via Err.
-                        traverseResult emptyBracketedCommentLine children
-                            |> Result.map
-                                (\commentLines ->
-                                    B.line
+                        -- Only a single-line block comment fits this inline form;
+                        -- a multi-line block comment or a `--` line comment can't
+                        -- glue onto the one-line bracket, so it falls back to a
+                        -- vertical layout (open punc, each comment indented on
+                        -- its own line via the full comment Box, close punc) —
+                        -- dropping the comment would lose source content.
+                        when traverseResult emptyBracketedCommentLine children is
+                            Ok commentLines ->
+                                Ok
+                                    (B.line
                                         (B.row
                                             (Array.flatten
                                                 [ [ B.punc left, B.space ]
@@ -2700,7 +2680,18 @@ makePBox box children =
                                                 ]
                                             )
                                         )
-                                )
+                                    )
+
+                            Err _ ->
+                                traverseResult commentNodeBox children
+                                    |> Result.map
+                                        (\commentBoxes ->
+                                            B.stack1
+                                                ([ B.line (B.punc left) ]
+                                                    ++ Array.map B.indent commentBoxes
+                                                    ++ [ B.line (B.punc right) ]
+                                                )
+                                        )
 
                 Nothing ->
                     -- unreachable: ListBrackets has exactly 3 constructors
@@ -3193,6 +3184,17 @@ makeLiteralBox forceMultiline bracket children =
                 )
 
 
+{-| Glue a (possibly multi-line) comment box onto `base`'s last line with a
+single space, via `B.addSuffixBox`. The space is folded into the base's last
+line so the comment's continuation lines pad under the comment's start. `base`
+itself may be multi-line — the comment joins its last line. This is the one
+operation every same-row trailing-comment site shares; a multi-line comment (or
+a multi-line base) no longer needs to fall back. -}
+glueCommentSuffix : Box -> Box -> Box
+glueCommentSuffix commentBox base =
+    B.addSuffixBox commentBox (B.addSuffix B.space base)
+
+
 {-| Render a comment-kind node (single-line `--`/`{- -}`, or a multi-line block
 comment) to a Box. Mirrors the comment arms of `renderFlowItem`. -}
 commentNodeBox : LPNode -> Result String Box
@@ -3238,7 +3240,7 @@ commentBracketListBox bracket nodes =
                                     -- Trailing the preceding item: attach with a
                                     -- single space (layout is author-driven, not
                                     -- width-driven). A multi-line trailing comment
-                                    -- can't glue onto the last line, so fall back.
+                                    -- pads under its start via `glueCommentSuffix`.
                                     when acc.pending is
                                         Nothing ->
                                             Ok
@@ -3248,16 +3250,11 @@ commentBracketListBox bracket nodes =
                                                 }
 
                                         Just e ->
-                                            when B.isLine cbox is
-                                                Ok l ->
-                                                    Ok
-                                                        { acc
-                                                            | entries = Array.pushLast { box = B.addSuffix (B.row [ B.space, l ]) e.box, isComment = False } acc.entries
-                                                            , pending = Nothing
-                                                        }
-
-                                                Err _ ->
-                                                    Err "box: multi-line trailing comment in bracket list not ported"
+                                            Ok
+                                                { acc
+                                                    | entries = Array.pushLast { box = glueCommentSuffix cbox e.box, isComment = False } acc.entries
+                                                    , pending = Nothing
+                                                }
 
                                 else
                                     let
@@ -3522,12 +3519,10 @@ assembleBrokenWithComments indent items =
                                 when Array.popLast acc.entries is
                                     Just { last = lastBox, initial } ->
                                         if item.startRow == acc.lastRow && acc.lastRow >= 0 then
-                                            when B.isLine lastBox is
-                                                Ok l ->
-                                                    Ok { acc | entries = Array.pushLast (B.prefix (B.row [ l, B.space ]) c.box) initial }
-
-                                                Err _ ->
-                                                    Err "box: comment trailing a multi-line item in broken flow not ported"
+                                            -- Glue the comment onto the item's last
+                                            -- line; the item may itself be multi-line
+                                            -- (`glueCommentSuffix` joins its last line).
+                                            Ok { acc | entries = Array.pushLast (glueCommentSuffix c.box lastBox) initial }
 
                                         else
                                             -- Own row: the comment stands as its
@@ -4152,7 +4147,21 @@ assembleFlowImpl inlineStart flowIndent items =
 
                     FP.GlueSpace ->
                         if Array.isEmpty acc.curRow then
-                            Err "box: multi-line comment glue onto a block's last line not ported"
+                            -- No current-row content: the previous item was a block
+                            -- (e.g. a dropped record); glue the comment onto its
+                            -- last emitted row. `glueCommentSuffix` joins that row's
+                            -- last line and pads a multi-line comment's body under
+                            -- its start.
+                            when Array.popLast acc.rows is
+                                Just { last = lastBox, initial } ->
+                                    Ok
+                                        { rows = Array.pushLast (glueCommentSuffix c.box lastBox) initial
+                                        , curRow = []
+                                        , state = decision.next
+                                        }
+
+                                Nothing ->
+                                    Err "box: glue with nothing before"
 
                         else
                             -- The comment's first line joins the current row and

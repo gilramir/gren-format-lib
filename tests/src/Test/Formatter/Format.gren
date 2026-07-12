@@ -457,6 +457,14 @@ commentsSuite fsPerm =
             , assertPretty fsPerm "trailing comment on a long, author-broken binop chain keeps the chain's first split" "BinopChainTrailingComment"
             , assertPretty fsPerm "trailing comment below a wrapped import stays at the continuation indent" "ImportTrailingComment"
             , assertPretty fsPerm "trailing comments below a pipeline's last step stay at the step indent" "PipelineTrailingComment"
+            -- Regression guards for the Cluster B fix: a *multi-line* block comment
+            -- glued same-row onto a preceding construct's last line (previously
+            -- crashed; now padded under its start via B.addSuffixBox).
+            , assertPretty fsPerm "multi-line block comment trailing a union variant glues onto its last line" "UnionVariantMultilineTrailingComment"
+            , assertPretty fsPerm "multi-line block comment trailing a when-branch body glues onto its last line" "WhenBranchMultilineTrailingComment"
+            , assertPretty fsPerm "multi-line block comment trailing a bracket-list item glues onto its last line" "ListItemMultilineTrailingComment"
+            , assertPretty fsPerm "multi-line block comment trailing a backward-pipeline step glues onto its last line" "BackwardPipeMultilineTrailingComment"
+            , assertPretty fsPerm "multi-line block comment trailing a multi-line item in a broken call glues onto its last line" "BrokenCallMultilineTrailingComment"
             ]
         }
 

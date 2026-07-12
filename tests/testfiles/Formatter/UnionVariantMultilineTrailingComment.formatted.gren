@@ -1,0 +1,7 @@
+module M exposing (T)
+
+
+type T
+    = A {- one
+           line two -}
+    | B

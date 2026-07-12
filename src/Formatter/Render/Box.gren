@@ -3,7 +3,7 @@ module Formatter.Render.Box exposing
     , identifier, keyword, punc, literal, row, space
     , line, blankLine, mustBreak, stack1, andThen
     , isLine, allSingles, lineLength
-    , indent, prefix, addSuffix, mapFirstLine, freezeTabs
+    , indent, prefix, addSuffix, addSuffixBox, mapFirstLine, freezeTabs
     , render, toJson
     )
 
@@ -255,18 +255,40 @@ freezeLine startColumn line_ =
 
 addSuffix : Line -> Box -> Box
 addSuffix suffix b =
-    let
-        d =
-            destructure b
-    in
-    when Array.popLast d.rest is
-        Nothing ->
-            line (row [ d.first, suffix ])
+    addSuffixBox (line suffix) b
 
-        Just { last = lastLine, initial = initial } ->
-            line d.first
+
+{-| Glue a possibly-multi-line `suffixBox` onto the last line of `base`:
+`suffixBox`'s first line joins `base`'s last line, and `suffixBox`'s remaining
+lines are padded so they hang aligned under where the suffix begins on that
+glued line. It is exactly `prefix` applied to the base's last line — the base's
+earlier lines stack above unchanged, and the last line becomes the prefix of the
+suffix box (so the suffix's continuation is indented by that line's rendered
+width). This is the Box-valued generalization of `addSuffix`:
+`addSuffix l = addSuffixBox (line l)`, and when `suffixBox` is single-line it
+reduces to appending that line — no continuation to pad.
+
+Because it reuses `prefix`, it subsumes the two shapes the renderer needs when
+gluing a trailing comment: (1) a multi-line comment after a *single-line* base —
+the base is the whole prefix, continuation padded under the comment (what the
+old `prefix (row [ line, space ]) comment` sites did); and (2) a comment after a
+*multi-line* base — the comment joins the base's last line, which a bare
+`prefix` cannot express because the base isn't a single `Line`. -}
+addSuffixBox : Box -> Box -> Box
+addSuffixBox suffixBox base =
+    let
+        b =
+            destructure base
+    in
+    when Array.popLast b.rest is
+        Nothing ->
+            -- base is single-line: its line is the whole prefix of the suffix
+            prefix b.first suffixBox
+
+        Just { last = baseLast, initial = initial } ->
+            line b.first
                 |> andThen (Array.map line initial)
-                |> andThen [ line (row [ lastLine, suffix ]) ]
+                |> andThen [ prefix baseLast suffixBox ]
 
 
 
