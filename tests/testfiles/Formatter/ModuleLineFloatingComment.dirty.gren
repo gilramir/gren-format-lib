@@ -1,4 +1,4 @@
-module ModuleLineFloatingComment exposing ( value ) {- comment trailing the module line, past its close -}
+module ModuleLineFloatingComment exposing ( value )    {- comment trailing the module line, past its close -}
 
 
 value =

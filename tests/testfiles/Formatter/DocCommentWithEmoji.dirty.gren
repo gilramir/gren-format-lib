@@ -1,6 +1,7 @@
 module DocCommentWithEmoji exposing (..)
 
 
+
 {-| A doc comment whose body contains non-BMP code points (emoji like
     🙈 and 🔥). The parser strips the closing delimiter via
     `String.dropLast 2`, but that kernel slice is off by one per
@@ -15,4 +16,5 @@ module DocCommentWithEmoji exposing (..)
 
 -}
 type Sigil
+
     = Sigil

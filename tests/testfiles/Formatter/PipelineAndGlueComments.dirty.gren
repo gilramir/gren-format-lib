@@ -17,7 +17,7 @@ opRhsLiteral x =
 backwardPipe : String -> String
 backwardPipe name =
     -- leading comment before a backward-pipeline seed
-    String.append "Hello, " <| String.append name "!"
+    String.append "Hello, "     <|          String.append name "!"
 
 
 -- backward pipeline with a block comment between steps
@@ -25,7 +25,7 @@ backwardPipeBetween : String -> String
 backwardPipeBetween name =
     String.append "Hello, "
         {- block comment between two backward-pipe steps -}
-        <| String.append name "!"
+            <| String.append name "!"
 
 
 -- comment between a multi-arg call's function and its first argument

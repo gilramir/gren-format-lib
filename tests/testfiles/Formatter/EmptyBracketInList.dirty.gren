@@ -5,14 +5,14 @@ module EmptyBracketInList exposing (..)
 -- item (the wild bugs: gren-array2d `[ ..., [] ]` and gren-tui `[[]]`). Both
 -- exercise the same EmptyBracketed-as-list-item rendering path.
 arrayWithEmpty =
-    [ [ 1, 2, 3 ], [ 4 ], [], [] ]
+    [   [ 1, 2, 3 ],    [ 4 ],[],[] ]
 
 
 -- empty record literals as items
 emptyRecordItems =
-    [ {}, { a = 1 }, {} ]
+    [ {}, {a=1}, {} ]
 
 
 -- empty items forced into the vertical layout
 verticalWithEmpty =
-    [ [ firstLongElementName, secondLongElementName, thirdLongElementName, fourthElementName ], [], [ x ] ]
+    [[firstLongElementName,secondLongElementName,thirdLongElementName,fourthElementName],[ ],[x]]
