@@ -2552,10 +2552,11 @@ decision and why.
     [Function application](#function-application)). Covered by new fixtures
     `RedundantArgParens.dirty.gren` / `.formatted.gren`.
 
-11. **Closing `)` of a lambda written straight after `|>` — keep as is.** When a
-    pipeline step is a parenthesized lambda used directly as the pipe's operand
-    (`|> (\x -> ...)`, with no function between `|>` and the `(`), gren-format
-    closes the `)` lined up under the step. gren-format writes:
+11. **Closing `)` of a lambda written straight after `|>` — known divergence,
+    intended to be aligned.** When a pipeline step is a parenthesized lambda used
+    directly as the pipe's operand (`|> (\x -> ...)`, with no function between
+    `|>` and the `(`), gren-format currently closes the `)` one column to the
+    right of where elm-format puts it. gren-format writes:
 
     ```gren
     summary =
@@ -2579,8 +2580,10 @@ decision and why.
     difference comes with it. It only shows up for a lambda that is the *direct*
     operand of `|>`/`<|`; a lambda passed as a function argument
     (`|> Task.andThen (\x -> ...)`) already lines its `)` up under the `(` in
-    both formatters (see [Pipelines](#pipelines)). Rare, and the shape is stable
-    when reformatted, so it's left as is.
+    both formatters (see [Pipelines](#pipelines)). It's rare, and the shape is
+    stable when reformatted. This is a known difference we intend to bring into
+    line with elm-format (the `)` aligned under the `(`); doing so requires the
+    width-dependent placement described above, so it hasn't been done yet.
 
 12. **A comment that leads a dropped type record — resolved, matches
     elm-format.** When a multi-line record type follows a head or a field `:` —

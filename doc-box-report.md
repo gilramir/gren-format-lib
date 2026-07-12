@@ -195,11 +195,36 @@ Box renders the lambda body (and the closing `)`) **4 columns too shallow** —
 wrong vs both Doc and elm-format. This is why the `Err` exists; it is **not**
 false caution.
 
-**gren vs elm-format (separate, documented intentional divergence — README
-point 11):** on the closing `)`, elm-format aligns it *under* the `(`; gren
-places it **one column to the right**. So a correct Box port must reproduce two
-things: the correct body indent (which Box gets wrong by 4) *and* gren's
-deliberate 1-column `)` offset.
+**The closing `)` — a Doc divergence from elm-format, to be fixed in Box.**
+On the closing `)`, elm-format aligns it *under* the `(` (col 12); the Doc puts
+it **one column to the right** (col 13); Box (un-Err'd) puts it under the `|>`
+(col 9). This was previously documented (README point 11) as an intentional
+"keep as is"; the decision is now to **bring it into line with elm-format** —
+`)` aligned under `(` — but **in the Box renderer, not the Doc** (the Doc is
+slated for deletion at cutover, so it isn't worth fixing there).
+
+**Why it can't be fixed cheaply in the Doc (investigated 2026-07-11).** The
+obvious one-line fix — add `R.align` to `makeParenBlockDoc`'s `isLambdaMultiline`
+arm — does *not* work: `R.align` re-anchors the whole paren body at the `(`
+column, so it fixes the `)` (col 13 → 12) but simultaneously pulls the lambda
+**body** left by one (col 17 → 16), and the body was already at elm's column 17.
+
+| | body (`if n then`) | `)` |
+|---|---|---|
+| elm-format | col 17 | col 12 |
+| gren today | col 17 ✓ | col 13 ✗ |
+| gren + `R.align` | col 16 ✗ | col 12 ✓ |
+
+elm anchors the body and the `)` at **two different references** — body at a
+fixed +4 from the lambda content, `)` at the *width-dependent* `(` column
+(`step-base + width("|> ")`). gren's fixed-multiple-of-4 model has one anchor
+per `align`, so it can't place the `)` one column left of the body's nest
+without a **token-width-dependent** offset. That's the exact-space class (same
+wall as C2 and the other hard Errs) — so this is **not a contained change**; it
+belongs with the Box exact-space work, placing the `)` at the width-derived `(`
+column (with the body kept at its fixed +4). A correct Box port must therefore
+get **both** right: the body indent (Box currently 4 cols too shallow) *and* the
+`)` aligned under `(`.
 
 ### C2. Soft-glue of a RecordUpdate / AlignedFlow item — 3 (`KitchenSink` @311, `KitchenComments` @303, `MultilineBlockComments` @72 `#12`)
 
