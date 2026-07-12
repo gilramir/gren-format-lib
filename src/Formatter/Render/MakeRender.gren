@@ -2093,6 +2093,51 @@ lineComment s =
 -- ═══ RECORD UPDATES ═══
 
 
+{-| Mirror of `MakeRenderBox.recordFieldValueDrops`: a record-update field whose
+value is a *soft* node (not a hard block) that renders multi-line. elm-format's
+`equalsPair` drops such a value onto its own line below `name =` rather than
+gluing it to `= `. A hard-block value (`if`/`when`/`let`/lambda) already drops
+through its own block; a single-line value glues; neither is covered here. -}
+docFieldValueDrops : LPNode -> Bool
+docFieldValueDrops field =
+    when Array.popLast (lpnChildren field) is
+        Nothing ->
+            False
+
+        Just { last = valueNode, initial = headNodes } ->
+            if Array.any nodeIsComment headNodes then
+                -- A comment before the value keeps the existing (glue) path;
+                -- the drop's interaction with a head comment is a separate case.
+                False
+
+            else
+                let
+                    isHardBlock =
+                        when lpnBox valueNode is
+                            BodyBlock ->
+                                True
+
+                            IndentedBlock ->
+                                True
+
+                            SoftIndentedBlock ->
+                                True
+
+                            WhenBranch ->
+                                True
+
+                            PipelineStep ->
+                                True
+
+                            EmptyLine ->
+                                True
+
+                            _ ->
+                                False
+                in
+                not isHardBlock && nodeForcesVertical valueNode
+
+
 makeRecordUpdateDoc : Int -> Bool -> String -> Array LPNode -> Result String Doc
 makeRecordUpdateDoc listPrefixWidth forceVertical baseName children =
     -- Skip any leading comment children so we can find the actual first field
@@ -2146,10 +2191,30 @@ makeRecordUpdateDoc listPrefixWidth forceVertical baseName children =
                         _ ->
                             grenIndent
 
+                -- A soft multi-line field value drops onto its own line below
+                -- `name =` (elm-format's `equalsPair`, mirroring the Box's
+                -- `dropFieldValueBox`); everything else is the plain field flow.
+                fieldInnerDoc field =
+                    if docFieldValueDrops field then
+                        when Array.popLast (lpnChildren field) is
+                            Just { last = valueNode, initial = headNodes } ->
+                                Result.map2
+                                    (\headDoc valueDoc ->
+                                        R.concat headDoc (R.nest grenIndent (R.concat R.hardNl valueDoc))
+                                    )
+                                    (buildFlowDoc 0 headNodes)
+                                    (makePDoc (lpnBox valueNode) (lpnChildren valueNode))
+
+                            Nothing ->
+                                buildFlowDoc (fieldFlowIndent field) (lpnChildren field)
+
+                    else
+                        buildFlowDoc (fieldFlowIndent field) (lpnChildren field)
+
                 -- Flow only, aligned at the field-content column. Used by the
                 -- inline (flat group) branch, where alignment is inert anyway.
                 fieldDoc field =
-                    buildFlowDoc (fieldFlowIndent field) (lpnChildren field)
+                    fieldInnerDoc field
                         |> Result.map R.align
 
                 -- One full line of the expanded form: 4-space record indent,
@@ -2158,7 +2223,7 @@ makeRecordUpdateDoc listPrefixWidth forceVertical baseName children =
                 -- elm-format's `extensionGroup`), not +4 from the field-content
                 -- column — the latter was 2 columns too deep (a `| `-width off).
                 fieldLine prefixText field =
-                    buildFlowDoc (fieldFlowIndent field) (lpnChildren field)
+                    fieldInnerDoc field
                         |> Result.map
                             (\flow ->
                                 R.concat fieldIndent (R.align (R.concat (R.text prefixText) flow))

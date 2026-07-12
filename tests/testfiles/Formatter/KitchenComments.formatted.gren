@@ -209,7 +209,8 @@ reprice rawMultiplier ({ items, flags } as inboundCart) =
     -- the actual record update happens here
     { inboundCart
         -- comment before the first updated field
-        | items = items
+        | items =
+            items
                 |> Array.map
                     (\itemRecord ->
                         -- comment leading into a nested record update inside a pipeline step

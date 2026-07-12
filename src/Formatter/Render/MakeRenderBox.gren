@@ -1632,53 +1632,88 @@ makeIfConditionBox forceVertical children =
 
 
 {-| True when a record-update field's value is a *soft* node (not a hard block —
-`if`/`when`/`let`/lambda) that renders multi-line. The Doc keeps such a value's
-first line glued to `= ` (soft `R.group` separator) and lets the value break
-internally; Box's flat stacker drops the whole value to its own line, so these
-fields diverge and the update must fall back. A hard-block value drops after `=`
-in both renderers and is fine. A comment child (no meaningful value) returns
-False. -}
+`if`/`when`/`let`/lambda) that renders multi-line. Such a value is dropped onto
+its own line below `name =` (elm-format's `equalsPair` rule — a multi-line value
+never glues to `= `), via `dropFieldValueBox`. A hard-block value already drops
+after `=` through its own block box, and a single-line value stays glued, so
+neither is covered here. A comment child (no meaningful value) returns False. -}
 recordFieldValueDrops : LPNode -> Bool
 recordFieldValueDrops field =
-    when Array.last (lpnChildren field) is
+    when Array.popLast (lpnChildren field) is
         Nothing ->
             False
 
-        Just valueNode ->
-            let
-                isHardBlock =
-                    when lpnBox valueNode is
-                        BodyBlock ->
-                            True
-
-                        IndentedBlock ->
-                            True
-
-                        SoftIndentedBlock ->
-                            True
-
-                        WhenBranch ->
-                            True
-
-                        PipelineStep ->
-                            True
-
-                        EmptyLine ->
-                            True
-
-                        _ ->
-                            False
-            in
-            if isHardBlock then
+        Just { last = valueNode, initial = headNodes } ->
+            if Array.any nodeIsComment headNodes then
+                -- A comment before the value (`f = {- c -} …`) makes the head
+                -- itself multi-line; the drop composition with the field prefix
+                -- is a separate edge case, so leave it on the existing path.
                 False
 
             else
-                when makePBox (lpnBox valueNode) (lpnChildren valueNode) is
-                    Ok b ->
-                        not (isSingleLine b)
+                let
+                    isHardBlock =
+                        when lpnBox valueNode is
+                            BodyBlock ->
+                                True
 
-                    Err _ ->
-                        False
+                            IndentedBlock ->
+                                True
+
+                            SoftIndentedBlock ->
+                                True
+
+                            WhenBranch ->
+                                True
+
+                            PipelineStep ->
+                                True
+
+                            EmptyLine ->
+                                True
+
+                            _ ->
+                                False
+                in
+                if isHardBlock then
+                    False
+
+                else
+                    when makePBox (lpnBox valueNode) (lpnChildren valueNode) is
+                        Ok b ->
+                            not (isSingleLine b)
+
+                        Err _ ->
+                            False
+
+
+{-| elm-format's `equalsPair` drop for a record-update field whose value is a
+soft multi-line node: render `name =` on its own line and stack the value at
++grenIndent below it. The value's own box supplies its internal layout, so a
+broken call `Array.map (\…) xs` becomes `name =` / `Array.map` / args. -}
+dropFieldValueBox : Array LPNode -> Result String Box
+dropFieldValueBox children =
+    when Array.popLast children is
+        Just { last = valueNode, initial = headNodes } ->
+            Result.map2
+                (\headBox valueBox -> B.stack1 [ headBox, applyIndent grenIndent valueBox ])
+                (buildFlowBox 0 headNodes)
+                (makePBox (lpnBox valueNode) (lpnChildren valueNode))
+
+        Nothing ->
+            Err "box: empty record-update field"
+
+
+{-| Render one record-update field to a box: a soft multi-line value drops onto
+its own line (`dropFieldValueBox`); everything else renders as the plain
+`name = value` node. -}
+renderUpdateFieldBox : LPNode -> Result String Box
+renderUpdateFieldBox field =
+    if recordFieldValueDrops field then
+        dropFieldValueBox (lpnChildren field)
+
+    else
+        makePBox (lpnBox field) (lpnChildren field)
 
 
 {-| Render a record update `{ base | f = v, … }` via elm's `extensionGroup`.
@@ -1690,20 +1725,7 @@ lambda-valued field deliberately differs from the Doc renderer — Box drops the
 `\arg ->` head like elm — so those updates fall back via the self-verify guard.) -}
 makeRecordUpdateBox : String -> Bool -> Array LPNode -> Result String Box
 makeRecordUpdateBox baseName forceVertical children =
-    if Array.any recordFieldValueDrops children then
-        -- A field whose value is a *soft* multi-line node (a broken call or
-        -- binop chain — `| f = Array.map (\x -> …) xs`) is kept glued to `= `
-        -- by the Doc (its flow separator is a soft `R.group`, always flat → a
-        -- space) and broken only by the value's own internal layout. Box's flat
-        -- stacker instead drops the whole value onto its own line, diverging, so
-        -- the update falls back. (A *block* value — `if`/`when`/`let`/lambda —
-        -- drops after `=` in BOTH renderers, so it is NOT gated here.) This gate
-        -- is shared by the comment and non-comment paths: a comment-bearing
-        -- update nested inside such a field must not let the outer update render
-        -- via Box either.
-        Err "box: record-update field with a soft multi-line value not ported"
-
-    else if Array.any nodeIsComment children then
+    if Array.any nodeIsComment children then
         -- A comment can't live in the inline (flat group) form, so a comment-
         -- bearing update is always vertical. Mirrors `makeRecordUpdateDoc`'s
         -- `hasComment → vertical` branch: comment children render own-line at
@@ -1711,7 +1733,7 @@ makeRecordUpdateBox baseName forceVertical children =
         makeRecordUpdateVerticalBox baseName children
 
     else
-        traverseResult (\node -> makePBox (lpnBox node) (lpnChildren node)) children
+        traverseResult renderUpdateFieldBox children
             |> Result.andThen
             (\fieldBoxes ->
                 when Array.popFirst fieldBoxes is
@@ -1781,8 +1803,15 @@ makeRecordUpdateVerticalBox baseName children =
 
                                         _ ->
                                             grenIndent
+
+                                fieldBoxResult =
+                                    if recordFieldValueDrops node then
+                                        dropFieldValueBox (lpnChildren node)
+
+                                    else
+                                        buildFlowBox fieldFlowIndent (lpnChildren node)
                             in
-                            buildFlowBox fieldFlowIndent (lpnChildren node)
+                            fieldBoxResult
                                 |> Result.andThen
                                     (\fieldBox ->
                                         let
@@ -1794,15 +1823,13 @@ makeRecordUpdateVerticalBox baseName children =
                                                     B.row [ B.punc "|", B.space ]
                                         in
                                         -- A multi-line field value that DROPS to its
-                                        -- own line (a leading own-line comment, or a
-                                        -- block value) is rendered by `buildFlowBox`
-                                        -- exactly as the Doc does, so it composes with
-                                        -- the `| `/`, ` prefix. A multi-line value the
-                                        -- Doc keeps GLUED to `= ` (a soft broken
-                                        -- call/binop — its flow separator is a flat
-                                        -- `R.group` → a space) still diverges (Box's
-                                        -- flat stacker drops it), so those fall back.
-                                        if isSingleLine fieldBox || fieldValueDropsToOwnLine node then
+                                        -- own line composes with the `| `/`, ` prefix:
+                                        -- a comment-forced drop or block value (via
+                                        -- `buildFlowBox`), or a soft broken call/binop
+                                        -- that now drops via `dropFieldValueBox`
+                                        -- (`recordFieldValueDrops`) — the same
+                                        -- `name =` / value shape either way.
+                                        if isSingleLine fieldBox || fieldValueDropsToOwnLine node || recordFieldValueDrops node then
                                             Ok
                                                 { lines = Array.pushLast (B.prefix pref fieldBox) acc.lines
                                                 , seenField = True
