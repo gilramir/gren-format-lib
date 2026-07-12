@@ -67,7 +67,7 @@ census. That splits every `Err` into one of three buckets:
 | C1 | Direct-operand lambda glue `\|> (\x -> …)` | 2 | GENUINE | hard | yes |
 | C2 | Soft-glue of RecordUpdate/AlignedFlow item | 3 | GENUINE | hard | yes |
 | D | Verbatim (opener-alone) block comment | 1 | **✅ LANDED (`aafdf01`)** — was a Doc divergence from elm | done | yes |
-| E | mlbc as nest-carrying first item (`#13`) | 1 | UNIMPLEMENTED | hard | yes |
+| E | mlbc as nest-carrying first item (`#13`) | 1 | UNIMPLEMENTED — **cutover target = Box `+4`** (verified idempotent) | at cutover | yes |
 | F | Leading mlbc in inline-start flow (`#37`) | 1 | UNIMPLEMENTED | hard | yes |
 | G | Comment inside a multi-node signature type (`t61`) | 1 | UNIMPLEMENTED | hard | yes |
 | H | Multi-line item in comment-bearing bracket list | 1 | UNIMPLEMENTED | hard* | yes |
@@ -291,7 +291,38 @@ lower-risk than the exact-space classes, but it is genuinely new machinery.
 
 ---
 
-## E. mlbc as nest-carrying first item in an indented flow (`#13`) — 1 — UNIMPLEMENTED
+## E. mlbc as nest-carrying first item in an indented flow (`#13`) — 1 — UNIMPLEMENTED (cutover target decided)
+
+> **Decision (2026-07-11): adopt Box's `+4` form at cutover; keep it an `Err`
+> (Doc `+8` ships) until then — no Doc work.** For `decl {- mlbc -} x =`, the
+> three renderers all differ:
+> ```
+>   Doc (shipped)         Box (bare push)       elm-format
+>   decl {- 13 a          decl {- 13 a          decl
+>           13 b                  13 b              {- 13 a
+>           13 c -}               13 c -}              13 b
+>           x =    (+8)       x =     (+4)             13 c
+>                                                   -}
+>                                                   x
+>                                                   =
+> ```
+> elm-format **explodes the whole head** (name / comment / each arg / `=` each on
+> its own line) — verbose and inconsistent with gren's glue-not-explode style, so
+> we're **not** matching elm here. The Doc puts the argument at `+8` (aligned with
+> the comment's interior); the Box bare-push puts it at `+4` (the normal
+> continuation indent), which reads better. **Box's `+4` form is a verified
+> reparse fixed point** (byte-idempotent on double-format, AST-preserved, and
+> idempotent for the alternate author layout too) — so the exact-space label was
+> about the Box-vs-Doc *disagreement*, not the `+4` form itself.
+>
+> We deliberately do **not** make the Doc produce `+4` (that's the hard
+> exact-space work on a to-be-deleted renderer). So `#13` stays a fallback `Err`
+> (shipping Doc's `+8`) for now; **at cutover, drop the Err, let Box render `+4`,
+> and regenerate the fixture.** (Doing it now would create a Box-vs-Doc mismatch,
+> breaking the 0-mismatch / trust-Box-green invariant for zero shipped benefit,
+> since `+8` ships either way until cutover.)
+
+_Original analysis, for the record:_
 
 **Fixture:** `MultilineBlockComments` @92 (`decl`). **Err site:** line ~4095.
 
