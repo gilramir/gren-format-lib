@@ -20,6 +20,13 @@ bug list.*
 > body, it doesn't keep absolute columns). Removed the verbatim special-case in
 > both renderers; every multi-line block comment now reindents. **Corpus now 9
 > `Err`s, 0 mismatches.** Sections A, B, D marked LANDED below.
+>
+> **Update (`43d6c3c`): Class G landed.** The "comment inside a multi-node
+> signature type" Err was *not* an idempotency hazard (that was a self-
+> contradictory analysis — idempotency depends only on output text, and Box's
+> output here equals Doc's). It was a conservative Err; routing the multi-node
+> case through the generic comment-flow clears it. **Corpus now 8 `Err`s, 0
+> mismatches.**
 
 ---
 
@@ -69,7 +76,7 @@ census. That splits every `Err` into one of three buckets:
 | D | Verbatim (opener-alone) block comment | 1 | **✅ LANDED (`aafdf01`)** — was a Doc divergence from elm | done | yes |
 | E | mlbc as nest-carrying first item (`#13`) | 1 | UNIMPLEMENTED — **cutover target = Box `+4`** (verified idempotent) | at cutover | yes |
 | F | Leading mlbc in inline-start flow (`#37`) | 1 | UNIMPLEMENTED — **cutover target = Box** (same as E; verified idempotent) | at cutover | yes |
-| G | Comment inside a multi-node signature type (`t61`) | 1 | UNIMPLEMENTED | hard | yes |
+| G | Comment inside a multi-node signature type (`t61`) | 1 | **✅ LANDED (`43d6c3c`)** — was a conservative Err, not idempotency | done | yes |
 | H | Multi-line item in comment-bearing bracket list | 1 | UNIMPLEMENTED | hard* | yes |
 
 *Total 15. \*Class H may be re-scopable — see §H, gren currently **diverges from
@@ -407,7 +414,25 @@ deliberately re-fenced — a naive widening shifted the comment on reparse.
 
 ---
 
-## G. Comment inside a multi-node signature type (`t61`) — 1 — UNIMPLEMENTED
+## G. Comment inside a multi-node signature type (`t61`) — 1 — **✅ LANDED (`43d6c3c`)**
+
+> **Correction + resolution.** The analysis below was wrong, and self-
+> contradictory: it claimed "Box renders this correctly but breaks idempotency."
+> Idempotency is a property of the **output text** (reparse it, reformat,
+> compare) — it cannot depend on *which renderer* produced identical bytes. In
+> fact Box's rendering of this construct is **byte-identical to Doc's** (the
+> committed, idempotency-tested form), so it is trivially a fixed point. The old
+> "breaks idempotency" note referred to a *different, reverted layout* (the
+> historical `t61` Doc-era attempt), which this report mis-attributed to the
+> current Box. The Err was simply **conservative** (like Class A): the multi-node
+> type case (`{ … } -> …`) hadn't been routed to the generic comment-flow path.
+> Fix: route it through `buildFlowBox grenIndent children` (the same path the
+> sibling `hasComment` arm uses). Census 9 → 8, 0 mismatches, shipped output
+> unchanged, full trust-Box drill green. Lesson: "Box renders X but it's
+> non-idempotent" is a contradiction whenever Box's X equals the shipped Doc
+> output — always check whether Box's output actually *differs* first.
+
+_Original (incorrect) analysis, for the record:_
 
 **Fixture:** `TrickyComments` @92 (`extensibleSig`). **Err site:** line ~2273.
 
@@ -500,12 +525,12 @@ adopt elm-format's indent (then likely cheap).
    confirm it's hard.
 
 ### Bottom line
-Of the original 15: **A (1), B (4), and D (1) are now landed** — and both B and D
-turned out to be *unintentional divergences from elm-format* rather than
-"unportable" constructs, so fixing them was a genuine user-facing improvement,
-not just cutover plumbing. **9 remain:** **4 genuine exact-space divergences
-(C)**, **4 comment-position/idempotency work (E, F, G)**, and **1 gated on a
-product decision (H)**. The self-verify guard already ships correct output for
+Of the original 15: **A (1), B (4), D (1), and G (1) are now landed.** B and D
+were *unintentional divergences from elm-format*; A and G were *conservative
+Errs* (Box already matched Doc, just not wired up). **8 remain:** **4 genuine
+exact-space divergences (C)** and **2 nest-carrying mlbc cases (E, F)** — all
+deferred to after the Box cutover (E/F ship Box's form then; C is real work) —
+and **1 gated on a product decision (H)**. The self-verify guard already ships correct output for
 every one of them. The pattern worth noting: several "hard exact-space" Errs
 were misdiagnosed — the real issue was the Doc renderer quietly diverging from
 elm-format, which the Box (elm-aligned) correctly refused to reproduce. Class H
