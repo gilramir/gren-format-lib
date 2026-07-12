@@ -3,7 +3,7 @@ module Formatter.Render.Box exposing
     , identifier, keyword, punc, literal, row, space
     , line, blankLine, mustBreak, stack1, andThen
     , isLine, allSingles, lineLength
-    , indent, prefix, addSuffix, mapFirstLine
+    , indent, prefix, addSuffix, mapFirstLine, freezeTabs
     , render
     )
 
@@ -204,6 +204,51 @@ prefix pref =
             row [ pref, l ]
     in
     mapFirstLine addPrefixToLine padLineWithSpaces
+
+
+{-| Replace every `Tab` with the literal spaces it renders to at its
+standalone (col-0-anchored) column — the same width `render` would emit. The
+box looks byte-identical on its own, but its indentation is now literal spaces
+rather than tab stops, so a subsequent `prefix` shifts every line by the
+prefix's exact width instead of the `Tab`s re-snapping to absolute multiples of
+4. This is what lets a `Tab`-indented box (record update, aligned flow) be
+soft-glued to an arbitrary column and keep its internal alignment. -}
+freezeTabs : Box -> Box
+freezeTabs =
+    mapLines (\l -> (freezeLine 0 l).line)
+
+
+freezeLine : Int -> Line -> { line : Line, endColumn : Int }
+freezeLine startColumn line_ =
+    when line_ is
+        Text t ->
+            { line = line_, endColumn = startColumn + String.count t }
+
+        Space ->
+            { line = line_, endColumn = startColumn + 1 }
+
+        Tab ->
+            let
+                n =
+                    tabLength startColumn
+            in
+            { line = Text (String.repeat n " "), endColumn = startColumn + n }
+
+        Row lines_ ->
+            let
+                folded =
+                    Array.foldl
+                        (\el acc ->
+                            let
+                                f =
+                                    freezeLine acc.endColumn el
+                            in
+                            { lines = Array.pushLast f.line acc.lines, endColumn = f.endColumn }
+                        )
+                        { lines = [], endColumn = startColumn }
+                        lines_
+            in
+            { line = Row folded.lines, endColumn = folded.endColumn }
 
 
 addSuffix : Line -> Box -> Box

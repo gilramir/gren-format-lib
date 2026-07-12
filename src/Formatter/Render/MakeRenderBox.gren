@@ -3669,10 +3669,14 @@ and its continuation lines land per the item's own align/nest):
     continuation line by the glued prefix's exact character width. This is
     only sound because these boxes' continuation lines are punctuation- or
     verbatim-prefixed (`, item`, `}`, string content) — NOT `Tab`-indented.
-    `RecordUpdate` and `AlignedFlow` are align-carrying on the Doc side too,
-    but their Box continuation lines carry `Tab`s, which `B.prefix`'s space
-    padding quantizes to the next multiple of 4 (the census's "per-row
-    exact-space indent" hard class) — so they stay unclassified.
+  - `AlignCarryingTabbed` — `RecordUpdate` and `AlignedFlow`: align-carrying
+    on the Doc side too (anchored at the item's start column), but their Box
+    continuation lines carry `Tab`s, which a bare `B.prefix`'s space padding
+    would quantize to the next multiple of 4 (the census's "per-row
+    exact-space indent" hard class). `B.freezeTabs` first rewrites those
+    `Tab`s to the literal spaces they render to at their standalone columns,
+    so the following `B.prefix` shifts every line by the prefix's exact width
+    — matching the Doc's `R.align` anchor.
   - `NestCarrying` — the Doc nests these relative to the flow's base, not
     the glue column: `AcrossOrVertical` (`buildFlowDoc grenIndent` /
     `buildCallDocBroken grenIndent`), `OpAndRhs` / `Glue` / `PrefixGlue`
@@ -3689,6 +3693,7 @@ must update this table (same class as the other Doc↔Box mirror comments).
 -}
 type SoftGlueAlignment
     = AlignCarrying
+    | AlignCarryingTabbed
     | NestCarrying
     | UnclassifiedCarrying
 
@@ -3704,6 +3709,12 @@ softGlueAlignment node =
 
         MultilineString _ ->
             AlignCarrying
+
+        RecordUpdate _ ->
+            AlignCarryingTabbed
+
+        AlignedFlow ->
+            AlignCarryingTabbed
 
         AcrossOrVertical _ ->
             NestCarrying
@@ -4226,6 +4237,20 @@ assembleFlowImpl inlineStart flowIndent items =
                                     AlignCarrying ->
                                         Ok
                                             { rows = Array.pushLast (B.prefix prefLine item.box) acc.rows
+                                            , curRow = []
+                                            , state = decision.next
+                                            }
+
+                                    AlignCarryingTabbed ->
+                                        -- Record update / aligned flow: the same
+                                        -- align anchor as `AlignCarrying`, but the
+                                        -- box's continuation lines carry `Tab`s.
+                                        -- Freeze them to literal spaces first so
+                                        -- `B.prefix` shifts by its exact width
+                                        -- instead of the tab stops re-snapping to
+                                        -- absolute multiples of 4.
+                                        Ok
+                                            { rows = Array.pushLast (B.prefix prefLine (B.freezeTabs item.box)) acc.rows
                                             , curRow = []
                                             , state = decision.next
                                             }
