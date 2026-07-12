@@ -1,0 +1,10 @@
+module WhenInParenMultilineHeader exposing (foo)
+
+
+foo x =
+    (when someLongFunctionCallThatIsVeryLong
+        argument1
+        argument2
+     is
+        _ -> 1
+    )

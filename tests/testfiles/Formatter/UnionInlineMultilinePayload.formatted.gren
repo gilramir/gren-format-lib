@@ -1,0 +1,10 @@
+module UnionInlineMultilinePayload exposing (Foo)
+
+
+type Foo
+    = A
+    | B
+    | C
+        { x : Int
+        , y : Int
+        }

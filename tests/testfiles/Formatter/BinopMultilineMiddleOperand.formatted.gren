@@ -1,0 +1,7 @@
+module BinopMultilineMiddleOperand exposing (x)
+
+
+x =
+    a + { field1 = 1
+      , field2 = 2
+      } + b + c

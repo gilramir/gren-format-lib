@@ -1,0 +1,10 @@
+module PipelineInlineMultilineArg exposing (foo)
+
+
+foo =
+    1
+        |> g
+            """
+            line1
+            line2
+            """

@@ -188,41 +188,62 @@ multi-line operand in a non-vertical chain, still returns Err. -}
 makeBinopBox : Bool -> Array LPNode -> Result String Box
 makeBinopBox forceVertical children =
     if Array.any subtreeHasComment children then
-        -- A comment anywhere in the chain routes AWAY from the precedence layout
-        -- to the comment-aware flow: `buildFlowBox grenIndent` when inline,
-        -- `buildFlowBoxBroken grenIndent` when forced vertical. The flat flow
-        -- builder is comment-aware and, together with `OpAndRhs`, renders the
-        -- inline chain on one line; a forced-vertical comment chain the
-        -- broken-flow builder can't lay out returns Err.
-        if forceVertical then
-            buildFlowBoxBroken grenIndent children
-
-        else
-            buildFlowBox grenIndent children
+        commentAwareBinopBox forceVertical children
 
     else
-        let
-            flat =
-                flattenBinopNodes children
-        in
-        when Array.popFirst flat.operands is
-            Nothing ->
-                Err "box: empty binop"
+        precedenceBinopBox forceVertical children
+            |> Result.onError (\_ -> commentAwareBinopBox forceVertical children)
 
-            Just { first = operand0, rest = _ } ->
-                if Array.isEmpty flat.ops then
-                    buildFlowBox 0 operand0
 
-                else
-                    -- Render every operand to a Box (multi-line allowed).
-                    traverseResult (buildFlowBox 0) flat.operands
-                        |> Result.andThen
-                            (\operandBoxes ->
-                                assembleBinopBox forceVertical
-                                    (binopMinPrecedence (Array.map opText flat.ops))
-                                    operandBoxes
-                                    (Array.map opText flat.ops)
-                            )
+-- The comment-aware flow: `buildFlowBox grenIndent` when inline,
+-- `buildFlowBoxBroken grenIndent` when forced vertical. The flat flow builder
+-- is comment-aware and, together with `OpAndRhs`, renders the inline chain on
+-- one line, gluing a multi-line operand's continuation under its own opening
+-- column via the same soft-glue machinery every other flow uses. This is also
+-- the fallback for a *comment-free* chain whose precedence-aware layout can't
+-- join a group inline (an operand that's inherently multi-line — a
+-- record/array literal or multi-line string spanning rows — regardless of how
+-- the chain itself was authored): falling back here, rather than inventing a
+-- second layout, guarantees a comment inserted anywhere in the chain later
+-- (or removed) can never flip which layout gets chosen — the two cases must
+-- already agree, since they're the same function.
+commentAwareBinopBox : Bool -> Array LPNode -> Result String Box
+commentAwareBinopBox forceVertical children =
+    if forceVertical then
+        buildFlowBoxBroken grenIndent children
+
+    else
+        buildFlowBox grenIndent children
+
+
+-- The precedence-aware layout: groups break at the chain's lowest-precedence
+-- operators, tighter operators join inline within a group. `Err` (rather than
+-- a second fallback layout of its own) whenever a group can't be built —
+-- `makeBinopBox` catches that and falls back to `commentAwareBinopBox`.
+precedenceBinopBox : Bool -> Array LPNode -> Result String Box
+precedenceBinopBox forceVertical children =
+    let
+        flat =
+            flattenBinopNodes children
+    in
+    when Array.popFirst flat.operands is
+        Nothing ->
+            Err "box: empty binop"
+
+        Just { first = operand0, rest = _ } ->
+            if Array.isEmpty flat.ops then
+                buildFlowBox 0 operand0
+
+            else
+                -- Render every operand to a Box (multi-line allowed).
+                traverseResult (buildFlowBox 0) flat.operands
+                    |> Result.andThen
+                        (\operandBoxes ->
+                            assembleBinopBox forceVertical
+                                (binopMinPrecedence (Array.map opText flat.ops))
+                                operandBoxes
+                                (Array.map opText flat.ops)
+                        )
 
 
 -- Render an operator-precedence group (parts joined inline by higher-precedence
@@ -241,7 +262,7 @@ renderBinopGroup parts =
             else
                 when B.isLine p0.box is
                     Err _ ->
-                        Err "box: multi-line operand joined inline not ported"
+                        Err "box: multi-line operand joined inline"
 
                     Ok l0 ->
                         traverseResult
@@ -251,7 +272,7 @@ renderBinopGroup parts =
                                         Ok [ B.space, B.literal p.op, B.space, l ]
 
                                     Err _ ->
-                                        Err "box: multi-line operand joined inline not ported"
+                                        Err "box: multi-line operand joined inline"
                             )
                             rest
                             |> Result.map
@@ -316,67 +337,90 @@ assembleBinopBox forceVertical minPrec operandBoxes ops =
                     segments
                     |> Result.andThen
                         (\segBoxes ->
-                            if not forceVertical then
-                                -- Inline: the chain flows on one line. Every group
-                                -- must be single-line EXCEPT the very last operand,
-                                -- which may be a multi-line node whose own lines break
-                                -- below (a `"""…"""` literal opened mid-line).
-                                -- elm-format keeps the whole chain concatenated and
-                                -- lets that operand's continuation land under its
-                                -- opening column; Box builds the single-line prefix
-                                -- (`"a " ++ b ++`) and `B.prefix`es it onto the trailing
-                                -- box, padding its continuation to the same column.
-                                when B.isLine firstGroupBox is
-                                    Err _ ->
-                                        Err "box: multi-line operand in non-vertical binop not ported"
-
-                                    Ok firstLine ->
-                                        when Array.popLast segBoxes is
-                                            Nothing ->
-                                                Ok (B.line firstLine)
-
-                                            Just { last = lastSeg, initial = initSegs } ->
-                                                traverseResult
-                                                    (\seg ->
-                                                        when B.isLine seg.box is
-                                                            Ok l ->
-                                                                Ok [ B.space, B.literal seg.op, B.space, l ]
-
-                                                            Err _ ->
-                                                                Err "box: multi-line operand in non-vertical binop not ported"
-                                                    )
-                                                    initSegs
-                                                    |> Result.andThen
-                                                        (\initParts ->
-                                                            when B.isLine lastSeg.box is
-                                                                Ok lastLine ->
-                                                                    -- All single-line: the whole chain on one row.
-                                                                    Ok (B.line (B.row (Array.flatten ([ [ firstLine ] ] ++ initParts ++ [ [ B.space, B.literal lastSeg.op, B.space, lastLine ] ]))))
-
-                                                                Err _ ->
-                                                                    -- Trailing operand is multi-line: glue the
-                                                                    -- single-line prefix onto its first line and
-                                                                    -- pad its continuation to align (a mid-chain
-                                                                    -- multi-line operand can't glue inline, so
-                                                                    -- `initParts` above still Errs on those).
-                                                                    let
-                                                                        prefixRow =
-                                                                            B.row (Array.flatten ([ [ firstLine ] ] ++ initParts ++ [ [ B.space, B.literal lastSeg.op, B.space ] ]))
-                                                                    in
-                                                                    Ok (B.prefix prefixRow lastSeg.box)
-                                                        )
+                            if forceVertical then
+                                Ok (verticalBinopBox firstGroupBox segBoxes)
 
                             else
-                                -- One group per line: firstGroup at base, each
-                                -- later group `op group` at +4, operator-led.
-                                Ok
-                                    (B.stack1
-                                        ([ firstGroupBox ]
-                                            ++ Array.map (\seg -> B.indent (prefixOperator seg.op seg.box)) segBoxes
-                                        )
-                                    )
+                                -- Inline: the chain flows on one line. `Err` (rather
+                                -- than a second fallback layout) when the first group
+                                -- or a non-trailing group can't join inline — the
+                                -- caller (`makeBinopBox`) falls back to the same
+                                -- comment-aware flow a comment anywhere in the chain
+                                -- already routes through.
+                                when inlineBinopBox firstGroupBox segBoxes is
+                                    Just box ->
+                                        Ok box
+
+                                    Nothing ->
+                                        Err "box: multi-line operand in non-vertical binop"
                         )
             )
+
+
+-- One group per line: firstGroup at base, each later group `op group` at +4,
+-- operator-led. Handles a multi-line group box via `prefixOperator`'s
+-- `B.prefix`, so this is safe to use whenever the inline attempt can't.
+verticalBinopBox : Box -> Array { op : String, box : Box } -> Box
+verticalBinopBox firstGroupBox segBoxes =
+    B.stack1
+        ([ firstGroupBox ]
+            ++ Array.map (\seg -> B.indent (prefixOperator seg.op seg.box)) segBoxes
+        )
+
+
+-- The chain flows on one line. Every group must be single-line EXCEPT the
+-- very last operand, which may be a multi-line node whose own lines break
+-- below (a `"""…"""` literal opened mid-line). elm-format keeps the whole
+-- chain concatenated and lets that operand's continuation land under its
+-- opening column; Box builds the single-line prefix (`"a " ++ b ++`) and
+-- `B.prefix`es it onto the trailing box, padding its continuation to the
+-- same column. `Nothing` when the first group or a non-trailing group is
+-- itself multi-line.
+inlineBinopBox : Box -> Array { op : String, box : Box } -> Maybe Box
+inlineBinopBox firstGroupBox segBoxes =
+    when B.isLine firstGroupBox is
+        Err _ ->
+            Nothing
+
+        Ok firstLine ->
+            when Array.popLast segBoxes is
+                Nothing ->
+                    Just (B.line firstLine)
+
+                Just { last = lastSeg, initial = initSegs } ->
+                    Array.foldl
+                        (\seg acc ->
+                            when acc is
+                                Nothing ->
+                                    Nothing
+
+                                Just parts ->
+                                    when B.isLine seg.box is
+                                        Ok l ->
+                                            Just (Array.pushLast [ B.space, B.literal seg.op, B.space, l ] parts)
+
+                                        Err _ ->
+                                            Nothing
+                        )
+                        (Just [])
+                        initSegs
+                        |> Maybe.map
+                            (\initParts ->
+                                when B.isLine lastSeg.box is
+                                    Ok lastLine ->
+                                        -- All single-line: the whole chain on one row.
+                                        B.line (B.row (Array.flatten ([ [ firstLine ] ] ++ initParts ++ [ [ B.space, B.literal lastSeg.op, B.space, lastLine ] ])))
+
+                                    Err _ ->
+                                        -- Trailing operand is multi-line: glue the
+                                        -- single-line prefix onto its first line and
+                                        -- pad its continuation to align.
+                                        let
+                                            prefixRow =
+                                                B.row (Array.flatten ([ [ firstLine ] ] ++ initParts ++ [ [ B.space, B.literal lastSeg.op, B.space ] ]))
+                                        in
+                                        B.prefix prefixRow lastSeg.box
+                            )
 
 
 -- Prepend `op ` to a group box. A single-line box becomes one line; a
@@ -721,7 +765,13 @@ makeUnionBodyBox nodes =
                             Ok l
 
                         Nothing ->
-                            Err "box: multi-line inline union not ported"
+                            -- A variant's payload is inherently multi-line (a
+                            -- record type spread across rows) even though every
+                            -- `|` sits on the same source row. Fall back to the
+                            -- already-correct vertical (one-variant-per-line)
+                            -- rendering, which handles a multi-line variant box
+                            -- fine via B.stack1/B.prefix.
+                            makeUnionBodyVerticalBox nodes
                 )
 
 
@@ -893,7 +943,20 @@ makePipelineBox forceVertical op children =
                                             Ok l
 
                                         Nothing ->
-                                            Err "box: multi-line inline pipeline not ported"
+                                            -- A step is inherently multi-line (a
+                                            -- multi-line string/record argument)
+                                            -- even though the author kept the
+                                            -- pipeline itself on one row. Fall back
+                                            -- to the exact same comment-aware flow
+                                            -- a comment anywhere in the pipeline
+                                            -- already routes through above, rather
+                                            -- than a second layout of our own that
+                                            -- could disagree with it (the binop
+                                            -- fallback took the shortcut of
+                                            -- reproducing that layout locally and
+                                            -- it silently diverged under a
+                                            -- comment — see commentAwareBinopBox).
+                                            buildFlowBox 0 children
                             )
                 )
 
@@ -1658,7 +1721,14 @@ makeIfConditionBox forceVertical children =
                                                                     Ok l
 
                                                                 Nothing ->
-                                                                    Err "box: multi-line if-condition not ported"
+                                                                    -- The condition is inherently multi-line (a
+                                                                    -- record/array/string literal spanning rows)
+                                                                    -- even though it starts on the same row as
+                                                                    -- `if`. Fall back to the same layout used for
+                                                                    -- an authored-vertical condition, which
+                                                                    -- handles a multi-line condBox fine via
+                                                                    -- B.indent.
+                                                                    Ok (B.stack1 [ ifBox, B.indent condBox, thenBox ])
                                                     )
                                         )
                             )
@@ -2927,14 +2997,6 @@ makeWhenInParenBox isCallArg children =
 
                 headerResult =
                     buildFlowBox 0 withoutBranches
-                        |> Result.andThen
-                            (\hdr ->
-                                if isSingleLine hdr then
-                                    Ok hdr
-
-                                else
-                                    Err "box: forced-vertical when-in-paren header not ported"
-                            )
 
                 branchesResult =
                     renderWhenBranchesBox (lpnChildren branchesBlock)
