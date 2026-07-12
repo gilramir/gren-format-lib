@@ -68,7 +68,7 @@ census. That splits every `Err` into one of three buckets:
 | C2 | Soft-glue of RecordUpdate/AlignedFlow item | 3 | GENUINE | hard — **attack after Box cutover** | yes |
 | D | Verbatim (opener-alone) block comment | 1 | **✅ LANDED (`aafdf01`)** — was a Doc divergence from elm | done | yes |
 | E | mlbc as nest-carrying first item (`#13`) | 1 | UNIMPLEMENTED — **cutover target = Box `+4`** (verified idempotent) | at cutover | yes |
-| F | Leading mlbc in inline-start flow (`#37`) | 1 | UNIMPLEMENTED | hard | yes |
+| F | Leading mlbc in inline-start flow (`#37`) | 1 | UNIMPLEMENTED — **cutover target = Box** (same as E; verified idempotent) | at cutover | yes |
 | G | Comment inside a multi-node signature type (`t61`) | 1 | UNIMPLEMENTED | hard | yes |
 | H | Multi-line item in comment-bearing bracket list | 1 | UNIMPLEMENTED | hard* | yes |
 
@@ -351,7 +351,32 @@ catches exactly this one node.
 
 ---
 
-## F. Leading mlbc in an inline-start flow (`#37`) — 1 — UNIMPLEMENTED
+## F. Leading mlbc in an inline-start flow (`#37`) — 1 — UNIMPLEMENTED (same decision as E)
+
+> **Decision (2026-07-11): same as `#13` — adopt Box's form at cutover, keep the
+> `Err` (Doc ships) until then.** For `\{- mlbc -} x -> …`:
+> ```
+>   Doc (shipped)     Box (un-Err'd)     elm-format
+>   \{- 37 a          \{- 37 a           \{- 37 a
+>       37 b              37 b               37 b
+>       37 c -}           37 c -}            37 c
+>       x ->   (col 9)  x ->    (col 6)     -}
+>                                          x
+>                                          ->
+> ```
+> elm-format again **explodes the head** (`-}`, `x`, `->` each on their own line)
+> — verbose, not matched. Box puts `x ->` at col 6 (aligned under where `x` would
+> sit in `\x`, arguably cleaner than Doc's col 9); **verified idempotent**
+> (byte + AST). Same structure as `#13`.
+>
+> **Nuance:** the `#37` "leading-mlbc-inline-start" Err is itself *conservative*
+> (Box's `ownLine` matches Doc for the leading comment) — clearing it just
+> exposes the same `#13` nest-carrying divergence underneath (`x ->` at col 6 vs
+> col 9). So `#37` and `#13` are the **same underlying issue**; the lambdas decl
+> needs both sites un-Err'd to render. Deferred to cutover with `#13`.
+
+_Original analysis, for the record:_
+
 
 **Fixture:** `MultilineBlockComments` @237 (`lambdas`). **Err site:** line ~3968.
 
