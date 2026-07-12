@@ -1566,10 +1566,13 @@ backwardSingleStep forceVertical seedLine bodyNodes =
                         (buildFlowBox 0 headNodes)
                         (buildFlowBox 0 (lpnChildren lastNode))
 
-                SoftIndentedBlock ->
-                    Err "box: inline-lambda backward pipeline body not ported"
-
                 _ ->
+                    -- Any inline body, including an inline lambda whose body
+                    -- starts on the `->` row (a `SoftIndentedBlock`): render the
+                    -- whole body flow and glue it after `<| ` (or, if forced
+                    -- vertical, drop it +4 under `seed <|`). Only an
+                    -- across-rows lambda (`IndentedBlock`, above) needs the
+                    -- head/body split.
                     buildBackwardBodyBox bodyNodes
                         |> Result.andThen
                             (\bodyBox ->
@@ -1866,13 +1869,17 @@ makeRecordUpdateVerticalBox baseName children =
                                     )
 
                         else
-                            -- Render the field's CHILDREN as a flow (`name =
-                            -- value`), NOT `makePBox` on the field node — a field
-                            -- whose value is a broken call is an `AcrossOrVertical`
-                            -- that `makePBox` would mis-render as a function
-                            -- application (breaking `= value`). A lambda field
-                            -- (IndentedBlock container) flows at +0 so its body
-                            -- block supplies the only +4; every other field +4.
+                            -- Build the field's `name = value` box exactly as the
+                            -- non-comment path does (`renderUpdateFieldBox`: a soft
+                            -- broken-call/binop value drops via `dropFieldValueBox`,
+                            -- everything else — single-line, `if`/`let`/`when`, or a
+                            -- lambda whose `\arg ->` head drops — renders via
+                            -- `makePBox`). The one exception is a comment WITHIN the
+                            -- field (`gamma = {- c -} 3`): `makePBox` can't place it,
+                            -- so that value flows through `buildFlowBox`, which drops
+                            -- it below `= `. Either way the resulting box has the
+                            -- `name =`-headed shape that the `| `/`, ` prefix pads
+                            -- correctly, so no field value is unrenderable here.
                             let
                                 fieldFlowIndent =
                                     when lpnBox node is
@@ -1883,14 +1890,14 @@ makeRecordUpdateVerticalBox baseName children =
                                             grenIndent
 
                                 fieldBoxResult =
-                                    if recordFieldValueDrops node then
-                                        dropFieldValueBox (lpnChildren node)
+                                    if fieldValueDropsToOwnLine node then
+                                        buildFlowBox fieldFlowIndent (lpnChildren node)
 
                                     else
-                                        buildFlowBox fieldFlowIndent (lpnChildren node)
+                                        renderUpdateFieldBox node
                             in
                             fieldBoxResult
-                                |> Result.andThen
+                                |> Result.map
                                     (\fieldBox ->
                                         let
                                             pref =
@@ -1900,21 +1907,9 @@ makeRecordUpdateVerticalBox baseName children =
                                                 else
                                                     B.row [ B.punc "|", B.space ]
                                         in
-                                        -- A multi-line field value that DROPS to its
-                                        -- own line composes with the `| `/`, ` prefix:
-                                        -- a comment-forced drop or block value (via
-                                        -- `buildFlowBox`), or a soft broken call/binop
-                                        -- that now drops via `dropFieldValueBox`
-                                        -- (`recordFieldValueDrops`) — the same
-                                        -- `name =` / value shape either way.
-                                        if isSingleLine fieldBox || fieldValueDropsToOwnLine node || recordFieldValueDrops node then
-                                            Ok
-                                                { lines = Array.pushLast (B.prefix pref fieldBox) acc.lines
-                                                , seenField = True
-                                                }
-
-                                        else
-                                            Err "box: multi-line field value in comment-bearing record update not ported"
+                                        { lines = Array.pushLast (B.prefix pref fieldBox) acc.lines
+                                        , seenField = True
+                                        }
                                     )
                     )
     in
@@ -4411,7 +4406,24 @@ assembleFlowImpl inlineStart flowIndent items =
                                                             Err "box: soft-glue of a multi-line item not ported"
 
                                                     _ ->
-                                                        Err "box: soft-glue of a multi-line item not ported"
+                                                        -- unreachable: to reach here an item must be a
+                                                        -- SoftSep (non-first, inline non-broken flow),
+                                                        -- multi-line, `UnclassifiedCarrying`, and NOT a
+                                                        -- `ParenBlock`. The only boxes that are both
+                                                        -- `LeafItem` (the `_ ->` in `factsFor`) and
+                                                        -- `UnclassifiedCarrying` are `IfCondition`,
+                                                        -- `WhenFlow`, and a raw `Binop` — none of which
+                                                        -- can occupy this slot: a raw `Binop` is never a
+                                                        -- flow sibling (`flattenBinopNodes` turns nested
+                                                        -- operators into `OpAndRhs`/`NestCarrying`), and a
+                                                        -- multi-line `when`/`if` operand only ever gets
+                                                        -- there by spanning source rows, which forces the
+                                                        -- binop vertical and routes it to the broken
+                                                        -- assembler (`assembleBrokenWithComments`), never
+                                                        -- this inline `SoftSep`. A `when`/`if` following an
+                                                        -- operator is wrapped `OpAndRhs` (`NestCarrying`,
+                                                        -- handled above), not a bare `SoftSep` item.
+                                                        Err "unreachable: multi-line non-paren unclassified soft-glue item"
 
                 FP.OwnLine ->
                     when B.isLine item.box is
@@ -4459,11 +4471,9 @@ assembleFlowImpl inlineStart flowIndent items =
 
                         FP.SoftIndentedRule ->
                             -- Soft wrap: flat content glues onto the current line
-                            -- with a space; multi-line content would soft-glue at
-                            -- +grenIndent (Phase 2). (`blankBefore` never
-                            -- accompanies a soft rule — the policy only sets it on
-                            -- the pipeline step's IndentedRule — so the glue paths
-                            -- ignore `rowsBefore`.)
+                            -- with a space. (`blankBefore` never accompanies a soft
+                            -- rule — the policy only sets it on the pipeline step's
+                            -- IndentedRule — so the glue paths ignore `rowsBefore`.)
                             when B.isLine item.box is
                                 Ok l ->
                                     if Array.isEmpty acc.curRow then
@@ -4473,7 +4483,22 @@ assembleFlowImpl inlineStart flowIndent items =
                                         Ok { rows = acc.rows, curRow = Array.pushLast l acc.curRow, state = decision.next }
 
                                 Err _ ->
-                                    Err "box: soft-glue of a multi-line soft block not ported"
+                                    -- A multi-line soft-block body (a lambda body
+                                    -- that started on the `->` row but wraps): drop
+                                    -- it to its own line at +grenIndent, like the
+                                    -- IndentedRule arm above. This matches elm-format
+                                    -- for a call/binop body; a triple-quoted `"""…"""`
+                                    -- body drops too (elm-format keeps that one inline
+                                    -- — a small divergence, but dropping every
+                                    -- multi-line lambda body uniformly is consistent
+                                    -- and always renders, whereas gluing the string
+                                    -- inline mis-aligns once the lambda is itself
+                                    -- nested in a paren/call).
+                                    Ok
+                                        { rows = Array.pushLast (applyIndent grenIndent item.box) (flushRow acc.curRow acc.rows)
+                                        , curRow = []
+                                        , state = decision.next
+                                        }
 
                 FP.DropBlock rule ->
                     -- The type-record drop: the record (with its paired leading

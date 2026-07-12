@@ -474,6 +474,12 @@ commentsSuite fsPerm =
             , assertPretty fsPerm "multi-line comment trailing a dropped record under a call glues onto its `}`" "CallRecordMultilineTrailingComment"
             , assertPretty fsPerm "multi-line comment trailing a list-body glues onto its `]`" "ListBodyMultilineTrailingComment"
             , assertPretty fsPerm "multi-line comment trailing a dropped type-record block glues onto its `}`" "TypeRecordMultilineTrailingComment"
+            -- Regression guards for the C/D/E stale-assumption fixes (previously
+            -- crashed with a `box: … not ported` Err).
+            , assertPretty fsPerm "an inline lambda body in a backward `<|` pipeline stays inline" "BackwardPipeInlineLambda"
+            , assertPretty fsPerm "an `if`/lambda-valued field in a comment-bearing record update renders (drops the block)" "RecordUpdateCommentBlockValue"
+            , assertPretty fsPerm "a multi-line call as an inline lambda body drops to its own line at +4" "LambdaMultilineCallBody"
+            , assertPretty fsPerm "a multi-line triple-quoted string as an inline lambda body drops to its own line" "LambdaMultilineStringBody"
             ]
         }
 

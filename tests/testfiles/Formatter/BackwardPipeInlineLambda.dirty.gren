@@ -1,0 +1,5 @@
+module M exposing (..)
+
+
+foo =
+    bar <| \x -> x + 1

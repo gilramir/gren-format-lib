@@ -1,0 +1,6 @@
+module M exposing (..)
+
+
+foo =
+    \x -> aaaaa bbbbb
+        ccccc ddddd

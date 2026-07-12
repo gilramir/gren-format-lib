@@ -1,0 +1,15 @@
+module M exposing (..)
+
+
+x r =
+    { r
+        | a = 1
+        , b =
+            if cond then
+                1
+
+            else
+                2
+        -- a comment on c
+        , c = 3
+    }
