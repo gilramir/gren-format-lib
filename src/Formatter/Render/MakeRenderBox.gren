@@ -2859,10 +2859,21 @@ parenGenericFallbackBox flags children =
                             -- A formatter-synthesized wrap (`checkContentVertical
                             -- = False`) around content a comment forced
                             -- multi-line: the Doc's inline arm is a plain
-                            -- `"(" <> inner <> ")"` — no align, `)` glued onto
-                            -- the inner's last line, continuation lines at the
-                            -- ambient column (= the box origin here).
-                            Ok (B.addSuffix (B.punc ")") (B.mapFirstLine (\l -> B.row [ B.punc "(", l ]) identity innerBox))
+                            -- `"(" <> inner <> ")"`, `)` glued onto the inner's
+                            -- last line. When the inner carries an `R.align`
+                            -- (a bracket literal / record — its continuation
+                            -- lines anchor at its own start column), the `(`
+                            -- width must ride along on every continuation line
+                            -- (`B.prefix`) so the inner's `,`/`}` stay under the
+                            -- opening bracket, not the `(`. Otherwise (a
+                            -- nest-carrying inner) the continuation lines belong
+                            -- at the ambient column, so only the first line gets
+                            -- the `(` (`B.mapFirstLine`).
+                            if parenInnerIsAlignCarrying children then
+                                Ok (B.addSuffix (B.punc ")") (B.prefix (B.punc "(") innerBox))
+
+                            else
+                                Ok (B.addSuffix (B.punc ")") (B.mapFirstLine (\l -> B.row [ B.punc "(", l ]) identity innerBox))
             )
 
 
@@ -3698,6 +3709,37 @@ type SoftGlueAlignment
     | UnclassifiedCarrying
 
 
+{-| True when a paren's content leads with an align-carrying node (a bracket
+literal / record / record update) — the shapes whose continuation lines anchor
+at their own start column, so wrapping them in `(` must pad every line (not just
+the first) to keep `,`/`}` under the opening bracket. Leading single-line block
+comments are skipped (they ride on the `(`-line). -}
+parenInnerIsAlignCarrying : Array LPNode -> Bool
+parenInnerIsAlignCarrying children =
+    when Array.popFirst children is
+        Just { first, rest } ->
+            when lpnBox first is
+                BlockComment _ ->
+                    parenInnerIsAlignCarrying rest
+
+                SingleLineComment _ ->
+                    parenInnerIsAlignCarrying rest
+
+                _ ->
+                    when softGlueAlignment first is
+                        AlignCarrying ->
+                            True
+
+                        AlignCarryingTabbed ->
+                            True
+
+                        _ ->
+                            False
+
+        Nothing ->
+            False
+
+
 softGlueAlignment : LPNode -> SoftGlueAlignment
 softGlueAlignment node =
     when lpnBox node is
@@ -4286,7 +4328,30 @@ assembleFlowImpl inlineStart flowIndent items =
                                                     }
 
                                             Nothing ->
-                                                Err "box: soft-glue of a multi-line item not ported"
+                                                -- A paren whose content is an
+                                                -- align-carrying literal (a
+                                                -- record-destructuring `as`
+                                                -- pattern, `({ … } as name)`):
+                                                -- the paren box already anchors
+                                                -- its continuation lines at its
+                                                -- own start column, so freeze its
+                                                -- `Tab`s and `B.prefix`-glue it
+                                                -- like any other align-carrying
+                                                -- item.
+                                                when lpnBox item.node is
+                                                    ParenBlock _ ->
+                                                        if parenInnerIsAlignCarrying (lpnChildren item.node) then
+                                                            Ok
+                                                                { rows = Array.pushLast (B.prefix prefLine (B.freezeTabs item.box)) acc.rows
+                                                                , curRow = []
+                                                                , state = decision.next
+                                                                }
+
+                                                        else
+                                                            Err "box: soft-glue of a multi-line item not ported"
+
+                                                    _ ->
+                                                        Err "box: soft-glue of a multi-line item not ported"
 
                 FP.OwnLine ->
                     when B.isLine item.box is
