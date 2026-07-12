@@ -28,6 +28,36 @@ the rules for building it correctly, how the tree turns back into text, a
 practical checklist for adding new syntax, and finally a list of the mistakes
 that are easy to make and expensive to find.
 
+## Table of contents
+
+- [The pipeline in one line](#the-pipeline-in-one-line)
+- [The modules](#the-modules)
+- [What the formatter consumes](#what-the-formatter-consumes)
+  - [The AST — `Compiler.Ast.Source.Module`](#the-ast--compilerastsourcemodule)
+  - [The comments — `Compiler.Parse.Context`](#the-comments--compilerparsecontext)
+- [The LPT — `Formatter.Logical.LogicalPrintingTree`](#the-lpt--formatterlogicallogicalprintingtree)
+  - [Boxes you will reach for](#boxes-you-will-reach-for)
+  - [`OriginalRows` and `SyntaxType` — the top level only](#originalrows-and-syntaxtype--the-top-level-only)
+  - [The cached bounds (why `lpnNode` matters)](#the-cached-bounds-why-lpnnode-matters)
+- [Author layout — the `forceVertical` flag](#author-layout--the-forcevertical-flag)
+- [`Formatter.Render.Box` — the backend](#formatterrenderbox--the-backend)
+  - [Why Box replaced Doc (and PrettyExpressive before it)](#why-box-replaced-doc-and-prettyexpressive-before-it)
+- [Adding a new construct — the checklist](#adding-a-new-construct--the-checklist)
+  - [1. Find the AST node](#1-find-the-ast-node)
+  - [2. Convert AST → LPT](#2-convert-ast--lpt)
+  - [3. Get positions right (the difficult part)](#3-get-positions-right-the-difficult-part)
+  - [4. Detect author layout intent](#4-detect-author-layout-intent)
+  - [5. Comments — usually nothing to do](#5-comments--usually-nothing-to-do)
+  - [6. Render it — `MakeRenderBox.makePrettyLineBox`](#6-render-it--makerenderboxmakeprettylinebox)
+  - [7. Blank lines (top-level only)](#7-blank-lines-top-level-only)
+- [Things to worry about](#things-to-worry-about)
+- [How to test](#how-to-test)
+- [Why the architecture is comment-driven — contrasted with elm-format](#why-the-architecture-is-comment-driven--contrasted-with-elm-format)
+  - [elm-format: comments live inside the AST](#elm-format-comments-live-inside-the-ast)
+  - [gren-format: comments are re-attached by position](#gren-format-comments-are-re-attached-by-position)
+  - [The tradeoff in one line](#the-tradeoff-in-one-line)
+- [Where to read more](#where-to-read-more)
+
 ---
 
 ## The pipeline in one line
@@ -157,15 +187,71 @@ skipping them yields wrong positions and mis-placed comments.
 
 ### Boxes you will reach for
 
+Every example below is real, formatted Gren — run through the actual CLI
+(`--show`) and checked for idempotency, not hand-typed. Where two snippets
+appear together, they're the same construct rendered two ways, to show what
+flips the box's shape.
+
 Leaves (carry text/position, no children):
 
 - `UnbreakableText (Located String)` — a real source token. Prints as-is, never
   breaks. **This is the common case** — most of your tokens are this.
+
+  ```gren
+  foo x y =
+      bar x y
+  ```
+
+  `foo`, `x`, `y`, and `bar` are each their own `UnbreakableText` leaf,
+  carrying the exact position the parser recorded for that token.
+
 - `SynthesizedText String` — punctuation/keywords the AST doesn't position
   (`=`, `->`, `in`, `(..)`). **Excluded from all row-range and comment math.**
+
+  ```gren
+  foo =
+      1
+  ```
+
+  The parser consumes `=` without giving it a position, so it becomes
+  `SynthesizedText "="` rather than `UnbreakableText`. That also means no
+  comment can ever attach to it — there's no position for `Comments` to
+  compare against.
+
 - `SingleLineComment` / `BlockComment` / `DocComment` (`Located String`) —
   inserted by `Formatter.Logical.Comments`, you rarely emit these yourself.
+
+  ```gren
+  module Comments exposing (foo)
+
+  {-| A doc comment. -}
+
+
+  -- a single-line comment
+  foo = {- a block comment -}
+      1
+  ```
+
+  All three come from `Compiler.Parse.Context`'s comment list and are spliced
+  into the tree by position after it's built (see [The comments —
+  `Compiler.Parse.Context`](#the-comments--compilerparsecontext)) — you build
+  the surrounding boxes correctly and these attach on their own.
+
 - `MultilineString (Located (Array String))`, `EmptyLine`, `RootBox`.
+
+  ```gren
+  foo =
+      """
+      line 1
+      line 2
+      """
+  ```
+
+  `MultilineString` carries one array element per content line and renders
+  each on its own hard-newline-separated line between the `"""` delimiters.
+  `EmptyLine` is the blank-line leaf `VerticalSpace` inserts between
+  declarations — you won't construct one directly. `RootBox` only ever
+  appears once, as the tree's own root.
 
 Layout boxes (have children):
 
@@ -175,19 +261,180 @@ Layout boxes (have children):
   without delimiters. The default for "a thing and its parts" (a function
   call, a variant + payload). When `forceVertical` is `True`, continuations
   always break — no flat option.
+
+  ```gren
+  foo x y =
+      bar x y
+  ```
+  ```gren
+  foo x y =
+      bar
+          x
+          y
+  ```
+
+  Same call, `forceVertical = False` then `True` — nothing but the author's
+  own row choice for `bar`'s arguments flips the flag.
+
 - `AllAcrossOrAllVertical ListBrackets` — bracketed list, all on one line *or*
   one item per line (`ListParen`/`ListCurly`/`ListSquare`). Vertical when any
   item boundary spans rows.
+
+  ```gren
+  foo =
+      [ 1, 2, 3 ]
+  ```
+
+  Written flat, it stays flat regardless of width — there's no page-width
+  logic anywhere that would wrap this onto multiple lines on its own.
+
 - `AlwaysVertical ListBrackets` — bracketed list that never collapses.
-- `IndentedBlock` / `BodyBlock` — a body on its own (indented) line, hard break.
-  `SoftIndentedBlock` is the soft variant that may stay inline (lambda bodies,
-  port payloads).
+
+  ```gren
+  foo =
+      [ 1
+      , 2
+      , 3
+      ]
+  ```
+
+  The author wrote this array across three rows, so it's built as
+  `AlwaysVertical` rather than `AllAcrossOrAllVertical` — once a list commits
+  to vertical, it stays one item per line even though it would easily fit on
+  one.
+
+- `IndentedBlock` / `BodyBlock` — a body on its own (indented) line, hard
+  break. `SoftIndentedBlock` is the soft variant that may stay inline (lambda
+  bodies, port payloads).
+
+  ```gren
+  foo x =
+      if x then
+          1
+
+      else
+          2
+  ```
+
+  The `if`/`else` bodies (`1` and `2`) are each an `IndentedBlock`: a hard
+  newline, indented +4 from `if`/`else`. The function body itself —
+  everything after `foo x =` — is a `BodyBlock`: a hard newline at the
+  *current* indent, no extra nesting, since the enclosing declaration already
+  supplies it.
+
+  ```gren
+  foo =
+      List.map (\x -> x + 1) list
+  ```
+
+  Here the lambda body `x + 1` is a `SoftIndentedBlock`: written on the same
+  row as `->`, it stays glued inline. Move the body to its own row and the
+  same lambda gets `IndentedBlock` instead — the same row-span check from
+  [Author layout](#author-layout--the-forcevertical-flag) decides which one.
+
 - `WhenBranch`, `IfCondition { forceVertical }`, `WhenFlow { forceVertical }`,
   `PipelineStep`, `ParenBlock`, `OpAndRhs`, `AlignedFlow`, `PrefixGlue`,
-  `RecordUpdate { forceVertical }`, `EmptyBracketed` — specialised shapes; read
-  their doc comments in `LogicalPrintingTree.gren` before reusing.
+  `RecordUpdate { forceVertical }`, `EmptyBracketed` — specialised shapes;
+  read their doc comments in `LogicalPrintingTree.gren` before reusing. One
+  concrete example each:
 
-See `README.md` for the rendered example of each.
+  - **`WhenFlow` / `WhenBranch`** — a whole `when … is` expression, and one of
+    its `pattern -> body` arms:
+
+    ```gren
+    foo x =
+        when x is
+            Just y ->
+                y
+
+            Nothing ->
+                0
+    ```
+
+  - **`IfCondition { forceVertical }`** — an `if`/`else if` condition.
+    Continuations indent +8 (double `IndentedBlock`'s +4), so a wrapped
+    condition is visually distinct from the branch body under it:
+
+    ```gren
+    foo a b =
+        if
+            a
+                && b
+        then
+            1
+
+        else
+            2
+    ```
+
+  - **`PipelineStep`** — one step of a `|>`/`<|` chain, indented +4 from the
+    seed, operator-led:
+
+    ```gren
+    foo xs =
+        xs
+            |> List.map inc
+            |> List.filter isEven
+    ```
+
+  - **`ParenBlock`** — a parenthesized expression; children render glued
+    directly onto `(`/`)` with no inner space. The lambda in the
+    `SoftIndentedBlock` example above is itself a `ParenBlock`:
+    `List.map (\x -> x + 1) list` — everything between `(` and `)` is its
+    children.
+
+  - **`OpAndRhs`** — one `op rhs` link of a non-pipeline binop chain:
+
+    ```gren
+    foo =
+        1 + 2 * 3
+    ```
+
+    This builds as `Binop [1, OpAndRhs(+, 2, OpAndRhs(*, 3))]` — the `+`'s
+    `OpAndRhs` nests a further `OpAndRhs` for `* 3` inside its own right-hand
+    side. That nesting is precedence, not left-to-right flattening: `2 * 3`
+    stays grouped together because `*` binds tighter than `+`.
+
+  - **`RecordUpdate { forceVertical }`** — `{ base | … }`, inline or exploded
+    the same way a record literal is:
+
+    ```gren
+    foo pt =
+        { pt | x = 1, y = 2 }
+    ```
+    ```gren
+    foo pt =
+        { pt
+            | x = 1
+            , y = 2
+        }
+    ```
+
+  - **`EmptyBracketed`** — an empty `{}` / `[]` / `()`, carrying its full span
+    so a comment written between the brackets (`[ {- c -} ]`) still has a
+    place in the tree to attach instead of falling out to a sibling:
+
+    ```gren
+    foo =
+        []
+    ```
+
+  - **`PrefixGlue`** — a prefix glued with no space to what follows (`-expr`,
+    `\pat -> …`). The lambda in the earlier examples is one: `\x -> x + 1`
+    glues `\` directly onto the pattern `x` via `PrefixGlue "\\"` — the same
+    box handles unary negation, as `PrefixGlue "-"`.
+
+  - **`AlignedFlow`** — worth naming honestly rather than faking an example
+    for: as of this writing, nothing in `InsertExpressions`/`MakeLogical`
+    actually constructs one, and `MakeRenderBox`'s dispatch for it is a stub
+    (`Err "box: construct not ported [AlignedFlow]"`). It's a real
+    constructor with some render-side scaffolding already in place, but it
+    isn't reachable from any current source — don't go looking for a live
+    example, and if you find yourself wanting this exact shape, expect to
+    build it out rather than reuse it.
+
+See `README.md` for the rendered example of each rule these boxes implement,
+in user-facing terms rather than internal ones.
 
 ### `OriginalRows` and `SyntaxType` — the top level only
 
