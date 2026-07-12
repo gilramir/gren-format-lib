@@ -77,7 +77,7 @@ census. That splits every `Err` into one of three buckets:
 | E | mlbc as nest-carrying first item (`#13`) | 1 | UNIMPLEMENTED — **cutover target = Box `+4`** (verified idempotent) | at cutover | yes |
 | F | Leading mlbc in inline-start flow (`#37`) | 1 | UNIMPLEMENTED — **cutover target = Box** (same as E; verified idempotent) | at cutover | yes |
 | G | Comment inside a multi-node signature type (`t61`) | 1 | **✅ LANDED (`43d6c3c`)** — was a conservative Err, not idempotency | done | yes |
-| H | Multi-line item in comment-bearing bracket list | 1 | UNIMPLEMENTED | hard* | yes |
+| H | Multi-line item in comment-bearing bracket list | 1 | UNIMPLEMENTED — **product decision made: adopt elm form (= Box's col 9) at cutover** | at cutover | yes |
 
 *Total 15. \*Class H may be re-scopable — see §H, gren currently **diverges from
 elm-format** there.*
@@ -463,7 +463,26 @@ naively."
 
 ---
 
-## H. Multi-line item in a comment-bearing bracket list — 1 — UNIMPLEMENTED (possibly re-scopable)
+## H. Multi-line item in a comment-bearing bracket list — 1 — UNIMPLEMENTED (product decision made)
+
+> **Decision (2026-07-11): adopt elm-format's form (branches at col 9, +4 from
+> `[`) — and Box *already produces it*.** Box uses `Tab`-based indent (like
+> elm-format), which anchors the `when`-branches to the array-element base →
+> col 9, **byte-identical to elm-format** (verified). The Doc uses fixed +4 from
+> the `[ `-pushed `when` column → col 11 (2 deeper), which is the divergence.
+> ```
+>   Doc (shipped)      Box = elm-format
+>   [ when x is        [ when x is
+>         True -> (11)     True -> (9)
+>             1                1
+> ```
+> So this "hard exact-space" Err is actually **Box already matching elm** — the
+> Err just flags Box-vs-Doc disagreement. Shipping col 9 **now** would need the
+> Doc to reproduce the Tab-snapped col 9 (the hard exact-space work, on a
+> to-be-deleted renderer) — not worth it. **At cutover: drop the Err, Box's col 9
+> (= elm) ships, regenerate the fixture.** No interim mismatch introduced now.
+
+_Original analysis, for the record:_
 
 **Fixture:** `WhenInCommentedArray` @4. **Err site:** line ~3159.
 
@@ -527,11 +546,19 @@ adopt elm-format's indent (then likely cheap).
 ### Bottom line
 Of the original 15: **A (1), B (4), D (1), and G (1) are now landed.** B and D
 were *unintentional divergences from elm-format*; A and G were *conservative
-Errs* (Box already matched Doc, just not wired up). **8 remain:** **4 genuine
-exact-space divergences (C)** and **2 nest-carrying mlbc cases (E, F)** — all
-deferred to after the Box cutover (E/F ship Box's form then; C is real work) —
-and **1 gated on a product decision (H)**. The self-verify guard already ships correct output for
-every one of them. The pattern worth noting: several "hard exact-space" Errs
-were misdiagnosed — the real issue was the Doc renderer quietly diverging from
-elm-format, which the Box (elm-aligned) correctly refused to reproduce. Class H
-is the remaining known case where gren's shipped output diverges from elm.
+Errs* (Box already matched Doc, just not wired up). **8 remain, all with a clear
+disposition — nothing is undecided:**
+- **C (4)** — genuine exact-space divergences; real work, **attack after the Box
+  cutover**.
+- **E, F (2) + `#13`** — nest-carrying mlbc; **Box's form ships at cutover**
+  (verified idempotent; elm explodes the head, not matched).
+- **H (1)** — **product decision made: adopt elm's form, which Box already
+  produces** (col 9); ships at cutover.
+
+The self-verify guard ships correct output for every one of them today. The
+pattern worth noting: **most of the "hard" frontier was misdiagnosed** — the real
+issue was the Doc renderer quietly diverging from elm-format (B, D, H) or a
+conservative Err (A, G), which the elm-aligned Box either already handles or will
+at cutover. The genuinely hard residual is just **C** (4 items) — the
+`Tab`-vs-prefix exact-space cases where the Doc compensates prefix widths by
+different arithmetic than Box.
