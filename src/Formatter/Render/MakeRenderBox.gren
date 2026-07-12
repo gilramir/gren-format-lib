@@ -523,7 +523,10 @@ commentNodeToBox node =
             Ok { box = B.line (B.literal (docCommentString loc.value)), row = loc.start.row, isLine = False }
 
         _ ->
-            Err "box: comment-line node not ported"
+            -- unreachable: this function only ever runs on children of a
+            -- comment-tagged OriginalRows, which Comments.gren/MakeLogical.gren
+            -- always build as SingleLineComment, BlockComment, or DocComment.
+            Err "unreachable: comment-line node"
 
 
 {-| Render one comment child of an otherwise-empty bracket (`{ {- c -} }`) as a
@@ -856,7 +859,9 @@ makePipelineBox forceVertical op children =
         makeBackwardPipelineBox forceVertical children
 
     else if op /= "|>" then
-        Err "box: unknown pipeline operator not ported"
+        -- unreachable: Pipeline.op is only ever constructed as "|>" or "<|"
+        -- (InsertExpressions.gren), and "<|" is handled by the branch above.
+        Err "unreachable: pipeline operator"
 
     else if Array.any subtreeHasComment children then
         -- Comment-bearing forward pipeline: route through the generic fold —
@@ -1939,7 +1944,9 @@ makeWhenBranchBox children =
                         (makePBox (lpnBox bodyNode) (lpnChildren bodyNode))
 
                 _ ->
-                    Err "box: when-branch shape not ported (pattern + body only)"
+                    -- unreachable: a WhenBranch node is always built with exactly
+                    -- two children (pattern, body) by folderInsertWhenBranch.
+                    Err "unreachable: when-branch shape"
 
         Nothing ->
             Err "box: empty when-branch"
@@ -1994,7 +2001,12 @@ renderWhenBranchesBox children =
                                 }
 
                         Nothing ->
-                            Err "box: comment before first when-branch not ported"
+                            -- unreachable: lastRow only ever becomes >= 0 in the
+                            -- same fold step that pushes onto boxes (the
+                            -- WhenBranch arm below), so boxes being empty here
+                            -- implies lastRow == -1 — contradicting the guard
+                            -- above that required lastRow >= 0 to reach this arm.
+                            Err "unreachable: comment before first when-branch"
 
             else
                 -- Own line: this comment leads the next branch.
@@ -2308,7 +2320,11 @@ makeSignatureBox children =
                                                 )
 
                                     Err _ ->
-                                        Err "box: multi-line header in comment-bearing signature not ported"
+                                        -- unreachable: colonSplit.header is always
+                                        -- exactly [name, colon], two single-row
+                                        -- leaves, so buildFlowBox can never return
+                                        -- a multi-line headerBox here.
+                                        Err "unreachable: multi-line signature header"
                             )
 
                 _ ->
@@ -2498,7 +2514,11 @@ makeExposingListBox forceVertical children =
             (\itemBoxes ->
                 when B.allSingles itemBoxes is
                     Err _ ->
-                        Err "box: multi-line exposing item not ported"
+                        -- unreachable: every exposed item is built as a single
+                        -- UnbreakableText leaf (MakeLogical.gren's processExposed),
+                        -- so itemBoxes are always single-line and B.allSingles
+                        -- can never fail here.
+                        Err "unreachable: multi-line exposing item"
 
                     Ok itemLines ->
                         if Array.isEmpty itemLines then
@@ -2613,7 +2633,10 @@ makePBox box children =
                                 )
 
                 Nothing ->
-                    Err "box: empty bracket kind not ported"
+                    -- unreachable: ListBrackets has exactly 3 constructors
+                    -- (ListParen/ListCurly/ListSquare); bracketPunc matches
+                    -- all of them and always returns Just.
+                    Err "unreachable: bracket kind"
 
         Binop { forceVertical } ->
             makeBinopBox forceVertical children
@@ -2671,7 +2694,10 @@ makePBox box children =
             Err "box: construct not ported [BlockComment]"
 
         DocComment _ ->
-            Err "box: construct not ported [DocComment]"
+            -- unreachable: a DocComment is only ever the sole child of its own
+            -- OriginalRows (MakeLogical.gren), dispatched through
+            -- makeCommentLineBox / commentNodeToBox — never through makePBox.
+            Err "unreachable: DocComment never reaches makePBox"
 
         PipelineStep ->
             -- A `|> step` inside the generic fold (a comment-bearing pipeline
@@ -2682,10 +2708,17 @@ makePBox box children =
             renderPipelineStepChildren children
 
         AlignedFlow ->
-            Err "box: construct not ported [AlignedFlow]"
+            -- unreachable: no code path in InsertExpressions/InsertPatterns/
+            -- InsertTypes/MakeLogical ever constructs an AlignedFlow box —
+            -- it's a defined-but-unused LPBox constructor.
+            Err "unreachable: AlignedFlow is never constructed"
 
         _ ->
-            Err "box: construct not ported [other]"
+            -- unreachable: every LPBox constructor other than RootBox/
+            -- OriginalRows is matched explicitly above. RootBox is the
+            -- singular tree root and OriginalRows is always a direct child
+            -- of RootBox — neither is ever passed to makePBox as a child.
+            Err "unreachable: construct never reaches makePBox"
 
 
 {-| Render a `Glue`: children concatenated with no separator — a postfix accessor
@@ -2716,7 +2749,11 @@ makeGlueBox children =
                                                                 Ok (B.addSuffix l acc)
 
                                                             Err _ ->
-                                                                Err "box: multi-line glue suffix not ported"
+                                                                -- unreachable: every non-base Glue child is
+                                                                -- a freshly built plain-text ".field" leaf
+                                                                -- (InsertExpressions.gren's insertAccess),
+                                                                -- always single-line.
+                                                                Err "unreachable: multi-line glue suffix"
                                                     )
                                         )
                             )
@@ -3087,7 +3124,10 @@ makeLiteralBox forceMultiline bracket children =
                             Ok (E.groupBox True left "," right forceMultiline itemBoxes)
 
                         Nothing ->
-                            Err "box: bracket kind not ported"
+                            -- unreachable: ListBrackets has exactly 3 constructors
+                            -- (ListParen/ListCurly/ListSquare); bracketPunc matches
+                            -- all of them and always returns Just.
+                            Err "unreachable: bracket kind"
                 )
 
 
@@ -3121,7 +3161,10 @@ commentBracketListBox : ListBrackets -> Array LPNode -> Result String Box
 commentBracketListBox bracket nodes =
     when bracketPunc bracket is
         Nothing ->
-            Err "box: bracket kind not ported"
+            -- unreachable: ListBrackets has exactly 3 constructors
+            -- (ListParen/ListCurly/ListSquare); bracketPunc matches
+            -- all of them and always returns Just.
+            Err "unreachable: bracket kind"
 
         Just { left, right } ->
             let
