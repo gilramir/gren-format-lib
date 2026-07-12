@@ -2664,13 +2664,52 @@ decision and why.
     `{- … -}` block comments and `--` line comments too — their text is always
     preserved verbatim.)
 
+17. **A comment written after code stays on that line; elm-format floats it
+    away — keep as is.** When you put a comment after the last code on a line —
+    after a value, or after the closing `]`/`}` of a list or record — gren-format
+    keeps it right there beside the code:
+
+    ```gren
+    x =
+        1 {- note -}
+    ```
+
+    ```gren
+    x =
+        [ 1
+        , 2
+        ] {- the list -}
+    ```
+
+    elm-format instead moves every such comment down and turns it into a
+    separate comment below the whole definition, set off by blank lines:
+
+    ```gren
+    x =
+        [ 1
+        , 2
+        ]
+
+
+
+    {- the list -}
+    ```
+
+    gren-format keeps the comment next to the code it was written beside, which
+    is where it is most useful — the same reasoning as point 1. This holds
+    wherever a comment follows code: after a value, after a variant of a custom
+    type, after a step of a `|>`/`<|` pipeline, and after the closing bracket of
+    a list or record — whether that list or record is the whole definition or an
+    argument to a call. If you write two or more comments in a row at the same
+    spot, they all stay on that line together. (The dropped-type-record case in
+    point 12 — `} {- c -}` — is one instance of this same rule.)
+
 #### Minor/cosmetic — not acted on
 
-- A handful of comment-attachment micro-differences around pipeline steps,
-  binop operands, and lambda arrows/`in` — elm-format sometimes pushes a
-  trailing comment to its own line where gren-format keeps it inline, or vice
-  versa. These are construct-specific and would need one-off matching rather
-  than a single rule; left as is for now.
+- Beyond the systematic trailing-comment difference in point 17, a few
+  comment-attachment micro-differences remain around pipeline steps, binop
+  operands, and lambda arrows/`in` — small enough that they would need one-off
+  matching rather than a single rule; left as is for now.
 
 #### Out of scope for comparison
 
