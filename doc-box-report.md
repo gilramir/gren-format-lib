@@ -35,10 +35,34 @@ bug list.*
 > byte-identical to elm), plus **E/#13**, **F/#37**, and **H** (all now ship
 > Box's form). A latent Box bug the strict guard had masked surfaced via the
 > idempotency fuzzer and was fixed (a paren-`if`/`when` was mis-split as a lambda,
-> dropping its later branches — now gated by `parenContentIsLambdaHead`). **Only
-> C2 remains (2 Errs — RecordUpdate/AlignedFlow Tab-snap), on the Doc fallback.**
-> Next: land C2, then delete Doc + the guard (full cutover). Gates green
-> (effectful 142/142, fuzzers 0).
+> dropping its later branches — now gated by `parenContentIsLambdaHead`).
+>
+> **C2 CASE 1 LANDED (`dff30f6`): `Box.freezeTabs`.** The RecordUpdate/AlignedFlow
+> Tab-snap is fixed — a soft-glued Tab-indented item is now frozen to literal
+> spaces before the `B.prefix` glue (new `AlignCarryingTabbed` class), so the
+> prefix's exact-width shift survives instead of the tab stops re-snapping.
+> Clears `MultilineBlockComments` @72 (`#12` extension record). **1 Box `Err`
+> remains: C2 case 2, `KitchenComments` @304 — a paren `({ … } as name)`
+> record-destructuring pattern with interleaved comments, soft-glued in a
+> function header.**
+>
+> **C2 case 2 is BLOCKED on an unexplained CLI↔library divergence.** A working
+> fix was written (pad the paren's inline-fallback so the record's continuations
+> ride under `{`, plus place the paren via freeze+prefix in the header soft-glue
+> arm) and it makes the CLI (`gren-format --show`) render `KitchenComments`
+> byte-perfectly *and idempotently* (exit 0). But the effectful **idempotency
+> test fails**: the library `Formatter.prettyPrint` (same code, same parser, same
+> input bytes) splits a trailing comment (`{-c89-}`) onto its own line where the
+> CLI keeps it glued. Verified the two compiled apps are byte-identical across
+> every `gren-format-lib` + `compiler-common` + `core` function, the parser
+> caches (gren 0.6.5/0.6.6) are identical, and the fixture bytes are clean ASCII —
+> yet the two builds deterministically disagree on this one construct. Root cause
+> unknown (candidate: the `Array.get -1` negative-index class the fuzzer-only
+> comment-shift bugs live in). The fix was **reverted** to keep gates green; do
+> not re-land it until the divergence is understood.
+>
+> Next: root-cause the C2-case-2 divergence, then land it → 0 Errs → delete Doc +
+> the guard (full cutover). Gates green (effectful 142/142, fuzzers 0).
 
 ---
 
@@ -84,7 +108,7 @@ census. That splits every `Err` into one of three buckets:
 | A | No-trigger multi-line pipeline step | 1 | **CONSERVATIVE — ✅ LANDED (`a08e85b`)** | done | yes |
 | B | Record-update field w/ soft multi-line value | 4 | **✅ LANDED (`e8fd6c9`)** — was a Doc divergence from elm | done | yes |
 | C1 | Direct-operand lambda glue `\|> (\x -> …)` | 2 | GENUINE | hard — **attack after Box cutover** | yes |
-| C2 | Soft-glue of RecordUpdate/AlignedFlow item | 3 | GENUINE | hard — **attack after Box cutover** | yes |
+| C2 | Soft-glue of RecordUpdate/AlignedFlow item | 3 | case 1 **✅ LANDED (`dff30f6`, `freezeTabs`)**; case 2 **BLOCKED** on CLI↔library divergence | mixed | yes |
 | D | Verbatim (opener-alone) block comment | 1 | **✅ LANDED (`aafdf01`)** — was a Doc divergence from elm | done | yes |
 | E | mlbc as nest-carrying first item (`#13`) | 1 | UNIMPLEMENTED — **cutover target = Box `+4`** (verified idempotent) | at cutover | yes |
 | F | Leading mlbc in inline-start flow (`#37`) | 1 | UNIMPLEMENTED — **cutover target = Box** (same as E; verified idempotent) | at cutover | yes |
