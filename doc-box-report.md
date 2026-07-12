@@ -1,8 +1,14 @@
 # Report: the 15 remaining Box `Err` constructs
 
-*A snapshot analysis (HEAD `16deb41`) of the declarations the Box renderer still
-cannot render, why, and what fixing each would cost. All ship correct output via
-the Doc fallback today — this is cutover-completion analysis, not a bug list.*
+*A snapshot analysis (originally HEAD `16deb41`) of the declarations the Box
+renderer still cannot render, why, and what fixing each would cost. All ship
+correct output via the Doc fallback — this is cutover-completion analysis, not a
+bug list.*
+
+> **Update (`a08e85b`): Class A landed.** The recommended cheap win below was
+> taken — no-trigger multi-line pipeline steps now render via Box. The corpus is
+> **14 `Err`s** as of that commit (was 15). The Class A section is kept below for
+> the record, marked LANDED.
 
 ---
 
@@ -45,7 +51,7 @@ census. That splits every `Err` into one of three buckets:
 
 | # | Class | Count | Bucket | Fix cost | Ships correct today? |
 |---|---|---|---|---|---|
-| A | No-trigger multi-line pipeline step | 1 | **CONSERVATIVE** | **trivial (1 line)** | yes |
+| A | No-trigger multi-line pipeline step | 1 | **CONSERVATIVE — ✅ LANDED (`a08e85b`)** | done | yes |
 | B | Record-update field w/ soft multi-line value | 4 | GENUINE | medium–hard | yes |
 | C1 | Direct-operand lambda glue `\|> (\x -> …)` | 2 | GENUINE | hard | yes |
 | C2 | Soft-glue of RecordUpdate/AlignedFlow item | 3 | GENUINE | hard | yes |
@@ -63,10 +69,11 @@ comment-idempotency work with no shortcut.
 
 ---
 
-## A. No-trigger multi-line pipeline step — 1 — **CONSERVATIVE (cheap win)**
+## A. No-trigger multi-line pipeline step — 1 — **CONSERVATIVE — ✅ LANDED (`a08e85b`)**
 
-**Fixture:** `MultilineBlockComments` @215 (`pipeline`). **Err site:**
-`MakeRenderBox.stepBodyBox`, line ~1183.
+**Fixture:** `MultilineBlockComments` @215 (`pipeline`); dedicated
+`PipelineNoTriggerStep` fixture added. **Err site (removed):**
+`MakeRenderBox.stepBodyBox`, no-trigger arm.
 
 **Shipped output (Doc):**
 ```gren
@@ -90,9 +97,10 @@ instead of the box it already computed.
 **Probe result:** changing that `Err` to `Ok box` drops the corpus from **15 →
 14 `Err`s with 0 new mismatches**. `@215` flips to `ok`.
 
-**Work to fix:** one line — replace the `Err` with `Ok box`. Safe under the
-normal guard (mismatches would fall back anyway) *and* under trust-Box (census
-showed 0 mismatch corpus-wide). **Recommend doing this.**
+**Work to fix:** ✅ done in `a08e85b` — the no-trigger arm collapsed to
+`buildFlowBox grenIndent children`. Full trust-Box drill green (effectful
+142/142, fuzzers 0); corpus 15 → 14 `Err`s, 0 mismatches. A dedicated
+`PipelineNoTriggerStep` fixture pins it (its decls now census `ok` via Box).
 
 ---
 
@@ -372,9 +380,9 @@ adopt elm-format's indent (then likely cheap).
    confirm it's hard.
 
 ### Bottom line
-Of the 15: **1 is a free win (A)**, **8 are genuine exact-space divergences
-(B, C)**, **5 are comment-position/idempotency work (D, E, F, G)**, and **1 is
-gated on a product decision (H)**. The self-verify guard already ships correct
-output for every one of them, so none of this is required — it is purely
-cutover-completion work with no user-facing payoff beyond eventually deleting
-the Doc renderer.
+Of the original 15: **1 was a free win (A) — now landed**, leaving **14**:
+**8 genuine exact-space divergences (B, C)**, **5 comment-position/idempotency
+work (D, E, F, G)**, and **1 gated on a product decision (H)**. The self-verify
+guard already ships correct output for every one of them, so none of the
+remaining 14 is required — it is purely cutover-completion work with no
+user-facing payoff beyond eventually deleting the Doc renderer.
