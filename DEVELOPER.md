@@ -9,6 +9,25 @@ comment-faithful.
 Read this once for the mental model, then keep `README.md` (the authoritative,
 example-driven description of *what every rule does*) open while you work.
 
+One decision explains most of what follows: **gren-format reuses the
+production Gren compiler's parser, and that parser throws comments away.**
+Comments come back as a separate list of positions, re-attached to the
+formatter's own tree after the fact — and nearly everything below (the
+Logical Printing Tree, its position caches, the `Comments` pass, the
+idempotency fuzzer, the `forceVertical`-stability rule) exists because
+re-attaching something by position, after the fact, is harder to get right
+than never losing it in the first place. [Why the architecture is
+comment-driven](#why-the-architecture-is-comment-driven--contrasted-with-elm-format)
+makes that comparison explicit against elm-format, which took the opposite
+approach — it's dense but worth reading in full once, even placed near the
+end here.
+
+The sections below go roughly in this order: how source text becomes a tree
+(the pipeline and the modules that build it), what that tree looks like and
+the rules for building it correctly, how the tree turns back into text, a
+practical checklist for adding new syntax, and finally a list of the mistakes
+that are easy to make and expensive to find.
+
 ---
 
 ## The pipeline in one line
@@ -243,17 +262,131 @@ line up correctly no matter what column it starts rendering at. `freezeTabs`
 rewrites a box's `Tab`s to literal spaces so it can be `prefix`-glued
 somewhere the tab-stop arithmetic would otherwise re-snap incorrectly.
 
-Key functions, mirroring `Box.hs`:
+Key functions, mirroring `Box.hs`. Each one is small enough to show what it
+does directly — build the left side, and `B.render` turns it into the string
+on the right:
 
-- `B.line l` — wrap one `Line` as a `SingleLine` box
+- `B.line l` — wrap one `Line` as a `SingleLine` box.
+
+  ```gren
+  B.line (B.row [ B.keyword "let", B.space, B.identifier "x" ])
+  ```
+  ```
+  let x
+  ```
+
 - `B.mustBreak l` — wrap one `Line` as a `MustBreakBox` (a `--` comment: it
-  must own its line, no matter what glues around it)
-- `B.stack1 boxes` — stack 2+ boxes into one multi-line `Box`
-- `B.indent box` — prepend a `Tab` to every line
-- `B.prefix pref box` — glue `pref` onto line 1, pad the rest
-- `B.addSuffix suffix box` — append to the *last* line only
-- `B.freezeTabs box` — see above
-- `B.render box` — the final `String`, right-trimmed line by line
+  must own its line, no matter what glues around it). It renders identically
+  to `B.line`; the difference only matters one layer up, in `FlowPolicy`,
+  which refuses to glue anything after a `MustBreakBox` onto the same line.
+
+  ```gren
+  B.mustBreak (B.literal "-- keep on one line")
+  ```
+  ```
+  -- keep on one line
+  ```
+
+- `B.stack1 boxes` — stack 2+ boxes into one multi-line `Box`.
+
+  ```gren
+  B.stack1
+      [ B.line (B.identifier "one")
+      , B.line (B.identifier "two")
+      , B.line (B.identifier "three")
+      ]
+  ```
+  ```
+  one
+  two
+  three
+  ```
+
+- `B.indent box` — prepend a `Tab` to every line. A `Tab` advances to the next
+  multiple of 4, so from column 0 that's a plain 4-space indent:
+
+  ```gren
+  B.indent
+      (B.stack1
+          [ B.line (B.identifier "one")
+          , B.line (B.identifier "two")
+          ]
+      )
+  ```
+  ```
+      one
+      two
+  ```
+
+- `B.prefix pref box` — glue `pref` onto line 1, pad the rest by `pref`'s
+  exact character width. This is the primitive that makes a broken binop's
+  continuation line land under the *value*, not under the `=`:
+
+  ```gren
+  B.prefix (B.literal "x = ")
+      (B.stack1
+          [ B.line (B.identifier "1")
+          , B.line (B.row [ B.punc "+", B.space, B.identifier "2" ])
+          ]
+      )
+  ```
+  ```
+  x = 1
+      + 2
+  ```
+
+- `B.addSuffix suffix box` — append to the *last* line only, however many
+  lines the box has:
+
+  ```gren
+  B.addSuffix (B.literal ",")
+      (B.stack1
+          [ B.line (B.identifier "1")
+          , B.line (B.row [ B.punc "+", B.space, B.identifier "2" ])
+          ]
+      )
+  ```
+  ```
+  1
+  + 2,
+  ```
+
+- `B.freezeTabs box` — bake every `Tab` in `box` into the literal spaces it
+  would render to *right now*, at its current column-0-anchored position. The
+  rendered string doesn't change yet, but a `Tab` that used to recompute its
+  width from wherever it lands is now a fixed number of spaces — which only
+  matters once you `prefix` the box onto something else. Compare the same
+  indented box glued to a 2-character label, with and without freezing first:
+
+  ```gren
+  B.prefix (B.literal "x:") (B.indent (B.line (B.identifier "a")))
+  ```
+  ```
+  x:  a
+  ```
+
+  ```gren
+  B.prefix (B.literal "x:") (B.freezeTabs (B.indent (B.line (B.identifier "a"))))
+  ```
+  ```
+  x:    a
+  ```
+
+  Without freezing, the `Tab` re-snaps to the next multiple of 4 measured
+  *from column 2* (the end of `"x:"`) — only 2 spaces, visibly squeezing a gap
+  that was 4 spaces wide when the box rendered on its own. Freezing first
+  locks that 4-space gap in as literal spaces before the prefix ever touches
+  it.
+
+- `B.render box` — the final `String`, right-trimmed line by line. Trailing
+  whitespace inside a `Box` never survives to the output:
+
+  ```gren
+  B.render (B.line (B.row [ B.identifier "x", B.space ]))
+  ```
+  ```
+  x
+  ```
 
 There is no `Group`, no `nl`/`breakDoc`, and nothing to "render flat and see
 if it fits." The flat-vs-vertical decision is made once, upstream of this
@@ -287,7 +420,9 @@ machinery that turned out to be solving a problem gren-format doesn't have.
 
 **1. PrettyExpressive → a custom `Doc` (June 2026).** The formatter originally
 rendered through `gilramir/gren-pretty-expressive` (kept for reference at
-`../gren-pretty-expressive/`), a Wadler/Prettier-style pretty-printer with a
+`../gren-pretty-expressive/`) — a Wadler/Prettier-style pretty-printer (the
+family of formatters, including JavaScript's Prettier, that lay out code by
+searching for the best line-break points within a page-width budget) with a
 genuine cost-based layout *optimizer*: given a page width, it searched for the
 best place to break each group. But gren-format's actual rule is "your line
 breaks are your layout decisions" — there is no 80-column target to optimize
@@ -316,9 +451,11 @@ byte-identical to real `elm-format` output on every case tried, including the
 lambda-field case, **with zero hand-tuned column arithmetic** — because it
 uses elm-format's own primitives (`Tab` tab-stops, `prefix` padding) rather
 than approximating them. That result justified a full rewrite: a "strangler
-fig" migration ported one construct at a time behind a self-verifying guard
-that compared `Box` output against the live `Doc` output and only trusted
-`Box` where they agreed (see the many `Change-1 strangler tranche N` commits).
+fig" migration — replace the old implementation piece by piece behind a
+safety net, rather than in one big-bang rewrite — ported one construct at a
+time behind a self-verifying guard that compared `Box` output against the
+live `Doc` output and only trusted `Box` where they agreed (see the many
+`Change-1 strangler tranche N` commits).
 Once every construct crossed over with 0 `Box` `Err`s across the whole corpus,
 `fa25ba0` deleted `Doc.gren` and the guard — `Box` has been the sole backend
 since.
@@ -337,7 +474,49 @@ can now describe our render-time behavior and elm-format's in the same terms.
 ## Adding a new construct — the checklist
 
 Most new syntax is "build some boxes in a flow," and the existing comment and
-blank-line machinery just works. Go in this order.
+blank-line machinery just works. Before the general checklist, here's what
+that looks like end to end for one example — hypothetical and simplified for
+teaching, but shaped exactly like real work you'd do. Imagine Gren grows an
+`unless` expression, `unless cond then body`, formatted like a single-branch
+`if` with no `else`:
+
+- **The AST node.** The parser hands you a new `Src.Expr` constructor,
+  `Src.Unless { cond : Src.Expr, body : Src.Expr }`. It records real positions
+  for `cond` and `body` (they're full sub-expressions) but not for the
+  `unless` or `then` keywords — those are tokens the parser matched and threw
+  away, same as `if`/`then` today.
+- **AST → LPT.** This is an expression, so it goes through
+  `InsertExpressions.insertExpression`: match the new constructor, recurse into
+  `cond` and `body` with `insertExpression` itself, and assemble `unless`, the
+  condition, `then`, and the body into a flow — the same shape the real
+  `if`/`then` handling already builds.
+- **Positions.** `cond` and `body` come with honest positions from the AST, so
+  emit them and trust those. `unless` has no parser position, but no comment
+  could ever legitimately precede it either — it's the first token of the
+  expression — so it's a plain `SynthesizedText`. `then` is the interesting
+  one: a comment *could* appear between the condition and `then`, or between
+  `then` and the body — exactly the hazard the real `ThenElseBoundaryComment`
+  fixture exists for on `if`. So `then` needs `mkZeroWidthText`, anchored at
+  the end of `cond` (a real, stable position) rather than at some column of
+  its own.
+- **Author layout.** Does `unless`'s body ever start on a row after `unless`
+  itself, in real source? If so, mirror `if`: `forceVertical = True` when the
+  body's row differs from `unless`'s row.
+- **Comments.** Nothing extra to write. Emitting `cond`/`then`/`body` as
+  ordinary flow items means `Formatter.Logical.Comments` re-attaches boundary
+  comments correctly on its own — *provided* the `then` position above is
+  honest.
+- **Render.** Add an arm to `MakeRenderBox.makePrettyLineBox` for the new
+  shape, or — more likely — reuse whichever box already renders `if`'s
+  condition/body pairing, since `unless` is structurally identical minus a
+  branch.
+- **Blank lines.** Not applicable here: `unless` is an expression, not a
+  top-level declaration, so `VerticalSpace` never sees it.
+
+The checklist below generalizes each of those steps into the general case; use
+the worked example above to see what each step concretely produces, then come
+back to the checklist itself as the reference for your next addition. Go in
+this order.
 
 ### 1. Find the AST node
 Locate the new constructor in `compiler-common`'s `Compiler.Ast.Source` and
@@ -429,29 +608,63 @@ declaration (1)? Adjust `tagGroupStarts` if needed.
 
 ## Things to worry about
 
-- **Always construct via `lpnLeaf`/`lpnNode`/`lpnBracketNode`.** Raw record
-  syntax skips the position caches.
-- **`SynthesizedText` for anything position-less that a comment must not cling
-  to.** If a comment *could* legitimately sit beside it, use `mkZeroWidthText`
-  with a carefully chosen anchor instead.
-- **Idempotency is a hard requirement.** `format (format x) == format x`,
-  including every comment position and blank line. Trailing comments and
-  discarded closing brackets are the usual ways to break it.
-- **Whitespace-canonicalization is the stronger goal.** Output should depend on
-  the code's *meaning*, not its incoming whitespace — with the one deliberate
-  exception that the author's flat-vs-vertical choice is preserved. Two programs
-  that differ only in incidental whitespace (extra spaces, blank lines) but make
-  the same flat-vs-vertical structural choice must format identically.
-- **Beware doubled hard breaks.** Some comment renderers already append a
-  `hardNl`; wrapping their result in another can wedge the layout. Check the
-  helper before adding a newline around it.
-- **Two-pass thinking.** Positions affect *attachment* (which comment goes where)
-  *before* they affect *rendering*. A bug that looks like "renders wrong" is
-  often "attached wrong" upstream — inspect the LPT first (`--lpt`).
-- **`forceVertical` must be stable.** The flag is computed from source positions.
-  After formatting, those positions change. Make sure the re-parsed positions
-  produce the same `forceVertical` value — otherwise format→reparse→format
-  changes the layout (non-idempotent). The idempotency fuzzer will catch this.
+These mistakes are easy to make and expensive to find, because most of them
+pass a first read of the diff cleanly. They surface later — as a
+`fuzz-idempotency.py` gap, as a reformat that quietly reindents someone's
+comment, or as a bug report that a file changed on the *second* run of
+`gren format`, not the first.
+
+**Construction and positions**
+
+- **Always construct nodes via `lpnLeaf` / `lpnNode` / `lpnBracketNode`, never
+  raw record syntax.** These are the smart constructors that compute the
+  position caches (`firstPos`/`lastPos`/`minRow`/`maxRow`) bottom-up from a
+  node's children — the same caches `Comments` uses to decide what's near what
+  in the LPT (Logical Printing Tree, the intermediate structure between the
+  AST and the rendered text). Build a node by hand instead and those caches
+  come back wrong silently: no type error, just a comment that lands next to
+  the wrong token, or a declaration reporting the wrong source-row range.
+- **Use `SynthesizedText` for anything position-less that a comment must never
+  attach to** — a generated `=`, `->`, `in`. If a comment *could* legitimately
+  sit beside that token in real source (`exposing`, an `as` alias), reach for
+  `mkZeroWidthText` instead, anchored carefully (see step 3 of the checklist
+  above for how to pick the anchor). Get this wrong and a comment either
+  attaches to a token that was never really there, or fails to attach at all.
+
+**Idempotency and canonicalization**
+
+- **Idempotency is a hard requirement, not an aspiration:**
+  `format (format x) == format x`, down to every comment position and blank
+  line. The two usual ways to break it are a trailing comment that renders at
+  a different indent on the second pass, and a discarded closing bracket that
+  lets a comment escape its container. `fuzz-idempotency.py` exists
+  specifically to catch this class before a user does.
+- **Whitespace-canonicalization is the stronger sibling goal:** output should
+  depend on the code's *meaning*, not on incidental whitespace in the input —
+  the one deliberate exception being the author's own flat-vs-vertical choice,
+  which the formatter does preserve. Two inputs differing only in extra spaces
+  or blank lines, but making the same structural choice, must format
+  identically. `fuzz-whitespace.py` is the check for this.
+- **`forceVertical` must be stable across a reformat.** It's computed from
+  source row positions, and formatting itself changes those positions
+  (indentation shifts, blank lines get inserted). If the *re-parsed* positions
+  would compute a different `forceVertical` than the original pass did,
+  format→reparse→format changes the layout — non-idempotent by definition.
+  The idempotency fuzzer catches this too, but it's worth checking by hand
+  whenever you add a new multiline-detection rule.
+
+**Debugging mindset**
+
+- **Think in two passes: attachment, then rendering.** A comment's position
+  decides *where it attaches* before anything decides how it's drawn. A bug
+  that looks like "this renders in the wrong place" is very often "this
+  attached to the wrong node," one layer up. Reach for `--lpt` before you go
+  looking in the renderer — it shows exactly which node a comment ended up
+  under.
+- **Watch for doubled hard breaks.** Some comment renderers already append a
+  trailing `hardNl` internally; wrapping their result in another can wedge the
+  layout. Check what the helper you're calling already does before adding a
+  newline around its result.
 
 ---
 
