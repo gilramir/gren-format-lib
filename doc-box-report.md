@@ -27,6 +27,18 @@ bug list.*
 > output here equals Doc's). It was a conservative Err; routing the multi-node
 > case through the generic comment-flow clears it. **Corpus now 8 `Err`s, 0
 > mismatches.**
+>
+> **PARTIAL CUTOVER (`67ec5a4`): Box is now the primary renderer.** The guard is
+> flipped to *trust-Box* — `makePrettyLine` ships Box's output wherever it renders
+> (`Ok`); Doc is only the fallback for the constructs Box still `Err`s on. Landed
+> together: **C1** (direct-operand `)` alignment — new `directOperandLambdaSplit`,
+> byte-identical to elm), plus **E/#13**, **F/#37**, and **H** (all now ship
+> Box's form). A latent Box bug the strict guard had masked surfaced via the
+> idempotency fuzzer and was fixed (a paren-`if`/`when` was mis-split as a lambda,
+> dropping its later branches — now gated by `parenContentIsLambdaHead`). **Only
+> C2 remains (2 Errs — RecordUpdate/AlignedFlow Tab-snap), on the Doc fallback.**
+> Next: land C2, then delete Doc + the guard (full cutover). Gates green
+> (effectful 142/142, fuzzers 0).
 
 ---
 
