@@ -2257,8 +2257,8 @@ makeSignatureBox children =
             -- that one record/bracket node, `B.prefix` glues it after the header
             -- and pads its continuation by the header's width — reproducing the
             -- `R.align` the record carries, so `}` lands under `{`. A multi-node
-            -- type (`{ … } -> …`) would need `assembleFlow` to soft-glue a
-            -- multi-line item, which it can't yet, so that still falls back.
+            -- type (`{ … } -> …`) goes through the generic comment-flow path
+            -- below, which the Doc uses too — byte-identical (see the `_` arm).
             when colonSplit.typeNodes is
                 [ single ] ->
                     buildFlowBox 0 colonSplit.header
@@ -2287,7 +2287,15 @@ makeSignatureBox children =
                             )
 
                 _ ->
-                    Err "box: comment inside a multi-node signature type not ported"
+                    -- A multi-node comment-bearing type (`{ … } -> …`) renders
+                    -- via the same generic comment-flow the `else if …
+                    -- hasComment` arm below uses (`buildFlowBox grenIndent`),
+                    -- which is byte-identical to the Doc's own path for this
+                    -- construct — verified 0-mismatch corpus-wide. (This was
+                    -- previously an `Err`; the earlier "breaks idempotency"
+                    -- concern was about a *different*, reverted layout, not this
+                    -- one — the shipped output here is a proven fixed point.)
+                    buildFlowBox grenIndent children
 
         else if not forceVertical && hasComment then
             -- Inline signature carrying a comment: the Doc routes to
