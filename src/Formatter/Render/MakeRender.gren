@@ -202,31 +202,19 @@ makePrettyResult root =
 
 makePrettyLine : LPNode -> Result String String
 makePrettyLine node =
-    let
-        docResult =
+    -- Partial cutover (trust-Box): the Box renderer is now the primary path —
+    -- whenever it renders (`Ok`), its output ships, including the constructs
+    -- where Box intentionally matches elm-format and Doc diverges. The Doc
+    -- renderer remains only as the fallback for the handful of constructs Box
+    -- still `Err`s on (the C2 exact-space soft-glue cases); once those land,
+    -- the Doc renderer and this fallback are deleted (full cutover).
+    when MRB.makePrettyLineBox node is
+        Ok boxDoc ->
+            Ok (RB.render boxDoc)
+
+        Err _ ->
             makePrettyLineDoc node
                 |> Result.map R.render
-    in
-    -- Strangler self-verify (Change-1 rollout): render via the Box model too,
-    -- and use its output ONLY when it is byte-identical to the legacy Doc
-    -- output. Regression-proof — any shape the Box renderer hasn't ported, or
-    -- gets wrong, falls back to Doc. As constructs are ported and we
-    -- intentionally diverge (to match elm-format), those constructs graduate
-    -- out of the equality guard and their fixtures are regenerated.
-    when { boxR = MRB.makePrettyLineBox node, docR = docResult } is
-        { boxR = Ok boxDoc, docR = Ok docStr } ->
-            let
-                boxStr =
-                    RB.render boxDoc
-            in
-            if String.trimRight boxStr == String.trimRight docStr then
-                Ok boxStr
-
-            else
-                Ok docStr
-
-        _ ->
-            docResult
 
 
 -- Take a prefix of comment nodes off `nodes`, returning the comments and

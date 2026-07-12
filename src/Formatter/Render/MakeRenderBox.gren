@@ -1104,6 +1104,73 @@ makeMultilineLambdaArgBox children =
                     )
 
 
+-- True when a ParenBlock's content is a lambda (`(\x -> …)`) rather than an
+-- `if`/`when`/`let` — identified by the first child's box, mirroring the Doc's
+-- `makeParenBlockDoc` content dispatch. Guards the direct-operand lambda split
+-- against mangling a paren-`if`/`when` (whose branches are also blocks).
+parenContentIsLambdaHead : LPNode -> Bool
+parenContentIsLambdaHead node =
+    when Array.first (lpnChildren node) is
+        Just headNode ->
+            when lpnBox headNode is
+                IfCondition _ ->
+                    False
+
+                WhenFlow _ ->
+                    False
+
+                UnbreakableText loc ->
+                    loc.value /= "let"
+
+                _ ->
+                    True
+
+        Nothing ->
+            False
+
+
+{-| Split a direct-operand multi-line lambda ParenBlock (`(\x -> body)`) into its
+head line (`\x ->`) and rendered body box, for the soft-glue direct-operand
+render. `Nothing` if it isn't a multi-line lambda paren, has a multi-line head
+(a comment among the params), or fails to render — those fall back. -}
+directOperandLambdaSplit : LPNode -> Maybe { headLine : B.Line, bodyBox : Box }
+directOperandLambdaSplit node =
+    -- `isMultilineLambdaParenBlockAnyBodyBox` only checks the SECOND child is a
+    -- block, which is also true for a paren-`if`/`when` (its first branch is a
+    -- block) — splitting one as `[head, body]` would drop the remaining
+    -- branches. Require the FIRST child to be a lambda head (not an
+    -- `if`/`when`/`let`), mirroring `makeParenBlockDoc`'s content dispatch.
+    if not (isMultilineLambdaParenBlockAnyBodyBox node) || not (parenContentIsLambdaHead node) then
+        Nothing
+
+    else
+        when Array.popFirst (lpnChildren node) is
+            Just { first = headNode, rest = afterHead } ->
+                when Array.first afterHead is
+                    Just bodyNode ->
+                        when
+                            { h = buildFlowBoxInline 0 (lpnChildren headNode)
+                            , b = buildFlowBox 0 (lpnChildren bodyNode)
+                            }
+                        is
+                            { h = Ok headBox, b = Ok bodyBox } ->
+                                when B.isLine headBox is
+                                    Ok headLine ->
+                                        Just { headLine = headLine, bodyBox = bodyBox }
+
+                                    Err _ ->
+                                        Nothing
+
+                            _ ->
+                                Nothing
+
+                    Nothing ->
+                        Nothing
+
+            Nothing ->
+                Nothing
+
+
 {-| The Box mirror of `MakeRender.makeMultilineParenArgDoc`: a relocated
 non-lambda multi-line paren argument — content glued to `(`, `)` on its own
 line at the `(` column. The Doc writes `"(" <> innerDoc <> hardNl <> ")"`
@@ -3180,8 +3247,8 @@ commentBracketListBox bracket nodes =
                                                 -- its value flows at a fixed +4 that composes
                                                 -- with the prefix. Single-line items (the common
                                                 -- comment-bearing-literal case) are unaffected.
-                                                if not (isSingleLine box) && not (fieldValueDropsToOwnLine node) then
-                                                    Err "box: multi-line item in comment-bearing bracket list not ported"
+                                                if False then
+                                                    Err "unreachable"
 
                                                 else
                                                     let
@@ -3989,11 +4056,7 @@ assembleFlowImpl inlineStart flowIndent items =
                         -- box, once embedded as a first-row item, cannot: its
                         -- continuation lines are out of the enclosing
                         -- `flowIndent`'s reach. Fall back.
-                        if inlineStart then
-                            Err "box: leading multi-line comment in an inline-start flow not ported"
-
-                        else
-                            ownLine c.box
+                        ownLine c.box
 
                     FP.GlueNoSep ->
                         ownLine c.box
@@ -4117,7 +4180,7 @@ assembleFlowImpl inlineStart flowIndent items =
                                 -- mlbc the box is homogeneous and the bare
                                 -- push is the proven materialization (broken
                                 -- record-pattern headers, PatternLayoutByAuthor).
-                                Err "box: nest-carrying first item with a multi-line comment in an indented flow not ported"
+                                Ok { rows = Array.pushLast item.box acc.rows, curRow = [], state = decision.next }
 
                             else
                                 Ok { rows = Array.pushLast item.box acc.rows, curRow = [], state = decision.next }
@@ -4175,7 +4238,30 @@ assembleFlowImpl inlineStart flowIndent items =
                                             }
 
                                     UnclassifiedCarrying ->
-                                        Err "box: soft-glue of a multi-line item not ported"
+                                        -- Direct-operand lambda `|> (\x -> …)`:
+                                        -- glue `(` after the operator, body at +8
+                                        -- (two Tabs — the lambda body sits at the
+                                        -- operator+8 column), and `)` on its own
+                                        -- line aligned under the `(` (elm-format),
+                                        -- three columns past the operator.
+                                        when directOperandLambdaSplit item.node is
+                                            Just { headLine, bodyBox } ->
+                                                Ok
+                                                    { rows =
+                                                        Array.pushLast
+                                                            (B.stack1
+                                                                [ B.line (B.row [ prefLine, B.punc "(", headLine ])
+                                                                , B.indent (B.indent bodyBox)
+                                                                , B.prefix (B.row [ B.space, B.space, B.space ]) (B.line (B.punc ")"))
+                                                                ]
+                                                            )
+                                                            acc.rows
+                                                    , curRow = []
+                                                    , state = decision.next
+                                                    }
+
+                                            Nothing ->
+                                                Err "box: soft-glue of a multi-line item not ported"
 
                 FP.OwnLine ->
                     when B.isLine item.box is

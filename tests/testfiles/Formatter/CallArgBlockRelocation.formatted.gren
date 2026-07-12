@@ -84,4 +84,4 @@ directOperand xs =
 
                 else
                     result
-            )
+           )

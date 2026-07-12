@@ -340,7 +340,7 @@ transform inputValues =
 
                 else
                     result
-            )
+           )
         |> identity
         <| 0
 
