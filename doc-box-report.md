@@ -46,23 +46,27 @@ bug list.*
 > record-destructuring pattern with interleaved comments, soft-glued in a
 > function header.**
 >
-> **C2 case 2 is BLOCKED on an unexplained CLI↔library divergence.** A working
-> fix was written (pad the paren's inline-fallback so the record's continuations
-> ride under `{`, plus place the paren via freeze+prefix in the header soft-glue
-> arm) and it makes the CLI (`gren-format --show`) render `KitchenComments`
-> byte-perfectly *and idempotently* (exit 0). But the effectful **idempotency
-> test fails**: the library `Formatter.prettyPrint` (same code, same parser, same
-> input bytes) splits a trailing comment (`{-c89-}`) onto its own line where the
-> CLI keeps it glued. Verified the two compiled apps are byte-identical across
-> every `gren-format-lib` + `compiler-common` + `core` function, the parser
-> caches (gren 0.6.5/0.6.6) are identical, and the fixture bytes are clean ASCII —
-> yet the two builds deterministically disagree on this one construct. Root cause
-> unknown (candidate: the `Array.get -1` negative-index class the fuzzer-only
-> comment-shift bugs live in). The fix was **reverted** to keep gates green; do
-> not re-land it until the divergence is understood.
+> **C2 CASE 2 LANDED (`cbfe1c8`): 0 Box `Err`s — FULL CUTOVER UNBLOCKED.** The
+> paren record-`as`-pattern soft-glue is fixed (pad the inline-fallback via
+> `parenInnerIsAlignCarrying` so the record's `,`/`}` land under `{`, plus place
+> the paren through the header soft-glue arm with `freezeTabs`+`prefix`).
 >
-> Next: root-cause the C2-case-2 divergence, then land it → 0 Errs → delete Doc +
-> the guard (full cutover). Gates green (effectful 142/142, fuzzers 0).
+> The earlier "CLI↔library divergence" that blocked this was a **measurement
+> error, not a real bug**: I compared `--show(KitchenComments.formatted.gren)`
+> (glued) against the test's `rendered`, which is `format(KitchenComments.dirty
+> .gren)` (split) — two *different inputs*. CLI and library agree exactly on both.
+> Proved it with the new `--pre-context` flag: `format(dirty)`'s parsed AST +
+> Context are byte-identical in both environments, and the failing test check was
+> the **formatting** check (`format(dirty) == fixture`), not idempotency. The
+> dirty file puts `{-c89-}` on its own line leading the `_ ->` branch; Box
+> correctly preserves that (the old Doc fallback glued it up onto the `}` line),
+> and the split form is a reparse fixed point. Regenerated the fixture to Box's
+> author-faithful form — the same "ship Box's form" pattern as C1/E/F/H.
+>
+> Next: delete the Doc renderer (`makePrettyLineDoc`, `buildFlowDoc*`, unused
+> `Render/Doc.gren`) + the trust-Box fallback + the `--render-doc` flag (full
+> cutover). Gates green (effectful 142/142, census 0 Errs, idempotency 0,
+> whitespace stretch/indent 0).
 
 ---
 
@@ -108,7 +112,7 @@ census. That splits every `Err` into one of three buckets:
 | A | No-trigger multi-line pipeline step | 1 | **CONSERVATIVE — ✅ LANDED (`a08e85b`)** | done | yes |
 | B | Record-update field w/ soft multi-line value | 4 | **✅ LANDED (`e8fd6c9`)** — was a Doc divergence from elm | done | yes |
 | C1 | Direct-operand lambda glue `\|> (\x -> …)` | 2 | GENUINE | hard — **attack after Box cutover** | yes |
-| C2 | Soft-glue of RecordUpdate/AlignedFlow item | 3 | case 1 **✅ LANDED (`dff30f6`, `freezeTabs`)**; case 2 **BLOCKED** on CLI↔library divergence | mixed | yes |
+| C2 | Soft-glue of RecordUpdate/AlignedFlow item | 3 | **✅ LANDED** — case 1 `dff30f6` (`freezeTabs`), case 2 `cbfe1c8` (paren `as`-pattern) → **0 Box Errs** | done | yes |
 | D | Verbatim (opener-alone) block comment | 1 | **✅ LANDED (`aafdf01`)** — was a Doc divergence from elm | done | yes |
 | E | mlbc as nest-carrying first item (`#13`) | 1 | UNIMPLEMENTED — **cutover target = Box `+4`** (verified idempotent) | at cutover | yes |
 | F | Leading mlbc in inline-start flow (`#37`) | 1 | UNIMPLEMENTED — **cutover target = Box** (same as E; verified idempotent) | at cutover | yes |
