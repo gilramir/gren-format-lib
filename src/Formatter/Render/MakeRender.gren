@@ -1,6 +1,7 @@
 module Formatter.Render.MakeRender
     exposing
         ( makePrettyResult
+        , lptToBoxJson
         )
 
 {-| Render a Logical Printing Tree to its final formatted source string.
@@ -22,6 +23,7 @@ import Formatter.Logical.LogicalPrintingTree
 import Formatter.Strings exposing (joinResultStrings)
 import Formatter.Render.Box as RB
 import Formatter.Render.MakeRenderBox as MRB
+import Json.Encode as Json
 
 
 {-| Render every top-level child of the `RootBox` and join them with newlines. -}
@@ -44,3 +46,27 @@ makePrettyLine : LPNode -> Result String String
 makePrettyLine node =
     MRB.makePrettyLineBox node
         |> Result.map RB.render
+
+
+{-| Serialise the `Box` each top-level child renders to as a JSON array (one
+entry per declaration), for the `--box` debug flag — the Box analogue of the
+`--lpt` LPT dump. An `Err` from any child (an unhandled construct) aborts. -}
+lptToBoxJson : LPNode -> Result String String
+lptToBoxJson root =
+    Array.foldl
+        (\child acc ->
+            when acc is
+                Err e ->
+                    Err e
+
+                Ok boxes ->
+                    when MRB.makePrettyLineBox child is
+                        Err e ->
+                            Err e
+
+                        Ok box ->
+                            Ok (Array.pushLast (RB.toJson box) boxes)
+        )
+        (Ok [])
+        (lpnChildren root)
+        |> Result.map (\values -> Json.encode 2 (Json.array identity values))

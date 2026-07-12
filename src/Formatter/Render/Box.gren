@@ -4,7 +4,7 @@ module Formatter.Render.Box exposing
     , line, blankLine, mustBreak, stack1, andThen
     , isLine, allSingles, lineLength
     , indent, prefix, addSuffix, mapFirstLine, freezeTabs
-    , render
+    , render, toJson
     )
 
 {-| Faithful port of elm-format's `Box.hs` for the Change-1 first slice.
@@ -17,6 +17,8 @@ Two indent primitives, exactly as elm-format:
 Nothing here is gren-format-specific; it mirrors the Haskell 1:1 so the
 first-slice comparison is against elm's actual arithmetic, not an approximation.
 -}
+
+import Json.Encode as Json
 
 
 {-| A `Line` is always exactly one line. `Tab` aligns to the nearest multiple
@@ -386,3 +388,53 @@ render box_ =
 
         MustBreakBox l ->
             renderOneLine l ++ "\n"
+
+
+
+-- JSON (debug)
+
+
+{-| Serialise a `Box` to JSON — one node per constructor, a `Stack` flattened to
+its ordered `lines`. Used by the `--box` debug flag to inspect the Box tree a
+top-level declaration renders to. -}
+toJson : Box -> Json.Value
+toJson box_ =
+    let
+        wrap t fields =
+            Json.object ([ { key = "type", value = Json.string t } ] ++ fields)
+    in
+    when box_ is
+        SingleLine l ->
+            wrap "SingleLine" [ { key = "line", value = lineToJson l } ]
+
+        Stack s ->
+            wrap "Stack"
+                [ { key = "lines"
+                  , value = Json.array lineToJson ([ s.first, s.second ] ++ s.rest)
+                  }
+                ]
+
+        MustBreakBox l ->
+            wrap "MustBreakBox" [ { key = "line", value = lineToJson l } ]
+
+
+lineToJson : Line -> Json.Value
+lineToJson line_ =
+    when line_ is
+        Text s ->
+            Json.object
+                [ { key = "type", value = Json.string "Text" }
+                , { key = "text", value = Json.string s }
+                ]
+
+        Row lines_ ->
+            Json.object
+                [ { key = "type", value = Json.string "Row" }
+                , { key = "items", value = Json.array lineToJson lines_ }
+                ]
+
+        Space ->
+            Json.object [ { key = "type", value = Json.string "Space" } ]
+
+        Tab ->
+            Json.object [ { key = "type", value = Json.string "Tab" } ]
