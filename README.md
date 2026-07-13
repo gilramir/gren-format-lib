@@ -85,27 +85,13 @@ This section is a guided tour of *how* it does that, at a conceptual level.
 ## Overview
 
 Turning your source file into its formatted version happens through a pipeline
-of steps, each step handing its result to the next:
+of steps, each step handing its result to the next. Any step can fail: a parse
+error means the source itself is invalid Gren, while a failure in Step 1 or
+Step 2 means the formatter hasn't been taught to handle some construct yet —
+not that anything is wrong with your code. Either way, nothing is silently
+mangled; the failure is reported instead:
 
-```
-your source code (text)
-        │
-        │  parsed by Gren's compiler-common parser
-        ▼
-code structure  +  comments
-        │
-        │  Step 1
-        ▼
-a Logical Printing Tree
-        │
-        │  Step 2
-        ▼
-a render plan
-        │
-        │  Step 3
-        ▼
-formatted code (text)
-```
+![Formatter pipeline](docs/diagrams/formatter-pipeline.png)
 
 **Before this library gets involved**, the compiler-common parser reads your file and
 splits it into two pieces:
