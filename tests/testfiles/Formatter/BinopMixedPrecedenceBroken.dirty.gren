@@ -1,0 +1,42 @@
+module BinopMixedPrecedenceBroken exposing (..)
+
+
+-- Arithmetic, author broke at the loosest (+/-): the tighter * must break too.
+arithmetic =
+    baseScore
+        + bonusPoints * multiplier
+        - penaltyAmount
+
+
+-- Boolean, author broke at || : the tighter && must break too.
+boolean =
+    isAdministrator
+        || hasElevatedRole && accountIsActive
+        || isOwner
+
+
+-- Three precedence levels (|| , && , ==): every operator ends on its own line.
+threeLevels =
+    alphaController
+        || betaController && gammaController == deltaController
+        || epsilonController
+
+
+-- Concatenation compared for equality (++ tighter than ==).
+concatEquality =
+    prefixPart ++ middlePart
+        == expectedWhole
+
+
+-- A tighter group appears mid-chain and still fully splits.
+midChainGroup =
+    first
+        + second * third * fourth
+        + fifth
+
+
+-- Right-associative ^ mixed with * : still one operator per line.
+exponent =
+    scale
+        * base ^ power
+        * factor

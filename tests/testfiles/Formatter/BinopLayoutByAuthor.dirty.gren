@@ -3,20 +3,24 @@ module BinopLayoutByAuthor exposing (..)
 -- Author wrote it on one line and it fits: stays inline.
 inlineFits = width * height + margin
 
--- Author wrote it on one line but it overflows: breaks only at the lowest
--- precedence operators, keeping tighter sub-terms (here `*`) inline.
+-- Author wrote this mixed-precedence chain on one line; gren keeps it there even
+-- though it runs well past 80 columns -- layout follows the author, not a page
+-- width, so a one-line chain is never broken up.
 mixedOverflow =
     baseScoreValue + bonusPointsEarned * difficultyMultiplier - penaltyDeduction + streakBonusAmount * weightFactor
 
--- Uniform precedence overflowing: one operator per line.
+-- Same for a same-precedence chain: a long one-line `++` chain is left on its
+-- one line.
 concatOverflow =
     "Order " ++ orderIdentifier ++ " for " ++ customerName ++ " totalling " ++ formattedAmount
 
--- Three precedence levels: breaks at the lowest (||), keeps && and == groups inline.
+-- And for three precedence levels: still left inline on the author's one line.
 threeLevels =
     alphaController || betaController && gammaController == deltaController || epsilonController
 
--- Author wrote it across rows: kept split even though it would fit.
+-- Author wrote it across rows, so it stays split even though it would fit on one
+-- line. How a broken chain lays out -- one operator per line, tighter operators
+-- included -- is covered by BinopMixedPrecedenceBroken.
 keptVertical =
     alpha
         + beta
