@@ -1866,7 +1866,7 @@ result =
 Every step lands at the *same* indent — a flat pipeline, same as `|>`. This is
 a deliberate divergence from `elm-format`, which nests each successive `<|`
 step one level deeper. See
-[Comparison with elm-format](#comparison-with-elm-format), point 15.
+[Comparison with elm-format](#comparison-with-elm-format), point 14.
 
 When a `<|` step body is a lambda, the `<|` trails the preceding step and the
 lambda sits on the next line, indented +4 from the pipeline seed. The lambda
@@ -2566,16 +2566,7 @@ decision and why.
    [String literals](#string-literals)) — this was already a considered
    design choice, not an oversight.
 
-10. **Redundant parens around a call argument — fixed.** `node "div"
-    ({ foo = 1, bar = 2 }) []` kept the author's parens verbatim around the
-    record literal, even though they're unnecessary for a record literal in
-    argument position. The formatter now strips a `Parens` wrapper around an
-    argument expression when the wrapped expression doesn't need parens to
-    parse unambiguously in that position (see
-    [Function application](#function-application)). Covered by new fixtures
-    `RedundantArgParens.dirty.gren` / `.formatted.gren`.
-
-11. **Redundant parens around a binary-operator operand — keep as is (may
+10. **Redundant parens around a binary-operator operand — keep as is (may
     revisit).** When you parenthesize an applied function that is the operand of
     a binary operator, gren-format keeps your parens; elm-format strips them,
     because operator precedence already makes them redundant (application binds
@@ -2591,17 +2582,17 @@ decision and why.
         Gren.Kernel.Math.log number / Gren.Kernel.Math.log base
     ```
 
-    This is the same family as point 10, but the other direction: point 10
-    strips parens around a *call argument* (a positional slot where they can
-    never be load-bearing), whereas here the parens wrap an *operator operand*,
-    where stripping requires reasoning about the operator's precedence to know
-    they're redundant. For now gren-format leaves an operand's parens exactly as
-    written — the author's grouping is preserved and nothing about the output is
-    wrong, only more explicit than elm-format's. We may revisit this later and
-    adopt elm-format's precedence-aware stripping if the extra parens prove
-    noisy in practice.
+    Stripping here requires reasoning about the operator's precedence to know
+    the parens are redundant. For now gren-format leaves an operand's parens
+    exactly as written — the author's grouping is preserved and nothing about
+    the output is wrong, only more explicit than elm-format's. We may revisit
+    this later and adopt elm-format's precedence-aware stripping if the extra
+    parens prove noisy in practice. (By contrast, redundant parens around a
+    *call argument* — a positional slot where they can never be load-bearing,
+    e.g. `node "div" ({ foo = 1, bar = 2 }) []` — are already stripped; see
+    [Function application](#function-application).)
 
-12. **Doc-comment body contents — keep verbatim.** elm-format reaches *inside*
+11. **Doc-comment body contents — keep verbatim.** elm-format reaches *inside*
     a `{-| … -}` doc comment and reformats its contents: it re-spaces `@docs`
     lines (inserting blank lines between groups), rewrites Markdown (bullet
     style `*` → `-`, single emphasis `*italic*` → `_italic_`, strong emphasis
@@ -2617,7 +2608,7 @@ decision and why.
     `{- … -}` block comments and `--` line comments too — their text is always
     preserved verbatim.)
 
-13. **A comment written after code stays on that line; elm-format floats it
+12. **A comment written after code stays on that line; elm-format floats it
     away — keep as is.** When you put a comment after the last code on a line —
     after a value, or after the closing `]`/`}` of a list or record — gren-format
     keeps it right there beside the code:
@@ -2656,7 +2647,7 @@ decision and why.
     argument to a call. If you write two or more comments in a row at the same
     spot, they all stay on that line together.
 
-14. **A comment between two operands of a binop chain — keep with the operand
+13. **A comment between two operands of a binop chain — keep with the operand
     before it.** When a broken operator chain has a comment sitting between an
     operand and the next operator, gren-format keeps it on the operand it trails;
     elm-format re-homes it to lead the following operator:
@@ -2670,13 +2661,13 @@ decision and why.
     ```
 
     This is the same "a comment sticks to what it trails" rule gren-format applies
-    everywhere (point 13) — it isn't a binop-specific choice, so keeping it uniform
+    everywhere (point 12) — it isn't a binop-specific choice, so keeping it uniform
     is simpler than a special case just for operator chains. (A comment the author
     put on its *own* line, or one leading an operand, already lands the same in
     both formatters — on its own line at the operator indent, or glued in front of
     the operand.)
 
-15. **Backward `<|` pipelines: flat pipeline layout vs. right-associative
+14. **Backward `<|` pipelines: flat pipeline layout vs. right-associative
     operator nesting — keep as is.** gren-format treats a run of `<|` steps
     the same way it treats `|>`: one pipeline, every step indented the same
     fixed +4 from the seed (see [Pipelines](#pipelines)). elm-format instead
@@ -2733,9 +2724,9 @@ decision and why.
     rather than append once the left side isn't single-line). Covered by the
     `BackwardPipeMultilineSeed` fixture.
 
-16. **A comment trailing a pipeline step — keep as is.** gren-format keeps it
+15. **A comment trailing a pipeline step — keep as is.** gren-format keeps it
     on that step; elm-format moves it to lead the next step (the same
-    trailing-vs-leading choice as point 14, here for `|>`/`<|` instead of a
+    trailing-vs-leading choice as point 13, here for `|>`/`<|` instead of a
     binop operator):
 
     ```gren
@@ -2752,7 +2743,7 @@ decision and why.
             {- note -} |> stepTwo
     ```
 
-17. **An own-line comment between pipeline steps — keep as is.** gren-format
+16. **An own-line comment between pipeline steps — keep as is.** gren-format
     puts a blank line above it (it treats the comment as leading the step
     below); elm-format writes no blank line:
 
@@ -2773,7 +2764,7 @@ decision and why.
             |> stepTwo
     ```
 
-18. **A comment just after a lambda's `->` — keep as is.** gren-format keeps
+17. **A comment just after a lambda's `->` — keep as is.** gren-format keeps
     it inline; elm-format drops the `->`, the comment, and the body each onto
     their own line:
 
@@ -2789,7 +2780,7 @@ decision and why.
             x + 1
     ```
 
-19. **A comment trailing `in` — keep as is.** gren-format keeps it glued to
+18. **A comment trailing `in` — keep as is.** gren-format keeps it glued to
     `in` on the same line; elm-format moves it to its own line immediately
     after `in` (no blank line, still outside the `let` block):
 
