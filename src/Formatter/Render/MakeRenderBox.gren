@@ -1502,10 +1502,11 @@ boxLine box =
 
 {-| Render a backward (`<|`) pipeline: the `<|` trails the seed (or previous step
 body), and the next body drops to the line below at +4 (inline when the author
-kept the whole chain on one row). A
-lambda step body (`\x -> …` authored across rows) breaks with the head at +4 and
-its body at +8. A boundary comment, a mixed `|>`/`<|` chain, a multi-line
-non-lambda body, or an inline (`SoftIndentedBlock`) lambda all fall back. -}
+kept the whole chain on one row and every part is single-line). A multi-line
+seed glues its `<|` onto its own last line; a multi-line body forces the +4 drop
+even when the author kept `<|` on the seed row. A lambda step body (`\x -> …`
+authored across rows) breaks with the head at +4 and its body at +8. A boundary
+comment or a mixed `|>`/`<|` chain routes to the operator-leading fallbacks. -}
 makeBackwardPipelineBox : Bool -> Array LPNode -> Result String Box
 makeBackwardPipelineBox forceVertical children =
     let
@@ -1574,21 +1575,22 @@ makeBackwardPipelineBox forceVertical children =
         buildFlowBox 0 seedNodes
             |> Result.andThen
                 (\seedBox ->
-                    boxLine seedBox
-                        |> Result.andThen
-                            (\seedLine ->
-                                traverseResult
-                                    (\stepNode ->
-                                        when Array.popFirst (lpnChildren stepNode) is
-                                            Just { rest = bodyNodes } ->
-                                                Ok bodyNodes
+                    -- The seed is kept as a Box (not collapsed to a Line): a
+                    -- multi-line seed (a broken record/array/parenthesized binop)
+                    -- glues ` <|` onto its LAST line via `B.addSuffix`, so the
+                    -- trailing-operator style extends to a multi-line seed the
+                    -- same way it works for a single-line one.
+                    traverseResult
+                        (\stepNode ->
+                            when Array.popFirst (lpnChildren stepNode) is
+                                Just { rest = bodyNodes } ->
+                                    Ok bodyNodes
 
-                                            Nothing ->
-                                                Err "box: backward pipeline step has no children"
-                                    )
-                                    stepNodes
-                                    |> Result.andThen (assembleBackwardPipeline forceVertical seedLine)
-                            )
+                                Nothing ->
+                                    Err "box: backward pipeline step has no children"
+                        )
+                        stepNodes
+                        |> Result.andThen (assembleBackwardPipeline forceVertical seedBox)
                 )
 
 
@@ -1721,21 +1723,21 @@ renderCommentedBackwardStep stepNode =
             )
 
 
-assembleBackwardPipeline : Bool -> B.Line -> Array (Array LPNode) -> Result String Box
-assembleBackwardPipeline forceVertical seedLine stepBodies =
+assembleBackwardPipeline : Bool -> Box -> Array (Array LPNode) -> Result String Box
+assembleBackwardPipeline forceVertical seedBox stepBodies =
     when stepBodies is
         [ bodyNodes ] ->
-            backwardSingleStep forceVertical seedLine bodyNodes
+            backwardSingleStep forceVertical seedBox bodyNodes
 
         _ ->
-            backwardMultiStep forceVertical seedLine stepBodies
+            backwardMultiStep forceVertical seedBox stepBodies
 
 
 -- A single `seed <| body` step. A trailing `IndentedBlock` marks a lambda body
 -- authored across rows (`\head` at +4, its body at +8); otherwise a plain body
 -- drops to +4 (or stays inline when the chain isn't forced vertical).
-backwardSingleStep : Bool -> B.Line -> Array LPNode -> Result String Box
-backwardSingleStep forceVertical seedLine bodyNodes =
+backwardSingleStep : Bool -> Box -> Array LPNode -> Result String Box
+backwardSingleStep forceVertical seedBox bodyNodes =
     when Array.popLast bodyNodes is
         Nothing ->
             Err "box: backward pipeline empty body"
@@ -1747,7 +1749,7 @@ backwardSingleStep forceVertical seedLine bodyNodes =
                     Result.map2
                         (\headBox bodyBox ->
                             B.stack1
-                                [ B.line (B.row [ seedLine, B.literal " <|" ])
+                                [ B.addSuffix (B.literal " <|") seedBox
                                 , B.indent headBox
                                 , applyIndent (2 * grenIndent) bodyBox
                                 ]
@@ -1765,10 +1767,15 @@ backwardSingleStep forceVertical seedLine bodyNodes =
                     buildBackwardBodyBox bodyNodes
                         |> Result.andThen
                             (\bodyBox ->
-                                if forceVertical then
+                                -- A multi-line body drops to +4 under `seed <|`
+                                -- exactly as the author-broken (`forceVertical`)
+                                -- case does — elm-format breaks the pipeline the
+                                -- moment the body spans rows, even when the author
+                                -- kept `<|` glued to the seed row.
+                                if forceVertical || not (isSingleLine bodyBox) then
                                     Ok
                                         (B.stack1
-                                            [ B.line (B.row [ seedLine, B.literal " <|" ])
+                                            [ B.addSuffix (B.literal " <|") seedBox
                                             , B.indent bodyBox
                                             ]
                                         )
@@ -1776,7 +1783,7 @@ backwardSingleStep forceVertical seedLine bodyNodes =
                                 else
                                     boxLine bodyBox
                                         |> Result.map
-                                            (\bl -> B.line (B.row [ seedLine, B.literal " <| ", bl ]))
+                                            (\bl -> B.addSuffix (B.row [ B.literal " <| ", bl ]) seedBox)
                             )
 
 
@@ -1798,45 +1805,54 @@ buildBackwardBodyBox bodyNodes =
 
 
 -- Two or more `<|` steps. Inline `seed <| b0 <| b1 …` when the author kept it on
--- one row; otherwise `seed <|` then each body at +4, the `<|` trailing the
--- previous body. Only single-line bodies are ported.
-backwardMultiStep : Bool -> B.Line -> Array (Array LPNode) -> Result String Box
-backwardMultiStep forceVertical seedLine stepBodies =
-    traverseResult (\body -> buildFlowBox 0 body |> Result.andThen boxLine) stepBodies
-        |> Result.map
-            (\bodyLines ->
-                if not forceVertical then
-                    B.line
-                        (B.row
-                            (Array.flatten
-                                ([ [ seedLine ] ]
-                                    ++ Array.map (\bl -> [ B.literal " <| ", bl ]) bodyLines
-                                )
+-- one row AND every body is single-line; otherwise `seed <|` then each body at
+-- +4, the `<|` trailing the previous body. A multi-line body forces the vertical
+-- form (elm-format breaks the chain the moment any body spans rows), and each
+-- body is kept as a Box so a multi-line one glues its trailing `<|` onto its own
+-- last line via `B.addSuffix`.
+backwardMultiStep : Bool -> Box -> Array (Array LPNode) -> Result String Box
+backwardMultiStep forceVertical seedBox stepBodies =
+    traverseResult (\body -> buildFlowBox 0 body) stepBodies
+        |> Result.andThen
+            (\bodyBoxes ->
+                let
+                    effectiveVertical =
+                        forceVertical || Array.any (\b -> not (isSingleLine b)) bodyBoxes
+                in
+                if not effectiveVertical then
+                    -- Every body is single-line here, so `boxLine` cannot fail.
+                    traverseResult boxLine bodyBoxes
+                        |> Result.map
+                            (\bodyLines ->
+                                B.addSuffix
+                                    (B.row
+                                        (Array.flatten
+                                            (Array.map (\bl -> [ B.literal " <| ", bl ]) bodyLines)
+                                        )
+                                    )
+                                    seedBox
                             )
-                        )
 
                 else
                     let
                         n =
-                            Array.length bodyLines
+                            Array.length bodyBoxes
                     in
-                    B.stack1
-                        ([ B.line (B.row [ seedLine, B.literal " <|" ]) ]
-                            ++ Array.indexedMap
-                                (\i bl ->
-                                    B.indent
-                                        (B.line
-                                            (B.row
-                                                (if i < n - 1 then
-                                                    [ bl, B.literal " <|" ]
+                    Ok
+                        (B.stack1
+                            ([ B.addSuffix (B.literal " <|") seedBox ]
+                                ++ Array.indexedMap
+                                    (\i bodyBox ->
+                                        B.indent
+                                            (if i < n - 1 then
+                                                B.addSuffix (B.literal " <|") bodyBox
 
-                                                 else
-                                                    [ bl ]
-                                                )
+                                             else
+                                                bodyBox
                                             )
-                                        )
-                                )
-                                bodyLines
+                                    )
+                                    bodyBoxes
+                            )
                         )
             )
 

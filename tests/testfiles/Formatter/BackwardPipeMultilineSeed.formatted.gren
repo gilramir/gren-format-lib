@@ -1,0 +1,59 @@
+module BackwardPipeMultilineSeed exposing (..)
+
+
+parenSeed =
+    (x
+        + y
+    ) <|
+        value
+
+
+recordSeed =
+    { field = 1
+    , other = 2
+    } <|
+        value
+
+
+arraySeed =
+    [ 1
+    , 2
+    ] <|
+        value
+
+
+inlineSeed =
+    { field = 1
+    , other = 2
+    } <| value
+
+
+multiStep =
+    [ 1
+    , 2
+    ] <|
+        f <|
+        g
+
+
+lambdaAcross =
+    (a
+        + b
+    ) <|
+        \x ->
+            x
+
+
+inlineOpMultilineBody =
+    seed <|
+        { a = 1
+        , b = 2
+        }
+
+
+multiStepMultilineBody =
+    seed <|
+        f <|
+        { a = 1
+        , b = 2
+        }
