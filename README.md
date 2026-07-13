@@ -1880,6 +1880,11 @@ result =
         String.append name "!"
 ```
 
+Every step lands at the *same* indent — a flat pipeline, same as `|>`. This is
+a deliberate divergence from `elm-format`, which nests each successive `<|`
+step one level deeper. See
+[Comparison with elm-format](#comparison-with-elm-format), point 19.
+
 When a `<|` step body is a lambda, the `<|` trails the preceding step and the
 lambda sits on the next line, indented +4 from the pipeline seed. The lambda
 body is indented another +4:
@@ -2728,6 +2733,63 @@ decision and why.
     put on its *own* line, or one leading an operand, already lands the same in
     both formatters — on its own line at the operator indent, or glued in front of
     the operand.)
+
+19. **Backward `<|` pipelines: flat pipeline layout vs. right-associative
+    operator nesting — keep as is.** gren-format treats a run of `<|` steps
+    the same way it treats `|>`: one pipeline, every step indented the same
+    fixed +4 from the seed (see [Pipelines](#pipelines)). elm-format instead
+    renders `<|` through the same recursive machinery it uses for any other
+    right-associative binary-operator chain, so each step nests one indent
+    level *deeper* than the step before it — a staircase, regardless of how
+    flat the author wrote it:
+
+    ```gren
+    -- elm-format:
+    result =
+        String.toUpper <|
+            String.append "Greetings, " <|
+                String.append name "!"
+
+    -- gren-format (unchanged from how it was written):
+    result =
+        String.toUpper <|
+            String.append "Greetings, " <|
+            String.append name "!"
+    ```
+
+    The same operator-chain treatment decides where `<|` lands when the seed
+    itself spans multiple rows (a parenthesized expression, a multi-line
+    record or array literal): elm-format always drops the operator to its own
+    line directly below the seed's closing bracket, because at that point the
+    seed's box is no longer single-line and elm-format's layout function
+    stacks instead of appending. gren-format keeps `<|` glued to the seed's
+    last line:
+
+    ```gren
+    -- elm-format:
+    parenSeed =
+        (x
+            + y
+        )
+        <|
+            value
+
+    -- gren-format:
+    parenSeed =
+        (x
+            + y
+        ) <|
+            value
+    ```
+
+    gren-format's choice keeps `<|` visually consistent with `|>` — a
+    pipeline reads as a pipeline regardless of direction — rather than
+    letting its layout depend on the operator-precedence machinery shared
+    with unrelated binary operators like `++` or `::`. Verified against the
+    `elm-format` binary and its `ElmFormat.Render.Box`/`ElmStructure` source
+    (`forceableSpaceSepOrIndented`/`forceableSpaceSepOrStack`, which stack
+    rather than append once the left side isn't single-line). Covered by the
+    `BackwardPipeMultilineSeed` fixture.
 
 #### Minor/cosmetic — not acted on
 
