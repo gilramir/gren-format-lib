@@ -382,6 +382,7 @@ expressionSuite fsPerm =
             , assertPretty fsPerm "a multi-line record in a same-precedence binop chain breaks every operator onto its own line (matches elm-format)" "BinopMultilineMiddleOperand"
             , assertPretty fsPerm "a binop chain with several multi-line bracket operands breaks fully vertical" "BinopMultipleBracketOperands"
             , assertPretty fsPerm "a comment forcing a one-row bracket operand open breaks the binop chain vertically, stably across reformats" "BinopCommentForcedBracketOperand"
+            , assertPretty fsPerm "a parenthesized multi-line operand breaks the binop chain vertically (matches elm-format)" "BinopMultilineParenOperand"
             , assertPretty fsPerm "a union variant payload that's inherently multi-line even though every | sits on one row falls back to one-variant-per-line" "UnionInlineMultilinePayload"
             , assertPretty fsPerm "a pipeline step argument that's inherently multi-line (a triple-quoted string opened mid-line) even though seed and step share a row" "PipelineInlineMultilineArg"
             , assertPretty fsPerm "an if-condition that's inherently multi-line (a record literal) even though it starts on the same row as if" "IfConditionMultilineSameRow"

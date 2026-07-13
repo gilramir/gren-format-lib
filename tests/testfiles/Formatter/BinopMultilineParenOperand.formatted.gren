@@ -1,0 +1,9 @@
+module M exposing (..)
+
+
+foo =
+    m
+        * (a
+            + b
+          )
+        * n

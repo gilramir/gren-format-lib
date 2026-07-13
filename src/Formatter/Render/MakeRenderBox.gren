@@ -224,15 +224,19 @@ operandIsMultilineBracketLiteral operand =
     when Array.popFirst operand is
         Just { first = node, rest = rest } ->
             Array.isEmpty rest
-                && isBracketLiteralBox (lpnBox node)
+                && isChainBreakingOperandBox (lpnBox node)
                 && (nodeSpansRows node || subtreeHasComment node)
 
         Nothing ->
             False
 
 
-isBracketLiteralBox : LPBox -> Bool
-isBracketLiteralBox box =
+{-| Operand box kinds whose multi-line form breaks a binop chain vertically: a
+bracket literal (record / array / record update) or a parenthesized expression
+(`(a\n+ b)`). A `MultilineString` is deliberately absent — elm-format keeps a
+multi-line string operand glued inline, and gren matches. -}
+isChainBreakingOperandBox : LPBox -> Bool
+isChainBreakingOperandBox box =
     when box is
         AllAcrossOrAllVertical _ ->
             True
@@ -241,6 +245,9 @@ isBracketLiteralBox box =
             True
 
         RecordUpdate _ ->
+            True
+
+        ParenBlock _ ->
             True
 
         _ ->
