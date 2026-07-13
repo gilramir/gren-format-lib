@@ -77,6 +77,7 @@ This section is a guided tour of *how* it does that, at a conceptual level.
   - [Comparison with elm-format](#comparison-with-elm-format)
     - [The idea both formatters share](#the-idea-both-formatters-share)
     - [The two ways they actually differ](#the-two-ways-they-actually-differ)
+    - [Divergence catalogue](#divergence-catalogue)
     - [Out of scope for comparison](#out-of-scope-for-comparison)
 
 ---
@@ -2436,6 +2437,8 @@ Given that shared foundation, the mechanics differ in just two ways:
   because its comments never leave the spot they were parsed into. The upside of
   gren-format's choice is that it always agrees with the real language — it can
   never drift from what the compiler actually accepts.
+
+#### Divergence catalogue
 
 The rest of this section catalogues the places where, given all of the above, we
 made a deliberately different choice from elm-format. Each finding records the
