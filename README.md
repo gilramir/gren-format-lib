@@ -1866,7 +1866,7 @@ result =
 Every step lands at the *same* indent — a flat pipeline, same as `|>`. This is
 a deliberate divergence from `elm-format`, which nests each successive `<|`
 step one level deeper. See
-[Comparison with elm-format](#comparison-with-elm-format), point 17.
+[Comparison with elm-format](#comparison-with-elm-format), point 15.
 
 When a `<|` step body is a lambda, the `<|` trails the preceding step and the
 lambda sits on the next line, indented +4 from the pipeline seed. The lambda
@@ -2601,22 +2601,7 @@ decision and why.
     adopt elm-format's precedence-aware stripping if the extra parens prove
     noisy in practice.
 
-12. **Open-type `(..)` spacing in exposing/import lists — changed to match.**
-    An exposed or imported union type whose constructors are all exposed used
-    to render with a space, `Maybe (..)`; elm-format writes `Maybe(..)` with no
-    space between the type name and `(..)`. gren-format now matches
-    (`import Maybe exposing (Maybe(..))`, `( Order(..)`). Found in the
-    `core/src` audit; covered by the `KitchenSink` fixture.
-
-13. **`infix` associativity padding — changed to match.** elm-format pads the
-    associativity keyword in an `infix` declaration to the width of the widest
-    one (`right`) so the precedence column lines up: `infix left  6 (+) = add`,
-    `infix non   4 (==) = eq`, `infix right 5 (++) = ap`. gren-format used to
-    emit a single space (`infix left 6`); it now applies the same padding.
-    (`infix` declarations only appear in a handful of core packages.) Covered
-    by the `InfixWrapped` and `KitchenSink` fixtures.
-
-14. **Doc-comment body contents — keep verbatim.** elm-format reaches *inside*
+12. **Doc-comment body contents — keep verbatim.** elm-format reaches *inside*
     a `{-| … -}` doc comment and reformats its contents: it re-spaces `@docs`
     lines (inserting blank lines between groups), rewrites Markdown (bullet
     style `*` → `-`, single emphasis `*italic*` → `_italic_`, strong emphasis
@@ -2632,7 +2617,7 @@ decision and why.
     `{- … -}` block comments and `--` line comments too — their text is always
     preserved verbatim.)
 
-15. **A comment written after code stays on that line; elm-format floats it
+13. **A comment written after code stays on that line; elm-format floats it
     away — keep as is.** When you put a comment after the last code on a line —
     after a value, or after the closing `]`/`}` of a list or record — gren-format
     keeps it right there beside the code:
@@ -2671,7 +2656,7 @@ decision and why.
     argument to a call. If you write two or more comments in a row at the same
     spot, they all stay on that line together.
 
-16. **A comment between two operands of a binop chain — keep with the operand
+14. **A comment between two operands of a binop chain — keep with the operand
     before it.** When a broken operator chain has a comment sitting between an
     operand and the next operator, gren-format keeps it on the operand it trails;
     elm-format re-homes it to lead the following operator:
@@ -2685,13 +2670,13 @@ decision and why.
     ```
 
     This is the same "a comment sticks to what it trails" rule gren-format applies
-    everywhere (point 15) — it isn't a binop-specific choice, so keeping it uniform
+    everywhere (point 13) — it isn't a binop-specific choice, so keeping it uniform
     is simpler than a special case just for operator chains. (A comment the author
     put on its *own* line, or one leading an operand, already lands the same in
     both formatters — on its own line at the operator indent, or glued in front of
     the operand.)
 
-17. **Backward `<|` pipelines: flat pipeline layout vs. right-associative
+15. **Backward `<|` pipelines: flat pipeline layout vs. right-associative
     operator nesting — keep as is.** gren-format treats a run of `<|` steps
     the same way it treats `|>`: one pipeline, every step indented the same
     fixed +4 from the seed (see [Pipelines](#pipelines)). elm-format instead
@@ -2748,9 +2733,9 @@ decision and why.
     rather than append once the left side isn't single-line). Covered by the
     `BackwardPipeMultilineSeed` fixture.
 
-18. **A comment trailing a pipeline step — keep as is.** gren-format keeps it
+16. **A comment trailing a pipeline step — keep as is.** gren-format keeps it
     on that step; elm-format moves it to lead the next step (the same
-    trailing-vs-leading choice as point 16, here for `|>`/`<|` instead of a
+    trailing-vs-leading choice as point 14, here for `|>`/`<|` instead of a
     binop operator):
 
     ```gren
@@ -2767,7 +2752,7 @@ decision and why.
             {- note -} |> stepTwo
     ```
 
-19. **An own-line comment between pipeline steps — keep as is.** gren-format
+17. **An own-line comment between pipeline steps — keep as is.** gren-format
     puts a blank line above it (it treats the comment as leading the step
     below); elm-format writes no blank line:
 
@@ -2788,7 +2773,7 @@ decision and why.
             |> stepTwo
     ```
 
-20. **A comment just after a lambda's `->` — keep as is.** gren-format keeps
+18. **A comment just after a lambda's `->` — keep as is.** gren-format keeps
     it inline; elm-format drops the `->`, the comment, and the body each onto
     their own line:
 
@@ -2804,7 +2789,7 @@ decision and why.
             x + 1
     ```
 
-21. **A comment trailing `in` — keep as is.** gren-format keeps it glued to
+19. **A comment trailing `in` — keep as is.** gren-format keeps it glued to
     `in` on the same line; elm-format moves it to its own line immediately
     after `in` (no blank line, still outside the `let` block):
 
