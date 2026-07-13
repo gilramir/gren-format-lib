@@ -1950,6 +1950,24 @@ eligible =
         || isOwner
 ```
 
+A chain also breaks when one of its operands is **itself** multi-line — a record,
+array, or parenthesized expression you wrote across rows — even if you kept the
+operators on one line. The multi-line operand opens the whole chain up, so every
+operator moves onto its own line rather than one operator gluing to the operand's
+closing `}`/`]`/`)`:
+
+```gren
+config =
+    defaults
+        ++ { verbose = True
+           , retries = 3
+           }
+        ++ overrides
+```
+
+(A multi-line `"""…"""` string operand is the exception — it stays glued in the
+chain, since its own lines already carry the layout.)
+
 A chain with a comment in it uses a simpler flow renderer instead of the
 precedence-aware one (the comment can't be reordered to fit the structure), but
 still keeps the first operand on its own line when the author wrote the chain
