@@ -77,7 +77,6 @@ This section is a guided tour of *how* it does that, at a conceptual level.
   - [Comparison with elm-format](#comparison-with-elm-format)
     - [The idea both formatters share](#the-idea-both-formatters-share)
     - [The two ways they actually differ](#the-two-ways-they-actually-differ)
-    - [Minor/cosmetic — not acted on](#minorcosmetic-not-acted-on)
     - [Out of scope for comparison](#out-of-scope-for-comparison)
 
 ---
@@ -2791,89 +2790,89 @@ decision and why.
     rather than append once the left side isn't single-line). Covered by the
     `BackwardPipeMultilineSeed` fixture.
 
-#### Minor/cosmetic — not acted on
+20. **A comment trailing a pipeline step — keep as is.** gren-format keeps it
+    on that step; elm-format moves it to lead the next step (the same
+    trailing-vs-leading choice as point 18, here for `|>`/`<|` instead of a
+    binop operator):
 
-Beyond the systematic trailing-comment differences in points 17 and 18, a few
-comment-attachment micro-differences remain around pipeline steps, lambda arrows,
-and `let … in`. Each is stable when reformatted; they'd need one-off matching
-rather than a single rule, so they're left as is for now.
+    ```gren
+    -- gren-format:
+    x =
+        value
+            |> stepOne {- note -}
+            |> stepTwo
 
-- **A comment trailing a pipeline step** stays on that step in gren-format;
-  elm-format moves it to lead the next step (the same trailing-vs-leading choice
-  as point 18, here for `|>`/`<|` instead of a binop operator):
+    -- elm-format:
+    x =
+        value
+            |> stepOne
+            {- note -} |> stepTwo
+    ```
 
-  ```gren
-  -- gren-format:
-  x =
-      value
-          |> stepOne {- note -}
-          |> stepTwo
+21. **An own-line comment between pipeline steps — keep as is.** gren-format
+    puts a blank line above it (it treats the comment as leading the step
+    below); elm-format writes no blank line:
 
-  -- elm-format:
-  x =
-      value
-          |> stepOne
-          {- note -} |> stepTwo
-  ```
+    ```gren
+    -- gren-format:
+    x =
+        value
+            |> stepOne
 
-- **An own-line comment between pipeline steps** gets a blank line above it in
-  gren-format (which treats it as a comment leading the step below); elm-format
-  writes no blank line:
+            -- between steps
+            |> stepTwo
 
-  ```gren
-  -- gren-format:
-  x =
-      value
-          |> stepOne
+    -- elm-format:
+    x =
+        value
+            |> stepOne
+            -- between steps
+            |> stepTwo
+    ```
 
-          -- between steps
-          |> stepTwo
+22. **A comment just after a lambda's `->` — keep as is.** gren-format keeps
+    it inline; elm-format drops the `->`, the comment, and the body each onto
+    their own line:
 
-  -- elm-format:
-  x =
-      value
-          |> stepOne
-          -- between steps
-          |> stepTwo
-  ```
+    ```gren
+    -- gren-format:
+    f =
+        \x -> {- note -} x + 1
 
-- **A comment just after a lambda's `->`** stays inline in gren-format; elm-format
-  drops the `->`, the comment, and the body each onto their own line:
+    -- elm-format:
+    f =
+        \x ->
+            {- note -}
+            x + 1
+    ```
 
-  ```gren
-  -- gren-format:
-  f =
-      \x -> {- note -} x + 1
+23. **A comment on its own line just before `in` — keep as is.** gren-format
+    has it trail the `in` keyword; elm-format keeps it above `in`,
+    blank-separated:
 
-  -- elm-format:
-  f =
-      \x ->
-          {- note -}
-          x + 1
-  ```
+    ```gren
+    -- gren-format:
+    x =
+        let
+            a =
+                1
+        in {- note -}
+        a
 
-- **A comment on its own line just before `in`** trails the `in` keyword in
-  gren-format; elm-format keeps it above `in`, blank-separated:
+    -- elm-format:
+    x =
+        let
+            a =
+                1
 
-  ```gren
-  -- gren-format:
-  x =
-      let
-          a =
-              1
-      in {- note -}
-      a
+            {- note -}
+        in
+        a
+    ```
 
-  -- elm-format:
-  x =
-      let
-          a =
-              1
-
-          {- note -}
-      in
-      a
-  ```
+    These last four are stable when reformatted; each would need its own
+    one-off match rather than falling out of a single rule, so they're left
+    as is for now.
 
 #### Out of scope for comparison
 
