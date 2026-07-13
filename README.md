@@ -2731,10 +2731,87 @@ decision and why.
 
 #### Minor/cosmetic — not acted on
 
-- Beyond the systematic trailing-comment differences in points 17 and 18, a few
-  comment-attachment micro-differences remain around pipeline steps and lambda
-  arrows/`in` — small enough that they would need one-off matching rather than a
-  single rule; left as is for now.
+Beyond the systematic trailing-comment differences in points 17 and 18, a few
+comment-attachment micro-differences remain around pipeline steps, lambda arrows,
+and `let … in`. Each is stable when reformatted; they'd need one-off matching
+rather than a single rule, so they're left as is for now.
+
+- **A comment trailing a pipeline step** stays on that step in gren-format;
+  elm-format moves it to lead the next step (the same trailing-vs-leading choice
+  as point 18, here for `|>`/`<|` instead of a binop operator):
+
+  ```gren
+  -- gren-format:
+  x =
+      value
+          |> stepOne {- note -}
+          |> stepTwo
+
+  -- elm-format:
+  x =
+      value
+          |> stepOne
+          {- note -} |> stepTwo
+  ```
+
+- **An own-line comment between pipeline steps** gets a blank line above it in
+  gren-format (which treats it as a comment leading the step below); elm-format
+  writes no blank line:
+
+  ```gren
+  -- gren-format:
+  x =
+      value
+          |> stepOne
+
+          -- between steps
+          |> stepTwo
+
+  -- elm-format:
+  x =
+      value
+          |> stepOne
+          -- between steps
+          |> stepTwo
+  ```
+
+- **A comment just after a lambda's `->`** stays inline in gren-format; elm-format
+  drops the `->`, the comment, and the body each onto their own line:
+
+  ```gren
+  -- gren-format:
+  f =
+      \x -> {- note -} x + 1
+
+  -- elm-format:
+  f =
+      \x ->
+          {- note -}
+          x + 1
+  ```
+
+- **A comment on its own line just before `in`** trails the `in` keyword in
+  gren-format; elm-format keeps it above `in`, blank-separated:
+
+  ```gren
+  -- gren-format:
+  x =
+      let
+          a =
+              1
+      in {- note -}
+      a
+
+  -- elm-format:
+  x =
+      let
+          a =
+              1
+
+          {- note -}
+      in
+      a
+  ```
 
 #### Out of scope for comparison
 
