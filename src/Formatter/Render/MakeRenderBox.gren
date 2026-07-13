@@ -186,13 +186,75 @@ operator width so they align under where the operand's first char lands. Any
 multi-line operand joined *inline* to a higher-precedence sibling, and any
 multi-line operand in a non-vertical chain, still returns Err. -}
 makeBinopBox : Bool -> Array LPNode -> Result String Box
-makeBinopBox forceVertical children =
+makeBinopBox forceVerticalArg children =
+    let
+        forceVertical =
+            forceVerticalArg || bracketOperandForcesVertical children
+    in
     if Array.any subtreeHasComment children then
         commentAwareBinopBox forceVertical children
 
     else
         precedenceBinopBox forceVertical children
             |> Result.onError (\_ -> commentAwareBinopBox forceVertical children)
+
+
+{-| True when a binop chain has a bracket-LITERAL operand (a record, array, or
+record update) that renders multi-line — either because the author broke it
+across rows, or because a comment inside it forces it open. Such an operand
+breaks the whole chain vertically (elm-format, and gren's own "multi-line content
+opens the container" rule) instead of gluing the operator after the closing
+`]`/`}`. A multi-line `"""…"""` string operand is deliberately NOT a bracket kind
+and stays glued inline — matching elm-format.
+
+Decided HERE (render side, with comments already attached), keyed on the operand
+node's own `spans-rows OR has-comment` — not on the raw source layout of the
+whole chain — so inserting or removing a comment can never flip the decision (a
+reparse fixed point). That is the same stability `commentAwareBinopBox` relies on:
+a one-row bracket that a comment forces open reports `has-comment` in BOTH the
+pre-break and post-break formats, so the chain breaks consistently. -}
+bracketOperandForcesVertical : Array LPNode -> Bool
+bracketOperandForcesVertical children =
+    (flattenBinopNodes children).operands
+        |> Array.any operandIsMultilineBracketLiteral
+
+
+operandIsMultilineBracketLiteral : Array LPNode -> Bool
+operandIsMultilineBracketLiteral operand =
+    when Array.popFirst operand is
+        Just { first = node, rest = rest } ->
+            Array.isEmpty rest
+                && isBracketLiteralBox (lpnBox node)
+                && (nodeSpansRows node || subtreeHasComment node)
+
+        Nothing ->
+            False
+
+
+isBracketLiteralBox : LPBox -> Bool
+isBracketLiteralBox box =
+    when box is
+        AllAcrossOrAllVertical _ ->
+            True
+
+        AlwaysVertical _ ->
+            True
+
+        RecordUpdate _ ->
+            True
+
+        _ ->
+            False
+
+
+nodeSpansRows : LPNode -> Bool
+nodeSpansRows node =
+    when { f = lpnFirstPos node, l = lpnLastPos node } is
+        { f = Just fp, l = Just lp } ->
+            lp.row > fp.row
+
+        _ ->
+            False
 
 
 -- The comment-aware flow: `buildFlowBox grenIndent` when inline,

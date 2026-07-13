@@ -1,0 +1,9 @@
+module M exposing (x)
+
+
+x =
+    [ a {- note -}
+    , b
+    , c
+    ]
+        ++ rest
