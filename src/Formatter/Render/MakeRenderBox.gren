@@ -764,13 +764,20 @@ emptyBracketedCommentLine node =
     when lpnBox node is
         BlockComment loc ->
             if String.contains "\n" loc.value then
-                Err "box: multi-line comment in empty bracket not ported"
+                -- Not a crash: an `Err` here is the "can't fit the one-line form"
+                -- signal that the `EmptyBracketed` arm catches and renders
+                -- vertically instead (a multi-line block comment has no inline
+                -- form).
+                Err "box: empty-bracket comment is multi-line (caller renders vertically)"
 
             else
                 Ok (B.literal ("{-" ++ loc.value ++ "-}"))
 
         _ ->
-            Err "box: non-block comment in empty bracket not ported"
+            -- Not a crash: same caught "no inline form" signal — a `--` line
+            -- comment can't sit inside a one-line `[ … ]`, so the caller drops to
+            -- the vertical layout.
+            Err "box: empty-bracket comment is a line comment (caller renders vertically)"
 
 
 {-| Join `Line`s with a single space between each (`[a, b, c]` → `a b c`). -}
@@ -2288,7 +2295,13 @@ renderWhenBranchesBox children =
         |> Result.andThen
             (\acc ->
                 if not (Array.isEmpty acc.pending) then
-                    Err "box: comment after last when-branch not ported"
+                    -- unreachable: `pending` holds own-line comments that LEAD the
+                    -- next branch, and is drained by each `WhenBranch`. A comment
+                    -- after the LAST branch never lands in the when's branch
+                    -- children — Comments.gren attaches a trailing own-line comment
+                    -- as a following sibling `OriginalRows`, outside the `WhenFlow`
+                    -- — so `pending` is always empty here.
+                    Err "unreachable: comment left pending after the last when-branch"
 
                 else
                     when Array.popFirst acc.boxes is
@@ -2926,10 +2939,16 @@ makePBox box children =
             makeGlueBox children
 
         SingleLineComment _ ->
-            Err "box: construct not ported [SingleLineComment]"
+            -- unreachable: a comment node is handled before `makePBox` — as its
+            -- own top-level `OriginalRows` (via `commentNodeToBox`), and as a flow
+            -- child by `renderFlowItem`'s own `SingleLineComment`/`BlockComment`
+            -- arms. Only its `_ ->` arm calls `makePBox`, so a comment never
+            -- reaches here.
+            Err "unreachable: SingleLineComment never reaches makePBox"
 
         BlockComment _ ->
-            Err "box: construct not ported [BlockComment]"
+            -- unreachable: same as SingleLineComment above.
+            Err "unreachable: BlockComment never reaches makePBox"
 
         DocComment _ ->
             -- unreachable: a DocComment is only ever the sole child of its own
@@ -4502,10 +4521,17 @@ assembleFlowImpl inlineStart flowIndent items =
                             -- alignment — see `softGlueAlignment`, the static
                             -- alignment table).
                             if Array.isEmpty acc.curRow then
-                                -- The item follows a block (nothing on the
-                                -- current row): its first line would have to
-                                -- glue onto the block's last line.
-                                Err "box: soft-glue of a multi-line item after a block not ported"
+                                -- unreachable: an empty current row means the
+                                -- previous item was a block (a multi-line operand).
+                                -- The only multi-line items that soft-glue in this
+                                -- inline flow are binop operands (pipelines render
+                                -- via their own `PipelineStep` path; a `Src.Call`
+                                -- with a multi-line arg goes to `assembleBrokenCall`).
+                                -- A multi-line binop operand that is a bracket /
+                                -- record / paren now forces the whole chain vertical
+                                -- (`isChainBreakingOperandBox` → `verticalBinopChainBox`),
+                                -- so a block never precedes another operand here.
+                                Err "unreachable: multi-line item soft-glued after a block"
 
                             else
                                 let
@@ -4585,7 +4611,16 @@ assembleFlowImpl inlineStart flowIndent items =
                                                                 }
 
                                                         else
-                                                            Err "box: soft-glue of a multi-line item not ported"
+                                                            -- unreachable: a multi-line `ParenBlock` operand
+                                                            -- of a binop now forces the whole chain vertical
+                                                            -- (`isChainBreakingOperandBox` includes
+                                                            -- `ParenBlock` → `verticalBinopChainBox`), so it
+                                                            -- never soft-glues here; and a pipeline's paren
+                                                            -- step renders via `PipelineStep`, not this flow.
+                                                            -- Only a direct-operand lambda / align-carrying
+                                                            -- `as`-paren (handled above) reaches the
+                                                            -- `UnclassifiedCarrying` arm at all.
+                                                            Err "unreachable: multi-line non-align paren soft-glued in a flow"
 
                                                     _ ->
                                                         -- unreachable: to reach here an item must be a
