@@ -644,23 +644,24 @@ The multi-line shape triggers when any `->` separator appears on a different
 row than the one before it. A line break right after the `:` with the rest
 still on one line is not enough — the break must fall between `->` segments.
 
-A comment doesn't change this: a signature written across rows uses the same
-per-segment shape whether or not it carries a comment. A comment leading a
-segment (right after its `->`) drops to its own indented line above the type:
+A single-line comment (a `--` comment, or a `{- ... -}` that fits on one
+physical line) landing right after a `->` glues to that `->` on the same
+line, rather than starting its own line; the rest of the signature still
+uses the per-segment shape:
 
 ```gren
 bestDiscount :
     Array { code : String, basisPoints : Int }
-    ->
-        -- comment about the result
-        Maybe { code : String, basisPoints : Int }
+    -> -- comment about the result
+    Maybe { code : String, basisPoints : Int }
 ```
 
 Only a signature the author kept on **one row** falls back to filling the flow
 and wrapping at word boundaries when it carries a comment — there's no
-`->`-segment boundary to anchor a break to. A multi-line block comment forces
-a break right after itself, and whatever follows just continues to fill the
-same line rather than starting a new per-segment line:
+`->`-segment boundary to anchor a break to. A multi-line block comment is
+different again: it forces a break right after itself, and whatever follows
+just continues to fill the same line rather than starting a new per-segment
+line:
 
 ```gren
 convert : Int -> {- explanation that
@@ -1879,7 +1880,7 @@ result =
 Every step lands at the *same* indent — a flat pipeline, same as `|>`. This is
 a deliberate divergence from `elm-format`, which nests each successive `<|`
 step one level deeper. See
-[Comparison with elm-format](#comparison-with-elm-format), point 19.
+[Comparison with elm-format](#comparison-with-elm-format), point 17.
 
 When a `<|` step body is a lambda, the `<|` trails the preceding step and the
 lambda sits on the next line, indented +4 from the pipeline seed. The lambda
@@ -2081,16 +2082,22 @@ therefore judged by how close it sits to that name: is it close enough to
 still be "inside" the block, given that the block's own boundaries aren't
 really known?
 
-Right next to the name, the comment stays with it:
+With no comment anywhere near it, the `where { … }` block always collapses to
+one line, regardless of how the author broke it across rows — like any other
+comment-free construct, it isn't forced open just because it once spanned
+multiple rows.
+
+A comment right next to the name is different: it forces the block open, one
+field per line, with the closing `}` and `exposing (..)` lined up under the
+first field's column:
 
 ```gren
 -- you wrote:
 effect module MyModule where { command = MyCmd {- note -} } exposing (..)
 
 -- formats to:
-effect module MyModule where
-    { command = MyCmd {- note -}
-    } exposing (..)
+effect module MyModule where { command = MyCmd {- note -}
+                             } exposing (..)
 ```
 
 Concretely, "close enough" means within a couple of columns of where the
@@ -2417,9 +2424,11 @@ Given that shared foundation, the mechanics differ in just two ways:
 - **How far things indent.** gren-format always indents in fixed steps of four
   spaces. elm-format instead rounds each indent up to the next multiple of four,
   measured from wherever the text on the line above happens to sit — so its
-  indentation can depend on the exact width of the tokens above it. That is the
-  source of the small one-column offset in point 11 below; gren-format
-  deliberately keeps the simpler fixed-step rule.
+  indentation can depend on the exact width of the tokens above it. That produces
+  small one-column offsets in a few remaining spots (e.g. a branch body after a
+  short-circuit operator, or inside a negated parenthesized block); gren-format
+  deliberately keeps the simpler fixed-step rule rather than adopting
+  elm-format's width-dependent one.
 - **How comments are tracked.** This is the deeper one. elm-format has its own
   parser that keeps every comment pinned to the exact spot in the program where
   it was written, and carries it through untouched. gren-format is built on top
@@ -2450,13 +2459,17 @@ decision and why.
    comment or an explanatory note — splitting them apart the way elm-format
    does would be a regression, not a fix.
 
-2. **Doc/block comment closing `-}` placement — keep as is.** elm-format
-   always puts a multi-line comment's closing `-}` on its own line, even when
-   the body is one short line. gren-format keeps the closer glued to the last
-   content line when it fits, and otherwise follows the comment's own
-   structure (see [Comments](#comments)). This is consistent with gren-format's
-   broader "your line breaks are your layout decisions" philosophy; elm-format's
-   rule is a fixed convention, not obviously better.
+2. **Doc/block comment closing `-}` placement — keep as is.** gren-format has
+   no gluing or collapsing logic for a block comment at all: whatever line
+   shape the author wrote — `-}` glued to the last content line, or on its own
+   line — is reproduced exactly (see [Comments](#comments)). elm-format instead
+   normalizes: if the whole comment fits on one physical line, it collapses
+   the entire thing onto that line (`{- short body -}`), including a comment
+   the author wrote across two lines; only when the content genuinely can't
+   fit on one line does elm-format put `-}` on its own line. This is
+   consistent with gren-format's broader "your line breaks are your layout
+   decisions" philosophy; elm-format's normalizing rule is a fixed convention,
+   not obviously better.
 
 3. **Exposing list ordering — alphabetical, deliberately independent of
    `@docs`; import sorting — narrower than elm-format.** gren-format
@@ -2503,12 +2516,33 @@ decision and why.
    are consistent. See [Import statements](#import-statements) for the canonical
    shape.
 
-5. **Type-signature wrapping when a comment is present — changed.** A
-   multi-row signature now always uses the canonical per-`->`-segment vertical
-   layout (see [Type signatures](#type-signatures)), even when it contains a
-   comment. The old special-case fallback to a fill-style flow renderer for
-   comment-bearing signatures is gone — comments no longer produce a
-   differently-shaped signature than a comment-free one would.
+5. **A single-line comment right after a `->` in a wrapped signature — keep as
+   is.** When a multi-row signature has a `--` comment (or a `{- ... -}` that
+   fits on one line) right after a `->`, gren-format glues it to that `->` on
+   the same line; the rest of the signature still uses the canonical
+   per-`->`-segment layout (see [Type signatures](#type-signatures)):
+
+   ```gren
+   -- gren-format:
+   bestDiscount :
+       Array { code : String, basisPoints : Int }
+       -> -- comment about the result
+       Maybe { code : String, basisPoints : Int }
+
+   -- elm-format:
+   bestDiscount :
+       Array { code : String, basisPoints : Int }
+       ->
+           -- comment about the result
+           Maybe { code : String, basisPoints : Int }
+   ```
+
+   elm-format instead drops the comment to its own indented line above the
+   type it leads. gren-format's glued form keeps a short comment from pushing
+   the type it annotates onto a third line. (A *multi-line* block comment
+   right after a `->` is out of scope for this point — both tools handle that
+   case differently again, and neither matches its own single-line-comment
+   behavior above.)
 
 6. **Union type declarations always stack one variant per line in
    elm-format — keep as is.** Even when the author wrote
@@ -2523,12 +2557,19 @@ decision and why.
    that forces gren-format to stay vertical. Same reasoning as #6: gren-format's
    consistent author-driven layout is preferred.
 
-8. **`where { ... }` effect-module clauses collapse to one line in
-   elm-format — keep as is.** Likely a corollary of the same
-   multiline-tracking gap as #6/#7 rather than a deliberate elm-format rule.
-   gren-format's behavior (see
-   [Comments in an effect module's header](#comments-in-an-effect-modules-header))
-   stays.
+8. **A comment near an effect module's `where { ... }` handler name forces it
+   open; elm-format never breaks it — keep as is.** With no comment nearby,
+   both tools now collapse a `where { ... }` clause to one line regardless of
+   how the author wrote it — elm-format always did this, and gren-format's
+   author-driven layout no longer preserves an author's multi-row `where`
+   block here either (see
+   [Comments in an effect module's header](#comments-in-an-effect-modules-header)).
+   The remaining divergence is comment-driven: a comment landing close to the
+   handler name forces gren-format to break the block open, one field per
+   line; elm-format keeps it on one line unconditionally, comment and all.
+   gren-format's behavior stays, since collapsing a comment-bearing block onto
+   one line would either drop the comment's position information or produce
+   a cramped single line with an inline block comment wedged into it.
 
 9. **Verbatim literal preservation vs. normalization — keep as is.**
    elm-format normalizes scientific-notation floats (`1e5` → `1.0e5`,
@@ -2548,68 +2589,7 @@ decision and why.
     [Function application](#function-application)). Covered by new fixtures
     `RedundantArgParens.dirty.gren` / `.formatted.gren`.
 
-11. **Closing `)` of a lambda written straight after `|>`/`<|` — resolved,
-    matches elm-format.** When a pipeline step is a parenthesized lambda used
-    directly as the pipe's operand (`|> (\x -> ...)`, with no function between
-    `|>` and the `(`), gren-format used to close the `)` one column to the right
-    of where elm-format puts it. Both now close the `)` directly under the `(`
-    of `(\rows ->`:
-
-    ```gren
-    summary =
-        counts
-            |> Dict.foldl addRow []
-            |> (\rows ->
-                    if Array.isEmpty rows then
-                        "no data"
-
-                    else
-                        String.join "\n" rows
-               )
-    ```
-
-    A lambda passed as a function argument (`|> Task.andThen (\x -> ...)`)
-    already lined its `)` up under the `(` in both formatters (see
-    [Pipelines](#pipelines)); this brought the *direct*-operand case into line
-    with it too. Verified against the `elm-format` binary on both this example
-    and the `PrefixAnchorDivergence` fixture's `directOperandPipe` case.
-
-12. **A comment that leads a dropped type record — resolved, matches
-    elm-format.** When a multi-line record type follows a head or a field `:` —
-    a type application argument (`HasIdentifier { … }`), a record-type field
-    value (`tracing : { … }`), or a type-alias body — both formatters drop the
-    record onto its own line. A comment sitting *between* the head and the
-    record moves with it: it lands on its own line directly above the record,
-    at the record's indent, in both formatters. Even a comment you glued to the
-    head's row moves below:
-
-    ```gren
-    -- you wrote:
-    type alias Container =
-        HasIdentifier {- note -}
-            { payload : String
-            , flags : Int
-            }
-
-    -- formats to:
-    type alias Container =
-        HasIdentifier
-            {- note -}
-            { payload : String
-            , flags : Int
-            }
-    ```
-
-    gren-format used to keep the comment glued to the head's line — moving it
-    had to wait until the move was proven stable across reformats (the comment
-    placement is reconstructed from source positions, per the "How comments are
-    tracked" note above, so a naive move oscillates; the fix keys the decision
-    off the record that follows instead of off source rows). A *trailing*
-    comment on the dropped record's `}` stays glued there (`} {- c -}`).
-    Covered by the `TypeRecordLeadingComment.dirty.gren` /
-    `TypeRecordLeadingComment.formatted.gren` fixtures.
-
-13. **Redundant parens around a binary-operator operand — keep as is (may
+11. **Redundant parens around a binary-operator operand — keep as is (may
     revisit).** When you parenthesize an applied function that is the operand of
     a binary operator, gren-format keeps your parens; elm-format strips them,
     because operator precedence already makes them redundant (application binds
@@ -2635,14 +2615,14 @@ decision and why.
     adopt elm-format's precedence-aware stripping if the extra parens prove
     noisy in practice.
 
-14. **Open-type `(..)` spacing in exposing/import lists — changed to match.**
+12. **Open-type `(..)` spacing in exposing/import lists — changed to match.**
     An exposed or imported union type whose constructors are all exposed used
     to render with a space, `Maybe (..)`; elm-format writes `Maybe(..)` with no
     space between the type name and `(..)`. gren-format now matches
     (`import Maybe exposing (Maybe(..))`, `( Order(..)`). Found in the
     `core/src` audit; covered by the `KitchenSink` fixture.
 
-15. **`infix` associativity padding — changed to match.** elm-format pads the
+13. **`infix` associativity padding — changed to match.** elm-format pads the
     associativity keyword in an `infix` declaration to the width of the widest
     one (`right`) so the precedence column lines up: `infix left  6 (+) = add`,
     `infix non   4 (==) = eq`, `infix right 5 (++) = ap`. gren-format used to
@@ -2650,11 +2630,12 @@ decision and why.
     (`infix` declarations only appear in a handful of core packages.) Covered
     by the `InfixWrapped` and `KitchenSink` fixtures.
 
-16. **Doc-comment body contents — keep verbatim.** elm-format reaches *inside*
+14. **Doc-comment body contents — keep verbatim.** elm-format reaches *inside*
     a `{-| … -}` doc comment and reformats its contents: it re-spaces `@docs`
     lines (inserting blank lines between groups), rewrites Markdown (bullet
-    style `*` → `-`, emphasis `_italic_` → `*italic*`), re-indents fenced
-    example code, and inserts blank lines between example statements.
+    style `*` → `-`, single emphasis `*italic*` → `_italic_`, strong emphasis
+    `__bold__` → `**bold**`), re-indents fenced example code, and inserts
+    blank lines between example statements.
     gren-format leaves the entire doc-comment body exactly as the author wrote
     it. This is the largest single difference in output on real library source
     (module doc comments are long), and it is a deliberate choice: gren-format
@@ -2665,7 +2646,7 @@ decision and why.
     `{- … -}` block comments and `--` line comments too — their text is always
     preserved verbatim.)
 
-17. **A comment written after code stays on that line; elm-format floats it
+15. **A comment written after code stays on that line; elm-format floats it
     away — keep as is.** When you put a comment after the last code on a line —
     after a value, or after the closing `]`/`}` of a list or record — gren-format
     keeps it right there beside the code:
@@ -2702,10 +2683,9 @@ decision and why.
     type, after a step of a `|>`/`<|` pipeline, and after the closing bracket of
     a list or record — whether that list or record is the whole definition or an
     argument to a call. If you write two or more comments in a row at the same
-    spot, they all stay on that line together. (The dropped-type-record case in
-    point 12 — `} {- c -}` — is one instance of this same rule.)
+    spot, they all stay on that line together.
 
-18. **A comment between two operands of a binop chain — keep with the operand
+16. **A comment between two operands of a binop chain — keep with the operand
     before it.** When a broken operator chain has a comment sitting between an
     operand and the next operator, gren-format keeps it on the operand it trails;
     elm-format re-homes it to lead the following operator:
@@ -2719,13 +2699,13 @@ decision and why.
     ```
 
     This is the same "a comment sticks to what it trails" rule gren-format applies
-    everywhere (point 17) — it isn't a binop-specific choice, so keeping it uniform
+    everywhere (point 15) — it isn't a binop-specific choice, so keeping it uniform
     is simpler than a special case just for operator chains. (A comment the author
     put on its *own* line, or one leading an operand, already lands the same in
     both formatters — on its own line at the operator indent, or glued in front of
     the operand.)
 
-19. **Backward `<|` pipelines: flat pipeline layout vs. right-associative
+17. **Backward `<|` pipelines: flat pipeline layout vs. right-associative
     operator nesting — keep as is.** gren-format treats a run of `<|` steps
     the same way it treats `|>`: one pipeline, every step indented the same
     fixed +4 from the seed (see [Pipelines](#pipelines)). elm-format instead
@@ -2782,9 +2762,9 @@ decision and why.
     rather than append once the left side isn't single-line). Covered by the
     `BackwardPipeMultilineSeed` fixture.
 
-20. **A comment trailing a pipeline step — keep as is.** gren-format keeps it
+18. **A comment trailing a pipeline step — keep as is.** gren-format keeps it
     on that step; elm-format moves it to lead the next step (the same
-    trailing-vs-leading choice as point 18, here for `|>`/`<|` instead of a
+    trailing-vs-leading choice as point 16, here for `|>`/`<|` instead of a
     binop operator):
 
     ```gren
@@ -2801,7 +2781,7 @@ decision and why.
             {- note -} |> stepTwo
     ```
 
-21. **An own-line comment between pipeline steps — keep as is.** gren-format
+19. **An own-line comment between pipeline steps — keep as is.** gren-format
     puts a blank line above it (it treats the comment as leading the step
     below); elm-format writes no blank line:
 
@@ -2822,7 +2802,7 @@ decision and why.
             |> stepTwo
     ```
 
-22. **A comment just after a lambda's `->` — keep as is.** gren-format keeps
+20. **A comment just after a lambda's `->` — keep as is.** gren-format keeps
     it inline; elm-format drops the `->`, the comment, and the body each onto
     their own line:
 
@@ -2838,9 +2818,9 @@ decision and why.
             x + 1
     ```
 
-23. **A comment on its own line just before `in` — keep as is.** gren-format
-    has it trail the `in` keyword; elm-format keeps it above `in`,
-    blank-separated:
+21. **A comment trailing `in` — keep as is.** gren-format keeps it glued to
+    `in` on the same line; elm-format moves it to its own line immediately
+    after `in` (no blank line, still outside the `let` block):
 
     ```gren
     -- gren-format:
@@ -2856,9 +2836,8 @@ decision and why.
         let
             a =
                 1
-
-            {- note -}
         in
+        {- note -}
         a
     ```
 
