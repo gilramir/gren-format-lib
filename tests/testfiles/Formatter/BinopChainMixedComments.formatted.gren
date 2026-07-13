@@ -1,0 +1,8 @@
+module M exposing (x)
+
+
+x =
+    aaa
+        -- own-line comment leading the +
+        + bbb {- inline after bbb -}
+        - {- leading ccc -} ccc

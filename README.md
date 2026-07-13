@@ -1917,44 +1917,33 @@ greeting =
     "Hello, " ++ firstName ++ " " ++ lastName
 ```
 
-Written across rows, it breaks at the **lowest-precedence operators** in the
-chain, keeping tighter-binding sub-terms together. The operator leads each
-continuation line, indented 4 spaces from the seed:
+Written across rows, **every operator moves onto its own line**, each operator
+leading its continuation line, indented 4 spaces from the first operand:
 
 ```gren
 score =
     baseScore
-        + bonusPoints * multiplier
+        + bonusPoints
+        * multiplier
         - penaltyAmount
 ```
 
-`bonusPoints * multiplier` stays together because `*` binds tighter than `+`
-and `-`.
-
-When every operator has the same precedence, all of them split:
-
-```gren
-greeting =
-    "Hello, "
-        ++ firstName
-        ++ " "
-        ++ lastName
-```
-
-With multiple precedence levels, only the loosest splits:
+Precedence makes no difference to the layout — a tighter-binding operator like
+`*` breaks onto its own line just like the looser `+` and `-`. Mixed precedence
+is no exception; all of them split:
 
 ```gren
 eligible =
     isAdministrator
-        || hasElevatedRole && accountIsActive == True
+        || hasElevatedRole
+        && accountIsActive
+        == True
         || isOwner
 ```
 
-A chain also breaks when one of its operands is **itself** multi-line — a record,
-array, or parenthesized expression you wrote across rows — even if you kept the
-operators on one line. The multi-line operand opens the whole chain up, so every
-operator moves onto its own line rather than one operator gluing to the operand's
-closing `}`/`]`/`)`:
+A chain also breaks this way when one of its operands is **itself** multi-line —
+a record, array, or parenthesized expression you wrote across rows — even if you
+kept the operators on one line. The multi-line operand opens the whole chain up:
 
 ```gren
 config =
@@ -1968,22 +1957,20 @@ config =
 (A multi-line `"""…"""` string operand is the exception — it stays glued in the
 chain, since its own lines already carry the layout.)
 
-A chain with a comment in it uses a simpler flow renderer instead of the
-precedence-aware one (the comment can't be reordered to fit the structure), but
-still keeps the first operand on its own line when the author wrote the chain
-across rows, rather than collapsing the whole thing onto one line:
+A comment in the chain doesn't change any of this — the chain still breaks one
+operator per line, and each comment stays where you wrote it. A comment on its
+own line sits at the operator indent; a comment trailing an operand rides that
+operand's line; a comment just before an operand glues in front of it:
 
 ```gren
 total =
     leftComponent
-        ++ rightComponent ++ trailingValue {- note -}
+        -- start with the pieces
+        ++ rightComponent {- the middle -}
+        ++ trailingValue
 ```
 
-Only that first split is guaranteed — with three or more operators, a
-comment can still leave the later ones glued together on one line even
-though the author broke each onto its own row.
-
-The same precedence-aware layout applies to a stacked `if` condition (see
+The same one-operator-per-line layout applies to a stacked `if` condition (see
 [If expressions](#if-expressions)).
 
 ---
@@ -2722,12 +2709,32 @@ decision and why.
     spot, they all stay on that line together. (The dropped-type-record case in
     point 12 — `} {- c -}` — is one instance of this same rule.)
 
+18. **A comment between two operands of a binop chain — keep with the operand
+    before it.** When a broken operator chain has a comment sitting between an
+    operand and the next operator, gren-format keeps it on the operand it trails;
+    elm-format re-homes it to lead the following operator:
+
+    ```gren
+    -- you wrote (and gren-format keeps):        -- elm-format moves it:
+    total =                                      total =
+        alpha                                        alpha
+            ++ beta {- note -}                           ++ beta
+            ++ gamma                                     {- note -} ++ gamma
+    ```
+
+    This is the same "a comment sticks to what it trails" rule gren-format applies
+    everywhere (point 17) — it isn't a binop-specific choice, so keeping it uniform
+    is simpler than a special case just for operator chains. (A comment the author
+    put on its *own* line, or one leading an operand, already lands the same in
+    both formatters — on its own line at the operator indent, or glued in front of
+    the operand.)
+
 #### Minor/cosmetic — not acted on
 
-- Beyond the systematic trailing-comment difference in point 17, a few
-  comment-attachment micro-differences remain around pipeline steps, binop
-  operands, and lambda arrows/`in` — small enough that they would need one-off
-  matching rather than a single rule; left as is for now.
+- Beyond the systematic trailing-comment differences in points 17 and 18, a few
+  comment-attachment micro-differences remain around pipeline steps and lambda
+  arrows/`in` — small enough that they would need one-off matching rather than a
+  single rule; left as is for now.
 
 #### Out of scope for comparison
 

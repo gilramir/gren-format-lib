@@ -7,7 +7,8 @@ joinUp pair =
             pair
     in
     leftComponent
-        ++ rightComponent ++ someTrailingValueToPushThisParticularLineOutTowardOneHundredColumns {- trailing the chain -}
+        ++ rightComponent
+        ++ someTrailingValueToPushThisParticularLineOutTowardOneHundredColumns {- trailing the chain -}
 
 
 -- leading comment of the next declaration
