@@ -6,7 +6,7 @@ Exposed via `gren format --lpt`, which prints the tree as nested objects:
 each node carries its box constructor (`type`, plus box-specific fields like
 `first`/`last`/`stype` for `OriginalRows`, or the literal text for leaves)
 and a `children` array. The format is intended for human inspection of the
-intermediate representation produced by `Formatter.Logical.MakeLogical`, not for any
+intermediate representation produced by `Formatter.Logical`, not for any
 machine consumer.
 
 @docs lptToJson

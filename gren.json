@@ -10,8 +10,8 @@
         "Compiler.Ast.Source.Json",
         "Compiler.Parse.Context.Json",
         "Formatter",
+        "Formatter.Logical",
         "Formatter.Logical.LPTJson",
-        "Formatter.Logical.MakeLogical",
         "Formatter.Render"
     ],
     "gren-version": "0.6.0 <= v < 0.7.0",

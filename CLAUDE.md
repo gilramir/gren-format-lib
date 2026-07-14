@@ -129,12 +129,13 @@ Pipeline: `Src.Module + Ctx.Context → LPT → Box → String`
 
 ```
 Formatter                              entry point: prettyPrint
-    Formatter.Logical.MakeLogical      AST → LogicalPrintingTree
-        Formatter.Logical.InsertExpressions   expressions (one insert* per form)
-        Formatter.Logical.InsertPatterns      patterns
-        Formatter.Logical.InsertTypes         types
-        Formatter.Logical.LPTHelpers          construction helpers (mkText*, plainAcross, …)
-        Formatter.Logical.BinopPrecedence     operator fixity table
+    Formatter.Logical                  logical-stage entry (module Formatter.Logical, file Logical.gren): runs lptFromAst then the comment/sort/blank-line passes
+        Formatter.Logical.MakeLogical    AST → LogicalPrintingTree (lptFromAst — one OriginalRows per declaration)
+            Formatter.Logical.InsertExpressions   expressions (one insert* per form)
+            Formatter.Logical.InsertPatterns      patterns
+            Formatter.Logical.InsertTypes         types
+            Formatter.Logical.LPTHelpers          construction helpers (mkText*, plainAcross, …)
+            Formatter.Logical.BinopPrecedence     operator fixity table
         Formatter.Logical.Comments            re-attaches comments from parse context
         Formatter.Logical.SortSymbols         sorts exposing lists + import groups
         Formatter.Logical.VerticalSpace       inserts blank lines between top-level items

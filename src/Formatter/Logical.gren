@@ -1,0 +1,62 @@
+module Formatter.Logical exposing (makeLogicalPrintingTree)
+
+{-| The logical stage's entry point: build the Logical Printing Tree from a
+parsed module. The AST walk itself lives in `Formatter.Logical.MakeLogical`
+(`lptFromAst`); this module runs it and applies the finishing passes.
+
+@docs makeLogicalPrintingTree
+-}
+
+import Compiler.Ast.Source as Src
+import Compiler.Parse.Context as Ctx
+import Formatter.Logical.LogicalPrintingTree exposing (LPNode)
+import Formatter.Logical.MakeLogical exposing (lptFromAst)
+import Formatter.Logical.Comments exposing (lptAddComments)
+import Formatter.Logical.SortSymbols exposing (sortSymbols)
+import Formatter.Logical.VerticalSpace exposing (insertEmptyLines, insertFlowBlankLines)
+
+
+{-| Build the Logical Printing Tree for a parsed module.
+
+The pipeline runs in five stages:
+
+1. `lptFromAst` (in `Formatter.Logical.MakeLogical`) walks the `Src.Module` and
+   emits one `OriginalRows` child per top-level declaration, in source order.
+2. `Formatter.Logical.Comments.lptAddComments` weaves in comment nodes from the
+   parse `Ctx.Context`, as siblings of the declarations they belong to.
+3. `Formatter.Logical.SortSymbols.sortSymbols` reorders the symbols inside
+   every `exposing ( ... )` list alphabetically (elm-format's grouping),
+   carrying each symbol's attached comments along with it. `import`
+   statements themselves are left in source order. Runs *after* comments
+   are attached, never before -- see that module's docs for why.
+4. `Formatter.Logical.VerticalSpace.insertFlowBlankLines` walks the whole tree
+   once, inserting `EmptyLine` siblings between `let` bindings, before
+   `else`/`else if`, and before a comment between `when` cases.
+5. `Formatter.Logical.VerticalSpace.insertEmptyLines` inserts `EmptyLine` siblings
+   to normalise blank-line spacing between top-level declarations.
+
+Returns `Err` (with the original error prefixed for context) if any stage
+fails. The resulting `LPNode` is the input to `Formatter.Render`.
+-}
+makeLogicalPrintingTree : Src.Module -> Ctx.Context -> Result String LPNode
+makeLogicalPrintingTree ast ctx =
+    when lptFromAst ast is
+        Err errString ->
+            Err ("Failed to create intermediate representation for pretty printing: "
+                    ++ errString)
+
+        Ok lpt ->
+            let
+                withComments =
+                    lptAddComments ctx lpt
+
+                sorted =
+                    sortSymbols withComments
+
+                withFlowBlanks =
+                    insertFlowBlankLines sorted
+
+                withEmptyLines =
+                    insertEmptyLines withFlowBlanks
+            in
+            Ok withEmptyLines

@@ -11,7 +11,7 @@ canonically formatted string.
 import Compiler.Ast.Source as Src
 import Compiler.Parse.Context as Ctx
 
-import Formatter.Logical.MakeLogical exposing (makeLogicalPrintingTree)
+import Formatter.Logical exposing (makeLogicalPrintingTree)
 import Formatter.Render exposing (makePrettyResult)
 
 
