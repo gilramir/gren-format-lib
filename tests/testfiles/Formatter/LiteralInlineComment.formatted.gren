@@ -56,6 +56,18 @@ binopOperand =
     [ a {- note -}, b ] ++ rest
 
 
+-- A union body the author wrote on one line keeps its inline comment, matching
+-- the same union with no comment at all
+type UnionFlat
+    = Red {- warm -} | Green | Blue
+
+
+type UnionOwnRow
+    = Red
+    {- own row -}
+    | Green
+
+
 -- Record updates follow the same rule
 updateFlat r =
     { r | a = 1 {- u -}, b = 2 }

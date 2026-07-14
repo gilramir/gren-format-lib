@@ -1025,6 +1025,17 @@ type Shape
     | Rectangle Int Int
 ```
 
+A short `{- … -}` beside a variant doesn't change any of this — the one-line
+form stays on one line:
+
+```gren
+type Color
+    = Red {- warm -} | Green | Blue
+```
+
+Only a comment that can't share the line (a `--` comment, a `{- … -}` spread
+over several lines, or one on a row of its own) splits the variants apart.
+
 ---
 
 ### Ports

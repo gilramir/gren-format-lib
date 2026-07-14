@@ -363,23 +363,28 @@ makeTypeAliasBody nodes =
 
 
 {-| A union body: each variant (`= A`, `| B`) on its own line when the author
-wrote them across rows, or inline `= A | B | C` when on one line. Comment-bearing
-unions render vertically. -}
+wrote them across rows, or inline `= A | B | C` when on one line. A comment only
+forces the vertical form when it cannot ride the inline one. -}
 makeUnionBodyBox : Array LPNode -> Result String Box
 makeUnionBodyBox nodes =
     let
         variantNodes =
             Array.keepIf (\n -> not (nodeIsComment n)) nodes
 
+        authorVertical =
+            rowsSpanMultiple (Array.map firstRowInSubtree variantNodes)
+
         vertical =
-            Array.any nodeIsComment nodes
-                || rowsSpanMultiple (Array.map firstRowInSubtree variantNodes)
+            authorVertical || commentForcesBracketOpen False nodes
     in
     if vertical then
         makeUnionBodyVerticalBox nodes
 
     else
-        traverseResult (\n -> buildFlowBox 0 (lpnChildren n)) variantNodes
+        -- Fold over `nodes`, not `variantNodes`: `pairInlineComments` glues each
+        -- comment onto the variant it trails, so `joinInline` still sees one box
+        -- per variant.
+        pairInlineComments (\n -> buildFlowBox 0 (lpnChildren n)) nodes
             |> Result.andThen
                 (\variantBoxes ->
                     when joinInline variantBoxes is
