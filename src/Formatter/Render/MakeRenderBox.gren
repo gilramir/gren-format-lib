@@ -4334,6 +4334,48 @@ assembleFlowImpl inlineStart flowIndent items =
                         UnbreakableText loc ->
                             FP.LeafItem { startRow = loc.start.row, isElidedArrow = isElidedArrow item.node }
 
+                        -- Every other flow-item box kind — practically:
+                        -- `RecordUpdate`, `ParenBlock`, `Binop`, `WhenFlow`,
+                        -- `OpAndRhs`, `Glue`, `PrefixGlue`, `MultilineString`.
+                        -- Unlike the `AllAcrossOrAllVertical`/`AlwaysVertical`
+                        -- arms above (`bracketFacts`) and the `AcrossOrVertical`
+                        -- arm's own bracket-aware branch, this always reports
+                        -- `startRow = -1` ("unknown") — so a same-row trailing
+                        -- comment right after one of these items won't be
+                        -- recognized as glueable onto the item's closing line
+                        -- and falls back to a less precise placement.
+                        --
+                        -- Of the 8 named kinds, only `RecordUpdate` and
+                        -- `ParenBlock` are built via `lpnBracketNode`
+                        -- (`InsertExpressions.gren`'s `insertUpdate`/
+                        -- `insertParens`) and so actually carry an unused
+                        -- `lpnLastBracketEnd` this arm could read, the same way
+                        -- the `AcrossOrVertical` arm above does — for those two,
+                        -- `-1` is a plausible-but-unverified undershoot, not a
+                        -- proven-safe fallback. The rest (`Binop`/`WhenFlow`/
+                        -- `OpAndRhs`/`Glue`/`PrefixGlue`) have no closing
+                        -- punctuation to track in the first place (built via
+                        -- plain `lpnNode`), so `-1` is the same fallback
+                        -- `AcrossOrVertical`'s own `Nothing` branch uses —
+                        -- genuinely the best available answer for those, not a
+                        -- shortcut.
+                        --
+                        -- Checked (2026-07-13): a dozen targeted repros — a
+                        -- same-row trailing comment directly after each of the
+                        -- 8 named kinds, in various positions — found no actual
+                        -- misplacement; every case was intercepted by a more
+                        -- specific path first (`assembleBrokenCall` for a call
+                        -- with a block argument, `verticalBinopChainBox`'s own
+                        -- comment-splitting for binops, `commentBracketListBox`
+                        -- for bracket literals, or `Comments.gren` attaching the
+                        -- comment inside the nested bracket rather than as a
+                        -- flow sibling). So this is not a live bug — but unlike
+                        -- the ~35+ "unreachable"-labeled wildcards elsewhere in
+                        -- this file, that's an empirical result, not a proof by
+                        -- construction. If a comment-placement bug ever surfaces
+                        -- near a `RecordUpdate`/`ParenBlock` flow item, start
+                        -- here: wiring `lpnLastBracketEnd item.node` through
+                        -- (mirroring the `AcrossOrVertical` arm) is the fix.
                         _ ->
                             FP.LeafItem { startRow = -1, isElidedArrow = False }
 
