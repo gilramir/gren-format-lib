@@ -1,6 +1,4 @@
-effect module TrickyComments where {- c1 -} { command = TrickyCmd {- c2 -}
-                                            , subscription = TrickySub {- c3 -}
-                                            } exposing (..)
+effect module TrickyComments where {- c1 -} { command = TrickyCmd {- c2 -}, subscription = TrickySub {- c3 -} } exposing (..)
 
 {-| Accumulates one regression case per previously-mishandled comment
 placement, identified by the bug letters from broken.txt.
@@ -119,10 +117,7 @@ emptyArray =
 -- admits the comment past the AcrossOrVertical so it can descend
 -- into the bracket-list and land as its last child.
 arrayPatTrailing =
-    \[ a
-     , b
-     , c {- trailing comment after last array-pattern item -}
-     ] -> a
+    \[ a, b, c {- trailing comment after last array-pattern item -} ] -> a
 
 
 -- Bug E — a block comment between a record pattern and `as` in an

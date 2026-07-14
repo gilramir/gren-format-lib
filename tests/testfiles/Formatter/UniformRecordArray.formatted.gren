@@ -34,13 +34,9 @@ oneWide =
     ]
 
 
--- A comment inside one record expands all the records
+-- An inline comment inside one record rides its flat line and expands nothing
 commentInRecord =
-    [ { name = "circle" {- why -}
-      , sides = 0
-      }
-    , { name = "tri", sides = 3 }
-    ]
+    [ { name = "circle" {- why -}, sides = 0 }, { name = "tri", sides = 3 } ]
 
 
 -- A comment between items leaves fitting records flat

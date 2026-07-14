@@ -1,4 +1,4 @@
-module Formatter.Render.NodeClassify exposing (nodeIsComment, subtreeHasComment, subtreeHasMultilineBlockComment, subtreeHasVerticalBox, typeHasCommentBracket, isMultilineLambdaParenBlockBox, isMultilineContentParenBlockBox, isOpAndRhsNode, isPipelineStepNode, leafValue, isArrowLeaf, isColonLeaf, isElidedArrow, isEmptyLine, fieldValueDropsToOwnLine, rowsSpanMultiple, nodeSpansRows, parenContentIsLambdaHead, splitSignatureSegments, segFirstRow, segLastRow, isDroppingSignatureRecordNode, signatureForceVertical, leafLineRow)
+module Formatter.Render.NodeClassify exposing (nodeIsComment, subtreeHasComment, literalCommentsRideFlatLine, subtreeHasMultilineBlockComment, subtreeHasVerticalBox, typeHasCommentBracket, isMultilineLambdaParenBlockBox, isMultilineContentParenBlockBox, isOpAndRhsNode, isPipelineStepNode, leafValue, isArrowLeaf, isColonLeaf, isElidedArrow, isEmptyLine, fieldValueDropsToOwnLine, rowsSpanMultiple, nodeSpansRows, parenContentIsLambdaHead, splitSignatureSegments, segFirstRow, segLastRow, isDroppingSignatureRecordNode, signatureForceVertical, leafLineRow)
 
 {-| Boolean predicates and small structural queries over LPT nodes.
 -}
@@ -29,6 +29,60 @@ nodeIsComment node =
 subtreeHasComment : LPNode -> Bool
 subtreeHasComment node =
     nodeIsComment node || Array.any subtreeHasComment (lpnChildren node)
+
+
+{-| True when every comment among a bracketed literal's direct children can ride
+the flat form's single line: a `{- … -}` written on one source row, trailing an
+item on that same row.
+
+Three kinds of comment cannot, and keep the literal on the comment-aware
+vertical path (`commentBracketListBox`): a `--` comment, which ends its line; a
+multi-line `{- … -}`, which brings its own newlines; and any comment the author
+put on its own row, whose placement the flat form cannot carry.
+
+A `{-| … -}` is top-level only — the parser rejects one inside a literal, an
+exposing list, or a union body — so it never reaches here. Excluding it anyway
+costs nothing and keeps the rule right if that ever changes.
+-}
+literalCommentsRideFlatLine : Array LPNode -> Bool
+literalCommentsRideFlatLine children =
+    Array.foldl
+        (\node acc ->
+            when lpnBox node is
+                BlockComment loc ->
+                    { acc
+                        | ok =
+                            acc.ok
+                                && not (String.contains "\n" loc.value)
+                                && loc.start.row
+                                == acc.prevRow
+                    }
+
+                SingleLineComment _ ->
+                    { acc | ok = False }
+
+                DocComment _ ->
+                    { acc | ok = False }
+
+                _ ->
+                    { acc | prevRow = literalItemRow node }
+        )
+        { ok = True, prevRow = -1 }
+        children
+        |> .ok
+
+
+-- The row a literal's item ends on, for pairing a trailing comment to it.
+-- Mirrors the `itemRow` that `commentBracketListBox` folds with, so both paths
+-- agree on which item a comment trails.
+literalItemRow : LPNode -> Int
+literalItemRow node =
+    when lpnBox node is
+        UnbreakableText l ->
+            l.start.row
+
+        _ ->
+            lpnMaxRow node
 
 
 -- True if the subtree contains a MULTI-LINE block comment — the align-anchored
@@ -119,7 +173,7 @@ isPipelineStepNode node =
 
 
 -- A subtree that always produces a hard break (an AlwaysVertical/RecordUpdate,
--- or a comment-bearing literal).
+-- or a literal holding a comment that cannot ride its flat line).
 subtreeHasVerticalBox : LPNode -> Bool
 subtreeHasVerticalBox node =
     when lpnBox node is
@@ -130,7 +184,11 @@ subtreeHasVerticalBox node =
             True
 
         AllAcrossOrAllVertical _ ->
-            Array.any nodeIsComment (lpnChildren node)
+            -- Mirrors `makeLiteralBox`'s gate: a comment only forces the
+            -- literal open when it cannot ride the flat line.
+            (Array.any nodeIsComment (lpnChildren node)
+                && not (literalCommentsRideFlatLine (lpnChildren node))
+            )
                 || Array.any subtreeHasVerticalBox (lpnChildren node)
 
         _ ->

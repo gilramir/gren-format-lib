@@ -104,10 +104,7 @@ processOrder ({ identifier, items, appliedDiscounts, flags } as inboundCart) =
                             1.0
 
         -- comment before a Destruct (let-pattern) binding
-        { isShippable {- comment in the middle of a destructuring -}
-        , isGift
-        , isPriority
-        } =
+        { isShippable {- comment in the middle of a destructuring -}, isGift, isPriority } =
             flags
 
         -- comment introducing a nested if/then/else
@@ -287,24 +284,8 @@ torturedComments primaryIntValue secondaryStringValue tertiaryBoolValue =
 {-| EXTREME case: one function that uses let, when, if, record destructuring,
     record updating, and pipelines — with a multi-line `{- -}` comment crammed
     into every whitespace position between tokens. -}
-extremelyCommented :
-    {-c1-}
-    {-c2-}
-    {-c3-}
-    { score : {-c4-} {-c5-} Int {-c6-}
-    {-c7-}
-    , label : {-c8-} {-c9-} String {-c10-}
-    }
-    -> {-c11-} {-c12-}
-        {-c13-}
-        { score : {-c14-} {-c15-} Int {-c16-}
-        {-c17-}
-        , label : {-c18-} {-c19-} String {-c20-}
-        } {-c21-}
-extremelyCommented {-c22-} {-c23-} {-c24-} ({ score {-c25-}
-                                            {-c26-}
-                                            , label {-c27-}
-                                            } {-c28-} {-c29-} as wholeRecord) = {-c30-} {-c31-} {-c32-}
+extremelyCommented : {-c1-} {-c2-} {-c3-} { score : {-c4-} {-c5-} Int {-c6-} {-c7-}, label : {-c8-} {-c9-} String {-c10-} } -> {-c11-} {-c12-} {-c13-} { score : {-c14-} {-c15-} Int {-c16-} {-c17-}, label : {-c18-} {-c19-} String {-c20-} } {-c21-}
+extremelyCommented {-c22-} {-c23-} {-c24-} ({ score {-c25-} {-c26-}, label {-c27-} } {-c28-} {-c29-} as wholeRecord) = {-c30-} {-c31-} {-c32-}
     let
         {-c33-}
         {-c34-}

@@ -1,6 +1,4 @@
-effect module EffectModuleFxWhereComment where { command = TrickyCmd {- c2 -}
-                                               , subscription = TrickySub {- c3 -}
-                                               } exposing (..) {- trailing comment after the exposing list -}
+effect module EffectModuleFxWhereComment where { command = TrickyCmd {- c2 -}, subscription = TrickySub {- c3 -} } exposing (..) {- trailing comment after the exposing list -}
 
 import Task
 

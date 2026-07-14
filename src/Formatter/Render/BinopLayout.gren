@@ -7,7 +7,7 @@ import Formatter.Render.Box as B exposing (Box(..))
 import Formatter.Logical.LogicalPrintingTree exposing (LPBox(..), LPNode, lpnBox, lpnChildren, lpnLastPos, lpnLastBracketEnd)
 import Formatter.Logical.BinopPrecedence exposing (binopPrecedence)
 import Formatter.Render.BoxOps exposing (traverseResult)
-import Formatter.Render.NodeClassify exposing (nodeIsComment, subtreeHasComment, leafValue, nodeSpansRows)
+import Formatter.Render.NodeClassify exposing (nodeIsComment, subtreeHasComment, literalCommentsRideFlatLine, leafValue, nodeSpansRows)
 
 {-| Flatten the nested `Binop`/`OpAndRhs` tree into a flat operand + operator
 list. Each operand is itself a flow (array of nodes). -}
@@ -51,11 +51,11 @@ opens the container" rule) instead of gluing the operator after the closing
 and stays glued inline — matching elm-format.
 
 Decided HERE (render side, with comments already attached), keyed on the operand
-node's own `spans-rows OR has-comment` — not on the raw source layout of the
-whole chain — so inserting or removing a comment can never flip the decision (a
-reparse fixed point). That is the same stability `commentAwareBinopBox` relies on:
-a one-row bracket that a comment forces open reports `has-comment` in BOTH the
-pre-break and post-break formats, so the chain breaks consistently. -}
+node's own `spans-rows OR a-comment-forces-it-open` — not on the raw source
+layout of the whole chain — so inserting or removing a comment can never flip the
+decision (a reparse fixed point). That is the same stability `commentAwareBinopBox`
+relies on: a one-row bracket reports the same verdict in BOTH the pre-break and
+post-break formats, so the chain breaks consistently. -}
 bracketOperandForcesVertical : Array LPNode -> Bool
 bracketOperandForcesVertical children =
     (flattenBinopNodes children).operands
@@ -68,10 +68,35 @@ operandIsMultilineBracketLiteral operand =
         Just { first = node, rest = rest } ->
             Array.isEmpty rest
                 && isChainBreakingOperandBox (lpnBox node)
-                && (nodeSpansRows node || subtreeHasComment node)
+                && (nodeSpansRows node || operandCommentForcesOpen node)
 
         Nothing ->
             False
+
+
+{-| A comment inside the operand that forces the operand itself multi-line, and
+so breaks the chain.
+
+For a bracketed literal this must mirror `makeLiteralBox`'s own gate: only a
+comment its flat line cannot carry still forces it open. Without that, a literal
+whose comment now rides its flat line would render on one line while the chain
+around it still broke — the two decisions must agree. Every other operand kind
+keeps breaking on any comment, matching the render paths they still take.
+-}
+operandCommentForcesOpen : LPNode -> Bool
+operandCommentForcesOpen node =
+    when lpnBox node is
+        AllAcrossOrAllVertical _ ->
+            if Array.any nodeIsComment (lpnChildren node) then
+                not (literalCommentsRideFlatLine (lpnChildren node))
+
+            else
+                -- A comment nested deeper than a direct child; the literal's
+                -- own gate does not see it, so leave this conservative.
+                subtreeHasComment node
+
+        _ ->
+            subtreeHasComment node
 
 
 {-| Operand box kinds whose multi-line form breaks a binop chain vertically: a

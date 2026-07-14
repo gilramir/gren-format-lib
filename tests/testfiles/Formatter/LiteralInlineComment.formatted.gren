@@ -1,0 +1,56 @@
+module LiteralInlineComment exposing (..)
+
+
+-- A single-line block comment trailing an item on that item's own row rides
+-- the flat line the author wrote
+arrayFlat =
+    [ 1 {- one -}, 2, 3 ]
+
+
+recordFlat =
+    { a = 1 {- note -}, b = 2 }
+
+
+typeRecordFlat : { a : Int {- c -}, b : Int }
+typeRecordFlat =
+    { a = 1, b = 2 }
+
+
+-- Several comments on the one row all ride it
+manyOnOneRow =
+    [ 1 {- a -} {- b -}, 2 {- c -} ]
+
+
+-- A `--` comment ends its line, so it forces the literal open
+lineComment =
+    [ 1 -- trailing
+    , 2
+    ]
+
+
+-- A multi-line block comment brings its own newlines, so it forces it open too
+multiLineComment =
+    [ 1 {- multi
+           line -}
+    , 2
+    ]
+
+
+-- A comment the author put on its own row keeps that row
+ownRowComment =
+    [ 1
+    {- own row -}
+    , 2
+    ]
+
+
+-- The author's own vertical layout still wins; the comment stays inline in it
+authorVertical =
+    [ 1 {- one -}
+    , 2
+    ]
+
+
+-- A flat literal operand no longer breaks the binop chain around it
+binopOperand =
+    [ a {- note -}, b ] ++ rest

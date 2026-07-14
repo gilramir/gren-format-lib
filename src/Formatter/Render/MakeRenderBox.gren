@@ -15,7 +15,7 @@ import Formatter.Render.FlowPolicy as FP
 import Formatter.Logical.LogicalPrintingTree exposing (LPBox(..), LPNode, ListBrackets(..), SyntaxType(..), lpnBox, lpnChildren, firstRowInSubtree, lpnMaxRow, lpnLastPos, lpnLastBracketEnd)
 import Formatter.Logical.BinopPrecedence exposing (binopPrecedence, binopMinPrecedence)
 import Formatter.Render.BoxOps exposing (grenIndent, prefixOperator, wrapParenVertical, wrapParenVerticalPadded, blockIndentSpaces, applyIndent, stackWithBlanks, boxLine, traverseResult, spaceJoinLines, joinInline, isSingleLine, glueCommentSuffix, isBlockNode, nodeStartRow)
-import Formatter.Render.NodeClassify exposing (nodeIsComment, subtreeHasComment, subtreeHasMultilineBlockComment, typeHasCommentBracket, isMultilineLambdaParenBlockBox, isMultilineContentParenBlockBox, isOpAndRhsNode, isPipelineStepNode, leafValue, isColonLeaf, isElidedArrow, fieldValueDropsToOwnLine, rowsSpanMultiple, parenContentIsLambdaHead, splitSignatureSegments, isDroppingSignatureRecordNode, signatureForceVertical)
+import Formatter.Render.NodeClassify exposing (nodeIsComment, subtreeHasComment, literalCommentsRideFlatLine, subtreeHasMultilineBlockComment, typeHasCommentBracket, isMultilineLambdaParenBlockBox, isMultilineContentParenBlockBox, isOpAndRhsNode, isPipelineStepNode, leafValue, isColonLeaf, isElidedArrow, fieldValueDropsToOwnLine, rowsSpanMultiple, parenContentIsLambdaHead, splitSignatureSegments, isDroppingSignatureRecordNode, signatureForceVertical)
 import Formatter.Render.CommentBox exposing (makeCommentLineBox, multiLineBlockCommentBox, commentNodeBox, emptyBracketedCommentLine, spanLeadingComments, spanTrailingComments, peelTrailingCommentNodes, glueTrailingComments)
 import Formatter.Render.BinopLayout exposing (flattenBinopNodes, assembleBinopBox, splitTrailingOwnLineComments, opText, bracketOperandForcesVertical)
 import Formatter.Render.FlowAssembly exposing (FlowItem, SoftGlueAlignment(..), assembleBrokenWithComments, assembleBrokenCall, trySoftGlueFlow, pairTypeRecordComments, softGlueAlignment, parenInnerIsAlignCarrying, softBlockChildForcesVerticalBox, bracketPunc, verticalExposingBox, gluedExposingBox)
@@ -2372,9 +2372,16 @@ across rows) passes `forceMultiline = True`. -}
 makeLiteralBox : Bool -> ListBrackets -> Array LPNode -> Result String Box
 makeLiteralBox forceMultiline bracket children =
     if Array.any nodeIsComment children then
-        -- A line comment can't live inside a flat group, so a comment-bearing
-        -- literal is always vertical (via `commentBracketListBox`).
-        commentBracketListBox bracket children
+        if not forceMultiline && literalCommentsRideFlatLine children then
+            -- The author wrote the literal flat and every comment in it is a
+            -- single-line `{- … -}` trailing an item on that item's own row, so
+            -- the flat form carries them as-is. Only a comment that genuinely
+            -- cannot share a line (`--`, multi-line, or written on its own row)
+            -- forces the literal open — see `literalCommentsRideFlatLine`.
+            inlineCommentLiteralBox bracket children
+
+        else
+            commentBracketListBox bracket children
 
     else
         traverseResult (\node -> makePBox (lpnBox node) (lpnChildren node)) children
@@ -2390,6 +2397,57 @@ makeLiteralBox forceMultiline bracket children =
                             -- all of them and always returns Just.
                             Err "unreachable: bracket kind"
                 )
+
+
+{-| Render a bracketed literal whose comments all ride its flat line (gated by
+`literalCommentsRideFlatLine`). Each comment is glued as a suffix onto the box
+of the item it trails, so the group sees exactly one box per real item — a
+comment left as its own entry would get a `, ` separator and render as an
+element. `forceMultiline = False`: the caller only takes this path for a literal
+the author wrote flat. The group still expands (coupling every item onto its own
+line) if some item renders multi-line, exactly as it would without the comment.
+-}
+inlineCommentLiteralBox : ListBrackets -> Array LPNode -> Result String Box
+inlineCommentLiteralBox bracket children =
+    let
+        step node accResult =
+            when accResult is
+                Err e ->
+                    Err e
+
+                Ok acc ->
+                    if nodeIsComment node then
+                        commentNodeBox node
+                            |> Result.andThen
+                                (\cbox ->
+                                    when Array.popLast acc is
+                                        Just { last, initial } ->
+                                            Ok (Array.pushLast (glueCommentSuffix cbox last) initial)
+
+                                        Nothing ->
+                                            -- unreachable: `literalCommentsRideFlatLine`
+                                            -- admits a comment only when it shares a row
+                                            -- with an item already folded in.
+                                            Err "box: literal comment has no item to trail"
+                                )
+
+                    else
+                        makePBox (lpnBox node) (lpnChildren node)
+                            |> Result.map (\box -> Array.pushLast box acc)
+    in
+    Array.foldl step (Ok []) children
+        |> Result.andThen
+            (\itemBoxes ->
+                when bracketPunc bracket is
+                    Just { left, right } ->
+                        Ok (E.groupBox True left "," right False itemBoxes)
+
+                    Nothing ->
+                        -- unreachable: ListBrackets has exactly 3 constructors
+                        -- (ListParen/ListCurly/ListSquare); bracketPunc matches
+                        -- all of them and always returns Just.
+                        Err "unreachable: bracket kind"
+            )
 
 
 {-| Render a bracketed literal that contains a comment child, as an always-
