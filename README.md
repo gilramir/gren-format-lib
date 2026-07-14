@@ -2446,7 +2446,7 @@ The rest of this section catalogues the places where, given all of the above, we
 made a deliberately different choice from elm-format. Each finding records the
 decision and why.
 
-1. **Blank lines: comment-attached vs. declaration-attached — keep as is.**
+1. **Blank lines: comment-attached vs. declaration-attached**
    elm-format always puts its 2-blank-line separator immediately above the
    declaration itself, splitting a leading comment away from the code it
    documents. gren-format treats the comment as part of the declaration's
@@ -2483,7 +2483,7 @@ decision and why.
        2
    ```
 
-2. **Multi-line block comment's closing `-}` placement — keep as is.**
+2. **Multi-line block comment's closing `-}` placement**
    gren-format has no gluing or collapsing logic for a block comment at all:
    whatever line shape the author wrote — `-}` glued to the last content
    line, or on its own line — is reproduced exactly (see
@@ -2538,7 +2538,7 @@ decision and why.
    crosses. See
    [Import statements sort within unbroken runs](#import-statements-sort-within-unbroken-runs).
 
-4. **`import X exposing (...)` wrapping style — deliberate divergence.** When an
+4. **`import X exposing (...)` wrapping style** When an
    import's exposing list wraps, gren-format keeps `exposing` on the `import`
    line as its last word and indents the list +4 below it:
 
@@ -2556,8 +2556,8 @@ decision and why.
    are consistent. See [Import statements](#import-statements) for the canonical
    shape.
 
-5. **A single-line comment right after a `->` in a wrapped signature — keep as
-   is.** When a multi-row signature has a `--` comment (or a `{- ... -}` that
+5. **A single-line comment right after a `->` in a wrapped signature**
+   When a multi-row signature has a `--` comment (or a `{- ... -}` that
    fits on one line) right after a `->`, gren-format glues it to that `->` on
    the same line; the rest of the signature still uses the canonical
    per-`->`-segment layout (see [Type signatures](#type-signatures)):
@@ -2585,14 +2585,14 @@ decision and why.
    behavior above.)
 
 6. **Union type declarations always stack one variant per line in
-   elm-format — keep as is.** Even when the author wrote
+   elm-format** Even when the author wrote
    `= Red | Green | Blue` on one line and it fits, elm-format always splits to
    one `| Variant` per line — contradicting elm-format's own general
    "respects the author's newlines" design. gren-format's author-driven rule
    (see [Custom types](#custom-types)) is preferred and stays.
 
 7. **Record patterns (destructuring) aren't author-driven in
-   elm-format — keep as is.** When you break a record (or array) *pattern*
+   elm-format** When you break a record (or array) *pattern*
    across multiple lines with no comment inside it, elm-format collapses it
    back onto one line if it fits — unlike everywhere else, your line break
    isn't preserved. gren-format's pattern layout stays author-driven like
@@ -2615,7 +2615,7 @@ decision and why.
    author-driven layout is preferred.
 
 8. **A comment near an effect module's `where { ... }` handler name forces it
-   open; elm-format never breaks it — keep as is.** With no comment nearby,
+   open; elm-format never breaks it** With no comment nearby,
    both tools now collapse a `where { ... }` clause to one line regardless of
    how the author wrote it — elm-format always did this, and gren-format's
    author-driven layout no longer preserves an author's multi-row `where`
@@ -2640,7 +2640,7 @@ decision and why.
    effect module MyModule where { command = MyCmd {- note -} } exposing (..)
    ```
 
-9. **Verbatim literal preservation vs. normalization — keep as is.**
+9. **Verbatim literal preservation vs. normalization**
    elm-format normalizes scientific-notation floats (`1e5` → `1.0e5`,
    `1.5E3` → `1.5e3`, `1.5e+3` → `1.5e3`), uppercases `\u{...}` hex escapes,
    expands named escapes like `\r` to `\u{000D}`, and drops unnecessary `\"`
@@ -2649,7 +2649,7 @@ decision and why.
    [String literals](#string-literals)) — this was already a considered
    design choice, not an oversight.
 
-10. **Redundant parens around a binary-operator operand — keep as is (may
+10. **Redundant parens around a binary-operator operand (may
     revisit).** When you parenthesize an applied function that is the operand of
     a binary operator, gren-format keeps your parens; elm-format strips them,
     because operator precedence already makes them redundant (application binds
@@ -2675,7 +2675,7 @@ decision and why.
     e.g. `node "div" ({ foo = 1, bar = 2 }) []` — are already stripped; see
     [Function application](#function-application).)
 
-11. **Doc-comment body contents — keep verbatim.** elm-format reaches *inside*
+11. **Doc-comment body contents** elm-format reaches *inside*
     a `{-| … -}` doc comment and reformats its contents: it re-spaces `@docs`
     lines (inserting blank lines between groups), rewrites Markdown (bullet
     style `*` → `-`, single emphasis `*italic*` → `_italic_`, strong emphasis
@@ -2692,7 +2692,7 @@ decision and why.
     preserved verbatim.)
 
 12. **A comment written after code stays on that line; elm-format floats it
-    away — keep as is.** When you put a comment after the last code on a line —
+    away** When you put a comment after the last code on a line —
     after a value, or after the closing `]`/`}` of a list or record — gren-format
     keeps it right there beside the code:
 
@@ -2730,8 +2730,8 @@ decision and why.
     argument to a call. If you write two or more comments in a row at the same
     spot, they all stay on that line together.
 
-13. **A comment between two operands of a binop chain — keep with the operand
-    before it.** When a broken operator chain has a comment sitting between an
+13. **A comment between two operands of a binop chain**
+    When a broken operator chain has a comment sitting between an
     operand and the next operator, gren-format keeps it on the operand it trails;
     elm-format re-homes it to lead the following operator:
 
@@ -2751,7 +2751,7 @@ decision and why.
     the operand.)
 
 14. **Backward `<|` pipelines: flat pipeline layout vs. right-associative
-    operator nesting — keep as is.** gren-format treats a run of `<|` steps
+    operator nesting** gren-format treats a run of `<|` steps
     the same way it treats `|>`: one pipeline, every step indented the same
     fixed +4 from the seed (see [Pipelines](#pipelines)). elm-format instead
     renders `<|` through the same recursive machinery it uses for any other
@@ -2807,7 +2807,7 @@ decision and why.
     rather than append once the left side isn't single-line). Covered by the
     `BackwardPipeMultilineSeed` fixture.
 
-15. **A comment trailing a pipeline step — keep as is.** gren-format keeps it
+15. **A comment trailing a pipeline step** gren-format keeps it
     on that step; elm-format moves it to lead the next step (the same
     trailing-vs-leading choice as point 13, here for `|>`/`<|` instead of a
     binop operator):
@@ -2826,7 +2826,7 @@ decision and why.
             {- note -} |> stepTwo
     ```
 
-16. **An own-line comment between pipeline steps — keep as is.** gren-format
+16. **An own-line comment between pipeline steps** gren-format
     puts a blank line above it (it treats the comment as leading the step
     below); elm-format writes no blank line:
 
@@ -2847,7 +2847,7 @@ decision and why.
             |> stepTwo
     ```
 
-17. **A comment just after a lambda's `->` — keep as is.** gren-format keeps
+17. **A comment just after a lambda's `->`** gren-format keeps
     it inline; elm-format drops the `->`, the comment, and the body each onto
     their own line:
 
@@ -2863,7 +2863,7 @@ decision and why.
             x + 1
     ```
 
-18. **A comment trailing `in` — keep as is.** gren-format keeps it glued to
+18. **A comment trailing `in`** gren-format keeps it glued to
     `in` on the same line; elm-format moves it to its own line immediately
     after `in` (no blank line, still outside the `let` block):
 
