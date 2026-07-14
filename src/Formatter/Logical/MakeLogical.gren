@@ -51,7 +51,7 @@ The pipeline runs in five stages:
    to normalise blank-line spacing between top-level declarations.
 
 Returns `Err` (with the original error prefixed for context) if any stage
-fails. The resulting `LPNode` is the input to `Formatter.Render.MakeRender`.
+fails. The resulting `LPNode` is the input to `Formatter.Render`.
 -}
 makeLogicalPrintingTree : Src.Module -> Ctx.Context -> Result String LPNode
 makeLogicalPrintingTree ast ctx =
@@ -406,7 +406,7 @@ exposedRow exposed =
 (its last item sits on a later row than its first). This is the author-layout
 decision for an exposing list — the same role `itemsSpanRows` plays for array
 and record literals. It is computed once here and carried downstream by the
-box choice (`exposingListBox`), so `MakeRender` reads the box rather than
+box choice (`exposingListBox`), so `Formatter.Render` reads the box rather than
 re-deriving the row span from the items. -}
 exposedSpansRows : Array Src.Exposed -> Bool
 exposedSpansRows exposed =

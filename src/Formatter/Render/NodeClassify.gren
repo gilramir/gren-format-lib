@@ -1,0 +1,407 @@
+module Formatter.Render.NodeClassify exposing (nodeIsComment, subtreeHasComment, subtreeHasMultilineBlockComment, subtreeHasVerticalBox, typeHasCommentBracket, isMultilineLambdaParenBlockBox, isMultilineContentParenBlockBox, isOpAndRhsNode, isPipelineStepNode, leafValue, isArrowLeaf, isColonLeaf, isElidedArrow, isEmptyLine, fieldValueDropsToOwnLine, rowsSpanMultiple, nodeSpansRows, parenContentIsLambdaHead, splitSignatureSegments, segFirstRow, segLastRow, isDroppingSignatureRecordNode, signatureForceVertical, leafLineRow)
+
+{-| Boolean predicates and small structural queries over LPT nodes.
+-}
+
+import Formatter.Render.Box as B
+import Formatter.Render.FlowPolicy as FP
+import Formatter.Logical.LogicalPrintingTree exposing (LPBox(..), LPNode, lpnBox, lpnChildren, firstRowInSubtree, lpnMaxRow, lpnFirstPos, lpnBracketStart, lpnLastPos)
+
+nodeIsComment : LPNode -> Bool
+nodeIsComment node =
+    when lpnBox node is
+        SingleLineComment _ ->
+            True
+
+        BlockComment _ ->
+            True
+
+        DocComment _ ->
+            True
+
+        _ ->
+            False
+
+
+-- True when `node` or any descendant is a comment. Used to route a
+-- comment-bearing construct to its comment-aware fallback rather than a
+-- comment-oblivious layout.
+subtreeHasComment : LPNode -> Bool
+subtreeHasComment node =
+    nodeIsComment node || Array.any subtreeHasComment (lpnChildren node)
+
+
+-- True if the subtree contains a MULTI-LINE block comment — the align-anchored
+-- content that makes a nest-carrying first item's box heterogeneous (see the
+-- AsFirst fence in `assembleFlowImpl`).
+subtreeHasMultilineBlockComment : LPNode -> Bool
+subtreeHasMultilineBlockComment node =
+    when lpnBox node is
+        BlockComment loc ->
+            String.contains "\n" loc.value
+
+        _ ->
+            Array.any subtreeHasMultilineBlockComment (lpnChildren node)
+
+
+-- True when the subtree contains a bracketed literal (record/array/record-update)
+-- that holds a comment among its direct children — i.e. a comment that forces the
+-- bracket multi-line (`{ a : Int {- c -} }`). Used by `makeSignatureBox` to
+-- detect a comment nested in a signature's record type, which elm-format keeps
+-- glued inline but `assembleFlow` would otherwise drop to its own line.
+typeHasCommentBracket : LPNode -> Bool
+typeHasCommentBracket node =
+    let
+        isBracketBox =
+            when lpnBox node is
+                AllAcrossOrAllVertical _ ->
+                    True
+
+                AlwaysVertical _ ->
+                    True
+
+                RecordUpdate _ ->
+                    True
+
+                _ ->
+                    False
+    in
+    (isBracketBox && Array.any nodeIsComment (lpnChildren node))
+        || Array.any typeHasCommentBracket (lpnChildren node)
+
+
+-- ═══ BINOPS ═══
+
+
+nodeSpansRows : LPNode -> Bool
+nodeSpansRows node =
+    when { f = lpnFirstPos node, l = lpnLastPos node } is
+        { f = Just fp, l = Just lp } ->
+            lp.row > fp.row
+
+        _ ->
+            False
+
+
+isOpAndRhsNode : LPNode -> Bool
+isOpAndRhsNode node =
+    when lpnBox node is
+        OpAndRhs ->
+            True
+
+        _ ->
+            False
+
+
+-- True when the given source rows are not all equal (the author spread items
+-- across rows).
+rowsSpanMultiple : Array Int -> Bool
+rowsSpanMultiple rows =
+    when Array.popFirst rows is
+        Nothing ->
+            False
+
+        Just { first, rest } ->
+            Array.any (\r -> r /= first) rest
+
+
+-- ═══ PIPELINES ═══
+
+
+isPipelineStepNode : LPNode -> Bool
+isPipelineStepNode node =
+    when lpnBox node is
+        PipelineStep ->
+            True
+
+        _ ->
+            False
+
+
+-- A subtree that always produces a hard break (an AlwaysVertical/RecordUpdate,
+-- or a comment-bearing literal).
+subtreeHasVerticalBox : LPNode -> Bool
+subtreeHasVerticalBox node =
+    when lpnBox node is
+        AlwaysVertical _ ->
+            True
+
+        RecordUpdate _ ->
+            True
+
+        AllAcrossOrAllVertical _ ->
+            Array.any nodeIsComment (lpnChildren node)
+                || Array.any subtreeHasVerticalBox (lpnChildren node)
+
+        _ ->
+            Array.any subtreeHasVerticalBox (lpnChildren node)
+
+
+-- A ParenBlock whose second child is an `IndentedBlock` (the author wrote the
+-- lambda body on a later row).
+isMultilineLambdaParenBlockBox : LPNode -> Bool
+isMultilineLambdaParenBlockBox node =
+    when lpnBox node is
+        ParenBlock _ ->
+            when Array.get 1 (lpnChildren node) is
+                Just secondChild ->
+                    when lpnBox secondChild is
+                        IndentedBlock ->
+                            True
+
+                        _ ->
+                            False
+
+                Nothing ->
+                    False
+
+        _ ->
+            False
+
+
+-- A ParenBlock whose content subtree will span rows (contains an AlwaysVertical
+-- / RecordUpdate).
+isMultilineContentParenBlockBox : LPNode -> Bool
+isMultilineContentParenBlockBox node =
+    when lpnBox node is
+        ParenBlock _ ->
+            Array.any subtreeHasVerticalBox (lpnChildren node)
+
+        _ ->
+            False
+
+
+-- True when a ParenBlock's content is a lambda (`(\x -> …)`) rather than an
+-- `if`/`when`/`let` — identified by the first child's box (matching
+-- `makeParenBlockBox`'s content dispatch). Guards the direct-operand lambda split
+-- against mangling a paren-`if`/`when` (whose branches are also blocks).
+parenContentIsLambdaHead : LPNode -> Bool
+parenContentIsLambdaHead node =
+    when Array.first (lpnChildren node) is
+        Just headNode ->
+            when lpnBox headNode is
+                IfCondition _ ->
+                    False
+
+                WhenFlow _ ->
+                    False
+
+                UnbreakableText loc ->
+                    loc.value /= "let"
+
+                _ ->
+                    True
+
+        Nothing ->
+            False
+
+
+{-| Render a comment-bearing record update as the always-vertical form: base on
+its own line (`{ base`), then each field prefixed `| ` (first) / `, ` (rest) and
+each comment child on its own line — all indented +4 — and the closing `}` on its
+own line at the `{` column (elm-format). Comment children never carry a field
+prefix; the first *field* (not the first child) gets the `| `. Box `stack1` +
+`B.indent` + `B.prefix` supply the alignment. A multi-line block comment falls
+back via `commentNodeBox`'s verbatim guard. -}
+-- True when a record-update field's value is forced onto its own line(s) by a
+-- comment among the field's children (e.g. `gamma = {- c -} 3`). `buildFlowBox`
+-- drops such a value below `= `, so it composes with the field's `| `/`, `
+-- prefix — unlike a soft broken-call/binop value, which stays glued (elm-format).
+fieldValueDropsToOwnLine : LPNode -> Bool
+fieldValueDropsToOwnLine node =
+    Array.any nodeIsComment (lpnChildren node)
+
+
+{-| The literal text of a leaf node (`UnbreakableText` / `SynthesizedText`), or
+Nothing for any structured node. Tranche-2 signatures handle only flat leaf
+signatures; a nested type (record/paren/…) yields Nothing and falls back. -}
+leafValue : LPNode -> Maybe String
+leafValue node =
+    when lpnBox node is
+        UnbreakableText locs ->
+            Just locs.value
+
+        SynthesizedText s ->
+            Just s
+
+        _ ->
+            Nothing
+
+
+isArrowLeaf : LPNode -> Bool
+isArrowLeaf node =
+    leafValue node == Just "->"
+
+
+isColonLeaf : LPNode -> Bool
+isColonLeaf node =
+    leafValue node == Just ":"
+
+
+{-| Split a signature's type nodes at each top-level `->`: the first segment is
+the leading type; each later one begins with its `->`. -}
+splitSignatureSegments : Array LPNode -> Array (Array LPNode)
+splitSignatureSegments nodes =
+    Array.foldl
+        (\node acc ->
+            if isArrowLeaf node then
+                Array.pushLast [ node ] acc
+
+            else
+                when Array.popLast acc is
+                    Just { last = seg, initial = front } ->
+                        Array.pushLast (Array.pushLast node seg) front
+
+                    Nothing ->
+                        [ [ node ] ]
+        )
+        []
+        nodes
+
+
+-- A segment's first / last content row, ignoring the leading arrow.
+--
+-- A segment beginning with a bracketed type (`{ … }`, `( … )`) starts where its
+-- *opening bracket* sits, not at its first inner token — the bracket has no leaf,
+-- so `firstRowInSubtree` alone would report the first field's row, and a break
+-- just inside the bracket would masquerade as a break between `->` segments,
+-- flipping the whole signature to multi-line.
+segFirstRow : Array LPNode -> Int
+segFirstRow seg =
+    Array.foldl
+        (\node acc ->
+            if isArrowLeaf node then
+                acc
+
+            else
+                let
+                    leafR =
+                        firstRowInSubtree node
+
+                    r =
+                        when lpnBracketStart node is
+                            Just open ->
+                                if leafR < 0 then
+                                    open.row
+
+                                else
+                                    min open.row leafR
+
+                            Nothing ->
+                                leafR
+                in
+                if acc < 0 then
+                    r
+
+                else if r < 0 then
+                    acc
+
+                else
+                    min acc r
+        )
+        -1
+        seg
+
+
+segLastRow : Array LPNode -> Int
+segLastRow seg =
+    Array.foldl
+        (\node acc ->
+            if isArrowLeaf node then
+                acc
+
+            else
+                max acc (lpnMaxRow node)
+        )
+        -1
+        seg
+
+
+{-| True for a node that renders as a multi-line record TYPE — either a plain
+record literal (`FP.isTypeRecordLiteral`, `{ a : Int }`) or an extensible
+record type, which reuses the `RecordUpdate` box the same way a record-update
+EXPRESSION does (`{ r | a : Int }`; see `LogicalPrintingTree.gren`'s
+`RecordUpdate` doc). Treating any `RecordUpdate` found here as a type is safe
+only because every call site restricts `node` to a signature's TYPE position,
+where `RecordUpdate` can never mean an update expression. -}
+isDroppingSignatureRecordNode : LPNode -> Bool
+isDroppingSignatureRecordNode node =
+    FP.isTypeRecordLiteral node
+        || (when lpnBox node is
+                RecordUpdate _ ->
+                    True
+
+                _ ->
+                    False
+           )
+
+
+{-| True when the author broke the type across rows at a `->` boundary (a later
+segment starts on a row after the previous segment ended). -}
+signatureForceVertical : Array (Array LPNode) -> Bool
+signatureForceVertical segments =
+    (Array.foldl
+        (\seg acc ->
+            let
+                first =
+                    segFirstRow seg
+
+                last =
+                    segLastRow seg
+            in
+            { broken =
+                acc.broken
+                    || (acc.prevLast >= 0 && first >= 0 && first > acc.prevLast)
+            , prevLast =
+                if last >= 0 then
+                    last
+
+                else
+                    acc.prevLast
+            }
+        )
+        { broken = False, prevLast = -1 }
+        segments
+    ).broken
+
+
+-- The `Line` (not boxed) of the given leaf nodes joined by single spaces. Only
+-- valid for all-leaf node arrays (caller must have checked `headerAllLeaves`);
+-- a non-leaf renders as "".
+leafLineRow : Array LPNode -> B.Line
+leafLineRow nodes =
+    B.row
+        (Array.intersperse B.space
+            (Array.map (\n -> B.literal (Maybe.withDefault "" (leafValue n))) nodes)
+        )
+
+
+-- ═══ MODULE & IMPORT LINES ═══
+
+
+isEmptyLine : LPNode -> Bool
+isEmptyLine node =
+    when lpnBox node is
+        EmptyLine ->
+            True
+
+        _ ->
+            False
+
+
+-- The synthesized signature `->` — a zero-width `UnbreakableText` (start == end)
+-- built by `LPTHelpers.mkZeroWidthText`, anchored at the end of its `from` type,
+-- not where it renders. A comment directly trailing it must glue regardless of
+-- source row (scoped to `->` by value: other elided tokens precede a short
+-- neighbour or bracketed block where a comment on its own row legitimately stays
+-- own-line).
+isElidedArrow : LPNode -> Bool
+isElidedArrow node =
+    when lpnBox node is
+        UnbreakableText loc ->
+            loc.value == "->"
+                && loc.start.row == loc.end.row
+                && loc.start.col == loc.end.col
+
+        _ ->
+            False

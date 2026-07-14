@@ -1,0 +1,197 @@
+module Formatter.Render.BoxOps exposing (grenIndent, prefixOperator, wrapParenVertical, wrapParenVerticalPadded, blockIndentSpaces, applyIndent, stackWithBlanks, boxLine, traverseResult, spaceJoinLines, joinInline, isSingleLine, glueCommentSuffix, isBlockNode, nodesShareStartRow, nodeStartRow)
+
+{-| Low-level `Box`/`Line` manipulation helpers shared by the renderer.
+-}
+
+import Formatter.Render.Box as B exposing (Box(..))
+import Formatter.Logical.LogicalPrintingTree exposing (LPBox(..), LPNode, lpnBox, lpnFirstPos)
+
+grenIndent : Int
+grenIndent =
+    4
+
+
+-- Prepend `op ` to a group box. A single-line box becomes one line; a
+-- multi-line box uses `B.prefix`, which pads its continuation lines by the
+-- operator width so they align under the operand's first char.
+prefixOperator : String -> Box -> Box
+prefixOperator op box =
+    when B.isLine box is
+        Ok l ->
+            B.line (B.row [ B.literal op, B.space, l ])
+
+        Err _ ->
+            B.prefix (B.row [ B.literal op, B.space ]) box
+
+
+{-| Join `Line`s with a single space between each (`[a, b, c]` → `a b c`). -}
+spaceJoinLines : Array B.Line -> Array B.Line
+spaceJoinLines lines =
+    Array.foldl
+        (\ln acc ->
+            if Array.isEmpty acc then
+                [ ln ]
+
+            else
+                Array.pushLast ln (Array.pushLast B.space acc)
+        )
+        []
+        lines
+
+
+-- Get a box's sole line, or Err if it is multi-line.
+boxLine : Box -> Result String B.Line
+boxLine box =
+    when B.isLine box is
+        Ok l ->
+            Ok l
+
+        Err _ ->
+            Err "box: expected single-line box"
+
+
+-- Stack boxes with a blank line between each (consecutive `when` branches).
+stackWithBlanks : Array Box -> Box
+stackWithBlanks boxes =
+    when Array.popFirst boxes is
+        Nothing ->
+            B.blankLine
+
+        Just { first = b0, rest } ->
+            B.stack1
+                (Array.foldl (\b acc -> acc ++ [ B.blankLine, b ]) [ b0 ] rest)
+
+
+{-| Glue `(` onto the inner box's first line and stack `)` as a new final line,
+anchoring both to the `(` column. -}
+wrapParenVertical : Box -> Box
+wrapParenVertical box =
+    let
+        withOpen =
+            when box is
+                SingleLine l ->
+                    SingleLine (B.row [ B.punc "(", l ])
+
+                Stack s ->
+                    Stack { s | first = B.row [ B.punc "(", s.first ] }
+
+                MustBreakBox l ->
+                    MustBreakBox (B.row [ B.punc "(", l ])
+    in
+    B.andThen [ B.line (B.punc ")") ] withOpen
+
+
+{-| Paren-wrap a box whose continuation lines are positioned RELATIVE to its
+first line (an align-carrying inner — a lambda whose parameter is a multi-line
+bracket pattern, `(\{ … } …)`). Unlike `wrapParenVertical` (which shifts only the
+first line, correct for absolute-nested inners like binops/`when`/`if`), this pads
+every continuation by the `(` width so the inner's alignment rides along and its
+`,`/`}` stay under the opening bracket. `)` lands on its own line at the `(`
+column. -}
+wrapParenVerticalPadded : Box -> Box
+wrapParenVerticalPadded box =
+    B.andThen [ B.line (B.punc ")") ] (B.prefix (B.punc "(") box)
+
+
+{-| Indent every line of a box by exactly `n` spaces (elm's `prefix` with a
+run of spaces). Unlike `applyIndent`/`B.indent` (a column-sensitive `Tab`),
+this is a fixed-width shift — needed for the paren-block offsets (`(`+1, `(`+2)
+that don't fall on tab stops. -}
+blockIndentSpaces : Int -> Box -> Box
+blockIndentSpaces n box =
+    if n <= 0 then
+        box
+
+    else
+        B.prefix (B.row (Array.repeat n B.space)) box
+
+
+{-| Glue a (possibly multi-line) comment box onto `base`'s last line with a
+single space, via `B.addSuffixBox`. The space is folded into the base's last
+line so the comment's continuation lines pad under the comment's start. `base`
+itself may be multi-line — the comment joins its last line. This is the one
+operation every same-row trailing-comment site shares; a multi-line comment (or
+a multi-line base) no longer needs to fall back. -}
+glueCommentSuffix : Box -> Box -> Box
+glueCommentSuffix commentBox base =
+    B.addSuffixBox commentBox (B.addSuffix B.space base)
+
+
+nodeStartRow : LPNode -> Int
+nodeStartRow node =
+    when lpnFirstPos node is
+        Just p ->
+            p.row
+
+        Nothing ->
+            -1
+
+
+nodesShareStartRow : LPNode -> LPNode -> Bool
+nodesShareStartRow a b =
+    when { pa = lpnFirstPos a, pb = lpnFirstPos b } is
+        { pa = Just posA, pb = Just posB } ->
+            posA.row == posB.row
+
+        _ ->
+            False
+
+
+-- Join boxes horizontally on one line with single spaces, iff all single-line.
+joinInline : Array Box -> Maybe Box
+joinInline boxes =
+    when B.allSingles boxes is
+        Ok lines ->
+            Just (B.line (B.row (Array.intersperse B.space lines)))
+
+        Err _ ->
+            Nothing
+
+
+isBlockNode : LPNode -> Box -> Bool
+isBlockNode node box =
+    when lpnBox node is
+        BodyBlock ->
+            True
+
+        IndentedBlock ->
+            True
+
+        _ ->
+            not (isSingleLine box)
+
+
+isSingleLine : Box -> Bool
+isSingleLine box =
+    when B.isLine box is
+        Ok _ ->
+            True
+
+        Err _ ->
+            False
+
+
+{-| Apply `B.indent` (a Tab, advancing to the next multiple of 4) enough times
+to reach `indent` columns from a multiple-of-4 origin. -}
+applyIndent : Int -> Box -> Box
+applyIndent indent box =
+    if indent <= 0 then
+        box
+
+    else
+        applyIndent (indent - 4) (B.indent box)
+
+
+-- Traverse an Array with a Result-returning function, short-circuiting on Err.
+traverseResult : (a -> Result e b) -> Array a -> Result e (Array b)
+traverseResult f items =
+    Array.foldl
+        (\item acc ->
+            acc
+                |> Result.andThen
+                    (\built ->
+                        f item |> Result.map (\b -> Array.pushLast b built)
+                    )
+        )
+        (Ok [])
+        items

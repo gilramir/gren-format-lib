@@ -138,14 +138,28 @@ Formatter                              entry point: prettyPrint
         Formatter.Logical.Comments            re-attaches comments from parse context
         Formatter.Logical.SortSymbols         sorts exposing lists + import groups
         Formatter.Logical.VerticalSpace       inserts blank lines between top-level items
-    Formatter.Render.MakeRender        thin orchestrator: maps each RootBox child through the Box renderer, joins with newlines
-        Formatter.Render.MakeRenderBox LPT → Box (one builder per LPBox constructor)
+    Formatter.Render                   render-stage entry (module Formatter.Render, file Render.gren): maps each RootBox child through the Box renderer, joins with newlines
+        Formatter.Render.MakeRenderBox LPT → Box — recursive core: dispatch (one builder per LPBox constructor) + per-construct renderers
+            Formatter.Render.BinopLayout   pure binop-chain layout assembly
+            Formatter.Render.CommentBox    comment-node rendering (line / block / doc)
+            Formatter.Render.FlowAssembly  FlowItem / SoftGlueAlignment types + pure flow-layout helpers
+            Formatter.Render.NodeClassify  boolean predicates / structural queries over LPT nodes
+            Formatter.Render.BoxOps        low-level Box / Line manipulation helpers
         Formatter.Render.Box           elm-format's Box IR (Line/Box, Tab tab-stops, prefix)
         Formatter.Render.FlowPolicy    shared inline/break decision layer
 ```
 
 The Box renderer is the **sole backend** — the earlier `Formatter.Render.Doc`
 renderer and the self-verifying Box/Doc guard were deleted at the full cutover.
+
+`Render/MakeRenderBox.gren` was the whole Box renderer; its knot-free helpers
+have been split into five sibling modules — `BinopLayout`, `CommentBox`,
+`FlowAssembly`, `NodeClassify`, `BoxOps` — leaving `MakeRenderBox` as the
+mutually-recursive dispatch (`makePBox`) plus the per-construct renderers. Gren
+forbids circular imports, so only functions that never transitively reach the
+`makePBox`/`buildFlowBox` recursion could move out. Import DAG:
+`MakeRenderBox` → all five; `BinopLayout`/`CommentBox`/`FlowAssembly` →
+`BoxOps`, `NodeClassify`; `BoxOps` and `NodeClassify` depend on neither.
 
 Layout is **author-driven, not fit-driven**: there is no page width and no
 layout search. Each box already knows whether it renders inline or vertical —

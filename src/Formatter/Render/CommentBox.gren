@@ -1,0 +1,331 @@
+module Formatter.Render.CommentBox exposing (makeCommentLineBox, multiLineBlockCommentBox, commentNodeToBox, commentNodeBox, emptyBracketedCommentLine, docCommentString, blockCommentBodyOffset, leadingSpaceCount, spanLeadingComments, spanTrailingComments, peelTrailingCommentNodes, glueTrailingComments)
+
+{-| Rendering of comment nodes (line, block, doc) to `Box`.
+-}
+
+import Formatter.Render.Box as B exposing (Box(..))
+import Formatter.Logical.LogicalPrintingTree exposing (LPBox(..), LPNode, lpnBox)
+import Formatter.Render.BoxOps exposing (traverseResult, glueCommentSuffix)
+import Formatter.Render.NodeClassify exposing (nodeIsComment)
+
+{-| Render a standalone top-level comment-line item. Same-row block comments
+join with a space; a `--` line comment (or a row change) starts a new line.
+A multi-line block comment renders via `multiLineBlockCommentBox` (the reindent
+stack). -}
+makeCommentLineBox : Array LPNode -> Result String Box
+makeCommentLineBox children =
+    traverseResult commentNodeToBox children
+        |> Result.andThen
+            (\infos ->
+                when Array.popFirst infos is
+                    Nothing ->
+                        Err "box: empty comment line"
+
+                    Just { first = first0, rest } ->
+                        Array.foldl
+                            (\info accResult ->
+                                accResult
+                                    |> Result.andThen
+                                        (\acc ->
+                                            if acc.prevLine || info.row /= acc.prevRow then
+                                                -- New line: stack the comment below.
+                                                Ok
+                                                    { box = B.stack1 [ acc.box, info.box ]
+                                                    , prevRow = info.row
+                                                    , prevLine = info.isLine
+                                                    }
+
+                                            else
+                                                -- Same-row block comment: join with a
+                                                -- space onto the accumulator's last line.
+                                                -- A multi-line comment never reaches here
+                                                -- (it always changes the row), so the
+                                                -- box is single-line.
+                                                when B.isLine info.box is
+                                                    Ok l ->
+                                                        Ok
+                                                            { box = B.addSuffix (B.row [ B.space, l ]) acc.box
+                                                            , prevRow = info.row
+                                                            , prevLine = info.isLine
+                                                            }
+
+                                                    Err _ ->
+                                                        Err "box: multi-line comment cannot space-join"
+                                        )
+                            )
+                            (Ok { box = first0.box, prevRow = first0.row, prevLine = first0.isLine })
+                            rest
+                            |> Result.map .box
+            )
+
+
+-- Render one comment node to a Box, tagging its source row and whether it is a
+-- `--` line comment (which always terminates its line): a multi-line block
+-- comment reindents via `multiLineBlockCommentBox`; a doc comment's body is
+-- emitted verbatim as a single literal (safe — it is a standalone root child
+-- ending in `-}`).
+commentNodeToBox : LPNode -> Result String { box : Box, row : Int, isLine : Bool }
+commentNodeToBox node =
+    when lpnBox node is
+        SingleLineComment loc ->
+            Ok { box = B.line (B.literal ("--" ++ loc.value)), row = loc.start.row, isLine = True }
+
+        BlockComment loc ->
+            if String.contains "\n" loc.value then
+                multiLineBlockCommentBox loc.value
+                    |> Result.map (\b -> { box = b, row = loc.start.row, isLine = False })
+
+            else
+                Ok { box = B.line (B.literal ("{-" ++ loc.value ++ "-}")), row = loc.start.row, isLine = False }
+
+        DocComment loc ->
+            Ok { box = B.line (B.literal (docCommentString loc.value)), row = loc.start.row, isLine = False }
+
+        _ ->
+            -- unreachable: this function only ever runs on children of a
+            -- comment-tagged OriginalRows, which Comments.gren/MakeLogical.gren
+            -- always build as SingleLineComment, BlockComment, or DocComment.
+            Err "unreachable: comment-line node"
+
+
+{-| Render one comment child of an otherwise-empty bracket (`{ {- c -} }`) as a
+single inline `Line`. Only a single-line block comment fits inline; anything
+else (multi-line block, `--` line comment) can't be glued onto the one-line
+bracket, so it Errs rather than silently drop the comment. -}
+emptyBracketedCommentLine : LPNode -> Result String B.Line
+emptyBracketedCommentLine node =
+    when lpnBox node is
+        BlockComment loc ->
+            if String.contains "\n" loc.value then
+                -- Not a crash: an `Err` here is the "can't fit the one-line form"
+                -- signal that the `EmptyBracketed` arm catches and renders
+                -- vertically instead (a multi-line block comment has no inline
+                -- form).
+                Err "box: empty-bracket comment is multi-line (caller renders vertically)"
+
+            else
+                Ok (B.literal ("{-" ++ loc.value ++ "-}"))
+
+        _ ->
+            -- Not a crash: same caught "no inline form" signal — a `--` line
+            -- comment can't sit inside a one-line `[ … ]`, so the caller drops to
+            -- the vertical layout.
+            Err "box: empty-bracket comment is a line comment (caller renders vertically)"
+
+
+-- Render a doc comment's body into its `{-| … -}` string: an empty body
+-- collapses to `{-| -}`; a body that both starts and ends with a single `\n`
+-- (a multi-line doc comment whose content begins on the next line) gains a
+-- trailing blank line before `-}` (elm-format's convention).
+docCommentString : String -> String
+docCommentString value =
+    if String.isEmpty (String.trim value) then
+        "{-| -}"
+
+    else
+        let
+            normalizedValue =
+                if
+                    String.startsWith "\n" value
+                        && String.endsWith "\n" value
+                        && not (String.endsWith "\n\n" value)
+                then
+                    value ++ "\n"
+
+                else
+                    value
+        in
+        "{-|" ++ normalizedValue ++ "-}"
+
+
+blockCommentBodyOffset : Int
+blockCommentBodyOffset =
+    3
+
+
+leadingSpaceCount : String -> Int
+leadingSpaceCount s =
+    (String.foldl
+        (\c acc ->
+            if acc.done then
+                acc
+
+            else if c == ' ' then
+                { acc | count = acc.count + 1 }
+
+            else
+                { acc | done = True }
+        )
+        { count = 0, done = False }
+        s
+    ).count
+
+
+{-| Render a multi-line block comment as a stack of lines: the first line
+verbatim, each continuation line reindented so the smallest content indent maps
+to `blockCommentBodyOffset` (deeper indentation kept relative), a bare closing
+delimiter or blank line trimmed. Box stacking anchors the block under wherever
+the opener prints. This reindent applies to every multi-line block
+comment, including the opener-alone form (the opener sitting on its own first
+line) — matching elm-format, which likewise reindents rather than preserving
+the author's absolute columns.
+-}
+multiLineBlockCommentBox : String -> Result String Box
+multiLineBlockCommentBox value =
+    let
+        fullText =
+            "{-" ++ value ++ "-}"
+    in
+    when Array.popFirst (String.split "\n" fullText) is
+        Nothing ->
+            Ok (B.line (B.literal fullText))
+
+        Just { first = firstLine, rest = contLines } ->
+            let
+                isContentLine line =
+                    let
+                        t =
+                            String.trimLeft line
+                    in
+                    t /= "" && t /= "-}"
+
+                base =
+                    contLines
+                        |> Array.keepIf isContentLine
+                        |> Array.map leadingSpaceCount
+                        |> Array.minimum
+                        |> Maybe.withDefault blockCommentBodyOffset
+
+                reindent line =
+                    let
+                        t =
+                            String.trimLeft line
+                    in
+                    if t == "" || t == "-}" then
+                        t
+
+                    else
+                        let
+                            l =
+                                leadingSpaceCount line
+                        in
+                        String.repeat (max 0 (blockCommentBodyOffset + l - base)) " "
+                            ++ String.dropFirst l line
+
+                allLines =
+                    [ firstLine ] ++ Array.map reindent contLines
+            in
+            Ok (B.stack1 (Array.map (\ln -> B.line (B.literal ln)) allLines))
+
+
+-- ═══ TYPE ALIAS & UNION DECLARATIONS ═══
+
+
+-- Split a run of leading comment nodes off the front of a step's children.
+spanLeadingComments : Array LPNode -> { leading : Array LPNode, rest : Array LPNode }
+spanLeadingComments nodes =
+    let
+        go remaining acc =
+            when Array.popFirst remaining is
+                Just { first, rest } ->
+                    if nodeIsComment first then
+                        go rest (Array.pushLast first acc)
+
+                    else
+                        { leading = acc, rest = remaining }
+
+                Nothing ->
+                    { leading = acc, rest = [] }
+    in
+    go nodes []
+
+
+-- Split a run of trailing comment nodes off the end of a step's children.
+spanTrailingComments : Array LPNode -> { body : Array LPNode, trailing : Array LPNode }
+spanTrailingComments nodes =
+    let
+        go remaining acc =
+            when Array.popLast remaining is
+                Just { last, initial } ->
+                    if nodeIsComment last then
+                        go initial ([ last ] ++ acc)
+
+                    else
+                        { body = remaining, trailing = acc }
+
+                Nothing ->
+                    { body = [], trailing = acc }
+    in
+    go nodes []
+
+
+-- Peel trailing comments off a block body / forward pipeline step: single-line
+-- block comments freely and at most ONE `--` line comment — the rightmost,
+-- since a `--` consumes the rest of its line and a second one to its left would
+-- swallow it. A multi-line block comment stops the peel (it legitimately breaks
+-- the line and stays in the flow). Unlike `spanTrailingComments` (the backward-
+-- pipeline helper, which takes every trailing comment), this keeps the discipline
+-- that the peeled run is always inline-gluable (elm-format).
+peelTrailingCommentNodes : Array LPNode -> { bodyNodes : Array LPNode, trailing : Array LPNode }
+peelTrailingCommentNodes nodes =
+    let
+        go remaining acc sawLineComment =
+            when Array.popLast remaining is
+                Just { last, initial } ->
+                    when lpnBox last is
+                        SingleLineComment _ ->
+                            if sawLineComment then
+                                { bodyNodes = remaining, trailing = acc }
+
+                            else
+                                go initial ([ last ] ++ acc) True
+
+                        BlockComment loc ->
+                            if String.contains "\n" loc.value then
+                                { bodyNodes = remaining, trailing = acc }
+
+                            else
+                                go initial ([ last ] ++ acc) sawLineComment
+
+                        _ ->
+                            { bodyNodes = remaining, trailing = acc }
+
+                Nothing ->
+                    { bodyNodes = remaining, trailing = acc }
+    in
+    go nodes [] False
+
+
+-- Glue single-line trailing comments onto a box's last line, each with a space.
+glueTrailingComments : Box -> Array LPNode -> Result String Box
+glueTrailingComments box trailing =
+    Array.foldl
+        (\c accResult ->
+            accResult
+                |> Result.andThen
+                    (\b ->
+                        commentNodeBox c
+                            |> Result.map (\cbox -> glueCommentSuffix cbox b)
+                    )
+        )
+        (Ok box)
+        trailing
+
+
+{-| Render a comment-kind node (single-line `--`/`{- -}`, or a multi-line block
+comment) to a Box. Mirrors the comment arms of `renderFlowItem`. -}
+commentNodeBox : LPNode -> Result String Box
+commentNodeBox node =
+    when lpnBox node is
+        SingleLineComment loc ->
+            Ok (B.line (B.literal ("--" ++ loc.value)))
+
+        BlockComment loc ->
+            if String.contains "\n" loc.value then
+                multiLineBlockCommentBox loc.value
+
+            else
+                Ok (B.line (B.literal ("{-" ++ loc.value ++ "-}")))
+
+        _ ->
+            Err "box: not a comment node"

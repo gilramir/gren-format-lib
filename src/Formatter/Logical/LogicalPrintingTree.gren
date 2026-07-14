@@ -27,7 +27,7 @@ module Formatter.Logical.LogicalPrintingTree
 {-| The Logical Printing Tree (LPT): the intermediate representation between the
 parsed AST and the rendered string. `MakeLogical` builds it, the `Insert*`
 modules populate it, `Comments`/`SortSymbols`/`VerticalSpace` transform it, and
-`MakeRender` turns it into the final string via the `Formatter.Render.Box` backend.
+`Formatter.Render` turns it into the final string via the `Formatter.Render.Box` backend.
 
 Two core types:
 

@@ -1,4 +1,4 @@
-module Formatter.Render.MakeRender
+module Formatter.Render
     exposing
         ( makePrettyResult
         , lptToBoxJson

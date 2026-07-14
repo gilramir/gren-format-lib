@@ -1,0 +1,560 @@
+module Formatter.Render.FlowAssembly exposing (FlowItem, SoftGlueAlignment(..), assembleBrokenWithComments, assembleBrokenCall, trySoftGlueFlow, pairTypeRecordComments, softGlueAlignment, parenInnerIsAlignCarrying, isSoftGlueLiteral, flowItemInlineLine, softBlockChildForcesVerticalBox, shouldGlueBox, bracketPunc, isCommentItem, verticalExposingBox, gluedExposingBox)
+
+{-| Flow-assembly support: the `FlowItem`/`SoftGlueAlignment` types and the pure helpers that lay pre-rendered flow items out into a `Box`.
+-}
+
+import Formatter.Render.Box as B exposing (Box(..))
+import Formatter.Render.FlowPolicy as FP
+import Formatter.Logical.LogicalPrintingTree exposing (LPBox(..), ListBrackets(..), LPNode, lpnBox, lpnChildren, lpnMaxRow)
+import Formatter.Render.BoxOps exposing (applyIndent, traverseResult, joinInline, isSingleLine, glueCommentSuffix, nodesShareStartRow)
+import Formatter.Render.NodeClassify exposing (isEmptyLine, leafLineRow)
+
+-- `exposing` stays glued to the header. Inline list: `header (a, b, c)` on one
+-- line. Vertical list: header on line 1, list indented +4 beneath it.
+gluedExposingBox : Bool -> Array LPNode -> Box -> Result String Box
+gluedExposingBox forceVertical headerNodes listBox =
+    if forceVertical then
+        Ok (B.stack1 [ B.line (leafLineRow headerNodes), B.indent listBox ])
+
+    else
+        when B.isLine listBox is
+            Ok listLine ->
+                Ok (B.line (B.row [ leafLineRow headerNodes, B.space, listLine ]))
+
+            Err _ ->
+                Err "box: inline exposing list rendered multi-line"
+
+
+verticalExposingBox : Array B.Line -> Box
+verticalExposingBox itemLines =
+    when Array.popFirst itemLines is
+        Just { first, rest } ->
+            B.stack1
+                ([ B.prefix (B.row [ B.punc "(", B.space ]) (B.line first) ]
+                    ++ Array.map (\l -> B.prefix (B.row [ B.punc ",", B.space ]) (B.line l)) rest
+                    ++ [ B.line (B.punc ")") ]
+                )
+
+        Nothing ->
+            B.line (B.punc "()")
+
+
+bracketPunc : ListBrackets -> Maybe { left : String, right : String }
+bracketPunc bracket =
+    when bracket is
+        ListCurly ->
+            Just { left = "{", right = "}" }
+
+        ListSquare ->
+            Just { left = "[", right = "]" }
+
+        ListParen ->
+            -- A parenthesized list reached via the general list path rather than
+            -- makeExposingLineBox — i.e. a module/import exposing list whose
+            -- header carries a comment, so makeExposingLineBox fell back to the
+            -- flow. Rendered with inner spaces `( a, b )` (groupBox innerSpaces),
+            -- matching elm-format's parenthesized-list spacing — distinct from the
+            -- comment-free `(a, b)` makeExposingListBox emits.
+            Just { left = "(", right = ")" }
+
+
+type alias FlowItem =
+    { node : LPNode
+    , box : Box
+    , isBlock : Bool
+    , startRow : Int
+    , comment : Maybe { box : Box, isLineComment : Bool, multiLine : Bool }
+    }
+
+
+isCommentItem : FlowItem -> Bool
+isCommentItem item =
+    item.comment /= Nothing
+
+
+{-| Assemble a broken flow (head at base, each following item at +`indent`) that
+may carry comments. A comment trailing the preceding item on the same source row
+glues onto that item's last line — for a single-line item, its line plus a space
+is prepended onto the comment box (`B.prefix`), so a multi-line comment's body
+reindents under it (`f {- multi… -}`, `+ b {- multi… -}`). A comment on its own
+row, or one trailing a multi-line item (no single last line to glue onto), isn't
+modelled and falls back. -}
+assembleBrokenWithComments : Int -> Array FlowItem -> Result String Box
+assembleBrokenWithComments indent items =
+    let
+        step item accResult =
+            accResult
+                |> Result.andThen
+                    (\acc ->
+                        when item.comment is
+                            Just c ->
+                                when Array.popLast acc.entries is
+                                    Just { last = lastBox, initial } ->
+                                        if item.startRow == acc.lastRow && acc.lastRow >= 0 then
+                                            -- Glue the comment onto the item's last
+                                            -- line; the item may itself be multi-line
+                                            -- (`glueCommentSuffix` joins its last line).
+                                            Ok { acc | entries = Array.pushLast (glueCommentSuffix c.box lastBox) initial }
+
+                                        else
+                                            -- Own row: the comment stands as its
+                                            -- own entry at the flow's +indent,
+                                            -- with the next item starting on a
+                                            -- fresh line (= its own entry here).
+                                            -- After a comment nothing row-glues
+                                            -- (the policy is AlreadyTerminated),
+                                            -- so `lastRow` resets.
+                                            Ok
+                                                { acc
+                                                    | entries = Array.pushLast c.box (Array.pushLast lastBox initial)
+                                                    , lastRow = -1
+                                                }
+
+                                    Nothing ->
+                                        -- Leading comment with no preceding
+                                        -- entry to glue onto: it stands as the
+                                        -- flow's first own-line entry. The
+                                        -- mergedFirstStep block-comment glue
+                                        -- (`{- c -} nextTerm`) is handled before
+                                        -- the fold; this arm renders a
+                                        -- first-position `--`/own-line comment on
+                                        -- its own line. After a comment nothing
+                                        -- row-glues, so `lastRow = -1`.
+                                        Ok { acc | entries = [ c.box ], lastRow = -1 }
+
+                            Nothing ->
+                                Ok { acc | entries = Array.pushLast item.box acc.entries, lastRow = lpnMaxRow item.node }
+                    )
+
+        -- A leading single-line block comment in a broken flow glues onto the
+        -- very next term (`{- c -} nextTerm`) when that term is a non-comment,
+        -- single-line (non-force-vertical) node.
+        mergedFirst =
+            when { first = Array.first items, next = Array.get 1 items } is
+                { first = Just firstItem, next = Just nextItem } ->
+                    when firstItem.comment is
+                        Just c ->
+                            if
+                                not c.isLineComment
+                                    && not c.multiLine
+                                    && not (isCommentItem nextItem)
+                                    && isSingleLine nextItem.box
+                            then
+                                when B.isLine c.box is
+                                    Ok cl ->
+                                        Just
+                                            { box = B.prefix (B.row [ cl, B.space ]) nextItem.box
+                                            , remaining = Array.dropFirst 2 items
+                                            }
+
+                                    Err _ ->
+                                        Nothing
+
+                            else
+                                Nothing
+
+                        Nothing ->
+                            Nothing
+
+                _ ->
+                    Nothing
+
+        foldSetup =
+            when mergedFirst is
+                Just m ->
+                    { seed = { entries = [ m.box ], lastRow = -1 }, foldItems = m.remaining }
+
+                Nothing ->
+                    { seed = { entries = [], lastRow = -1 }, foldItems = items }
+    in
+    Array.foldl step (Ok foldSetup.seed) foldSetup.foldItems
+        |> Result.andThen
+            (\acc ->
+                when Array.popFirst acc.entries is
+                    Nothing ->
+                        Err "box: empty broken flow"
+
+                    Just { first = head, rest } ->
+                        Ok (B.stack1 ([ head ] ++ Array.map (applyIndent indent) rest))
+            )
+
+
+{-| A function application forced across lines — elm-format's
+`ElmStructure.application`. The first argument stays glued to the function on
+the opening line only when both are single-line and share a source row;
+otherwise the function stands alone. Every non-glued argument drops to its own
+line at +`indent`. -}
+assembleBrokenCall : Int -> Array FlowItem -> Result String Box
+assembleBrokenCall indent items =
+    let
+        -- The fn+arg0 glue survives comments AFTER arg0 (`String.join " "
+        -- -- c` keeps `" "` on the opening line, comments drop below with the
+        -- args) — only a comment IN the fn/arg0 positions blocks it, matching
+        -- elm-format's `ElmStructure.application` glue gates.
+        glueHead =
+            when { fn = Array.get 0 items, arg0 = Array.get 1 items } is
+                { fn = Just fnItem, arg0 = Just arg0Item } ->
+                    if not (isCommentItem fnItem) && not (isCommentItem arg0Item) && shouldGlueBox fnItem arg0Item then
+                        joinInline [ fnItem.box, arg0Item.box ]
+
+                    else
+                        Nothing
+
+                _ ->
+                    Nothing
+    in
+    when glueHead is
+        Just glueLine ->
+            let
+                rest =
+                    Array.dropFirst 2 items
+            in
+            if Array.isEmpty rest then
+                -- Just `fn arg0` — nothing forces a break after all.
+                Ok glueLine
+
+            else
+                -- The rest (args and comments alike) assembles as a broken flow
+                -- at +0 and the whole block shifts to +indent under the glued
+                -- line.
+                assembleBrokenWithComments 0 rest
+                    |> Result.map (\restBox -> B.stack1 [ glueLine, applyIndent indent restBox ])
+
+        Nothing ->
+            -- No glue: head at the base column, every later item (and any
+            -- same-row/own-line comment) per the broken-flow fold.
+            assembleBrokenWithComments indent items
+
+
+-- Both single-line and on the same source row → keep glued on the opening line.
+shouldGlueBox : FlowItem -> FlowItem -> Bool
+shouldGlueBox fnItem arg0Item =
+    isSingleLine fnItem.box
+        && isSingleLine arg0Item.box
+        && nodesShareStartRow fnItem.node arg0Item.node
+
+
+{-| Which indent discipline a multi-line box's continuation lines carry —
+the static per-box-type alignment table (CutoverScope.md "Item 4 design"),
+verified against elm-format's layout, not curve-fit. It decides which
+primitive materializes a soft glue (elm-format's flow separator flattens to a
+space, so the item's first line joins the running line and its continuation
+lines land per the item's own alignment):
+
+  - `AlignCarrying` — elm-format anchors these continuation lines at the item's
+    printed start column: bracket literals and multiline strings. Glue with
+    `B.prefix`, which pads every continuation line by the glued prefix's exact
+    character width. This is only sound because these boxes' continuation lines
+    are punctuation- or verbatim-prefixed (`, item`, `}`, string content) — NOT
+    `Tab`-indented.
+  - `AlignCarryingTabbed` — `RecordUpdate` and `AlignedFlow`: align-carrying
+    too (anchored at the item's start column), but their Box continuation lines
+    carry `Tab`s, which a bare `B.prefix`'s space padding would quantize to the
+    next multiple of 4 (the census's "per-row exact-space indent" hard class).
+    `B.freezeTabs` first rewrites those `Tab`s to the literal spaces they render
+    to at their standalone columns, so the following `B.prefix` shifts every
+    line by the prefix's exact width — matching the align anchor.
+  - `NestCarrying` — nested relative to the flow's base, not the glue column:
+    `AcrossOrVertical` (the flow fold / broken call at +grenIndent), `OpAndRhs`
+    / `Glue` / `PrefixGlue` (inline flows at +0), and pipelines (steps at
+    +grenIndent). Glue first-line-only: the continuation lines already carry the
+    item's own indent relative to the flow base, which the flow's final
+    `applyIndent flowIndent` (its outer nest) completes.
+  - `UnclassifiedCarrying` — everything else must stay an `Err` fallback:
+    guessing produces a Box-only layout, the exact divergence class the
+    shared FlowPolicy core exists to prevent.
+
+LOAD-BEARING invariant: any new align-carrying builder must update this table.
+-}
+type SoftGlueAlignment
+    = AlignCarrying
+    | AlignCarryingTabbed
+    | NestCarrying
+    | UnclassifiedCarrying
+
+
+{-| True when a paren's content leads with an align-carrying node (a bracket
+literal / record / record update) — the shapes whose continuation lines anchor
+at their own start column, so wrapping them in `(` must pad every line (not just
+the first) to keep `,`/`}` under the opening bracket. Leading single-line block
+comments are skipped (they ride on the `(`-line). -}
+parenInnerIsAlignCarrying : Array LPNode -> Bool
+parenInnerIsAlignCarrying children =
+    when Array.popFirst children is
+        Just { first, rest } ->
+            when lpnBox first is
+                BlockComment _ ->
+                    parenInnerIsAlignCarrying rest
+
+                SingleLineComment _ ->
+                    parenInnerIsAlignCarrying rest
+
+                _ ->
+                    when softGlueAlignment first is
+                        AlignCarrying ->
+                            True
+
+                        AlignCarryingTabbed ->
+                            True
+
+                        _ ->
+                            False
+
+        Nothing ->
+            False
+
+
+softGlueAlignment : LPNode -> SoftGlueAlignment
+softGlueAlignment node =
+    when lpnBox node is
+        AlwaysVertical _ ->
+            AlignCarrying
+
+        AllAcrossOrAllVertical _ ->
+            AlignCarrying
+
+        MultilineString _ ->
+            AlignCarrying
+
+        RecordUpdate _ ->
+            AlignCarryingTabbed
+
+        AlignedFlow ->
+            AlignCarryingTabbed
+
+        AcrossOrVertical _ ->
+            NestCarrying
+
+        OpAndRhs ->
+            NestCarrying
+
+        Glue ->
+            NestCarrying
+
+        PrefixGlue _ ->
+            NestCarrying
+
+        Pipeline _ ->
+            NestCarrying
+
+        _ ->
+            UnclassifiedCarrying
+
+
+-- True for a flow item whose node is a bracket LITERAL (record / array / record
+-- update) — the align-carrying shapes, so a `B.prefix` glue of their first line
+-- pads continuation lines to stay aligned under the opening bracket.
+isSoftGlueLiteral : FlowItem -> Bool
+isSoftGlueLiteral item =
+    when lpnBox item.node is
+        AlwaysVertical _ ->
+            True
+
+        AllAcrossOrAllVertical _ ->
+            True
+
+        RecordUpdate _ ->
+            True
+
+        _ ->
+            False
+
+
+{-| Soft-glue a flow whose ONLY multi-line item is a bracket literal (elm-format
+glues every item and lets the literal break internally): the single-line prefix
+items glue to the literal's first line, its continuation pads to align under the
+bracket (`B.prefix`), and any single-line suffix items (a trailing `=`) glue onto
+its last line (`B.addSuffix`). Covers a multi-line record/array *pattern* function
+argument (`multilineRecord { alpha\n, beta\n} =`), which `assembleFlowImpl`'s
+flat stacker would instead drop to its own line. Returns Nothing (→ general
+assembler) unless the shape matches exactly: no comments/blank lines/hard blocks,
+a non-empty single-line prefix, exactly one multi-line item, and it is a bracket
+literal. Only reached from `assembleFlow` (the gluing flow path) — a call whose
+record arg *drops* goes through `assembleBrokenCall` instead. -}
+-- Render a prefix/suffix flow item to the single inline `Line` it contributes to
+-- a soft-glue flow. A plain item uses its box (which must be single-line); a
+-- single-line block-comment item (`{- c -}`) uses its rendered comment box, so a
+-- trailing comment (`… exposing (..) {- c -}`) glues onto the soft literal's last
+-- line. A `--` line comment or a multi-line block comment can't glue inline, so it
+-- Errs — dropping the whole flow back to the general assembler.
+flowItemInlineLine : FlowItem -> Result String B.Line
+flowItemInlineLine item =
+    let
+        asLine box =
+            when B.isLine box is
+                Ok l ->
+                    Ok l
+
+                Err _ ->
+                    Err "box: multi-line item in soft-glue flow"
+    in
+    when item.comment is
+        Just c ->
+            if c.isLineComment || c.multiLine then
+                Err "box: non-inline comment in soft-glue flow"
+
+            else
+                asLine c.box
+
+        Nothing ->
+            asLine item.box
+
+
+trySoftGlueFlow : Array FlowItem -> Maybe Box
+trySoftGlueFlow items =
+    if Array.any (\it -> isEmptyLine it.node) items then
+        Nothing
+
+    else
+        let
+            multiIdxs =
+                Array.foldl
+                    (\it acc -> { i = acc.i + 1, idxs = if isSingleLine it.box then acc.idxs else Array.pushLast acc.i acc.idxs })
+                    { i = 0, idxs = [] }
+                    items
+        in
+        when multiIdxs.idxs is
+            [ idx ] ->
+                let
+                    softItem =
+                        Array.get idx items
+
+                    prefix =
+                        Array.takeFirst idx items
+
+                    suffix =
+                        Array.dropFirst (idx + 1) items
+                in
+                when { s = softItem, pl = traverseResult flowItemInlineLine prefix, sl = traverseResult flowItemInlineLine suffix } is
+                    { s = Just soft, pl = Ok prefixLines, sl = Ok suffixLines } ->
+                        -- Require BOTH a non-empty single-line prefix AND a
+                        -- non-empty single-line suffix. The suffix (a trailing
+                        -- synthesized `=`) is what marks a funcDecl/`let`
+                        -- destructuring HEADER — where the flow glues the pattern
+                        -- and appends `=` — apart from a call argument
+                        -- (`fn { record }`, no trailing token) where the
+                        -- record instead DROPS to its own line (via the pipeline
+                        -- trigger / broken-call path). Without this gate a
+                        -- multi-line record call arg would be wrongly glued.
+                        --
+                        -- A multi-line TYPE record after a real head is the
+                        -- policy's DropBlock (the type-record drop) — the fold
+                        -- must handle it, not this glue: a trailing comment
+                        -- item (`} {- c -}`) would otherwise satisfy the
+                        -- non-empty-suffix gate and wrongly glue a signature
+                        -- segment's dropping record.
+                        if isSoftGlueLiteral soft && not (Array.isEmpty prefixLines) && not (Array.isEmpty suffixLines) && not (FP.isTypeRecordLiteral soft.node) then
+                            let
+                                prefixLine =
+                                    B.row (Array.intersperse B.space prefixLines)
+
+                                glued =
+                                    B.prefix (B.row [ prefixLine, B.space ]) soft.box
+                            in
+                            Just (B.addSuffix (B.row ([ B.space ] ++ Array.intersperse B.space suffixLines)) glued)
+
+                        else
+                            Nothing
+
+                    _ ->
+                        Nothing
+
+            _ ->
+                Nothing
+
+
+{-| Pair each single-line block-comment item with an immediately following
+type-record literal item, removing the comment from the item list and attaching
+it to the record's entry. `assembleFlowImpl`'s fold then decides whether the
+pair drops together or replays the plain unpaired steps. Flows containing an
+arrow (a function type's segments) pair too: the drop's reparse fixed point is
+guaranteed by `makeSignatureBox` folding `segmentHasDroppingRecordBox` into the
+signature's own `forceVertical` decision (the idempotency rule). -}
+pairTypeRecordComments : Array FlowItem -> Array { item : FlowItem, leading : Maybe FlowItem }
+pairTypeRecordComments items =
+    let
+        pairableComment it =
+            when it.comment is
+                Just c ->
+                    not c.isLineComment && not c.multiLine
+
+                Nothing ->
+                    False
+
+        -- NB Gren's `Array.get -1` wraps to the LAST element: without this guard,
+        -- a record at index 0 would pair with a comment TRAILING the flow and
+        -- duplicate it.
+        at i =
+            if i < 0 then
+                Nothing
+
+            else
+                Array.get i items
+    in
+    items
+        |> Array.indexedMap (\i it -> { i = i, it = it })
+        |> Array.mapAndKeepJust
+            (\{ i, it } ->
+                if
+                    pairableComment it
+                        && (at (i + 1)
+                                |> Maybe.map (\n -> FP.isTypeRecordLiteral n.node)
+                                |> Maybe.withDefault False
+                           )
+                then
+                    -- Consumed: attached to the record that follows.
+                    Nothing
+
+                else
+                    Just
+                        { item = it
+                        , leading =
+                            if FP.isTypeRecordLiteral it.node then
+                                at (i - 1)
+                                    |> Maybe.andThen
+                                        (\prev ->
+                                            if pairableComment prev then
+                                                Just prev
+
+                                            else
+                                                Nothing
+                                        )
+
+                            else
+                                Nothing
+                        }
+            )
+
+
+-- A `SoftIndentedBlock` whose SOLE child is a bracket literal (record, record
+-- update, or array) that renders vertical switches from the soft glue to the
+-- hard indented drop. The structural test is on the LPNode; the verticality
+-- fact comes from this renderer's own box (single-line ⇔ the sole child is
+-- single-line, since it is the block's only content).
+softBlockChildForcesVerticalBox : FlowItem -> Bool
+softBlockChildForcesVerticalBox item =
+    when Array.popFirst (lpnChildren item.node) is
+        Just { first = only, rest } ->
+            if not (Array.isEmpty rest) then
+                False
+
+            else
+                let
+                    isBracketLiteral =
+                        when lpnBox only is
+                            AlwaysVertical _ ->
+                                True
+
+                            AllAcrossOrAllVertical _ ->
+                                True
+
+                            RecordUpdate _ ->
+                                True
+
+                            _ ->
+                                False
+                in
+                isBracketLiteral && not (isSingleLine item.box)
+
+        Nothing ->
+            False

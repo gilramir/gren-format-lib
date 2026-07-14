@@ -1,0 +1,320 @@
+module Formatter.Render.BinopLayout exposing (flattenBinopNodes, assembleBinopBox, inlineBinopBox, renderBinopGroup, splitTrailingOwnLineComments, opText, bracketOperandForcesVertical, operandIsMultilineBracketLiteral, isChainBreakingOperandBox)
+
+{-| Pure layout assembly for binary-operator chains (operand boxes + operator texts -> Box).
+-}
+
+import Formatter.Render.Box as B exposing (Box(..))
+import Formatter.Logical.LogicalPrintingTree exposing (LPBox(..), LPNode, lpnBox, lpnChildren, lpnLastPos, lpnLastBracketEnd)
+import Formatter.Logical.BinopPrecedence exposing (binopPrecedence)
+import Formatter.Render.BoxOps exposing (traverseResult)
+import Formatter.Render.NodeClassify exposing (nodeIsComment, subtreeHasComment, leafValue, nodeSpansRows)
+
+{-| Flatten the nested `Binop`/`OpAndRhs` tree into a flat operand + operator
+list. Each operand is itself a flow (array of nodes). -}
+flattenBinopNodes : Array LPNode -> { operands : Array (Array LPNode), ops : Array LPNode }
+flattenBinopNodes children =
+    when Array.popLast children is
+        Nothing ->
+            { operands = [], ops = [] }
+
+        Just { last = lastNode, initial = operandNodes } ->
+            when lpnBox lastNode is
+                OpAndRhs ->
+                    when Array.popFirst (lpnChildren lastNode) is
+                        Just { first = opNode, rest = restChildren } ->
+                            let
+                                inner =
+                                    flattenBinopNodes restChildren
+                            in
+                            { operands = [ operandNodes ] ++ inner.operands
+                            , ops = [ opNode ] ++ inner.ops
+                            }
+
+                        Nothing ->
+                            { operands = [ operandNodes ], ops = [] }
+
+                _ ->
+                    { operands = [ children ], ops = [] }
+
+
+opText : LPNode -> String
+opText node =
+    Maybe.withDefault "" (leafValue node)
+
+
+{-| True when a binop chain has a bracket-LITERAL operand (a record, array, or
+record update) that renders multi-line — either because the author broke it
+across rows, or because a comment inside it forces it open. Such an operand
+breaks the whole chain vertically (elm-format, and gren's own "multi-line content
+opens the container" rule) instead of gluing the operator after the closing
+`]`/`}`. A multi-line `"""…"""` string operand is deliberately NOT a bracket kind
+and stays glued inline — matching elm-format.
+
+Decided HERE (render side, with comments already attached), keyed on the operand
+node's own `spans-rows OR has-comment` — not on the raw source layout of the
+whole chain — so inserting or removing a comment can never flip the decision (a
+reparse fixed point). That is the same stability `commentAwareBinopBox` relies on:
+a one-row bracket that a comment forces open reports `has-comment` in BOTH the
+pre-break and post-break formats, so the chain breaks consistently. -}
+bracketOperandForcesVertical : Array LPNode -> Bool
+bracketOperandForcesVertical children =
+    (flattenBinopNodes children).operands
+        |> Array.any operandIsMultilineBracketLiteral
+
+
+operandIsMultilineBracketLiteral : Array LPNode -> Bool
+operandIsMultilineBracketLiteral operand =
+    when Array.popFirst operand is
+        Just { first = node, rest = rest } ->
+            Array.isEmpty rest
+                && isChainBreakingOperandBox (lpnBox node)
+                && (nodeSpansRows node || subtreeHasComment node)
+
+        Nothing ->
+            False
+
+
+{-| Operand box kinds whose multi-line form breaks a binop chain vertically: a
+bracket literal (record / array / record update) or a parenthesized expression
+(`(a\n+ b)`). A `MultilineString` is deliberately absent — elm-format keeps a
+multi-line string operand glued inline, and gren matches. -}
+isChainBreakingOperandBox : LPBox -> Bool
+isChainBreakingOperandBox box =
+    when box is
+        AllAcrossOrAllVertical _ ->
+            True
+
+        AlwaysVertical _ ->
+            True
+
+        RecordUpdate _ ->
+            True
+
+        ParenBlock _ ->
+            True
+
+        _ ->
+            False
+
+
+{-| Split an operand's node array into its content (the operand plus any INLINE
+trailing comment, e.g. a block comment on the operand's own row) and the trailing
+OWN-LINE comments (a `--` line comment, or a block comment the author put on a
+later row). In a broken binop chain the content rides the operator line
+(`++ beta {- inline -}`), while own-line comments render on their own line at the
+operator indent (leading the next operator), matching how the author laid them
+out. -}
+splitTrailingOwnLineComments : Array LPNode -> { content : Array LPNode, ownLine : Array LPNode }
+splitTrailingOwnLineComments nodes =
+    let
+        -- The operand's LAST rendered row, including a closing bracket the parser
+        -- discards (`lpnLastBracketEnd`) — so a comment on the `)`/`}` row of a
+        -- multi-line paren/record operand counts as INLINE with it, not own-line
+        -- (which would render it at the operator indent and then detach on reparse).
+        contentRow =
+            Array.foldl
+                (\n acc ->
+                    if nodeIsComment n then
+                        acc
+
+                    else
+                        let
+                            tokRow =
+                                lpnLastPos n |> Maybe.map (\p -> p.row) |> Maybe.withDefault -1
+
+                            brkRow =
+                                lpnLastBracketEnd n |> Maybe.map (\p -> p.row) |> Maybe.withDefault -1
+                        in
+                        max acc (max tokRow brkRow)
+                )
+                -1
+                nodes
+
+        isOwnLineComment node =
+            when lpnBox node is
+                SingleLineComment _ ->
+                    True
+
+                BlockComment loc ->
+                    loc.start.row > contentRow
+
+                _ ->
+                    False
+
+        peeled =
+            Array.foldr
+                (\node acc ->
+                    if acc.peeling && isOwnLineComment node then
+                        { peeling = True, content = acc.content, ownLine = [ node ] ++ acc.ownLine }
+
+                    else
+                        { peeling = False, content = [ node ] ++ acc.content, ownLine = acc.ownLine }
+                )
+                { peeling = True, content = [], ownLine = [] }
+                nodes
+    in
+    { content = peeled.content, ownLine = peeled.ownLine }
+
+
+-- Render an operator-precedence group (parts joined inline by higher-precedence
+-- operators) to a single Box. A lone part is returned as-is (it may be
+-- multi-line); two or more parts must all be single-line to inline-join.
+renderBinopGroup : Array { op : String, box : Box } -> Result String Box
+renderBinopGroup parts =
+    when Array.popFirst parts is
+        Nothing ->
+            Err "box: empty binop group"
+
+        Just { first = p0, rest } ->
+            if Array.isEmpty rest then
+                Ok p0.box
+
+            else
+                when B.isLine p0.box is
+                    Err _ ->
+                        Err "box: multi-line operand joined inline"
+
+                    Ok l0 ->
+                        traverseResult
+                            (\p ->
+                                when B.isLine p.box is
+                                    Ok l ->
+                                        Ok [ B.space, B.literal p.op, B.space, l ]
+
+                                    Err _ ->
+                                        Err "box: multi-line operand joined inline"
+                            )
+                            rest
+                            |> Result.map
+                                (\segs -> B.line (B.row (Array.flatten ([ [ l0 ] ] ++ segs))))
+
+
+{-| Assemble the operand boxes + operator texts into the INLINE layout (the whole
+chain on one line). `ops[k]` sits between `operandBoxes[k]` and
+`operandBoxes[k+1]`. Groups break at operators whose precedence == `minPrec`;
+tighter operators join inline within a group — the grouping only matters for the
+trailing-operand case. A forced-vertical chain never comes here (it renders
+one-operator-per-line via `verticalBinopChainBox`). -}
+assembleBinopBox : Int -> Array Box -> Array String -> Result String Box
+assembleBinopBox minPrec operandBoxes ops =
+    let
+        firstBox =
+            Maybe.withDefault (B.line (B.literal "")) (Array.first operandBoxes)
+
+        paired =
+            Array.map2 (\op nextBox -> { op = op, box = nextBox })
+                ops
+                (Array.dropFirst 1 operandBoxes)
+
+        state =
+            Array.foldl
+                (\pair acc ->
+                    if binopPrecedence pair.op == minPrec then
+                        { firstGroup =
+                            if acc.started then
+                                acc.firstGroup
+
+                            else
+                                acc.curParts
+                        , started = True
+                        , segments =
+                            if acc.started then
+                                Array.pushLast { op = acc.pendingOp, parts = acc.curParts } acc.segments
+
+                            else
+                                acc.segments
+                        , pendingOp = pair.op
+                        , curParts = [ { op = "", box = pair.box } ]
+                        }
+
+                    else
+                        { acc | curParts = Array.pushLast { op = pair.op, box = pair.box } acc.curParts }
+                )
+                { firstGroup = [ { op = "", box = firstBox } ]
+                , started = False
+                , segments = []
+                , pendingOp = ""
+                , curParts = [ { op = "", box = firstBox } ]
+                }
+                paired
+
+        segments =
+            Array.pushLast { op = state.pendingOp, parts = state.curParts } state.segments
+    in
+    renderBinopGroup state.firstGroup
+        |> Result.andThen
+            (\firstGroupBox ->
+                traverseResult
+                    (\seg -> Result.map (\b -> { op = seg.op, box = b }) (renderBinopGroup seg.parts))
+                    segments
+                    |> Result.andThen
+                        (\segBoxes ->
+                            -- Inline: the chain flows on one line. `Err` (rather
+                            -- than a second fallback layout) when the first group
+                            -- or a non-trailing group can't join inline — the
+                            -- caller (`makeBinopBox`) falls back to the same
+                            -- comment-aware flow a comment anywhere in the chain
+                            -- already routes through.
+                            when inlineBinopBox firstGroupBox segBoxes is
+                                Just box ->
+                                    Ok box
+
+                                Nothing ->
+                                    Err "box: multi-line operand in non-vertical binop"
+                        )
+            )
+
+
+-- The chain flows on one line. Every group must be single-line EXCEPT the
+-- very last operand, which may be a multi-line node whose own lines break
+-- below (a `"""…"""` literal opened mid-line). elm-format keeps the whole
+-- chain concatenated and lets that operand's continuation land under its
+-- opening column; Box builds the single-line prefix (`"a " ++ b ++`) and
+-- `B.prefix`es it onto the trailing box, padding its continuation to the
+-- same column. `Nothing` when the first group or a non-trailing group is
+-- itself multi-line.
+inlineBinopBox : Box -> Array { op : String, box : Box } -> Maybe Box
+inlineBinopBox firstGroupBox segBoxes =
+    when B.isLine firstGroupBox is
+        Err _ ->
+            Nothing
+
+        Ok firstLine ->
+            when Array.popLast segBoxes is
+                Nothing ->
+                    Just (B.line firstLine)
+
+                Just { last = lastSeg, initial = initSegs } ->
+                    Array.foldl
+                        (\seg acc ->
+                            when acc is
+                                Nothing ->
+                                    Nothing
+
+                                Just parts ->
+                                    when B.isLine seg.box is
+                                        Ok l ->
+                                            Just (Array.pushLast [ B.space, B.literal seg.op, B.space, l ] parts)
+
+                                        Err _ ->
+                                            Nothing
+                        )
+                        (Just [])
+                        initSegs
+                        |> Maybe.map
+                            (\initParts ->
+                                when B.isLine lastSeg.box is
+                                    Ok lastLine ->
+                                        -- All single-line: the whole chain on one row.
+                                        B.line (B.row (Array.flatten ([ [ firstLine ] ] ++ initParts ++ [ [ B.space, B.literal lastSeg.op, B.space, lastLine ] ])))
+
+                                    Err _ ->
+                                        -- Trailing operand is multi-line: glue the
+                                        -- single-line prefix onto its first line and
+                                        -- pad its continuation to align.
+                                        let
+                                            prefixRow =
+                                                B.row (Array.flatten ([ [ firstLine ] ] ++ initParts ++ [ [ B.space, B.literal lastSeg.op, B.space ] ]))
+                                        in
+                                        B.prefix prefixRow lastSeg.box
+                            )

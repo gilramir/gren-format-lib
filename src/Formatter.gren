@@ -12,7 +12,7 @@ import Compiler.Ast.Source as Src
 import Compiler.Parse.Context as Ctx
 
 import Formatter.Logical.MakeLogical exposing (makeLogicalPrintingTree)
-import Formatter.Render.MakeRender exposing (makePrettyResult)
+import Formatter.Render exposing (makePrettyResult)
 
 
 {-|
@@ -30,7 +30,7 @@ The work happens in three stages:
    header." Comments are woven in from the comment table, and blank lines are
    inserted between top-level declarations according to the spacing rules.
 
-2. Render to a document (MakeRender). The layout box tree is translated into a
+2. Render to a document (Formatter.Render). The layout box tree is translated into a
    `Formatter.Render` document. Layout is author-driven, not fit-driven: there
    is no page-width search. Each box already knows whether it renders inline or
    vertical (decided from the author's original source rows), so this stage just

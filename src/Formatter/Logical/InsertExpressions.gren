@@ -624,7 +624,7 @@ insertLambda locExpr { patterns = patterns, body = body } =
         |> Result.andThen
             (\patNodes ->
                 let
-                    -- Wrap first pattern in PrefixGlue "\\" so MakeRender
+                    -- Wrap first pattern in PrefixGlue "\\" so Formatter.Render
                     -- emits \ immediately before the pattern (no space). This
                     -- works for all pattern shapes including record ({ x, y })
                     -- and array ([ x, y ]) whose opening bracket is synthesised
