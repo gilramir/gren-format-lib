@@ -1,0 +1,17 @@
+module ExposingInlineComment exposing (Kiwi, apple, zebra {- the last one -})
+
+import Dict exposing (Dict {- the type -}, empty)
+
+
+type Kiwi
+    = Kiwi
+
+
+zebra : Int
+zebra =
+    1
+
+
+apple : Dict String Int
+apple =
+    empty

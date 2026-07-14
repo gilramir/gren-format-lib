@@ -425,7 +425,14 @@ module MyApp exposing -- a note
 
 The wildcard `exposing (..)` is always written as `(..)` on the module line.
 
-When the exposing list contains a comment, it is always kept vertical.
+A comment inside the exposing list keeps it vertical only when the comment
+can't share a line — a `--` comment, a `{- … -}` spread over several lines, or
+one you put on a row of its own. A short `{- … -}` beside a name rides the line
+you wrote:
+
+```gren
+module MyApp exposing (Model {- the state -}, Msg)
+```
 
 A custom type exposed with its constructors gets a space before `(..)`:
 

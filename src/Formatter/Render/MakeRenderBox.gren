@@ -1752,22 +1752,22 @@ makeExposingLineBox stype children =
                                 lpnChildren lastNode
                         in
                         let
-                            hasComment =
-                                Array.any nodeIsComment listChildren
+                            -- Only a comment that can't ride the flat line forces
+                            -- the list vertical; a short `{- … -}` beside a name
+                            -- stays on the line the author wrote, which is what
+                            -- elm-format does here too.
+                            commentForcesOpen =
+                                commentForcesBracketOpen forceVertical listChildren
 
-                            -- A comment among the exposed names forces the list
-                            -- vertical (elm-format): `Array.any nodeIsComment ||
-                            -- forceVertical` routes to the always-vertical
-                            -- bracketed list.
                             effectiveFV =
-                                forceVertical || hasComment
+                                forceVertical || commentForcesOpen
 
                             -- The `( … )` comment form is structurally the same
                             -- always-vertical list as a curly/square literal, so
                             -- reuse `commentBracketListBox` with `ListParen` (its
                             -- `( `/`, `/`)` prefixes match `listBoxesWithBrackets`).
                             listBoxResult =
-                                if hasComment then
+                                if commentForcesOpen then
                                     commentBracketListBox ListParen listChildren
 
                                 else
@@ -1815,15 +1815,16 @@ already-sorted exposed names (leaves). Inline: `(a, b, c)`. Vertical:
 The comment-free exposing-list path. -}
 makeExposingListBox : Bool -> Array LPNode -> Result String Box
 makeExposingListBox forceVertical children =
-    traverseResult (\n -> makePBox (lpnBox n) (lpnChildren n)) children
+    pairInlineComments (\n -> makePBox (lpnBox n) (lpnChildren n)) children
         |> Result.andThen
             (\itemBoxes ->
                 when B.allSingles itemBoxes is
                     Err _ ->
                         -- unreachable: every exposed item is built as a single
                         -- UnbreakableText leaf (MakeLogical.gren's processExposed),
-                        -- so itemBoxes are always single-line and B.allSingles
-                        -- can never fail here.
+                        -- and the only comment `pairInlineComments` can glue on
+                        -- here is a single-line one, so itemBoxes are always
+                        -- single-line and B.allSingles can never fail.
                         Err "unreachable: multi-line exposing item"
 
                     Ok itemLines ->
