@@ -3020,12 +3020,15 @@ makePBox box children =
             -- it's a defined-but-unused LPBox constructor.
             Err "unreachable: AlignedFlow is never constructed"
 
-        _ ->
-            -- unreachable: every LPBox constructor other than RootBox/
-            -- OriginalRows is matched explicitly above. RootBox is the
-            -- singular tree root and OriginalRows is always a direct child
-            -- of RootBox — neither is ever passed to makePBox as a child.
-            Err "unreachable: construct never reaches makePBox"
+        RootBox ->
+            -- unreachable: RootBox is the singular tree root; it is never
+            -- passed to makePBox as a child.
+            Err "unreachable: RootBox never reaches makePBox"
+
+        OriginalRows _ ->
+            -- unreachable: OriginalRows is always a direct child of RootBox,
+            -- rendered by makePrettyLineBox — never passed to makePBox.
+            Err "unreachable: OriginalRows never reaches makePBox"
 
 
 {-| Render a `Glue`: children concatenated with no separator — a postfix accessor
@@ -4445,7 +4448,28 @@ assembleFlowImpl inlineStart flowIndent items =
                                 , state = decision.next
                                 }
 
-                    _ ->
+                    -- unreachable (all 6 arms below): `FP.commentPlacement`
+                    -- only ever yields `AsFirst`/`GlueNoSep`/`GlueSpace`/
+                    -- `OwnLine` for a comment item, so a multi-line comment
+                    -- never carries any other `Placement`. Listed explicitly
+                    -- (no `_ ->`) so a future `Placement` constructor fails to
+                    -- compile here instead of silently falling into a wildcard.
+                    FP.SoftSep ->
+                        Err "box: unexpected multi-line comment placement"
+
+                    FP.OwnLineAfterBlank ->
+                        Err "box: unexpected multi-line comment placement"
+
+                    FP.IndentNoBreak ->
+                        Err "box: unexpected multi-line comment placement"
+
+                    FP.BlockJoin _ ->
+                        Err "box: unexpected multi-line comment placement"
+
+                    FP.DropBlock _ ->
+                        Err "box: unexpected multi-line comment placement"
+
+                    FP.BlankLineOnly ->
                         Err "box: unexpected multi-line comment placement"
 
             else
@@ -4480,7 +4504,26 @@ assembleFlowImpl inlineStart flowIndent items =
                                             , state = decision.next
                                             }
 
-                                _ ->
+                                -- unreachable (all 6 arms below) — same reasoning
+                                -- as the multi-line-comment block above:
+                                -- `FP.commentPlacement` only ever yields
+                                -- `AsFirst`/`GlueNoSep`/`GlueSpace`/`OwnLine`.
+                                FP.SoftSep ->
+                                    Err "box: unexpected terminating comment placement"
+
+                                FP.OwnLineAfterBlank ->
+                                    Err "box: unexpected terminating comment placement"
+
+                                FP.IndentNoBreak ->
+                                    Err "box: unexpected terminating comment placement"
+
+                                FP.BlockJoin _ ->
+                                    Err "box: unexpected terminating comment placement"
+
+                                FP.DropBlock _ ->
+                                    Err "box: unexpected terminating comment placement"
+
+                                FP.BlankLineOnly ->
                                     Err "box: unexpected terminating comment placement"
 
                         else
@@ -4507,7 +4550,27 @@ assembleFlowImpl inlineStart flowIndent items =
                                 FP.OwnLine ->
                                     Ok { rows = flushRow acc.curRow acc.rows, curRow = [ l ], state = decision.next }
 
-                                _ ->
+                                -- unreachable (all 6 arms below): none of these,
+                                -- including `GlueNoSep`, is ever assigned to a
+                                -- comment item that reaches this inline
+                                -- (non-`AlreadyTerminated`) branch in the current
+                                -- wiring (see box-err.md §3 for the traced proof).
+                                FP.GlueNoSep ->
+                                    Err "box: unexpected inline comment placement"
+
+                                FP.OwnLineAfterBlank ->
+                                    Err "box: unexpected inline comment placement"
+
+                                FP.IndentNoBreak ->
+                                    Err "box: unexpected inline comment placement"
+
+                                FP.BlockJoin _ ->
+                                    Err "box: unexpected inline comment placement"
+
+                                FP.DropBlock _ ->
+                                    Err "box: unexpected inline comment placement"
+
+                                FP.BlankLineOnly ->
                                     Err "box: unexpected inline comment placement"
 
         -- Materialize a non-comment item's placement. `leading` carries a
@@ -4803,7 +4866,17 @@ assembleFlowImpl inlineStart flowIndent items =
                         , state = decision.next
                         }
 
-                _ ->
+                -- unreachable (both arms below; see box-err.md §3 for the
+                -- traced proof): `GlueSpace` is never assigned to a
+                -- non-comment `ItemFacts` case in `FP.decide`; `OwnLineAfterBlank`
+                -- is assigned only to `FP.WhenBranchItem`, which `factsFor`
+                -- never constructs (`WhenBranch` nodes route through the
+                -- dedicated `renderWhenBranchesBox`/`makeWhenBranchBox` path,
+                -- never through this generic flow assembler).
+                FP.GlueSpace ->
+                    Err "box: unexpected flow placement"
+
+                FP.OwnLineAfterBlank ->
                     Err "box: unexpected flow placement"
 
         step paired accResult =

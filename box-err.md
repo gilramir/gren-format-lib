@@ -88,7 +88,14 @@ record type. Regression-guarded by
 (plain + extensible variants); full gates green (effectful 170/170,
 idempotency 0 gaps, whitespace fuzzer both modes 0 drift).
 
-## 2. The `makePBox` wildcard — enumerated against `LPBox`
+## 2. The `makePBox` wildcard — enumerated against `LPBox` (FIXED)
+
+**Update:** the `_ ->` wildcard is gone. `makePBox` now has explicit
+`RootBox ->` / `OriginalRows _ ->` arms (each an `"unreachable: ... never
+reaches makePBox"` `Err`, same reasoning as before) alongside the other 27,
+so the match is exhaustive over all 29 `LPBox` constructors with no
+catch-all — a future constructor added to `LPBox` without a matching
+`makePBox` arm is now a compile error, not a silent runtime `Err`.
 
 `LogicalPrintingTree.gren:151-402` defines 29 `LPBox` constructors
 (`RootBox`, `OriginalRows`, `EmptyLine`, `UnbreakableText`, `SynthesizedText`,
@@ -129,7 +136,14 @@ enforces exhaustiveness there; adding a `SyntaxType` constructor would be a
 compile error, not a silent runtime `Err`. `makePBox`'s `LPBox` dispatch
 chose the wildcard style instead.
 
-## 3. A second, structurally identical wildcard — `FlowPolicy.Placement` in `assembleFlowImpl`
+## 3. A second, structurally identical wildcard — `FlowPolicy.Placement` in `assembleFlowImpl` (FIXED)
+
+**Update:** all four `when decision.placement is` blocks now list every one
+of the 10 `Placement` constructors explicitly (no `_ ->`) — the previously
+unreachable ones each get their own arm carrying the same `Err` message as
+before (the reachable ones are unchanged). A new `Placement` constructor now
+fails to compile at all four sites instead of silently falling into a
+wildcard at whichever ones don't happen to match it.
 
 `FlowPolicy.gren:188-198` defines `Placement` with 10 constructors
 (`AsFirst`, `GlueNoSep`, `GlueSpace`, `SoftSep`, `OwnLine`,
@@ -327,5 +341,5 @@ are only speculative "does it force vertical" probes, not the final render.
 ## Open items / next steps
 
 1. ~~Fix the reachable bug in §1 (`makeSignatureBox` single-segment record-type signature).~~ DONE.
-2. Consider converting the `makePBox` wildcard (§2) and the `assembleFlowImpl` `Placement` wildcards (§3) into exhaustive `when` matches (no `_ ->` arm) so a future new `LPBox`/`Placement` constructor is a compile error instead of a silent runtime `Err`.
+2. ~~Consider converting the `makePBox` wildcard (§2) and the `assembleFlowImpl` `Placement` wildcards (§3) into exhaustive `when` matches (no `_ ->` arm).~~ DONE.
 3. Decide what to do about the scaffolded-but-disabled Tab/prefix branch in §5 (`if False then Err "unreachable" else ...`, MakeRenderBox.gren:3519-3521) — currently masks a known, unaddressed limitation.
