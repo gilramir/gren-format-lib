@@ -205,17 +205,20 @@ these 20 quote "TODO" or "not supported" language — the codebase uses
 
 ## 5. Notable: literal dead code, not just a runtime-unreachable guard
 
-**`MakeRenderBox.gren:3519-3521`**, inside `commentBracketListBox`'s fold step:
+**`MakeRenderBox.gren:3556-3559`** (line numbers as of the §1/§2/§3 fixes
+above — originally 3519-3521; the code is unchanged, only its position in
+the file shifted), inside `commentBracketListBox`'s fold step:
 
 ```
-3519    if False then
-3520        Err "unreachable"
-3521    else
+3556    if False then
+3557        Err "unreachable"
+3558
+3559    else
 ```
 
 The condition is a hardcoded `False` — this branch cannot execute regardless
 of input; it is disabled at compile time, not merely defensively
-unreachable. The 14-line comment above it (3505-3518) explains it is a
+unreachable. The 14-line comment above it (3542-3555) explains it is a
 stand-in for handling a Tab/prefix composition bug ("Fall back until the
 Tab-vs-prefix interaction is modelled") — i.e. a known, currently-unaddressed
 limitation that was scaffolded but never wired live.
