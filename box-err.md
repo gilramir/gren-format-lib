@@ -3,7 +3,8 @@
 Catalogue of every `Err` in the Box-creation phase (LPT → Box), for follow-up work.
 Companion to the earlier Logical-phase (LPT-construction) catalogue, which found
 6 unreachable defensive-guard `Err` sites plus one error-prefixing wrapper — all
-dead code. This phase is different: it contains a **confirmed, reproducible bug**.
+dead code. This phase is different: it contained a **confirmed, reproducible
+bug**, now fixed (see §1).
 
 Scope: `gren-format-lib/src/Formatter/Render/MakeRenderBox.gren`,
 `MakeRender.gren`, `FlowPolicy.gren`, `Box.gren`, `ElmStructure.gren`.
@@ -18,9 +19,9 @@ dead `if False then Err "unreachable" else ...` branch, plus many `Err e` /
 an Either-style "is this box single-line" test) — not user-facing format
 failures at all.
 
-## 1. Reachable bug (confirmed by running the formatter) — TODO: fix
+## 1. Reachable bug (confirmed by running the formatter) — FIXED
 
-**`MakeRenderBox.gren:2615`** — `makeSignatureBox`, arm `else if not forceVertical then` (2601-2616):
+**`MakeRenderBox.gren:2615`** (pre-fix line number) — `makeSignatureBox`, arm `else if not forceVertical then` (2601-2616):
 
 ```
 Err "box: inline signature segment unexpectedly broke across lines"
@@ -68,9 +69,24 @@ case, confirming the bug is specific to the record-literal
 `type alias` bodies (`makeTypeAliasBody`, line 927-929) have no such check
 and are unaffected.
 
-**Likely fix shape:** extend `signatureForceVertical`/the single-segment
-path to also run a `segmentHasDroppingRecordBox`-style check when there's
-only one segment (currently gated `Array.length segments > 1`).
+**Fix applied:** `forceVertical` now also fires for a single-segment type
+(`Array.length segments == 1`) when that lone segment carries a dropping
+record, checked via `segmentHasDroppingRecordBox` extended with an
+`includeHead` parameter (the multi-segment call site passes `False`,
+preserving prior behavior; the new single-segment call site passes `True`,
+since there's no second segment for `signatureForceVertical`'s row-break
+check to compare against). Gated on `not hasComment` so it doesn't preempt
+the existing comment-bearing single-segment handling above (which has its
+own, already-correct logic and its own test coverage). Also extended the
+"is this a dropping record type" test (`isDroppingSignatureRecordNode`) to
+recognize the `RecordUpdate` box, since an extensible record type
+(`{ r | name : String }`) reuses that box the same way a record-update
+*expression* does — safe here because every call site restricts `node` to a
+signature's TYPE position, where `RecordUpdate` can only mean an extensible
+record type. Regression-guarded by
+`tests/testfiles/Formatter/SignatureSoleRecordType.{dirty,formatted}.gren`
+(plain + extensible variants); full gates green (effectful 170/170,
+idempotency 0 gaps, whitespace fuzzer both modes 0 drift).
 
 ## 2. The `makePBox` wildcard — enumerated against `LPBox`
 
@@ -310,6 +326,6 @@ are only speculative "does it force vertical" probes, not the final render.
 
 ## Open items / next steps
 
-1. Fix the reachable bug in §1 (`makeSignatureBox` single-segment record-type signature).
+1. ~~Fix the reachable bug in §1 (`makeSignatureBox` single-segment record-type signature).~~ DONE.
 2. Consider converting the `makePBox` wildcard (§2) and the `assembleFlowImpl` `Placement` wildcards (§3) into exhaustive `when` matches (no `_ ->` arm) so a future new `LPBox`/`Placement` constructor is a compile error instead of a silent runtime `Err`.
 3. Decide what to do about the scaffolded-but-disabled Tab/prefix branch in §5 (`if False then Err "unreachable" else ...`, MakeRenderBox.gren:3519-3521) — currently masks a known, unaddressed limitation.

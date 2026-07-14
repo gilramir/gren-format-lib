@@ -2437,19 +2437,42 @@ segLastRow seg =
         seg
 
 
+{-| True for a node that renders as a multi-line record TYPE — either a plain
+record literal (`FP.isTypeRecordLiteral`, `{ a : Int }`) or an extensible
+record type, which reuses the `RecordUpdate` box the same way a record-update
+EXPRESSION does (`{ r | a : Int }`; see `LogicalPrintingTree.gren`'s
+`RecordUpdate` doc). Treating any `RecordUpdate` found here as a type is safe
+only because every call site restricts `node` to a signature's TYPE position,
+where `RecordUpdate` can never mean an update expression. -}
+isDroppingSignatureRecordNode : LPNode -> Bool
+isDroppingSignatureRecordNode node =
+    FP.isTypeRecordLiteral node
+        || (when lpnBox node is
+                RecordUpdate _ ->
+                    True
+
+                _ ->
+                    False
+           )
+
+
 {-| True when a signature segment contains a multi-line type record in a
 non-head position — the type-record drop will fire inside it, so the whole
 signature must commit to the broken layout. Verticality comes from this
 renderer's own box (`isSingleLine`; an unrenderable node counts as not-forcing,
-i.e. `Err -> False`). -}
-segmentHasDroppingRecordBox : Array LPNode -> Bool
-segmentHasDroppingRecordBox segment =
+i.e. `Err -> False`). The head position (`i == 0`) is included only when
+`includeHead` is `True` — a multi-segment type already gets head-position
+coverage from `signatureForceVertical` (the row-break-between-segments check),
+but a single-segment type (no `->` at all) has no such fallback, so its sole
+segment must be checked at `i == 0` too. -}
+segmentHasDroppingRecordBox : Bool -> Array LPNode -> Bool
+segmentHasDroppingRecordBox includeHead segment =
     segment
         |> Array.indexedMap (\i n -> { i = i, n = n })
         |> Array.any
             (\{ i, n } ->
-                i > 0
-                    && FP.isTypeRecordLiteral n
+                (i > 0 || includeHead)
+                    && isDroppingSignatureRecordNode n
                     && (when makePBox (lpnBox n) (lpnChildren n) is
                             Ok b ->
                                 not (isSingleLine b)
@@ -2526,20 +2549,31 @@ makeSignatureBox children =
             segments =
                 splitSignatureSegments colonSplit.typeNodes
 
+            hasComment =
+                Array.any subtreeHasComment children
+
             -- A multi-segment type whose segment carries a dropping record
             -- commits to the fully-broken layout up front
             -- (`segmentHasDroppingRecordBox`), so the drop's extra rows can't
             -- flip the boundary-break decision on reparse (the idempotency
-            -- fixed-point rule).
+            -- fixed-point rule). A single-segment, comment-free type (no `->`)
+            -- gets the same treatment at its segment's head position, since
+            -- there's no second segment for `signatureForceVertical` to
+            -- compare against — this is gated on `not hasComment` because a
+            -- comment-bearing single segment already has its own dedicated
+            -- handling below (the `hasComment && typeHasCommentBracket`
+            -- branch), which must run instead, not be preempted here.
             forceVertical =
                 signatureForceVertical segments
                     || (Array.length segments
                             > 1
-                            && Array.any segmentHasDroppingRecordBox segments
+                            && Array.any (segmentHasDroppingRecordBox False) segments
                        )
-
-            hasComment =
-                Array.any subtreeHasComment children
+                    || (Array.length segments
+                            == 1
+                            && not hasComment
+                            && Array.any (segmentHasDroppingRecordBox True) segments
+                       )
         in
         if not forceVertical && hasComment && Array.any typeHasCommentBracket colonSplit.typeNodes then
             -- A comment INSIDE a record/bracket type (`foo : { a : Int {- c -} }`)

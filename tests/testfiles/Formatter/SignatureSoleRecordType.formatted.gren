@@ -1,0 +1,25 @@
+module SignatureSoleRecordType exposing (..)
+
+
+-- A single-segment signature (no `->` at all) whose whole type is a
+-- multi-line record literal used to crash the formatter
+-- ("box: inline signature segment unexpectedly broke across lines"):
+-- `signatureForceVertical` only detects a break between `->` segments, and
+-- there is only one segment here.
+config :
+    { name : String
+    , age : Int
+    }
+config =
+    { name = "x", age = 1 }
+
+
+-- Same bug, extensible record variant (renders via the `RecordUpdate` box,
+-- not the plain-record `ListCurly` box).
+withExtra :
+    { r
+        | name : String
+        , age : Int
+    }
+withExtra r =
+    { r | name = "x", age = 1 }
