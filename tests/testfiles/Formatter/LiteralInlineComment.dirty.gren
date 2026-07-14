@@ -34,6 +34,21 @@ authorVertical =
 -- A flat literal operand no longer breaks the binop chain around it
 binopOperand = [ a {- note -}, b ] ++ rest
 
+-- Nor does a comment nested inside one of its items, which the literal's own
+-- gate never sees
+binopNestedOperand = [ f {- c -} x ] ++ rest
+
+-- Nor a flat record update operand
+binopUpdateOperand = { r | a = 1 {- u -} } ++ rest
+
+-- A comment trailing a backward pipeline step rides the step's line
+backwardTrailing = x <| f {- c -}
+
+-- One on its own row still forces the operator-leading layout
+backwardOwnRow = x
+    {- own row -}
+    <| f
+
 -- A union body the author wrote on one line keeps its inline comment, matching
 -- the same union with no comment at all
 type UnionFlat = Red {- warm -} | Green | Blue

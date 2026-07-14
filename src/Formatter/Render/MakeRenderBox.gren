@@ -856,16 +856,22 @@ makeBackwardPipelineBox forceVertical children =
                 Nothing ->
                     False
 
+        -- A boundary comment forces the operator-LEADING layout only when it
+        -- cannot ride the line it was written on, the same rule the bracketed
+        -- constructs use. `literalCommentsRideFlatLine` reads each node array in
+        -- source order, so a comment trailing the body on the body's own row
+        -- rides; a leading comment (nothing before it to trail) or one the
+        -- author put on its own row does not, and still forces the layout.
         hasBoundaryComment =
-            Array.any
-                (\n ->
-                    if isPipelineStepNode n then
-                        stepFirstIsComment n || stepLastIsComment n
-
-                    else
-                        nodeIsComment n
-                )
-                children
+            (Array.any nodeIsComment seedNodes
+                && not (literalCommentsRideFlatLine seedNodes)
+            )
+                || Array.any
+                    (\n ->
+                        (stepFirstIsComment n || stepLastIsComment n)
+                            && not (literalCommentsRideFlatLine (lpnChildren n))
+                    )
+                    stepNodes
 
         -- The operator is the first NON-comment child (a step may lead with an
         -- own-line comment before `<|`).
