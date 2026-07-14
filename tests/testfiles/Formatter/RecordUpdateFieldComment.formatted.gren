@@ -2,15 +2,24 @@ module RecordUpdateFieldComment exposing (..)
 
 
 multiFieldTrailing baseRecordValue =
-    { baseRecordValue
-        | firstFieldName = 1
-        , secondFieldName = 2
-        {- after last field, before brace -}
-    }
+    { baseRecordValue | firstFieldName = 1, secondFieldName = 2 {- after last field, before brace -} }
 
 
 singleFieldTrailing baseRecordValue =
+    { baseRecordValue | onlyFieldName = computeReasonablyLongValue argumentOne argumentTwo {- trailing the value -} }
+
+
+ownRowBeforeBrace baseRecordValue =
     { baseRecordValue
-        | onlyFieldName = computeReasonablyLongValue argumentOne argumentTwo
-        {- trailing the value -}
+        | firstFieldName = 1
+        , secondFieldName = 2
+        {- own row, after last field, before brace -}
+    }
+
+
+lineCommentBeforeBrace baseRecordValue =
+    { baseRecordValue
+        | firstFieldName = 1
+        , secondFieldName = 2
+        -- own row, after last field, before brace
     }

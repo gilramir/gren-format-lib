@@ -54,3 +54,16 @@ authorVertical =
 -- A flat literal operand no longer breaks the binop chain around it
 binopOperand =
     [ a {- note -}, b ] ++ rest
+
+
+-- Record updates follow the same rule
+updateFlat r =
+    { r | a = 1 {- u -}, b = 2 }
+
+
+updateOwnRow r =
+    { r
+        | a = 1
+        {- own row -}
+        , b = 2
+    }

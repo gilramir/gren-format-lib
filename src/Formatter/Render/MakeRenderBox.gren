@@ -1242,14 +1242,16 @@ across rows or any field renders multi-line — matching elm-format for
 `\arg ->` head like elm-format. -}
 makeRecordUpdateBox : String -> Bool -> Array LPNode -> Result String Box
 makeRecordUpdateBox baseName forceVertical children =
-    if Array.any nodeIsComment children then
-        -- A comment can't live in the inline (flat group) form, so a comment-
-        -- bearing update is always vertical: comment children render own-line at
-        -- +4 (no `| `/`, ` prefix), the actual fields keep their prefixes.
+    if commentForcesBracketOpen forceVertical children then
+        -- A comment that can't ride the flat line forces the update vertical:
+        -- comment children render own-line at +4 (no `| `/`, ` prefix), the
+        -- actual fields keep their prefixes.
         makeRecordUpdateVerticalBox baseName children
 
     else
-        traverseResult renderUpdateFieldBox children
+        -- No comment, or only comments that ride the flat line the author
+        -- wrote; `pairInlineComments` glues those onto the field each trails.
+        pairInlineComments renderUpdateFieldBox children
             |> Result.andThen
             (\fieldBoxes ->
                 when Array.popFirst fieldBoxes is
@@ -2371,20 +2373,13 @@ expands if a child is multi-line; `AlwaysVertical` (2+-field record, or author
 across rows) passes `forceMultiline = True`. -}
 makeLiteralBox : Bool -> ListBrackets -> Array LPNode -> Result String Box
 makeLiteralBox forceMultiline bracket children =
-    if Array.any nodeIsComment children then
-        if not forceMultiline && literalCommentsRideFlatLine children then
-            -- The author wrote the literal flat and every comment in it is a
-            -- single-line `{- … -}` trailing an item on that item's own row, so
-            -- the flat form carries them as-is. Only a comment that genuinely
-            -- cannot share a line (`--`, multi-line, or written on its own row)
-            -- forces the literal open — see `literalCommentsRideFlatLine`.
-            inlineCommentLiteralBox bracket children
-
-        else
-            commentBracketListBox bracket children
+    if commentForcesBracketOpen forceMultiline children then
+        commentBracketListBox bracket children
 
     else
-        traverseResult (\node -> makePBox (lpnBox node) (lpnChildren node)) children
+        -- No comment, or only comments that ride the flat line the author
+        -- wrote; `pairInlineComments` glues those onto the item each trails.
+        pairInlineComments (\node -> makePBox (lpnBox node) (lpnChildren node)) children
             |> Result.andThen
                 (\itemBoxes ->
                     when bracketPunc bracket is
@@ -2399,55 +2394,58 @@ makeLiteralBox forceMultiline bracket children =
                 )
 
 
-{-| Render a bracketed literal whose comments all ride its flat line (gated by
-`literalCommentsRideFlatLine`). Each comment is glued as a suffix onto the box
-of the item it trails, so the group sees exactly one box per real item — a
-comment left as its own entry would get a `, ` separator and render as an
-element. `forceMultiline = False`: the caller only takes this path for a literal
-the author wrote flat. The group still expands (coupling every item onto its own
-line) if some item renders multi-line, exactly as it would without the comment.
+{-| True when a comment among a bracketed construct's children forces it open.
+
+Two ways that happens: some comment cannot ride a flat line (see
+`literalCommentsRideFlatLine`), or the author already broke the construct across
+rows — in which case the comment-aware vertical path owns comment placement and
+the flat path never runs.
 -}
-inlineCommentLiteralBox : ListBrackets -> Array LPNode -> Result String Box
-inlineCommentLiteralBox bracket children =
-    let
-        step node accResult =
-            when accResult is
-                Err e ->
-                    Err e
+commentForcesBracketOpen : Bool -> Array LPNode -> Bool
+commentForcesBracketOpen forceVertical children =
+    Array.any nodeIsComment children
+        && (forceVertical || not (literalCommentsRideFlatLine children))
 
-                Ok acc ->
-                    if nodeIsComment node then
-                        commentNodeBox node
-                            |> Result.andThen
-                                (\cbox ->
-                                    when Array.popLast acc is
-                                        Just { last, initial } ->
-                                            Ok (Array.pushLast (glueCommentSuffix cbox last) initial)
 
-                                        Nothing ->
-                                            -- unreachable: `literalCommentsRideFlatLine`
-                                            -- admits a comment only when it shares a row
-                                            -- with an item already folded in.
-                                            Err "box: literal comment has no item to trail"
-                                )
+{-| Render a bracketed construct's children with `renderItem`, gluing each
+comment child onto the box of the item it trails.
 
-                    else
-                        makePBox (lpnBox node) (lpnChildren node)
-                            |> Result.map (\box -> Array.pushLast box acc)
-    in
-    Array.foldl step (Ok []) children
-        |> Result.andThen
-            (\itemBoxes ->
-                when bracketPunc bracket is
-                    Just { left, right } ->
-                        Ok (E.groupBox True left "," right False itemBoxes)
+This is what lets the flat path carry a comment at all: the LPT makes a comment
+a sibling of the real items, so a group would put a `, ` in front of it and
+render it as an element. Callers must have cleared `commentForcesBracketOpen`
+first. With no comments among the children this is exactly
+`traverseResult renderItem` — the same one function serves the comment-free and
+comment-bearing cases, so the two cannot drift apart.
+-}
+pairInlineComments : (LPNode -> Result String Box) -> Array LPNode -> Result String (Array Box)
+pairInlineComments renderItem children =
+    Array.foldl
+        (\node accResult ->
+            accResult
+                |> Result.andThen
+                    (\acc ->
+                        if nodeIsComment node then
+                            commentNodeBox node
+                                |> Result.andThen
+                                    (\cbox ->
+                                        when Array.popLast acc is
+                                            Just { last, initial } ->
+                                                Ok (Array.pushLast (glueCommentSuffix cbox last) initial)
 
-                    Nothing ->
-                        -- unreachable: ListBrackets has exactly 3 constructors
-                        -- (ListParen/ListCurly/ListSquare); bracketPunc matches
-                        -- all of them and always returns Just.
-                        Err "unreachable: bracket kind"
-            )
+                                            Nothing ->
+                                                -- unreachable: `literalCommentsRideFlatLine`
+                                                -- admits a comment only when it shares a row
+                                                -- with an item already folded in.
+                                                Err "box: inline comment has no item to trail"
+                                    )
+
+                        else
+                            renderItem node
+                                |> Result.map (\box -> Array.pushLast box acc)
+                    )
+        )
+        (Ok [])
+        children
 
 
 {-| Render a bracketed literal that contains a comment child, as an always-

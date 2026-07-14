@@ -2998,9 +2998,9 @@ decision and why.
 
 20. **A short `{- … -}` inside a list or record stays on the line the author
     wrote; elm-format breaks the whole thing open.** When a comment sits inside a
-    list, record, or record type and the author wrote the whole thing on one
-    line, gren-format leaves it alone — the comment fits, so nothing has to
-    move:
+    list, record, record update, or record type and the author wrote the whole
+    thing on one line, gren-format leaves it alone — the comment fits, so nothing
+    has to move:
 
     ```gren
     -- gren-format:
