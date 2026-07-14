@@ -1327,13 +1327,22 @@ separate — the formatter normalizes to one item per line:
 ]
 ```
 
-A comment between items forces the vertical layout and sits between the items:
+A comment that can't share a line — a `--` comment, a `{- … -}` spread over
+several lines, or one you put on a row of its own — forces the vertical layout
+and sits between the items:
 
 ```gren
 [ firstItem
 -- a comment between items
 , secondItem
 ]
+```
+
+A short `{- … -}` you wrote beside an item is different: it fits, so it just
+stays where you put it and the array keeps the layout you gave it:
+
+```gren
+[ firstItem {- a note -}, secondItem ]
 ```
 
 Records and arrays inside an array each decide their own layout independently,
@@ -2024,6 +2033,18 @@ foo a =
     a * {- inline note -} 100
 ```
 
+This holds inside a list, record, or record type too — writing one beside an
+item doesn't break the brackets open:
+
+```gren
+sizes =
+    [ 1 {- one -}, 2, 3 ]
+
+
+point =
+    { x = 0 {- origin -}, y = 0 }
+```
+
 A block comment whose body spans several lines forces the construct around it
 to break vertically. When the comment's text starts on the same line as `{-`,
 the body lines are re-indented to line up under the `{-`:
@@ -2079,21 +2100,32 @@ therefore judged by how close it sits to that name: is it close enough to
 still be "inside" the block, given that the block's own boundaries aren't
 really known?
 
-With no comment anywhere near it, the `where { … }` block always collapses to
-one line, regardless of how the author broke it across rows — like any other
-comment-free construct, it isn't forced open just because it once spanned
-multiple rows.
+The `where { … }` block always collapses to one line, regardless of how the
+author broke it across rows — like any other comment-free construct, it isn't
+forced open just because it once spanned multiple rows.
 
-A comment right next to the name is different: it forces the block open, one
-field per line, with the closing `}` and `exposing (..)` lined up under the
-first field's column:
+A short `{- … -}` comment right next to the name rides that one line, exactly
+where it was written:
+
+```gren
+-- you wrote (and the formatter keeps):
+effect module MyModule where { command = MyCmd {- note -} } exposing (..)
+```
+
+A comment that *can't* share a line does force the block open, one field per
+line, with the closing `}` and `exposing (..)` lined up under the first field's
+column. A `{- … -}` spread over several lines is the case you can actually hit
+here — a `--` comment inside the braces has its own problem, described in
+[Comments near an effect module's `where` block](#comments-near-an-effect-modules-where-block):
 
 ```gren
 -- you wrote:
-effect module MyModule where { command = MyCmd {- note -} } exposing (..)
+effect module MyModule where { command = MyCmd {- a longer
+                                                  note -} } exposing (..)
 
 -- formats to:
-effect module MyModule where { command = MyCmd {- note -}
+effect module MyModule where { command = MyCmd {- a longer
+                                                  note -}
                              } exposing (..)
 ```
 
@@ -2336,6 +2368,47 @@ As described in [Comments in an effect module's header](#comments-in-an-effect-m
 a comment's placement near the `where { … }` block is determined by proximity
 to the handler name. Changing the spacing can change where the comment ends up.
 This stays as-is until the parser records positions for the missing tokens.
+
+The sharpest form of this: a `--` comment written **inside** the braces, on its
+own line, does not stay there. It is moved out of the block, below the module
+line:
+
+```gren
+-- you wrote:
+effect module MyModule where { command = MyCmd
+                             -- line note
+                             } exposing (..)
+
+-- formats to (the comment is no longer inside the block):
+effect module MyModule where { command = MyCmd } exposing (..)
+    -- line note
+```
+
+The comment survives — nothing is deleted — but it no longer sits beside the
+handler name it was written next to.
+
+**This one cannot be fixed here.** The parser records a position for the handler
+name and nothing else in the block: not the `where`, not the braces, not
+`exposing`. So these two files:
+
+```gren
+effect module MyModule where { command = MyCmd
+                             -- line note
+                             } exposing (..)
+```
+
+```gren
+effect module MyModule where { command = MyCmd } exposing (..)
+                             -- line note
+```
+
+hand the formatter *byte-identical* information — same tree, same single
+comment at row 2, column 30. There is no fact available to tell them apart, so
+they format the same way. A `--` comment inside the braces has to be on a line
+of its own (it would otherwise comment out the rest of the header), which is
+exactly the case that needs the missing `}` position to place. Fixing it means
+the parser recording positions for those tokens; until then a `{- … -}` comment
+is the one that stays put.
 
 #### A comment right after `exposing` doesn't sort with the first name
 
@@ -2614,31 +2687,41 @@ decision and why.
    case isn't a divergence.) Same reasoning as #6: gren-format's consistent
    author-driven layout is preferred.
 
-8. **A comment near an effect module's `where { ... }` handler name forces it
-   open; elm-format never breaks it** With no comment nearby,
-   both tools now collapse a `where { ... }` clause to one line regardless of
-   how the author wrote it — elm-format always did this, and gren-format's
-   author-driven layout no longer preserves an author's multi-row `where`
-   block here either (see
+8. **A `--` comment inside an effect module's `where { ... }` block escapes it**
+   Both tools collapse a `where { ... }` clause to one line regardless of how
+   the author wrote it, and both keep a short `{- … -}` comment on that line (see
    [Comments in an effect module's header](#comments-in-an-effect-modules-header)).
-   The remaining divergence is comment-driven: a comment landing close to the
-   handler name forces gren-format to break the block open, one field per
-   line; elm-format keeps it on one line unconditionally, comment and all.
-   gren-format's behavior stays, since collapsing a comment-bearing block onto
-   one line would either drop the comment's position information or produce
-   a cramped single line with an inline block comment wedged into it.
+   They part company on a `--` comment written inside the braces. elm-format
+   breaks the whole module header apart to give the comment a line:
 
    ```gren
    -- you wrote:
-   effect module MyModule where { command = MyCmd {- note -} } exposing (..)
-
-   -- gren-format (comment forces the block open):
-   effect module MyModule where { command = MyCmd {- note -}
+   effect module MyModule where { command = MyCmd
+                                -- line note
                                 } exposing (..)
 
-   -- elm-format (unchanged, comment and all):
-   effect module MyModule where { command = MyCmd {- note -} } exposing (..)
+   -- elm-format:
+   effect module MyModule
+       where
+           { command =
+               MyCmd
+               -- line note
+           }
+       exposing
+       (..)
+
+   -- gren-format (the comment leaves the block):
+   effect module MyModule where { command = MyCmd } exposing (..)
+       -- line note
    ```
+
+   This one is not a preference. gren-format cannot reproduce either shape,
+   because the two files it would have to tell apart are byte-identical as far
+   as the parser reports them — see
+   [Comments near an effect module's `where` block](#comments-near-an-effect-modules-where-block).
+   That elm-format can still place the comment inside the block shows its parser
+   keeps something about the block's extent that Gren's does not. Fixing this is
+   a matter of recording that information, not of choosing a layout.
 
 9. **Verbatim literal preservation vs. normalization**
    elm-format normalizes scientific-notation floats (`1e5` → `1.0e5`,
@@ -2912,6 +2995,58 @@ decision and why.
     chain went across rows in the first place, so the two stay in lockstep. The
     layout is stable when reformatted and a comment anywhere in the chain never
     changes which operators break.
+
+20. **A short `{- … -}` inside a list or record stays on the line the author
+    wrote; elm-format breaks the whole thing open.** When a comment sits inside a
+    list, record, or record type and the author wrote the whole thing on one
+    line, gren-format leaves it alone — the comment fits, so nothing has to
+    move:
+
+    ```gren
+    -- gren-format:
+    arr =
+        [ 1 {- one -}, 2, 3 ]
+    ```
+
+    elm-format splits the list one item per line, and lifts the comment onto a
+    line of its own with a blank line above it:
+
+    ```gren
+    -- elm-format:
+    arr =
+        [ 1
+
+        {- one -}
+        , 2
+        , 3
+        ]
+    ```
+
+    The same difference shows up in a signature's record type, where elm-format
+    additionally pushes every `->` part apart:
+
+    ```gren
+    -- gren-format:
+    returnRecordComment : Int -> { x : Int, y : Int {- note -} }
+
+    -- elm-format:
+    returnRecordComment :
+        Int
+        ->
+            { x : Int, y : Int
+
+            {- note -}
+            }
+    ```
+
+    This follows from [Your line breaks are your layout](#the-two-ways-they-actually-differ):
+    the author wrote one line and one line still works, so gren-format keeps it.
+    A comment that genuinely *can't* share the line does break these open — a
+    `--` comment, a `{- … -}` spread over several lines, or one the author put on
+    its own row (see [Block comments](#block-comments----)). Note this is the one
+    place gren-format is *less* aggressive than elm-format about comments: points
+    1 and 12 are also about elm-format moving comments away from the code they
+    were written beside, and the reasoning is the same.
 
 #### Out of scope for comparison
 
