@@ -2456,17 +2456,60 @@ decision and why.
    comment or an explanatory note — splitting them apart the way elm-format
    does would be a regression, not a fix.
 
-2. **Doc/block comment closing `-}` placement — keep as is.** gren-format has
-   no gluing or collapsing logic for a block comment at all: whatever line
-   shape the author wrote — `-}` glued to the last content line, or on its own
-   line — is reproduced exactly (see [Comments](#comments)). elm-format instead
-   normalizes: if the whole comment fits on one physical line, it collapses
-   the entire thing onto that line (`{- short body -}`), including a comment
-   the author wrote across two lines; only when the content genuinely can't
-   fit on one line does elm-format put `-}` on its own line. This is
-   consistent with gren-format's broader "your line breaks are your layout
-   decisions" philosophy; elm-format's normalizing rule is a fixed convention,
-   not obviously better.
+   ```gren
+   -- gren-format (comment stays glued to bar; the 2 blank lines go above the comment):
+   foo : Int
+   foo =
+       1
+
+
+   -- explains bar
+   bar : Int
+   bar =
+       2
+
+   -- elm-format (2 blank lines land immediately above bar, splitting the comment away):
+   foo : Int
+   foo =
+       1
+
+
+
+   -- explains bar
+
+
+   bar : Int
+   bar =
+       2
+   ```
+
+2. **Multi-line block comment's closing `-}` placement — keep as is.**
+   gren-format has no gluing or collapsing logic for a block comment at all:
+   whatever line shape the author wrote — `-}` glued to the last content
+   line, or on its own line — is reproduced exactly (see
+   [Comments](#comments)). elm-format instead always detaches `-}` onto a
+   trailing line of its own as soon as a comment spans more than one source
+   line — even if the author glued it to the last content line and the whole
+   comment would still fit there. (A comment the author wrote on a single
+   source line, `{- short -}`, is untouched by either tool — there's nothing
+   to detach.)
+
+   ```gren
+   -- you wrote (and gren-format keeps, only re-anchoring "body" under "short"):
+   {- short
+   body -}
+   foo : Int
+
+   -- elm-format detaches to:
+   {- short
+      body
+   -}
+   foo : Int
+   ```
+
+   This is consistent with gren-format's broader "your line breaks are your
+   layout decisions" philosophy; elm-format's normalizing rule is a fixed
+   convention, not obviously better.
 
 3. **Exposing list ordering — alphabetical, deliberately independent of
    `@docs`; import sorting — narrower than elm-format.** gren-format
@@ -2549,10 +2592,27 @@ decision and why.
    (see [Custom types](#custom-types)) is preferred and stays.
 
 7. **Record patterns (destructuring) aren't author-driven in
-   elm-format — keep as is.** elm-format collapses a multi-line record/array
-   *pattern* back to one line if it fits, even overriding an embedded comment
-   that forces gren-format to stay vertical. Same reasoning as #6: gren-format's
-   consistent author-driven layout is preferred.
+   elm-format — keep as is.** When you break a record (or array) *pattern*
+   across multiple lines with no comment inside it, elm-format collapses it
+   back onto one line if it fits — unlike everywhere else, your line break
+   isn't preserved. gren-format's pattern layout stays author-driven like
+   every other construct: written multi-line, it stays multi-line.
+
+   ```gren
+   -- you wrote (and gren-format keeps):
+   view { name
+        , age
+        } =
+       name
+
+   -- elm-format collapses to:
+   view { name, age } =
+       name
+   ```
+
+   (A comment inside the pattern forces both tools to keep it open — that
+   case isn't a divergence.) Same reasoning as #6: gren-format's consistent
+   author-driven layout is preferred.
 
 8. **A comment near an effect module's `where { ... }` handler name forces it
    open; elm-format never breaks it — keep as is.** With no comment nearby,
@@ -2567,6 +2627,18 @@ decision and why.
    gren-format's behavior stays, since collapsing a comment-bearing block onto
    one line would either drop the comment's position information or produce
    a cramped single line with an inline block comment wedged into it.
+
+   ```gren
+   -- you wrote:
+   effect module MyModule where { command = MyCmd {- note -} } exposing (..)
+
+   -- gren-format (comment forces the block open):
+   effect module MyModule where { command = MyCmd {- note -}
+                                } exposing (..)
+
+   -- elm-format (unchanged, comment and all):
+   effect module MyModule where { command = MyCmd {- note -} } exposing (..)
+   ```
 
 9. **Verbatim literal preservation vs. normalization — keep as is.**
    elm-format normalizes scientific-notation floats (`1e5` → `1.0e5`,
@@ -2848,11 +2920,30 @@ mechanically translated and run through `elm-format` at all:
 
 - A record-update base that's a parenthesized call or a dotted field-access
   chain (`{ (someTransform base) | ... }`, `{ model.sub | ... }`) — Elm's
-  grammar only allows a bare variable there.
+  grammar only allows a bare variable there. gren-format renders both forms
+  exactly as written, same as any other record update:
+
+  ```gren
+  update base =
+      { (someTransform base) | count = 0 }
+
+  updateSub model =
+      { model.sub | count = 0 }
+  ```
 - Gren's record-pattern field-renaming syntax, `{ field = alias }` in pattern
   position (e.g. `Just { endpoint = sinkEndpoint } ->`) — Elm patterns only
   support bare `{ field }`. `elm-format` hard-errors on this construct (or, if
   the renamed identifier looks like a wildcard such as `_x`, silently
   mis-parses it into two separate patterns instead of erroring) — so this
   whole class of fixtures is fundamentally outside the scope of an
-  elm-format comparison.
+  elm-format comparison. gren-format renders it like any other pattern field:
+
+  ```gren
+  handle msg =
+      when msg is
+          Just { endpoint = sinkEndpoint } ->
+              sinkEndpoint
+
+          Nothing ->
+              ""
+  ```
