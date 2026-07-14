@@ -13,7 +13,7 @@ import Formatter.Render.Box as B exposing (Box(..))
 import Formatter.Render.ElmStructure as E
 import Formatter.Render.FlowPolicy as FP
 import Formatter.Logical.LogicalPrintingTree exposing (LPBox(..), LPNode, ListBrackets(..), SyntaxType(..), lpnBox, lpnChildren, firstRowInSubtree, lpnMaxRow, lpnLastPos, lpnLastBracketEnd)
-import Formatter.Logical.BinopPrecedence exposing (binopMinPrecedence)
+import Formatter.Logical.BinopPrecedence exposing (binopPrecedence, binopMinPrecedence)
 import Formatter.Render.BoxOps exposing (grenIndent, prefixOperator, wrapParenVertical, wrapParenVerticalPadded, blockIndentSpaces, applyIndent, stackWithBlanks, boxLine, traverseResult, spaceJoinLines, joinInline, isSingleLine, glueCommentSuffix, isBlockNode, nodeStartRow)
 import Formatter.Render.NodeClassify exposing (nodeIsComment, subtreeHasComment, subtreeHasMultilineBlockComment, typeHasCommentBracket, isMultilineLambdaParenBlockBox, isMultilineContentParenBlockBox, isOpAndRhsNode, isPipelineStepNode, leafValue, isColonLeaf, isElidedArrow, fieldValueDropsToOwnLine, rowsSpanMultiple, parenContentIsLambdaHead, splitSignatureSegments, isDroppingSignatureRecordNode, signatureForceVertical)
 import Formatter.Render.CommentBox exposing (makeCommentLineBox, multiLineBlockCommentBox, commentNodeBox, emptyBracketedCommentLine, spanLeadingComments, spanTrailingComments, peelTrailingCommentNodes, glueTrailingComments)
@@ -112,15 +112,25 @@ makeBinopBox forceVerticalArg children =
 
 
 -- The comment-aware flow: `buildFlowBox grenIndent` when inline,
-{-| A forced-vertical binop chain: EVERY operator on its own line, the first
-operand at the flow base and each following `op operand` indented +grenIndent.
-Each operand renders comment-aware (`buildFlowBox 0`), so a comment the author
-wrote trailing an operand rides that operand's segment line (`++ beta {- c -}`) —
-gren's uniform "a comment sticks to what it trails" rule. (elm-format instead
-re-homes such a comment to lead the following operator; keeping it with the
-operand is a deliberate divergence — see the README.) Both comment-free and
-comment-bearing chains use this one renderer, so adding or removing a comment
-never reflows the chain. -}
+{-| A forced-vertical binop chain, laid out **precedence-aware**: the chain
+breaks only at its lowest-precedence operators, and tighter-binding operators
+(with their operands) stay glued inline within a group — `baseScore` /
+`+ bonusPoints * multiplier` / `- penaltyAmount`, not one operator per line. This
+mirrors the still-precedence-aware force-vertical decision in
+`InsertExpressions.binopForceVertical`, which groups the operand *ranges* at the
+same `binopMinPrecedence` tier to decide the chain went across rows. It is a
+deliberate divergence from elm-format (which splits every operator) — see the
+README "Binary operators" section.
+
+The first group renders at the flow base and each following group's leading
+(min-precedence) operator is indented +grenIndent. Each group renders comment-aware
+(`buildFlowBoxInline`), so a block comment inside a group stays glued
+(`bbb {- c -} * ccc`) and a comment trailing an operand rides its group's line
+(`++ beta {- c -}`) — gren's uniform "a comment sticks to what it trails" rule.
+Both comment-free and comment-bearing chains use this one renderer, so adding or
+removing a comment never reflows the chain (the invariant the pre-2026-07-12
+two-path split — precedence renderer for comment-free, generic flow for
+comment-bearing — used to break). -}
 verticalBinopChainBox : Array LPNode -> Result String Box
 verticalBinopChainBox children =
     let
@@ -131,23 +141,25 @@ verticalBinopChainBox children =
         renderOwnLineComments nodes =
             traverseResult (\c -> buildFlowBox 0 [ c ]) nodes
 
-        -- Render an operand's content: `buildFlowBoxInline` keeps a LEADING block
+        -- Render a group's content: `buildFlowBoxInline` keeps a LEADING block
         -- comment glued on-line (`{- c -} 100`) rather than dropping the operand to
         -- its own row, matching how the operator segment should read.
         renderOperandContent nodes =
             buildFlowBoxInline 0 nodes
     in
     when Array.popFirst flat.operands is
-        Just { first = op0nodes, rest = restOperands } ->
+        Just _ ->
             let
+                grouped =
+                    groupBinopByPrecedence flat.operands flat.ops
+
                 op0 =
-                    splitTrailingOwnLineComments op0nodes
+                    splitTrailingOwnLineComments grouped.firstGroup
 
                 segData =
-                    Array.map2
-                        (\op operandNodes -> { op = opText op, split = splitTrailingOwnLineComments operandNodes })
-                        flat.ops
-                        restOperands
+                    Array.map
+                        (\g -> { op = g.op, split = splitTrailingOwnLineComments g.nodes })
+                        grouped.rest
             in
             renderOperandContent op0.content
                 |> Result.andThen
@@ -185,6 +197,65 @@ verticalBinopChainBox children =
 
         Nothing ->
             Err "box: empty binop chain"
+
+
+{-| Group a flattened binop chain by precedence for the vertical layout: break at
+the chain's lowest-precedence operators, keeping tighter-binding operators (and
+their operands) glued inline within a group. Returns the first group's node
+sequence (rendered at the flow base) and, for each following group, the
+min-precedence operator that leads it plus the group's node sequence. Within a
+group the operand nodes and the tighter operator leaves are concatenated back
+into one flow (`bonusPoints * multiplier`) so `buildFlowBoxInline` renders them
+inline, comment-aware.
+
+Breaks at exactly the same `binopMinPrecedence` tier as
+`InsertExpressions.binopForceVertical`, so the render grouping and the
+force-vertical decision stay in lockstep. -}
+groupBinopByPrecedence :
+    Array (Array LPNode)
+    -> Array LPNode
+    -> { firstGroup : Array LPNode, rest : Array { op : String, nodes : Array LPNode } }
+groupBinopByPrecedence operands ops =
+    when Array.popFirst operands is
+        Nothing ->
+            { firstGroup = [], rest = [] }
+
+        Just { first = operand0, rest = restOperands } ->
+            let
+                minPrec =
+                    binopMinPrecedence (Array.map opText ops)
+
+                paired =
+                    Array.map2 (\op operandNodes -> { op = op, operand = operandNodes }) ops restOperands
+
+                final =
+                    Array.foldl
+                        (\pair acc ->
+                            if binopPrecedence (opText pair.op) == minPrec then
+                                -- A lowest-precedence operator: close the current group
+                                -- and start a new one led by this operator.
+                                { groups = Array.pushLast { op = acc.curOp, nodes = acc.curNodes } acc.groups
+                                , curOp = opText pair.op
+                                , curNodes = pair.operand
+                                }
+
+                            else
+                                -- A tighter operator: glue its leaf + operand inline
+                                -- into the current group.
+                                { acc | curNodes = acc.curNodes ++ [ pair.op ] ++ pair.operand }
+                        )
+                        { groups = [], curOp = "", curNodes = operand0 }
+                        paired
+
+                allGroups =
+                    Array.pushLast { op = final.curOp, nodes = final.curNodes } final.groups
+            in
+            when Array.popFirst allGroups is
+                Just { first = fg, rest = rg } ->
+                    { firstGroup = fg.nodes, rest = rg }
+
+                Nothing ->
+                    { firstGroup = operand0, rest = [] }
 
 
 -- The inline layout: the whole chain on one line (`inlineBinopBox`), with a

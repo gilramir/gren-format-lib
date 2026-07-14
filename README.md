@@ -1905,50 +1905,61 @@ greeting =
     "Hello, " ++ firstName ++ " " ++ lastName
 ```
 
-Written across rows, **every operator moves onto its own line**, each operator
-leading its continuation line, indented 4 spaces from the first operand:
+Written across rows, the chain breaks **at its loosest-binding operators**, and
+tighter-binding parts stay together on one line. Each break operator leads its
+continuation line, indented 4 spaces from the first operand:
 
 ```gren
 score =
     baseScore
-        + bonusPoints
-        * multiplier
+        + bonusPoints * multiplier
         - penaltyAmount
 ```
 
-Precedence makes no difference to the layout — a tighter-binding operator like
-`*` breaks onto its own line just like the looser `+` and `-`. Mixed precedence
-is no exception; all of them split:
+`bonusPoints * multiplier` stays on one line because `*` binds tighter than `+`
+and `-`, so the chain only splits at the `+` and the `-`. When several operators
+of different strengths mix, the chain still splits only at the weakest ones:
 
 ```gren
 eligible =
     isAdministrator
-        || hasElevatedRole
-        && accountIsActive
-        == True
+        || hasElevatedRole && accountIsActive == True
         || isOwner
 ```
 
-A chain also breaks this way when one of its operands is **itself** multi-line —
-a record, array, or parenthesized expression you wrote across rows — even if you
-kept the operators on one line. The multi-line operand opens the whole chain up:
+Here `||` is the weakest operator, so the chain breaks at each `||`; the
+`&&` and `==` bind tighter and stay on their line. When every operator in the
+chain binds equally, they all break, since none is tighter than the rest:
+
+```gren
+greeting =
+    "Hello, "
+        ++ firstName
+        ++ " "
+        ++ lastName
+```
+
+A chain also breaks when one of its operands is **itself** multi-line — a record,
+array, or parenthesized expression you wrote across rows — even if you kept the
+operators on one line. The multi-line operand opens the chain up; a tighter
+operator right after it stays glued to its closing `}`/`]`/`)`:
 
 ```gren
 config =
     defaults
         ++ { verbose = True
            , retries = 3
-           }
+           } * scale
         ++ overrides
 ```
 
 (A multi-line `"""…"""` string operand is the exception — it stays glued in the
 chain, since its own lines already carry the layout.)
 
-A comment in the chain doesn't change any of this — the chain still breaks one
-operator per line, and each comment stays where you wrote it. A comment on its
-own line sits at the operator indent; a comment trailing an operand rides that
-operand's line; a comment just before an operand glues in front of it:
+A comment in the chain doesn't change the breaks — the chain splits at the same
+operators, and each comment stays where you wrote it. A comment on its own line
+sits at the operator indent; a comment trailing an operand rides that operand's
+line; a comment just before an operand glues in front of it:
 
 ```gren
 total =
@@ -1958,7 +1969,7 @@ total =
         ++ trailingValue
 ```
 
-The same one-operator-per-line layout applies to a stacked `if` condition (see
+The same precedence-aware layout applies to a stacked `if` condition (see
 [If expressions](#if-expressions)).
 
 ---
@@ -2806,6 +2817,29 @@ decision and why.
     These last four are stable when reformatted; each would need its own
     one-off match rather than falling out of a single rule, so they're left
     as is for now.
+
+19. **A multi-line operator chain splits only at its loosest operators;
+    elm-format splits at every operator.** gren-format keeps tighter-binding
+    parts of a chain on one line and breaks only at the weakest operators (see
+    [Binary operators](#binary-operators)); elm-format puts every operator on its
+    own line regardless of precedence:
+
+    ```gren
+    -- gren-format:                    -- elm-format:
+    score =                            score =
+        baseScore                          baseScore
+            + bonusPoints * multiplier         + bonusPoints
+            - penaltyAmount                    * multiplier
+                                               - penaltyAmount
+    ```
+
+    This is a deliberate layout choice, not a comment-placement one: grouping by
+    precedence keeps the visual structure of a chain (a `flags.x /= Nothing`
+    guard, a `b * c` term) intact instead of shredding it into one line per
+    operator. The break tier is the same one the formatter uses to decide the
+    chain went across rows in the first place, so the two stay in lockstep. The
+    layout is stable when reformatted and a comment anywhere in the chain never
+    changes which operators break.
 
 #### Out of scope for comparison
 

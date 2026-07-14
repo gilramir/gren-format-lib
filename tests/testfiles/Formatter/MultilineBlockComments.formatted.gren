@@ -209,7 +209,7 @@ binops a b =
         + b {- 32 a
                32 b
                32 c -}
-        * 2
+          * 2
 
 
 pipeline xs =

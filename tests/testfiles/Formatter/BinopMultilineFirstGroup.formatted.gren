@@ -5,6 +5,5 @@ x =
     { field1 = 1
     , field2 = 2
     }
-        + b
-        * c
+        + b * c
         + d
