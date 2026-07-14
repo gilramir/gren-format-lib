@@ -3539,46 +3539,28 @@ commentBracketListBox bracket nodes =
                                     makePBox (lpnBox node) (lpnChildren node)
                                         |> Result.andThen
                                             (\box ->
-                                                -- A multi-line item (a `when`/`if`/`let`
-                                                -- whose branches are indented with `B.indent`
-                                                -- = Tab) does not compose with the outer
-                                                -- `[ `/`, ` prefix: the Tab snaps to the next
-                                                -- multiple of 4 and swallows the prefix's
-                                                -- 2-space pad, landing the body 2 columns too
-                                                -- shallow. Fall back until the Tab-vs-prefix
-                                                -- interaction is modelled. A field whose value
-                                                -- is dropped to its own line BY A COMMENT
-                                                -- (`, beta = {- c -} 2`) is exempt: like the
-                                                -- record-update path (`fieldValueDropsToOwnLine`)
-                                                -- its value flows at a fixed +4 that composes
-                                                -- with the prefix. Single-line items (the common
-                                                -- comment-bearing-literal case) are unaffected.
-                                                if False then
-                                                    Err "unreachable"
+                                                let
+                                                    itemRow =
+                                                        when lpnBox node is
+                                                            UnbreakableText l ->
+                                                                l.start.row
 
-                                                else
-                                                    let
-                                                        itemRow =
-                                                            when lpnBox node is
-                                                                UnbreakableText l ->
-                                                                    l.start.row
+                                                            _ ->
+                                                                lpnMaxRow node
 
-                                                                _ ->
-                                                                    lpnMaxRow node
+                                                    flushed =
+                                                        when acc.pending is
+                                                            Nothing ->
+                                                                acc.entries
 
-                                                        flushed =
-                                                            when acc.pending is
-                                                                Nothing ->
-                                                                    acc.entries
-
-                                                                Just e ->
-                                                                    Array.pushLast e acc.entries
-                                                    in
-                                                    Ok
-                                                        { entries = flushed
-                                                        , pending = Just { box = box, isComment = False }
-                                                        , prevRow = itemRow
-                                                        }
+                                                            Just e ->
+                                                                Array.pushLast e acc.entries
+                                                in
+                                                Ok
+                                                    { entries = flushed
+                                                    , pending = Just { box = box, isComment = False }
+                                                    , prevRow = itemRow
+                                                    }
                                             )
             in
             Array.foldl step (Ok { entries = [], pending = Nothing, prevRow = -1 }) nodes

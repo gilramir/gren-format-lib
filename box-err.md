@@ -11,13 +11,18 @@ Scope: `gren-format-lib/src/Formatter/Render/MakeRenderBox.gren`,
 No shared error-construction helper exists — every site is a literal
 `Err "..."` or a passthrough of a child `Result`.
 
-`MakeRenderBox.gren` alone has **66** `Err "..."` string-literal constructions
-(20 self-labelled `"unreachable: ..."`, 46 labelled `"box: ..."`), plus one
-dead `if False then Err "unreachable" else ...` branch, plus many `Err e` /
-`Err _` passthroughs. `Box.gren`'s and `ElmStructure.gren`'s `Err` hits are a
-*different* `Result` entirely (`Result Box Line` / `Result (Array Box) (Array Line)`,
-an Either-style "is this box single-line" test) — not user-facing format
-failures at all.
+`MakeRenderBox.gren` had **66** `Err "..."` string-literal constructions
+when this catalogue was written (20 self-labelled `"unreachable: ..."`, 46
+labelled `"box: ..."`), plus one dead `if False then Err "unreachable" else
+...` branch, plus many `Err e` / `Err _` passthroughs. The count is now
+**82** (20 `"unreachable: ..."`, 62 `"box: ..."`) after §2/§3's wildcard
+removals turned each previously-shared `_ -> Err "..."` arm into several
+explicit constructor arms carrying the same message — no new failure modes,
+just more `when` arms saying the same thing. The dead `if False` branch from
+§5 is gone entirely (deleted, not counted here). `Box.gren`'s and
+`ElmStructure.gren`'s `Err` hits are a *different* `Result` entirely
+(`Result Box Line` / `Result (Array Box) (Array Line)`, an Either-style "is
+this box single-line" test) — not user-facing format failures at all.
 
 ## 1. Reachable bug (confirmed by running the formatter) — FIXED
 
@@ -203,25 +208,37 @@ constructors) and found the reasoning sound in each case examined. None of
 these 20 quote "TODO" or "not supported" language — the codebase uses
 "unreachable" as its dead-code idiom, not "TODO".
 
-## 5. Notable: literal dead code, not just a runtime-unreachable guard
+## 5. Notable: literal dead code, not just a runtime-unreachable guard (CLEANED UP — was a stale comment, not a live bug)
 
-**`MakeRenderBox.gren:3556-3559`** (line numbers as of the §1/§2/§3 fixes
-above — originally 3519-3521; the code is unchanged, only its position in
-the file shifted), inside `commentBracketListBox`'s fold step:
+**Update:** removed. This was originally a real guard:
 
-```
-3556    if False then
-3557        Err "unreachable"
-3558
-3559    else
+```gren
+if not (isSingleLine box) && not (fieldValueDropsToOwnLine node) then
+    Err "box: multi-line item in comment-bearing bracket list not ported"
+else
+    ...
 ```
 
-The condition is a hardcoded `False` — this branch cannot execute regardless
-of input; it is disabled at compile time, not merely defensively
-unreachable. The 14-line comment above it (3542-3555) explains it is a
-stand-in for handling a Tab/prefix composition bug ("Fall back until the
-Tab-vs-prefix interaction is modelled") — i.e. a known, currently-unaddressed
-limitation that was scaffolded but never wired live.
+Commit `67ec5a4` ("Partial cutover: flip guard to trust-Box; land C1 +
+ready items", 2026-07-11) deliberately disabled it — its item **H**:
+"multi-line item in a comment-bearing bracket list: un-Err'd; Box's
+`Tab`-anchored branches match elm-format (col 9), which Doc diverged
+from." That is, the guard wasn't disabled because the fix was deferred —
+it was disabled because Box's output was verified *correct* (matches
+elm-format; that commit's gates were effectful 142/142, both fuzzers 0).
+`if False then Err "unreachable" else ...` is what "un-Err'd" looked like
+when the surrounding structure was kept instead of deleted.
+
+The 14-line explanatory comment that used to sit above the `if False`
+(warning of a "Tab-vs-prefix" 2-column misalignment, "fall back until the
+interaction is modelled") was written to justify the *original* `Err` and
+was never removed or updated when the guard was disabled — so it
+described a bug that had already been resolved. It caused this entry to
+originally mischaracterize proven-correct dead code as an "unaddressed
+limitation." Both the comment and the `if False`/`else` wrapper are now
+deleted; `commentBracketListBox` just runs the real code directly. No
+behavior change (gates: effectful 170/170, idempotency 0 gaps, whitespace
+fuzzer both modes 0 drift).
 
 ## 6. Defensive-guard `Err` sites verified unreachable by construction (representative sample; ~35 more `"box: ..."` sites follow this same shape and were checked against their construction site)
 
@@ -345,4 +362,4 @@ are only speculative "does it force vertical" probes, not the final render.
 
 1. ~~Fix the reachable bug in §1 (`makeSignatureBox` single-segment record-type signature).~~ DONE.
 2. ~~Consider converting the `makePBox` wildcard (§2) and the `assembleFlowImpl` `Placement` wildcards (§3) into exhaustive `when` matches (no `_ ->` arm).~~ DONE.
-3. Decide what to do about the scaffolded-but-disabled Tab/prefix branch in §5 (`if False then Err "unreachable" else ...`, MakeRenderBox.gren:3519-3521) — currently masks a known, unaddressed limitation.
+3. ~~Decide what to do about the scaffolded-but-disabled Tab/prefix branch in §5.~~ DONE — turned out to be a stale comment over already-correct code (see §5); comment and dead `if False`/`else` wrapper both removed.
