@@ -1,0 +1,25 @@
+module RecordUpdateExoticBase exposing (..)
+
+
+-- Gren's parser accepts ANY expression as a record-update base (the pre-`|`
+-- term is parsed via the full expression parser, unlike the plain-record-
+-- literal `=` branch which requires a bare Var) — so a base built from a
+-- Binops/Negate/nested-Update/Accessor is legal syntax, even if it wouldn't
+-- type-check. Without handling these shapes, simpleExprText silently
+-- returned "" and the formatter emitted `{  | field = value }` (empty
+-- base), which fails to re-parse. These functions are format-only fixtures
+-- (not meant to type-check).
+withBinopBase a b =
+    { a ++ b | x = 0 }
+
+
+withNegateBase p =
+    { -p | y = 0 }
+
+
+withNestedUpdateBase r =
+    { { r | x = 1 } | y = 2 }
+
+
+withAccessorBase r =
+    { .field | x = 0 }

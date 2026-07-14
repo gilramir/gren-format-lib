@@ -469,29 +469,39 @@ insertUpdate locExpr { record = record, newValues = newValues } =
             , value = recText
             }
     in
-    resultFoldl folderInsertRecordField [] newValues
-        |> Result.map
-            (\fieldNodes ->
-                if Array.isEmpty fieldNodes then
-                    [ lpnLeaf (mkText locExpr.start "{}") ]
+    if String.isEmpty recText then
+        -- `simpleExprText` couldn't flatten the base to a single inline
+        -- token (a lambda/let/if/when, or a multi-binding let / multi-branch
+        -- when reached indirectly through one of the recursive cases it DOES
+        -- handle). Fail loudly rather than silently dropping the base —
+        -- `RecordUpdate`'s LPT representation has no way to carry it
+        -- otherwise, and an empty base is not valid Gren.
+        Err "record update base is an expression shape gren-format can't yet express as a single inline token (e.g. a lambda/let/if/when)"
 
-                else
-                    -- One uniform combinator for every record update, single-
-                    -- or multi-field (mirrors elm-format's `extensionGroup`):
-                    -- the author's layout chooses inline `{ b | a = 1, c = 2 }`
-                    -- vs the expanded `{ b` / `| a = 1` / `, c = 2` / `}` form.
-                    -- Single-field updates are no longer special-cased into a
-                    -- compact box — a single field whose value spans rows now
-                    -- expands the same way a multi-field update does, matching
-                    -- elm-format (previously it stayed `{ b | f = <block> }`).
-                    -- Close position (`locExpr.end`) so the descent guards
-                    -- classify a comment before/after the `}` correctly (inside
-                    -- stays; past it escapes).
-                    [ lpnBracketNode (RecordUpdate
-                            { name = recLoc
-                            , forceVertical = recordFieldsSpanRows newValues
-                            }) locExpr.end fieldNodes ]
-            )
+    else
+        resultFoldl folderInsertRecordField [] newValues
+            |> Result.map
+                (\fieldNodes ->
+                    if Array.isEmpty fieldNodes then
+                        [ lpnLeaf (mkText locExpr.start "{}") ]
+
+                    else
+                        -- One uniform combinator for every record update, single-
+                        -- or multi-field (mirrors elm-format's `extensionGroup`):
+                        -- the author's layout chooses inline `{ b | a = 1, c = 2 }`
+                        -- vs the expanded `{ b` / `| a = 1` / `, c = 2` / `}` form.
+                        -- Single-field updates are no longer special-cased into a
+                        -- compact box — a single field whose value spans rows now
+                        -- expands the same way a multi-field update does, matching
+                        -- elm-format (previously it stayed `{ b | f = <block> }`).
+                        -- Close position (`locExpr.end`) so the descent guards
+                        -- classify a comment before/after the `}` correctly (inside
+                        -- stays; past it escapes).
+                        [ lpnBracketNode (RecordUpdate
+                                { name = recLoc
+                                , forceVertical = recordFieldsSpanRows newValues
+                                }) locExpr.end fieldNodes ]
+                )
 
 
 {-| `Src.Binops` — either a `|>`/`<|` pipeline or an ordinary operator chain.
@@ -801,10 +811,28 @@ insertWhen locExpr { expression = expression, branches = branches } =
             )
 
 
-{-| Extract text from a small subset of simple expression shapes — the ones
-commonly used as the base of a record update (`{ base | field = ... }`).
+{-| Extract text from expression shapes that can round-trip as a single inline
+token — used for the base of a record update (`{ base | field = ... }`),
+whose LPT representation (`RecordUpdate`) carries the base as a flat
+`Located String`, not a full subtree.
 
-Returns `""` for shapes that can't be expressed as a single inline token.
+Gren's parser accepts ANY expression as an update base (`recordParser` in
+compiler-common's `Compiler/Parse/Expression.gren` parses the pre-`|` term
+via the full expression parser, unlike the plain-record-literal branch,
+which is restricted to a bare `Var`) — so every `Src.Expression_`
+constructor can legally reach here, and silently emitting `""` for an
+unhandled one drops the base entirely, corrupting the output (verified: it
+produces text that fails to re-parse). `insertUpdate` treats an empty result
+as failure and `Err`s instead of using it.
+
+Returns `""` for the two shapes that genuinely cannot be written on a single
+line, since Gren's layout/offside rule requires each one to start its own
+source row (verified empirically, not merely assumed): a `let` with 2+
+bindings, and a `when` with 2+ branches. `Lambda`/`Let`/`If`/`When` are left
+unhandled entirely (not just those two shapes) — precisely reproducing them
+inline would also need a pattern-to-text conversion this function doesn't
+have, and a base that's itself a lambda/let/if/when is exotic enough that
+failing loudly is preferable to a growing pile of special cases.
 -}
 simpleExprText : Src.Expression -> String
 simpleExprText locExpr =
@@ -818,6 +846,35 @@ simpleExprText locExpr =
         Src.Access { expression = expr, accessor = acc } ->
             simpleExprText expr ++ "." ++ acc
 
+        Src.Accessor field ->
+            "." ++ field
+
+        Src.CharLiteral c ->
+            charLiteralString c
+
+        Src.StringLiteral s ->
+            -- `escapeStringContent` escapes a literal newline as `\n`, so
+            -- this is safe even for a string the author wrote as a
+            -- triple-quoted (multi-row) literal.
+            "\"" ++ escapeStringContent s ++ "\""
+
+        Src.NumberLiteral outcome ->
+            when outcome is
+                PN.Integer n ->
+                    String.fromInt n
+
+                PN.FloatingPoint n ->
+                    n.text
+
+                PN.Hex n ->
+                    "0x" ++ intToHex n
+
+        Src.Operator opString ->
+            -- The parser wraps an operator-as-value (`(+)`) in a `Parens`
+            -- node around a bare `Operator` payload (no parens in the
+            -- string itself) — the `Parens` case below supplies them.
+            opString
+
         Src.Parens inner ->
             let
                 t =
@@ -828,6 +885,73 @@ simpleExprText locExpr =
 
             else
                 "(" ++ t ++ ")"
+
+        Src.Negate expr ->
+            let
+                t =
+                    simpleExprText expr
+            in
+            if String.isEmpty t then
+                ""
+
+            else
+                "-" ++ t
+
+        Src.Binops { left = lhs, operator = op, right = rhs } ->
+            let
+                lText =
+                    simpleExprText lhs
+
+                rText =
+                    simpleExprText rhs
+            in
+            if String.isEmpty lText || String.isEmpty rText then
+                ""
+
+            else
+                lText ++ " " ++ op.value ++ " " ++ rText
+
+        Src.ArrayLiteral exprArray ->
+            let
+                itemTexts =
+                    Array.map simpleExprText exprArray
+            in
+            if Array.any String.isEmpty itemTexts then
+                ""
+
+            else if Array.isEmpty itemTexts then
+                "[]"
+
+            else
+                "[ " ++ String.join ", " itemTexts ++ " ]"
+
+        Src.Record fieldArray ->
+            let
+                fieldTexts =
+                    Array.mapAndKeepJust simpleFieldText fieldArray
+            in
+            if Array.length fieldTexts /= Array.length fieldArray then
+                ""
+
+            else if Array.isEmpty fieldTexts then
+                "{}"
+
+            else
+                "{ " ++ String.join ", " fieldTexts ++ " }"
+
+        Src.Update { record = baseExpr, newValues = fieldArray } ->
+            let
+                baseText =
+                    simpleExprText baseExpr
+
+                fieldTexts =
+                    Array.mapAndKeepJust simpleFieldText fieldArray
+            in
+            if String.isEmpty baseText || Array.length fieldTexts /= Array.length fieldArray then
+                ""
+
+            else
+                "{ " ++ baseText ++ " | " ++ String.join ", " fieldTexts ++ " }"
 
         Src.Call { fn = fnExpr, args = argsExprs } ->
             let
@@ -848,6 +972,23 @@ simpleExprText locExpr =
 
         _ ->
             ""
+
+
+-- `field = value` text for a record field, used by `simpleExprText`'s
+-- `Record`/`Update` arms. `Nothing` if the value itself can't be flattened
+-- (propagated by the caller via an array-length check, since the field NAME
+-- is always non-empty and so can't be used as its own empty-failure signal).
+simpleFieldText : Src.RecordField -> Maybe String
+simpleFieldText field =
+    let
+        t =
+            simpleExprText field.value
+    in
+    if String.isEmpty t then
+        Nothing
+
+    else
+        Just (field.field.value ++ " = " ++ t)
 
 
 {-| Wrap an expression as a single node.

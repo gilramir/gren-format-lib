@@ -372,6 +372,7 @@ expressionSuite fsPerm =
             , assertPretty fsPerm "as-pattern inside record-field destructure keeps its parens" "RecordFieldAsPattern"
             , assertPretty fsPerm "doc comment body with non-BMP code points round-trips" "DocCommentWithEmoji"
             , assertPretty fsPerm "record update base can be a parenthesized call" "RecordUpdateComplexBase"
+            , assertPretty fsPerm "record update base can be a binop, negate, nested update, or accessor — previously silently dropped to an empty (unparseable) base" "RecordUpdateExoticBase"
             , assertPretty fsPerm "record update expands uniformly for single- and multi-field block values (matches elm-format's extensionGroup); a single-field block value no longer stays compact, and the field value anchors at `| ` + 4 not field-content + 4; the lambda-head-drop is a documented remaining divergence" "RecordUpdateExtension"
             , assertPretty fsPerm "TRACKED elm-format divergence (uniform-4 vs prefix-width): short-op `&&` branch offset and `-(` negation offset sit at gren's uniform indent, not elm-format's token-width-dependent column; the direct-operand `|>` closing paren case here is a fixed regression guard (now matches elm-format)" "PrefixAnchorDivergence"
             , assertPretty fsPerm "TRACKED suspected bug: a bare `if` as a direct list item over-indents its branches and its `else` does not line up under `if` (elm-format keeps `else` under `if`)" "BareIfListItem"
