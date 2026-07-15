@@ -216,23 +216,32 @@ subtreeHasVerticalBox node =
             Array.any subtreeHasVerticalBox (lpnChildren node)
 
 
--- A ParenBlock whose second child is an `IndentedBlock` (the author wrote the
--- lambda body on a later row).
+{-| A ParenBlock holding a multi-line LAMBDA: the author wrote the body on a
+later row (second child is an `IndentedBlock`) and the content really is a lambda
+head.
+
+`parenContentIsLambdaHead` is not optional. A paren-`if`/`when` has a block as
+its SECOND child too — its first branch — so without it this reports
+`(if c then a else b)` as a lambda, and the callers that split a lambda into
+`[head, body]` drop every later branch, `else` included.
+-}
 isMultilineLambdaParenBlockBox : LPNode -> Bool
 isMultilineLambdaParenBlockBox node =
     when lpnBox node is
         ParenBlock _ ->
-            when Array.get 1 (lpnChildren node) is
-                Just secondChild ->
-                    when lpnBox secondChild is
-                        IndentedBlock ->
-                            True
+            parenContentIsLambdaHead node
+                && (when Array.get 1 (lpnChildren node) is
+                        Just secondChild ->
+                            when lpnBox secondChild is
+                                IndentedBlock ->
+                                    True
 
-                        _ ->
+                                _ ->
+                                    False
+
+                        Nothing ->
                             False
-
-                Nothing ->
-                    False
+                   )
 
         _ ->
             False

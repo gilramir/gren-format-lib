@@ -1,0 +1,31 @@
+module ParenBlockInPipelineStep exposing (..)
+
+
+-- A paren-wrapped `if`/`when`/`let` as a call argument inside a pipeline step.
+-- Its FIRST branch is an indented block, exactly like a lambda's body, so the
+-- lambda-paren classifier used to claim it and render it as `[head, body]` --
+-- dropping every later branch, `else` included, and emitting unparseable Gren.
+-- Every layout below is byte-identical to elm-format.
+
+
+ifInPipelineStep = seed |> fn (if cond then one else two)
+
+
+whenInPipelineStep = seed |> fn (when sel is Just w -> w)
+
+
+letInPipelineStep = seed |> fn (let q = one in q)
+
+
+-- The lambda these were being mistaken for still renders as a lambda.
+
+
+lambdaInPipelineStep = seed |> fn (\q ->
+        q + one
+    )
+
+
+-- The same paren blocks as a plain call argument (no pipeline).
+
+
+ifInCallArg = fn (if cond then one else two) last

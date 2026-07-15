@@ -112,6 +112,7 @@ CONTEXTS = [
     ("parenBinopArg",   "fn ({x} |> gn) last",        True),
     ("parenBackPipeArg", "fn (gn <| {x}) last",       True),
     ("pipelineSeed",    "{x} |> fn",                  True),
+    ("pipelineOperand", "seed |> {x}",                True),
     ("pipelineStep",    "seed |> fn {x}",             True),
     ("pipelineLast",    "seed |> fn |> gn {x}",       True),
     ("backPipeBody",    "fn <| {x}",                  True),

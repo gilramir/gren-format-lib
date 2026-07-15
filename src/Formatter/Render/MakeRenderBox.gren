@@ -581,6 +581,13 @@ flowChildForcesVerticalBox node =
 
 -- Broader than the above — an `IndentedBlock` body, or a `SoftIndentedBlock`
 -- body that its own content forces vertical. Used by the direct-operand guard.
+--
+-- Deliberately does NOT require `parenContentIsLambdaHead`, unlike its
+-- namesake: `isDirectOperandLambda` relies on a paren-`if`/`when` reporting True
+-- here to keep it OUT of the trigger split. Adding the guard sends one down the
+-- relocation path instead, which strands the `|>` on its own line where
+-- elm-format glues `|> (if cond then`. Callers that SPLIT the node into
+-- `[head, body]` must add the guard themselves — see `directOperandLambdaSplit`.
 isMultilineLambdaParenBlockAnyBodyBox : LPNode -> Bool
 isMultilineLambdaParenBlockAnyBodyBox node =
     when lpnBox node is
