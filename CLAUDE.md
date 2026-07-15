@@ -99,7 +99,7 @@ after adding any comment-bearing fixture.
 The corpus reaches only the syntax somebody thought to write, and both fuzzers
 perturb *comments* and *whitespace* over that fixed corpus — **neither varies
 syntax**. A bug needing a conjunction of features therefore has no fixture. This
-is the syntax axis: it embeds every expression form in every context (792 cells)
+is the syntax axis: it embeds every expression form in every context (825 cells)
 and checks each one.
 
 ```bash
@@ -108,11 +108,15 @@ cd gren-format-lib/tests
 ./matrix-syntax.py -v                                     # source + output per failure
 ./matrix-syntax.py --construct recordUpdate1 --context parenBinopArg
 ./matrix-syntax.py -k /tmp/failing                        # write failing cells out as .gren
+./matrix-syntax.py --no-parity                            # skip oracle 4
+./matrix-syntax.py --update-baseline                      # rewrite the parity baseline
 ```
 
-**Rebuild the `gren-format` app first** — it shells out to it.
+**Rebuild the `gren-format` app first** — it shells out to it. Oracle 4 also
+needs `elm-format` on PATH; without it the matrix says so loudly and runs the
+other three rather than quietly reporting a thinner green.
 
-Its oracles need no human review:
+Oracles 1–3 need no human review:
 
 1. **Layout, both directions.** Layout is author-driven — no page width, no
    fitter — so a construct written flat renders flat unless its content forces a
@@ -126,16 +130,39 @@ Its oracles need no human review:
 3. `--audit-predicates` on every cell (see below), over generated syntax rather
    than only the corpus.
 
+**Oracle 4 — elm-format parity.** Gren is a fork of Elm, so on shared constructs
+the two formatters should agree byte-for-byte. Every cell is translated to Elm
+and diffed against `elm-format --stdin`. Translating *real* Gren source to Elm is
+lossy hand work — which is why the audit in the root `CLAUDE.md` is a manual
+exercise — but the cells are built from a vocabulary this script authors, and
+across all of it the only Gren-vs-Elm difference is `when X is` → `case X of`.
+The translator is therefore one regex, and it is *exact* for that vocabulary
+rather than approximate. A construct or context that is not valid Elm must
+extend `to_elm`, or be given no Elm twin; a bad translation reports a fake
+divergence.
+
+Unlike 1–3, **oracle 4 is not a truth**: gren-format diverges from elm-format on
+purpose (README "Divergence catalogue"), so it is gated against a reviewed
+baseline in `matrix-parity-baseline.json`. Each diverging cell is registered with
+a reason, and the matrix fails on a cell that diverges *unregistered*, or a
+registered cell that *no longer* diverges (fixed, or the entry was always wrong).
+
+The hazard is the fixtures' hazard — a baseline entry that is really a bug
+freezes it as expected output. Two things push back: a reason of `UNREVIEWED` is
+counted and printed on every run, so the debt is never silent, and a reviewed
+entry is expected to name a catalogue number, making registration a documentation
+decision rather than a keystroke. Current state: **825/825 pass oracles 1–3**;
+592/825 are byte-identical to elm-format, with 233 registered divergences — 184
+of them redundant-paren elision (divergence #10) and **49 UNREVIEWED**, all of
+them `if`/`when`/`let` blocks. Use `-v` to see each one beside elm-format's
+output.
+
 Deliberately not covered, and stated in the script rather than hidden: multi-line
 string literals (`"""x"""` does not parse on one line, so it cannot be a one-line
 atom), comments (that is `fuzz-idempotency.py`'s axis), and author-broken layout
-(flat input is what makes the layout oracle two-directional).
-
-**Not currently green: 10 of 792 cells fail**, in two pre-existing clusters — a
-block (`when`/`if`/`let`) as a record field value, and a block as a call argument
-inside a pipeline step. Two of them make the formatter emit invalid Gren (it
-drops an `if`'s `else` branch; the reparse guard catches it, so the file is
-refused rather than corrupted). Adding a construct or context can surface more.
+(flat input is what makes oracle 1 two-directional — though oracle 4 does not
+need flat input, since elm-format answers for any shape, so generating broken
+variants is now possible; not done yet).
 
 ### Predicate/renderer agreement audit
 
