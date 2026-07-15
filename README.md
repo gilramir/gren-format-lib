@@ -3066,6 +3066,57 @@ decision and why.
     1 and 12 are also about elm-format moving comments away from the code they
     were written beside, and the reasoning is the same.
 
+21. **When a pipeline breaks, every `|>` lines up; elm-format keeps the steps
+    that still fit up on the seed's line.** If a pipeline has to break — because
+    a step holds a `when`, an `if`, or a `let`, which break however you write
+    them — gren-format puts the seed on its own line and every `|>` under it, all
+    at the same indent:
+
+    ```gren
+    -- gren-format:
+    result =
+        seed
+            |> fn
+            |> gn
+                (when sel is
+                    Just w ->
+                        w
+                )
+    ```
+
+    elm-format instead fills the first line with as many steps as it can and only
+    starts breaking at the step that forced the issue, so `seed` and `fn` share a
+    row while the rest do not:
+
+    ```gren
+    -- elm-format:
+    result =
+        seed |> fn
+            |> gn
+                (case sel of
+                    Just w ->
+                        w
+                )
+    ```
+
+    elm-format builds that line up a step at a time: a step joins the line so far
+    as long as both still fit on one line, so everything before the step that
+    forced the break stays up there and everything from it down stacks. The
+    longer the pipeline, the more of it collects on the seed's row — four steps
+    give you `seed |> fn |> gn` with only `|> hn` below.
+
+    We keep the aligned form on purpose. A pipeline is a list of steps, and
+    reading it means scanning the `|>` column; elm-format's version puts the
+    first step (or first several) somewhere else, so how much of the pipeline
+    rides the seed's line depends on which step happens to contain the block. The
+    aligned form doesn't move when you add a step or wrap one in an `if`.
+
+    This only shows up when the author wrote the whole pipeline on one row *and*
+    a step breaks on its own anyway. If you break the pipeline yourself, both
+    formatters align every step; if nothing forces a break, both leave it on one
+    line. A multi-line record argument doesn't trigger it either — writing the
+    record across rows breaks the chain for both formatters, so they agree.
+
 #### Out of scope for comparison
 
 Some fixtures use Gren syntax with no valid Elm equivalent, so they can't be

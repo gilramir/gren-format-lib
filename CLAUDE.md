@@ -153,9 +153,9 @@ counted and printed on every run, so the debt is never silent, and a reviewed
 entry is expected to name a catalogue number, making registration a documentation
 decision rather than a keystroke. Current state: **825/825 pass oracles 1–3**;
 592/825 are byte-identical to elm-format, with 233 registered divergences — 184
-of them redundant-paren elision (divergence #10) and **49 UNREVIEWED**, all of
-them `if`/`when`/`let` blocks. Use `-v` to see each one beside elm-format's
-output.
+redundant-paren elision (divergence #10), 3 pipeline-`|>` alignment (divergence
+#21), and **46 UNREVIEWED**, all of them `if`/`when`/`let` blocks. Use `-v` to
+see each one beside elm-format's output.
 
 Deliberately not covered, and stated in the script rather than hidden: multi-line
 string literals (`"""x"""` does not parse on one line, so it cannot be a one-line

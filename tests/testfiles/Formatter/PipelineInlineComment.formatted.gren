@@ -1,0 +1,62 @@
+module PipelineInlineComment exposing (..)
+
+
+-- An inline block comment the flat line can carry RIDES that line, exactly as it
+-- does in a `++`/`&&`/`<|` chain. It must not reflow the pipeline: deleting the
+-- comment below must not change the layout of what is left.
+ridesFlatLine =
+    people |> Array.map .name {- only the names -} |> Array.sort
+
+
+-- The same pipeline without the comment: the layouts must agree.
+sameWithoutComment =
+    people |> Array.map .name |> Array.sort
+
+
+-- A comment on the seed rides too.
+commentOnSeed =
+    people {- everyone -} |> Array.sort
+
+
+-- A trailing `--` line comment can stay on the flat line: nothing follows it, so
+-- it swallows nothing.
+trailingLineComment =
+    people |> Array.map .name |> Array.sort -- trailing note
+
+
+-- A MULTI-LINE block comment cannot ride a flat line, so the chain breaks.
+multilineBlockComment =
+    people
+        |> Array.map .name {- one
+                              two -}
+        |> Array.sort
+
+
+-- A `--` line comment mid-chain forces the break — the author cannot write it any
+-- other way, and gluing it inline would comment out the rest of the chain.
+lineCommentMidChain =
+    people
+        |> Array.map .name -- only the names
+        |> Array.sort
+
+
+-- The author broke this chain, so it stays one step per line even though every
+-- step would fit inline.
+authorBroke =
+    people
+        |> Array.map .name {- still rides its own step -}
+        |> Array.sort
+
+
+-- A step forces the break (a `when` breaks however it is written), so every step
+-- goes on its own line with the `|>` aligned — a deliberate divergence from
+-- elm-format, which would keep `people |> Array.map .name` glued on the seed row.
+forcingStepAlignsAllSteps =
+    people
+        |> Array.map .name
+        |> Array.foldl
+            (when sel is
+                Just w ->
+                    w
+            )
+            init

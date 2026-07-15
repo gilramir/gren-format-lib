@@ -484,11 +484,25 @@ makeUnionBodyVerticalBox nodes =
 
 
 {-| Render a forward (`|>`) pipeline: seed then each `|> step` on its own line
-at +4 (or inline `seed |> a |> b` when the author kept it on one line), matching
-elm-format. A comment-bearing pipeline routes through the generic fold
-(`buildFlowBox 0`), where the PipelineStepItem placement and
-`renderPipelineStepChildren`'s peels handle each step's comments. Backward (`<|`)
-pipelines have their own path. -}
+at +4, or inline `seed |> a |> b` when the author kept it on one row and nothing
+in it forces a break. Backward (`<|`) pipelines have their own path.
+
+The inline attempt runs for comment-bearing and comment-free chains alike: an
+inline comment the flat line can carry RIDES that line (`seed |> f x {- c -} |> g`)
+rather than breaking the pipeline, the same rule `++` / `&&` / `<|` chains already
+follow. `|>` was the one chain kind that still broke, because `PipelineStepItem`
+is the only flow item with no inline placement — so a comment reaching the fold
+below could never come back inline, and adding one silently reflowed the whole
+pipeline.
+
+A `--` line comment renders as a `MustBreakBox`, so `joinInline` rejects it and
+the chain still breaks — which it must, or the `--` would swallow the rest of it.
+
+When the chain does break, a comment-bearing one still routes through the generic
+fold, where the per-step comment handling (leading peel, trailing glue,
+blank-before-commented-step) lives. Everything is rendered ONCE and the layout
+chosen from the boxes: re-rendering to try a second shape would cost 2^depth on
+nested pipelines (see the Box.gren renderRowState hang). -}
 makePipelineBox : Bool -> String -> Array LPNode -> Result String Box
 makePipelineBox forceVertical op children =
     if op == "<|" then
@@ -499,15 +513,11 @@ makePipelineBox forceVertical op children =
         -- (InsertExpressions.gren), and "<|" is handled by the branch above.
         Err "unreachable: pipeline operator"
 
-    else if Array.any subtreeHasComment children then
-        -- Comment-bearing forward pipeline: route through the generic fold —
-        -- the per-step comment handling (leading peel, trailing glue,
-        -- blank-before-commented-step) lives in the fold's PipelineStepItem
-        -- placement + the PipelineStep arm of `makePBox`.
-        buildFlowBox 0 children
-
     else
         let
+            hasComment =
+                Array.any subtreeHasComment children
+
             seedNodes =
                 Array.keepIf (\n -> not (isPipelineStepNode n)) children
 
@@ -517,31 +527,43 @@ makePipelineBox forceVertical op children =
         buildFlowBox 0 seedNodes
             |> Result.andThen
                 (\seedBox ->
-                    traverseResult renderPipelineStep stepNodes
+                    traverseResult renderPipelineStepInline stepNodes
                         |> Result.andThen
                             (\stepBoxes ->
-                                if forceVertical then
-                                    Ok (B.stack1 ([ seedBox ] ++ Array.map B.indent stepBoxes))
+                                when
+                                    (if forceVertical then
+                                        Nothing
 
-                                else
-                                    when joinInline ([ seedBox ] ++ stepBoxes) is
-                                        Just l ->
-                                            Ok l
+                                     else
+                                        joinInline ([ seedBox ] ++ stepBoxes)
+                                    )
+                                is
+                                    Just l ->
+                                        Ok l
 
-                                        Nothing ->
+                                    Nothing ->
+                                        if hasComment then
+                                            -- The chain breaks and carries a comment:
+                                            -- the generic fold owns per-step comment
+                                            -- placement.
+                                            buildFlowBox 0 children
+
+                                        else if forceVertical then
+                                            Ok (B.stack1 ([ seedBox ] ++ Array.map B.indent stepBoxes))
+
+                                        else
                                             -- A step is inherently multi-line (a
-                                            -- multi-line string/record argument)
-                                            -- even though the author kept the
-                                            -- pipeline itself on one row. Fall back
-                                            -- to the exact same comment-aware flow
-                                            -- a comment anywhere in the pipeline
-                                            -- already routes through above, rather
-                                            -- than a second layout of our own that
-                                            -- could disagree with it (the binop
-                                            -- fallback took the shortcut of
-                                            -- reproducing that layout locally and
-                                            -- it silently diverged under a
-                                            -- comment — see commentAwareBinopBox).
+                                            -- multi-line string/record argument, or a
+                                            -- `when`/`if`/`let`) even though the author
+                                            -- kept the pipeline itself on one row. Fall
+                                            -- back to the exact same comment-aware flow
+                                            -- a comment-bearing chain routes through
+                                            -- above, rather than a second layout of our
+                                            -- own that could disagree with it (the binop
+                                            -- fallback took the shortcut of reproducing
+                                            -- that layout locally and it silently
+                                            -- diverged under a comment — see
+                                            -- commentAwareBinopBox).
                                             buildFlowBox 0 children
                             )
                 )
@@ -754,11 +776,6 @@ makeMultilineParenArgBox children =
 -- reshaping, everything else its normal box. A multi-line step with NO trigger
 -- (a direct-operand lambda paren that must stay glued to `|>`, or a
 -- comment-bearing step needing comment-peeling) falls back.
-renderPipelineStep : LPNode -> Result String Box
-renderPipelineStep stepNode =
-    renderPipelineStepChildren (lpnChildren stepNode)
-
-
 {-| Render a pipeline step's children: peel ALL leading comments (each on its
 own line above the `|>`, at the step's own column — the caller's step wrap
 indents the whole box), peel trailing inline comments off the END
@@ -767,6 +784,27 @@ then render the remaining children via the trigger split. Mid-flow comments
 stay in the body and flow through the preamble/suffix folds. -}
 renderPipelineStepChildren : Array LPNode -> Result String Box
 renderPipelineStepChildren allChildren =
+    renderPipelineStepChildrenWith False allChildren
+
+
+{-| A step rendered for the one-line pipeline form, where leading comments GLUE
+onto the `|>` line (`{- c -} |> Array.sort`) instead of stacking above it. The
+comment the author wrote between the seed and the first `|>` lands as that step's
+leading child (`people {- c -} |> sort` — see Comments.gren), so stacking it would
+make the step box multi-line and break a pipeline the flat line can carry.
+
+Scoped to the inline attempt: the BROKEN layout keeps its own-line comments, which
+is what `FlowPolicy`'s `hasLeadingComment` blank-line rule is written against.
+Falls back to the stack when the glue can't be single-line — which is also what
+keeps a `--` line comment out: it renders as a `MustBreakBox`, `joinInline`
+rejects it, and the pipeline breaks as it must. -}
+renderPipelineStepInline : LPNode -> Result String Box
+renderPipelineStepInline stepNode =
+    renderPipelineStepChildrenWith True (lpnChildren stepNode)
+
+
+renderPipelineStepChildrenWith : Bool -> Array LPNode -> Result String Box
+renderPipelineStepChildrenWith glueLeading allChildren =
     let
         { leading, rest } =
             spanLeadingComments allChildren
@@ -779,7 +817,19 @@ renderPipelineStepChildren allChildren =
             (\leadingBoxes ->
                 stepBodyBox bodyNodes
                     |> Result.andThen (\bodyBox -> glueTrailingComments bodyBox trailing)
-                    |> Result.map (\withTrailing -> B.stack1 (leadingBoxes ++ [ withTrailing ]))
+                    |> Result.map
+                        (\withTrailing ->
+                            let
+                                boxes =
+                                    leadingBoxes ++ [ withTrailing ]
+                            in
+                            if glueLeading then
+                                joinInline boxes
+                                    |> Maybe.withDefault (B.stack1 boxes)
+
+                            else
+                                B.stack1 boxes
+                        )
             )
 
 

@@ -435,6 +435,7 @@ commentsSuite fsPerm =
             , assertPretty fsPerm "module/import header keyword-gap comments" "ModuleHeaderComments"
             , assertPretty fsPerm "array patterns, ctor patterns, and when-branch pattern comments" "PatternComments"
             , assertPretty fsPerm "backward pipeline and operator-rhs gap comments" "PipelineAndGlueComments"
+            , assertPretty fsPerm "an inline block comment rides a flat `|>` pipeline instead of reflowing it (as it already did in `++`/`&&`/`<|` chains); a `--` line comment, a multi-line block comment, an author-broken chain and a `when` step all still break" "PipelineInlineComment"
             , assertPretty fsPerm "doc/line/block adjacency and inter-declaration comments" "EdgeCaseComments"
             , assertPretty fsPerm "previously-mishandled comment placements (bugs A–K)" "TrickyComments"
             , assertPretty fsPerm "standalone block comment before a non-first let binding" "LetBindingComments"
