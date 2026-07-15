@@ -1990,8 +1990,8 @@ makePBox box children =
         WhenBranchPattern ->
             makeWhenBranchPatternBox children
 
-        ParenBlock { forceVertical, checkContentVertical, isCallArgument } ->
-            makeParenBlockBox { forceVertical = forceVertical, checkContentVertical = checkContentVertical, isCallArgument = isCallArgument } children
+        ParenBlock { forceVertical, checkContentVertical } ->
+            makeParenBlockBox { forceVertical = forceVertical, checkContentVertical = checkContentVertical } children
 
         MultilineString loc ->
             -- A `"""…"""` literal: opening `"""`, one line per content element,
@@ -2106,7 +2106,7 @@ The vertical form anchors continuation lines and the closing `)` to the `(`
 column. Box stacking is intrinsically that anchor: the wrapped box's lines are
 all relative to its own origin, which becomes the `(` column once the enclosing
 flow indents it. -}
-makeParenBlockBox : { forceVertical : Bool, checkContentVertical : Bool, isCallArgument : Bool } -> Array LPNode -> Result String Box
+makeParenBlockBox : { forceVertical : Bool, checkContentVertical : Bool } -> Array LPNode -> Result String Box
 makeParenBlockBox flags children =
     when Array.first children is
         Nothing ->
@@ -2147,9 +2147,9 @@ elm-format's rule: a branch body sits at the next tab stop after the `if`.
 The offsets are emergent, not chosen. Measured against elm-format, a body lands
 at `(`+4 when the `(` starts its line, `(`+5 after a `++ `/`&& `/`|> `, and
 `(`+3 after a `-` — one Tab from the keyword in every case. An earlier version
-hard-coded `(`+2, or `(`+4 for a call argument (an `isCallArgument` flag on the
-box); the call-argument value was verified against elm-format, the `(`+2 was
-not, and it matched elm-format in no context at all.
+hard-coded `(`+2, or `(`+4 for a call argument (behind an `isCallArgument` flag
+on the box, since removed); the call-argument value was verified against
+elm-format, the `(`+2 was not, and it matched elm-format in no context at all.
 -}
 blockInParenBox : Array LPNode -> Result String Box
 blockInParenBox children =
@@ -2161,7 +2161,7 @@ blockInParenBox children =
 vertical form triggers on either verticality signal or a multi-line lambda body
 (second child an `IndentedBlock`, or a `SoftIndentedBlock` whose sole bracket
 literal renders vertical — see `parenLambdaMultiline`). -}
-parenGenericFallbackBox : { forceVertical : Bool, checkContentVertical : Bool, isCallArgument : Bool } -> Array LPNode -> Result String Box
+parenGenericFallbackBox : { forceVertical : Bool, checkContentVertical : Bool } -> Array LPNode -> Result String Box
 parenGenericFallbackBox flags children =
     -- Inline-start via `buildFlowBoxInline 0 children`: the content continues the
     -- `(`-line, so a leading single-line block comment stays inline

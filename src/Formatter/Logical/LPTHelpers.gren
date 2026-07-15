@@ -85,7 +85,7 @@ destructure LHS). Genuine `Src.Parens` and kept call-argument parens set the
 flags explicitly at their call sites. -}
 syntheticParens : Array LPNode -> LPNode
 syntheticParens children =
-    lpnNode (ParenBlock { forceVertical = False, checkContentVertical = False, isCallArgument = False }) children
+    lpnNode (ParenBlock { forceVertical = False, checkContentVertical = False }) children
 
 
 {-| True when the author laid these located items out across more than one

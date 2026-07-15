@@ -439,7 +439,7 @@ insertParens locExpr expression =
                             forceVertical =
                                 locExpr.start.row /= locExpr.end.row
                         in
-                        Ok [ lpnBracketNode (ParenBlock { forceVertical = forceVertical, checkContentVertical = True, isCallArgument = False }) locExpr.end nodes ]
+                        Ok [ lpnBracketNode (ParenBlock { forceVertical = forceVertical, checkContentVertical = True }) locExpr.end nodes ]
             )
 
 
@@ -1076,11 +1076,9 @@ redundant `Parens` wrapper around an atomic/self-delimiting inner expression
 level unwraps — a `Parens` around a still-non-atomic expression, or a `Parens`
 around another `Parens`, is left exactly as authored.
 
-A `Parens` that's kept is tagged `isCallArgument = True` — see
-`LogicalPrintingTree.ParenBlock` for why: a when/if/let inside parens indents
-its branches/bodies by `(` + 4 here (matching the unparenthesized construct)
-rather than the `(` + 2 used when the parens trail other tokens on the same
-line (a binop operand, etc). -}
+A kept `Parens` needs no further tagging: a when/if/let inside parens renders
+through its ordinary builder and indents to its own tab stops, so its layout no
+longer depends on where the parens sit. -}
 insertCallArgAsItem : Src.Expression -> Result String LPNode
 insertCallArgAsItem locExpr =
     when locExpr.value is
@@ -1090,15 +1088,6 @@ insertCallArgAsItem locExpr =
 
             else
                 insertExpressionAsItem locExpr
-                    |> Result.map
-                        (\node ->
-                            when lpnBox node is
-                                ParenBlock payload ->
-                                    lpnWithBox (ParenBlock { payload | isCallArgument = True }) node
-
-                                _ ->
-                                    node
-                        )
 
         _ ->
             insertExpressionAsItem locExpr
