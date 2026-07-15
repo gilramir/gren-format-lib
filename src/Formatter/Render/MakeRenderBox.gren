@@ -2145,11 +2145,16 @@ indents therefore advance from the keyword's column, which is exactly
 elm-format's rule: a branch body sits at the next tab stop after the `if`.
 
 The offsets are emergent, not chosen. Measured against elm-format, a body lands
-at `(`+4 when the `(` starts its line, `(`+5 after a `++ `/`&& `/`|> `, and
-`(`+3 after a `-` — one Tab from the keyword in every case. An earlier version
-hard-coded `(`+2, or `(`+4 for a call argument (behind an `isCallArgument` flag
-on the box, since removed); the call-argument value was verified against
-elm-format, the `(`+2 was not, and it matched elm-format in no context at all.
+at `(`+2 after a `+ `, `(`+3 after a `-`, `(`+4 when the `(` starts its line,
+and `(`+5 after a `++ `/`&& `/`|> ` — one Tab from the keyword in every case.
+
+An earlier version hard-coded `(`+2, or `(`+4 for a call argument (behind an
+`isCallArgument` flag on the box, since removed). Both values were real: `(`+4
+is what the rule yields when `(` starts a line, `(`+2 what it yields after a
+1-character operator, and each was verified against elm-format in that one
+shape. The bug was generalizing two samples into a rule — the offset is not a
+property of the syntactic role (call argument vs operand), it is a property of
+the column the `(` happens to land in.
 -}
 blockInParenBox : Array LPNode -> Result String Box
 blockInParenBox children =
