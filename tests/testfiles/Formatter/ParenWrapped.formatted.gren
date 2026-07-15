@@ -9,7 +9,7 @@ withAttrs rest =
 
 -- paren wrapping a record-concat expression: ({...} ++ rest)
 withFields rest =
-    node "div" { foo = 1, bar = 2 } []
+    node "div" ({ foo = 1, bar = 2 }) []
 
 
 -- simple parens around an infix expression

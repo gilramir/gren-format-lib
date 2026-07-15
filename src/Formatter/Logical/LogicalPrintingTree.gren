@@ -545,7 +545,7 @@ lpnWithBracketStart openStart node =
 
 {-| Replace a node's box, keeping its children and cached bounds as-is. Used
 to tag an already-built node with context its constructor didn't have —
-e.g. marking a `ParenBlock` as a call argument after the fact. -}
+e.g. shifting an `OriginalRows` node's cached row range after a reorder. -}
 lpnWithBox : LPBox -> LPNode -> LPNode
 lpnWithBox newBox node =
     when node is

@@ -2751,10 +2751,12 @@ decision and why.
    design choice, not an oversight.
 
 10. **Redundant parens: gren-format keeps the ones you wrote, elm-format
-    strips them (may revisit).** If you put parens somewhere they aren't needed,
-    gren-format leaves them exactly as written. elm-format works out that they're
-    redundant and removes them. This is the single most common difference between
-    the two on generated code, and it shows up in two places.
+    strips them.** If you put parens somewhere they aren't needed, gren-format
+    leaves them exactly as written, in every position, with no exceptions.
+    elm-format works out that they're redundant and removes them. This is a
+    deliberate, settled choice, not an oversight, and it is the single most
+    common difference between the two on generated code. It shows up in two
+    places.
 
     **Around a `when`, `if`, or `let`.** Wrap one of these in parens anywhere a
     single expression is expected — at the top of a definition, as a record field,
@@ -2820,36 +2822,25 @@ decision and why.
     ```
 
     Stripping in either case means working out that the parens carry no meaning —
-    for an operand, that needs the operator's precedence. For now gren-format
-    leaves them exactly as written: your grouping is preserved, and nothing about
-    the output is wrong, only more explicit than elm-format's. We may revisit this
-    and adopt elm-format's stripping if the extra parens prove noisy in practice.
+    for an operand, that needs the operator's precedence. gren-format doesn't do
+    that analysis, and won't: your grouping is preserved exactly as written, and
+    nothing about the output is wrong, only more explicit than elm-format's.
 
-    Parens around a *call argument* are the exception — a positional slot where
-    they can never be load-bearing:
+    Parens around a *call argument* are not an exception — a positional slot can
+    never make parens load-bearing, but gren-format keeps them anyway, for the
+    same reason it keeps every other redundant paren: consistency. What you wrote
+    is what you get, everywhere:
 
     ```gren
-    -- you wrote:
+    -- you wrote (and gren-format keeps):
     node "div" ({ foo = 1, bar = 2 }) []
 
-    -- gren-format strips (so does elm-format):
+    -- elm-format strips to:
     node "div" { foo = 1, bar = 2 } []
     ```
 
-    gren-format strips those, but only **one layer deep**, and only when what's
-    inside isn't itself in parens. Write a second layer and the stripping switches
-    off altogether rather than peeling one:
-
-    ```gren
-    -- you wrote:          -- gren-format gives:   -- elm-format gives:
-    fn (a) last            fn a last               fn a last
-    fn ((a)) last          fn ((a)) last           fn a last
-    ```
-
-    That second row is a bug, not a decision — see
-    [Redundant parens: what each formatter strips](docs/redundantParens.md) for
-    the full comparison. See also
-    [Function application](#function-application).
+    See [Redundant parens: what each formatter strips](docs/redundantParens.md)
+    for the full comparison, and [Function application](#function-application).
 
 11. **Doc-comment body contents** elm-format reaches *inside*
     a `{-| … -}` doc comment and reformats its contents: it re-spaces `@docs`

@@ -1,6 +1,7 @@
 module RedundantArgParens exposing (..)
 
--- Atomic/self-delimiting arguments: redundant parens are stripped.
+-- Redundant parens around a call argument: gren-format keeps them (unlike
+-- elm-format, which strips them).
 withRecord x =
     f ({ a = 1, b = 2 }) x
 

@@ -1,37 +1,38 @@
 module RedundantArgParens exposing (..)
 
 
--- Atomic/self-delimiting arguments: redundant parens are stripped.
+-- Redundant parens around a call argument: gren-format keeps them (unlike
+-- elm-format, which strips them).
 withRecord x =
-    f { a = 1, b = 2 } x
+    f ({ a = 1, b = 2 }) x
 
 
 withArray x =
-    f [ 1, 2, 3 ] x
+    f ([ 1, 2, 3 ]) x
 
 
 withVar x =
-    f x x
+    f (x) x
 
 
 withString x =
-    f "hi" x
+    f ("hi") x
 
 
 withNumber x =
-    f 1 x
+    f (1) x
 
 
 withUpdate r x =
-    f { r | a = 1 } x
+    f ({ r | a = 1 }) x
 
 
 withAccess r x =
-    f r.a x
+    f (r.a) x
 
 
 withAccessor x =
-    f .a x
+    f (.a) x
 
 
 -- Non-atomic arguments: the author's parens are load-bearing and stay.

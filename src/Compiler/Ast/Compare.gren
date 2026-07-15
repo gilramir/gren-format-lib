@@ -433,10 +433,10 @@ comparePRecordField a b =
 
 
 -- Parens never change an expression's meaning, so comparison must not care
--- whether either side has them, or how many layers deep. Without this, the
--- formatter could never legitimately add or drop a redundant paren (e.g.
--- stripping `({ a = 1 })` down to `{ a = 1 }` as a call argument) without
--- tripping the "formatted output means the same thing as the original" guard.
+-- whether either side has them, or how many layers deep. gren-format itself
+-- never strips or adds a redundant paren, but a synthesized paren (e.g. one
+-- added around a pattern's constructor payload) must not trip the "formatted
+-- output means the same thing as the original" guard either.
 stripParens : Src.Expression -> Src.Expression
 stripParens expr =
     when expr.value is

@@ -321,7 +321,7 @@ expressionSuite fsPerm =
             , assertPretty fsPerm "parenthesized expressions" "ParenWrapped"
             , assertPretty fsPerm "closing paren on its own line when parens span multiple rows, incl. content-forced verticality" "ParenClosingLine"
             , assertPretty fsPerm "a multiline record call argument drops to its own line instead of gluing to the function/constructor name" "RecordArgOwnLine"
-            , assertPretty fsPerm "redundant parens around a call argument are stripped; load-bearing ones stay" "RedundantArgParens"
+            , assertPretty fsPerm "redundant parens around a call argument are kept, same as everywhere else (gren-format never strips parens)" "RedundantArgParens"
             , assertPretty fsPerm "nested containers in list" "NestedContainersInList"
             , assertPretty fsPerm "array items that are too long to fit inline" "ArrayLongRecordItems"
             , assertPretty fsPerm "uniform item layout: records in an array all break together or not at all" "UniformRecordArray"

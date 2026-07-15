@@ -6,8 +6,9 @@ shown in Gren syntax (`case … of` written back as `when … is`) so the two ar
 directly comparable.
 
 **The short version.** elm-format normalizes parens down to the minimum the
-meaning requires, at any nesting depth. gren-format keeps whatever you wrote,
-with one exception: a single redundant layer around a call argument.
+meaning requires, at any nesting depth, in any position. gren-format keeps
+whatever you wrote, everywhere, with no exceptions — this is a deliberate,
+settled choice, not an oversight.
 
 This is [divergence #10](../README.md#divergence-catalogue) in the catalogue. It
 is the most common difference between the two formatters on real code.
@@ -114,6 +115,14 @@ logBase base number =
     Gren.Kernel.Math.log number / Gren.Kernel.Math.log base
 ```
 
+## Around a call argument
+
+A positional call-argument slot can never make parens load-bearing — elm-format
+strips them here too, down to the minimum every layer needs. gren-format keeps
+them anyway, for the same reason it keeps every other redundant paren: what you
+wrote is what you get, consistently, everywhere. There is no special case for
+call arguments.
+
 ## Nested and redundant parens, side by side
 
 | you write | gren-format | elm-format |
@@ -125,12 +134,12 @@ logBase base number =
 | `((a))` | `((a))` | `a` |
 | `{ fld = ((a)) }` | `{ fld = ((a)) }` | `{ fld = a }` |
 | `[ ((a)), ((b)) ]` | `[ ((a)), ((b)) ]` | `[ a, b ]` |
-| `node "div" ({ foo = 1, bar = 2 }) []` | `node "div" { foo = 1, bar = 2 } []` | `node "div" { foo = 1, bar = 2 } []` |
-| `fn (a) last` | `fn a last` | `fn a last` |
-| `fn ((a)) last` | `fn ((a)) last` ⚠️ | `fn a last` |
-| `fn (((a))) last` | `fn (((a))) last` ⚠️ | `fn a last` |
-| `fn ((f x)) last` | `fn ((f x)) last` ⚠️ | `fn (f x) last` |
-| `fn (({ a = 1 })) last` | `fn (({ a = 1 })) last` ⚠️ | `fn { a = 1 } last` |
+| `node "div" ({ foo = 1, bar = 2 }) []` | `node "div" ({ foo = 1, bar = 2 }) []` | `node "div" { foo = 1, bar = 2 } []` |
+| `fn (a) last` | `fn (a) last` | `fn a last` |
+| `fn ((a)) last` | `fn ((a)) last` | `fn a last` |
+| `fn (((a))) last` | `fn (((a))) last` | `fn a last` |
+| `fn ((f x)) last` | `fn ((f x)) last` | `fn (f x) last` |
+| `fn (({ a = 1 })) last` | `fn (({ a = 1 })) last` | `fn { a = 1 } last` |
 
 Two things worth reading off that table.
 
@@ -139,20 +148,16 @@ keeps exactly one paren, because a call argument that is itself a call genuinely
 needs it — while `((f x)) + ((g y))` keeps none, because an operator's operand
 doesn't. It strips to the minimum and stops there.
 
-**The ⚠️ rows are a bug, not a decision.** A call argument is the one place
-gren-format does strip: `fn (a) last` becomes `fn a last`, because a positional
-slot can never make parens load-bearing. But that only works one layer deep —
-write a second layer and the stripping switches off entirely instead of peeling
-one, so `fn (a) last` and `fn ((a)) last` get opposite treatment. This is tracked
-as a `BUG:` entry in the parity baseline
-(`tests/matrix-parity-baseline.json`, the `doubleParen/callArg*` cells) rather
-than being written off as part of #10.
+**gren-format's table has no exceptions.** Every row keeps exactly what was
+written, at every nesting depth and in every position, including call arguments.
+There is no bug class here to track — the ⚠️ rows that used to mark an
+inconsistent one-layer-only strip on call arguments are gone, because
+gren-format no longer strips a call argument's parens at all.
 
 ## Why gren-format keeps the rest
 
 Stripping a paren means proving it carries no meaning. For an operand that needs
 the operator's precedence; in general it needs to know what each position can
-hold. gren-format doesn't do that analysis today, so it leaves your grouping
-alone: nothing about the output is *wrong*, only more explicit than elm-format's.
-This may be revisited if the extra parens prove noisy in practice — see the
-catalogue entry for the current thinking.
+hold. gren-format doesn't do that analysis, and won't: this is a settled design
+choice, not a gap — nothing about the output is *wrong*, only more explicit than
+elm-format's.
