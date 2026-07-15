@@ -159,6 +159,12 @@ CONSTRUCTS = [
     ("arrayNums",       "[ 1, 2, 3 ]",                         True),
     ("arrayRecords",    "[ { a = 1 }, { a = 2 } ]",            True),
     ("arrayUpdates",    "[ { rec | a = 1 }, { rec | a = 2 } ]", True),
+    # A doubly-parenthesized atom. Every OTHER atom here carries at most the one
+    # paren layer it needs, so nothing else in the matrix exercises redundant
+    # NESTING -- and gren's call-argument paren stripping turns out to peel one
+    # layer but give up entirely on two (`fn (a) last` -> `fn a last`, but
+    # `fn ((a)) last` unchanged).
+    ("doubleParen",     "((one))",                             True),
     ("call",            "(fn one two)",                        True),
     ("qualifiedCall",   "(Array.map fn items)",                True),
     ("ctor",            "(Just one)",                          True),

@@ -2826,8 +2826,29 @@ decision and why.
     and adopt elm-format's stripping if the extra parens prove noisy in practice.
 
     Parens around a *call argument* are the exception — a positional slot where
-    they can never be load-bearing, e.g. `node "div" ({ foo = 1, bar = 2 }) []` —
-    and gren-format already strips those; see
+    they can never be load-bearing:
+
+    ```gren
+    -- you wrote:
+    node "div" ({ foo = 1, bar = 2 }) []
+
+    -- gren-format strips (so does elm-format):
+    node "div" { foo = 1, bar = 2 } []
+    ```
+
+    gren-format strips those, but only **one layer deep**, and only when what's
+    inside isn't itself in parens. Write a second layer and the stripping switches
+    off altogether rather than peeling one:
+
+    ```gren
+    -- you wrote:          -- gren-format gives:   -- elm-format gives:
+    fn (a) last            fn a last               fn a last
+    fn ((a)) last          fn ((a)) last           fn a last
+    ```
+
+    That second row is a bug, not a decision — see
+    [Redundant parens: what each formatter strips](docs/redundantParens.md) for
+    the full comparison. See also
     [Function application](#function-application).
 
 11. **Doc-comment body contents** elm-format reaches *inside*

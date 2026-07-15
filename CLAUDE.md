@@ -156,11 +156,14 @@ genuine bug gets a `BUG:` reason, which is **also** printed every run — being
 understood is not the same as being acceptable, and a baseline entry is the
 easiest place in this repo for a known bug to go quiet.
 
-Current state: **825/825 pass oracles 1–3**; 592/825 are byte-identical to
-elm-format, with 233 registered divergences — 226 redundant parens (#10), 3
-pipeline-`|>` alignment (#21), **0 UNREVIEWED**, and **4 known BUGs** (3
-`*/parenBinopArg` nested-`((` off-by-one, 1 `whenExpr/pipelineOperand` `|>`
-stranding). Use `-v` to see each divergence beside elm-format's output.
+Current state: **850/850 pass oracles 1–3**; 592/850 are byte-identical to
+elm-format, with 258 registered divergences — 245 redundant parens (#10), 3
+pipeline-`|>` alignment (#21), **0 UNREVIEWED**, and **10 known BUGs**: 6
+`doubleParen/callArg*` (strips one redundant paren layer off a call argument but
+gives up on two), 3 `*/parenBinopArg` (nested `((` off-by-one), 1
+`whenExpr/pipelineOperand` (`|>` stranding). Use `-v` to see each divergence
+beside elm-format's output. `docs/redundantParens.md` is the reader-facing
+write-up of the #10 family, every example verified against both formatters.
 
 **Reclassifying is not a formality.** When the 46 UNREVIEWED were reviewed, two
 weaker tests both got it wrong: "same tokens once parens are deleted" cleared 45
