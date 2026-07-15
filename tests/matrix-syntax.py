@@ -105,14 +105,18 @@ BASELINE = HERE / "matrix-parity-baseline.json"
 #
 # The hazard here is the one in the effectful suite's fixtures: a baseline entry
 # that is really a bug freezes it as expected output and the gate stays green
-# forever. Two things push back. A reason of REASON_UNREVIEWED is counted and
-# reported loudly on every run, so the debt is never silent; and a reviewed
-# entry is expected to name a catalogue number, which makes registering a
-# divergence a documentation decision rather than a keystroke.
+# forever. Three things push back. A reason of REASON_UNREVIEWED is counted and
+# reported loudly on every run, so the debt is never silent; a reviewed entry is
+# expected to name a catalogue number, which makes registering a divergence a
+# documentation decision rather than a keystroke; and a divergence reviewed and
+# found to be a genuine BUG is registered with a REASON_BUG prefix, which is
+# ALSO reported loudly -- being understood is not the same as being acceptable,
+# and a known bug must not go quiet just because someone wrote down what it is.
 ELM_FORMAT = "elm-format"
 PARITY = True  # set from --no-parity / elm-format availability in main()
 
 REASON_UNREVIEWED = "UNREVIEWED"
+REASON_BUG = "BUG"  # prefix: "BUG: <what is wrong>"
 REASON_PARENS = "README divergence #10 -- gren-format keeps redundant parens"
 
 
@@ -391,6 +395,7 @@ def report_parity(results, baseline, update, verbose=False):
 
     registered = {k: v for k, v in baseline.items() if k in diverging}
     unreviewed = [k for k, v in registered.items() if v == REASON_UNREVIEWED]
+    bugs = sorted(k for k, v in registered.items() if v.startswith(REASON_BUG))
     if registered:
         print(f'parity: {len(ran) - len(diverging)}/{len(ran)} cells byte-identical to elm-format, '
               f"{len(registered)} registered divergences")
@@ -401,6 +406,14 @@ def report_parity(results, baseline, update, verbose=False):
                   f"     frozen as expected output. Establish a reason or fix it:")
             for key in sorted(unreviewed):
                 print(f"       {key}")
+        if bugs:
+            # Reviewed and known-wrong. Still printed every run: writing down what
+            # a bug is does not make it acceptable, and a baseline entry is the
+            # easiest place in this repo for one to go quiet.
+            print(f"\n  !! {len(bugs)} known BUG(s) registered -- reviewed, not deliberate,\n"
+                  f"     still wrong. These are a work-list, not a decision:")
+            for key in bugs:
+                print(f"       {key}: {registered[key][len(REASON_BUG) + 2:]}")
         if verbose:
             print("\n  registered divergences in full:\n")
             for key, r in sorted(diverging.items()):

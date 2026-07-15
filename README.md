@@ -2750,11 +2750,64 @@ decision and why.
    [String literals](#string-literals)) — this was already a considered
    design choice, not an oversight.
 
-10. **Redundant parens around a binary-operator operand (may
-    revisit).** When you parenthesize an applied function that is the operand of
-    a binary operator, gren-format keeps your parens; elm-format strips them,
-    because operator precedence already makes them redundant (application binds
-    tighter than any binary operator):
+10. **Redundant parens: gren-format keeps the ones you wrote, elm-format
+    strips them (may revisit).** If you put parens somewhere they aren't needed,
+    gren-format leaves them exactly as written. elm-format works out that they're
+    redundant and removes them. This is the single most common difference between
+    the two on generated code, and it shows up in two places.
+
+    **Around a `when`, `if`, or `let`.** Wrap one of these in parens anywhere a
+    single expression is expected — at the top of a definition, as a record field,
+    an array item, a lambda body, a `let` binding, a `when` or `if` branch, or the
+    body of a `<|` — and gren-format keeps the parens:
+
+    ```gren
+    -- you wrote (and gren-format keeps):
+    v =
+        (if cond then
+            one
+
+         else
+            two
+        )
+
+    -- elm-format strips to:
+    v =
+        if cond then
+            one
+
+        else
+            two
+    ```
+
+    ```gren
+    -- gren-format:
+    v =
+        { fld =
+            (when sel is
+                Just w ->
+                    w
+            )
+        }
+
+    -- elm-format:
+    v =
+        { fld =
+            case sel of
+                Just w ->
+                    w
+        }
+    ```
+
+    Note the indentation isn't the difference — it follows from the parens. Once
+    the `(` is there, the block hangs off it (see [Parentheses](#parentheses));
+    take it away and the block starts the line instead. You can't keep the parens
+    and get elm-format's columns.
+
+    **Around a binary operator's operand.** When you parenthesize an applied
+    function that an operator is applied to, gren-format keeps the parens;
+    elm-format strips them, because application already binds tighter than any
+    operator:
 
     ```gren
     -- you wrote (and gren-format keeps):
@@ -2766,15 +2819,16 @@ decision and why.
         Gren.Kernel.Math.log number / Gren.Kernel.Math.log base
     ```
 
-    Stripping here requires reasoning about the operator's precedence to know
-    the parens are redundant. For now gren-format leaves an operand's parens
-    exactly as written — the author's grouping is preserved and nothing about
-    the output is wrong, only more explicit than elm-format's. We may revisit
-    this later and adopt elm-format's precedence-aware stripping if the extra
-    parens prove noisy in practice. (By contrast, redundant parens around a
-    *call argument* — a positional slot where they can never be load-bearing,
-    e.g. `node "div" ({ foo = 1, bar = 2 }) []` — are already stripped; see
-    [Function application](#function-application).)
+    Stripping in either case means working out that the parens carry no meaning —
+    for an operand, that needs the operator's precedence. For now gren-format
+    leaves them exactly as written: your grouping is preserved, and nothing about
+    the output is wrong, only more explicit than elm-format's. We may revisit this
+    and adopt elm-format's stripping if the extra parens prove noisy in practice.
+
+    Parens around a *call argument* are the exception — a positional slot where
+    they can never be load-bearing, e.g. `node "div" ({ foo = 1, bar = 2 }) []` —
+    and gren-format already strips those; see
+    [Function application](#function-application).
 
 11. **Doc-comment body contents** elm-format reaches *inside*
     a `{-| … -}` doc comment and reformats its contents: it re-spaces `@docs`

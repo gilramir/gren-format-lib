@@ -148,14 +148,29 @@ a reason, and the matrix fails on a cell that diverges *unregistered*, or a
 registered cell that *no longer* diverges (fixed, or the entry was always wrong).
 
 The hazard is the fixtures' hazard — a baseline entry that is really a bug
-freezes it as expected output. Two things push back: a reason of `UNREVIEWED` is
-counted and printed on every run, so the debt is never silent, and a reviewed
+freezes it as expected output. Three things push back: a reason of `UNREVIEWED`
+is counted and printed on every run, so the debt is never silent; a reviewed
 entry is expected to name a catalogue number, making registration a documentation
-decision rather than a keystroke. Current state: **825/825 pass oracles 1–3**;
-592/825 are byte-identical to elm-format, with 233 registered divergences — 184
-redundant-paren elision (divergence #10), 3 pipeline-`|>` alignment (divergence
-#21), and **46 UNREVIEWED**, all of them `if`/`when`/`let` blocks. Use `-v` to
-see each one beside elm-format's output.
+decision rather than a keystroke; and a divergence reviewed and found to be a
+genuine bug gets a `BUG:` reason, which is **also** printed every run — being
+understood is not the same as being acceptable, and a baseline entry is the
+easiest place in this repo for a known bug to go quiet.
+
+Current state: **825/825 pass oracles 1–3**; 592/825 are byte-identical to
+elm-format, with 233 registered divergences — 226 redundant parens (#10), 3
+pipeline-`|>` alignment (#21), **0 UNREVIEWED**, and **4 known BUGs** (3
+`*/parenBinopArg` nested-`((` off-by-one, 1 `whenExpr/pipelineOperand` `|>`
+stranding). Use `-v` to see each divergence beside elm-format's output.
+
+**Reclassifying is not a formality.** When the 46 UNREVIEWED were reviewed, two
+weaker tests both got it wrong: "same tokens once parens are deleted" cleared 45
+of 46, and "does it still diverge with the parens stripped from the source"
+cleared 39 — but the source-stripped form takes a different code path, so it
+answers a different question. The decisive test is whether **elm's output has
+fewer parens than gren's**: if elm keeps the same parens, the divergence cannot
+be about parens. That found 4 cells where both formatters agree on the parens and
+only the layout differs — real bugs that a blanket reclassification would have
+frozen as expected output, including one already known.
 
 Deliberately not covered, and stated in the script rather than hidden: multi-line
 string literals (`"""x"""` does not parse on one line, so it cannot be a one-line
