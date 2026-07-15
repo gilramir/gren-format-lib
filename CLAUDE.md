@@ -94,6 +94,49 @@ fuzzers invoke `../../gren-format/gren-format.sh` as a subprocess, so they
 require an up-to-date binary. Run after any change to comment handling, and
 after adding any comment-bearing fixture.
 
+### Construct × context syntax matrix
+
+The corpus reaches only the syntax somebody thought to write, and both fuzzers
+perturb *comments* and *whitespace* over that fixed corpus — **neither varies
+syntax**. A bug needing a conjunction of features therefore has no fixture. This
+is the syntax axis: it embeds every expression form in every context (792 cells)
+and checks each one.
+
+```bash
+cd gren-format-lib/tests
+./matrix-syntax.py -j 12                                  # whole matrix
+./matrix-syntax.py -v                                     # source + output per failure
+./matrix-syntax.py --construct recordUpdate1 --context parenBinopArg
+./matrix-syntax.py -k /tmp/failing                        # write failing cells out as .gren
+```
+
+**Rebuild the `gren-format` app first** — it shells out to it.
+
+Its oracles need no human review:
+
+1. **Layout, both directions.** Layout is author-driven — no page width, no
+   fitter — so a construct written flat renders flat unless its content forces a
+   break. Every cell is generated on ONE line, so: a flat construct in a flat
+   context **must** stay one line; anything involving `if`/`when`/`let` **must**
+   break. Over-approximation (pre-breaking something that renders inline) fails
+   the first; a construct that stops breaking fails the second.
+2. `--show` internally does parse → render → reparse → AST-compare → render
+   again → idempotency-compare, so a clean exit also buys AST equivalence,
+   idempotency, and "the output parses". Each failure title is its own class.
+3. `--audit-predicates` on every cell (see below), over generated syntax rather
+   than only the corpus.
+
+Deliberately not covered, and stated in the script rather than hidden: multi-line
+string literals (`"""x"""` does not parse on one line, so it cannot be a one-line
+atom), comments (that is `fuzz-idempotency.py`'s axis), and author-broken layout
+(flat input is what makes the layout oracle two-directional).
+
+**Not currently green: 10 of 792 cells fail**, in two pre-existing clusters — a
+block (`when`/`if`/`let`) as a record field value, and a block as a call argument
+inside a pipeline step. Two of them make the formatter emit invalid Gren (it
+drops an `if`'s `else` branch; the reparse guard catches it, so the file is
+refused rather than corrupted). Adding a construct or context can surface more.
+
 ### Predicate/renderer agreement audit
 
 Every other check in this repo is a **self-consistency** check — fixture diff,
