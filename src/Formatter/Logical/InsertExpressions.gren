@@ -1175,13 +1175,13 @@ body block adds a second +4.
     body one level under the field. Its body is already a `SoftIndentedBlock`
     (which nests +4), so the field flow is rendered at +0 (an `IndentedBlock`
     list item adds no indent of its own); the body's own +4 is then the only one.
-  - An **`if`/`let`** value drops its header onto the next line (the same shape
-    `when` already produces on its own), so the construct's aligned keywords
-    (`else`, `in`) sit one level under the field. `BodyBlock` forces that drop
-    with no extra nest, leaving the value's internal blocks to supply their own.
-  - Every other value (including `when`, whose `AlignedFlow` already drops) uses
-    the plain `AcrossOrVertical`, which keeps a one-row value inline and
-    indents a continuation the author wrote across rows +4.
+  - An **always-breaking** value — `if`, `when`, `let`, or parens around one
+    (`valueAlwaysBreaks`) — drops its header onto the next line, so the
+    construct's aligned keywords (`else`, `in`) sit one level under the field.
+    `BodyBlock` forces that drop with no extra nest, leaving the value's
+    internal blocks to supply their own.
+  - Every other value uses the plain `AcrossOrVertical`, which keeps a one-row
+    value inline and indents a continuation the author wrote across rows +4.
 
 This applies to both record literals and record updates: the literal renders a
 field through the list-item rendering path, and the update through
@@ -1209,24 +1209,50 @@ folderInsertRecordField field accNodes =
                             Src.Lambda _ ->
                                 lpnNode IndentedBlock ([ fieldNameNode, eqNode ] ++ valueNodes)
 
-                            Src.If _ ->
-                                plainAcross [ fieldNameNode, eqNode, lpnNode BodyBlock valueNodes ]
-
-                            Src.Let _ ->
-                                plainAcross [ fieldNameNode, eqNode, lpnNode BodyBlock valueNodes ]
-
-                            Src.When _ ->
-                                if field.value.start.row > field.field.start.row then
+                            _ ->
+                                if valueAlwaysBreaks field.value then
+                                    -- Wrap in `BodyBlock` so the header drops and
+                                    -- `else`/`in` align under the field.
                                     plainAcross [ fieldNameNode, eqNode, lpnNode BodyBlock valueNodes ]
 
                                 else
                                     plainContainer valueNodes
-
-                            _ ->
-                                plainContainer valueNodes
                 in
                 Array.pushLast container accNodes
             )
+
+
+{-| True for a field value that renders multi-line no matter how the author
+wrote it: `if`, `when` and `let` always break, and parens around one break with
+it.
+
+Such a value must be wrapped in a `BodyBlock` so it drops below `field =`. Left
+on the plain flow path it stays a bare flow item, which `factsFor` classifies as
+a `LeafItem` — "single-line, glue it" — and the soft-glue arm has no way to place
+a multi-line box, so the format fails outright.
+
+Deliberately NOT keyed on the author's rows. A `when` used to be wrapped only
+when the author had already put it on a later row, on the reasoning that a flat
+one rendered fine as a plain item. It does not. What breaks here is a property of
+the construct, not of the source layout.
+-}
+valueAlwaysBreaks : Src.Expression -> Bool
+valueAlwaysBreaks expr =
+    when expr.value is
+        Src.If _ ->
+            True
+
+        Src.Let _ ->
+            True
+
+        Src.When _ ->
+            True
+
+        Src.Parens inner ->
+            valueAlwaysBreaks inner
+
+        _ ->
+            False
 
 
 {-| Folder for `let` definitions.

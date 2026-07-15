@@ -1,0 +1,43 @@
+module BlockRecordFieldValue exposing (..)
+
+
+-- An `if`/`when`/`let` field value always breaks, however the author wrote it,
+-- so it is wrapped in a BodyBlock and drops below `fld =`. Written FLAT here on
+-- purpose: a flat `when` used to be left as a plain flow item, where the
+-- soft-glue arm had no way to place its multi-line box and the format failed.
+-- The paren-free layouts are byte-identical to elm-format.
+
+
+ifValue = { fld = if cond then one else two }
+
+
+whenValue = { fld = when sel is Just w -> w }
+
+
+letValue = { fld = let q = one in q }
+
+
+-- Parens around a block break with it. gren keeps author parens (elm-format
+-- elides them here) -- a pre-existing, systematic difference, not specific to
+-- this rule.
+
+
+parenIfValue = { fld = (if cond then one else two), other = 2 }
+
+
+parenWhenValue = { fld = (when sel is Just w -> w) }
+
+
+-- Non-breaking values are untouched: they stay inline on the `=` line.
+
+
+inlineValue = { fld = one + two, other = fn a }
+
+
+parenInlineValue = { fld = (one + two) }
+
+
+-- A lambda value keeps its head inline; its own body block supplies the indent.
+
+
+lambdaValue = { fld = \q -> q + one }
