@@ -5,6 +5,6 @@ foo x =
     (when someLongFunctionCallThatIsVeryLong
         argument1
         argument2 is
-      _ ->
-        1
+        _ ->
+            1
     )

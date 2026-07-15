@@ -42,10 +42,10 @@ letValue =
 parenIfValue =
     { fld =
         (if cond then
-          one
+            one
 
          else
-          two
+            two
         )
     , other = 2
     }
@@ -54,8 +54,8 @@ parenIfValue =
 parenWhenValue =
     { fld =
         (when sel is
-          Just w ->
-            w
+            Just w ->
+                w
         )
     }
 

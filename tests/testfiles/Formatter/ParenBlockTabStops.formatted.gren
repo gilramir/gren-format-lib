@@ -1,22 +1,22 @@
-module PrefixAnchorDivergence exposing (..)
+module ParenBlockTabStops exposing (..)
 
 
 binShortOp =
     someLongLeftOperandHere
         && (if cond then
-             aaaaa
+                aaaaa
 
             else
-             bbbbb
+                bbbbb
            )
 
 
 negatedBlock =
     -(if cond then
-       aaaaa
+        aaaaa
 
       else
-       bbbbb
+        bbbbb
      )
 
 

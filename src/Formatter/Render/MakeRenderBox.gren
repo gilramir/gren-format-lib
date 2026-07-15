@@ -2115,20 +2115,46 @@ makeParenBlockBox flags children =
         Just first ->
             when lpnBox first is
                 WhenFlow _ ->
-                    makeWhenInParenBox flags.isCallArgument (lpnChildren first)
+                    -- The `when` renders through its ordinary builder, so the
+                    -- paren cannot change its internal shape.
+                    makePBox (lpnBox first) (lpnChildren first)
+                        |> Result.map wrapParenVerticalPadded
 
                 IfCondition _ ->
-                    makeBlockInParenBox flags.isCallArgument children
+                    blockInParenBox children
 
                 UnbreakableText loc ->
                     if loc.value == "let" then
-                        makeBlockInParenBox flags.isCallArgument children
+                        blockInParenBox children
 
                     else
                         parenGenericFallbackBox flags children
 
                 _ ->
                     parenGenericFallbackBox flags children
+
+
+{-| An `if`/`let` directly inside parens. The children are the flattened pieces
+(an `IfCondition`/`let` head, `IndentedBlock` bodies, `SynthesizedText`
+keywords, `EmptyLine` blanks) — exactly what a bare `if`/`let` renders through,
+so `buildFlowBox 0` lays them out identically to the unparenthesized form.
+
+`wrapParenVerticalPadded` then glues `(` onto the first line and pads every
+continuation by the `(`'s width, placing the whole block at `(`+1. Its own `Tab`
+indents therefore advance from the keyword's column, which is exactly
+elm-format's rule: a branch body sits at the next tab stop after the `if`.
+
+The offsets are emergent, not chosen. Measured against elm-format, a body lands
+at `(`+4 when the `(` starts its line, `(`+5 after a `++ `/`&& `/`|> `, and
+`(`+3 after a `-` — one Tab from the keyword in every case. An earlier version
+hard-coded `(`+2, or `(`+4 for a call argument (an `isCallArgument` flag on the
+box); the call-argument value was verified against elm-format, the `(`+2 was
+not, and it matched elm-format in no context at all.
+-}
+blockInParenBox : Array LPNode -> Result String Box
+blockInParenBox children =
+    buildFlowBox 0 children
+        |> Result.map wrapParenVerticalPadded
 
 
 {-| The non-block ParenBlock shapes: inline, or a generic vertical `(…\n)`. The
@@ -2195,99 +2221,6 @@ parenGenericFallbackBox flags children =
                             else
                                 Ok (B.addSuffix (B.punc ")") (B.mapFirstLine (\l -> B.row [ B.punc "(", l ]) identity innerBox))
             )
-
-
-{-| A `when` directly inside parens: `(when … is`, branches at `(`+2 (or `(`+4
-as a call argument), `)` on its own line at the `(` column (elm-format). Only a
-single-line header is ported; a forced-vertical `when` header falls back. -}
-makeWhenInParenBox : Bool -> Array LPNode -> Result String Box
-makeWhenInParenBox isCallArg children =
-    when Array.popLast children is
-        Nothing ->
-            Err "box: when-in-paren has no children"
-
-        Just { last = branchesBlock, initial = withoutBranches } ->
-            let
-                branchOffset =
-                    if isCallArg then
-                        4
-
-                    else
-                        2
-
-                headerResult =
-                    buildFlowBox 0 withoutBranches
-
-                branchesResult =
-                    renderWhenBranchesBox (lpnChildren branchesBlock)
-            in
-            Result.map2
-                (\hdr brs ->
-                    wrapParenVertical (B.stack1 [ hdr, blockIndentSpaces branchOffset brs ])
-                )
-                headerResult
-                branchesResult
-
-
-{-| An `if`/`else` or `let` directly inside parens, using elm-format's
-paren-block layout: keyword at `(`+1, bodies at `(`+2 (or `(`+4 as a call
-argument), `else`/`in` and `else if` at `(`+1, `)` on its own line at the `(`
-column. The paren's direct children are the flattened `if`/`let` pieces (an
-`IfCondition`/`let` head, `IndentedBlock` bodies, `SynthesizedText` keywords,
-`EmptyLine` blanks). -}
-makeBlockInParenBox : Bool -> Array LPNode -> Result String Box
-makeBlockInParenBox isCallArg children =
-    let
-        bodyOffset =
-            if isCallArg then
-                4
-
-            else
-                2
-
-        step node accResult =
-            accResult
-                |> Result.andThen
-                    (\acc ->
-                        let
-                            push box =
-                                { boxes = Array.pushLast box acc.boxes, isFirst = False }
-                        in
-                        when lpnBox node is
-                            IndentedBlock ->
-                                buildFlowBox 0 (lpnChildren node)
-                                    |> Result.map (\b -> push (blockIndentSpaces bodyOffset b))
-
-                            BodyBlock ->
-                                buildFlowBox 0 (lpnChildren node)
-                                    |> Result.map (\b -> push (blockIndentSpaces 1 b))
-
-                            EmptyLine ->
-                                Ok (push B.blankLine)
-
-                            SynthesizedText s ->
-                                Ok (push (blockIndentSpaces 1 (B.line (B.literal s))))
-
-                            IfCondition _ ->
-                                makePBox (lpnBox node) (lpnChildren node)
-                                    |> Result.map
-                                        (\b ->
-                                            push
-                                                (if acc.isFirst then
-                                                    b
-
-                                                 else
-                                                    blockIndentSpaces 1 b
-                                                )
-                                        )
-
-                            _ ->
-                                makePBox (lpnBox node) (lpnChildren node)
-                                    |> Result.map (\b -> push b)
-                    )
-    in
-    Array.foldl step (Ok { boxes = [], isFirst = True }) children
-        |> Result.map (\acc -> wrapParenVertical (B.stack1 acc.boxes))
 
 
 {-| True when a paren's content is a lambda whose PARAMETER is a multi-line
