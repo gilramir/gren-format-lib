@@ -1,0 +1,28 @@
+module ParenBlockDirectOperand exposing (..)
+
+
+-- A paren-wrapped block as a pipeline's DIRECT operand stays glued to the
+-- operator and soft-glues: `(` after `|> `, body at the next tab stop from the
+-- keyword, `else`/`in` and `)` under the `(`. Byte-identical to elm-format.
+-- These used to fail outright ("unreachable: multi-line non-align paren
+-- soft-glued in a flow") -- the soft-glue arm had no case for a block paren.
+
+
+ifDirectOperand = seed |> (if cond then one else two)
+
+
+letDirectOperand = seed |> (let q = one in q)
+
+
+-- The direct-operand lambda that shares this path, unchanged.
+
+
+lambdaDirectOperand = values |> (\n -> if n then aaaaa else bbbbb)
+
+
+-- KNOWN DIVERGENCE: a `(when …)` paren has a single child, so it is not
+-- recognised as a direct operand and gets relocated instead -- gren strands the
+-- `|>` on its own line where elm-format glues `|> (case sel of`.
+
+
+whenDirectOperand = seed |> (when sel is Just q -> q)

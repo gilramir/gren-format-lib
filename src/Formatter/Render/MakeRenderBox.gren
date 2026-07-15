@@ -3129,19 +3129,23 @@ assembleFlowImpl inlineStart flowIndent items =
                                                     }
 
                                             Nothing ->
-                                                -- A paren whose content is an
-                                                -- align-carrying literal (a
-                                                -- record-destructuring `as`
-                                                -- pattern, `({ … } as name)`):
-                                                -- the paren box already anchors
-                                                -- its continuation lines at its
-                                                -- own start column, so freeze its
-                                                -- `Tab`s and `B.prefix`-glue it
-                                                -- like any other align-carrying
-                                                -- item.
+                                                -- Any other multi-line paren
+                                                -- (`|> (if … )`, a `({ … } as n)`
+                                                -- pattern): the paren box already
+                                                -- anchors its continuation lines
+                                                -- at its own `(` column, so
+                                                -- `B.prefix` glues it after the
+                                                -- running line and shifts every
+                                                -- row by the prefix's width.
                                                 when lpnBox item.node is
                                                     ParenBlock _ ->
                                                         if parenInnerIsAlignCarrying (lpnChildren item.node) then
+                                                            -- An align-carrying literal inside the
+                                                            -- parens holds its `,`/`}` under its own
+                                                            -- opening bracket with `Tab`s. Freeze them
+                                                            -- to spaces first, so the prefix shifts by
+                                                            -- its exact width instead of the tab stops
+                                                            -- re-snapping to absolute multiples of 4.
                                                             Ok
                                                                 { rows = Array.pushLast (B.prefix prefLine (B.freezeTabs item.box)) acc.rows
                                                                 , curRow = []
@@ -3149,16 +3153,21 @@ assembleFlowImpl inlineStart flowIndent items =
                                                                 }
 
                                                         else
-                                                            -- unreachable: a multi-line `ParenBlock` operand
-                                                            -- of a binop now forces the whole chain vertical
-                                                            -- (`isChainBreakingOperandBox` includes
-                                                            -- `ParenBlock` → `verticalBinopChainBox`), so it
-                                                            -- never soft-glues here; and a pipeline's paren
-                                                            -- step renders via `PipelineStep`, not this flow.
-                                                            -- Only a direct-operand lambda / align-carrying
-                                                            -- `as`-paren (handled above) reaches the
-                                                            -- `UnclassifiedCarrying` arm at all.
-                                                            Err "unreachable: multi-line non-align paren soft-glued in a flow"
+                                                            -- A block paren (`(if …)`, `(when …)`,
+                                                            -- `(let …)`) glued straight after the
+                                                            -- operator. Its `Tab`s are deliberately NOT
+                                                            -- frozen: `makeParenBlockBox` indents the
+                                                            -- body one `Tab` from the keyword, so they
+                                                            -- must re-snap against the column the paren
+                                                            -- actually lands in. That is exactly
+                                                            -- elm-format's `|> (if cond then` shape --
+                                                            -- `(` after the operator, body at the next
+                                                            -- tab stop, `else`/`)` under the `(`.
+                                                            Ok
+                                                                { rows = Array.pushLast (B.prefix prefLine item.box) acc.rows
+                                                                , curRow = []
+                                                                , state = decision.next
+                                                                }
 
                                                     _ ->
                                                         -- unreachable: to reach here an item must be a
