@@ -1,0 +1,51 @@
+module RecordUpdateFlatInParen exposing (..)
+
+-- A flat record update renders on one line, so nothing around it may pre-break
+-- on the assumption that it will not. Each pair below is identical but for
+-- update-vs-literal, and each pair must format identically.
+
+
+parenBinopUpdate =
+    seed |> f ({ r | a = 1 } |> g) x
+
+
+parenBinopLiteral =
+    seed |> f ({ a = 1 } |> g) x
+
+
+lambdaBodyUpdate =
+    sinks |> Array.map (\c -> { c | kind = String.toLower c.kind }) |> Array.first
+
+
+lambdaBodyLiteral =
+    sinks |> Array.map (\c -> { kind = String.toLower c.kind }) |> Array.first
+
+
+directOperandUpdate =
+    base |> (\p -> { p | millis = p.millis + offset })
+
+
+directOperandLiteral =
+    base |> (\p -> { millis = p.millis + offset })
+
+-- An update the author DID break across rows still renders vertical, and one
+-- whose field breaks on its own opens too — the gate keeps both.
+
+
+authorBrokeUpdate =
+    { r
+        | a = 1
+        , b = 2
+    }
+
+
+contentBreaksUpdate =
+    { r
+        | a =
+            when x is
+                Just v ->
+                    v
+
+                Nothing ->
+                    0
+    }

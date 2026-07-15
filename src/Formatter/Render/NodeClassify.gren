@@ -1,4 +1,4 @@
-module Formatter.Render.NodeClassify exposing (nodeIsComment, subtreeHasComment, literalCommentsRideFlatLine, subtreeHasMultilineBlockComment, subtreeHasVerticalBox, typeHasCommentBracket, isMultilineLambdaParenBlockBox, isMultilineContentParenBlockBox, isOpAndRhsNode, isPipelineStepNode, leafValue, isArrowLeaf, isColonLeaf, isElidedArrow, isEmptyLine, fieldValueDropsToOwnLine, rowsSpanMultiple, nodeSpansRows, parenContentIsLambdaHead, splitSignatureSegments, segFirstRow, segLastRow, isDroppingSignatureRecordNode, signatureForceVertical, leafLineRow)
+module Formatter.Render.NodeClassify exposing (nodeIsComment, subtreeHasComment, literalCommentsRideFlatLine, subtreeHasMultilineBlockComment, subtreeHasVerticalBox, bracketOpenGate, typeHasCommentBracket, isMultilineLambdaParenBlockBox, isMultilineContentParenBlockBox, isOpAndRhsNode, isPipelineStepNode, leafValue, isArrowLeaf, isColonLeaf, isElidedArrow, isEmptyLine, fieldValueDropsToOwnLine, rowsSpanMultiple, nodeSpansRows, parenContentIsLambdaHead, splitSignatureSegments, segFirstRow, segLastRow, isDroppingSignatureRecordNode, signatureForceVertical, leafLineRow)
 
 {-| Boolean predicates and small structural queries over LPT nodes.
 -}
@@ -172,24 +172,45 @@ isPipelineStepNode node =
             False
 
 
--- A subtree that always produces a hard break (an AlwaysVertical/RecordUpdate,
--- or a literal holding a comment that cannot ride its flat line).
+{-| Mirrors the gate every bracketed construct renders through --
+`commentForcesBracketOpen` plus the renderer's own `contentVertical` check, as
+seen in `makeLiteralBox` and `makeRecordUpdateBox`. It opens when the author
+broke it, when a comment cannot ride the flat line, or when its content breaks.
+
+`contentVertical` is "does some item's BOX render multi-line", which is not
+knowable without rendering, so it is approximated recursively by
+`subtreeHasVerticalBox`. That approximation is sound in the direction callers
+need: it says True only for content that breaks unconditionally.
+
+Shared with `BinopLayout.operandCommentForcesOpen`, which used to keep its own
+copy of this gate precisely because the `RecordUpdate` arm below could not be
+trusted. One gate, so the two can no longer drift.
+-}
+bracketOpenGate : Bool -> Array LPNode -> Bool
+bracketOpenGate forceVertical children =
+    forceVertical
+        || (Array.any nodeIsComment children
+                && not (literalCommentsRideFlatLine children)
+           )
+        || Array.any subtreeHasVerticalBox children
+
+
+-- A subtree that always produces a hard break (an AlwaysVertical, or a bracketed
+-- construct the `bracketOpenGate` opens).
 subtreeHasVerticalBox : LPNode -> Bool
 subtreeHasVerticalBox node =
     when lpnBox node is
         AlwaysVertical _ ->
             True
 
-        RecordUpdate _ ->
-            True
+        RecordUpdate { forceVertical } ->
+            -- `forceVertical` rides in the box here, whereas an author-broken
+            -- literal is a different constructor (`AlwaysVertical`) -- which is
+            -- why the literal arm passes False and this one does not.
+            bracketOpenGate forceVertical (lpnChildren node)
 
         AllAcrossOrAllVertical _ ->
-            -- Mirrors `makeLiteralBox`'s gate: a comment only forces the
-            -- literal open when it cannot ride the flat line.
-            (Array.any nodeIsComment (lpnChildren node)
-                && not (literalCommentsRideFlatLine (lpnChildren node))
-            )
-                || Array.any subtreeHasVerticalBox (lpnChildren node)
+            bracketOpenGate False (lpnChildren node)
 
         _ ->
             Array.any subtreeHasVerticalBox (lpnChildren node)

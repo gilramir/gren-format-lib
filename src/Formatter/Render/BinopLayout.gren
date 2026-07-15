@@ -7,7 +7,7 @@ import Formatter.Render.Box as B exposing (Box(..))
 import Formatter.Logical.LogicalPrintingTree exposing (LPBox(..), LPNode, lpnBox, lpnChildren, lpnLastPos, lpnLastBracketEnd)
 import Formatter.Logical.BinopPrecedence exposing (binopPrecedence)
 import Formatter.Render.BoxOps exposing (traverseResult)
-import Formatter.Render.NodeClassify exposing (nodeIsComment, subtreeHasComment, literalCommentsRideFlatLine, subtreeHasVerticalBox, leafValue, nodeSpansRows)
+import Formatter.Render.NodeClassify exposing (nodeIsComment, subtreeHasComment, literalCommentsRideFlatLine, subtreeHasVerticalBox, bracketOpenGate, leafValue, nodeSpansRows)
 
 {-| Flatten the nested `Binop`/`OpAndRhs` tree into a flat operand + operator
 list. Each operand is itself a flow (array of nodes). -}
@@ -86,32 +86,17 @@ keeps breaking on any comment, matching the render paths they still take.
 operandCommentForcesOpen : LPNode -> Bool
 operandCommentForcesOpen node =
     when lpnBox node is
+        -- Both bracket kinds render through the same gate. False, not the box's
+        -- own `forceVertical`: the sole caller already ORs in `nodeSpansRows`,
+        -- which is what covers the author-broke case for either kind.
         AllAcrossOrAllVertical _ ->
-            -- `subtreeHasVerticalBox`'s literal arm already mirrors
-            -- `makeLiteralBox`'s gate exactly.
-            subtreeHasVerticalBox node
+            bracketOpenGate False (lpnChildren node)
 
         RecordUpdate _ ->
-            bracketCommentForcesOpen node
+            bracketOpenGate False (lpnChildren node)
 
         _ ->
             subtreeHasComment node
-
-
-{-| Mirrors `makeRecordUpdateBox`'s gate: a comment opens the update only if it
-cannot ride the flat line, and a field that breaks on its own opens it too.
-
-Deliberately not `subtreeHasVerticalBox`, whose `RecordUpdate` arm reports every
-update as vertical. That over-approximation predates the inline-comment rule
-(a plain `{ r | a = 1, b = 2 }` renders flat and always did), and using it here
-would break a chain around an update that renders on one line.
--}
-bracketCommentForcesOpen : LPNode -> Bool
-bracketCommentForcesOpen node =
-    (Array.any nodeIsComment (lpnChildren node)
-        && not (literalCommentsRideFlatLine (lpnChildren node))
-    )
-        || Array.any subtreeHasVerticalBox (lpnChildren node)
 
 
 {-| Operand box kinds whose multi-line form breaks a binop chain vertically: a
