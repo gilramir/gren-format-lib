@@ -1,0 +1,246 @@
+module Formatter.Audit.PredicateAgreement exposing (Finding, auditLpt, findingsToJson)
+
+{-| A render-truth audit of the LPT "will this break?" predicates.
+
+Several predicates in `Formatter.Render.NodeClassify` answer "does this subtree
+force a hard break?" *before* anything is rendered, so that callers can lay out
+the code around it. Each one is a hand-written mirror of what the renderer
+actually does, and nothing forces the two to agree. When a predicate
+over-approximates -- claims a break the renderer never emits -- callers commit
+to a vertical shape for content that lands on one line.
+
+Nothing else catches that. Such output is still deterministic, AST-equivalent,
+idempotent, and stable under both fuzzers; only the layout is wrong. This module
+is the missing oracle: it checks each predicate against the renderer itself.
+
+The property is one-directional:
+
+    predicate node == True   ==>   the node's own box renders multi-line
+
+An under-approximation (False on a node that does render multi-line) is NOT
+reported: these predicates only claim the breaks that are unconditional, and a
+node can still break for reasons they deliberately do not model -- most often
+the author's own row layout (`forceVertical`).
+
+@docs Finding, auditLpt, findingsToJson
+
+-}
+
+import Json.Encode as Json
+import Formatter.Render.Box as B exposing (Box)
+import Formatter.Render.BoxOps exposing (isSingleLine)
+import Formatter.Render.MakeRenderBox exposing (makePBox)
+import Formatter.Render.NodeClassify exposing (subtreeHasVerticalBox, isMultilineContentParenBlockBox, isMultilineLambdaParenBlockBox)
+import Formatter.Logical.LogicalPrintingTree exposing (LPBox(..), LPNode, lpnBox, lpnChildren, lpnFirstPos, stypeToString)
+
+
+{-| One over-approximation: `predicate` claimed `boxKind` at `row`:`col` would
+break, but it rendered as the single line `rendered`.
+
+`propagated` separates a lie from its echo. `subtreeHasVerticalBox`'s fallback
+arm is `Array.any subtreeHasVerticalBox children`, so one wrong answer at a leaf
+makes every ancestor wrong too, and the callers reading them wrong in turn. A
+propagated finding is real but not separately fixable -- it disappears when the
+node below it is fixed. Only `propagated == False` findings are a work-list.
+-}
+type alias Finding =
+    { predicate : String
+    , boxKind : String
+    , row : Int
+    , col : Int
+    , rendered : String
+    , propagated : Bool
+    }
+
+
+{-| The predicates under audit. Every one of them is consulted before layout and
+answers "this will break", so every one of them owes the renderer agreement.
+-}
+auditedPredicates : Array { name : String, test : LPNode -> Bool }
+auditedPredicates =
+    [ { name = "subtreeHasVerticalBox", test = subtreeHasVerticalBox }
+    , { name = "isMultilineContentParenBlockBox", test = isMultilineContentParenBlockBox }
+    , { name = "isMultilineLambdaParenBlockBox", test = isMultilineLambdaParenBlockBox }
+    ]
+
+
+{-| Walk every node of an LPT and report each predicate that promised a break
+the renderer did not deliver.
+-}
+auditLpt : LPNode -> Array Finding
+auditLpt root =
+    (walk root).findings
+
+
+{-| Bottom-up so each node knows whether the lie started here or below it.
+`liesBelow` is threaded up rather than recomputed per node: every audited
+predicate ultimately reads `subtreeHasVerticalBox` over descendants, so a
+descendant that lies explains an ancestor that lies.
+-}
+walk : LPNode -> { findings : Array Finding, liesInSubtree : Bool }
+walk node =
+    let
+        childResults =
+            Array.map walk (lpnChildren node)
+
+        liesBelow =
+            Array.any (\r -> r.liesInSubtree) childResults
+
+        ownFindings =
+            checkNode node liesBelow
+    in
+    { findings = Array.mapAndFlatten (\r -> r.findings) childResults ++ ownFindings
+    , liesInSubtree = liesBelow || not (Array.isEmpty ownFindings)
+    }
+
+
+checkNode : LPNode -> Bool -> Array Finding
+checkNode node liesBelow =
+    when makePBox (lpnBox node) (lpnChildren node) is
+        -- A node that cannot render on its own (RootBox, OriginalRows, or a
+        -- construct whose builder needs context its parent holds) yields no
+        -- render truth to compare against, so it proves nothing either way.
+        Err _ ->
+            []
+
+        Ok box ->
+            if isSingleLine box then
+                auditedPredicates
+                    |> Array.keepIf (\p -> p.test node)
+                    |> Array.map (\p -> makeFinding p.name node box liesBelow)
+
+            else
+                []
+
+
+makeFinding : String -> LPNode -> Box -> Bool -> Finding
+makeFinding name node box liesBelow =
+    { predicate = name
+    , boxKind = boxKindName (lpnBox node)
+    , row = lpnFirstPos node |> Maybe.map (\p -> p.row) |> Maybe.withDefault -1
+    , col = lpnFirstPos node |> Maybe.map (\p -> p.col) |> Maybe.withDefault -1
+    , rendered = String.trim (B.render box)
+    , propagated = liesBelow
+    }
+
+
+{-| The constructor name, plus the detail that decides the layout (a bracket
+kind, or whether the author already forced it vertical) -- enough to tell one
+finding's shape from another's without going back to `--lpt`.
+-}
+boxKindName : LPBox -> String
+boxKindName box =
+    let
+        forced fv =
+            if fv then
+                " forceVertical"
+
+            else
+                ""
+    in
+    when box is
+        RootBox ->
+            "RootBox"
+
+        OriginalRows r ->
+            "OriginalRows " ++ stypeToString r.stype
+
+        EmptyLine ->
+            "EmptyLine"
+
+        UnbreakableText _ ->
+            "UnbreakableText"
+
+        SynthesizedText _ ->
+            "SynthesizedText"
+
+        SingleLineComment _ ->
+            "SingleLineComment"
+
+        BlockComment _ ->
+            "BlockComment"
+
+        DocComment _ ->
+            "DocComment"
+
+        AcrossOrVertical r ->
+            "AcrossOrVertical" ++ forced r.forceVertical
+
+        IfCondition r ->
+            "IfCondition" ++ forced r.forceVertical
+
+        AllAcrossOrAllVertical _ ->
+            "AllAcrossOrAllVertical"
+
+        AlwaysVertical _ ->
+            "AlwaysVertical"
+
+        RecordUpdate r ->
+            "RecordUpdate" ++ forced r.forceVertical
+
+        EmptyBracketed _ ->
+            "EmptyBracketed"
+
+        IndentedBlock ->
+            "IndentedBlock"
+
+        PipelineStep ->
+            "PipelineStep"
+
+        Pipeline r ->
+            "Pipeline" ++ forced r.forceVertical
+
+        BodyBlock ->
+            "BodyBlock"
+
+        WhenBranch ->
+            "WhenBranch"
+
+        WhenBranchPattern ->
+            "WhenBranchPattern"
+
+        ParenBlock r ->
+            "ParenBlock" ++ forced r.forceVertical
+
+        OpAndRhs ->
+            "OpAndRhs"
+
+        Binop r ->
+            "Binop" ++ forced r.forceVertical
+
+        AlignedFlow ->
+            "AlignedFlow"
+
+        WhenFlow r ->
+            "WhenFlow" ++ forced r.forceVertical
+
+        PrefixGlue _ ->
+            "PrefixGlue"
+
+        Glue ->
+            "Glue"
+
+        SoftIndentedBlock ->
+            "SoftIndentedBlock"
+
+        MultilineString _ ->
+            "MultilineString"
+
+
+{-| Encode findings for the `--audit-predicates` flag. -}
+findingsToJson : Array Finding -> String
+findingsToJson findings =
+    findings
+        |> Array.map
+            (\f ->
+                Json.object
+                    [ { key = "predicate", value = Json.string f.predicate }
+                    , { key = "boxKind", value = Json.string f.boxKind }
+                    , { key = "row", value = Json.int f.row }
+                    , { key = "col", value = Json.int f.col }
+                    , { key = "rendered", value = Json.string f.rendered }
+                    , { key = "propagated", value = Json.bool f.propagated }
+                    ]
+            )
+        |> Json.array identity
+        |> Json.encode 2

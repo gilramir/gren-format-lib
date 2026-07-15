@@ -94,6 +94,39 @@ fuzzers invoke `../../gren-format/gren-format.sh` as a subprocess, so they
 require an up-to-date binary. Run after any change to comment handling, and
 after adding any comment-bearing fixture.
 
+### Predicate/renderer agreement audit
+
+Every other check in this repo is a **self-consistency** check — fixture diff,
+AST equivalence, idempotency, both fuzzers. Output that is wrongly laid out but
+deterministic, AST-equivalent and idempotent passes all of them. This audit is
+the missing oracle: it checks the layout predicates against the renderer itself.
+
+Several predicates in `Render/NodeClassify.gren` answer "does this subtree force
+a hard break?" *before* rendering, so callers can lay out the code around it.
+Each is a hand-written mirror of the renderer, and nothing forces them to agree.
+The audit checks, per LPT node:
+
+    predicate node == True   ==>   the node's own box renders multi-line
+
+```bash
+cd gren-format-lib/tests
+./audit-predicates.py -j 12                              # whole corpus
+./audit-predicates.py -v testfiles/Formatter/Foo.formatted.gren
+```
+
+**Rebuild the `gren-format` app first** — it shells out to `--audit-predicates`.
+
+Findings are split into **root** and **propagated**: `subtreeHasVerticalBox`'s
+fallback arm is `Array.any subtreeHasVerticalBox children`, so one wrong answer
+at a leaf makes every ancestor wrong too. Only root findings are a work-list;
+propagated ones disappear when the node below them is fixed.
+
+Under-approximation is deliberately not reported — these predicates claim only
+the *unconditional* breaks, and a node can still break for reasons they do not
+model (most often the author's own `forceVertical` layout).
+
+The audit itself is `src/Formatter/Audit/PredicateAgreement.gren`.
+
 ### Whitespace-canonicalization fuzzer
 
 Perturbs inter-token whitespace and requires `format(perturbed) == format(original)`.

@@ -10,6 +10,7 @@
         "Compiler.Ast.Source.Json",
         "Compiler.Parse.Context.Json",
         "Formatter",
+        "Formatter.Audit.PredicateAgreement",
         "Formatter.Logical",
         "Formatter.Logical.LPTJson",
         "Formatter.Render"

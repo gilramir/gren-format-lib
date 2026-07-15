@@ -1,4 +1,4 @@
-module Formatter.Render.MakeRenderBox exposing (makePrettyLineBox)
+module Formatter.Render.MakeRenderBox exposing (makePrettyLineBox, makePBox)
 
 {-| Box-model renderer — the sole backend. It renders an LPT node to
 elm-format's `Box` (Tab + prefix arithmetic), returning `Err` for any construct
