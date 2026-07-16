@@ -2349,6 +2349,25 @@ longer compiles. The parser reads both spellings as the same expression
 [compiler-common#27](https://github.com/gren-lang/compiler-common/issues/27),
 which fixed every other kind of base but not this one.
 
+#### An unparenthesized constructor pattern can't be aliased with `as`
+
+```gren
+f x =
+    when x is
+        Just y as whole ->
+            whole
+```
+
+fails to parse — `Expected keyword '->'` at `as` — even though the real Gren
+compiler accepts it. The parser accepts `as` after a bare variable or
+wildcard (`x as step`, `_ as step`) and after a *parenthesized* constructor
+application (`(Just y) as whole`), but not after an unparenthesized one. Since
+parsing happens before formatting, gren-format refuses the whole file, not
+just this pattern — real fallout: `core/src/String/Parser/Advanced.gren` has
+this exact shape and can't be formatted until it's fixed. Tracked at
+[compiler-common#31](https://github.com/gren-lang/compiler-common/issues/31).
+Workaround: add the parens yourself, `(Just y) as whole`.
+
 #### Wide `when` branch patterns
 
 A `when` branch whose record (or array) pattern is too wide to fit on one line
