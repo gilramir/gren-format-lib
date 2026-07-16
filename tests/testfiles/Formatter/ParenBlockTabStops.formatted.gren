@@ -29,3 +29,56 @@ directOperandPipe =
                 else
                     bbbbb
            )
+
+
+nestedParenPipeCallArg =
+    fn
+        ((if cond then
+            one
+
+          else
+            two
+         )
+            |> gn
+        )
+        last
+
+
+nestedParenBinopCallArg =
+    fn
+        ((if cond then
+            one
+
+          else
+            two
+         )
+            + rest
+        )
+        last
+
+
+nestedParenPipeWhen =
+    fn
+        ((when sel is
+            Just w ->
+                w
+
+            Nothing ->
+                0
+         )
+            |> gn
+        )
+        last
+
+
+nestedParenPipeLet =
+    fn
+        ((let
+            q =
+                one
+          in
+          q
+         )
+            |> gn
+        )
+        last

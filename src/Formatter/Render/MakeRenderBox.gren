@@ -2259,6 +2259,14 @@ parenGenericFallbackBox flags children =
                     if parenContentLeadsWithMultilinePrefixGlue children then
                         Ok (wrapParenVerticalPadded innerBox)
 
+                    else if parenContentLeadsWithBlockParen children then
+                        -- A doubled `((if/when/let ...` — the inner paren's
+                        -- literal-padded lines (`else`/`in`, its bare `)`)
+                        -- need the outer `(`'s width riding along too, or
+                        -- they anchor to the wrong paren. See
+                        -- `parenContentLeadsWithBlockParen`.
+                        Ok (wrapParenVerticalPadded innerBox)
+
                     else if Array.any subtreeHasComment children && not (parenLambdaMultiline children) then
                         -- A comment forced this content multi-line via the
                         -- comment-aware flow builders' `B.prefix` glue (exact
@@ -2326,6 +2334,69 @@ parenContentLeadsWithMultilinePrefixGlue children =
 
                         Err _ ->
                             False
+
+                _ ->
+                    False
+
+        Nothing ->
+            False
+
+
+{-| True when the paren's content leads — before any operator — with ANOTHER
+paren wrapping a block (`if`/`when`/`let`): `((if c then a else b) |> gn)`,
+`((if c then a else b) + rest)`. Descends through `Pipeline`/`Binop` wrapper
+nodes to find the leftmost operand (a chain's first operand is always its
+own first child, whether it's the pipeline seed or a `Binop` chain's
+`operand0` — see the `Pipeline`/`Binop` doc comments in
+`LogicalPrintingTree.gren`).
+
+Needed because `wrapParenVertical` glues the OUTER `(` onto line 1 only and
+leaves every other line untouched, relying on the content's own `Tab`s to
+self-realign (a `Tab` snaps to the next multiple of 4 regardless of the 1-2
+extra literal characters now sitting ahead of it — see `Render/Box.gren`).
+That holds for an ordinary binop/`when`/`if` operand, but a nested
+block-paren's `else`/`in` lines and its bare closing `)` are positioned with
+LITERAL padding (`wrapParenVerticalPadded`), not a `Tab` — they don't
+self-correct, so without this check the outer paren stays glue-only and they
+anchor one column short, to the OUTER `(` instead of the inner one. -}
+parenContentLeadsWithBlockParen : Array LPNode -> Bool
+parenContentLeadsWithBlockParen children =
+    when Array.first children is
+        Just first ->
+            when lpnBox first is
+                Pipeline _ ->
+                    parenContentLeadsWithBlockParen (lpnChildren first)
+
+                Binop _ ->
+                    parenContentLeadsWithBlockParen (lpnChildren first)
+
+                ParenBlock _ ->
+                    parenBlockIsBlockForm first
+
+                _ ->
+                    False
+
+        Nothing ->
+            False
+
+
+{-| True when a `ParenBlock` node's own content is `if`/`when`/`let` — the
+shapes `makeParenBlockBox` sends down `blockInParenBox` or its `WhenFlow`
+branch, both `wrapParenVerticalPadded`. Mirrors `makeParenBlockBox`'s own
+dispatch; keep the two in sync. -}
+parenBlockIsBlockForm : LPNode -> Bool
+parenBlockIsBlockForm node =
+    when Array.first (lpnChildren node) is
+        Just headNode ->
+            when lpnBox headNode is
+                IfCondition _ ->
+                    True
+
+                WhenFlow _ ->
+                    True
+
+                UnbreakableText loc ->
+                    loc.value == "let"
 
                 _ ->
                     False

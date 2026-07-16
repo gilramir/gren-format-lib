@@ -156,19 +156,24 @@ genuine bug gets a `BUG:` reason, which is **also** printed every run — being
 understood is not the same as being acceptable, and a baseline entry is the
 easiest place in this repo for a known bug to go quiet.
 
-Current state: **850/850 pass oracles 1–3**; 593/850 are byte-identical to
-elm-format, with 257 registered divergences — 251 redundant parens (#10), 3
-pipeline-`|>` alignment (#21), **0 UNREVIEWED**, and **3 known BUGs**, all
-`*/parenBinopArg` (nested `((` off-by-one). Use `-v` to see each divergence
-beside elm-format's output. `docs/redundantParens.md` is the reader-facing
-write-up of the #10 family, every example verified against both formatters.
-gren-format never strips a redundant paren, in any position, including call
-arguments — the former one-layer-only call-argument stripping (and its
-`doubleParen/callArg*` inconsistency) was removed entirely 2026-07-15.
+Current state: **850/850 pass oracles 1–3**; 596/850 are byte-identical to
+elm-format, with 254 registered divergences — 251 redundant parens (#10), 3
+pipeline-`|>` alignment (#21), **0 UNREVIEWED**, and **0 known BUGs**. Use
+`-v` to see each divergence beside elm-format's output.
+`docs/redundantParens.md` is the reader-facing write-up of the #10 family,
+every example verified against both formatters. gren-format never strips a
+redundant paren, in any position, including call arguments — the former
+one-layer-only call-argument stripping (and its `doubleParen/callArg*`
+inconsistency) was removed entirely 2026-07-15.
 `whenExpr/pipelineOperand` (a `(when …)` direct pipeline operand stranding the
-`|>`) was fixed the same day: `isMultilineLambdaParenBlockAnyBodyBox` in
-`Render/MakeRenderBox.gren` now recognizes a ParenBlock whose sole child is a
-`WhenFlow`, not just the `if`/`let`-shaped `[head, IndentedBlock, ...]` case.
+`|>`) and `*/parenBinopArg` (a doubled `((if/when/let ...)` call argument
+anchoring `else`/`in`/its inner `)` to the OUTER paren instead of the inner
+one) were both fixed the same day, in `Render/MakeRenderBox.gren`:
+`isMultilineLambdaParenBlockAnyBodyBox` now recognizes a ParenBlock whose sole
+child is a `WhenFlow`, and `parenGenericFallbackBox` now checks
+`parenContentLeadsWithBlockParen` (descends through `Pipeline`/`Binop` to the
+leftmost operand) to pick the padded paren-wrap when that operand is itself a
+paren-wrapped `if`/`when`/`let`.
 
 **Reclassifying is not a formality.** When the 46 UNREVIEWED were reviewed, two
 weaker tests both got it wrong: "same tokens once parens are deleted" cleared 45
