@@ -1,2 +1,5 @@
 .gren/
 gren_packages/
+
+# gren-coverage-node: sourcemapped test build for coverage
+tests/cov-app
