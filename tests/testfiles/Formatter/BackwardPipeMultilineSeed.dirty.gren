@@ -54,3 +54,13 @@ multiStepMultilineBody =
     seed <| f <| { a = 1
     , b = 2
     }
+
+
+multiStepBrokenCallBody =
+    fn
+        <| call
+               { a = 1
+               , b = 2
+               }
+               arg2
+        <| other

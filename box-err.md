@@ -1,5 +1,19 @@
 # Box-creation `Err` catalogue (`Formatter/Render/`)
 
+**Historical investigation document, not live reference material.** Written
+2026-07-12/13 during the C1-C3 exhaustiveness work below; every "Open items"
+entry is DONE. Kept because `MakeRenderBox.gren` cites it by section number
+(`§3`) at two live comment sites as the traced proof behind an "unreachable"
+claim — the REASONING in each section is still accurate as of 2026-07-15
+(spot-checked while writing this note), but **absolute line numbers
+throughout are stale** and should not be trusted: `MakeRenderBox.gren` was
+3443 lines when last checked, well under the ~4850 several citations below
+assume, because later module-splitting refactors ([[project_elm_format_refactor_plan]]-adjacent
+work, not tracked here) moved large chunks of it out into sibling files
+(`BinopLayout.gren`, `CommentBox.gren`, `FlowAssembly.gren`,
+`NodeClassify.gren`, `BoxOps.gren`). Grep for a cited function name or `Err`
+message string instead of trusting a line number.
+
 Catalogue of every `Err` in the Box-creation phase (LPT → Box), for follow-up work.
 Companion to the earlier Logical-phase (LPT-construction) catalogue, which found
 6 unreachable defensive-guard `Err` sites plus one error-prefixing wrapper — all
@@ -7,9 +21,10 @@ dead code. This phase is different: it contained a **confirmed, reproducible
 bug**, now fixed (see §1).
 
 Scope: `gren-format-lib/src/Formatter/Render/MakeRenderBox.gren`,
-`MakeRender.gren`, `FlowPolicy.gren`, `Box.gren`, `ElmStructure.gren`.
-No shared error-construction helper exists — every site is a literal
-`Err "..."` or a passthrough of a child `Result`.
+`Render.gren` (the render-stage orchestrator; called `MakeRender.gren`
+when this catalogue was written, since renamed), `FlowPolicy.gren`,
+`Box.gren`, `ElmStructure.gren`. No shared error-construction helper exists —
+every site is a literal `Err "..."` or a passthrough of a child `Result`.
 
 `MakeRenderBox.gren` had **66** `Err "..."` string-literal constructions
 when this catalogue was written (20 self-labelled `"unreachable: ..."`, 46
@@ -153,25 +168,30 @@ wildcard at whichever ones don't happen to match it.
 `FlowPolicy.gren:188-198` defines `Placement` with 10 constructors
 (`AsFirst`, `GlueNoSep`, `GlueSpace`, `SoftSep`, `OwnLine`,
 `OwnLineAfterBlank`, `IndentNoBreak`, `BlockJoin`, `DropBlock`,
-`BlankLineOnly`). `assembleFlowImpl` (MakeRenderBox.gren:4240-4850)
-materializes them in three separate `when decision.placement is` blocks,
-each ending in a wildcard `Err`:
+`BlankLineOnly`). `assembleFlowImpl` (`MakeRenderBox.gren`, function starts
+~2752, as of 2026-07-15 — see the line-number note at the top of this file)
+materializes them in four separate `when decision.placement is` blocks (a
+5th, unrelated 2-arm `DropBlock`/`_` dispatch inside `stepUnwrapped` is NOT
+part of this pattern), each ending in a wildcard `Err`:
 
-- `4415`: `Err "box: unexpected multi-line comment placement"` (handles AsFirst/GlueNoSep/OwnLine/GlueSpace)
-- `4450`: `Err "box: unexpected terminating comment placement"` (same 4)
-- `4477`: `Err "box: unexpected inline comment placement"` (AsFirst/GlueSpace/SoftSep/OwnLine)
-- `4772-4773`: `Err "box: unexpected flow placement"` (AsFirst/GlueNoSep/SoftSep/OwnLine/IndentNoBreak/BlockJoin/DropBlock/BlankLineOnly — 8 of 10)
+- `Err "box: unexpected multi-line comment placement"` (handles AsFirst/GlueNoSep/OwnLine/GlueSpace)
+- `Err "box: unexpected terminating comment placement"` (same 4)
+- `Err "box: unexpected inline comment placement"` (AsFirst/GlueSpace/SoftSep/OwnLine)
+- `Err "box: unexpected flow placement"` (AsFirst/GlueNoSep/SoftSep/OwnLine/IndentNoBreak/BlockJoin/DropBlock/BlankLineOnly — 8 of 10)
+
+(Grep the message strings above in `MakeRenderBox.gren` to find each site —
+don't trust absolute line numbers here, see the top-of-file note.)
 
 Traced against `FlowPolicy.decide` (FlowPolicy.gren:211-433):
 `commentPlacement`/`LineCommentItem`/`BlockCommentItem` can only ever yield
-`{AsFirst, GlueNoSep, GlueSpace, OwnLine}`, so 4415/4450/4477 are provably
-unreachable today, not just "probably". The 4772-4773 wildcard's two
+`{AsFirst, GlueNoSep, GlueSpace, OwnLine}`, so the first three are provably
+unreachable today, not just "probably". The 4th wildcard's two
 uncovered placements are `GlueSpace` (never assigned to a non-comment
 `ItemFacts` case in `decide`) and `OwnLineAfterBlank` (assigned only by
 `WhenBranchItem`). Grepping `MakeRenderBox.gren` for `WhenBranchItem`
-returns **zero hits** — `factsFor` (line 4259-4319) never constructs it;
-`WhenBranch` nodes are routed exclusively through the dedicated
-`renderWhenBranchesBox`/`makeWhenBranchBox` path, never through
+returns **zero hits** — `factsFor` (nested inside `assembleFlowImpl`) never
+constructs it; `WhenBranch` nodes are routed exclusively through the
+dedicated `renderWhenBranchesBox`/`makeWhenBranchBox` path, never through
 `assembleFlowImpl`'s generic `factsFor`. So `FP.WhenBranchItem` and
 `Placement.OwnLineAfterBlank` are dead in the current wiring — this is the
 same "future-enum-growth trip-wire" pattern as `makePBox`'s wildcard, one

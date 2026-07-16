@@ -1,0 +1,16 @@
+module TypeAliasFunctionType exposing (..)
+
+
+type alias InlineHandler =
+    String -> Int -> Bool
+
+
+type alias BrokenHandler =
+    String
+    -> Int
+    -> Bool
+
+
+type alias PartiallyBrokenHandler =
+    String -> Int
+    -> Bool

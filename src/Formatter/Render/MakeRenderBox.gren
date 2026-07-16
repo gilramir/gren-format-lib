@@ -2,7 +2,9 @@ module Formatter.Render.MakeRenderBox exposing (makePrettyLineBox, makePBox)
 
 {-| Box-model renderer — the sole backend. It renders an LPT node to
 elm-format's `Box` (Tab + prefix arithmetic), returning `Err` for any construct
-it cannot render (the caller, `MakeRender.makePrettyLine`, surfaces that `Err`).
+it cannot render (the caller, `Formatter.Render`'s private `makePrettyLine`,
+surfaces that `Err` — there is no fallback renderer, so it fails the whole
+file).
 
 It handles every top-level definition kind: leaves, record / array literals,
 flows and nested flows, blocks, pipelines, binops, `when`/`if`/`let`,
@@ -21,7 +23,9 @@ import Formatter.Render.BinopLayout exposing (flattenBinopNodes, assembleBinopBo
 import Formatter.Render.FlowAssembly exposing (FlowItem, SoftGlueAlignment(..), assembleBrokenWithComments, assembleBrokenCall, trySoftGlueFlow, pairTypeRecordComments, softGlueAlignment, parenInnerIsAlignCarrying, softBlockChildForcesVerticalBox, bracketPunc, verticalExposingBox, gluedExposingBox)
 
 
-{-| Entry point: render one top-level root child to a Box, or Err to fall back. -}
+{-| Entry point: render one top-level root child to a Box, or `Err` if it
+can't be rendered — there is no fallback, so an `Err` here fails the format
+for the whole file. -}
 makePrettyLineBox : LPNode -> Result String Box
 makePrettyLineBox node =
     when lpnBox node is
@@ -355,11 +359,24 @@ renderHeaderIndentedBody bodyRenderer children =
 
 
 -- A type-alias body: a single type node (record, or a plain `= Int`-style
--- type) renders as-is; a multi-line function type (`->` segments) isn't ported
--- and falls back.
+-- type) renders inline. A multi-line function type (`->` segments) the author
+-- wrote across rows renders one segment per row instead, matching a function
+-- signature's multi-line body -- but with no "name :" header line to glue the
+-- first segment to, every segment (including the first) sits at the SAME
+-- column, since `renderHeaderIndentedBody` already supplies the body's one
+-- +4 from `type alias Foo =`.
 makeTypeAliasBody : Array LPNode -> Result String Box
 makeTypeAliasBody nodes =
-    buildFlowBox 0 nodes
+    let
+        segments =
+            splitSignatureSegments nodes
+    in
+    if signatureForceVertical segments then
+        traverseResult (buildFlowBox 0) segments
+            |> Result.map B.stack1
+
+    else
+        buildFlowBox 0 nodes
 
 
 {-| A union body: each variant (`= A`, `| B`) on its own line when the author
@@ -1064,7 +1081,7 @@ backwardSingleStep forceVertical seedBox bodyNodes =
                     -- head/body split.
                     buildBackwardBodyBox bodyNodes
                         |> Result.andThen
-                            (\bodyBox ->
+                            (\{ box = bodyBox } ->
                                 -- A multi-line body drops to +4 under `seed <|`
                                 -- exactly as the author-broken (`forceVertical`)
                                 -- case does — elm-format breaks the pipeline the
@@ -1088,17 +1105,26 @@ backwardSingleStep forceVertical seedBox bodyNodes =
 {-| Render a `<|` step body: a body that is a call with a child that renders
 multi-line (e.g. a record argument) is a broken call whose arguments land at +4
 under the function name — not a plain flow (which would drop them at +0).
-Comment-leading bodies aren't ported (they fall back). -}
-buildBackwardBodyBox : Array LPNode -> Result String Box
+
+`isBrokenCall` tells `backwardMultiStep` whether this body took that path: a
+relocated call's trailing `<|` (leading into the NEXT step) belongs on its own
+line at the call's own indent, not glued onto the last argument's line —
+matching elm-format's break for a multi-line application. A body that stayed
+on the plain-flow path (a lambda/`if`/`when` body, or anything else
+`assembleFlow` already handles) keeps the trailing `<|` glued to its last
+line, unaffected. -}
+buildBackwardBodyBox : Array LPNode -> Result String { box : Box, isBrokenCall : Bool }
 buildBackwardBodyBox bodyNodes =
     renderFlowItems bodyNodes
         |> Result.andThen
             (\items ->
                 if Array.any .isBlock items then
                     assembleBrokenCall grenIndent items
+                        |> Result.map (\box -> { box = box, isBrokenCall = True })
 
                 else
                     assembleFlow False 0 items
+                        |> Result.map (\box -> { box = box, isBrokenCall = False })
             )
 
 
@@ -1107,19 +1133,22 @@ buildBackwardBodyBox bodyNodes =
 -- +4, the `<|` trailing the previous body. A multi-line body forces the vertical
 -- form (elm-format breaks the chain the moment any body spans rows), and each
 -- body is kept as a Box so a multi-line one glues its trailing `<|` onto its own
--- last line via `B.addSuffix`.
+-- last line via `B.addSuffix` — UNLESS that body is a relocated (broken-call)
+-- shape, in which case the trailing `<|` goes on its own line at the body's own
+-- indent instead of gluing to the last argument (`isBrokenCall`, matching
+-- elm-format's break for a multi-line application).
 backwardMultiStep : Bool -> Box -> Array (Array LPNode) -> Result String Box
 backwardMultiStep forceVertical seedBox stepBodies =
-    traverseResult (\body -> buildFlowBox 0 body) stepBodies
+    traverseResult buildBackwardBodyBox stepBodies
         |> Result.andThen
             (\bodyBoxes ->
                 let
                     effectiveVertical =
-                        forceVertical || Array.any (\b -> not (isSingleLine b)) bodyBoxes
+                        forceVertical || Array.any (\b -> not (isSingleLine b.box)) bodyBoxes
                 in
                 if not effectiveVertical then
                     -- Every body is single-line here, so `boxLine` cannot fail.
-                    traverseResult boxLine bodyBoxes
+                    traverseResult (\b -> boxLine b.box) bodyBoxes
                         |> Result.map
                             (\bodyLines ->
                                 B.addSuffix
@@ -1140,9 +1169,20 @@ backwardMultiStep forceVertical seedBox stepBodies =
                         (B.stack1
                             ([ B.addSuffix (B.literal " <|") seedBox ]
                                 ++ Array.indexedMap
-                                    (\i bodyBox ->
-                                        B.indent
-                                            (if i < n - 1 then
+                                    (\i { box = bodyBox, isBrokenCall } ->
+                                        -- Each step nests one MORE tab stop than
+                                        -- the previous, cumulatively — elm-format
+                                        -- treats a vertical `<|` chain as nested
+                                        -- applications, not a flat list of
+                                        -- same-depth steps, so step i sits at
+                                        -- (i+1) tab stops regardless of whether
+                                        -- THAT particular step is what forced the
+                                        -- chain vertical.
+                                        applyIndent ((i + 1) * grenIndent)
+                                            (if i < n - 1 && isBrokenCall then
+                                                B.stack1 [ bodyBox, B.line (B.literal "<|") ]
+
+                                             else if i < n - 1 then
                                                 B.addSuffix (B.literal " <|") bodyBox
 
                                              else
@@ -2652,8 +2692,8 @@ renderFlowItem node =
 
 {-| Assemble a flow: inline nodes join on one line with single spaces; a single
 trailing block node (BodyBlock / IndentedBlock / any multi-line node) drops to
-its own line indented by `indent`. Shapes outside "inline* block?" are `Err`
-(fall back) for now. -}
+its own line indented by `indent`. Shapes outside "inline* block?" are `Err` —
+there is no fallback renderer, so that fails the whole file. -}
 buildFlowBox : Int -> Array LPNode -> Result String Box
 buildFlowBox indent nodes =
     renderFlowItems nodes
@@ -2813,21 +2853,30 @@ assembleFlowImpl inlineStart flowIndent items =
                         -- genuinely the best available answer for those, not a
                         -- shortcut.
                         --
-                        -- Checked (2026-07-13): a dozen targeted repros — a
-                        -- same-row trailing comment directly after each of the
-                        -- 8 named kinds, in various positions — found no actual
-                        -- misplacement; every case was intercepted by a more
-                        -- specific path first (`assembleBrokenCall` for a call
-                        -- with a block argument, `verticalBinopChainBox`'s own
+                        -- Checked (2026-07-13, re-checked 2026-07-15): two
+                        -- independent rounds of targeted repros — a same-row
+                        -- trailing comment directly after each of the 8 named
+                        -- kinds, single-line and (where a kind can even be
+                        -- single-line) multi-line, in a call-argument flow —
+                        -- found no actual misplacement in either round; every
+                        -- case was intercepted by a more specific path first
+                        -- (`assembleBrokenCall` for a call with a block
+                        -- argument, `verticalBinopChainBox`'s own
                         -- comment-splitting for binops, `commentBracketListBox`
                         -- for bracket literals, or `Comments.gren` attaching the
                         -- comment inside the nested bracket rather than as a
-                        -- flow sibling). So this is not a live bug — but unlike
-                        -- the ~35+ "unreachable"-labeled wildcards elsewhere in
-                        -- this file, that's an empirical result, not a proof by
-                        -- construction. If a comment-placement bug ever surfaces
-                        -- near a `RecordUpdate`/`ParenBlock` flow item, start
-                        -- here: wiring `lpnLastBracketEnd item.node` through
+                        -- flow sibling), and every case that DID reach this arm
+                        -- (a multi-line `WhenFlow`/`MultilineString` glued
+                        -- inline as an argument) rendered correctly and stayed
+                        -- an idempotent fixed point. So this is not a live bug —
+                        -- but unlike the ~35+ "unreachable"-labeled wildcards
+                        -- elsewhere in this file, that's an empirical result,
+                        -- not a proof by construction, and the 2026-07-15 round
+                        -- didn't try every flow context (call arguments only —
+                        -- not, say, a let-binding value or record field value).
+                        -- If a comment-placement bug ever surfaces near a
+                        -- `RecordUpdate`/`ParenBlock` flow item, start here:
+                        -- wiring `lpnLastBracketEnd item.node` through
                         -- (mirroring the `AcrossOrVertical` arm) is the fix.
                         _ ->
                             FP.LeafItem { startRow = -1, isElidedArrow = False }

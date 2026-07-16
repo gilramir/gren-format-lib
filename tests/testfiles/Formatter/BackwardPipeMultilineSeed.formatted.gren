@@ -33,7 +33,7 @@ multiStep =
     , 2
     ] <|
         f <|
-        g
+            g
 
 
 lambdaAcross =
@@ -54,6 +54,17 @@ inlineOpMultilineBody =
 multiStepMultilineBody =
     seed <|
         f <|
-        { a = 1
-        , b = 2
-        }
+            { a = 1
+            , b = 2
+            }
+
+
+multiStepBrokenCallBody =
+    fn <|
+        call
+            { a = 1
+            , b = 2
+            }
+            arg2
+        <|
+            other

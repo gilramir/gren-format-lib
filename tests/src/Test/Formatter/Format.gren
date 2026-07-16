@@ -409,6 +409,7 @@ declarationSuite fsPerm =
         , setUp = U.noFixture
         , tearDown = U.noTearDown
         , tests = [ assertPretty fsPerm "type aliases" "TypeAlias"
+            , assertPretty fsPerm "a type alias whose body is a bare function type renders one `->` segment per row when the author broke it that way (even at only one boundary), with every segment -- including the first -- at the same column, since there's no \"name :\" header to glue it to" "TypeAliasFunctionType"
             , assertPretty fsPerm "union types" "TypeUnion"
             , assertPretty fsPerm "type signatures" "TypeSignature"
             , assertPretty fsPerm "ports" "Ports"
@@ -491,7 +492,7 @@ commentsSuite fsPerm =
             -- Regression guards for the C/D/E stale-assumption fixes (previously
             -- crashed with a `box: … not ported` Err).
             , assertPretty fsPerm "an inline lambda body in a backward `<|` pipeline stays inline" "BackwardPipeInlineLambda"
-            , assertPretty fsPerm "a multi-line seed in a backward `<|` pipeline glues `<|` onto its last line" "BackwardPipeMultilineSeed"
+            , assertPretty fsPerm "a multi-line seed in a backward `<|` pipeline glues `<|` onto its last line; a multi-step chain that goes vertical nests each step one tab stop deeper than the last (elm-format's nested-application shape, not a flat list of same-depth steps); a step body that's a call with a broken argument relocates (call/args one per line at +4) the same way a single-step `<|` body already did, with the trailing `<|` on its own line rather than glued to the last argument" "BackwardPipeMultilineSeed"
             , assertPretty fsPerm "an `if`/lambda-valued field in a comment-bearing record update renders (drops the block)" "RecordUpdateCommentBlockValue"
             , assertPretty fsPerm "a multi-line call as an inline lambda body drops to its own line at +4" "LambdaMultilineCallBody"
             , assertPretty fsPerm "a multi-line triple-quoted string as an inline lambda body drops to its own line" "LambdaMultilineStringBody"
