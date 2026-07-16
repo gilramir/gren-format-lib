@@ -82,3 +82,32 @@ nestedParenPipeLet =
             |> gn
         )
         last
+
+
+brokenBinopAfterShortOp =
+    someLongLeftOperandHere
+        && (aaa
+                ++ bbb
+           )
+
+
+brokenBinopAfterAppend =
+    x
+        ++ (aaa
+                ++ bbb
+           )
+
+
+brokenBinopDirectOperandPipe =
+    seed
+        |> (aaa
+                ++ bbb
+           )
+
+
+brokenRecordDirectOperandPipe =
+    seed
+        |> ({ a = 1
+            , b = 2
+            }
+           )

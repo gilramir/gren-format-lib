@@ -1,4 +1,4 @@
-module Formatter.Render.BoxOps exposing (grenIndent, prefixOperator, wrapParenVertical, wrapParenVerticalPadded, blockIndentSpaces, applyIndent, stackWithBlanks, boxLine, traverseResult, spaceJoinLines, joinInline, isSingleLine, glueCommentSuffix, isBlockNode, nodesShareStartRow, nodeStartRow)
+module Formatter.Render.BoxOps exposing (grenIndent, prefixOperator, wrapParenVerticalPadded, blockIndentSpaces, applyIndent, stackWithBlanks, boxLine, traverseResult, spaceJoinLines, joinInline, isSingleLine, glueCommentSuffix, isBlockNode, nodesShareStartRow, nodeStartRow)
 
 {-| Low-level `Box`/`Line` manipulation helpers shared by the renderer.
 -}
@@ -62,32 +62,17 @@ stackWithBlanks boxes =
                 (Array.foldl (\b acc -> acc ++ [ B.blankLine, b ]) [ b0 ] rest)
 
 
-{-| Glue `(` onto the inner box's first line and stack `)` as a new final line,
-anchoring both to the `(` column. -}
-wrapParenVertical : Box -> Box
-wrapParenVertical box =
-    let
-        withOpen =
-            when box is
-                SingleLine l ->
-                    SingleLine (B.row [ B.punc "(", l ])
-
-                Stack s ->
-                    Stack { s | first = B.row [ B.punc "(", s.first ] }
-
-                MustBreakBox l ->
-                    MustBreakBox (B.row [ B.punc "(", l ])
-    in
-    B.andThen [ B.line (B.punc ")") ] withOpen
-
-
-{-| Paren-wrap a box whose continuation lines are positioned RELATIVE to its
-first line (an align-carrying inner — a lambda whose parameter is a multi-line
-bracket pattern, `(\{ … } …)`). Unlike `wrapParenVertical` (which shifts only the
-first line, correct for absolute-nested inners like binops/`when`/`if`), this pads
-every continuation by the `(` width so the inner's alignment rides along and its
-`,`/`}` stay under the opening bracket. `)` lands on its own line at the `(`
-column. -}
+{-| Paren-wrap a box: `(` glued onto the first line, every continuation padded
+by the `(`'s width (`B.prefix`) so the content's own `Tab`s advance from the
+`(`'s column rather than column 0, and `)` lands on its own line at the `(`
+column. Content whose continuation lines are positioned RELATIVE to its first
+line (an align-carrying inner — a lambda whose parameter is a multi-line
+bracket pattern, `(\{ … } …)`, or a bracket literal) needs this padding so its
+`,`/`}` stay under the opening bracket; content that's Tab-anchored instead
+(an ordinary binop/`when`/`if`) also needs it whenever the paren itself is
+glued onto something else on the same line (an operator, `|>`) — the padding
+is what lets that outer prefix's width correctly carry through to the next
+`Tab` stop instead of being silently absorbed one stop short. -}
 wrapParenVerticalPadded : Box -> Box
 wrapParenVerticalPadded box =
     B.andThen [ B.line (B.punc ")") ] (B.prefix (B.punc "(") box)
