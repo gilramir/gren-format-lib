@@ -610,26 +610,50 @@ flowChildForcesVerticalBox node =
 -- relocation path instead, which strands the `|>` on its own line where
 -- elm-format glues `|> (if cond then`. Callers that SPLIT the node into
 -- `[head, body]` must add the guard themselves — see `directOperandLambdaSplit`.
+--
+-- A paren-`if`/paren-`let` exposes its body as the ParenBlock's own second
+-- child (`[IfCondition, IndentedBlock, ...]` / `["let", IndentedBlock, "in",
+-- BodyBlock]`), so the `Array.get 1` check below catches them structurally.
+-- A paren-`when` does not: `WhenFlow` bundles the header and every branch into
+-- ONE child, so the ParenBlock has no second child at all and the check used
+-- to report False, sending `|> (when x is ...)` down the relocation path
+-- instead of gluing it like `|> (if ...)`/`|> (let ...)` already do — hence the
+-- explicit `WhenFlow` case first.
 isMultilineLambdaParenBlockAnyBodyBox : LPNode -> Bool
 isMultilineLambdaParenBlockAnyBodyBox node =
     when lpnBox node is
         ParenBlock _ ->
-            when Array.get 1 (lpnChildren node) is
-                Just secondChild ->
-                    when lpnBox secondChild is
-                        IndentedBlock ->
+            when Array.first (lpnChildren node) is
+                Just headNode ->
+                    when lpnBox headNode is
+                        WhenFlow _ ->
                             True
 
-                        SoftIndentedBlock ->
-                            softIndentedBlockChildForcesVerticalBox (lpnChildren secondChild)
-
                         _ ->
-                            False
+                            isMultilineIfOrLetParenBlockAnyBodyBox node
 
                 Nothing ->
                     False
 
         _ ->
+            False
+
+
+isMultilineIfOrLetParenBlockAnyBodyBox : LPNode -> Bool
+isMultilineIfOrLetParenBlockAnyBodyBox node =
+    when Array.get 1 (lpnChildren node) is
+        Just secondChild ->
+            when lpnBox secondChild is
+                IndentedBlock ->
+                    True
+
+                SoftIndentedBlock ->
+                    softIndentedBlockChildForcesVerticalBox (lpnChildren secondChild)
+
+                _ ->
+                    False
+
+        Nothing ->
             False
 
 

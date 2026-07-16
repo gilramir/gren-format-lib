@@ -259,7 +259,6 @@
     "whenExpr/parenBackPipeArg": "README divergence #10 -- gren-format keeps redundant parens",
     "whenExpr/parenBinopArg": "BUG: nested `((` block anchors `else`/`in` and its closing `)` to the OUTER paren, one column left of elm-format, which anchors to the inner `(`. The f5df605 tab-stop work fixed a single paren and missed the doubled one.",
     "whenExpr/pipelineLast": "README divergence #21 -- a broken pipeline aligns every |>; elm-format keeps the steps before the breaking one on the seed's line",
-    "whenExpr/pipelineOperand": "BUG: a block paren as a pipeline's direct operand strands the `|>` on its own line; elm-format glues `|> (case sel of`. isDirectOperandLambda tests 'second child is a block', which a one-child `(when ...)` ParenBlock fails, so it becomes a trigger and relocates. Real blast radius -- see project_syntax_matrix_findings.",
     "whenExpr/recordField": "README divergence #10 -- gren-format keeps redundant parens",
     "whenExpr/recordFieldMulti": "README divergence #10 -- gren-format keeps redundant parens",
     "whenExpr/top": "README divergence #10 -- gren-format keeps redundant parens",

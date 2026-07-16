@@ -40,15 +40,16 @@ lambdaDirectOperand =
                     bbbbb
            )
 
--- KNOWN DIVERGENCE: a `(when …)` paren has a single child, so it is not
--- recognised as a direct operand and gets relocated instead -- gren strands the
--- `|>` on its own line where elm-format glues `|> (case sel of`.
+-- A `(when …)` paren has a single child (WhenFlow bundles header + branches),
+-- unlike if/let, whose body is exposed as the ParenBlock's own second child --
+-- this used to mean it wasn't recognised as a direct operand and got
+-- relocated instead, stranding the `|>` where elm-format glues `|> (case sel
+-- of`. Fixed: also glued now.
 
 
 whenDirectOperand =
     seed
-        |>
-            (when sel is
+        |> (when sel is
                 Just q ->
                     q
-            )
+           )
