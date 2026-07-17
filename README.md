@@ -62,7 +62,7 @@ This section is a guided tour of *how* it does that, at a conceptual level.
       - [Comments in an effect module's header](#comments-in-an-effect-modules-header)
     - [Doc comments (`{-| ... -}`)](#doc-comments----)
     - [Blank lines around comments](#blank-lines-around-comments)
-    - [A comment at the *end* of something](#a-comment-at-the-end-of-something)
+    - [A comment on its own line below a declaration](#a-comment-on-its-own-line-below-a-declaration)
     - [A trailing comment on a `when` branch body](#a-trailing-comment-on-a-when-branch-body)
     - [When the formatter can't tell what you meant](#when-the-formatter-cant-tell-what-you-meant)
   - [Idempotency](#idempotency)
@@ -2214,41 +2214,72 @@ foo =
     1
 ```
 
-#### A comment at the *end* of something
+#### A comment on its own line below a declaration
 
-A comment's **indentation** determines which declaration it belongs to. Indented
-like the code above it, it belongs to that code and stays there. At the left
-margin, it introduces what comes next:
+A comment you write on its **own line below a declaration** — under a function
+body, after the last operand of a chain, below a closing `]`/`}` — always moves
+to the **left margin (column 1)**. It never stays indented under the code. This
+matches elm-format.
+
+What your original **indentation** still decides is which declaration the comment
+belongs to, and that shows up in the blank lines around it. Written *indented*
+under the code above, it belongs to that code: it drops to column 1 directly
+below it, and a blank line sets it off from whatever comes next.
 
 ```gren
--- indented: part of the chain above
+-- you write this:
 total =
-    leftComponent
-        ++ rightComponent
-        ++ trailingValue
-        {- still part of the chain -}
+    alpha
+        ++ beta
+        {- trails the chain -}
+next =
+    1
 ```
 
 ```gren
--- at the margin: belongs to whatever comes next
+-- gren-format produces (comment stays with `total`):
 total =
-    leftComponent
-        ++ rightComponent
-        ++ trailingValue
-{- about the next declaration -}
+    alpha
+        ++ beta
+{- trails the chain -}
+
+
+next =
+    1
 ```
 
-A blank line always cuts the comment loose regardless of indentation.
-
-The same rule applies to a comment trailing a **type signature** or the
-**module line**: written right after them with no blank line, it stays glued
-there rather than reading as a leading comment of what follows next.
+Written at the **margin already**, it introduces what comes next: a blank line
+sets it off from the code above, and it stays with the following declaration.
 
 ```gren
-foo : Int -> Int {- about foo -}
-foo n =
-    n
+-- you write this:
+total =
+    alpha
+        ++ beta
+{- introduces next -}
+next =
+    1
 ```
+
+```gren
+-- gren-format produces (comment leads `next`):
+total =
+    alpha
+        ++ beta
+
+
+{- introduces next -}
+next =
+    1
+```
+
+A blank line above the comment always cuts it loose from the code above,
+regardless of indentation.
+
+This is only about a comment on its *own* line. A comment written on the **same
+line** as the code it follows stays right there beside it — `foo : Int -> Int
+{- about foo -}` keeps the comment on the signature line (see the divergence
+"A comment written after code stays on that line").
 
 #### A trailing comment on a `when` branch body
 
