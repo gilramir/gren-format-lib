@@ -6,14 +6,14 @@ type Doc
     -- ^ A literal string. Some more
     --   words here.
     | DocShared Int
-    -- ^ A sub-document marked for memoization by share. The renderer
-    --   caches things.
+-- ^ A sub-document marked for memoization by share. The renderer
+--   caches things.
 
 
 type Color
     = Red
     | Green
-    {- ^ a block comment trailing the last variant -}
+{- ^ a block comment trailing the last variant -}
 
 
 -- detached: shallower than the variants, leading comment of what follows

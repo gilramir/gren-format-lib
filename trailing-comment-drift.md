@@ -1,13 +1,11 @@
 # Trailing-comment drift below a declaration
 
-Status (2026-07-16, re-confirmed 2026-07-17): **narrow bracket case fixed;
-general fix is an open follow-up.** This note captures the problem, worked
-examples, the design decision (**detach to column 1**), the *mechanism* of the
-subtle drift/attach boundary (§4.1), the cases that must NOT change, and why the
-first general attempt was reverted. Pick this up next session.
-
-The `--decl-ends` fuzzer still reports **80 findings across 36 fixtures** on the
-2026-07-17 build — unchanged since the class was first measured.
+Status (2026-07-17): **RESOLVED via Option C (§13).** Every own-line comment
+below a top-level declaration now detaches to column 1, matching elm-format;
+`--decl-ends` went 80 → 0 with all other gates green. The history below (the
+problem, the drift/attach mechanism §4.1, the design fork, the reverted first
+attempt §8, the superseded option-4 plan §12) is kept for context; **§13 is the
+approach that shipped and the record of how.**
 
 ---
 
@@ -612,3 +610,57 @@ the rest is cleanup, the blank-line rule, fixtures, docs, and gating.
   helper `VerticalSpace`/`SortSymbols` still call.
 - **Fixtures the grep missed** — `run-tests.sh` diff catches them; review, don't
   auto-accept.
+
+### Status: IMPLEMENTED 2026-07-17 — RESOLVED
+
+All six steps landed; every gate green (effectful 186, `--decl-ends` 0 (was 80),
+`--gaps` 0, whitespace stretch/indent 0, matrix 850/850, audit-predicates 0).
+What actually happened, including two non-obvious discoveries the plan did not
+foresee:
+
+- **Step 1–2** exactly as planned: `columnClaim` and the whole attach spine
+  (`appendTrailingComment`, `trailingAppendHitsBracket`, `shouldDescendInto`,
+  `isIndentingFlowBox`, `isBracketContainerBox`, `lastLeafRowMinCol`,
+  `lastPositionedChild`) deleted; `findOrCreateOrigRow` lost its `col` param and
+  `trailingClaim` field. `subsumes` the `22daf23` bracket fix.
+- **Step 3** in `VerticalSpace`: a top-level own-line comment is excluded from
+  being a group start when its **original column > 1** (`computeGroupStarts`), so
+  the following declaration starts its own unit and separates itself; an excluded
+  comment is **transparent** to the group-start chain (passes `nextStartFirst`
+  through) so it does not sever a column-1 leading comment above it.
+  - **Gotcha 1 — `lpnFirstPos` is array-order, not min-position.** Reading the
+    comment column via `lpnFirstPos` returns the *first child in array order*,
+    which for `{-| doc -} {- x -}` (a same-row trailing block on a doc comment)
+    is the trailing block at col 12, not the doc at col 1 — so the doc comment
+    was wrongly treated as indented and lost its unit-start blanks. Fixed with a
+    dedicated `commentFirstCol` that reads each comment leaf's box position and
+    takes the true minimum `(row, col)`.
+  - **Idempotency across the two formats holds** because after the first format
+    the comment sits at col 1 with a physical blank below it (the next decl's
+    unit-start blanks); on reparse the *gap* makes it non-adjacent to that decl,
+    which independently keeps it out of the group start — so col-9-then-col-1 and
+    the col-1-with-gap converge.
+- **Gotcha 2 — the whitespace fuzzer had to be taught the new signal.** Because
+  placement now depends on a comment's original indentation, `--mode indent`
+  (which re-indents continuation lines) saw 189 "drifts" that are really
+  legitimate placement changes. `fuzz-whitespace.py`'s `comment_fingerprint` was
+  modelling the *deleted* `columnClaim` thresholds (`claim_rel`,
+  `adjacent_claim`); replaced both with `own_line_col1` (is an own-line comment
+  at column 1), so a variant that moves a comment across the column-1 boundary is
+  discarded as a placement change, not counted as drift. This is the same
+  mechanism the fuzzer already used for `shares_line`.
+- **Imports also detach.** An indented comment trailing an `import` now detaches
+  to col 1 too (it reached the same fresh-row path) — consistent with Option C
+  and with elm-format (which floats it above the import block). Not a separate
+  case to handle.
+- Fixtures: `UnionTrailingOwnLineComment` + `ClaimedMultilineComment` rewritten
+  to col-1 detach; added `TrailingCommentFlatBinop`, `TrailingCommentMultilineCall`,
+  `TrailingCommentMultilineType`, `TrailingCommentThenDecl` (the last locks in the
+  blank-line separation from a following declaration).
+- A debug flag `--show-once` (format once, skip the idempotency guard) was added
+  to `gren-format` to inspect non-idempotent first passes; kept, it is generally
+  useful.
+
+`git checkout`-and-measure confirmed the baseline for both `--gaps` (0) and
+whitespace-indent (0), so every finding above was a genuine regression caught and
+fixed, not pre-existing noise.

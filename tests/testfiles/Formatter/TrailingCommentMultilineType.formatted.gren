@@ -1,0 +1,8 @@
+module TrailingCommentMultilineType exposing (F)
+
+
+type alias F =
+    Int
+    -> Int
+    -> Bool
+-- trailing a multi-line function type

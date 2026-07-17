@@ -142,7 +142,7 @@ def gap_runs(src):
 
 def comment_fingerprint(src):
     """For each comment, in source order:
-    (text, shares_line_with_prev_token, column_claim_relation).
+    (text, shares_line_with_prev_token, own_line_is_column_1).
 
     A trailing comment that *shares a source line* with the preceding code token
     is placed inline (`token {- c -}`); one on its own line is placed standalone
@@ -156,16 +156,17 @@ def comment_fingerprint(src):
     stable; only the `shares_line` flag can move, and only when a newline is
     added/removed between a comment and the token before it.
 
-    The third element guards the adjacent-below *column claim* (Comments.gren
-    `columnClaim`): an own-line comment directly below a construct is claimed
-    by it when the comment is at or deeper than the construct's last line.
-    When that line starts with a token the parser discards (`=`, `|`, `|>` —
-    union variants, pipeline steps), the formatter reconstructs the line's
-    visible start as (first positioned token column − discarded-token width −
-    1). A same-line stretch between the discarded token and the next one moves
-    that reconstruction while leaving the comment column alone, legitimately
-    flipping the claim — the author's column is meaning-bearing. Such a flip
-    is comment *placement* change, so the variant is discarded, not drift."""
+    The third element guards the trailing-below rule (Comments.gren detaches
+    every own-line comment below a top-level declaration to column 1, and
+    `VerticalSpace` uses the ORIGINAL column to place blank lines around it): a
+    comment left at column 1 can lead the declaration that follows it, while an
+    indented one is separated from it, because an indent means the comment
+    trailed the construct *above*. So a perturbation that moves an own-line
+    comment across the column-1 boundary changes that meaning-bearing placement —
+    the author's indentation is the signal — and the variant is discarded, not
+    reported as drift. (An earlier fingerprint modelled the now-deleted
+    `columnClaim` column thresholds here; column-1-vs-indented is the whole of
+    the distinction that survives.)"""
     fps = []
     i, n = 0, len(src)
     # Index just past the previous token — a code token OR a comment. Including
@@ -178,61 +179,16 @@ def comment_fingerprint(src):
     def shares_line(comment_start):
         return last_code != -1 and "\n" not in src[last_code:comment_start]
 
-    def claim_rel(comment_start):
-        # Column-claim relation for an own-line comment directly below a
-        # synth-led line (`=`, `|`, `|>`); None when not applicable.
-        ls = src.rfind("\n", 0, comment_start) + 1
-        if src[ls:comment_start].strip() != "":
-            return None  # not own-line; shares_line covers it
-        if ls == 0:
-            return None
-        ps = src.rfind("\n", 0, ls - 1) + 1
-        prev = src[ps : ls - 1]
-        stripped = prev.lstrip()
-        tok = next((t for t in ("|>", "|", "=") if stripped.startswith(t + " ")), None)
-        if tok is None:
-            return None
-        rest = stripped[len(tok) :]
-        indent = len(prev) - len(stripped)
-        second_col = indent + len(tok) + (len(rest) - len(rest.lstrip()))
-        ref = second_col - (len(tok) + 1)
-        return (comment_start - ls) >= ref
-
-    def adjacent_claim(comment_start, comment_end):
-        # The general adjacent-below column claim (Comments.gren `columnClaim`):
-        # an own-line comment *directly* below a construct (no blank line
-        # between) is claimed as that construct's trailing comment when its
-        # column is at-or-deeper than the line above AND strictly deeper than
-        # the next item's column. A whitespace perturbation that moves the
-        # comment across either threshold flips the claim — a placement intent
-        # change the formatter rightly reflects — so the variant is discarded
-        # rather than reported as drift. Returns the pair of threshold
-        # relations, or None when the claim can't apply (not own-line, no
-        # construct directly above, or a blank line above detaches it).
+    def own_line_col1(comment_start):
+        # For an own-line comment, whether it sits at column 1. None for a
+        # same-line comment (shares_line covers those) and for a comment nested
+        # inside an expression (always indented, so this is stably False and
+        # never flips). Only a top-level own-line comment can cross the boundary,
+        # which is exactly where the detach's blank-line placement depends on it.
         ls = src.rfind("\n", 0, comment_start) + 1
         if src[ls:comment_start].strip() != "":
             return None  # not own-line
-        if ls == 0:
-            return None
-        ps = src.rfind("\n", 0, ls - 1) + 1
-        prev = src[ps : ls - 1]
-        if prev.strip() == "":
-            return None  # blank line above detaches the comment
-        prev_col = len(prev) - len(prev.lstrip())
-        comment_col = comment_start - ls
-        # Next item's column: the first non-blank line at or after the comment's
-        # end (the perturbations here never touch following lines, so this is a
-        # stable reference). Default 0 (column 1) past the last item.
-        next_col = 0
-        k = src.find("\n", comment_end)
-        while k != -1:
-            le = src.find("\n", k + 1)
-            line = src[k + 1 :] if le == -1 else src[k + 1 : le]
-            if line.strip() != "":
-                next_col = len(line) - len(line.lstrip())
-                break
-            k = le
-        return (comment_col >= prev_col, comment_col > next_col)
+        return (comment_start - ls) == 0
 
     while i < n:
         two = src[i : i + 2]
@@ -240,7 +196,7 @@ def comment_fingerprint(src):
         if two == "--":
             j = src.find("\n", i)
             end = n if j == -1 else j
-            fps.append((src[i:end].rstrip(), shares_line(i), claim_rel(i), adjacent_claim(i, end)))
+            fps.append((src[i:end].rstrip(), shares_line(i), own_line_col1(i)))
             i = end
             last_code = i  # a following comment shares this comment's line
             continue
@@ -257,7 +213,7 @@ def comment_fingerprint(src):
                         break
                 else:
                     i += 1
-            fps.append((src[start:i], shares_line(start), claim_rel(start), adjacent_claim(start, i)))
+            fps.append((src[start:i], shares_line(start), own_line_col1(start)))
             last_code = i  # a following comment shares this comment's line
             continue
         if three == '"""':

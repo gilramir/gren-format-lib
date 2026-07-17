@@ -13,11 +13,10 @@ For each comment, in source order:
 
 1. **Find the top-level slot.** Scan the root's children — which are one
    `OriginalRows` node per top-level declaration — for the one whose row
-   range covers the comment. If no declaration's range covers the row, the
-   construct directly above may still claim the comment as its trailing
-   comment when the comment's own indentation says it belongs there
-   (`columnClaim`); otherwise splice in a fresh `OriginalRows` at the right
-   sorted position.
+   range covers the comment. If no declaration's range covers the row (an
+   own-line comment in the gap below a declaration), splice in a fresh
+   `OriginalRows` at the right sorted position — the comment detaches to
+   column 1. (See "The trailing-comment boundary rule" below.)
 
 2. **Descend to the owning subtree.** Walk down inside that slot, at each
    level picking the deepest child whose subtree's row range still
@@ -50,20 +49,23 @@ synthesized neighbour such as a generated `->` arrow.
 
 # The trailing-comment boundary rule (idempotency)
 
-The single recurring idempotency hazard is a comment that *trails* a node's
-last token. On the first format it would render at that node's (deep) indent;
-on reparse it sits on its own line one row down and re-attaches at the
-*enclosing* level — so the indent oscillates. The cure is to attach such a
-comment at the enclosing flow level on *every* format. Two places enforce this,
-both keyed only on token positions (`commentTrailsNode`-style tests), so they
-are largely construct-agnostic:
+The recurring idempotency hazard is a comment that *trails* a node's last token.
+Rendered at that node's deep indent on the first format, on reparse it sits on
+its own line one row down and re-attaches at the *enclosing* level — so the
+indent oscillates, or drifts left to column 1 over several formats. The two
+layers below cure it in different ways:
 
-- **Top level** (`findOrCreateOrigRow` + `columnClaim`): an own-line comment
-  directly below a construct, indented at least as deep as its last content
-  line, is claimed as its trailing comment (`columnClaim`) and placed by
-  column depth (`appendTrailingComment`) — the render column re-triggers the
-  same claim on reparse, so the placement is a fixed point. This applies
-  uniformly, including to signatures and the module line.
+- **Top level** (`findOrCreateOrigRow`): an own-line comment below a top-level
+  declaration is **never** attached to it — it always detaches to a fresh
+  column-1 `OriginalRows`. This is what elm-format does, and column 1 is
+  trivially a fixed point (it cannot drift). `VerticalSpace` then separates the
+  detached comment from a *following* declaration with a blank line, using the
+  comment's original column to tell a detached-trailing comment (indented, so it
+  belonged to the construct above) from a genuine column-1 leading comment of
+  what follows. (An earlier design claimed the comment as the construct's
+  trailing comment and placed it by column depth — the render column was meant
+  to re-trigger the claim on reparse — but the two disagreed for many shapes and
+  it drifted. See `trailing-comment-drift.md` §13 for the full story.)
 - **Inner descent** (`insertCommentIntoSubtree`): the formatter does not
   *descend* into a child it trails when the next sibling is a flow boundary
   (`nextSiblingIsBoundary` — the `in` keyword, the next binding, the next branch)
@@ -160,15 +162,11 @@ lptAddComment locComment root =
         rootChildren =
             lpnChildren root
 
-        { origRowNode, before, after, trailingClaim } =
-            findOrCreateOrigRow row col stype rootChildren
+        { origRowNode, before, after } =
+            findOrCreateOrigRow row stype rootChildren
 
         updatedOrigRow =
-            if trailingClaim then
-                appendTrailingComment commentNode col origRowNode
-
-            else
-                insertCommentIntoSubtree commentNode row col origRowNode
+            insertCommentIntoSubtree commentNode row col origRowNode
 
         endRow =
             when locComment.value is
@@ -214,10 +212,10 @@ mkCommentLpBox locComment =
 
 -- PHASE 1: FIND THE TOP-LEVEL SLOT
 --
--- Pick (or splice) the root-child OriginalRows the comment belongs to, applying
--- the top-level half of the trailing-comment boundary rule (columnClaim). See
--- appendTrailingComment (end of file) for where a column-claimed trailing
--- comment is finally placed.
+-- Pick the root-child OriginalRows whose row range covers the comment, or splice
+-- in a fresh column-1 OriginalRows when none does. A comment in the gap below a
+-- declaration always takes the fresh-row path — it detaches to column 1 (the
+-- top-level half of the trailing-comment boundary rule).
 
 
 {-
@@ -228,15 +226,13 @@ If no match is found, creates a new OriginalRows node inserted in sorted positio
 -}
 findOrCreateOrigRow :
     Int
-    -> Int
     -> SyntaxType
     -> Array LPNode
     -> { origRowNode : LPNode
     , before : Array LPNode
     , after : Array LPNode
-    , trailingClaim : Bool
     }
-findOrCreateOrigRow row col stype nodes =
+findOrCreateOrigRow row stype nodes =
     let
         -- First: try to find an existing OriginalRows containing 'row'
         searchResult =
@@ -266,166 +262,46 @@ findOrCreateOrigRow row col stype nodes =
             { origRowNode = existing
             , before = searchResult.before
             , after = searchResult.after
-            , trailingClaim = False
             }
 
         Nothing ->
-            when columnClaim row col nodes is
-                Just claimed ->
-                    claimed
+            -- Own-line comment below a top-level declaration: always detach to a
+            -- fresh column-1 OriginalRows, matching elm-format. (An earlier rule,
+            -- `columnClaim`, could claim such a comment as the construct's
+            -- trailing comment and place it by column depth; that was the source
+            -- of the trailing-comment drift/oscillation. See §13 of
+            -- trailing-comment-drift.md for why detaching everything is both the
+            -- fix and full elm-format parity.)
+            let
+                -- Create a new OriginalRows node inserted in sorted order
+                newNode =
+                    lpnLeaf (OriginalRows { first = row, last = row, stype = stype })
 
-                Nothing ->
-                    -- Create a new OriginalRows node inserted in sorted order
-                    let
-                        newNode =
-                            lpnLeaf (OriginalRows { first = row, last = row, stype = stype })
+                insertResult =
+                    Array.foldl
+                        (\node acc ->
+                            if acc.done then
+                                { acc | after = Array.pushLast node acc.after }
 
-                        insertResult =
-                            Array.foldl
-                                (\node acc ->
-                                    if acc.done then
-                                        { acc | after = Array.pushLast node acc.after }
+                            else
+                                when lpnBox node is
+                                    OriginalRows { first = first } ->
+                                        if row < first then
+                                            { acc | after = Array.pushLast node acc.after, done = True }
 
-                                    else
-                                        when lpnBox node is
-                                            OriginalRows { first = first } ->
-                                                if row < first then
-                                                    { acc | after = Array.pushLast node acc.after, done = True }
+                                        else
+                                            { acc | before = Array.pushLast node acc.before }
 
-                                                else
-                                                    { acc | before = Array.pushLast node acc.before }
-
-                                            _ ->
-                                                { acc | before = Array.pushLast node acc.before }
-                                )
-                                { before = [], after = [], done = False }
-                                nodes
-                    in
-                    { origRowNode = newNode
-                    , before = insertResult.before
-                    , after = insertResult.after
-                    , trailingClaim = False
-                    }
-
-
-{-| The adjacent-below column claim. An own-line comment in the gap between two
-top-level constructs normally becomes its own fresh `OriginalRows` (rendered at
-column 1). But when it sits *directly* below a construct (row == the
-construct's last row + 1), the author's column decides the attachment:
-
-  - at or deeper than the construct's last content line, AND deeper than the
-    next top-level item → it reads as the construct's trailing comment, so the
-    construct claims it (placed by `appendTrailingComment`, which uses the
-    column to pick the depth);
-  - otherwise (column 1, or shallower than the line above) → it reads as a
-    leading comment of what follows and falls through to the fresh-row path.
-
-This is what makes a deep trailing comment a reparse fixed point: the first
-format renders it own-line at the construct's inner indent, and this rule
-re-claims it at that same column on every subsequent format. A blank line
-between the construct and the comment (row gap >= 2) always detaches it.
-
-The claim is also refused when the append would land right after a bracket
-container (`trailingAppendHitsBracket`): the comment renders at the container's
-outer indent but this rule would re-claim it at the container's inner content
-column, so it would drift left on every reformat. Detaching it to a top-level
-column-1 comment is both stable and what elm-format emits. -}
-columnClaim :
-    Int
-    -> Int
-    -> Array LPNode
-    -> Maybe { origRowNode : LPNode
-    , before : Array LPNode
-    , after : Array LPNode
-    , trailingClaim : Bool
-    }
-columnClaim row col nodes =
-    let
-        adjacentPrev =
-            Array.foldl
-                (\node st ->
-                    { index = st.index + 1
-                    , found =
-                        when lpnBox node is
-                            OriginalRows { last } ->
-                                if last + 1 == row then
-                                    Just { idx = st.index, node = node }
-
-                                else
-                                    st.found
-
-                            _ ->
-                                st.found
-                    }
-                )
-                { index = 0, found = Nothing }
-                nodes
-                |> .found
-
-        -- Column of the next top-level item after the comment's row
-        -- (1 if the comment is past the last item).
-        nextItemCol =
-            Array.foldl
-                (\node acc ->
-                    when acc is
-                        Just _ ->
-                            acc
-
-                        Nothing ->
-                            when lpnBox node is
-                                OriginalRows { first } ->
-                                    if first > row then
-                                        when firstRealPosition node is
-                                            Just p ->
-                                                Just p.col
-
-                                            Nothing ->
-                                                Just 1
-
-                                    else
-                                        Nothing
-
-                                _ ->
-                                    Nothing
-                )
-                Nothing
-                nodes
-                |> Maybe.withDefault 1
-    in
-    when adjacentPrev is
-        Nothing ->
-            Nothing
-
-        Just candidate ->
-            when lastLeafRowMinCol candidate.node is
-                Nothing ->
-                    Nothing
-
-                Just lastLine ->
-                    -- `lastLine.row < row` guards against constructs whose
-                    -- OriginalRows row metadata understates their extent (e.g. a
-                    -- wrapped import head, compiler-common#25): a comment with
-                    -- construct tokens still BELOW it is between the construct's
-                    -- tokens, not trailing it.
-                    if lastLine.row < row && col >= lastLine.col && col > nextItemCol && not (trailingAppendHitsBracket col candidate.node) then
-                        let
-                            { before, after } =
-                                splitAt candidate.idx nodes
-                        in
-                        when Array.popFirst after is
-                            Just { first = claimedNode, rest } ->
-                                Just
-                                    { origRowNode = claimedNode
-                                    , before = before
-                                    , after = rest
-                                    , trailingClaim = True
-                                    }
-
-                            Nothing ->
-                                Nothing
-
-                    else
-                        Nothing
+                                    _ ->
+                                        { acc | before = Array.pushLast node acc.before }
+                        )
+                        { before = [], after = [], done = False }
+                        nodes
+            in
+            { origRowNode = newNode
+            , before = insertResult.before
+            , after = insertResult.after
+            }
 
 
 -- PHASE 2: DESCEND INTO THE OWNING SUBTREE
@@ -665,7 +541,7 @@ insertAmongChildren commentNode row col children =
 -- PREDICATES: POSITION & BOX-KIND TESTS
 --
 -- Shared by both phases. The position tests (subtreeContainsRow, subtreeEndsBefore,
--- subtreeStartsAfter, positionBefore, first/lastRealPosition, lastLeafRowMinCol)
+-- subtreeStartsAfter, positionBefore, first/lastRealPosition)
 -- read the O(1) bounds cache; the box classifiers (boxKeepsTrailingCommentOutside,
 -- commentInside*, isBracketContainerBox) decide whether a trailing comment stays
 -- outside a container or descends into it.
@@ -868,251 +744,3 @@ subtreeStartsAfter node row col =
 lastRealPosition : LPNode -> Maybe Position
 lastRealPosition node =
     lpnLastPos node
-
-
-{-| The first column of a subtree's last content line: among positioned leaves,
-the largest start row, then the smallest start column on that row — minus the
-rendered width of any synthesized tokens the flow emits before the line's
-first positioned token. A union variant's line reads `| DocShared Int`, but
-the `|` is `SynthesizedText` with no source position, so the first positioned
-leaf (`DocShared`) starts two columns past the visible line start; the same
-holds for the leading `=`. The result is the indent of the construct's last
-source line as the reader sees it — the reference column for deciding whether
-an own-line comment below it reads as its trailing comment. -}
-lastLeafRowMinCol : LPNode -> Maybe Position
-lastLeafRowMinCol node =
-    let
-        children =
-            lpnChildren node
-    in
-    if Array.isEmpty children then
-        lpnFirstPos node
-
-    else
-        Array.foldl
-            (\child st ->
-                when lastLeafRowMinCol child is
-                    Nothing ->
-                        -- Positionless child. A synthesized leaf before the
-                        -- first positioned child renders on that child's first
-                        -- line, just before it: its width plus the flow's
-                        -- joining space shift the line's visible start left.
-                        if st.sawPositioned then
-                            st
-
-                        else
-                            when lpnBox child is
-                                SynthesizedText s ->
-                                    { st | synthPrefix = st.synthPrefix + String.count s + 1 }
-
-                                _ ->
-                                    st
-
-                    Just p ->
-                        let
-                            -- The synthesized prefix renders before the child's
-                            -- *first* line only; a position on a later line of
-                            -- a multi-line child is not shifted by it.
-                            onOwnFirstRow =
-                                when lpnFirstPos child is
-                                    Just fp ->
-                                        fp.row == p.row
-
-                                    Nothing ->
-                                        False
-
-                            adjusted =
-                                if not st.sawPositioned && onOwnFirstRow && st.synthPrefix > 0 then
-                                    { p | col = max 1 (p.col - st.synthPrefix) }
-
-                                else
-                                    p
-
-                            best =
-                                when st.best is
-                                    Nothing ->
-                                        Just adjusted
-
-                                    Just q ->
-                                        if adjusted.row > q.row || (adjusted.row == q.row && adjusted.col < q.col) then
-                                            Just adjusted
-
-                                        else
-                                            st.best
-                        in
-                        { best = best, synthPrefix = st.synthPrefix, sawPositioned = True }
-            )
-            { best = Nothing, synthPrefix = 0, sawPositioned = False }
-            children
-            |> .best
-
-
-{-| True for a node whose own box renders enclosing brackets. The column-guided
-trailing append must not descend into one: the comment being placed sits below
-the whole construct, i.e. past this container's closing bracket, so appending
-inside would move it between the brackets. -}
-isBracketContainerBox : LPNode -> Bool
-isBracketContainerBox node =
-    when lpnBox node is
-        ParenBlock _ ->
-            True
-
-        AllAcrossOrAllVertical _ ->
-            True
-
-        AlwaysVertical _ ->
-            True
-
-        RecordUpdate _ ->
-            True
-
-        EmptyBracketed _ ->
-            True
-
-        PrefixGlue _ ->
-            True
-
-        Glue ->
-            True
-
-        _ ->
-            False
-
-
--- The last child that carries a source position (skips synthesized leaves).
-lastPositionedChild : Array LPNode -> Maybe { idx : Int, node : LPNode }
-lastPositionedChild nodes_ =
-    Array.foldl
-        (\child st ->
-            { index = st.index + 1
-            , found =
-                when lpnFirstPos child is
-                    Just _ ->
-                        Just { idx = st.index, node = child }
-
-                    Nothing ->
-                        st.found
-            }
-        )
-        { index = 0, found = Nothing }
-        nodes_
-        |> .found
-
-
--- An indenting flow (`AcrossOrVertical`, `IfCondition`) is never itself the
--- append level: a comment appended as its direct child renders at the flow's
--- continuation indent, and the comment's own hard newline then emits that indent
--- as trailing whitespace. Descend into one only when the descent continues
--- deeper (into a payload block whose indent the comment matches); otherwise stop
--- at the enclosing block, where the comment renders own-line at the block indent
--- like any interior own-line comment.
-isIndentingFlowBox : LPNode -> Bool
-isIndentingFlowBox flowNode =
-    when lpnBox flowNode is
-        AcrossOrVertical _ ->
-            True
-
-        IfCondition _ ->
-            True
-
-        _ ->
-            False
-
-
--- Should the column-guided trailing append descend into `descNode` rather than
--- stop and append after it? True when the comment (at column `col`) sits at or
--- deeper than the node's last content line and the node is a descendable block
--- (never a bracket container). Shared by `appendTrailingComment` and
--- `trailingAppendHitsBracket` so the claim and the append agree on the spine.
-shouldDescendInto : Int -> LPNode -> Bool
-shouldDescendInto col descNode =
-    not (Array.isEmpty (lpnChildren descNode))
-        && not (isBracketContainerBox descNode)
-        && (when lastLeafRowMinCol descNode is
-             Just p ->
-                 col >= p.col
-
-             Nothing ->
-                 False
-           )
-        && (if isIndentingFlowBox descNode then
-             when lastPositionedChild (lpnChildren descNode) is
-                 Just inner ->
-                     shouldDescendInto col inner.node
-
-                 Nothing ->
-                     False
-
-            else
-             True
-           )
-
-
-{-| Would the column-guided trailing append place the comment immediately after
-a bracket container? Such a comment sits past the container's closing bracket, so
-`appendTrailingComment` cannot nest it: it appends at the container's OUTER block
-indent, one step shallower than the container's inner content column that
-`columnClaim` measures for the claim. The two therefore disagree, and the comment
-drifts one column left on every reformat until it reaches column 1. When this is
-True the claim is refused so the comment goes straight to a top-level column-1
-comment in a single pass — which is also what elm-format emits. -}
-trailingAppendHitsBracket : Int -> LPNode -> Bool
-trailingAppendHitsBracket col node =
-    when lastPositionedChild (lpnChildren node) is
-        Just candidate ->
-            if shouldDescendInto col candidate.node then
-                trailingAppendHitsBracket col candidate.node
-
-            else
-                isBracketContainerBox candidate.node
-
-        Nothing ->
-            False
-
-
--- COLUMN-GUIDED TRAILING-COMMENT PLACEMENT (used by phase 1)
-
-
-{-| Column-guided placement for a trailing comment claimed via the
-adjacent-below column rule in `findOrCreateOrigRow`. The comment's row is past
-every child's row range, so the row-based descent cannot place it; instead the
-comment's *column* picks the depth: walk the rightmost positioned spine,
-descending into the last positioned child while the comment is at or deeper
-than that child's last-line indent, and append at the level where this stops.
-Bracket containers are never entered (the comment is below the construct, so
-it is past their closing bracket).
-
-Rendered there, the comment lands own-line at that level's indent — the same
-column that re-triggers this claim and descent on reparse, making the
-placement a fixed point. -}
-appendTrailingComment : LPNode -> Int -> LPNode -> LPNode
-appendTrailingComment commentNode col node =
-    let
-        children =
-            lpnChildren node
-
-        lastPositioned =
-            lastPositionedChild children
-    in
-    when lastPositioned is
-        Just candidate ->
-            if shouldDescendInto col candidate.node then
-                let
-                    { before, after } =
-                        splitAt candidate.idx children
-                in
-                when Array.popFirst after is
-                    Just { first = target, rest } ->
-                        lpnReplaceChildren
-                            node
-                            (before ++ [ appendTrailingComment commentNode col target ] ++ rest)
-
-                    Nothing ->
-                        -- Unreachable: candidate.idx is a valid index.
-                        lpnReplaceChildren node (Array.pushLast commentNode children)
-
-            else
-                lpnReplaceChildren node (Array.pushLast commentNode children)
-
-        Nothing ->
-            lpnReplaceChildren node (Array.pushLast commentNode children)

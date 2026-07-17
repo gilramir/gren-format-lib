@@ -1,0 +1,10 @@
+module TrailingCommentThenDecl exposing (bar, foo)
+
+
+foo =
+    1 + 2 + 3
+-- trailing foo, must not glue to bar
+
+
+bar =
+    5

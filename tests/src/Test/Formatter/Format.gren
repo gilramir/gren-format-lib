@@ -341,7 +341,7 @@ expressionSuite fsPerm =
             , assertPretty fsPerm "a wrapped infix declaration leaves no phantom row gap below it" "InfixWrapped"
             , assertPretty fsPerm "only a break between -> parts makes a signature multi-line; breaks inside a record type or parens do not; a comment-forced return record explodes every -> part" "SignatureSegmentBreaks"
             , assertPretty fsPerm "a single-segment (no ->) signature whose sole type is a multi-line record, plain or extensible, no longer crashes and drops the record below the header" "SignatureSoleRecordType"
-            , assertPretty fsPerm "a multi-line block comment claimed as a declaration's trailing comment leaves no trailing-whitespace line" "ClaimedMultilineComment"
+            , assertPretty fsPerm "a multi-line block comment below a declaration detaches to column 1, leaving no trailing-whitespace line" "ClaimedMultilineComment"
             , assertPretty fsPerm "two blank lines are forced before every top-level declaration unit (function/alias/union/port), regardless of authored blanks; the unit begins at its doc comment, else signature, else declaration" "ForcedDeclBlankLines"
             , assertPretty fsPerm "float literals round-trip (decimal stays decimal, scientific stays scientific)" "FloatLiterals"
             , assertPretty fsPerm "as-pattern inside record-field destructure keeps its parens" "RecordFieldAsPattern"
@@ -429,7 +429,15 @@ commentsSuite fsPerm =
             , assertPretty fsPerm "comment trailing a non-last when-branch body (nested in if/let) sits between branches, no blank" "BetweenWhenBranchesComment"
             -- Regression guards for the 2026-05-24 fuzzer-found idempotency fixes.
             , assertPretty fsPerm "trailing comment after a multi-line union variant stays on the variant's last row" "UnionVariantTrailingComment"
-            , assertPretty fsPerm "own-line comment below the last union variant attaches at the variant indent" "UnionTrailingOwnLineComment"
+            , assertPretty fsPerm "own-line comment below the last union variant detaches to column 1 (matches elm-format)" "UnionTrailingOwnLineComment"
+            -- Option C: every own-line comment below a top-level declaration
+            -- detaches to column 1 (matches elm-format). A following declaration
+            -- is separated from it by a blank line so it does not re-read as that
+            -- declaration's leading comment.
+            , assertPretty fsPerm "own-line comment below a flat binop detaches to column 1" "TrailingCommentFlatBinop"
+            , assertPretty fsPerm "own-line comment below a multi-line call detaches to column 1" "TrailingCommentMultilineCall"
+            , assertPretty fsPerm "own-line comment below a multi-line function type detaches to column 1" "TrailingCommentMultilineType"
+            , assertPretty fsPerm "detached trailing comment is separated from the following declaration by a blank line" "TrailingCommentThenDecl"
             , assertPretty fsPerm "trailing comment on the closing `}` of a record-payload union variant stays there across reformats" "UnionRecordPayloadTrailingComment"
             , assertPretty fsPerm "long trailing comment in a bracket list glues inline regardless of length" "BracketListOverflowComment"
             , assertPretty fsPerm "comment in an empty-bracket body slot is not absorbed into the brackets" "EmptyBracketTrailingComment"

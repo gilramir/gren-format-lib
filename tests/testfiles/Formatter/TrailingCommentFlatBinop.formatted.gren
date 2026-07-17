@@ -1,0 +1,6 @@
+module TrailingCommentFlatBinop exposing (v)
+
+
+v =
+    1 + 2 + 3
+-- trailing a flat binop

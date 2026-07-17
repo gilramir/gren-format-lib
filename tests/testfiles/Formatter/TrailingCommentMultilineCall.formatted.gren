@@ -1,0 +1,8 @@
+module TrailingCommentMultilineCall exposing (v)
+
+
+v =
+    foo
+        bar
+        baz
+-- trailing a multi-line call

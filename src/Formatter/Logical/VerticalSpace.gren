@@ -19,6 +19,7 @@ import Formatter.Logical.LogicalPrintingTree
         , lpnChildren
         , lpnLeaf
         , lpnReplaceChildren
+        , lpnFirstPos
         )
 
 
@@ -49,7 +50,56 @@ type alias DeclInfo =
     , stype : Maybe SyntaxType
     , isComment : Bool
     , core : Bool
+    , commentCol : Int
     }
+
+
+{-| Column of the leftmost token on the earliest row among a node's direct
+children — the visible indentation of the comment's first line. Reads each comment
+leaf's source position straight from its box, because `lpnFirstPos` returns the
+*first child in array order* (not the minimum position) and can miss the leading
+comment when a same-row trailing comment shares the row (`{-| doc -} {- x -}`
+reports the trailing block's column otherwise). Scans for the true minimum
+`(row, col)`; defaults to 1 for a childless node. -}
+commentFirstCol : LPNode -> Int
+commentFirstCol node =
+    let
+        leafStart child =
+            when lpnBox child is
+                SingleLineComment loc ->
+                    Just loc.start
+
+                BlockComment loc ->
+                    Just loc.start
+
+                DocComment loc ->
+                    Just loc.start
+
+                _ ->
+                    lpnFirstPos child
+    in
+    lpnChildren node
+        |> Array.foldl
+            (\child acc ->
+                when leafStart child is
+                    Just p ->
+                        when acc is
+                            Just best ->
+                                if p.row < best.row || (p.row == best.row && p.col < best.col) then
+                                    Just p
+
+                                else
+                                    acc
+
+                            Nothing ->
+                                Just p
+
+                    Nothing ->
+                        acc
+            )
+            Nothing
+        |> Maybe.map .col
+        |> Maybe.withDefault 1
 
 
 {-| Classify each root child. `core` marks a node that *owns* a declaration
@@ -100,6 +150,22 @@ classifyChildren nodes =
                                     , stype = Just r.stype
                                     , isComment = comment
                                     , core = core
+                                    , commentCol =
+                                        -- Original source column of the leftmost
+                                        -- token on the comment's first row. Tells an
+                                        -- *indented* comment (col > 1: one that
+                                        -- trailed the construct above it — every
+                                        -- trailing-below comment detaches to col 1
+                                        -- now, so an indent means it belonged
+                                        -- upward) from a genuine column-1 leading
+                                        -- comment of what follows. See
+                                        -- computeGroupStarts. NB `lpnFirstPos` is
+                                        -- the first child in *array* order, which is
+                                        -- not the leftmost when a same-row trailing
+                                        -- comment shares the row (`{-| doc -} {- x -}`
+                                        -- would report the trailing block's column);
+                                        -- scan for the true minimum position instead.
+                                        commentFirstCol node
                                     }
                                     acc.out
                             , lastNonComment =
@@ -112,7 +178,7 @@ classifyChildren nodes =
 
                         _ ->
                             { out = Array.pushLast
-                                    { node = node, first = -1, last = -1, stype = Nothing, isComment = False, core = False }
+                                    { node = node, first = -1, last = -1, stype = Nothing, isComment = False, core = False, commentCol = 1 }
                                     acc.out
                             , lastNonComment = acc.lastNonComment
                             }
@@ -138,7 +204,18 @@ computeGroupStarts infos =
                             if info.core then
                                 True
 
-                            else if info.isComment then
+                            else if info.isComment && info.commentCol <= 1 then
+                                -- Only a column-1 comment can lead the declaration
+                                -- below it. An indented comment (col > 1) trailed
+                                -- the construct above it — every such comment now
+                                -- detaches to col 1 (see Comments.findOrCreateOrigRow),
+                                -- so it must not be absorbed as the *next* unit's
+                                -- leading comment; keeping it out of the group start
+                                -- lets that next declaration start its own unit and
+                                -- separate itself with the usual blank lines. On a
+                                -- reparse the comment sits at col 1 but now has a
+                                -- physical blank below it, which breaks the adjacency
+                                -- independently — so the two passes agree.
                                 when acc.nextStartFirst is
                                     Just nf ->
                                         nf == info.last + 1
@@ -153,6 +230,18 @@ computeGroupStarts infos =
                     , nextStartFirst =
                         if isStart then
                             Just info.first
+
+                        else if info.isComment && info.commentCol > 1 then
+                            -- An excluded indented comment is *transparent* to
+                            -- the group-start chain: it must not sever the
+                            -- adjacency between a column-1 leading comment above
+                            -- it and the declaration below. The common case is a
+                            -- same-line trailing comment riding on a doc-comment's
+                            -- line (`{-| doc -} {- x -}`); severing here would drop
+                            -- the doc comment's unit-start status and destabilise
+                            -- its leading blank count. Pass the pending start
+                            -- through unchanged.
+                            acc.nextStartFirst
 
                         else
                             Nothing
