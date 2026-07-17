@@ -323,7 +323,13 @@ construct's last row + 1), the author's column decides the attachment:
 This is what makes a deep trailing comment a reparse fixed point: the first
 format renders it own-line at the construct's inner indent, and this rule
 re-claims it at that same column on every subsequent format. A blank line
-between the construct and the comment (row gap >= 2) always detaches it. -}
+between the construct and the comment (row gap >= 2) always detaches it.
+
+The claim is also refused when the append would land right after a bracket
+container (`trailingAppendHitsBracket`): the comment renders at the container's
+outer indent but this rule would re-claim it at the container's inner content
+column, so it would drift left on every reformat. Detaching it to a top-level
+column-1 comment is both stable and what elm-format emits. -}
 columnClaim :
     Int
     -> Int
@@ -401,7 +407,7 @@ columnClaim row col nodes =
                     -- wrapped import head, compiler-common#25): a comment with
                     -- construct tokens still BELOW it is between the construct's
                     -- tokens, not trailing it.
-                    if lastLine.row < row && col >= lastLine.col && col > nextItemCol then
+                    if lastLine.row < row && col >= lastLine.col && col > nextItemCol && not (trailingAppendHitsBracket col candidate.node) then
                         let
                             { before, after } =
                                 splitAt candidate.idx nodes
@@ -973,6 +979,97 @@ isBracketContainerBox node =
             False
 
 
+-- The last child that carries a source position (skips synthesized leaves).
+lastPositionedChild : Array LPNode -> Maybe { idx : Int, node : LPNode }
+lastPositionedChild nodes_ =
+    Array.foldl
+        (\child st ->
+            { index = st.index + 1
+            , found =
+                when lpnFirstPos child is
+                    Just _ ->
+                        Just { idx = st.index, node = child }
+
+                    Nothing ->
+                        st.found
+            }
+        )
+        { index = 0, found = Nothing }
+        nodes_
+        |> .found
+
+
+-- An indenting flow (`AcrossOrVertical`, `IfCondition`) is never itself the
+-- append level: a comment appended as its direct child renders at the flow's
+-- continuation indent, and the comment's own hard newline then emits that indent
+-- as trailing whitespace. Descend into one only when the descent continues
+-- deeper (into a payload block whose indent the comment matches); otherwise stop
+-- at the enclosing block, where the comment renders own-line at the block indent
+-- like any interior own-line comment.
+isIndentingFlowBox : LPNode -> Bool
+isIndentingFlowBox flowNode =
+    when lpnBox flowNode is
+        AcrossOrVertical _ ->
+            True
+
+        IfCondition _ ->
+            True
+
+        _ ->
+            False
+
+
+-- Should the column-guided trailing append descend into `descNode` rather than
+-- stop and append after it? True when the comment (at column `col`) sits at or
+-- deeper than the node's last content line and the node is a descendable block
+-- (never a bracket container). Shared by `appendTrailingComment` and
+-- `trailingAppendHitsBracket` so the claim and the append agree on the spine.
+shouldDescendInto : Int -> LPNode -> Bool
+shouldDescendInto col descNode =
+    not (Array.isEmpty (lpnChildren descNode))
+        && not (isBracketContainerBox descNode)
+        && (when lastLeafRowMinCol descNode is
+             Just p ->
+                 col >= p.col
+
+             Nothing ->
+                 False
+           )
+        && (if isIndentingFlowBox descNode then
+             when lastPositionedChild (lpnChildren descNode) is
+                 Just inner ->
+                     shouldDescendInto col inner.node
+
+                 Nothing ->
+                     False
+
+            else
+             True
+           )
+
+
+{-| Would the column-guided trailing append place the comment immediately after
+a bracket container? Such a comment sits past the container's closing bracket, so
+`appendTrailingComment` cannot nest it: it appends at the container's OUTER block
+indent, one step shallower than the container's inner content column that
+`columnClaim` measures for the claim. The two therefore disagree, and the comment
+drifts one column left on every reformat until it reaches column 1. When this is
+True the claim is refused so the comment goes straight to a top-level column-1
+comment in a single pass — which is also what elm-format emits. -}
+trailingAppendHitsBracket : Int -> LPNode -> Bool
+trailingAppendHitsBracket col node =
+    when lastPositionedChild (lpnChildren node) is
+        Just candidate ->
+            if shouldDescendInto col candidate.node then
+                trailingAppendHitsBracket col candidate.node
+
+            else
+                isBracketContainerBox candidate.node
+
+        Nothing ->
+            False
+
+
 -- COLUMN-GUIDED TRAILING-COMMENT PLACEMENT (used by phase 1)
 
 
@@ -994,70 +1091,12 @@ appendTrailingComment commentNode col node =
         children =
             lpnChildren node
 
-        lastPositionedOf nodes_ =
-            Array.foldl
-                (\child st ->
-                    { index = st.index + 1
-                    , found =
-                        when lpnFirstPos child is
-                            Just _ ->
-                                Just { idx = st.index, node = child }
-
-                            Nothing ->
-                                st.found
-                    }
-                )
-                { index = 0, found = Nothing }
-                nodes_
-                |> .found
-
         lastPositioned =
-            lastPositionedOf children
-
-        -- An indenting flow (`AcrossOrVertical`, `IfCondition`) is never
-        -- itself the append level: a comment appended as its direct child
-        -- renders at the flow's continuation indent, and the comment's own
-        -- hard newline then emits that indent as trailing whitespace.
-        -- Descend into one only when the descent continues deeper (into a
-        -- payload block whose indent the comment matches); otherwise stop at
-        -- the enclosing block, where the comment renders own-line at the
-        -- block indent like any interior own-line comment.
-        isIndentingFlowBox flowNode =
-            when lpnBox flowNode is
-                AcrossOrVertical _ ->
-                    True
-
-                IfCondition _ ->
-                    True
-
-                _ ->
-                    False
-
-        shouldDescend descNode =
-            not (Array.isEmpty (lpnChildren descNode))
-                && not (isBracketContainerBox descNode)
-                && (when lastLeafRowMinCol descNode is
-                     Just p ->
-                         col >= p.col
-
-                     Nothing ->
-                         False
-                   )
-                && (if isIndentingFlowBox descNode then
-                     when lastPositionedOf (lpnChildren descNode) is
-                         Just inner ->
-                             shouldDescend inner.node
-
-                         Nothing ->
-                             False
-
-                    else
-                     True
-                   )
+            lastPositionedChild children
     in
     when lastPositioned is
         Just candidate ->
-            if shouldDescend candidate.node then
+            if shouldDescendInto col candidate.node then
                 let
                     { before, after } =
                         splitAt candidate.idx children

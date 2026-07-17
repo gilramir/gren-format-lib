@@ -1,0 +1,24 @@
+module TrailingCommentAfterContainer exposing (..)
+
+-- An indented `--` comment written below a bracketed container at the end of a
+-- declaration cannot be nested at the container's inner indent (it sits past
+-- the closing bracket), so it detaches to a top-level column-1 comment in a
+-- single format. Before the fix this drifted one column left per reformat
+-- (col 8 -> 4 -> 0), a non-idempotency the fuzzers did not reach.
+afterList =
+    [ 1
+    , 2
+    ]
+        -- below a list
+
+afterRecord =
+    { a = 1
+    , b = 2
+    }
+        -- below a record
+
+afterUpdate r =
+    { r
+        | a = 1
+    }
+        -- below an update
