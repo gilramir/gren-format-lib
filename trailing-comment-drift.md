@@ -447,3 +447,168 @@ Gate every attempt with **all** of:
 
 The general detach fix for the remaining ~80 findings is **not yet written**
 (one attempt reverted).
+
+---
+
+## 12. Implementation plan for option 4 (SUPERSEDED by §13)
+
+**Superseded 2026-07-17 by §13 (Option C).** Kept for context. The elm-format
+check in §13 showed elm-format detaches *every* trailing-below comment — including
+union variants and binop chains — so the attach/allow-list machinery this plan
+builds (hoisting `subtreeHasVerticalBox`, the `forceVertical` binop signal,
+`isMustKeepAttachTrailing`) is unnecessary. §13 detaches everything instead.
+
+Grounded in the code (2026-07-17): `columnClaim` returning `Nothing` is already
+the detach lever — it falls through to the fresh col-1 `OriginalRows` path in
+`findOrCreateOrigRow`. So the whole fix is about **when to refuse the claim**.
+`subtreeHasVerticalBox` is LPT-only (no `Box`/`FlowPolicy` deps) and
+`Comments.gren` imports nothing from Render, so the stable-verticality predicate
+is hoistable with no import cycle. The 14 let-flow comments route through the
+**`IndentedBlock`-redirection** path (Comments.gren ~588–646), *not* `columnClaim`
+— so scoping the change to `columnClaim`/`appendTrailingComment` leaves them
+untouched.
+
+**Approach:** decide attach-vs-detach in the logical stage from reparse-stable
+facts; detach = `columnClaim → Nothing`; attach only the §7 must-keep set via the
+existing (already stable) `appendTrailingComment`. Stage as **4a** (change the
+*decision* only — low risk, captures the bulk of the 80) then **4b** (make the
+attach path column-free) *only* where the fuzzer still flags an attached shape.
+
+### Phase 0 — Spec the boundary empirically (read-only)
+- Detach set = the 80 `--decl-ends` findings.
+- Keep set = grep **all** fixtures for *currently-attached* trailing-below
+  comments (every body kind, not just binops); classify keep vs incidental.
+  Expected: {vertical binop chain, vertical pipeline, union variant list}.
+- Confirm the 14 let-cases route through `IndentedBlock`-redirection, not
+  `columnClaim` (spot-check `--lpt`).
+- Output: a `construct-kind × effective-verticality → attach|detach` table.
+
+### Phase 1 — Hoist the stable verticality predicate
+Move `subtreeHasVerticalBox` + LPT-only deps (`bracketOpenGate`,
+`literalCommentsRideFlatLine`, `nodeIsComment`) into a shared module both stages
+import; `NodeClassify` re-exports so Render callers don't churn. Keep the DAG
+acyclic.
+
+### Phase 2 — Structural decision replaces column descent (core, 4a)
+In `columnClaim` (~line 410) replace
+`col >= lastLeafRowMinCol && col > nextItemCol && not trailingAppendHitsBracket`
+with `claim iff isMustKeepAttachTrailing candidate.node` (else `Nothing` →
+detach). Keep the `adjacentPrev` row-adjacency logic. Retire
+`trailingAppendHitsBracket` (brackets are simply not an attach-kind now — this
+subsumes `22daf23`).
+
+**Crux / highest risk:** `isMustKeepAttachTrailing` = union variant list OR a
+binop/pipeline that *renders multi-line*. Bare `subtreeHasVerticalBox` does NOT
+capture an author-broken binop chain (`Binop{forceVertical}` recurses into
+children rather than self-reporting vertical), so this needs a binop-specific
+"renders multi-line" signal — and it must be **verified reparse-stable in
+Phase 0** before Phase 2 leans on it, or it reintroduces an oscillation.
+
+### Phase 3 — Keep the attach path; prove it stays a fixed point
+Must-keep set continues through `appendTrailingComment` unchanged. **4b (only if
+residual drift):** attach as the construct node's trailing child and let the
+renderer place it; delete the column-guided `shouldDescendInto` descent.
+
+### Phase 4 — Simplify & document
+Remove dead code (`trailingAppendHitsBracket`; if 4b, the descent helpers).
+Rewrite the `Comments.gren` module-header rule as *decision-not-prediction*.
+Update this note (§3/§5) + README catalogue; add fixtures
+`TrailingCommentFlatBinop`, `TrailingCommentMultilineCall`,
+`TrailingCommentMultilineType` (detach); keep the union/chain/pipeline attach
+fixtures.
+
+### Phase 5 — Gate
+`--decl-ends` → 0; `--gaps` stays 0; `run-tests.sh` (esp.
+`UnionTrailingOwnLineComment`, `TrailingCommentAfterContainer`, the 14 let
+fixtures); `matrix-syntax.py`; `audit-predicates.py`; spot-check `elm-format`.
+
+---
+
+## 13. Option C — CHOSEN approach (detach everything, full elm-format parity)
+
+Decided 2026-07-17. **Supersedes the §5 "keep the §7 must-keep set attached"
+decision:** there are now **no attach exceptions** for the trailing-below-a-
+declaration case. (The *interior* "a comment stays by the code" divergences —
+README catalogue #12/#13, let-flow comments, mid-expression comments — are a
+different mechanism and are **unchanged**.)
+
+### Why: elm-format detaches *all* of them, including the union
+
+The pivotal check (2026-07-17): run every shape through `elm-format --stdin`.
+elm-format floats **every** trailing-below comment to column 1 — union variants,
+binop chains, multi-line calls, everything — separating it from its neighbours
+with blank lines. Worked results:
+
+```
+type T                          total =
+    = A                             alpha
+    | B                                 ++ beta
+    | C                                 ++ gamma
+                                                       -- both →
+-- comment  (col 1)             -- comment  (col 1)
+```
+
+So gren-format's two attach behaviours — union at the `|` indent, chain at the
+continuation indent — were **both divergences from elm-format**, not matches.
+The union attach was the only one frozen in a fixture
+(`UnionTrailingOwnLineComment`), which turns out to freeze a divergence, not a
+feature. Detaching everything is therefore the *simplest* rule **and** full
+parity — the rare case where the two align.
+
+### The change is tiny
+
+`columnClaim` (Comments.gren ~333) is the only thing that ever claims an
+own-line-below comment as a construct's trailing comment. Making it **always
+refuse** routes every such comment through the existing fresh col-1
+`OriginalRows` path in `findOrCreateOrigRow`. That single change *is* Option C;
+the rest is cleanup, the blank-line rule, fixtures, docs, and gating.
+
+### Steps
+
+1. **`columnClaim` always detaches.** In `findOrCreateOrigRow` drop the
+   `columnClaim` branch so the top-level trailing-below path always creates a
+   fresh (col-1) row; `trailingClaim` becomes always-`False`. Verify on the union
+   .dirty via `--show` that it lands at col 1 before proceeding.
+2. **Delete the dead attach machinery.** `columnClaim`, `appendTrailingComment`,
+   `trailingAppendHitsBracket`, `shouldDescendInto`, `isIndentingFlowBox`,
+   `isBracketContainerBox`, `lastLeafRowMinCol`, `lastPositionedChild`. Grep each
+   for other callers first — some may be shared; keep those. Compile after each
+   deletion (`devbox run -- gren make Formatter`). This subsumes the `22daf23`
+   narrow bracket fix.
+3. **Blank-line separation (new — required).** A detached col-1 comment sitting
+   immediately above the next declaration would re-read as that declaration's
+   *leading* comment (it was authored trailing the *previous* one). So a detached
+   trailing comment must be separated from a following declaration by **one blank
+   line if none already exists** — this is what elm-format does (it floats the
+   comment free of both neighbours). Lives in `VerticalSpace`; needs a way to tell
+   a *detached-trailing* comment (belongs to the decl above, by original
+   adjacency) from a genuine *leading* comment (belongs to the decl below) — a
+   provenance flag set at detach time, or an original-row adjacency check in
+   `VerticalSpace`. Settle the mechanism during implementation.
+4. **Fixtures.** Rewrite `UnionTrailingOwnLineComment.formatted.gren` to col-1
+   detach — regenerate then **read** it to confirm it is genuinely canonical.
+   `TrailingCommentAfterContainer` already expects col-1 and should be unchanged.
+   Add detach fixtures `TrailingCommentFlatBinop`, `TrailingCommentMultilineCall`,
+   `TrailingCommentMultilineType` (chain / call / type-sig → col 1), each a
+   `.dirty` + `.formatted` pair with an `assertPretty` line, to lock in the fix.
+5. **Docs.** Rewrite the Comments.gren module-header "trailing-comment boundary
+   rule" as: *own-line comments below a top-level declaration always detach to
+   col 1 (matches elm-format)* — decision, not prediction. In the README
+   divergence catalogue, re-scope #12/#13 to the *interior* cases they still
+   cover (the trailing-below case is now a match, not a divergence). Mark this
+   note RESOLVED.
+6. **Gate.** `fuzz-idempotency.py --decl-ends -j 12` → **0** (was 80);
+   `--gaps -j 12` stays 0; `fuzz-whitespace.py` both modes; `run-tests.sh` —
+   review every fixture diff (the diff is the oracle for any trailing-below case
+   the corpus grep missed); `matrix-syntax.py`; `audit-predicates.py`; elm-format
+   spot-check.
+
+### Risks
+- **Blank-line provenance** (step 3) is the one non-mechanical piece — getting
+  "detached-trailing vs leading" wrong would either glue the comment to the wrong
+  neighbour or over-insert blanks. Gate with fixtures that place a decl right
+  after the detached comment.
+- **Hidden shared helpers** (step 2) — compile-driven deletion; don't remove a
+  helper `VerticalSpace`/`SortSymbols` still call.
+- **Fixtures the grep missed** — `run-tests.sh` diff catches them; review, don't
+  auto-accept.
