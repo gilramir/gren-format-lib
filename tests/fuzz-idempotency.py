@@ -1,16 +1,25 @@
 #!/usr/bin/env python3
 """Idempotency fuzzer for `gren format`.
 
-For each input Gren file, insert a block comment into every inter-token
-whitespace gap (one at a time), format the result twice, and require the two
-formatted outputs to be byte-identical. This systematically surfaces the
-"comment shifts on reparse" class of idempotency bugs without anyone having to
-hand-place comments (the way KitchenComments' `extremelyCommented` does).
+Two passes, both requiring format¹ == format²:
+
+1. Per-gap pass: insert a block comment into every inter-token whitespace gap
+   (one at a time). Surfaces the "comment shifts on reparse" class without
+   anyone hand-placing comments (the way KitchenComments' `extremelyCommented`
+   does). This pass only ever glues a comment *inline* into an existing gap.
+
+2. End-of-declaration pass: inject an OWN-LINE trailing comment — both the block
+   (`{- ¤ -}`) and line (`-- ¤`) form — indented one level below the last line
+   of every top-level declaration. The per-gap pass never generates this shape,
+   yet it is exactly where the "indented comment past a closing bracket, or deep
+   in an inline binop, drifts left on reparse" bug class lives.
 
 Usage:
-    ./fuzz-idempotency.py                       # all testfiles/Formatter/*.formatted.gren
+    ./fuzz-idempotency.py                       # all testfiles/Formatter/*.formatted.gren, both passes
     ./fuzz-idempotency.py path/to/File.gren ... # specific files
     ./fuzz-idempotency.py -j 4                   # run 4 `gren format`s at a time
+    ./fuzz-idempotency.py --decl-ends            # only the end-of-declaration pass
+    ./fuzz-idempotency.py --gaps                 # only the per-gap pass
 
 The gaps of each file are checked concurrently (default 2 jobs; `gren format`
 is a subprocess so threads scale with CPUs). Each worker thread gets its own
@@ -39,6 +48,7 @@ import threading
 HERE = os.path.dirname(os.path.abspath(__file__))
 GREN_FORMAT = os.path.join(HERE, "..", "..", "gren-format", "gren-format.sh")
 MARKER = "{- ¤ -}"  # ¤ — unlikely to collide with real comment text
+MARKER_LINE = "-- ¤"  # line-comment form, for the end-of-declaration pass
 
 # Each worker thread formats in its own project dir so concurrent `gren format`
 # invocations never write the same Fuzz.gren. Created lazily, reused across the
@@ -131,6 +141,114 @@ def gap_indices(src):
     return gaps
 
 
+def mask_noncode(src):
+    """Return a copy of `src` with the interior of every comment and string/char
+    literal replaced by spaces (newlines preserved), so line/column structure can
+    be reasoned about without tripping over code-looking text inside literals.
+    Uses the same span-skipping as `gap_indices`."""
+    out = list(src)
+    i, n = 0, len(src)
+
+    def blank(a, b):
+        for k in range(a, b):
+            if out[k] != "\n":
+                out[k] = " "
+
+    while i < n:
+        two = src[i : i + 2]
+        three = src[i : i + 3]
+        if two == "--":
+            j = src.find("\n", i)
+            j = n if j == -1 else j
+            blank(i, j)
+            i = j
+            continue
+        if two == "{-":
+            depth, start = 0, i
+            while i < n:
+                if src[i : i + 2] == "{-":
+                    depth += 1
+                    i += 2
+                elif src[i : i + 2] == "-}":
+                    depth -= 1
+                    i += 2
+                    if depth == 0:
+                        break
+                else:
+                    i += 1
+            blank(start, i)
+            continue
+        if three == '"""':
+            j = src.find('"""', i + 3)
+            j = n if j == -1 else j + 3
+            blank(i, j)
+            i = j
+            continue
+        if src[i] == '"' or src[i] == "'":
+            q, start, i = src[i], i, i + 1
+            while i < n:
+                if src[i] == "\\":
+                    i += 2
+                elif src[i] == q:
+                    i += 1
+                    break
+                else:
+                    i += 1
+            blank(start, i)
+            continue
+        i += 1
+    return "".join(out)
+
+
+def decl_end_positions(src):
+    """For each top-level declaration, the (char index, indent) at which to
+    inject an own-line trailing comment: right after the last code character of
+    the declaration's last non-blank line, indented one level (+4) deeper than
+    that line. A top-level declaration is a maximal run of lines beginning at a
+    line whose first column holds code; its end is the last non-blank line before
+    the next such line (or EOF). This is the shape that exposed the "indented
+    comment past a closing bracket / deep in an inline binop drifts left on
+    reparse" bug class, which the per-gap pass never generates (that pass only
+    glues a comment inline into an existing gap)."""
+    masked = mask_noncode(src)
+    mlines = masked.split("\n")
+    olines = src.split("\n")
+
+    starts, off = [], 0
+    for ln in olines:
+        starts.append(off)
+        off += len(ln) + 1
+
+    n = len(mlines)
+    tops = [i for i in range(n) if mlines[i][:1] not in ("", " ", "\t")]
+
+    positions = []
+    for k, t in enumerate(tops):
+        stop = tops[k + 1] if k + 1 < len(tops) else n
+        last = None
+        for i in range(t, stop):
+            if mlines[i].strip() != "":
+                last = i
+        if last is None:
+            continue
+        code_len = len(mlines[last].rstrip())
+        insert_pos = starts[last] + code_len
+        last_indent = len(olines[last]) - len(olines[last].lstrip())
+        positions.append((insert_pos, last_indent + 4))
+    return positions
+
+
+def decl_end_variant(src, positions, comment):
+    """Insert an own-line `comment`, indented, at every declaration end at once."""
+    parts, prev = [], 0
+    for pos, indent in positions:
+        parts.append(src[prev:pos])
+        parts.append("\n" + " " * indent + comment)
+        prev = pos
+    parts.append(src[prev:])
+    return "".join(parts)
+
+
 def run_show(workdir, source):
     """Write `source` to the worker's Fuzz.gren and run --show. Returns the
     subprocess result."""
@@ -215,12 +333,69 @@ def report_slow_path(base, pool, path, src, gaps, verbose):
     return len(bugs)
 
 
+def check_one_decl_end(base, src, pos, indent, comment):
+    """Inject `comment` at a single declaration end, run --show, classify.
+    Returns ("ok"|"skip"|"bug", detail)."""
+    workdir = worker_workdir(base)
+    variant = decl_end_variant(src, [(pos, indent)], comment)
+    r = run_show(workdir, variant)
+    blob = r.stdout + r.stderr
+    if "FAILED TO PARSE" in blob or "Could not format" in blob:
+        return ("skip", "")
+    if r.returncode != 0 or not r.stdout.strip():
+        return ("bug", r.stderr.strip())
+    if r.stdout.count("¤") != 1:
+        return ("bug", f"expected exactly one '¤', found {r.stdout.count('¤')} (dropped or duplicated comment)")
+    return ("ok", "")
+
+
+def report_decl_ends(base, pool, path, src, verbose):
+    """Inject an own-line trailing comment (block, then line form) at every
+    top-level declaration end and require each to be idempotent. Returns the bug
+    count. Localises per-declaration so each failure names its line."""
+    name = os.path.basename(path)
+    positions = decl_end_positions(src)
+    if not positions:
+        print(f"OK  {name}: 0 declaration ends")
+        return 0
+
+    bugs = []
+    skipped = 0
+    for comment, label in ((MARKER, "block"), (MARKER_LINE, "line")):
+        results = list(
+            pool.map(
+                lambda pi: check_one_decl_end(base, src, pi[0], pi[1], comment),
+                positions,
+            )
+        )
+        for (pos, _indent), (kind, detail) in zip(positions, results):
+            if kind == "skip":
+                skipped += 1
+            elif kind == "bug":
+                bugs.append((pos, label, detail))
+
+    status = "OK " if not bugs else "BUG"
+    print(f"{status} {name}: {len(positions)} declaration ends x2 (block/line), {skipped} skipped (parser), {len(bugs)} non-idempotent")
+    for pos, label, detail in bugs:
+        line = src.count("\n", 0, pos) + 1
+        ctx = (src[max(0, pos - 24) : pos] + "⟨+" + label + " comment⟩").replace("\n", "⏎")
+        print(f"      after line {line} ({label}): …{ctx}")
+        if verbose and detail:
+            for dl in detail.splitlines()[:20]:
+                print("        " + dl)
+    return len(bugs)
+
+
 def main(argv):
     ap = argparse.ArgumentParser()
     ap.add_argument("-v", action="store_true", help="show the format¹/format² diff per gap")
     ap.add_argument("-j", "--jobs", type=int, default=2, help="concurrent `gren format`s (default 2)")
+    ap.add_argument("--gaps", action="store_true", help="run only the per-gap pass (skip the end-of-declaration pass)")
+    ap.add_argument("--decl-ends", action="store_true", help="run only the end-of-declaration pass (skip the per-gap pass)")
     ap.add_argument("files", nargs="*")
     args = ap.parse_args(argv[1:])
+    run_gaps = not args.decl_ends
+    run_decl_ends = not args.gaps
 
     files = args.files
     if not files:
@@ -236,21 +411,29 @@ def main(argv):
     total = 0
     with tempfile.TemporaryDirectory() as base:
         with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
-            # Phase 1: fast check — all files in parallel, one --show call each.
-            fast_outcomes = list(pool.map(
-                lambda t: fast_check(base, t[1], t[2]),
-                file_data,
-            ))
+            if run_gaps:
+                # Per-gap pass: fast check all files in parallel (one --show each),
+                # then fall back to per-gap for any failures.
+                print("== per-gap comment pass ==")
+                fast_outcomes = list(pool.map(
+                    lambda t: fast_check(base, t[1], t[2]),
+                    file_data,
+                ))
+                for (path, src, gaps), fast in zip(file_data, fast_outcomes):
+                    name = os.path.basename(path)
+                    if fast == "ok":
+                        print(f"OK  {name}: {len(gaps)} gaps, 0 skipped (parser), 0 non-idempotent")
+                    else:
+                        total += report_slow_path(base, pool, path, src, gaps, args.v)
 
-            # Phase 2: report results; fall back to per-gap for any failures.
-            for (path, src, gaps), fast in zip(file_data, fast_outcomes):
-                name = os.path.basename(path)
-                if fast == "ok":
-                    print(f"OK  {name}: {len(gaps)} gaps, 0 skipped (parser), 0 non-idempotent")
-                else:
-                    total += report_slow_path(base, pool, path, src, gaps, args.v)
+            if run_decl_ends:
+                # End-of-declaration pass: inject an own-line trailing comment
+                # (block and line form) after every top-level declaration.
+                print("\n== end-of-declaration comment pass ==")
+                for path, src, _gaps in file_data:
+                    total += report_decl_ends(base, pool, path, src, args.v)
 
-    print(f"\n{'FAIL' if total else 'PASS'}: {total} non-idempotent gap(s)")
+    print(f"\n{'FAIL' if total else 'PASS'}: {total} non-idempotent finding(s)")
     return 1 if total else 0
 
 
