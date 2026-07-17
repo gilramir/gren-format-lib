@@ -16,3 +16,17 @@ bell =
 
 del =
     "\u{007f}"
+
+
+-- Control characters whose lowercase hex spans the remaining code-point digits
+-- (a, d, e) — none is one of the specially-escaped chars (tab/newline/CR).
+sub =
+    "\u{001a}"
+
+
+groupSep =
+    "\u{001d}"
+
+
+shiftOut =
+    "\u{000e}"

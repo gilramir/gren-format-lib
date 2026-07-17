@@ -379,10 +379,16 @@ decide config state facts =
                 state
 
         WhenBranchItem ->
-            -- Always blank-separate consecutive branches, regardless of
-            -- whether either body is multi-line. A preceding comment has
-            -- already ended its line with a forced newline, so attach the branch
-            -- directly (GlueNoSep) to avoid inserting an extra blank line
+            -- UNREACHABLE DEFENSIVE CODE: `factsFor` never constructs a
+            -- `WhenBranchItem` — `WhenBranch` nodes route through the dedicated
+            -- `renderWhenBranchesBox`/`makeWhenBranchBox` path, never through
+            -- this generic flow assembler (see MakeRenderBox's `OwnLineAfterBlank`
+            -- guard and box-err.md §3 for the traced proof). Kept as a policy
+            -- for the item kind in case that routing ever changes.
+            --
+            -- Intent, if it did fire: always blank-separate consecutive
+            -- branches, but attach directly (GlueNoSep) after a preceding
+            -- comment (which already ended its line) to avoid an extra blank
             -- between the comment and its pattern.
             { placement =
                 when state.separator is

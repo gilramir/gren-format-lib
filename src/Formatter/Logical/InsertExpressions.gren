@@ -84,20 +84,28 @@ flattenPipeline locExpr =
 
 {-| Render the body of a pipeline step.
 
-If the body itself is a pipeline `Binops` whose operator differs from the
-enclosing pipeline's (e.g. `<|` appearing as the body of a `|>` step),
-render it as a flat left/op/right rather than letting `insertExpression`
-flatten it into its own multi-line pipeline. This keeps
-`x |> identity <| 0` rendering as
+The intent: if the body itself is a pipeline `Binops` whose operator differs
+from the enclosing pipeline's (e.g. `<|` as the body of a `|>` step), render it
+as a flat left/op/right rather than letting `insertExpression` flatten it into
+its own sub-pipeline — keeping `x |> identity <| 0` on one line.
 
-    ... |> identity <| 0
-
-rather than splitting `<| 0` onto a fresh sub-pipeline line.
+UNREACHABLE DEFENSIVE CODE: the differing-operator branch below never fires in
+practice. It would need a pipeline node whose RIGHT child is itself a *differing*
+pipeline `Binops`, but Gren's parser resolves every mixed/same-operator `<|`/`|>`
+chain LEFT-nested into a flat tree (verified: `0 <| identity |> x`,
+`f <| g <| h`, etc. all flatten to flat two-child `PipelineStep`s — no nested
+pipeline ever reaches here). `flattenPipeline` recurses on the left child and
+passes the right child through untouched, so a step body is never a pipeline
+`Binops`; `<|`'s right-associativity does not change this. Only the final
+`_ -> insertExpression body` arm ever runs. Kept as a guard in case the parser's
+associativity handling changes.
 -}
 insertStepBody : String -> Src.Expression -> Result String (Array LPNode)
 insertStepBody outerOpStr body =
     when body.value is
         Src.Binops { left = lhs, operator = innerOp, right = rhs } ->
+            -- Unreachable: see the note above — the parser never hands a step
+            -- body that is itself a pipeline `Binops`.
             if isPipelineOp innerOp.value && innerOp.value /= outerOpStr then
                 insertExpression lhs
                     |> Result.andThen

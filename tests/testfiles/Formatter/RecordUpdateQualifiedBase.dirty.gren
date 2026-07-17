@@ -1,0 +1,6 @@
+module RecordUpdateQualifiedBase exposing (..)
+
+-- A record-update base can be a qualified value reference (VarQual), e.g. a
+-- record exported by another module. Format-only fixture (need not type-check).
+withQualifiedBase =
+    { Config.defaults | verbose = True }

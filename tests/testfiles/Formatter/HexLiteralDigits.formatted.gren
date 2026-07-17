@@ -1,0 +1,27 @@
+module HexLiteralDigits exposing (..)
+
+
+-- Hex integer literals are reformatted to uppercase (intToHex). These literals
+-- cover the digit-table arms not exercised by other fixtures (0 and 3-9; A-F
+-- are covered elsewhere). A wrong digit changes the value, so the
+-- AST-equivalence check makes this a real correctness test, not just coverage.
+midDigits =
+    0x34567890
+
+
+lowerToUpper =
+    0xABC
+
+
+-- A hex literal in a pattern reaches a separate reformatting call site
+-- (InsertPatterns), independent of the expression path above.
+classify n =
+    when n is
+        0x3F ->
+            "low"
+
+        0x90 ->
+            "mid"
+
+        _ ->
+            "other"

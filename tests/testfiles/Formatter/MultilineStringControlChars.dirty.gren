@@ -1,0 +1,10 @@
+module MultilineStringControlChars exposing (..)
+
+-- Inside a triple-quoted string, a horizontal tab is preserved verbatim, while
+-- a non-printable control character is written as a \u{...} escape. Both must
+-- survive a format round-trip unchanged.
+tabAndControl =
+    """
+    column	separated
+    form\u{000c}feed
+    """
