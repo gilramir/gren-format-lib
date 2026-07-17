@@ -495,6 +495,18 @@ insertAmongChildren commentNode row col children =
             -- This prevents comments from being inserted between a pattern and its
             -- synthesized -> arrow, or between other synthesized tokens that logically
             -- belong with the preceding real token.
+            --
+            -- This is also what carries a comment trailing the LAST `let` binding
+            -- PAST the position-less `in` and down to the body column. That is a
+            -- DELIBERATE, forced divergence from elm-format (which keeps it with
+            -- the bindings), not a coverage gap to close: `in` has no source
+            -- position, so before-`in` and after-`in` comments are
+            -- indistinguishable, and routing below `in` is the only stable-AND-
+            -- correct rule. Scoping this skip to keep the comment with the
+            -- bindings makes it OSCILLATE (verified: same-row → own-line at the
+            -- binding indent → reparses as no-longer-same-row → back to the body
+            -- column). See README divergence #22 and the `LetInTrailingComment`
+            -- test named "…not own-line, which would oscillate".
             { before = finalBefore, after = finalAfter } =
                 let
                     helper b a =

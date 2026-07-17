@@ -73,6 +73,7 @@ This section is a guided tour of *how* it does that, at a conceptual level.
     - [A line break inside a declaration's head](#a-line-break-inside-a-declarations-head)
     - [Comments near an effect module's `where` block](#comments-near-an-effect-modules-where-block)
     - [A comment right after `exposing` doesn't sort with the first name](#a-comment-right-after-exposing-doesnt-sort-with-the-first-name)
+    - [A comment after the last binding in a `let`](#a-comment-after-the-last-binding-in-a-let)
     - [Block comment body indentation](#block-comment-body-indentation)
   - [Comparison with elm-format](#comparison-with-elm-format)
     - [The idea both formatters share](#the-idea-both-formatters-share)
@@ -1626,6 +1627,13 @@ Unlike at the top level, a comment in a `let` never floats apart from the
 binding below it — a blank line between a comment and the binding it precedes
 is removed.
 
+A comment written after the value of the *last* binding is a special case:
+because the `in` keyword has no recorded position, gren-format can't tell a
+comment trailing that binding from one introducing the result, so it places it
+on its own line just below `in`. This is a deliberate divergence from
+elm-format — see [Comparison with elm-format](#comparison-with-elm-format),
+point 22, and [A comment after the last binding in a `let`](#a-comment-after-the-last-binding-in-a-let).
+
 You can destructure on the left of a binding:
 
 ```gren
@@ -2513,6 +2521,42 @@ A comment before any *other* name in the list (not the first) doesn't have
 this issue — it travels with its name normally, as shown in
 [Exposed names sort automatically](#exposed-names-sort-automatically).
 
+#### A comment after the last binding in a `let`
+
+The `in` keyword of a `let ... in` is another token with no recorded position:
+the parsed `let` remembers only its bindings and its result expression, never
+where `in` sat. So a comment written in the gap between the last binding and the
+result can't be pinned to one side of `in` — it might be trailing the binding
+above, or introducing the result below, and there's no fact to tell those apart.
+gren-format always treats it as introducing the result, placing it on its own
+line just below `in`:
+
+```gren
+-- you wrote:
+x =
+    let
+        y =
+            1 -- a note
+    in
+    y
+
+-- formats to (the note moves below in):
+x =
+    let
+        y =
+            1
+    in
+    -- a note
+    y
+```
+
+This is the one placement that stays put every time you reformat *and* never
+misplaces a comment you really did write below `in`. elm-format, whose parser
+records the `in` position, keeps a trailing-binding comment up with the
+bindings instead — a divergence covered in
+[Comparison with elm-format](#comparison-with-elm-format), point 22, with the
+full reasoning for why gren-format can't follow suit.
+
 #### Block comment body indentation
 
 A multi-line block comment's body is re-indented from its **own** structure: the
@@ -3232,6 +3276,63 @@ decision and why.
     formatters align every step; if nothing forces a break, both leave it on one
     line. A multi-line record argument doesn't trigger it either — writing the
     record across rows breaks the chain for both formatters, so they agree.
+
+22. **A comment trailing the *last* `let` binding drops below `in`; elm-format
+    keeps it with the bindings.** When you write a comment after the value of the
+    *last* binding in a `let`, gren-format moves it onto its own line after `in`,
+    at the result-expression column. elm-format keeps it at the bindings' indent,
+    above `in`:
+
+    ```gren
+    -- you wrote:
+    x =
+        let
+            y =
+                1 -- a note about y
+        in
+        y
+
+    -- gren-format (the note drops below in, at the body column):
+    x =
+        let
+            y =
+                1
+        in
+        -- a note about y
+        y
+
+    -- elm-format (the note stays with the bindings, above in):
+    x =
+        let
+            y =
+                1
+
+            -- a note about y
+        in
+        y
+    ```
+
+    This one is **forced by a missing fact, not a taste preference**, and it
+    cannot be matched here. The `in` keyword has no recorded source position —
+    the parsed `let` is only `{ defs, body }` (see
+    [Comment placement near invisible tokens](#comment-placement-near-invisible-tokens)) —
+    so a comment written in the gap between the last binding and the result is
+    *positionally indistinguishable* between "trailing the last binding" (which
+    elm-format renders above `in`) and "leading the result" (which belongs below
+    `in`). gren-format resolves the ambiguity one way for all such comments:
+    route them below `in`. That is the only choice that is both always stable
+    when reformatted **and** always correct for a comment the author genuinely
+    wrote below `in` — a comment that really does lead the result must not be
+    dragged up into the bindings.
+
+    Matching elm-format for the trailing-binding case specifically would need to
+    tell the two intents apart, and the only signal available locally — whether
+    the comment shares a row with the binding's value — is destroyed by the very
+    act of formatting: once the comment is moved onto its own line above `in`, a
+    reformat no longer sees it as same-row and drops it back below `in`, so the
+    column oscillates on every pass. Routing below `in` avoids that entirely. The
+    output is stable when reformatted. (A comment trailing `in` itself is a
+    separate case — point 18.)
 
 #### Out of scope for comparison
 

@@ -728,6 +728,15 @@ insertLet locExpr { defs = defs, body = body } =
         letNode =
             lpnLeaf (mkText locExpr.start "let")
 
+        -- `in` is synthesized with NO source position: `Src.Let` records only
+        -- `{ defs, body }`, and the parser skips the keyword without capturing
+        -- where it sat. This is load-bearing for comment placement: a comment in
+        -- the gap between the last binding and the body can't be told apart as
+        -- "trailing the binding" vs "leading the body", so `Comments.gren` routes
+        -- all such comments below `in`. That diverges from elm-format on the
+        -- trailing-binding case and CANNOT be matched here — do not try to keep it
+        -- with the bindings (it oscillates). See README divergence #22 and the
+        -- `LetInTrailingComment` fixture before touching this.
         inNode =
             lpnLeaf (SynthesizedText "in")
     in
