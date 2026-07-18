@@ -1,0 +1,13 @@
+module BinopPipelineMix exposing (f, g, h)
+
+
+f =
+    a + b |> c
+
+
+g =
+    a <| b + c
+
+
+h =
+    aaa + bbb |> ccc |> ddd

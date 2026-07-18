@@ -309,6 +309,7 @@ expressionSuite fsPerm =
             , assertPretty fsPerm "pipeline layout follows author: one line inline, multi-line one-per-line" "PipelineLayoutByAuthor"
             , assertPretty fsPerm "binop layout follows the author: a one-line chain stays inline no matter how long; an author-broken chain stays split" "BinopLayoutByAuthor"
             , assertPretty fsPerm "an author-broken mixed-precedence binop chain breaks only at its lowest-precedence operators; tighter operators stay glued inline" "BinopMixedPrecedenceBroken"
+            , assertPretty fsPerm "a pipeline seeded by a binop, and a binop chain with a pipeline operand, flatten correctly (mixed |>/<| and +)" "BinopPipelineMix"
             , assertPretty fsPerm "when branch body indentation" "WhenBranchBody"
             , assertPretty fsPerm "when branch patterns" "WhenPatterns"
             , assertPretty fsPerm "when-branch record-destructuring pattern written flat stays flat" "WhenRecordPatternFlat"

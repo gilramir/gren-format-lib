@@ -434,6 +434,10 @@ insertParens locExpr expression =
             (\nodes ->
                 when Array.popFirst nodes is
                     Nothing ->
+                        -- Unreachable defensive guard: `()` (empty parens) is not
+                        -- valid Gren — the parser rejects it before this — so a
+                        -- `Src.Parens` always wraps a real expression that yields
+                        -- at least one node.
                         Ok [ lpnLeaf (SynthesizedText "()") ]
 
                     Just _ ->
@@ -489,6 +493,10 @@ insertUpdate locExpr { record = record, newValues = newValues } =
             |> Result.map
                 (\fieldNodes ->
                     if Array.isEmpty fieldNodes then
+                        -- Unreachable defensive guard: a record update with zero
+                        -- fields (`{ r | }`) is not valid Gren — the parser
+                        -- requires at least one field — so `newValues` is never
+                        -- empty here.
                         [ lpnLeaf (mkText locExpr.start "{}") ]
 
                     else
