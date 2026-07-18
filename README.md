@@ -3401,6 +3401,43 @@ decision and why.
     output is stable when reformatted. (A comment trailing `in` itself is a
     separate case — point 17.)
 
+22. **A single-field record or update whose value fits collapses to one line;
+    elm-format keeps any author-broken record expanded.** gren-format opens a
+    record *literal* only when it has two or more fields on their own rows, and a
+    record *update* only when its one field's value spans several lines (see
+    [Record values](#record-values) and [Record updates](#record-updates)). So a
+    single field whose value fits on one line collapses back to inline, however
+    you broke it — dropping the value below `=`, or breaking before the field
+    doesn't hold it open:
+
+    ```gren
+    -- you wrote:
+    v =
+        { x =
+            1
+        }
+
+    -- gren-format (one field, value fits → collapses):
+    v =
+        { x = 1 }
+
+    -- elm-format (keeps every newline you wrote inside the braces):
+    v =
+        { x =
+            1
+        }
+    ```
+
+    The same holds for a single-field update (`{ r | x = 1 }`). This is the one
+    direction where gren-format is *less* author-driven than elm-format for a
+    record: it treats a lone fitting value the way it treats a
+    [binary operator chain](#binary-operators) that fits — collapse it — rather
+    than preserving a break that carries no structure. Two things still open the
+    record for both formatters, so they agree there: a second field on its own
+    row, and a field value that genuinely renders across rows (an `if`/`when`/`let`,
+    or one long enough to wrap — the same rule that drops a multi-line value below
+    `=`). It is stable when reformatted.
+
 ### Out of scope for comparison
 
 Some fixtures use Gren syntax with no valid Elm equivalent, so they can't be
