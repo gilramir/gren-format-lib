@@ -507,6 +507,21 @@ insertAmongChildren commentNode row col children =
             -- binding indent → reparses as no-longer-same-row → back to the body
             -- column). See README divergence #22 and the `LetInTrailingComment`
             -- test named "…not own-line, which would oscillate".
+            --
+            -- "Position-less" is judged by `lastRealPosition`, with one
+            -- exception: a `BodyBlock` is never skipped. A BodyBlock wraps a
+            -- declaration's (or `let` binding's) VALUE; when that value is an
+            -- empty bracket (`[]` / `{}`) the BodyBlock has a real opening
+            -- position but a `Nothing` LAST position (no positioned children),
+            -- so `lastRealPosition` alone treats it as skippable and carries a
+            -- leading binding comment (`v = {- note -}`) PAST the empty value to
+            -- render `[] {- note -}`. If that value later holds an inside comment
+            -- it becomes non-empty and absorbs the stranded comment on reparse
+            -- (oscillating). Guarding on `BodyBlock` — rather than switching to
+            -- `firstRealPosition` — keeps an empty bracket used as a LIST ITEM
+            -- (`[ {}, … ]`, a bare `EmptyBracketed`) skippable as before, so its
+            -- own comment placement is unchanged; only the value-wrapper stops
+            -- the skip.
             { before = finalBefore, after = finalAfter } =
                 let
                     helper b a =
@@ -515,12 +530,17 @@ insertAmongChildren commentNode row col children =
                                 { before = b, after = a }
 
                             Just { first = nextNode, rest = restOfAfter } ->
-                                when lastRealPosition nextNode is
-                                    Nothing ->
-                                        helper (Array.pushLast nextNode b) restOfAfter
-
-                                    Just _ ->
+                                when lpnBox nextNode is
+                                    BodyBlock ->
                                         { before = b, after = a }
+
+                                    _ ->
+                                        when lastRealPosition nextNode is
+                                            Nothing ->
+                                                helper (Array.pushLast nextNode b) restOfAfter
+
+                                            Just _ ->
+                                                { before = b, after = a }
                 in
                 helper before after
         in

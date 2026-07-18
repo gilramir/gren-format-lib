@@ -1,0 +1,16 @@
+module EmptyBracketNonInlineComment exposing (..)
+
+
+arrayMultiLineBlock =
+    [ {- first line
+         second line -} ]
+
+
+recordMultiLineBlock =
+    { {- first line
+         second line -} }
+
+
+arrayLineComment =
+    [ -- a line comment can't sit inline in the brackets
+    ]

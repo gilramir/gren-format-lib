@@ -1,0 +1,7 @@
+module ImportSameModuleStableSort exposing (..)
+
+import Zebra as First
+import Zebra as Second
+import Mango exposing (beta)
+import Mango exposing (alpha)
+import Apple
