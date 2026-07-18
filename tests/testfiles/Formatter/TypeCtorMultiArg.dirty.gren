@@ -1,0 +1,16 @@
+module TypeCtorMultiArg exposing (f, g, h)
+
+
+f : Result e a -> Result e a
+f x =
+    x
+
+
+g : Foo a b c -> Int
+g _ =
+    0
+
+
+h : { field : Bar x y } -> Int
+h _ =
+    0

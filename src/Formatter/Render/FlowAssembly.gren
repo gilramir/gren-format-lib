@@ -7,22 +7,32 @@ import Formatter.Render.Box as B exposing (Box(..))
 import Formatter.Render.FlowPolicy as FP
 import Formatter.Logical.LogicalPrintingTree exposing (LPBox(..), ListBrackets(..), LPNode, lpnBox, lpnChildren, lpnMaxRow)
 import Formatter.Render.BoxOps exposing (applyIndent, traverseResult, joinInline, isSingleLine, glueCommentSuffix, nodesShareStartRow)
-import Formatter.Render.NodeClassify exposing (isEmptyLine, leafLineRow)
+import Formatter.Render.NodeClassify exposing (isEmptyLine)
 
 -- `exposing` stays glued to the header. Inline list: `header (a, b, c)` on one
--- line. Vertical list: header on line 1, list indented +4 beneath it.
-gluedExposingBox : Bool -> Array LPNode -> Box -> Result String Box
-gluedExposingBox forceVertical headerNodes listBox =
-    if forceVertical then
-        Ok (B.stack1 [ B.line (leafLineRow headerNodes), B.indent listBox ])
+-- line. Vertical list: header on line 1, list indented +4 beneath it. The
+-- header is pre-rendered by the caller: a plain leaf line for a `module` /
+-- `import` header, or the flowed `effect module … where { … } exposing` line for
+-- an effect module. It must be a single line — a header that rendered multi-line
+-- (e.g. a broken effect-module `where` block) errors so the caller falls back to
+-- the generic flow.
+gluedExposingBox : Bool -> Box -> Box -> Result String Box
+gluedExposingBox forceVertical headerBox listBox =
+    when B.isLine headerBox is
+        Err _ ->
+            Err "box: exposing header rendered multi-line"
 
-    else
-        when B.isLine listBox is
-            Ok listLine ->
-                Ok (B.line (B.row [ leafLineRow headerNodes, B.space, listLine ]))
+        Ok headerLine ->
+            if forceVertical then
+                Ok (B.stack1 [ B.line headerLine, B.indent listBox ])
 
-            Err _ ->
-                Err "box: inline exposing list rendered multi-line"
+            else
+                when B.isLine listBox is
+                    Ok listLine ->
+                        Ok (B.line (B.row [ headerLine, B.space, listLine ]))
+
+                    Err _ ->
+                        Err "box: inline exposing list rendered multi-line"
 
 
 verticalExposingBox : Array B.Line -> Box
@@ -49,12 +59,17 @@ bracketPunc bracket =
             Just { left = "[", right = "]" }
 
         ListParen ->
-            -- A parenthesized list reached via the general list path rather than
-            -- makeExposingLineBox — i.e. a module/import exposing list whose
-            -- header carries a comment, so makeExposingLineBox fell back to the
-            -- flow. Rendered with inner spaces `( a, b )` (groupBox innerSpaces),
-            -- matching elm-format's parenthesized-list spacing — distinct from the
-            -- comment-free `(a, b)` makeExposingListBox emits.
+            -- A parenthesized exposing list reached via the general list path
+            -- rather than makeExposingLineBox — i.e. a module/import line whose
+            -- header carries a comment, or whose exposing list is trailed by a
+            -- comment past its close, so makeExposingLineBox fell back to the
+            -- flow. Rendered with inner spaces `( a, b )` (groupBox innerSpaces).
+            -- This diverges from elm-format, which keeps the list tight `(a, b)`
+            -- even with a header comment; the padded form is retained because a
+            -- comment trailing past the close is idempotent only at the padded
+            -- column (tightening it shifts the reparse so the comment is
+            -- absorbed inside the parens). An effect module with no such comment
+            -- takes the coupled makeExposingListBox path and stays tight.
             Just { left = "(", right = ")" }
 
 

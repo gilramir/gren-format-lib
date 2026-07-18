@@ -17,7 +17,7 @@ import Formatter.Render.FlowPolicy as FP
 import Formatter.Logical.LogicalPrintingTree exposing (LPBox(..), LPNode, ListBrackets(..), SyntaxType(..), lpnBox, lpnChildren, firstRowInSubtree, lpnMaxRow, lpnLastPos, lpnLastBracketEnd)
 import Formatter.Logical.BinopPrecedence exposing (binopPrecedence, binopMinPrecedence)
 import Formatter.Render.BoxOps exposing (grenIndent, prefixOperator, wrapParenVerticalPadded, blockIndentSpaces, applyIndent, stackWithBlanks, boxLine, traverseResult, spaceJoinLines, joinInline, isSingleLine, glueCommentSuffix, isBlockNode, nodeStartRow)
-import Formatter.Render.NodeClassify exposing (nodeIsComment, subtreeHasComment, literalCommentsRideFlatLine, subtreeHasMultilineBlockComment, typeHasCommentBracket, isMultilineLambdaParenBlockBox, isMultilineContentParenBlockBox, isOpAndRhsNode, isPipelineStepNode, leafValue, isColonLeaf, isElidedArrow, fieldValueDropsToOwnLine, rowsSpanMultiple, parenContentIsLambdaHead, splitSignatureSegments, isDroppingSignatureRecordNode, signatureForceVertical)
+import Formatter.Render.NodeClassify exposing (nodeIsComment, subtreeHasComment, literalCommentsRideFlatLine, subtreeHasMultilineBlockComment, typeHasCommentBracket, isMultilineLambdaParenBlockBox, isMultilineContentParenBlockBox, isOpAndRhsNode, isPipelineStepNode, leafValue, leafLineRow, isColonLeaf, isElidedArrow, fieldValueDropsToOwnLine, rowsSpanMultiple, parenContentIsLambdaHead, splitSignatureSegments, isDroppingSignatureRecordNode, signatureForceVertical)
 import Formatter.Render.CommentBox exposing (makeCommentLineBox, multiLineBlockCommentBox, commentNodeBox, emptyBracketedCommentLine, spanLeadingComments, spanTrailingComments, peelTrailingCommentNodes, glueTrailingComments)
 import Formatter.Render.BinopLayout exposing (flattenBinopNodes, assembleBinopBox, splitTrailingOwnLineComments, opText, bracketOperandForcesVertical)
 import Formatter.Render.FlowAssembly exposing (FlowItem, SoftGlueAlignment(..), assembleBrokenWithComments, assembleBrokenCall, trySoftGlueFlow, pairTypeRecordComments, softGlueAlignment, parenInnerIsAlignCarrying, softBlockChildForcesVerticalBox, bracketPunc, verticalExposingBox, gluedExposingBox)
@@ -1853,10 +1853,25 @@ makeExposingLineBox stype children =
 
                 headerAllLeaves =
                     Array.all (\n -> leafValue n /= Nothing) headerNodes
+
+                -- An effect module's `where { … }` block is a non-leaf header
+                -- node, so `headerAllLeaves` is False and the plain leaf-line
+                -- header doesn't apply; flow it instead. A header comment also
+                -- trips `headerAllLeaves`, but its placement is owned by the flow
+                -- path, so it stays there (below).
+                headerHasComment =
+                    Array.any nodeIsComment headerNodes
+
+                headerBoxResult =
+                    if headerAllLeaves then
+                        Ok (B.line (leafLineRow headerNodes))
+
+                    else
+                        buildFlowBox grenIndent headerNodes
             in
             when exposingForceVertical is
                 Just forceVertical ->
-                    if headerAllLeaves && not (Array.isEmpty headerNodes) then
+                    if not (Array.isEmpty headerNodes) && not headerHasComment then
                         let
                             listChildren =
                                 lpnChildren lastNode
@@ -1883,15 +1898,23 @@ makeExposingLineBox stype children =
                                 else
                                     makeExposingListBox forceVertical listChildren
                         in
-                        listBoxResult
+                        -- Both `module` and `import` keep `exposing` glued to
+                        -- the header (list at +4); gren-format does not drop an
+                        -- import's `exposing` to its own line the way elm-format
+                        -- does.
+                        headerBoxResult
                             |> Result.andThen
-                                -- Both `module` and `import` keep `exposing`
-                                -- glued to the header (list at +4); gren-format
-                                -- does not drop an import's `exposing` to its
-                                -- own line the way elm-format does.
-                                (\listBox ->
-                                    gluedExposingBox effectiveFV headerNodes listBox
+                                (\headerBox ->
+                                    listBoxResult
+                                        |> Result.andThen
+                                            (\listBox ->
+                                                gluedExposingBox effectiveFV headerBox listBox
+                                            )
                                 )
+                            -- A header that rendered multi-line (a broken
+                            -- effect-module `where` block) can't take the
+                            -- coupled path; fall back to the generic flow.
+                            |> Result.onError (\_ -> exposingLineFallback children)
 
                     else
                         exposingLineFallback children

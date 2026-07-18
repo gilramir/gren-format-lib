@@ -390,8 +390,11 @@ declarationSuite fsPerm =
             , assertPretty fsPerm "a type alias whose body is a bare function type renders one `->` segment per row when the author broke it that way (even at only one boundary), with every segment -- including the first -- at the same column, since there's no \"name :\" header to glue it to" "TypeAliasFunctionType"
             , assertPretty fsPerm "union types" "TypeUnion"
             , assertPretty fsPerm "type signatures" "TypeSignature"
+            , assertPretty fsPerm "type constructor applied to 2+ argument types" "TypeCtorMultiArg"
             , assertPretty fsPerm "ports" "Ports"
             , assertPretty fsPerm "effect module where { command = ... } renders each binding as one field" "EffectModuleWhere"
+            , assertPretty fsPerm "effect module with a named (non-wildcard) exposing list renders it tight" "EffectModuleNamedExposing"
+            , assertPretty fsPerm "effect module with an author-broken named exposing list drops it to +4" "EffectModuleNamedExposingVertical"
             ]
         }
 

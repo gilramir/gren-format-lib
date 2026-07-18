@@ -1,0 +1,23 @@
+effect module EffectModuleNamedExposing where { command = MyCmd, subscription = MySub } exposing (Data, cmd, sub)
+
+import Task
+
+
+type MyCmd msg
+    = MyCmd (Task.Task Never msg)
+
+
+type MySub msg
+    = MySub
+
+
+type Data
+    = Data
+
+
+cmd =
+    1
+
+
+sub =
+    2

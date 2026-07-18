@@ -1,0 +1,15 @@
+effect module EffectModuleNamedExposingVertical where { command = MyCmd } exposing
+    ( Data
+    , cmd
+    )
+
+import Task
+
+
+type MyCmd msg = MyCmd (Task.Task Never msg)
+
+
+type Data = Data
+
+
+cmd = 1
