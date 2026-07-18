@@ -3166,6 +3166,41 @@ decision and why.
     layout is stable when reformatted and a comment anywhere in the chain never
     changes which operators break.
 
+    A real example from this codebase makes the case well —
+    `gren-format/src/Main.gren`'s `anyFlagSet` check ORs together a run of
+    `/=` comparisons (abridged here to four; the real check has more):
+
+    ```gren
+    -- gren-format:
+    anyFlagSet =
+        flags.show /= Nothing
+            || flags.preAst /= Nothing
+            || flags.postAst /= Nothing
+            || flags.lpt /= Nothing
+    ```
+
+    elm-format breaks after *every* operator, including the tighter `/=`
+    inside each disjunct, separating each flag from the `Nothing` it's being
+    compared against:
+
+    ```gren
+    -- elm-format:
+    anyFlagSet =
+        flags.show
+            /= Nothing
+            || flags.preAst
+            /= Nothing
+            || flags.postAst
+            /= Nothing
+            || flags.lpt
+            /= Nothing
+    ```
+
+    Grouping by precedence keeps each `flag /= Nothing` check reading as the
+    single comparison it is; elm-format's per-operator splitting scatters it
+    across two lines apiece and buries the `||` structure that's actually the
+    point of the expression.
+
 19. **A short `{- … -}` inside a list or record stays on the line the author
     wrote; elm-format breaks the whole thing open.** When a comment sits inside a
     list, record, record update, or record type and the author wrote the whole
