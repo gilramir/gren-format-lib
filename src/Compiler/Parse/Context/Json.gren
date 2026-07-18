@@ -6,10 +6,10 @@ module Compiler.Parse.Context.Json exposing (encodeContext)
 
 -}
 
-import Json.Encode as Json
 import Array.Builder as Builder
 import Compiler.Parse.Context as Ctx
 import Compiler.SourcePosition as SP
+import Json.Encode as Json
 
 
 {-| Encode a `Ctx.Context` as a JSON value.

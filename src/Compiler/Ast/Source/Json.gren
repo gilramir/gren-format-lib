@@ -6,10 +6,11 @@ module Compiler.Ast.Source.Json exposing (encodeModule)
 
 -}
 
-import Json.Encode as Json
 import Compiler.Ast.Source as Src
-import Compiler.SourcePosition as SP
 import Compiler.Parse.Number as Number
+import Compiler.SourcePosition as SP
+import Json.Encode as Json
+
 
 -- Helpers
 
@@ -48,6 +49,7 @@ encMaybe f maybe =
         Just a ->
             f a
 
+
 -- Module
 
 
@@ -74,6 +76,7 @@ encModuleDecl encV decl =
         [ { key = "docs", value = encMaybe (encLocated Json.string) decl.docs }
         , { key = "value", value = encV decl.value }
         ]
+
 
 -- Exposing
 
@@ -120,6 +123,7 @@ encPrivacy privacy =
         Src.Private ->
             Json.string "private"
 
+
 -- Import
 
 
@@ -130,6 +134,7 @@ encImport imp =
         , { key = "alias", value = encMaybe Json.string imp.alias }
         , { key = "expose", value = encExposing imp.expose }
         ]
+
 
 -- Value
 
@@ -151,6 +156,7 @@ encValueSig sig =
         , { key = "type_", value = encLocated encType_ sig.type_ }
         ]
 
+
 -- Union
 
 
@@ -170,6 +176,7 @@ encUnionVariant variant =
         , { key = "payload", value = encMaybe encType variant.payload }
         ]
 
+
 -- Alias
 
 
@@ -180,6 +187,7 @@ encAlias al =
         , { key = "vars", value = Json.array (encLocated Json.string) al.vars }
         , { key = "type_", value = encType al.type_ }
         ]
+
 
 -- Infix
 
@@ -205,6 +213,7 @@ encAssociativity assoc =
 
         Src.OpARight ->
             Json.string "right"
+
 
 -- Effects
 
@@ -257,6 +266,7 @@ encManager mgr =
                 , { key = "cmd", value = encLocated Json.string cmd }
                 , { key = "sub", value = encLocated Json.string sub }
                 ]
+
 
 -- Type
 
@@ -318,6 +328,7 @@ encTRecordField fld =
         [ { key = "field", value = encLocated Json.string fld.field }
         , { key = "signature", value = encType fld.signature }
         ]
+
 
 -- Pattern
 
@@ -403,6 +414,7 @@ encPRecordField fld =
         [ { key = "field", value = encLocated Json.string fld.field }
         , { key = "pattern", value = encMaybe encPattern fld.pattern }
         ]
+
 
 -- Expression
 

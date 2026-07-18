@@ -1,19 +1,18 @@
-module Formatter.Render.FlowPolicy
-    exposing
-        ( NextSeparator(..)
-        , FlowState
-        , initialFlowState
-        , FlowConfig
-        , BlockKind(..)
-        , ItemFacts(..)
-        , Placement(..)
-        , Decision
-        , decide
-        , nodeIsComment
-        , isMultiLineCommentValue
-        , isTypeRecordLiteral
-        , pairLeadingRecordComments
-        )
+module Formatter.Render.FlowPolicy exposing
+    ( BlockKind(..)
+    , Decision
+    , FlowConfig
+    , FlowState
+    , ItemFacts(..)
+    , NextSeparator(..)
+    , Placement(..)
+    , decide
+    , initialFlowState
+    , isMultiLineCommentValue
+    , isTypeRecordLiteral
+    , nodeIsComment
+    , pairLeadingRecordComments
+    )
 
 {-| The flow fold's decision layer, consumed by the Box renderer.
 
@@ -44,14 +43,13 @@ surfaced before facts are built.
 
 -}
 
-import Formatter.Logical.LogicalPrintingTree
-    exposing
-        ( LPBox(..)
-        , LPNode
-        , ListBrackets(..)
-        , lpnBox
-        , lpnChildren
-        )
+import Formatter.Logical.LogicalPrintingTree exposing
+    ( LPBox(..)
+    , LPNode
+    , ListBrackets(..)
+    , lpnBox
+    , lpnChildren
+    )
 
 
 {-| What separator to place before the next item.

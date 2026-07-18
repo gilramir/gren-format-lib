@@ -1,8 +1,7 @@
-module Formatter.Logical.BinopPrecedence
-    exposing
-        ( binopPrecedence
-        , binopMinPrecedence
-        )
+module Formatter.Logical.BinopPrecedence exposing
+    ( binopMinPrecedence
+    , binopPrecedence
+    )
 
 {-| Operator fixities, used to lay out a non-pipeline binop chain.
 

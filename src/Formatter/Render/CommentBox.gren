@@ -1,12 +1,13 @@
-module Formatter.Render.CommentBox exposing (makeCommentLineBox, multiLineBlockCommentBox, commentNodeToBox, commentNodeBox, emptyBracketedCommentLine, docCommentString, blockCommentBodyOffset, leadingSpaceCount, spanLeadingComments, spanTrailingComments, peelTrailingCommentNodes, glueTrailingComments)
+module Formatter.Render.CommentBox exposing (blockCommentBodyOffset, commentNodeBox, commentNodeToBox, docCommentString, emptyBracketedCommentLine, glueTrailingComments, leadingSpaceCount, makeCommentLineBox, multiLineBlockCommentBox, peelTrailingCommentNodes, spanLeadingComments, spanTrailingComments)
 
 {-| Rendering of comment nodes (line, block, doc) to `Box`.
 -}
 
-import Formatter.Render.Box as B exposing (Box(..))
 import Formatter.Logical.LogicalPrintingTree exposing (LPBox(..), LPNode, lpnBox)
-import Formatter.Render.BoxOps exposing (traverseResult, glueCommentSuffix)
+import Formatter.Render.Box as B exposing (Box(..))
+import Formatter.Render.BoxOps exposing (glueCommentSuffix, traverseResult)
 import Formatter.Render.NodeClassify exposing (nodeIsComment)
+
 
 {-| Render a standalone top-level comment-line item. Same-row block comments
 join with a space; a `--` line comment (or a row change) starts a new line.

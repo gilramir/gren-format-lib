@@ -37,6 +37,7 @@ compareModules a b =
         , compareEffects a.effects b.effects
         ]
 
+
 -- EFFECTS
 
 
@@ -74,6 +75,7 @@ compareManager a b =
         _ ->
             Err "manager: different kinds"
 
+
 -- PORTS
 
 
@@ -90,6 +92,7 @@ comparePortDecl la lb =
         [ compareStr "port name" a.name.value b.name.value
         , compareType ("port '" ++ a.name.value ++ "'") a.signature b.signature
         ]
+
 
 -- EXPOSING
 
@@ -161,6 +164,7 @@ comparePrivacy a b =
         _ ->
             Err "privacy: Public vs Private"
 
+
 -- IMPORTS
 
 
@@ -217,6 +221,7 @@ compareValueDecl la lb =
         , compareExpr ctx a.body b.body
         ]
 
+
 -- UNION TYPE DECLARATIONS
 
 
@@ -254,6 +259,7 @@ compareVariant la lb =
         , compareMaybe "variant payload" (compareType "variant payload") a.payload b.payload
         ]
 
+
 -- TYPE ALIAS DECLARATIONS
 
 
@@ -275,6 +281,7 @@ compareAliasDecl la lb =
         , compareArray (ctx ++ " vars") (\la_ lb_ -> compareStr "type var" la_.value lb_.value) a.vars b.vars
         , compareType ctx a.type_ b.type_
         ]
+
 
 -- BINOP (INFIX) DECLARATIONS
 
@@ -310,6 +317,7 @@ compareAssociativity a b =
 
         _ ->
             Err "binop associativity differs"
+
 
 -- TYPES
 
@@ -363,6 +371,7 @@ compareTRecordField ctx a b =
         [ compareStr (ctx ++ " field name") a.field.value b.field.value
         , compareType (ctx ++ " field '" ++ a.field.value ++ "'") a.signature b.signature
         ]
+
 
 -- PATTERNS
 
@@ -428,6 +437,7 @@ comparePRecordField a b =
         [ compareStr "pattern record field" a.field.value b.field.value
         , compareMaybe "pattern record field pattern" comparePattern a.pattern b.pattern
         ]
+
 
 -- EXPRESSIONS
 
@@ -585,6 +595,7 @@ compareLetDef ctx la lb =
         _ ->
             Err (ctx ++ ": let def: Define vs Destruct")
 
+
 -- PRIMITIVE HELPERS
 
 
@@ -738,17 +749,23 @@ compareBool ctx a b =
         Ok {}
 
     else
-        Err (ctx ++ ": " ++ (if a then
-                              "True"
+        Err
+            (ctx
+                ++ ": "
+                ++ (if a then
+                        "True"
 
-                             else
-                              "False"
-                            ) ++ " vs " ++ (if b then
-                                             "True"
+                    else
+                        "False"
+                   )
+                ++ " vs "
+                ++ (if b then
+                        "True"
 
-                                            else
-                                             "False"
-                                           ))
+                    else
+                        "False"
+                   )
+            )
 
 
 compareNumber : String -> Number.Outcome -> Number.Outcome -> Result String {}

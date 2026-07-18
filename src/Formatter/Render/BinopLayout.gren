@@ -1,13 +1,14 @@
-module Formatter.Render.BinopLayout exposing (flattenBinopNodes, assembleBinopBox, inlineBinopBox, renderBinopGroup, splitTrailingOwnLineComments, opText, bracketOperandForcesVertical, operandIsMultilineBracketLiteral, isChainBreakingOperandBox)
+module Formatter.Render.BinopLayout exposing (assembleBinopBox, bracketOperandForcesVertical, flattenBinopNodes, inlineBinopBox, isChainBreakingOperandBox, opText, operandIsMultilineBracketLiteral, renderBinopGroup, splitTrailingOwnLineComments)
 
 {-| Pure layout assembly for binary-operator chains (operand boxes + operator texts -> Box).
 -}
 
-import Formatter.Render.Box as B exposing (Box(..))
-import Formatter.Logical.LogicalPrintingTree exposing (LPBox(..), LPNode, lpnBox, lpnChildren, lpnLastPos, lpnLastBracketEnd)
 import Formatter.Logical.BinopPrecedence exposing (binopPrecedence)
+import Formatter.Logical.LogicalPrintingTree exposing (LPBox(..), LPNode, lpnBox, lpnChildren, lpnLastBracketEnd, lpnLastPos)
+import Formatter.Render.Box as B exposing (Box(..))
 import Formatter.Render.BoxOps exposing (traverseResult)
-import Formatter.Render.NodeClassify exposing (nodeIsComment, subtreeHasComment, literalCommentsRideFlatLine, subtreeHasVerticalBox, bracketOpenGate, leafValue, nodeSpansRows)
+import Formatter.Render.NodeClassify exposing (bracketOpenGate, leafValue, literalCommentsRideFlatLine, nodeIsComment, nodeSpansRows, subtreeHasComment, subtreeHasVerticalBox)
+
 
 {-| Flatten the nested `Binop`/`OpAndRhs` tree into a flat operand + operator
 list. Each operand is itself a flow (array of nodes). -}
@@ -210,8 +211,7 @@ renderBinopGroup parts =
                                         Err "box: multi-line operand joined inline"
                             )
                             rest
-                            |> Result.map
-                                (\segs -> B.line (B.row (Array.flatten ([ [ l0 ] ] ++ segs))))
+                            |> Result.map (\segs -> B.line (B.row (Array.flatten ([ [ l0 ] ] ++ segs))))
 
 
 {-| Assemble the operand boxes + operator texts into the INLINE layout (the whole

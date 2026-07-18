@@ -9,9 +9,9 @@ parsed module. The AST walk itself lives in `Formatter.Logical.MakeLogical`
 
 import Compiler.Ast.Source as Src
 import Compiler.Parse.Context as Ctx
+import Formatter.Logical.Comments exposing (lptAddComments)
 import Formatter.Logical.LogicalPrintingTree exposing (LPNode)
 import Formatter.Logical.MakeLogical exposing (lptFromAst)
-import Formatter.Logical.Comments exposing (lptAddComments)
 import Formatter.Logical.SortSymbols exposing (sortSymbols)
 import Formatter.Logical.VerticalSpace exposing (insertEmptyLines, insertFlowBlankLines)
 
@@ -42,8 +42,10 @@ makeLogicalPrintingTree : Src.Module -> Ctx.Context -> Result String LPNode
 makeLogicalPrintingTree ast ctx =
     when lptFromAst ast is
         Err errString ->
-            Err ("Failed to create intermediate representation for pretty printing: "
-                    ++ errString)
+            Err
+                ("Failed to create intermediate representation for pretty printing: "
+                    ++ errString
+                )
 
         Ok lpt ->
             let

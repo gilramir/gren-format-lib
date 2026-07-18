@@ -26,12 +26,12 @@ the author's own row layout (`forceVertical`).
 
 -}
 
-import Json.Encode as Json
+import Formatter.Logical.LogicalPrintingTree exposing (LPBox(..), LPNode, lpnBox, lpnChildren, lpnFirstPos, stypeToString)
 import Formatter.Render.Box as B exposing (Box)
 import Formatter.Render.BoxOps exposing (isSingleLine)
 import Formatter.Render.MakeRenderBox exposing (makePBox)
-import Formatter.Render.NodeClassify exposing (subtreeHasVerticalBox, isMultilineContentParenBlockBox, isMultilineLambdaParenBlockBox)
-import Formatter.Logical.LogicalPrintingTree exposing (LPBox(..), LPNode, lpnBox, lpnChildren, lpnFirstPos, stypeToString)
+import Formatter.Render.NodeClassify exposing (isMultilineContentParenBlockBox, isMultilineLambdaParenBlockBox, subtreeHasVerticalBox)
+import Json.Encode as Json
 
 
 {-| One over-approximation: `predicate` claimed `boxKind` at `row`:`col` would

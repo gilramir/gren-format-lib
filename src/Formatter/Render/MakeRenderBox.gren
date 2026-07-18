@@ -2924,9 +2924,10 @@ assembleFlowImpl inlineStart flowIndent items =
             FP.BracketLiteralItem
                 { forcesVertical = not (isSingleLine item.box)
                 , isTypeRecord = FP.isTypeRecordLiteral item.node
-                , closingRow = lpnLastBracketEnd item.node
-                    |> Maybe.map (\p -> p.row)
-                    |> Maybe.withDefault -1
+                , closingRow =
+                    lpnLastBracketEnd item.node
+                        |> Maybe.map (\p -> p.row)
+                        |> Maybe.withDefault -1
                 }
 
         -- Glue a single line onto the last completed row's last line — the
@@ -3254,14 +3255,15 @@ assembleFlowImpl inlineStart flowIndent items =
                                         when directOperandLambdaSplit item.node is
                                             Just { headLine, bodyBox } ->
                                                 Ok
-                                                    { rows = Array.pushLast
-                                                        (B.stack1
-                                                            [ B.line (B.row [ prefLine, B.punc "(", headLine ])
-                                                            , B.indent (B.indent bodyBox)
-                                                            , B.prefix (B.row [ B.space, B.space, B.space ]) (B.line (B.punc ")"))
-                                                            ]
-                                                        )
-                                                        acc.rows
+                                                    { rows =
+                                                        Array.pushLast
+                                                            (B.stack1
+                                                                [ B.line (B.row [ prefLine, B.punc "(", headLine ])
+                                                                , B.indent (B.indent bodyBox)
+                                                                , B.prefix (B.row [ B.space, B.space, B.space ]) (B.line (B.punc ")"))
+                                                                ]
+                                                            )
+                                                            acc.rows
                                                     , curRow = []
                                                     , state = decision.next
                                                     }

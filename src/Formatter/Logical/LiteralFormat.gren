@@ -1,4 +1,4 @@
-module Formatter.Logical.LiteralFormat exposing (escapeStringContent, escapeMultilineContent, charLiteralString, intToHex)
+module Formatter.Logical.LiteralFormat exposing (charLiteralString, escapeMultilineContent, escapeStringContent, intToHex)
 
 {-|
 Source-text formatting of primitive literals: strings, chars, and hex
@@ -241,11 +241,13 @@ codePointHex n =
             String.count raw
 
         pad =
-            String.repeat (if rawLen < 4 then
-                            4 - rawLen
+            String.repeat
+                (if rawLen < 4 then
+                    4 - rawLen
 
-                           else
-                            0
-                          ) "0"
+                 else
+                    0
+                )
+                "0"
     in
     pad ++ raw

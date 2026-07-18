@@ -1,8 +1,7 @@
-module Formatter.Render
-    exposing
-        ( makePrettyResult
-        , lptToBoxJson
-        )
+module Formatter.Render exposing
+    ( lptToBoxJson
+    , makePrettyResult
+    )
 
 {-| Render a Logical Printing Tree to its final formatted source string.
 
@@ -15,14 +14,13 @@ been removed (the Box renderer covers every construct in the corpus).
 @docs makePrettyResult
 -}
 
-import Formatter.Logical.LogicalPrintingTree
-    exposing
-        ( LPNode
-        , lpnChildren
-        )
-import Formatter.Strings exposing (joinResultStrings)
+import Formatter.Logical.LogicalPrintingTree exposing
+    ( LPNode
+    , lpnChildren
+    )
 import Formatter.Render.Box as RB
 import Formatter.Render.MakeRenderBox as MRB
+import Formatter.Strings exposing (joinResultStrings)
 import Json.Encode as Json
 
 

@@ -1,17 +1,16 @@
-module Formatter.Logical.LPTHelpers
-    exposing
-        ( mkText
-        , mkTextFromLocString
-        , mkZeroWidthText
-        , plainAcross
-        , syntheticParens
-        , itemsSpanRows
-        , authoredBracketList
-        , resultFoldl
-        , tryMapFirstLeaf
-        , tryMapLastLeaf
-        , fixupParensChildrenNodes
-        )
+module Formatter.Logical.LPTHelpers exposing
+    ( authoredBracketList
+    , fixupParensChildrenNodes
+    , itemsSpanRows
+    , mkText
+    , mkTextFromLocString
+    , mkZeroWidthText
+    , plainAcross
+    , resultFoldl
+    , syntheticParens
+    , tryMapFirstLeaf
+    , tryMapLastLeaf
+    )
 
 {-|
 LPT construction helpers shared by every Insert* module: leaf-building,
@@ -22,17 +21,16 @@ used to rewrite the text on the deepest leaf of a subtree.
 
 import Compiler.SourcePosition exposing (Located, Position)
 
-import Formatter.Logical.LogicalPrintingTree
-    exposing
-        ( LPBox(..)
-        , ListBrackets(..)
-        , LPNode(..)
-        , lpnBox
-        , lpnChildren
-        , lpnLeaf
-        , lpnNode
-        , lpnBracketNode
-        )
+import Formatter.Logical.LogicalPrintingTree exposing
+    ( LPBox(..)
+    , LPNode(..)
+    , ListBrackets(..)
+    , lpnBox
+    , lpnBracketNode
+    , lpnChildren
+    , lpnLeaf
+    , lpnNode
+    )
 
 
 mkText : Position -> String -> LPBox
@@ -136,10 +134,10 @@ authoredBracketList brackets spans closeEnd empty itemNodes =
         Just _ ->
             lpnBracketNode
                 (if spans then
-                  AlwaysVertical brackets
+                    AlwaysVertical brackets
 
                  else
-                  AllAcrossOrAllVertical brackets
+                    AllAcrossOrAllVertical brackets
                 )
                 closeEnd
                 itemNodes

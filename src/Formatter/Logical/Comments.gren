@@ -111,23 +111,22 @@ import Array.Builder as Builder
 import Compiler.Parse.Context as Ctx
 import Compiler.SourcePosition exposing (Located, Position, at)
 
-import Formatter.Logical.LogicalPrintingTree
-    exposing
-        ( LPBox(..)
-        , LPNode(..)
-        , ListBrackets(..)
-        , SyntaxType(..)
-        , lpnBox
-        , lpnChildren
-        , lpnLeaf
-        , lpnNode
-        , lpnReplaceChildren
-        , subtreeRowRange
-        , lpnFirstPos
-        , lpnLastPos
-        , lpnLastBracketEnd
-        , lpnBracketEndExact
-        )
+import Formatter.Logical.LogicalPrintingTree exposing
+    ( LPBox(..)
+    , LPNode(..)
+    , ListBrackets(..)
+    , SyntaxType(..)
+    , lpnBox
+    , lpnBracketEndExact
+    , lpnChildren
+    , lpnFirstPos
+    , lpnLastBracketEnd
+    , lpnLastPos
+    , lpnLeaf
+    , lpnNode
+    , lpnReplaceChildren
+    , subtreeRowRange
+    )
 import Formatter.Strings exposing (countNewlines)
 
 
@@ -209,7 +208,6 @@ mkCommentLpBox locComment =
         Ctx.Block string ->
             BlockComment <| at start end string
 
-
 -- PHASE 1: FIND THE TOP-LEVEL SLOT
 --
 -- Pick the root-child OriginalRows whose row range covers the comment, or splice
@@ -219,19 +217,20 @@ mkCommentLpBox locComment =
 
 
 {-
-Scans root's children for an OriginalRows whose range includes row.
-Returns { origRowNode, before, after } where before ++ [origRowNode] ++ after
-reconstructs the children array with that node at its original position.
-If no match is found, creates a new OriginalRows node inserted in sorted position.
+   Scans root's children for an OriginalRows whose range includes row.
+   Returns { origRowNode, before, after } where before ++ [origRowNode] ++ after
+   reconstructs the children array with that node at its original position.
+   If no match is found, creates a new OriginalRows node inserted in sorted position.
 -}
 findOrCreateOrigRow :
     Int
     -> SyntaxType
     -> Array LPNode
-    -> { origRowNode : LPNode
-    , before : Array LPNode
-    , after : Array LPNode
-    }
+    ->
+        { origRowNode : LPNode
+        , before : Array LPNode
+        , after : Array LPNode
+        }
 findOrCreateOrigRow row stype nodes =
     let
         -- First: try to find an existing OriginalRows containing 'row'
@@ -303,7 +302,6 @@ findOrCreateOrigRow row stype nodes =
             , after = insertResult.after
             }
 
-
 -- PHASE 2: DESCEND INTO THE OWNING SUBTREE
 --
 -- Walk down inside the chosen slot, at each level picking the deepest child that
@@ -312,9 +310,9 @@ findOrCreateOrigRow row stype nodes =
 
 
 {-
-Walk down the subtree to find the deepest node that contains the row,
-then insert the comment among that node's children.
-Mirrors the current findDeepestParent + insertAmongChildren logic.
+   Walk down the subtree to find the deepest node that contains the row,
+   then insert the comment among that node's children.
+   Mirrors the current findDeepestParent + insertAmongChildren logic.
 -}
 insertCommentIntoSubtree : LPNode -> Int -> Int -> LPNode -> LPNode
 insertCommentIntoSubtree commentNode row col node =
@@ -408,6 +406,7 @@ insertCommentIntoSubtree commentNode row col node =
 
                                     Nothing ->
                                         False
+
                             -- `child` has a body the comment could live in: it has
                             -- children, or it is an empty bracket the comment sits
                             -- between (`{ {- c -} }`).
@@ -460,10 +459,10 @@ insertCommentIntoSubtree commentNode row col node =
 
 
 {-
-Determines the insertion index by counting how many children end before
-(row, col), then applies the IndentedBlock heuristic: if the next sibling
-is an IndentedBlock, redirect the comment as its first child so it renders
-at IndentedBlock indentation.
+   Determines the insertion index by counting how many children end before
+   (row, col), then applies the IndentedBlock heuristic: if the next sibling
+   is an IndentedBlock, redirect the comment as its first child so it renders
+   at IndentedBlock indentation.
 -}
 insertAmongChildren : LPNode -> Int -> Int -> Array LPNode -> Array LPNode
 insertAmongChildren commentNode row col children =
@@ -568,7 +567,6 @@ insertAmongChildren commentNode row col children =
 
             Nothing ->
                 finalBefore ++ [ commentNode ]
-
 
 -- PREDICATES: POSITION & BOX-KIND TESTS
 --
@@ -707,8 +705,8 @@ subtreeContainsRow node row =
 
 
 {-
-positionBefore returns True if the position is on an earlier row, or on
-the same row with an equal or earlier column.
+   positionBefore returns True if the position is on an earlier row, or on
+   the same row with an equal or earlier column.
 -}
 positionBefore : Position -> Int -> Int -> Bool
 positionBefore pos row col =
@@ -716,7 +714,7 @@ positionBefore pos row col =
 
 
 {-
-splitAt is a small helper that divides an array at a given index.
+   splitAt is a small helper that divides an array at a given index.
 -}
 splitAt : Int -> Array a -> { before : Array a, after : Array a }
 splitAt index arr =
@@ -739,15 +737,14 @@ splitAt index arr =
 subtreeEndsBefore : LPNode -> Int -> Int -> Bool
 subtreeEndsBefore node row col =
     lastRealPosition node
-        |>
-            (\maybePos ->
+        |> (\maybePos ->
                 when maybePos is
                     Nothing ->
                         False
 
                     Just pos ->
                         positionBefore pos row col
-            )
+           )
 
 
 -- Returns the first real source position in a depth-first traversal of the subtree.

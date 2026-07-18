@@ -1,28 +1,27 @@
-module Formatter.Logical.LogicalPrintingTree
-    exposing
-        ( LPBox(..)
-        , LPNode(..)
-        , ListBrackets(..)
-        , SyntaxType(..)
-        , stypeToString
-        , lpnBox
-        , lpnChildren
-        , lpnFirstPos
-        , lpnLastPos
-        , lpnMaxRow
-        , lpnLastBracketEnd
-        , lpnBracketEndExact
-        , lpnBracketStart
-        , lpnWithBracketStart
-        , lpnWithBox
-        , lpnLeaf
-        , lpnNode
-        , lpnBracketNode
-        , lpnReplaceChildren
-        , subtreeRowRange
-        , firstRowInSubtree
-        , lastRowInSubtree
-        )
+module Formatter.Logical.LogicalPrintingTree exposing
+    ( LPBox(..)
+    , LPNode(..)
+    , ListBrackets(..)
+    , SyntaxType(..)
+    , firstRowInSubtree
+    , lastRowInSubtree
+    , lpnBox
+    , lpnBracketEndExact
+    , lpnBracketNode
+    , lpnBracketStart
+    , lpnChildren
+    , lpnFirstPos
+    , lpnLastBracketEnd
+    , lpnLastPos
+    , lpnLeaf
+    , lpnMaxRow
+    , lpnNode
+    , lpnReplaceChildren
+    , lpnWithBox
+    , lpnWithBracketStart
+    , stypeToString
+    , subtreeRowRange
+    )
 
 {-| The Logical Printing Tree (LPT): the intermediate representation between the
 parsed AST and the rendered string. `MakeLogical` builds it, the `Insert*`
@@ -420,7 +419,8 @@ the comment between the bracket's last item and the closing
 bracket character.
 -}
 type LPNode
-    = LPNode { box : LPBox
+    = LPNode
+        { box : LPBox
         , children : Array LPNode
         , firstPos : Maybe Position
         , lastPos : Maybe Position
@@ -746,12 +746,13 @@ Inclusion rules match the legacy recursive helpers:
 -}
 selfBoxBounds :
     LPBox
-    -> { firstPos : Maybe Position
-    , lastPos : Maybe Position
-    , minRow : Int
-    , maxRow : Int
-    , isBracket : Bool
-    }
+    ->
+        { firstPos : Maybe Position
+        , lastPos : Maybe Position
+        , minRow : Int
+        , maxRow : Int
+        , isBracket : Bool
+        }
 selfBoxBounds box =
     let
         empty =

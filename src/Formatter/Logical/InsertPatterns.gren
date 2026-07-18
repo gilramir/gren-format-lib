@@ -1,4 +1,4 @@
-module Formatter.Logical.InsertPatterns exposing (insertPattern, folderInsertPattern, argNeedsParens)
+module Formatter.Logical.InsertPatterns exposing (argNeedsParens, folderInsertPattern, insertPattern)
 
 {-|
 Pattern → LPT conversion. Patterns appear in let-destructures, lambda
@@ -11,19 +11,18 @@ boxes.
 import Compiler.Ast.Source as Src
 import Compiler.SourcePosition exposing (Located, Position)
 
-import Formatter.Logical.LogicalPrintingTree
-    exposing
-        ( LPBox(..)
-        , LPNode(..)
-        , ListBrackets(..)
-        , lpnBox
-        , lpnChildren
-        , lpnLeaf
-        , lpnNode
-        , lpnBracketNode
-        )
-import Formatter.Logical.LPTHelpers exposing (mkText, mkZeroWidthText, mkTextFromLocString, resultFoldl, itemsSpanRows, authoredBracketList, plainAcross, syntheticParens)
+import Formatter.Logical.LPTHelpers exposing (authoredBracketList, itemsSpanRows, mkText, mkTextFromLocString, mkZeroWidthText, plainAcross, resultFoldl, syntheticParens)
 import Formatter.Logical.LiteralFormat exposing (charLiteralString, escapeStringContent, intToHex)
+import Formatter.Logical.LogicalPrintingTree exposing
+    ( LPBox(..)
+    , LPNode(..)
+    , ListBrackets(..)
+    , lpnBox
+    , lpnBracketNode
+    , lpnChildren
+    , lpnLeaf
+    , lpnNode
+    )
 
 
 insertPattern : Src.Pattern -> Result String (Array LPNode)
@@ -47,7 +46,8 @@ insertPattern locPat =
                                 , end = Maybe.map .end f.pattern |> Maybe.withDefault f.field.end
                                 }
                             )
-                            fields)
+                            fields
+                        )
             in
             resultFoldl folderInsertPRecordField [] fields
                 -- `locPat.end` registers the closing `}` so an own-line comment

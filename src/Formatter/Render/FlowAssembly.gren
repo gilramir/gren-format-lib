@@ -1,13 +1,14 @@
-module Formatter.Render.FlowAssembly exposing (FlowItem, SoftGlueAlignment(..), assembleBrokenWithComments, assembleBrokenCall, trySoftGlueFlow, pairTypeRecordComments, softGlueAlignment, parenInnerIsAlignCarrying, isSoftGlueLiteral, flowItemInlineLine, softBlockChildForcesVerticalBox, shouldGlueBox, bracketPunc, isCommentItem, verticalExposingBox, gluedExposingBox)
+module Formatter.Render.FlowAssembly exposing (FlowItem, SoftGlueAlignment(..), assembleBrokenCall, assembleBrokenWithComments, bracketPunc, flowItemInlineLine, gluedExposingBox, isCommentItem, isSoftGlueLiteral, pairTypeRecordComments, parenInnerIsAlignCarrying, shouldGlueBox, softBlockChildForcesVerticalBox, softGlueAlignment, trySoftGlueFlow, verticalExposingBox)
 
 {-| Flow-assembly support: the `FlowItem`/`SoftGlueAlignment` types and the pure helpers that lay pre-rendered flow items out into a `Box`.
 -}
 
+import Formatter.Logical.LogicalPrintingTree exposing (LPBox(..), LPNode, ListBrackets(..), lpnBox, lpnChildren, lpnMaxRow)
 import Formatter.Render.Box as B exposing (Box(..))
+import Formatter.Render.BoxOps exposing (applyIndent, glueCommentSuffix, isSingleLine, joinInline, nodesShareStartRow, traverseResult)
 import Formatter.Render.FlowPolicy as FP
-import Formatter.Logical.LogicalPrintingTree exposing (LPBox(..), ListBrackets(..), LPNode, lpnBox, lpnChildren, lpnMaxRow)
-import Formatter.Render.BoxOps exposing (applyIndent, traverseResult, joinInline, isSingleLine, glueCommentSuffix, nodesShareStartRow)
 import Formatter.Render.NodeClassify exposing (isEmptyLine)
+
 
 -- `exposing` stays glued to the header. Inline list: `header (a, b, c)` on one
 -- line. Vertical list: header on line 1, list indented +4 beneath it. The
@@ -424,7 +425,16 @@ trySoftGlueFlow items =
         let
             multiIdxs =
                 Array.foldl
-                    (\it acc -> { i = acc.i + 1, idxs = if isSingleLine it.box then acc.idxs else Array.pushLast acc.i acc.idxs })
+                    (\it acc ->
+                        { i = acc.i + 1
+                        , idxs =
+                            if isSingleLine it.box then
+                                acc.idxs
+
+                            else
+                                Array.pushLast acc.i acc.idxs
+                        }
+                    )
                     { i = 0, idxs = [] }
                     items
         in

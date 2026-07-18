@@ -1,10 +1,11 @@
-module Formatter.Render.BoxOps exposing (grenIndent, prefixOperator, wrapParenVerticalPadded, blockIndentSpaces, applyIndent, stackWithBlanks, boxLine, traverseResult, spaceJoinLines, joinInline, isSingleLine, glueCommentSuffix, isBlockNode, nodesShareStartRow, nodeStartRow)
+module Formatter.Render.BoxOps exposing (applyIndent, blockIndentSpaces, boxLine, glueCommentSuffix, grenIndent, isBlockNode, isSingleLine, joinInline, nodeStartRow, nodesShareStartRow, prefixOperator, spaceJoinLines, stackWithBlanks, traverseResult, wrapParenVerticalPadded)
 
 {-| Low-level `Box`/`Line` manipulation helpers shared by the renderer.
 -}
 
-import Formatter.Render.Box as B exposing (Box(..))
 import Formatter.Logical.LogicalPrintingTree exposing (LPBox(..), LPNode, lpnBox, lpnFirstPos)
+import Formatter.Render.Box as B exposing (Box(..))
+
 
 grenIndent : Int
 grenIndent =

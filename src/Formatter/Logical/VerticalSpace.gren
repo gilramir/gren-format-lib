@@ -9,18 +9,17 @@ before a comment sitting between two `when` cases.
 @docs insertEmptyLines, insertFlowBlankLines
 -}
 
-import Formatter.Logical.LogicalPrintingTree
-    exposing
-        ( LPBox(..)
-        , SyntaxType(..)
-        , lpnNode
-        , LPNode(..)
-        , lpnBox
-        , lpnChildren
-        , lpnLeaf
-        , lpnReplaceChildren
-        , lpnFirstPos
-        )
+import Formatter.Logical.LogicalPrintingTree exposing
+    ( LPBox(..)
+    , LPNode(..)
+    , SyntaxType(..)
+    , lpnBox
+    , lpnChildren
+    , lpnFirstPos
+    , lpnLeaf
+    , lpnNode
+    , lpnReplaceChildren
+    )
 
 
 isCommentStype : SyntaxType -> Bool
@@ -143,7 +142,8 @@ classifyChildren nodes =
                                         _ ->
                                             False
                             in
-                            { out = Array.pushLast
+                            { out =
+                                Array.pushLast
                                     { node = node
                                     , first = r.first
                                     , last = r.last
@@ -177,7 +177,8 @@ classifyChildren nodes =
                             }
 
                         _ ->
-                            { out = Array.pushLast
+                            { out =
+                                Array.pushLast
                                     { node = node, first = -1, last = -1, stype = Nothing, isComment = False, core = False, commentCol = 1 }
                                     acc.out
                             , lastNonComment = acc.lastNonComment
@@ -343,11 +344,11 @@ insertEmptyLines root =
                         unitStart =
                             isGroupStart
                                 && (when acc.prev is
-                                     Just p ->
-                                         not (p.isGroupStart && p.isComment)
+                                        Just p ->
+                                            not (p.isGroupStart && p.isComment)
 
-                                     Nothing ->
-                                         True
+                                        Nothing ->
+                                            True
                                    )
 
                         prevRec =
@@ -366,7 +367,8 @@ insertEmptyLines root =
 
                         Just p ->
                             if unitStart then
-                                { newChildren = acc.newChildren
+                                { newChildren =
+                                    acc.newChildren
                                         |> Array.pushLast (lpnLeaf EmptyLine)
                                         |> Array.pushLast (lpnLeaf EmptyLine)
                                         |> Array.pushLast info.node
@@ -414,7 +416,8 @@ insertEmptyLines root =
                                         gap && info.isComment && infoDetachedBelow && not afterModule
                                 in
                                 if floating then
-                                    { newChildren = acc.newChildren
+                                    { newChildren =
+                                        acc.newChildren
                                             |> Array.pushLast (lpnLeaf EmptyLine)
                                             |> Array.pushLast (lpnLeaf EmptyLine)
                                             |> Array.pushLast info.node
@@ -422,7 +425,8 @@ insertEmptyLines root =
                                     }
 
                                 else if (gap || afterModule) && not sigThenDef then
-                                    { newChildren = acc.newChildren
+                                    { newChildren =
+                                        acc.newChildren
                                             |> Array.pushLast (lpnLeaf EmptyLine)
                                             |> Array.pushLast info.node
                                     , prev = Just prevRec

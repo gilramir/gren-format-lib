@@ -1,11 +1,12 @@
-module Formatter.Render.NodeClassify exposing (nodeIsComment, subtreeHasComment, literalCommentsRideFlatLine, subtreeHasMultilineBlockComment, subtreeHasVerticalBox, bracketOpenGate, typeHasCommentBracket, isMultilineLambdaParenBlockBox, isMultilineContentParenBlockBox, isOpAndRhsNode, isPipelineStepNode, leafValue, isArrowLeaf, isColonLeaf, isElidedArrow, isEmptyLine, fieldValueDropsToOwnLine, rowsSpanMultiple, nodeSpansRows, parenContentIsLambdaHead, splitSignatureSegments, segFirstRow, segLastRow, isDroppingSignatureRecordNode, signatureForceVertical, leafLineRow)
+module Formatter.Render.NodeClassify exposing (bracketOpenGate, fieldValueDropsToOwnLine, isArrowLeaf, isColonLeaf, isDroppingSignatureRecordNode, isElidedArrow, isEmptyLine, isMultilineContentParenBlockBox, isMultilineLambdaParenBlockBox, isOpAndRhsNode, isPipelineStepNode, leafLineRow, leafValue, literalCommentsRideFlatLine, nodeIsComment, nodeSpansRows, parenContentIsLambdaHead, rowsSpanMultiple, segFirstRow, segLastRow, signatureForceVertical, splitSignatureSegments, subtreeHasComment, subtreeHasMultilineBlockComment, subtreeHasVerticalBox, typeHasCommentBracket)
 
 {-| Boolean predicates and small structural queries over LPT nodes.
 -}
 
+import Formatter.Logical.LogicalPrintingTree exposing (LPBox(..), LPNode, firstRowInSubtree, lpnBox, lpnBracketStart, lpnChildren, lpnFirstPos, lpnLastPos, lpnMaxRow)
 import Formatter.Render.Box as B
 import Formatter.Render.FlowPolicy as FP
-import Formatter.Logical.LogicalPrintingTree exposing (LPBox(..), LPNode, lpnBox, lpnChildren, firstRowInSubtree, lpnMaxRow, lpnFirstPos, lpnBracketStart, lpnLastPos)
+
 
 nodeIsComment : LPNode -> Bool
 nodeIsComment node =
@@ -54,8 +55,7 @@ literalCommentsRideFlatLine children =
                         | ok =
                             acc.ok
                                 && not (String.contains "\n" loc.value)
-                                && loc.start.row
-                                == acc.prevRow
+                                && loc.start.row == acc.prevRow
                     }
 
                 SingleLineComment _ ->

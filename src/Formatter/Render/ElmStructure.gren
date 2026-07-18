@@ -1,6 +1,6 @@
 module Formatter.Render.ElmStructure exposing
-    ( groupBox
-    , extensionGroup
+    ( extensionGroup
+    , groupBox
     )
 
 {-| Faithful port of the `ElmStructure.hs` combinators used by the Box-model

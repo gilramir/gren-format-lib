@@ -11,23 +11,22 @@ stage's entry point.
 import Compiler.Ast.Source as Src
 import Compiler.SourcePosition exposing (Located, Position)
 
-import Formatter.Logical.LogicalPrintingTree
-    exposing
-        ( LPBox(..)
-        , LPNode(..)
-        , ListBrackets(..)
-        , SyntaxType(..)
-        , lpnBox
-        , lpnChildren
-        , lpnLeaf
-        , lpnNode
-        , lpnBracketNode
-        , lastRowInSubtree
-        )
-import Formatter.Logical.LPTHelpers exposing (mkText, mkZeroWidthText, mkTextFromLocString, resultFoldl, plainAcross)
 import Formatter.Logical.InsertExpressions exposing (insertExpression)
 import Formatter.Logical.InsertPatterns exposing (folderInsertPattern)
 import Formatter.Logical.InsertTypes exposing (makeSignatureBranch)
+import Formatter.Logical.LPTHelpers exposing (mkText, mkTextFromLocString, mkZeroWidthText, plainAcross, resultFoldl)
+import Formatter.Logical.LogicalPrintingTree exposing
+    ( LPBox(..)
+    , LPNode(..)
+    , ListBrackets(..)
+    , SyntaxType(..)
+    , lastRowInSubtree
+    , lpnBox
+    , lpnBracketNode
+    , lpnChildren
+    , lpnLeaf
+    , lpnNode
+    )
 
 
 {-| Walk the AST and produce a root `LPNode` whose children are one
@@ -589,12 +588,15 @@ processVariantNode locVariant accNodes =
             Array.isEmpty accNodes
 
         prefixNode =
-            lpnLeaf (SynthesizedText (if isFirst then
-                                       "="
+            lpnLeaf
+                (SynthesizedText
+                    (if isFirst then
+                        "="
 
-                                      else
-                                       "|"
-                                     ))
+                     else
+                        "|"
+                    )
+                )
 
         nameNode =
             lpnLeaf (mkTextFromLocString locVariant.value.name)
@@ -800,7 +802,8 @@ processFunctionSignature locName maybeType root =
                                         { first = sigStart.row
                                         , last = max childrenLast locType.end.row
                                         , stype = StFunctionSignature
-                                        })
+                                        }
+                                    )
                                     allChildren
                         in
                         addRootChild origRow root

@@ -1,10 +1,28 @@
 module Formatter.Render.Box exposing
-    ( Line(..), Box(..)
-    , identifier, keyword, punc, literal, row, space
-    , line, blankLine, mustBreak, stack1, andThen
-    , isLine, allSingles, lineLength
-    , indent, prefix, addSuffix, addSuffixBox, mapFirstLine, freezeTabs
-    , render, toJson
+    ( Box(..)
+    , Line(..)
+    , addSuffix
+    , addSuffixBox
+    , allSingles
+    , andThen
+    , blankLine
+    , freezeTabs
+    , identifier
+    , indent
+    , isLine
+    , keyword
+    , line
+    , lineLength
+    , literal
+    , mapFirstLine
+    , mustBreak
+    , prefix
+    , punc
+    , render
+    , row
+    , space
+    , stack1
+    , toJson
     )
 
 {-| Faithful port of elm-format's `Box.hs` for the Change-1 first slice.
@@ -291,7 +309,6 @@ addSuffixBox suffixBox base =
                 |> andThen [ prefix baseLast suffixBox ]
 
 
-
 -- RENDER
 
 
@@ -410,7 +427,6 @@ render box_ =
 
         MustBreakBox l ->
             renderOneLine l ++ "\n"
-
 
 
 -- JSON (debug)

@@ -36,19 +36,18 @@ import Array
 import Char
 import String
 
-import Formatter.Logical.LogicalPrintingTree
-    exposing
-        ( LPBox(..)
-        , LPNode(..)
-        , ListBrackets(..)
-        , SyntaxType(..)
-        , lpnBox
-        , lpnChildren
-        , lpnFirstPos
-        , lpnLastPos
-        , lpnReplaceChildren
-        , lpnWithBox
-        )
+import Formatter.Logical.LogicalPrintingTree exposing
+    ( LPBox(..)
+    , LPNode(..)
+    , ListBrackets(..)
+    , SyntaxType(..)
+    , lpnBox
+    , lpnChildren
+    , lpnFirstPos
+    , lpnLastPos
+    , lpnReplaceChildren
+    , lpnWithBox
+    )
 
 
 {-| -}
@@ -57,7 +56,6 @@ sortSymbols root =
     root
         |> sortImportGroups
         |> sortExposingLists
-
 
 
 -- SHARED: clustering a flat sibling list into (comments, item, comments) groups
@@ -298,7 +296,6 @@ flattenClusters clusters =
     Array.foldl (\c acc -> acc ++ c.leading ++ [ c.item ] ++ c.trailing) [] clusters
 
 
-
 -- IMPORT STATEMENTS
 
 
@@ -480,7 +477,6 @@ shiftUnit delta unit =
 flattenUnits : Array ImportUnit -> Array LPNode
 flattenUnits units =
     Array.foldl (\u acc -> acc ++ [ u.item ] ++ u.trailing) [] units
-
 
 
 -- EXPOSING LISTS
