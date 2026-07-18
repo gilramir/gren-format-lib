@@ -3438,6 +3438,36 @@ decision and why.
     or one long enough to wrap — the same rule that drops a multi-line value below
     `=`). It is stable when reformatted.
 
+23. **A lambda as a record field value keeps its `\arg ->` head on the `= ` line;
+    elm-format drops the whole lambda below `=`.** When a record literal or update
+    field's value is a lambda, gren-format leaves `\arg ->` glued to `= ` and puts
+    only the body on its own line 4 spaces under the field (see
+    [Record field values](#record-field-values)); elm-format drops the entire
+    lambda, `\arg ->` and all, onto its own line below `=`:
+
+    ```gren
+    -- gren-format:
+    v =
+        { fld = \q ->
+            q + one
+        }
+
+    -- elm-format:
+    v =
+        { fld =
+            \q ->
+                q + one
+        }
+    ```
+
+    The same holds for a single-field update (`{ r | fld = \q -> … }`). Keeping the
+    header on the `= ` line reads as "this field is a function of `q`" without
+    spending a line on the `\q ->`; it is the same instinct as keeping a short
+    lambda inline. (This is the record-field case only. A lambda body in an *array
+    item* or nested directly under another lambda's `->` still over-indents by 4 —
+    that one is a bug, tracked in `matrix-parity-baseline.json`, not this
+    deliberate choice.)
+
 ### Out of scope for comparison
 
 Some fixtures use Gren syntax with no valid Elm equivalent, so they can't be

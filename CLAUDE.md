@@ -166,15 +166,15 @@ easiest place in this repo for a known bug to go quiet.
 Current state: **1688/1688 pass oracles 1–3**; 1112 are byte-identical to
 elm-format, with 576 registered divergences — 395 redundant parens (#10), 100
 single-field record/update value-collapse (#22), 38 precedence-split binop
-chains (#18), 3 pipeline-`|>` alignment (#20), **40 UNREVIEWED**, and **0 known
-BUGs**. The 40 UNREVIEWED are the author-broken axis's remaining yield, awaiting
-review — the families are: `\arg ->` lambda values in a record field / bracket,
-where gren glues the head to `= ` and drops only the body while elm-format drops
-the whole lambda (~21, the same known difference noted under
-[Record updates](../README.md) point in the catalogue); and `<|`-body /
-broken-container-`|>`-operand layout (~19, likely the #14/#20 pipe families
-extended to these shapes). Use `-v` to see each divergence beside elm-format's
-output.
+chains (#18), 12 lambda-field-value head-glue (#23), 3 pipeline-`|>` alignment
+(#20), **19 UNREVIEWED**, and **1 known BUG**. The BUG (9 cells): a lambda body
+over-indents by 4 in array-item and nested-lambda-body positions (col +8 from the
+line start, where top-level, record-field, and elm-format all use +4 — README
+"never 8"); idempotent, so it's a stable-but-wrong layout — the class fixtures
+can't catch, surfaced by the author-broken axis. The 19 UNREVIEWED are the
+`<|`-body / broken-container-`|>`-operand layout family (likely the #14/#20 pipe
+families extended to multi-line body/operand shapes). Use `-v` to see each
+divergence beside elm-format's output.
 `docs/redundantParens.md` is the reader-facing write-up of the #10 family,
 every example verified against both formatters. gren-format never strips a
 redundant paren, in any position, including call arguments — the former
