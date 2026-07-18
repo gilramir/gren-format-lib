@@ -1,0 +1,7 @@
+module BackwardPipelineSeedComment exposing (a)
+
+
+a =
+    seed
+        {- c -}
+        <| step

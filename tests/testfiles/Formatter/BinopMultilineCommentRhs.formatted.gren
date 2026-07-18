@@ -1,0 +1,7 @@
+module BinopMultilineCommentRhs exposing (a)
+
+
+a =
+    x + b {- big
+           comment -}
+    * 2

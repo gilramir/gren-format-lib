@@ -1,0 +1,10 @@
+module PipelineParenRecordOperand exposing (a)
+
+
+a =
+    x
+        |> f
+            ({ aa = 1
+             , bb = 2
+             }
+            )
