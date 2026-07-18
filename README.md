@@ -3142,9 +3142,6 @@ decision and why.
         a
     ```
 
-    These last four are stable when reformatted; each would need its own
-    one-off match rather than falling out of a single rule, so they're left
-    as is for now.
 
 18. **A multi-line operator chain splits only at its loosest operators;
     elm-format splits at every operator.** gren-format keeps tighter-binding
