@@ -1,0 +1,16 @@
+module LetAsBackwardPipeBody exposing (single, withLambda)
+
+
+single =
+    fn <|
+        let
+            q =
+                one
+        in
+        q
+
+
+withLambda =
+    fn <|
+        \x ->
+            x + one

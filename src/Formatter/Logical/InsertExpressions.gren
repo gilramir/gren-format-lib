@@ -570,7 +570,20 @@ insertBinops locExpr { operator = locStringOp } =
                                                             _ ->
                                                                 bodyNodes
 
-                                                    _ ->
+                                                    Just _ ->
+                                                        -- A multi-node body is a block: a `let`
+                                                        -- (`[let, bindings, in, body]`), or a lambda
+                                                        -- (`[\pats ->, body]`). Spreading those into
+                                                        -- the step's own +4 flow shifts a `let`'s `in`
+                                                        -- and result off `let` — they align with the
+                                                        -- bindings instead. Wrap them in a self-
+                                                        -- contained `BodyBlock` so the block renders
+                                                        -- with its own internal alignment (exactly as a
+                                                        -- top-level decl body holds the same nodes) and
+                                                        -- the step just drops it below the operator.
+                                                        [ lpnNode BodyBlock bodyNodes ]
+
+                                                    Nothing ->
                                                         bodyNodes
                                         in
                                         Array.pushLast (lpnNode PipelineStep ([ opNode ] ++ flatBodyNodes)) accNodes

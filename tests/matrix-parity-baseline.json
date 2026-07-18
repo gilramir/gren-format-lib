@@ -356,7 +356,6 @@
     "letExpr/arrayItemMulti": "README divergence #10 -- gren-format keeps redundant parens",
     "letExpr/arrayItemMulti@bareFlat": "UNREVIEWED",
     "letExpr/backPipeBody": "README divergence #10 -- gren-format keeps redundant parens",
-    "letExpr/backPipeBody@bareFlat": "BUG: a let as a <| body over-indents its in and result by 4 (aligns them with the bindings, not the let; gren aligns in with let at top level and as a parenthesized call arg)",
     "letExpr/ifElse": "README divergence #10 -- gren-format keeps redundant parens",
     "letExpr/ifThen": "README divergence #10 -- gren-format keeps redundant parens",
     "letExpr/lambdaBody": "README divergence #10 -- gren-format keeps redundant parens",
