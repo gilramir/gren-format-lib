@@ -698,8 +698,7 @@ splitStepTrigger stepChildren =
                         -- otherwise the relocation branch strands `|>` on its own
                         -- line with the operand dropped +4 below.
                         isDirectGluedOperand =
-                            Array.length acc.preamble
-                                <= 1
+                            Array.length acc.preamble <= 1
                                 && (isMultilineLambdaParenBlockAnyBodyBox node
                                         || isMultilineBracketContainerBox node
                                    )
