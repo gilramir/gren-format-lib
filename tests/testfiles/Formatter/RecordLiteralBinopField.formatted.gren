@@ -1,0 +1,38 @@
+module RecordLiteralBinopField exposing (access, commented, multi, single)
+
+
+single a b =
+    { broken =
+        a
+            || b
+    }
+
+
+multi a b c =
+    { broken =
+        a
+            || b
+    , other = c
+    }
+
+
+access a b =
+    (Array.foldl
+        (\x acc ->
+            { broken =
+                acc.broken
+                    || (x >= 0 && acc.prevLast > 0)
+            }
+        )
+        { broken = False, prevLast = -1 }
+        a
+    ).broken
+
+
+commented a b c =
+    { broken =
+        a
+            || b
+    -- trailing note
+    , other = c
+    }

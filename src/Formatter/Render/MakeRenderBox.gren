@@ -1,4 +1,4 @@
-module Formatter.Render.MakeRenderBox exposing (makePrettyLineBox, makePBox)
+module Formatter.Render.MakeRenderBox exposing (makePBox, makePrettyLineBox)
 
 {-| Box-model renderer — the sole backend. It renders an LPT node to
 elm-format's `Box` (Tab + prefix arithmetic), returning `Err` for any construct
@@ -11,16 +11,16 @@ flows and nested flows, blocks, pipelines, binops, `when`/`if`/`let`,
 signatures, and comments — each laid out to match elm-format.
 -}
 
+import Formatter.Logical.BinopPrecedence exposing (binopMinPrecedence, binopPrecedence)
+import Formatter.Logical.LogicalPrintingTree exposing (LPBox(..), LPNode, ListBrackets(..), SyntaxType(..), firstRowInSubtree, lpnBox, lpnChildren, lpnLastBracketEnd, lpnLastPos, lpnMaxRow)
+import Formatter.Render.BinopLayout exposing (assembleBinopBox, bracketOperandForcesVertical, flattenBinopNodes, opText, splitTrailingOwnLineComments)
 import Formatter.Render.Box as B exposing (Box(..))
+import Formatter.Render.BoxOps exposing (applyIndent, blockIndentSpaces, boxLine, glueCommentSuffix, grenIndent, isBlockNode, isSingleLine, joinInline, nodeStartRow, prefixOperator, spaceJoinLines, stackWithBlanks, traverseResult, wrapParenVerticalPadded)
+import Formatter.Render.CommentBox exposing (commentNodeBox, emptyBracketedCommentLine, glueTrailingComments, makeCommentLineBox, multiLineBlockCommentBox, peelTrailingCommentNodes, spanLeadingComments, spanTrailingComments)
 import Formatter.Render.ElmStructure as E
+import Formatter.Render.FlowAssembly exposing (FlowItem, SoftGlueAlignment(..), assembleBrokenCall, assembleBrokenWithComments, bracketPunc, gluedExposingBox, pairTypeRecordComments, parenInnerIsAlignCarrying, softBlockChildForcesVerticalBox, softGlueAlignment, trySoftGlueFlow, verticalExposingBox)
 import Formatter.Render.FlowPolicy as FP
-import Formatter.Logical.LogicalPrintingTree exposing (LPBox(..), LPNode, ListBrackets(..), SyntaxType(..), lpnBox, lpnChildren, firstRowInSubtree, lpnMaxRow, lpnLastPos, lpnLastBracketEnd)
-import Formatter.Logical.BinopPrecedence exposing (binopPrecedence, binopMinPrecedence)
-import Formatter.Render.BoxOps exposing (grenIndent, prefixOperator, wrapParenVerticalPadded, blockIndentSpaces, applyIndent, stackWithBlanks, boxLine, traverseResult, spaceJoinLines, joinInline, isSingleLine, glueCommentSuffix, isBlockNode, nodeStartRow)
-import Formatter.Render.NodeClassify exposing (nodeIsComment, subtreeHasComment, literalCommentsRideFlatLine, subtreeHasMultilineBlockComment, typeHasCommentBracket, isMultilineLambdaParenBlockBox, isMultilineContentParenBlockBox, isOpAndRhsNode, isPipelineStepNode, leafValue, leafLineRow, isColonLeaf, isElidedArrow, fieldValueDropsToOwnLine, rowsSpanMultiple, parenContentIsLambdaHead, splitSignatureSegments, isDroppingSignatureRecordNode, signatureForceVertical)
-import Formatter.Render.CommentBox exposing (makeCommentLineBox, multiLineBlockCommentBox, commentNodeBox, emptyBracketedCommentLine, spanLeadingComments, spanTrailingComments, peelTrailingCommentNodes, glueTrailingComments)
-import Formatter.Render.BinopLayout exposing (flattenBinopNodes, assembleBinopBox, splitTrailingOwnLineComments, opText, bracketOperandForcesVertical)
-import Formatter.Render.FlowAssembly exposing (FlowItem, SoftGlueAlignment(..), assembleBrokenWithComments, assembleBrokenCall, trySoftGlueFlow, pairTypeRecordComments, softGlueAlignment, parenInnerIsAlignCarrying, softBlockChildForcesVerticalBox, bracketPunc, verticalExposingBox, gluedExposingBox)
+import Formatter.Render.NodeClassify exposing (fieldValueDropsToOwnLine, isColonLeaf, isDroppingSignatureRecordNode, isElidedArrow, isMultilineContentParenBlockBox, isMultilineLambdaParenBlockBox, isOpAndRhsNode, isPipelineStepNode, leafLineRow, leafValue, literalCommentsRideFlatLine, nodeIsComment, parenContentIsLambdaHead, rowsSpanMultiple, signatureForceVertical, splitSignatureSegments, subtreeHasComment, subtreeHasMultilineBlockComment, typeHasCommentBracket)
 
 
 {-| Entry point: render one top-level root child to a Box, or `Err` if it
@@ -353,8 +353,7 @@ renderHeaderIndentedBody bodyRenderer children =
                 |> Result.andThen
                     (\headerBox ->
                         bodyRenderer (lpnChildren bodyBlock)
-                            |> Result.map
-                                (\bodyBox -> B.stack1 [ headerBox, B.indent bodyBox ])
+                            |> Result.map (\bodyBox -> B.stack1 [ headerBox, B.indent bodyBox ])
                     )
 
 
@@ -584,7 +583,6 @@ makePipelineBox forceVertical op children =
                                             buildFlowBox 0 children
                             )
                 )
-
 
 -- One `|> step`. Rendered via `buildFlowBox grenIndent`: the operator + function
 -- stay inline (`|> f`) and a multi-line block argument (a record / array /
@@ -1098,8 +1096,7 @@ backwardSingleStep forceVertical seedBox bodyNodes =
 
                                 else
                                     boxLine bodyBox
-                                        |> Result.map
-                                            (\bl -> B.addSuffix (B.row [ B.literal " <| ", bl ]) seedBox)
+                                        |> Result.map (\bl -> B.addSuffix (B.row [ B.literal " <| ", bl ]) seedBox)
                             )
 
 
@@ -1333,16 +1330,35 @@ dropFieldValueBox children =
             Err "box: empty record-update field"
 
 
-{-| Render one record-update field to a box: a soft multi-line value drops onto
-its own line (`dropFieldValueBox`); everything else renders as the plain
-`name = value` node. -}
-renderUpdateFieldBox : LPNode -> Result String Box
-renderUpdateFieldBox field =
+{-| Render one record `name = value` field to a box: a soft multi-line value
+drops onto its own line (`dropFieldValueBox`); everything else renders as the
+plain `name = value` node. Shared by record *updates* and record *literals* — a
+literal field has the same `name = value` shape, so both must apply elm-format's
+`equalsPair` drop identically. (Rendering a literal field through bare `makePBox`
+instead sent a multi-line soft value — e.g. a binop chain — into the flow
+assembler, which has no drop rule and hit an "unreachable" arm.) -}
+renderRecordFieldBox : LPNode -> Result String Box
+renderRecordFieldBox field =
     if recordFieldValueDrops field then
         dropFieldValueBox (lpnChildren field)
 
     else
         makePBox (lpnBox field) (lpnChildren field)
+
+
+{-| Pick the per-item renderer for a bracketed literal. A record (`ListCurly`)
+renders each `name = value` field with the drop rule (`renderRecordFieldBox`);
+every other bracket (array / tuple / paren) holds plain expressions, rendered
+straight through `makePBox`. Used by both the comment-free (`makeLiteralBox`) and
+comment-bearing (`commentBracketListBox`) literal paths so the two can't drift. -}
+literalItemRenderer : ListBrackets -> (LPNode -> Result String Box)
+literalItemRenderer bracket =
+    when bracket is
+        ListCurly ->
+            renderRecordFieldBox
+
+        _ ->
+            \node -> makePBox (lpnBox node) (lpnChildren node)
 
 
 {-| Render a record update `{ base | f = v, … }` via elm's `extensionGroup`.
@@ -1362,26 +1378,26 @@ makeRecordUpdateBox baseName forceVertical children =
     else
         -- No comment, or only comments that ride the flat line the author
         -- wrote; `pairInlineComments` glues those onto the field each trails.
-        pairInlineComments renderUpdateFieldBox children
+        pairInlineComments renderRecordFieldBox children
             |> Result.andThen
-            (\fieldBoxes ->
-                when Array.popFirst fieldBoxes is
-                    Nothing ->
-                        Ok (B.line (B.literal ("{ " ++ baseName ++ " }")))
+                (\fieldBoxes ->
+                    when Array.popFirst fieldBoxes is
+                        Nothing ->
+                            Ok (B.line (B.literal ("{ " ++ baseName ++ " }")))
 
-                    Just { first = firstField, rest = restFields } ->
-                        let
-                            contentVertical =
-                                Array.any (\b -> not (isSingleLine b)) fieldBoxes
-                        in
-                        Ok
-                            (E.extensionGroup
-                                (forceVertical || contentVertical)
-                                (B.line (B.literal baseName))
-                                firstField
-                                restFields
-                            )
-            )
+                        Just { first = firstField, rest = restFields } ->
+                            let
+                                contentVertical =
+                                    Array.any (\b -> not (isSingleLine b)) fieldBoxes
+                            in
+                            Ok
+                                (E.extensionGroup
+                                    (forceVertical || contentVertical)
+                                    (B.line (B.literal baseName))
+                                    firstField
+                                    restFields
+                                )
+                )
 
 
 makeRecordUpdateVerticalBox : String -> Array LPNode -> Result String Box
@@ -1400,7 +1416,7 @@ makeRecordUpdateVerticalBox baseName children =
 
                         else
                             -- Build the field's `name = value` box exactly as the
-                            -- non-comment path does (`renderUpdateFieldBox`: a soft
+                            -- non-comment path does (`renderRecordFieldBox`: a soft
                             -- broken-call/binop value drops via `dropFieldValueBox`,
                             -- everything else — single-line, `if`/`let`/`when`, or a
                             -- lambda whose `\arg ->` head drops — renders via
@@ -1424,7 +1440,7 @@ makeRecordUpdateVerticalBox baseName children =
                                         buildFlowBox fieldFlowIndent (lpnChildren node)
 
                                     else
-                                        renderUpdateFieldBox node
+                                        renderRecordFieldBox node
                             in
                             fieldBoxResult
                                 |> Result.map
@@ -1555,9 +1571,7 @@ renderWhenBranchesBox children =
                             when Array.popLast acc.boxes is
                                 Just { last = lastBox, initial } ->
                                     Ok
-                                        { acc
-                                            | boxes = Array.pushLast (glueCommentSuffix cbox lastBox) initial
-                                        }
+                                        { acc | boxes = Array.pushLast (glueCommentSuffix cbox lastBox) initial }
 
                                 Nothing ->
                                     -- unreachable: lastRow only ever becomes >= 0 in the
@@ -1725,12 +1739,10 @@ makeSignatureBox children =
             -- branch), which must run instead, not be preempted here.
             forceVertical =
                 signatureForceVertical segments
-                    || (Array.length segments
-                            > 1
+                    || (Array.length segments > 1
                             && Array.any (segmentHasDroppingRecordBox False) segments
                        )
-                    || (Array.length segments
-                            == 1
+                    || (Array.length segments == 1
                             && not hasComment
                             && Array.any (segmentHasDroppingRecordBox True) segments
                        )
@@ -1775,16 +1787,18 @@ makeSignatureBox children =
                             )
 
                 _ ->
-                    -- A multi-node comment-bearing type (`{ … } -> …`) renders
-                    -- via the same generic comment-flow the `else if …
-                    -- hasComment` arm below uses (`buildFlowBox grenIndent`).
-                    -- (This was previously an `Err`; the earlier "breaks
-                    -- idempotency" concern was about a *different*, reverted
-                    -- layout, not this one — the shipped output here is a proven
-                    -- fixed point.)
                     buildFlowBox grenIndent children
 
-        else if not forceVertical && hasComment then
+        else if
+            -- A multi-node comment-bearing type (`{ … } -> …`) renders
+            -- via the same generic comment-flow the `else if …
+            -- hasComment` arm below uses (`buildFlowBox grenIndent`).
+            -- (This was previously an `Err`; the earlier "breaks
+            -- idempotency" concern was about a *different*, reverted
+            -- layout, not this one — the shipped output here is a proven
+            -- fixed point.)
+            not forceVertical && hasComment
+        then
             -- Inline signature carrying a comment: render via the comment-aware
             -- flow (`buildFlowBox grenIndent`), NOT a flat group, because a
             -- comment's break points have no stable inline anchor (elm-format);
@@ -2452,7 +2466,13 @@ makeLiteralBox forceMultiline bracket children =
     else
         -- No comment, or only comments that ride the flat line the author
         -- wrote; `pairInlineComments` glues those onto the item each trails.
-        pairInlineComments (\node -> makePBox (lpnBox node) (lpnChildren node)) children
+        -- A record literal (`ListCurly`) renders each `name = value` field with
+        -- the same drop rule as a record update (`renderRecordFieldBox`), so a
+        -- soft multi-line value (a binop chain, a broken call) drops below `= `
+        -- instead of being handed to the flow assembler, which has no drop rule.
+        -- Array / tuple / paren items are plain expressions, not fields, so they
+        -- stay on the generic `makePBox` path.
+        pairInlineComments (literalItemRenderer bracket) children
             |> Result.andThen
                 (\itemBoxes ->
                     when bracketPunc bracket is
@@ -2594,7 +2614,7 @@ commentBracketListBox bracket nodes =
                                     placeComment loc.start.row node acc
 
                                 _ ->
-                                    makePBox (lpnBox node) (lpnChildren node)
+                                    literalItemRenderer bracket node
                                         |> Result.andThen
                                             (\box ->
                                                 let
@@ -2904,10 +2924,9 @@ assembleFlowImpl inlineStart flowIndent items =
             FP.BracketLiteralItem
                 { forcesVertical = not (isSingleLine item.box)
                 , isTypeRecord = FP.isTypeRecordLiteral item.node
-                , closingRow =
-                    lpnLastBracketEnd item.node
-                        |> Maybe.map (\p -> p.row)
-                        |> Maybe.withDefault -1
+                , closingRow = lpnLastBracketEnd item.node
+                    |> Maybe.map (\p -> p.row)
+                    |> Maybe.withDefault -1
                 }
 
         -- Glue a single line onto the last completed row's last line — the
@@ -3235,15 +3254,14 @@ assembleFlowImpl inlineStart flowIndent items =
                                         when directOperandLambdaSplit item.node is
                                             Just { headLine, bodyBox } ->
                                                 Ok
-                                                    { rows =
-                                                        Array.pushLast
-                                                            (B.stack1
-                                                                [ B.line (B.row [ prefLine, B.punc "(", headLine ])
-                                                                , B.indent (B.indent bodyBox)
-                                                                , B.prefix (B.row [ B.space, B.space, B.space ]) (B.line (B.punc ")"))
-                                                                ]
-                                                            )
-                                                            acc.rows
+                                                    { rows = Array.pushLast
+                                                        (B.stack1
+                                                            [ B.line (B.row [ prefLine, B.punc "(", headLine ])
+                                                            , B.indent (B.indent bodyBox)
+                                                            , B.prefix (B.row [ B.space, B.space, B.space ]) (B.line (B.punc ")"))
+                                                            ]
+                                                        )
+                                                        acc.rows
                                                     , curRow = []
                                                     , state = decision.next
                                                     }

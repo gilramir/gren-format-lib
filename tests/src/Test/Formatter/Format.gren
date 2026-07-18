@@ -302,6 +302,7 @@ expressionSuite fsPerm =
             , assertPretty fsPerm "array items that are too long to fit inline" "ArrayLongRecordItems"
             , assertPretty fsPerm "uniform item layout: records in an array all break together or not at all" "UniformRecordArray"
             , assertPretty fsPerm "uniform item layout: record updates couple like record literals" "UniformUpdateArray"
+            , assertPretty fsPerm "a record literal field whose value is a multi-line binop chain drops below `name =` like a record update (regression guard: literal path previously hit an unreachable flow-assembler arm)" "RecordLiteralBinopField"
             , assertPretty fsPerm "list layout follows author: one line stays inline, multi-line stays one-per-line" "ListLayoutByAuthor"
             , assertPretty fsPerm "record + record-update layout follows author: one line inline, multi-line one-per-line" "RecordLayoutByAuthor"
             , assertPretty fsPerm "record type (alias, extensible, annotation) layout follows author" "RecordTypeLayoutByAuthor"
