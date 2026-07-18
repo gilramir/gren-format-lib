@@ -3201,7 +3201,7 @@ decision and why.
     across two lines apiece and buries the `||` structure that's actually the
     point of the expression.
 
-19. **A short `{- … -}` inside a list or record stays on the line the author
+19. **A one-line `{- … -}` inside a list or record stays on the line the author
     wrote; elm-format breaks the whole thing open.** When a comment sits inside a
     list, record, record update, or record type and the author wrote the whole
     thing on one line, gren-format leaves it alone — the comment fits, so nothing
