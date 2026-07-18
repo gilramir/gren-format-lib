@@ -3,3 +3,4 @@ gren_packages/
 
 # gren-coverage-node: sourcemapped test build for coverage
 tests/cov-app
+tests/__pycache__/

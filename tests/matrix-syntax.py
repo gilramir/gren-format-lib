@@ -11,15 +11,28 @@ that survive elision, inside a pipeline-step relocation.
 This closes that hole by brute force: it embeds every expression form in every
 context and checks each cell. It is the syntax axis the fuzzers do not have.
 
+LAYOUT VARIANTS. Each construct-in-context is generated in up to four variants
+(see VOCABULARY below): `flat` (the original one-line form), `broken` (the same
+atom pre-broken across rows), and -- in value-position contexts only -- their
+un-parenthesized `bareFlat` / `bareBroken` cousins. The author-broken variants
+are the axis the flat-only matrix lacked: they exercise the multi-line render
+path (`forceVertical`) even when the output later collapses, which is where the
+2026-07-18 dogfooding crash lived (a record-literal field holding a multi-line
+binop -- a shape that needs a NAKED value broken across rows, so the paren-
+carrying atoms could never reach it).
+
 ORACLES (nothing here needs a human to eyeball output):
 
-1. Layout, both directions. Gren's layout is author-driven -- there is no page
-   width and no fitter, so a construct written flat renders flat unless its own
-   content forces a break. Every cell is generated on ONE line. Therefore:
+1. Layout, both directions -- FLAT-INPUT VARIANTS ONLY (`flat`, `bareFlat`).
+   Gren's layout is author-driven -- no page width, no fitter -- so a construct
+   written flat renders flat unless its own content forces a break:
        flat construct in flat context   => body MUST be exactly one line
        otherwise (if/when/let anywhere) => body MUST break
    Over-approximation (pre-breaking something that renders inline) is exactly
-   the RecordUpdate bug class, and it fails the first assertion.
+   the RecordUpdate bug class, and it fails the first assertion. This is a
+   flat-INPUT truth, so it does not run on `broken`/`bareBroken`: a broken input
+   has no local layout truth (gren collapses a broken-but-fitting binop), which
+   is why the author-broken variants rely on oracles 2-4 instead.
 2. `--show` internally does parse -> render -> reparse -> AST-compare -> render
    again -> idempotency-compare, so a clean exit also buys AST equivalence,
    idempotency, and "the output parses". Each failure title is reported as its
@@ -47,16 +60,17 @@ NOT COVERED (deliberate, stated rather than hidden):
   - multi-line string literals: `\"\"\"x\"\"\"` does not parse on one line, so it
     cannot be a one-line atom in this scheme.
   - comments: that is fuzz-idempotency.py's axis, not this one.
-  - author-broken layout: every cell is written flat on purpose, because flat
-    input is what makes oracle 1 two-directional. (Oracle 4 does not need flat
-    input -- elm-format answers for any shape -- so generating broken variants
-    is now possible. Not done yet.)
+  - bare expressions in atom positions (call args, binop operands): a naked
+    operator expression there reassociates into a different parse, so bare
+    variants run only in value-position contexts; the paren-carrying flat/broken
+    variants cover the atom positions.
 
 Usage:
-    ./matrix-syntax.py                 # whole matrix
+    ./matrix-syntax.py                 # whole matrix (all variants)
     ./matrix-syntax.py -j 12           # parallelise (do this; default is 2)
     ./matrix-syntax.py -v              # show source + output for every failure
     ./matrix-syntax.py -k DIR          # write failing cells to DIR as .gren files
+    ./matrix-syntax.py --variant broken --variant bareBroken   # author-broken only
     ./matrix-syntax.py --construct recordUpdate2 --context parenBinopArg
     ./matrix-syntax.py --no-parity     # skip oracle 4 (elm-format not installed)
     ./matrix-syntax.py --update-baseline   # rewrite the parity baseline
@@ -126,89 +140,196 @@ def to_elm(source):
 
 
 def parens_only_difference(gren_out, elm_out):
-    """True if the two outputs are identical once every paren is deleted.
+    """True if the two outputs are identical once every redundant paren is gone.
 
     Sound in the direction that matters: if deleting parens does NOT reconcile
-    them, something other than paren elision differs. Newlines and indentation
-    are left alone, so a cell that also breaks differently is not swept up --
-    that is the whole point, e.g. `seed |> (when ...)` keeps its parens in both
-    formatters and diverges only in layout, so it is correctly NOT matched here.
-    """
-    return re.sub(r"[()]", "", gren_out) == re.sub(r"[()]", "", elm_out)
+    them, something other than paren elision differs. Real-content newlines and
+    indentation are left alone, so a cell that also breaks differently is not
+    swept up -- that is the whole point, e.g. `seed |> (when ...)` keeps its
+    parens in both formatters and diverges only in layout, so it is correctly
+    NOT matched here.
 
-# (name, atom, flat) -- `atom` must be usable anywhere an atom is expected, so
-# anything that is not already delimited carries its own parens. `flat` is the
-# documented truth, not observed behavior: True renders on one line when written
-# on one line; False always breaks no matter how it was written.
+    The one normalization: when gren keeps a redundant paren that elm strips and
+    gren rendered it multi-line, the `(` / `)` each sit on their own line, so
+    deleting the paren CHARACTER leaves a blank line elm never had. Those
+    paren-emptied blank lines are dropped from both sides before comparing.
+    Content lines are never merged -- a `|>` step or token that lands on a
+    different line still differs after the blank-line drop -- so #20 and genuine
+    layout bugs are still not reconciled. This keeps the multi-line #10 family
+    (redundant paren, now across rows) auto-classifiable instead of drowning the
+    UNREVIEWED list, without weakening the decisive "does elm have FEWER parens"
+    test the reviewer applies.
+    """
+    def canon(s):
+        lines = (ln.rstrip() for ln in re.sub(r"[()]", "", s).split("\n"))
+        return "\n".join(ln for ln in lines if ln.strip())
+    return canon(gren_out) == canon(elm_out)
+
+# ---------------------------------------------------------------- VOCABULARY
+#
+# A construct is embedded in a context, in one of four LAYOUT VARIANTS:
+#
+#   flat        the paren-carrying atom, on one line       (the original matrix)
+#   broken      the paren-carrying atom, pre-broken across rows
+#   bareFlat    the atom with its outer parens stripped, on one line
+#   bareBroken  the bare atom, pre-broken across rows
+#
+# `broken`/`bareBroken` are the author-broken axis: they feed the formatter
+# input that already spans rows, so the multi-line render path (`forceVertical`)
+# runs even when the output later collapses. That path is where the 2026-07-18
+# dogfooding crash lived (a record-literal field holding a multi-line binop),
+# and it is invisible to the flat-only matrix.
+#
+# `bare*` matters because the paren-carrying atoms route a multi-line operand
+# through the *handled* `ParenBlock` arm; the crash was on the BARE form in a
+# value position (`{ fld = a || b }` across rows). So bare variants run only in
+# value-position contexts (`value_position=True`), where a naked expression is
+# both valid and the shape a real author writes.
+
+Construct = collections.namedtuple("Construct", "name atom flat broken paren_wrapped")
+Context = collections.namedtuple("Context", "name template flat value_position")
+
+# name, atom, flat, broken, paren_wrapped
+#   atom          usable anywhere an atom is expected, so anything not already
+#                 delimited carries its own parens (one line).
+#   flat          documented truth, not observed behavior: True renders on one
+#                 line when written on one line; False always breaks.
+#   broken        the atom pre-broken across rows (paren-carrying, valid in
+#                 EVERY context), or None if the atom cannot meaningfully break.
+#                 The bare-broken form is derived by stripping the outer parens.
+#   paren_wrapped True when the atom is `( expr )` -- the outer parens are
+#                 exactly its first/last char, so a value-position `bare` form is
+#                 `atom[1:-1]`. `if`/`when`/`let` are paren_wrapped (so they get
+#                 a bare value-position form) but have broken=None: their flat
+#                 atom already renders multi-line, so a broken *input* variant
+#                 adds parser risk (branch/binding offside) for little gain.
 CONSTRUCTS = [
-    ("intLit",          "1",                                   True),
-    ("floatLit",        "1.5",                                 True),
-    ("charLit",         "'c'",                                 True),
-    ("stringLit",       '"s"',                                 True),
-    ("varRef",          "one",                                 True),
-    ("fieldAccess",     "rec.fld",                             True),
-    ("accessor",        ".fld",                                True),
-    ("recordEmpty",     "{}",                                  True),
-    ("recordLit1",      "{ a = 1 }",                           True),
-    ("recordLit2",      "{ a = 1, b = 2 }",                    True),
-    ("recordNested",    "{ a = { b = 1 } }",                   True),
-    ("recordUpdate1",   "{ rec | a = 1 }",                     True),
-    ("recordUpdate2",   "{ rec | a = 1, b = 2 }",              True),
-    ("updateNested",    "{ rec | a = { b = 1 } }",             True),
-    ("arrayEmpty",      "[]",                                  True),
-    ("arrayNums",       "[ 1, 2, 3 ]",                         True),
-    ("arrayRecords",    "[ { a = 1 }, { a = 2 } ]",            True),
-    ("arrayUpdates",    "[ { rec | a = 1 }, { rec | a = 2 } ]", True),
+    Construct("intLit",        "1",                            True,  None,                 False),
+    Construct("floatLit",      "1.5",                          True,  None,                 False),
+    Construct("charLit",       "'c'",                          True,  None,                 False),
+    Construct("stringLit",     '"s"',                          True,  None,                 False),
+    Construct("varRef",        "one",                          True,  None,                 False),
+    Construct("fieldAccess",   "rec.fld",                      True,  None,                 False),
+    Construct("accessor",      ".fld",                         True,  None,                 False),
+    Construct("recordEmpty",   "{}",                           True,  None,                 False),
+    Construct("recordLit1",    "{ a = 1 }",                    True,  "{ a =\n1 }",         False),
+    Construct("recordLit2",    "{ a = 1, b = 2 }",             True,  "{ a = 1\n, b = 2 }", False),
+    Construct("recordNested",  "{ a = { b = 1 } }",            True,  "{ a =\n{ b = 1 } }", False),
+    Construct("recordUpdate1", "{ rec | a = 1 }",              True,  "{ rec\n| a = 1 }",   False),
+    Construct("recordUpdate2", "{ rec | a = 1, b = 2 }",       True,  "{ rec\n| a = 1\n, b = 2 }", False),
+    Construct("updateNested",  "{ rec | a = { b = 1 } }",      True,  "{ rec\n| a = { b = 1 } }", False),
+    Construct("arrayEmpty",    "[]",                           True,  None,                 False),
+    Construct("arrayNums",     "[ 1, 2, 3 ]",                  True,  "[ 1\n, 2\n, 3 ]",    False),
+    Construct("arrayRecords",  "[ { a = 1 }, { a = 2 } ]",     True,  "[ { a = 1 }\n, { a = 2 } ]", False),
+    Construct("arrayUpdates",  "[ { rec | a = 1 }, { rec | a = 2 } ]", True, "[ { rec | a = 1 }\n, { rec | a = 2 } ]", False),
     # A doubly-parenthesized atom. Every OTHER atom here carries at most the one
     # paren layer it needs, so nothing else in the matrix exercises redundant
     # NESTING -- gren never strips either layer, in any position (README #10).
-    ("doubleParen",     "((one))",                             True),
-    ("call",            "(fn one two)",                        True),
-    ("qualifiedCall",   "(Array.map fn items)",                True),
-    ("ctor",            "(Just one)",                          True),
-    ("negate",          "(-one)",                              True),
-    ("binop",           "(one + two)",                         True),
-    ("binopMixedPrec",  "(one + two * three)",                 True),
-    ("append",          "(items ++ rest)",                     True),
-    ("pipeline",        "(items |> fn)",                       True),
-    ("backPipe",        "(fn <| one)",                         True),
-    ("lambda",          "(\\q -> q + one)",                    True),
-    ("lambdaRecord",    "(\\q -> { q | a = 1 })",              True),
-    ("lambdaLiteral",   "(\\q -> { a = q })",                  True),
-    ("whenExpr",        "(when sel is Just w -> w)",           False),
-    ("ifExpr",          "(if cond then one else two)",         False),
-    ("letExpr",         "(let q = one in q)",                  False),
+    Construct("doubleParen",   "((one))",                      True,  None,                 False),
+    Construct("call",          "(fn one two)",                 True,  "(fn one\ntwo)",      True),
+    Construct("qualifiedCall", "(Array.map fn items)",         True,  "(Array.map fn\nitems)", True),
+    Construct("ctor",          "(Just one)",                   True,  "(Just\none)",        True),
+    Construct("negate",        "(-one)",                       True,  None,                 True),
+    Construct("binop",         "(one + two)",                  True,  "(one\n+ two)",       True),
+    Construct("binopMixedPrec", "(one + two * three)",         True,  "(one\n+ two * three)", True),
+    Construct("append",        "(items ++ rest)",              True,  "(items\n++ rest)",   True),
+    Construct("pipeline",      "(items |> fn)",                True,  "(items\n|> fn)",     True),
+    Construct("backPipe",      "(fn <| one)",                  True,  "(fn\n<| one)",       True),
+    Construct("lambda",        "(\\q -> q + one)",             True,  "(\\q ->\nq + one)",  True),
+    Construct("lambdaRecord",  "(\\q -> { q | a = 1 })",       True,  "(\\q ->\n{ q | a = 1 })", True),
+    Construct("lambdaLiteral", "(\\q -> { a = q })",           True,  "(\\q ->\n{ a = q })", True),
+    Construct("whenExpr",      "(when sel is Just w -> w)",    False, None,                 True),
+    Construct("ifExpr",        "(if cond then one else two)",  False, None,                 True),
+    Construct("letExpr",       "(let q = one in q)",           False, None,                 True),
 ]
 
-# (name, template, flat) -- `flat` is whether the context itself keeps its
-# content on one line. if/when/let contexts always break.
+# name, template, flat, value_position
+#   flat            whether the context itself keeps its content on one line;
+#                   if/when/let contexts always break.
+#   value_position  True when `{x}` sits where a naked (un-parenthesized)
+#                   expression is valid AND is the "= value" / branch-body /
+#                   element shape a real author writes broken. Bare variants run
+#                   only here; an atom position (call arg, binop operand) would
+#                   reassociate a naked operator expression into a different
+#                   parse, so those stay False and are covered by the paren-
+#                   carrying flat/broken variants instead.
 CONTEXTS = [
-    ("top",             "{x}",                        True),
-    ("callArgFirst",    "fn {x}",                     True),
-    ("callArgMid",      "fn a {x} last",              True),
-    ("callArgLast",     "fn a {x}",                   True),
-    ("nestedCallArg",   "fn (gn {x}) last",           True),
-    ("parenBinopArg",   "fn ({x} |> gn) last",        True),
-    ("parenBackPipeArg", "fn (gn <| {x}) last",       True),
-    ("pipelineSeed",    "{x} |> fn",                  True),
-    ("pipelineOperand", "seed |> {x}",                True),
-    ("pipelineStep",    "seed |> fn {x}",             True),
-    ("pipelineLast",    "seed |> fn |> gn {x}",       True),
-    ("backPipeBody",    "fn <| {x}",                  True),
-    ("lambdaBody",      "\\q -> {x}",                 True),
-    ("recordField",     "{ fld = {x} }",              True),
-    ("recordFieldMulti", "{ fld = {x}, other = 2 }",  True),
-    ("updateField",     "{ rec | fld = {x} }",        True),
-    ("updateFieldMulti", "{ rec | fld = {x}, other = 2 }", True),
-    ("arrayItem",       "[ {x} ]",                    True),
-    ("arrayItemMulti",  "[ {x}, other ]",             True),
-    ("binopLhs",        "{x} ++ tail",                True),
-    ("binopRhs",        "head ++ {x}",                True),
-    ("letBinding",      "let bnd = {x} in bnd",       False),
-    ("whenBranch",      "when sel is Just w -> {x}",  False),
-    ("ifThen",          "if cond then {x} else other", False),
-    ("ifElse",          "if cond then other else {x}", False),
+    Context("top",              "{x}",                          True,  True),
+    Context("callArgFirst",     "fn {x}",                       True,  False),
+    Context("callArgMid",       "fn a {x} last",                True,  False),
+    Context("callArgLast",      "fn a {x}",                     True,  False),
+    Context("nestedCallArg",    "fn (gn {x}) last",             True,  False),
+    Context("parenBinopArg",    "fn ({x} |> gn) last",          True,  False),
+    Context("parenBackPipeArg", "fn (gn <| {x}) last",          True,  False),
+    Context("pipelineSeed",     "{x} |> fn",                    True,  False),
+    Context("pipelineOperand",  "seed |> {x}",                  True,  False),
+    Context("pipelineStep",     "seed |> fn {x}",               True,  False),
+    Context("pipelineLast",     "seed |> fn |> gn {x}",         True,  False),
+    Context("backPipeBody",     "fn <| {x}",                    True,  True),
+    Context("lambdaBody",       "\\q -> {x}",                   True,  True),
+    Context("recordField",      "{ fld = {x} }",                True,  True),
+    Context("recordFieldMulti", "{ fld = {x}, other = 2 }",     True,  True),
+    Context("updateField",      "{ rec | fld = {x} }",          True,  True),
+    Context("updateFieldMulti", "{ rec | fld = {x}, other = 2 }", True, True),
+    Context("arrayItem",        "[ {x} ]",                      True,  True),
+    Context("arrayItemMulti",   "[ {x}, other ]",               True,  True),
+    Context("binopLhs",         "{x} ++ tail",                  True,  False),
+    Context("binopRhs",         "head ++ {x}",                  True,  False),
+    Context("letBinding",       "let bnd = {x} in bnd",         False, True),
+    Context("whenBranch",       "when sel is Just w -> {x}",    False, True),
+    Context("ifThen",           "if cond then {x} else other",  False, True),
+    Context("ifElse",           "if cond then other else {x}",  False, True),
 ]
+
+# The four layout variants. `flat_input` variants keep oracle 1 (the flat/break
+# two-directional check); the author-broken ones drop it -- a broken input has
+# no local layout truth (gren collapses a broken-but-fitting binop), so they
+# lean on oracles 2-4 instead.
+VARIANTS = ["flat", "broken", "bareFlat", "bareBroken"]
+FLAT_INPUT_VARIANTS = {"flat", "bareFlat"}
+
+
+def strip_outer_parens(multiline):
+    """Drop the outer `(` / `)` from a paren-wrapped (possibly multi-line) atom."""
+    lines = multiline.split("\n")
+    if lines[0].startswith("("):
+        lines[0] = lines[0][1:]
+    if lines[-1].endswith(")"):
+        lines[-1] = lines[-1][:-1]
+    return "\n".join(lines)
+
+
+def variant_atom(construct, variant):
+    """The atom string for this construct in this variant, or None if the
+    variant does not apply (atom cannot break, or is not paren-wrapped)."""
+    if variant == "flat":
+        return construct.atom
+    if variant == "broken":
+        return construct.broken
+    if variant == "bareFlat":
+        return construct.atom[1:-1] if construct.paren_wrapped else None
+    if variant == "bareBroken":
+        if construct.paren_wrapped and construct.broken is not None:
+            return strip_outer_parens(construct.broken)
+        return None
+    return None
+
+
+def enumerate_cells(constructs, contexts, variants):
+    """Every applicable (construct, context, variant) triple. A variant is
+    skipped when the construct has no atom for it, and bare variants are skipped
+    outside value-position contexts."""
+    cells = []
+    for c in constructs:
+        for x in contexts:
+            for v in variants:
+                atom = variant_atom(c, v)
+                if atom is None:
+                    continue
+                if v in ("bareFlat", "bareBroken") and not x.value_position:
+                    continue
+                cells.append((c, x, v))
+    return cells
 
 # --show error titles. "FAILED TO PARSE" means the generated source was invalid
 # (our fault); every other title is a formatter bug.
@@ -222,8 +343,25 @@ BUG_TITLES = [
 
 
 def source_for(construct_atom, context_template):
-    body = context_template.replace("{x}", construct_atom)
+    body = substitute(context_template, construct_atom)
     return f"module M exposing (..)\n\n\nv = {body}\n"
+
+
+def substitute(template, atom):
+    """Put `atom` where `{x}` is. A multi-line atom keeps its continuation lines
+    aligned under the column `{x}` lands in (4 for the `v = ` prefix + the
+    offset of `{x}` in the template), so every continuation is indented past the
+    top-level `v` and the source parses. The atom's own relative indentation is
+    preserved on top of that base -- the formatter re-flows it regardless; all
+    that matters here is that it is valid and spans rows."""
+    idx = template.index("{x}")
+    before, after = template[:idx], template[idx + 3:]
+    if "\n" not in atom:
+        return before + atom + after
+    col = 4 + idx  # len("v = ") == 4
+    lines = atom.split("\n")
+    glued = lines[0] + "".join("\n" + " " * col + ln for ln in lines[1:])
+    return before + glued + after
 
 
 def body_lines(formatted):
@@ -269,9 +407,15 @@ def check_parity(source, gren_out):
 
 
 def check_cell(cell):
-    (cname, atom, cflat), (xname, template, xflat) = cell
-    source = source_for(atom, template)
-    expect_flat = cflat and xflat
+    construct, context, variant = cell
+    cname, xname = construct.name, context.name
+    atom = variant_atom(construct, variant)
+    source = source_for(atom, context.template)
+    flat_input = variant in FLAT_INPUT_VARIANTS
+    expect_flat = flat_input and construct.flat and context.flat
+
+    def result(**kw):
+        return dict(construct=cname, context=xname, variant=variant, source=source, **kw)
 
     with tempfile.TemporaryDirectory() as tmp:
         path = pathlib.Path(tmp) / "M.gren"
@@ -280,25 +424,21 @@ def check_cell(cell):
         try:
             shown = run("--show", path)
         except subprocess.TimeoutExpired:
-            return dict(kind="timeout", construct=cname, context=xname, source=source, detail="--show timed out")
+            return result(kind="timeout", detail="--show timed out")
 
         if shown.returncode != 0:
             out = shown.stderr + shown.stdout
             if GENERATOR_FAULT in out:
-                return dict(kind="skipped", construct=cname, context=xname, source=source,
-                            detail="generated source does not parse")
+                return result(kind="skipped", detail="generated source does not parse")
             for title in BUG_TITLES:
                 if title in out:
-                    return dict(kind=title, construct=cname, context=xname, source=source,
-                                detail=out.strip()[:600])
-            return dict(kind="unknown-error", construct=cname, context=xname, source=source,
-                        detail=out.strip()[:600])
+                    return result(kind=title, detail=out.strip()[:600])
+            return result(kind="unknown-error", detail=out.strip()[:600])
 
         formatted = shown.stdout
         body = body_lines(formatted)
         if body is None:
-            return dict(kind="no-body", construct=cname, context=xname, source=source,
-                        detail="could not locate `v =` in output", output=formatted)
+            return result(kind="no-body", detail="could not locate `v =` in output", output=formatted)
 
         try:
             audited = run("--audit-predicates", path)
@@ -309,27 +449,30 @@ def check_cell(cell):
         if findings:
             roots = [f for f in findings if not f["propagated"]]
             if roots:
-                return dict(kind="predicate-lie", construct=cname, context=xname, source=source,
-                            output=formatted,
-                            detail="; ".join(f'{f["predicate"]} said {f["boxKind"]} breaks, '
-                                             f'rendered: {f["rendered"]}' for f in roots[:3]))
+                return result(kind="predicate-lie", output=formatted,
+                              detail="; ".join(f'{f["predicate"]} said {f["boxKind"]} breaks, '
+                                               f'rendered: {f["rendered"]}' for f in roots[:3]))
 
-        is_flat = len(body) == 1
-        if expect_flat and not is_flat:
-            return dict(kind="broke-when-flat", construct=cname, context=xname, source=source,
-                        output=formatted,
-                        detail="written on one line and nothing forces a break, but the body broke "
-                               f"across {len(body)} lines")
-        if not expect_flat and is_flat:
-            return dict(kind="flat-when-should-break", construct=cname, context=xname, source=source,
-                        output=formatted, detail="an if/when/let is involved, so the body must break")
+        # Oracle 1 (the flat/break two-directional check) is a *flat-input*
+        # truth, so it runs only on flat_input variants. An author-broken
+        # variant has no local layout truth -- gren collapses a broken-but-
+        # fitting binop -- so it leans on oracles 2-4 (crash/AST/idempotency,
+        # predicate audit, elm-format parity) instead.
+        if flat_input:
+            is_flat = len(body) == 1
+            if expect_flat and not is_flat:
+                return result(kind="broke-when-flat", output=formatted,
+                              detail="written on one line and nothing forces a break, but the body "
+                                     f"broke across {len(body)} lines")
+            if not expect_flat and is_flat:
+                return result(kind="flat-when-should-break", output=formatted,
+                              detail="an if/when/let is involved, so the body must break")
 
         # Parity runs only on cells that satisfy oracles 1-3. A cell that
         # already violates a truth would diverge from elm-format too, and
         # reporting it twice buys nothing -- fix the truth first.
         parity = check_parity(source, formatted) if PARITY else None
-        return dict(kind="ok", construct=cname, context=xname, source=source,
-                    output=formatted, parity=parity)
+        return result(kind="ok", output=formatted, parity=parity)
 
 
 def load_baseline():
@@ -353,7 +496,11 @@ def write_baseline(cells):
 
 
 def parity_key(result):
-    return f'{result["construct"]}/{result["context"]}'
+    # Flat cells keep the original unsuffixed key so the existing baseline (all
+    # flat) still matches; author-broken/bare variants carry an `@variant` tag.
+    variant = result["variant"]
+    suffix = "" if variant == "flat" else "@" + variant
+    return f'{result["construct"]}/{result["context"]}{suffix}'
 
 
 def report_parity(results, baseline, update, verbose=False):
@@ -444,6 +591,8 @@ def main():
     ap.add_argument("-k", "--keep", type=pathlib.Path, help="write failing cells to this dir as .gren files")
     ap.add_argument("--construct", help="only this construct")
     ap.add_argument("--context", help="only this context")
+    ap.add_argument("--variant", choices=VARIANTS, action="append",
+                    help="only this layout variant (repeatable); default is all four")
     ap.add_argument("--no-parity", action="store_true",
                     help="skip oracle 4 (the elm-format parity diff)")
     ap.add_argument("--update-baseline", action="store_true",
@@ -464,13 +613,16 @@ def main():
     if args.update_baseline and not PARITY:
         sys.exit("--update-baseline needs the parity oracle")
 
-    constructs = [c for c in CONSTRUCTS if not args.construct or c[0] == args.construct]
-    contexts = [x for x in CONTEXTS if not args.context or x[0] == args.context]
+    constructs = [c for c in CONSTRUCTS if not args.construct or c.name == args.construct]
+    contexts = [x for x in CONTEXTS if not args.context or x.name == args.context]
+    variants = args.variant or VARIANTS
     if not constructs or not contexts:
         sys.exit("no cells selected -- check --construct/--context names")
 
-    cells = [(c, x) for c in constructs for x in contexts]
-    print(f"{len(constructs)} constructs x {len(contexts)} contexts = {len(cells)} cells\n")
+    cells = enumerate_cells(constructs, contexts, variants)
+    per_variant = collections.Counter(v for _, _, v in cells)
+    breakdown = ", ".join(f"{per_variant[v]} {v}" for v in variants if per_variant[v])
+    print(f"{len(cells)} cells ({breakdown})\n")
 
     results = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
@@ -483,15 +635,17 @@ def main():
     if args.keep and failures:
         args.keep.mkdir(parents=True, exist_ok=True)
         for r in failures:
-            (args.keep / f'{r["construct"]}__{r["context"]}.gren').write_text(r["source"])
+            (args.keep / f'{r["construct"]}__{r["context"]}__{r["variant"]}.gren').write_text(r["source"])
         print(f"wrote {len(failures)} failing cells to {args.keep}\n")
 
     if failures:
         shown = failures if args.verbose else failures[:10]
         for r in shown:
-            print(f'FAIL [{r["kind"]}] {r["construct"]} in {r["context"]}')
+            print(f'FAIL [{r["kind"]}] {r["construct"]} in {r["context"]} ({r["variant"]})')
             print(f'  {r["detail"]}')
-            print(f'  source: {r["source"].strip().splitlines()[-1]}')
+            print("  source:")
+            for line in r["source"].strip().split("\n")[3:]:
+                print(f"    |{line}")
             if args.verbose and r.get("output"):
                 print("  output:")
                 for line in r["output"].rstrip().split("\n"):
@@ -500,8 +654,12 @@ def main():
         if len(failures) > len(shown):
             print(f"... and {len(failures) - len(shown)} more failures (-v to see all)\n")
 
+    skipped_by_variant = collections.Counter(r["variant"] for r in results if r["kind"] == "skipped")
+    skip_note = ""
+    if skipped_by_variant:
+        skip_note = " [" + ", ".join(f"{n} {v}" for v, n in skipped_by_variant.most_common()) + "]"
     print(f"{len(cells)} cells: {by_kind['ok']} ok, {len(failures)} failing, "
-          f"{by_kind['skipped']} skipped (generated source does not parse)\n")
+          f"{by_kind['skipped']} skipped (generated source does not parse){skip_note}\n")
 
     if failures:
         for kind, count in collections.Counter(r["kind"] for r in failures).most_common():

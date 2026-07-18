@@ -92,13 +92,24 @@ after adding any comment-bearing fixture.
 The corpus reaches only the syntax somebody thought to write, and both fuzzers
 perturb *comments* and *whitespace* over that fixed corpus — **neither varies
 syntax**. A bug needing a conjunction of features therefore has no fixture. This
-is the syntax axis: it embeds every expression form in every context (825 cells)
-and checks each one.
+is the syntax axis: it embeds every expression form in every context, in up to
+four **layout variants**, and checks each one (**1688 cells**).
+
+The variants are the author-broken axis (added 2026-07-18, after a record-literal
+binop-field crash slipped through a flat-only matrix):
+- `flat` — the paren-carrying atom on one line (the original 850 cells).
+- `broken` — the same atom pre-broken across rows (valid in every context).
+- `bareFlat` / `bareBroken` — the atom with its outer parens stripped, in
+  **value-position contexts only** (record field, `let` binding, branch body,
+  array item, …). This is the variant that catches value-position bugs: the
+  paren-carrying atoms route a multi-line operand through the *handled*
+  `ParenBlock` arm, so only the bare form reaches the crash's code path.
 
 ```bash
 cd gren-format-lib/tests
-./matrix-syntax.py -j 12                                  # whole matrix
+./matrix-syntax.py -j 12                                  # whole matrix (all variants)
 ./matrix-syntax.py -v                                     # source + output per failure
+./matrix-syntax.py --variant broken --variant bareBroken # author-broken variants only
 ./matrix-syntax.py --construct recordUpdate1 --context parenBinopArg
 ./matrix-syntax.py -k /tmp/failing                        # write failing cells out as .gren
 ./matrix-syntax.py --no-parity                            # skip oracle 4
@@ -111,12 +122,15 @@ other three rather than quietly reporting a thinner green.
 
 Oracles 1–3 need no human review:
 
-1. **Layout, both directions.** Layout is author-driven — no page width, no
-   fitter — so a construct written flat renders flat unless its content forces a
-   break. Every cell is generated on ONE line, so: a flat construct in a flat
-   context **must** stay one line; anything involving `if`/`when`/`let` **must**
-   break. Over-approximation (pre-breaking something that renders inline) fails
-   the first; a construct that stops breaking fails the second.
+1. **Layout, both directions** — *flat-input variants only* (`flat`, `bareFlat`).
+   Layout is author-driven — no page width, no fitter — so a construct written
+   flat renders flat unless its content forces a break: a flat construct in a
+   flat context **must** stay one line; anything involving `if`/`when`/`let`
+   **must** break. Over-approximation (pre-breaking something that renders
+   inline) fails the first; a construct that stops breaking fails the second.
+   This is a flat-*input* truth, so it does not run on `broken`/`bareBroken` — a
+   broken input has no local layout truth (gren collapses a broken-but-fitting
+   binop), so those variants lean on oracles 2–4 instead.
 2. `--show` internally does parse → render → reparse → AST-compare → render
    again → idempotency-compare, so a clean exit also buys AST equivalence,
    idempotency, and "the output parses". Each failure title is its own class.
@@ -149,10 +163,18 @@ genuine bug gets a `BUG:` reason, which is **also** printed every run — being
 understood is not the same as being acceptable, and a baseline entry is the
 easiest place in this repo for a known bug to go quiet.
 
-Current state: **850/850 pass oracles 1–3**; 596/850 are byte-identical to
-elm-format, with 254 registered divergences — 251 redundant parens (#10), 3
-pipeline-`|>` alignment (#20), **0 UNREVIEWED**, and **0 known BUGs**. Use
-`-v` to see each divergence beside elm-format's output.
+Current state: **1688/1688 pass oracles 1–3**; 1112 are byte-identical to
+elm-format, with 576 registered divergences — 395 redundant parens (#10), 38
+precedence-split binop chains (#18), 3 pipeline-`|>` alignment (#20), **140
+UNREVIEWED**, and **0 known BUGs**. The 140 UNREVIEWED are the author-broken
+axis's yield, awaiting review — the largest families are: single-field
+record/update literals whose author-broken value fits, which gren *collapses*
+back to one line while elm-format keeps expanded (~92, a genuine tension with
+gren's author-driven stance — decide divergence vs bug); `\arg ->` lambda
+values in a record field, where gren glues the head to `= ` and drops only the
+body while elm-format drops the whole lambda (~21); and `<|`-body / broken-
+container-`|>`-operand layout (~26, likely the #14/#20 pipe families extended to
+these shapes). Use `-v` to see each divergence beside elm-format's output.
 `docs/redundantParens.md` is the reader-facing write-up of the #10 family,
 every example verified against both formatters. gren-format never strips a
 redundant paren, in any position, including call arguments — the former
