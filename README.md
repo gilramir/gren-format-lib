@@ -78,7 +78,7 @@ The larger section explains the [Gren Formatter Rules](#gren-formatter-rules).
   - [Block comment body indentation](#block-comment-body-indentation)
 - [Comparison with elm-format](#comparison-with-elm-format)
   - [The idea both formatters share](#the-idea-both-formatters-share)
-  - [The two ways they actually differ](#the-two-ways-they-actually-differ)
+  - [The one way they actually differ](#the-one-way-they-actually-differ)
   - [Divergence catalogue](#divergence-catalogue)
   - [Out of scope for comparison](#out-of-scope-for-comparison)
 
@@ -2624,31 +2624,22 @@ your layout decisions" philosophy (see [Why this design?](#why-this-design)) is
 why the two formatters produce the same output almost everywhere — and why, when
 they *do* differ, it is never because one of them decided a line "got too long."
 
-### The two ways they actually differ
+### The one way they actually differ
 
-Given that shared foundation, the mechanics differ in just two ways:
-
-- **How far things indent.** gren-format always indents in fixed steps of four
-  spaces. elm-format instead rounds each indent up to the next multiple of four,
-  measured from wherever the text on the line above happens to sit — so its
-  indentation can depend on the exact width of the tokens above it. That produces
-  small one-column offsets in a few remaining spots (e.g. a branch body after a
-  short-circuit operator, or inside a negated parenthesized block); gren-format
-  deliberately keeps the simpler fixed-step rule rather than adopting
-  elm-format's width-dependent one.
-- **How comments are tracked.** This is the deeper one. elm-format has its own
-  parser that keeps every comment pinned to the exact spot in the program where
-  it was written, and carries it through untouched. gren-format is built on top
-  of the *real Gren compiler's* parser — the same one that compiles your code —
-  and that parser throws comments away, because the compiler doesn't need them.
-  So gren-format has to put each comment back afterwards by looking at where in
-  the source it sat and matching that against the surrounding code. That
-  reconstruction is the reason the formatter is so careful about source
-  positions, and the reason running it twice must produce byte-for-byte identical
-  output (see [Background](#background)). elm-format never has to solve this,
-  because its comments never leave the spot they were parsed into. The upside of
-  gren-format's choice is that it always agrees with the real language — it can
-  never drift from what the compiler actually accepts.
+Given that shared foundation, the mechanics really only differ in one place:
+**how comments are tracked.** elm-format has its own parser that keeps every
+comment pinned to the exact spot in the program where it was written, and
+carries it through untouched. gren-format is built on top of the *real Gren
+compiler's* parser — the same one that compiles your code — and that parser
+throws comments away, because the compiler doesn't need them. So gren-format
+has to put each comment back afterwards by looking at where in the source it
+sat and matching that against the surrounding code. That reconstruction is the
+reason the formatter is so careful about source positions, and the reason
+running it twice must produce byte-for-byte identical output (see
+[Background](#background)). elm-format never has to solve this, because its
+comments never leave the spot they were parsed into. The upside of
+gren-format's choice is that it always agrees with the real language — it can
+never drift from what the compiler actually accepts.
 
 ### Divergence catalogue
 
@@ -3221,7 +3212,7 @@ decision and why.
             }
     ```
 
-    This follows from [Your line breaks are your layout](#the-two-ways-they-actually-differ):
+    This follows from [Your line breaks are your layout](#why-this-design):
     the author wrote one line and one line still works, so gren-format keeps it.
     A comment that genuinely *can't* share the line does break these open — a
     `--` comment, a `{- … -}` spread over several lines, or one the author put on
