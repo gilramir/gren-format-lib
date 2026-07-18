@@ -8,9 +8,7 @@ findPreferredLanguage preferredLanguages =
     preferredLanguages
         -- 0. Convert to 2 chars only
         |> Array.map (\lang -> String.takeFirst 2 lang)
-
         -- 1. Filter the list to include only our languages
         |> Array.keepIf (\lang -> Array.member lang getSupportedLanguages)
-
         -- 2. Take the first element of the resulting list
         |> Array.first

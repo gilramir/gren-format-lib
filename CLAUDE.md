@@ -158,7 +158,7 @@ easiest place in this repo for a known bug to go quiet.
 
 Current state: **850/850 pass oracles 1–3**; 596/850 are byte-identical to
 elm-format, with 254 registered divergences — 251 redundant parens (#10), 3
-pipeline-`|>` alignment (#21), **0 UNREVIEWED**, and **0 known BUGs**. Use
+pipeline-`|>` alignment (#20), **0 UNREVIEWED**, and **0 known BUGs**. Use
 `-v` to see each divergence beside elm-format's output.
 `docs/redundantParens.md` is the reader-facing write-up of the #10 family,
 every example verified against both formatters. gren-format never strips a

@@ -62,10 +62,8 @@ processOrder ({ identifier, items, appliedDiscounts, flags } as inboundCart) =
             items
                 -- comment between the seed and the first pipeline step
                 |> Array.map (\{ quantity, unitPriceCents } -> quantity * unitPriceCents)
-
                 {- block comment between two pipeline steps -}
                 |> Array.foldl (+) 0
-
                 -- final pipeline step
                 |> identity
 
@@ -173,14 +171,12 @@ summariseCart ({ identifier, items, flags } as inboundCart) =
     items
         -- pipeline-step-leading comment
         |> Array.map formatLine
-
         -- comment before a pipeline step containing a record update
         |> Array.map
             (\formattedItemLine ->
                 -- comment inside a single-arg lambda body
                 "- " ++ formattedItemLine
             )
-
         {- comment between two pipeline steps using block-comment style -}
         |> String.join "\n"
 
@@ -350,7 +346,6 @@ extremelyCommented {-c22-} {-c23-} {-c24-} ({ score {-c25-} {-c26-}, label {-c27
                             {-c91-}
                             r {-c92-}
             ) {-c93-}
-
         {-c94-}
         |> {-c95-} (\finalRecord -> {-c96-} {-c97-} finalRecord {-c98-}) {-c99-}
 
@@ -366,7 +361,6 @@ bestDiscount candidateDiscounts =
                 -- comment inside the lambda body of a keepIf step
                 basisPoints > 0 && basisPoints <= 5000
             )
-
         {- two-step block-comment narration begins -}
         |> Array.foldl
             (\candidate currentBest ->

@@ -812,8 +812,9 @@ comment the author wrote between the seed and the first `|>` lands as that step'
 leading child (`people {- c -} |> sort` — see Comments.gren), so stacking it would
 make the step box multi-line and break a pipeline the flat line can carry.
 
-Scoped to the inline attempt: the BROKEN layout keeps its own-line comments, which
-is what `FlowPolicy`'s `hasLeadingComment` blank-line rule is written against.
+Scoped to the inline attempt: the BROKEN layout keeps its own-line comments,
+stacked above the `|>` with no blank line between (an own-line comment is part of
+one expression, so no blank separates it from the step — see `FlowPolicy`).
 Falls back to the stack when the glue can't be single-line — which is also what
 keeps a `--` line comment out: it renders as a `MustBreakBox`, `joinInline`
 rejects it, and the pipeline breaks as it must. -}
@@ -2841,11 +2842,6 @@ assembleFlowImpl inlineStart flowIndent items =
 
                         PipelineStep ->
                             FP.PipelineStepItem
-                                { hasLeadingComment =
-                                    Array.first (lpnChildren item.node)
-                                        |> Maybe.map nodeIsComment
-                                        |> Maybe.withDefault False
-                                }
 
                         UnbreakableText loc ->
                             FP.LeafItem { startRow = loc.start.row, isElidedArrow = isElidedArrow item.node }
@@ -3330,38 +3326,25 @@ assembleFlowImpl inlineStart flowIndent items =
                         , state = decision.next
                         }
 
-                FP.BlockJoin { rule, blankBefore } ->
-                    let
-                        -- A commented pipeline step following another step gets
-                        -- a blank line above its comment (the policy's
-                        -- `blankBefore` flag).
-                        rowsBefore =
-                            if blankBefore then
-                                Array.pushLast B.blankLine (flushRow acc.curRow acc.rows)
-
-                            else
-                                flushRow acc.curRow acc.rows
-                    in
+                FP.BlockJoin { rule } ->
                     when rule is
                         FP.IndentedRule ->
                             Ok
-                                { rows = Array.pushLast (applyIndent grenIndent item.box) rowsBefore
+                                { rows = Array.pushLast (applyIndent grenIndent item.box) (flushRow acc.curRow acc.rows)
                                 , curRow = []
                                 , state = decision.next
                                 }
 
                         FP.BodyRule ->
                             Ok
-                                { rows = Array.pushLast item.box rowsBefore
+                                { rows = Array.pushLast item.box (flushRow acc.curRow acc.rows)
                                 , curRow = []
                                 , state = decision.next
                                 }
 
                         FP.SoftIndentedRule ->
                             -- Soft wrap: flat content glues onto the current line
-                            -- with a space. (`blankBefore` never accompanies a soft
-                            -- rule — the policy only sets it on the pipeline step's
-                            -- IndentedRule — so the glue paths ignore `rowsBefore`.)
+                            -- with a space.
                             when B.isLine item.box is
                                 Ok l ->
                                     if Array.isEmpty acc.curRow then

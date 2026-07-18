@@ -1632,7 +1632,7 @@ because the `in` keyword has no recorded position, gren-format can't tell a
 comment trailing that binding from one introducing the result, so it places it
 on its own line just below `in`. This is a deliberate divergence from
 elm-format — see [Comparison with elm-format](#comparison-with-elm-format),
-point 22, and [A comment after the last binding in a `let`](#a-comment-after-the-last-binding-in-a-let).
+point 21, and [A comment after the last binding in a `let`](#a-comment-after-the-last-binding-in-a-let).
 
 You can destructure on the left of a binding:
 
@@ -2201,6 +2201,15 @@ foo n =
 
 #### Blank lines around comments
 
+There is one rule behind everything in this section: **a blank line separates
+statements and declarations — top-level units, `let` bindings, `when` cases, and
+`if`/`else` branches — and never separates the parts of a single expression.** A
+list, a record, a binop chain, and a pipeline are each one expression, so no
+blank line ever falls between their parts, and an own-line comment sitting between
+two of those parts is kept without a blank line above it. (elm-format differs both
+ways: it *adds* a blank above such a comment inside a list or record, and does
+*not* add one between pipeline steps — see the divergence catalogue.)
+
 A comment directly above a declaration stays attached — no blank line between
 them:
 
@@ -2554,7 +2563,7 @@ This is the one placement that stays put every time you reformat *and* never
 misplaces a comment you really did write below `in`. elm-format, whose parser
 records the `in` position, keeps a trailing-binding comment up with the
 bindings instead — a divergence covered in
-[Comparison with elm-format](#comparison-with-elm-format), point 22, with the
+[Comparison with elm-format](#comparison-with-elm-format), point 21, with the
 full reasoning for why gren-format can't follow suit.
 
 #### Block comment body indentation
@@ -3087,28 +3096,7 @@ decision and why.
             {- note -} |> stepTwo
     ```
 
-16. **An own-line comment between pipeline steps** gren-format
-    puts a blank line above it (it treats the comment as leading the step
-    below); elm-format writes no blank line:
-
-    ```gren
-    -- gren-format:
-    x =
-        value
-            |> stepOne
-
-            -- between steps
-            |> stepTwo
-
-    -- elm-format:
-    x =
-        value
-            |> stepOne
-            -- between steps
-            |> stepTwo
-    ```
-
-17. **A comment just after a lambda's `->`** gren-format keeps
+16. **A comment just after a lambda's `->`** gren-format keeps
     it inline; elm-format drops the `->`, the comment, and the body each onto
     their own line:
 
@@ -3124,7 +3112,7 @@ decision and why.
             x + 1
     ```
 
-18. **A comment trailing `in`** gren-format keeps it glued to
+17. **A comment trailing `in`** gren-format keeps it glued to
     `in` on the same line; elm-format moves it to its own line immediately
     after `in` (no blank line, still outside the `let` block):
 
@@ -3151,7 +3139,7 @@ decision and why.
     one-off match rather than falling out of a single rule, so they're left
     as is for now.
 
-19. **A multi-line operator chain splits only at its loosest operators;
+18. **A multi-line operator chain splits only at its loosest operators;
     elm-format splits at every operator.** gren-format keeps tighter-binding
     parts of a chain on one line and breaks only at the weakest operators (see
     [Binary operators](#binary-operators)); elm-format puts every operator on its
@@ -3174,7 +3162,7 @@ decision and why.
     layout is stable when reformatted and a comment anywhere in the chain never
     changes which operators break.
 
-20. **A short `{- … -}` inside a list or record stays on the line the author
+19. **A short `{- … -}` inside a list or record stays on the line the author
     wrote; elm-format breaks the whole thing open.** When a comment sits inside a
     list, record, record update, or record type and the author wrote the whole
     thing on one line, gren-format leaves it alone — the comment fits, so nothing
@@ -3227,12 +3215,17 @@ decision and why.
     were written beside, and the reasoning is the same.
 
     When a comment *does* break one of these open, one more difference shows up: a
-    blank line you wrote before that comment, inside the brackets, is dropped.
-    gren-format keeps no blank lines inside a list, record, or record type at all
-    — blank lines only ever separate top-level declarations and `let` bindings.
-    elm-format instead sets the comment off with a blank line above it. So given
-    a record type in a signature that you wrote with a blank line before an inner
-    `--` comment:
+    blank line you wrote before that comment, inside the brackets, is dropped. This
+    is one instance of a single rule gren-format applies everywhere (see
+    [Blank lines around comments](#blank-lines-around-comments)): **a blank line
+    separates statements and declarations — top-level units, `let` bindings, `when`
+    cases, `if`/`else` branches — and never separates the parts of a single
+    expression.** A list, a record, a record type, a binop chain, and a pipeline
+    are each one expression, so no blank line ever falls between their parts,
+    including above an own-line comment leading one of them. elm-format instead
+    sets such a comment off with a blank line above it inside a list or record. So
+    given a record type in a signature that you wrote with a blank line before an
+    inner `--` comment:
 
     ```gren
     -- you wrote:
@@ -3261,7 +3254,7 @@ decision and why.
         }
     ```
 
-21. **When a pipeline breaks, every `|>` lines up; elm-format keeps the steps
+20. **When a pipeline breaks, every `|>` lines up; elm-format keeps the steps
     that still fit up on the seed's line.** If a pipeline has to break — because
     a step holds a `when`, an `if`, or a `let`, which break however you write
     them — gren-format puts the seed on its own line and every `|>` under it, all
@@ -3312,7 +3305,7 @@ decision and why.
     line. A multi-line record argument doesn't trigger it either — writing the
     record across rows breaks the chain for both formatters, so they agree.
 
-22. **A comment trailing the *last* `let` binding drops below `in`; elm-format
+21. **A comment trailing the *last* `let` binding drops below `in`; elm-format
     keeps it with the bindings.** When you write a comment after the value of the
     *last* binding in a `let`, gren-format moves it onto its own line after `in`,
     at the result-expression column. elm-format keeps it at the bindings' indent,
@@ -3367,7 +3360,7 @@ decision and why.
     reformat no longer sees it as same-row and drops it back below `in`, so the
     column oscillates on every pass. Routing below `in` avoids that entirely. The
     output is stable when reformatted. (A comment trailing `in` itself is a
-    separate case — point 18.)
+    separate case — point 17.)
 
 #### Out of scope for comparison
 

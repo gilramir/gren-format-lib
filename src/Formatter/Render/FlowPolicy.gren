@@ -139,8 +139,6 @@ child ended up multi-line.
     row, carried into `prevRow` when the record drops so a single-line block
     comment on that same source row glues onto the `}` line (see
     `BracketLiteralItem`'s arm in `decide`).
-  - `PipelineStepItem.hasLeadingComment` — a commented step following another
-    step gets a blank line above its comment.
 
 -}
 type ItemFacts
@@ -152,7 +150,7 @@ type ItemFacts
     | BodyBlockItem
     | SoftBlockItem { childForcesVertical : Bool }
     | WhenBranchItem
-    | PipelineStepItem { hasLeadingComment : Bool }
+    | PipelineStepItem
     | EmptyLineItem
 
 
@@ -175,8 +173,7 @@ with no decisions of its own.
     the wrap's level *without* a leading break (a literal space run pushes
     the first line there; a leading break would emit a whitespace-only blank
     line). Both non-bypass rules nest by exactly one indent step.
-  - `BlockJoin` — the block wrap for `rule`, optionally preceded by a blank
-    line (a commented pipeline step after another step).
+  - `BlockJoin` — the block wrap for `rule`.
   - `DropBlock` — the type-record drop: the item (bundled with its paired
     leading comment, if any — the caller assembles that) drops below its
     head via `rule`'s wrap. Only ever decided when the separator is
@@ -193,7 +190,7 @@ type Placement
     | OwnLine
     | OwnLineAfterBlank
     | IndentNoBreak
-    | BlockJoin { rule : BlockKind, blankBefore : Bool }
+    | BlockJoin { rule : BlockKind }
     | DropBlock BlockKind
     | BlankLineOnly
 
@@ -207,6 +204,13 @@ type alias Decision =
 {-| THE decision procedure: how does this item join the flow, and what state
 does the fold carry forward. Pure and total; the procedure the idempotency and
 whitespace fuzzers have proven to be a reparse fixed point.
+
+No arm here ever emits a blank line before an item. Blank lines separate
+statements and declarations — top-level units, `let` bindings, `when` cases,
+`if`/`else` branches — and those are placed by `Formatter.Logical.VerticalSpace`
+as `EmptyLine` markers before the flow ever reaches this layer. Inside a single
+expression — a pipeline, a binop chain, a list, a record — the parts are never
+separated by a blank line, including an own-line comment leading a part.
 -}
 decide : FlowConfig -> FlowState -> ItemFacts -> Decision
 decide config state facts =
@@ -407,19 +411,18 @@ decide config state facts =
                 }
             }
 
-        PipelineStepItem f ->
-            -- Only add a blank line before a commented step if it follows
-            -- another PipelineStep (separator = HardNl).
+        PipelineStepItem ->
+            -- A pipeline step stacks on its own line under the seed. An own-line
+            -- comment leading a step stays glued to that step with no blank line
+            -- above it: a pipeline is one expression, and blank lines never
+            -- separate the parts of a single expression (see `decide`'s header).
             { placement =
                 when state.separator is
                     FirstItem ->
                         AsFirst
 
-                    HardNl ->
-                        BlockJoin { rule = IndentedRule, blankBefore = f.hasLeadingComment }
-
                     _ ->
-                        BlockJoin { rule = IndentedRule, blankBefore = False }
+                        BlockJoin { rule = IndentedRule }
             , next =
                 { prevRow = -1
                 , prevElided = False
@@ -509,7 +512,7 @@ blockDecision rule state =
                     IndentNoBreak
 
             _ ->
-                BlockJoin { rule = rule, blankBefore = False }
+                BlockJoin { rule = rule }
     , next =
         { prevRow = -1
         , prevElided = False
