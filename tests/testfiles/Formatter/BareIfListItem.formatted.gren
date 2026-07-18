@@ -3,9 +3,9 @@ module BareIfListItem exposing (..)
 
 bareIf =
     [ if cond then
-            aaaaa
+        aaaaa
 
-        else
-            bbbbb
+      else
+        bbbbb
     , second
     ]

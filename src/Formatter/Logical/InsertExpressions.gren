@@ -1034,8 +1034,17 @@ simpleFieldText field =
 
 {-| Wrap an expression as a single node.
 
-If the expression produces multiple sibling nodes, group them under
-`AcrossOrVertical` so callers receive exactly one `LPNode`.
+A single-node expression is returned unchanged. A *multi-node* expression is a
+block — a lambda (`\pats ->` + body), or a `let`/`if` (keyword + parts) — whose
+inner parts already carry their own `IndentedBlock` indentation. (A `when` is a
+single `WhenFlow` node, so it never reaches here.) Grouping the parts with
+`plainAcross` (an `AcrossOrVertical`) would add its +4 continuation ON TOP of that
+indentation, so the block's body over-indents to +8 when the block is used as an
+array item, or nested directly under another block. `BodyBlock` joins the parts at
+the current indent with no extra continuation — exactly how a top-level decl body
+holds the same nodes — so a lambda body / `if` branch / `let` `in`+result lands at
++4 in every position (matching elm-format; see README "never 8"). An inline lambda
+body still glues to `->` (its own `SoftIndentedBlock` decides that, unchanged).
 -}
 insertExpressionAsItem : Src.Expression -> Result String LPNode
 insertExpressionAsItem locExpr =
@@ -1051,28 +1060,7 @@ insertExpressionAsItem locExpr =
                             Ok onlyNode
 
                         else
-                            when locExpr.value is
-                                Src.Lambda _ ->
-                                    -- A lambda produces two nodes: `\pats ->` and its
-                                    -- body block (`SoftIndentedBlock`/`IndentedBlock`,
-                                    -- which already indents the body +4). Bundling them
-                                    -- with `plainAcross` (an `AcrossOrVertical`) makes
-                                    -- the flow add its own +4 continuation ON TOP of the
-                                    -- body block's +4, so a lambda used as an array item
-                                    -- or nested directly under another lambda's `->`
-                                    -- over-indents its body to +8 (elm-format, and this
-                                    -- formatter's own top-level and record-field lambda,
-                                    -- all use +4 — see README "never 8"). `BodyBlock`
-                                    -- joins the two nodes at the current indent with no
-                                    -- extra continuation — exactly how a top-level decl
-                                    -- body holds a lambda — so the body lands at +4 in
-                                    -- every position. An inline body still glues to `->`
-                                    -- (the body's own `SoftIndentedBlock` decides that,
-                                    -- unchanged).
-                                    Ok (lpnNode BodyBlock nodes)
-
-                                _ ->
-                                    Ok (plainAcross nodes)
+                            Ok (lpnNode BodyBlock nodes)
             )
 
 

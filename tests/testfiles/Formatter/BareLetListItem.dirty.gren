@@ -1,0 +1,11 @@
+module BareLetListItem exposing (..)
+
+
+bareLet =
+    [ let
+        q =
+            one
+      in
+      q
+    , second
+    ]
