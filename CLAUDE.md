@@ -163,20 +163,20 @@ genuine bug gets a `BUG:` reason, which is **also** printed every run — being
 understood is not the same as being acceptable, and a baseline entry is the
 easiest place in this repo for a known bug to go quiet.
 
-Current state: **1688/1688 pass oracles 1–3**; 1122 are byte-identical to
-elm-format, with 566 registered divergences — 398 redundant parens (#10), 100
+Current state: **1688/1688 pass oracles 1–3**; 1126 are byte-identical to
+elm-format, with 562 registered divergences — 398 redundant parens (#10), 100
 single-field record/update value-collapse (#22), 38 precedence-split binop
 chains (#18), 12 lambda-field-value head-glue (#23), 6 backward-`<|` flat layout
-(#14), 3 pipeline-`|>` alignment (#20), **9 UNREVIEWED**, and **0 known BUGs**.
-The author-broken axis found two real bugs, both now **fixed**: a lambda body
-over-indenting to +8 in array-item / nested-lambda-body positions (guarded by the
-`LambdaBodyIndentInBrackets` fixture); and a `let` as a `<|` body over-indenting
-its `in`/result by 4 (guarded by `LetAsBackwardPipeBody`). The 9 UNREVIEWED are
-two genuine design questions: a bare multi-line container as a `|>` operand, which
-gren drops below a `|>` left dangling on its own line while elm keeps it on the
-`|>` line (5); and a bare `if`/`let` as an array item, whose body gren indents
-deeper via its emergent tab-stop rule than elm's bracket-relative rule (4). Use
-`-v` to see each divergence beside elm-format's output.
+(#14), 3 pipeline-`|>` alignment (#20), 1 record-update `|>`-operand field indent
+(#24), **4 UNREVIEWED**, and **0 known BUGs**. The author-broken axis found three
+real bugs, all now **fixed**: a lambda body over-indenting to +8 in array-item /
+nested-lambda-body positions (`LambdaBodyIndentInBrackets`); a `let` as a `<|`
+body over-indenting its `in`/result by 4 (`LetAsBackwardPipeBody`); and a
+multi-line container operand dropping below a dangling `|>` instead of gluing to
+it (`PipelineContainerOperand`). The 4 UNREVIEWED are one design question — a bare
+`if`/`let` as an array item, whose body gren indents deeper via its emergent
+tab-stop rule than elm's bracket-relative rule. Use `-v` to see each divergence
+beside elm-format's output.
 `docs/redundantParens.md` is the reader-facing write-up of the #10 family,
 every example verified against both formatters. gren-format never strips a
 redundant paren, in any position, including call arguments — the former

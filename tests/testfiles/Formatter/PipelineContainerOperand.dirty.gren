@@ -1,0 +1,32 @@
+module PipelineContainerOperand exposing (array, record, update, nested)
+
+
+array =
+    seed
+        |> [ 1
+           , 2
+           , 3
+           ]
+
+
+record =
+    seed
+        |> { a = 1
+           , b = 2
+           }
+
+
+update =
+    seed
+        |> { r
+           | a = 1
+           , b = 2
+           }
+
+
+nested =
+    seed
+        |> fn
+        |> [ 1
+           , 2
+           ]

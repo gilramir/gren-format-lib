@@ -650,6 +650,30 @@ isMultilineLambdaParenBlockAnyBodyBox node =
             False
 
 
+-- True when `node` is a bracket container (array / record literal, or record
+-- update) that renders multi-line. A container written directly after `|>`
+-- glues to the operator the same way a `ParenBlock` does — elm-format keeps
+-- `|> [ 1` / `|> { a = 1` on the operator's line — so the direct-operand guard
+-- must keep it OUT of the trigger split, or the relocation branch strands `|>`
+-- alone on its line and drops the container +4 below it.
+isMultilineBracketContainerBox : LPNode -> Bool
+isMultilineBracketContainerBox node =
+    (when lpnBox node is
+        AllAcrossOrAllVertical _ ->
+            True
+
+        AlwaysVertical _ ->
+            True
+
+        RecordUpdate _ ->
+            True
+
+        _ ->
+            False
+    )
+        && nodeForcesVerticalBox node
+
+
 {-| Split a pipeline step's children at its *trigger* — the first node that
 breaks onto its own line: a multi-line lambda-argument paren, a multi-line
 content paren, or any other multi-line-forcing node such as a record argument.
@@ -665,12 +689,23 @@ splitStepTrigger stepChildren =
 
                 Nothing ->
                     let
-                        isDirectOperandLambda =
-                            isMultilineLambdaParenBlockAnyBodyBox node
-                                && Array.length acc.preamble <= 1
+                        -- A multi-line paren block OR a multi-line bracket
+                        -- container (array / record / update) written directly
+                        -- after `|>` (nothing but the operator in the preamble)
+                        -- glues to the operator like elm-format's `|> (if …` /
+                        -- `|> [ 1`. Keeping it out of the trigger split leaves it
+                        -- in the preamble, where `buildFlowBoxInline` glues it;
+                        -- otherwise the relocation branch strands `|>` on its own
+                        -- line with the operand dropped +4 below.
+                        isDirectGluedOperand =
+                            Array.length acc.preamble
+                                <= 1
+                                && (isMultilineLambdaParenBlockAnyBodyBox node
+                                        || isMultilineBracketContainerBox node
+                                   )
                     in
                     if
-                        not isDirectOperandLambda
+                        not isDirectGluedOperand
                             && (isMultilineLambdaParenBlockBox node
                                     || isMultilineContentParenBlockBox node
                                     || flowChildForcesVerticalBox node

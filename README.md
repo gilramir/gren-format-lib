@@ -3463,10 +3463,40 @@ decision and why.
     The same holds for a single-field update (`{ r | fld = \q -> … }`). Keeping the
     header on the `= ` line reads as "this field is a function of `q`" without
     spending a line on the `\q ->`; it is the same instinct as keeping a short
-    lambda inline. (This is the record-field case only. A lambda body in an *array
-    item* or nested directly under another lambda's `->` still over-indents by 4 —
-    that one is a bug, tracked in `matrix-parity-baseline.json`, not this
-    deliberate choice.)
+    lambda inline. (This is the record-field case only — a lambda body elsewhere,
+    e.g. an array item, indents its body a plain 4, same as elm-format.)
+
+24. **A record update as a direct multi-line `|>` operand keeps gren's field
+    indent; elm-format compresses it.** gren-format renders a record update the
+    same everywhere: `{` and the base on the first line, the `|`/`,` field lines
+    4 spaces past the `{`, and `}` back at the `{` column (see
+    [Record updates](#record-updates)). That holds when a `|> ` prefix has pushed
+    the `{` to the right, too — the whole update hangs off its own `{`:
+
+    ```gren
+    -- gren-format:
+    v =
+        seed
+            |> { r
+                   | a = 1
+                   , b = 2
+               }
+
+    -- elm-format:
+    v =
+        seed
+            |> { r
+                | a = 1
+                , b = 2
+               }
+    ```
+
+    elm-format re-indents the fields from the pipeline's nesting instead, landing
+    them nearer the `{`. gren-format's form keeps a record update reading the same
+    however it is reached, rather than shifting its inner columns based on what sits
+    to its left. (An array or record *literal* operand, `|> [ 1` / `|> { a = 1`,
+    glues and aligns identically in both formatters — this is specific to the
+    update's `|`/`,` field indent.)
 
 ### Out of scope for comparison
 
