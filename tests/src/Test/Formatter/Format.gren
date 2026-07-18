@@ -349,7 +349,7 @@ expressionSuite fsPerm =
             , assertPretty fsPerm "as-pattern inside record-field destructure keeps its parens" "RecordFieldAsPattern"
             , assertPretty fsPerm "doc comment body with non-BMP code points round-trips" "DocCommentWithEmoji"
             , assertPretty fsPerm "record update base can be a parenthesized call" "RecordUpdateComplexBase"
-            , assertPretty fsPerm "record update base can be a binop, negate, nested update, or accessor — previously silently dropped to an empty (unparseable) base" "RecordUpdateExoticBase"
+            , assertPretty fsPerm "record update base can be a binop, negate, nested update, accessor, record literal, or a call with an array arg — previously silently dropped to an empty (unparseable) base" "RecordUpdateExoticBase"
             , assertPretty fsPerm "record update base can be a qualified value reference (VarQual), e.g. a record exported by another module" "RecordUpdateQualifiedBase"
             , assertPretty fsPerm "record update expands uniformly for single- and multi-field block values (matches elm-format's extensionGroup); a single-field block value no longer stays compact, and the field value anchors at `| ` + 4 not field-content + 4; the lambda-head-drop is a documented remaining divergence" "RecordUpdateExtension"
             , assertPretty fsPerm "an `if`/`when`/`let` record-field value always breaks however the author wrote it, so it drops below `fld =` — written FLAT here on purpose, which used to leave a `when` (and any paren-wrapped block) as a plain flow item whose multi-line box the soft-glue arm could not place, failing the format outright. Paren-free layouts verified byte-identical to elm-format; inline and lambda values are untouched" "BlockRecordFieldValue"
