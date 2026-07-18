@@ -1,26 +1,28 @@
-# How the Gren formatter works
+# The Gren Formatter Library
 
 This package is the library behind `gren-format`: given a Gren source file,
 it produces a formatted version of the same file — consistent spacing,
 consistent indentation, comments and blank lines kept where they belong, and
-also honoring the line breaks the author of the source code chose.
+also honoring the single-line/multi-line formatting the author of the source code chose.
 
-This section is a guided tour of *how* it does that, at a conceptual level.
+The first part of this document section is a guided tour of *how* it does that, at a conceptual level.
+The larger section explains the [Gren Formatter Rules](#gren-formatter-rules).
 
 ---
 
 ## Table of contents
 
 - [Overview](#overview)
-- [Step 1: building the Logical Printing Tree](#step-1-building-the-logical-printing-tree)
-  - [Where comments and blank lines fit in](#where-comments-and-blank-lines-fit-in)
-  - [Example](#example)
-- [Step 2: turning the Logical Printing Tree into a render plan](#step-2-turning-the-logical-printing-tree-into-a-render-plan)
-  - [Example](#example-1)
-- [Step 3: turning the render plan into text](#step-3-turning-the-render-plan-into-text)
-  - [Example](#example-2)
-- [Why this design?](#why-this-design)
-- [Where to go next](#where-to-go-next)
+- [How it works](#how-it-works)
+  - [Step 1: building the Logical Printing Tree](#step-1-building-the-logical-printing-tree)
+    - [Where comments and blank lines fit in](#where-comments-and-blank-lines-fit-in)
+    - [Example](#example)
+  - [Step 2: turning the Logical Printing Tree into a render plan](#step-2-turning-the-logical-printing-tree-into-a-render-plan)
+    - [Example](#example-1)
+  - [Step 3: turning the render plan into text](#step-3-turning-the-render-plan-into-text)
+    - [Example](#example-2)
+  - [Why this design?](#why-this-design)
+  - [Where to go next](#where-to-go-next)
 - [Gren Formatter Rules](#gren-formatter-rules)
   - [Background](#background)
   - [Module declaration](#module-declaration)
@@ -65,21 +67,20 @@ This section is a guided tour of *how* it does that, at a conceptual level.
     - [A comment on its own line below a declaration](#a-comment-on-its-own-line-below-a-declaration)
     - [A trailing comment on a `when` branch body](#a-trailing-comment-on-a-when-branch-body)
     - [When the formatter can't tell what you meant](#when-the-formatter-cant-tell-what-you-meant)
-  - [Idempotency](#idempotency)
-  - [Known limitations](#known-limitations)
-    - [A compiler bug with field access on a record-update base](#a-compiler-bug-with-field-access-on-a-record-update-base)
-    - [Wide `when` branch patterns](#wide-when-branch-patterns)
-    - [Comment placement near invisible tokens](#comment-placement-near-invisible-tokens)
-    - [A line break inside a declaration's head](#a-line-break-inside-a-declarations-head)
-    - [Comments near an effect module's `where` block](#comments-near-an-effect-modules-where-block)
-    - [A comment right after `exposing` doesn't sort with the first name](#a-comment-right-after-exposing-doesnt-sort-with-the-first-name)
-    - [A comment after the last binding in a `let`](#a-comment-after-the-last-binding-in-a-let)
-    - [Block comment body indentation](#block-comment-body-indentation)
-  - [Comparison with elm-format](#comparison-with-elm-format)
-    - [The idea both formatters share](#the-idea-both-formatters-share)
-    - [The two ways they actually differ](#the-two-ways-they-actually-differ)
-    - [Divergence catalogue](#divergence-catalogue)
-    - [Out of scope for comparison](#out-of-scope-for-comparison)
+- [Known limitations](#known-limitations)
+  - [A compiler bug with field access on a record-update base](#a-compiler-bug-with-field-access-on-a-record-update-base)
+  - [Wide `when` branch patterns](#wide-when-branch-patterns)
+  - [Comment placement near invisible tokens](#comment-placement-near-invisible-tokens)
+  - [A line break inside a declaration's head](#a-line-break-inside-a-declarations-head)
+  - [Comments near an effect module's `where` block](#comments-near-an-effect-modules-where-block)
+  - [A comment right after `exposing` doesn't sort with the first name](#a-comment-right-after-exposing-doesnt-sort-with-the-first-name)
+  - [A comment after the last binding in a `let`](#a-comment-after-the-last-binding-in-a-let)
+  - [Block comment body indentation](#block-comment-body-indentation)
+- [Comparison with elm-format](#comparison-with-elm-format)
+  - [The idea both formatters share](#the-idea-both-formatters-share)
+  - [The two ways they actually differ](#the-two-ways-they-actually-differ)
+  - [Divergence catalogue](#divergence-catalogue)
+  - [Out of scope for comparison](#out-of-scope-for-comparison)
 
 ---
 
@@ -108,7 +109,9 @@ on the page.
 
 ---
 
-## Step 1: building the Logical Printing Tree
+## How it works
+
+### Step 1: building the Logical Printing Tree
 
 The first step walks over your code's structure and builds a **Logical
 Printing Tree**: one entry for every piece of your program (a function, an
@@ -130,7 +133,7 @@ Printing Tree records "spread this out"; if you wrote it on one line, it records
 "keep this together." The tree is really a map of those choices, ready to
 be turned into text later.
 
-### Where comments and blank lines fit in
+#### Where comments and blank lines fit in
 
 Comments and blank lines aren't part of your code's structure, so they
 arrive separately, each tagged with the line and column where you wrote it.
@@ -149,7 +152,7 @@ The result is a Logical Printing Tree that has everything: code, comments,
 and blank lines, all in the right order and all carrying their layout
 decisions.
 
-### Example
+#### Example
 
 Comments are what make this genuinely hard: they carry meaning for a human
 reader, but the parser doesn't attach them to any particular piece of code —
@@ -220,7 +223,7 @@ general rule.)
 
 ---
 
-## Step 2: turning the Logical Printing Tree into a render plan
+### Step 2: turning the Logical Printing Tree into a render plan
 
 The Logical Printing Tree says *what could* happen ("these items can go on
 one line or several"). The next step turns each of those decisions into
@@ -236,7 +239,7 @@ produces the same output, and why there's no "line width" setting to
 configure — the formatter isn't trying to fit your code into 80 columns or
 any other target, it's reproducing the shape you already chose.
 
-### Example
+#### Example
 
 Continuing the same example, the Logical Printing Tree from Step 1 becomes
 this render plan — one entry per root item, each a small tree of concrete
@@ -280,14 +283,14 @@ breaking; it just executes whichever this tree already committed to.
 
 ---
 
-## Step 3: turning the render plan into text
+### Step 3: turning the render plan into text
 
 The last step is the simplest: walk over the render plan from the previous
 step and produce the actual characters of the formatted file — inserting
 real newlines, real spaces, and the right amount of indentation at each
 level. What comes out the other end is the finished, formatted source file.
 
-### Example
+#### Example
 
 Rendering the plan from Step 2 produces the finished file:
 
@@ -311,7 +314,7 @@ between them.
 
 ---
 
-## Why this design?
+### Why this design?
 
 The formatter's guiding idea is: **your line breaks are your layout
 decisions.** Rather than trying to choose the "best" way to
@@ -322,7 +325,7 @@ to one part of a file never surprises you by reshuffling an unrelated part.
 
 ---
 
-## Where to go next
+### Where to go next
 
 - [Gren Formatter Rules](#gren-formatter-rules) below — a full reference of
   formatting rules with worked examples, for anyone using `gren format` day
@@ -366,7 +369,10 @@ The four core rules:
    text inside a comment or string.
 
 4. **Formatting is stable.** Running the formatter on already-formatted code
-   produces the same code back. Format once or ten times — same result.
+   produces the same code back. Format once or ten times — same result. A
+   torture test inserts a block comment into every inter-token gap of every
+   fixture file, formats twice, and requires byte-identical output; it
+   currently finds **zero** non-idempotent gaps across the whole test corpus.
 
 A few things are **always fixed**, regardless of how you wrote them:
 
@@ -2177,7 +2183,7 @@ Whatever follows the module line always gets exactly one blank line before
 it, regardless of how tight or loose the original spacing was — otherwise the
 same file could format differently depending on how close together the
 author happened to type the module line and the next line, which would work
-against [idempotency](#idempotency).
+against [idempotent formatting](#background).
 
 #### Doc comments (`{-| ... -}`)
 
@@ -2365,20 +2371,9 @@ import Foo {- c -} as Bar
 
 ---
 
-### Idempotency
+## Known limitations
 
-Formatting already-formatted code produces exactly the same code back. Format
-once or ten times — same result.
-
-A torture test inserts a block comment into every inter-token gap of every
-fixture file, formats twice, and requires byte-identical output. It currently
-finds **zero** non-idempotent gaps across the whole test corpus.
-
----
-
-### Known limitations
-
-#### A compiler bug with field access on a record-update base
+### A compiler bug with field access on a record-update base
 
 Field access directly after a closing paren, a plain record literal, or a
 qualified name — `(getUser model).name`, `{ x = 1 }.x`,
@@ -2397,7 +2392,7 @@ longer compiles. The parser reads both spellings as the same expression
 [compiler-common#27](https://github.com/gren-lang/compiler-common/issues/27),
 which fixed every other kind of base but not this one.
 
-#### An unparenthesized constructor pattern can't be aliased with `as`
+### An unparenthesized constructor pattern can't be aliased with `as`
 
 ```gren
 f x =
@@ -2416,7 +2411,7 @@ this exact shape and can't be formatted until it's fixed. Tracked at
 [compiler-common#31](https://github.com/gren-lang/compiler-common/issues/31).
 Workaround: add the parens yourself, `(Just y) as whole`.
 
-#### Wide `when` branch patterns
+### Wide `when` branch patterns
 
 A `when` branch whose record (or array) pattern is too wide to fit on one line
 can wrap in a way the Haskell-based Gren compiler rejects:
@@ -2434,12 +2429,12 @@ satisfy that. Compiling the formatted file may fail with "I was expecting to
 see a closing curly brace next." Rejoin the pattern onto one line by hand
 until this is resolved.
 
-#### Comment placement near invisible tokens
+### Comment placement near invisible tokens
 
 As described in [When the formatter can't tell what you meant](#when-the-formatter-genuinely-cant-tell-what-you-meant), a comment beside `=`, `:`, `|`, or an import's `as` always snaps to one
 canonical side. Two different intents produce the same output.
 
-#### A line break inside a declaration's head
+### A line break inside a declaration's head
 
 A line break *inside* a declaration's keyword (e.g. `import` on one line,
 the module name on the next) can cause a blank line to appear between a
@@ -2447,7 +2442,7 @@ comment and that declaration. The root cause is a parser bug that records the
 wrong line number for keyword-led declarations:
 [compiler-common#25](https://github.com/gren-lang/compiler-common/issues/25).
 
-#### Comments near an effect module's `where` block
+### Comments near an effect module's `where` block
 
 As described in [Comments in an effect module's header](#comments-in-an-effect-modules-header),
 a comment's placement near the `where { … }` block is determined by proximity
@@ -2495,7 +2490,7 @@ exactly the case that needs the missing `}` position to place. Fixing it means
 the parser recording positions for those tokens; until then a `{- … -}` comment
 is the one that stays put.
 
-#### A comment right after `exposing` doesn't sort with the first name
+### A comment right after `exposing` doesn't sort with the first name
 
 As described in [Exposed names sort automatically](#exposed-names-sort-automatically),
 a comment on its own line — attached to the *first* name in an
@@ -2530,7 +2525,7 @@ A comment before any *other* name in the list (not the first) doesn't have
 this issue — it travels with its name normally, as shown in
 [Exposed names sort automatically](#exposed-names-sort-automatically).
 
-#### A comment after the last binding in a `let`
+### A comment after the last binding in a `let`
 
 The `in` keyword of a `let ... in` is another token with no recorded position:
 the parsed `let` remembers only its bindings and its result expression, never
@@ -2566,7 +2561,7 @@ bindings instead — a divergence covered in
 [Comparison with elm-format](#comparison-with-elm-format), point 21, with the
 full reasoning for why gren-format can't follow suit.
 
-#### Block comment body indentation
+### Block comment body indentation
 
 A multi-line block comment's body is re-indented from its **own** structure: the
 least-indented content line is placed a few columns in from the `{-`, and every
@@ -2585,7 +2580,7 @@ same way described here, so it was removed.)
 
 ---
 
-### Comparison with elm-format
+## Comparison with elm-format
 
 Gren is a spiritual descendant of Elm, so `gren format` and `elm-format` should agree on
 shared syntax unless there's a deliberate reason not to. We ran an audit on the
@@ -2597,7 +2592,7 @@ Before the specific findings, it helps to see how alike the two tools are
 underneath — that's what explains why they agree on the overwhelming majority of
 code, and why the places they *don't* look the way they do.
 
-#### The idea both formatters share
+### The idea both formatters share
 
 Neither formatter reflows your code to fit a page width. There is no line-length
 limit and no search for the "best" arrangement in either tool. Both lay a piece
@@ -2608,7 +2603,7 @@ your layout decisions" philosophy (see [Why this design?](#why-this-design)) is
 why the two formatters produce the same output almost everywhere — and why, when
 they *do* differ, it is never because one of them decided a line "got too long."
 
-#### The two ways they actually differ
+### The two ways they actually differ
 
 Given that shared foundation, the mechanics differ in just two ways:
 
@@ -2629,12 +2624,12 @@ Given that shared foundation, the mechanics differ in just two ways:
   the source it sat and matching that against the surrounding code. That
   reconstruction is the reason the formatter is so careful about source
   positions, and the reason running it twice must produce byte-for-byte identical
-  output (see [Idempotency](#idempotency)). elm-format never has to solve this,
+  output (see [Background](#background)). elm-format never has to solve this,
   because its comments never leave the spot they were parsed into. The upside of
   gren-format's choice is that it always agrees with the real language — it can
   never drift from what the compiler actually accepts.
 
-#### Divergence catalogue
+### Divergence catalogue
 
 The rest of this section catalogues the places where, given all of the above, we
 made a deliberately different choice from elm-format. Each finding records the
@@ -3362,7 +3357,7 @@ decision and why.
     output is stable when reformatted. (A comment trailing `in` itself is a
     separate case — point 17.)
 
-#### Out of scope for comparison
+### Out of scope for comparison
 
 Some fixtures use Gren syntax with no valid Elm equivalent, so they can't be
 mechanically translated and run through `elm-format` at all:
