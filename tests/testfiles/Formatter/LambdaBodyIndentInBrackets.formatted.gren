@@ -1,0 +1,27 @@
+module LambdaBodyIndentInBrackets exposing (inArray, inArrayMulti, nested, recordFieldKeepsHead)
+
+
+inArray =
+    [ \q ->
+        q + one
+    ]
+
+
+nested =
+    \a ->
+        \b ->
+            b + one
+
+
+inArrayMulti =
+    [ \q ->
+        q + one
+    , \r ->
+        r + two
+    ]
+
+
+recordFieldKeepsHead =
+    { fld = \q ->
+        q + one
+    }

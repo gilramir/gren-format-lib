@@ -290,6 +290,7 @@ expressionSuite fsPerm =
             , assertPretty fsPerm "let expression" "LetExpression"
             , assertPretty fsPerm "records" "Records"
             , assertPretty fsPerm "lambdas and calls" "LambdasAndCalls"
+            , assertPretty fsPerm "a lambda body indents +4 in an array item and when nested directly under another lambda's -> (regression guard: the extra AcrossOrVertical item-wrapper used to stack its +4 on the body block's +4, giving +8 — the 'never 8' rule, matches elm-format)" "LambdaBodyIndentInBrackets"
             , assertPretty fsPerm "a lambda whose body is a forced-vertical record/update/array drops its bracket to its own line, matching elm-format" "LambdaBracketBody"
             , assertPretty fsPerm "a lambda's comment-forced-vertical record-update body still drops its bracket when the lambda is itself a call argument (regression guard for a nest/reparse oscillation)" "LambdaBracketBodyNestedInCall"
             , assertPretty fsPerm "a lambda whose body is if/when/let drops the body to its own line under -> (elm-format), and as a call argument the whole (...) relocates onto its own line; a bare paren-lambda pipeline operand stays glued to |>" "CallArgBlockRelocation"

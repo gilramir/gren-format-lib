@@ -1038,7 +1038,28 @@ insertExpressionAsItem locExpr =
                             Ok onlyNode
 
                         else
-                            Ok (plainAcross nodes)
+                            when locExpr.value is
+                                Src.Lambda _ ->
+                                    -- A lambda produces two nodes: `\pats ->` and its
+                                    -- body block (`SoftIndentedBlock`/`IndentedBlock`,
+                                    -- which already indents the body +4). Bundling them
+                                    -- with `plainAcross` (an `AcrossOrVertical`) makes
+                                    -- the flow add its own +4 continuation ON TOP of the
+                                    -- body block's +4, so a lambda used as an array item
+                                    -- or nested directly under another lambda's `->`
+                                    -- over-indents its body to +8 (elm-format, and this
+                                    -- formatter's own top-level and record-field lambda,
+                                    -- all use +4 — see README "never 8"). `BodyBlock`
+                                    -- joins the two nodes at the current indent with no
+                                    -- extra continuation — exactly how a top-level decl
+                                    -- body holds a lambda — so the body lands at +4 in
+                                    -- every position. An inline body still glues to `->`
+                                    -- (the body's own `SoftIndentedBlock` decides that,
+                                    -- unchanged).
+                                    Ok (lpnNode BodyBlock nodes)
+
+                                _ ->
+                                    Ok (plainAcross nodes)
             )
 
 
