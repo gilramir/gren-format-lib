@@ -2423,7 +2423,7 @@ can wrap in a way the Haskell-based Gren compiler rejects:
         } ->
 ```
 
-The Haskell compiler requires every continuation line of a pattern to be
+The Haskell-based compiler requires every continuation line of a pattern to be
 indented deeper than the pattern's first character, and this layout doesn't
 satisfy that. Compiling the formatted file may fail with "I was expecting to
 see a closing curly brace next." Rejoin the pattern onto one line by hand
@@ -2441,6 +2441,27 @@ the module name on the next) can cause a blank line to appear between a
 comment and that declaration. The root cause is a parser bug that records the
 wrong line number for keyword-led declarations:
 [compiler-common#25](https://github.com/gren-lang/compiler-common/issues/25).
+
+```gren
+-- a comment
+import
+    String
+```
+
+formats to:
+
+```gren
+-- a comment
+
+import String
+```
+
+with a spurious blank line pushed between the comment and the import it was
+written directly above — even though writing the same import on one line
+(`-- a comment` / `import String`) formats with no blank line at all. The
+parser records the position of `String` (the name) rather than `import` (the
+keyword), so the formatter sees a bigger gap between the comment and the
+declaration than the author actually left.
 
 ### Comments near an effect module's `where` block
 
