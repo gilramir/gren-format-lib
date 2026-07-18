@@ -22,14 +22,7 @@ package's `tests/` can import them (their module names are unchanged).
 
 | Path | Role |
 |---|---|
-| `../compiler-common/` | Shared AST + parse types (`Compiler.Ast.Source`, `Compiler.Parse.Context`) — no longer modified/rebuilt, read-only |
 | `../gren-format/` | Standalone CLI that imports this package |
-
-`compiler/`, `compiler-common/`, and `compiler-node/` are no longer being
-modified or rebuilt. There is no top-level `gren.sh` wrapper anymore (removed).
-Build and typecheck this package with **devbox** — `devbox.json` pins a
-`gren@0.6` package that resolves to a version-compatible published Gren
-compiler.
 
 ## Build & check
 
@@ -245,11 +238,11 @@ Both the standalone CLI and the legacy `gren format` subcommand accept debug fla
 
 ```bash
 node ../gren-format/app --show       MyFile.gren   # formatted output to stdout
+node ../gren-format/app --show-first MyFile.gren   # shows first formatting, to help debug non-idempotent cases
 node ../gren-format/app --pre-ast    MyFile.gren   # parsed AST + context as JSON
 node ../gren-format/app --pre-context MyFile.gren   # just the parse Context (comments) as JSON
 node ../gren-format/app --lpt        MyFile.gren   # Logical Printing Tree as JSON
 node ../gren-format/app --box        MyFile.gren   # the Box tree each decl renders to, as a JSON array
-node ../gren-format/app --check      MyFile.gren   # format, verify ASTs match
 ```
 
 `--lpt` is the most useful debug flag for comment-placement and layout bugs.
