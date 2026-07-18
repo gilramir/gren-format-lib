@@ -3226,6 +3226,41 @@ decision and why.
     1 and 12 are also about elm-format moving comments away from the code they
     were written beside, and the reasoning is the same.
 
+    When a comment *does* break one of these open, one more difference shows up: a
+    blank line you wrote before that comment, inside the brackets, is dropped.
+    gren-format keeps no blank lines inside a list, record, or record type at all
+    — blank lines only ever separate top-level declarations and `let` bindings.
+    elm-format instead sets the comment off with a blank line above it. So given
+    a record type in a signature that you wrote with a blank line before an inner
+    `--` comment:
+
+    ```gren
+    -- you wrote:
+    foo :
+        { aa : Int
+
+        -- note
+        , bb : Int
+        }
+    ```
+
+    ```gren
+    -- gren-format (the record type drops below the `:` at +4; the blank is gone):
+    foo :
+        { aa : Int
+        -- note
+        , bb : Int
+        }
+
+    -- elm-format (keeps the blank line above the comment):
+    foo :
+        { aa : Int
+
+        -- note
+        , bb : Int
+        }
+    ```
+
 21. **When a pipeline breaks, every `|>` lines up; elm-format keeps the steps
     that still fit up on the seed's line.** If a pipeline has to break — because
     a step holds a `when`, an `if`, or a `let`, which break however you write
