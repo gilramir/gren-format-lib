@@ -219,6 +219,11 @@ CONSTRUCTS = [
     Construct("recordUpdate2", "{ rec | a = 1, b = 2 }",       True,  "{ rec\n| a = 1\n, b = 2 }", False),
     Construct("updateNested",  "{ rec | a = { b = 1 } }",      True,  "{ rec\n| a = { b = 1 } }", False),
     Construct("arrayEmpty",    "[]",                           True,  None,                 False),
+    # A single-item array. Its `broken` form has no gap BETWEEN items, so gren
+    # collapses it back to one line (the #22 rule) exactly as it does a
+    # single-field record -- this is the array witness that #22 is one
+    # container-wide rule, not record-specific.
+    Construct("arrayOne",      "[ 1 ]",                        True,  "[ 1\n]",             False),
     Construct("arrayNums",     "[ 1, 2, 3 ]",                  True,  "[ 1\n, 2\n, 3 ]",    False),
     Construct("arrayRecords",  "[ { a = 1 }, { a = 2 } ]",     True,  "[ { a = 1 }\n, { a = 2 } ]", False),
     Construct("arrayUpdates",  "[ { rec | a = 1 }, { rec | a = 2 } ]", True, "[ { rec | a = 1 }\n, { rec | a = 2 } ]", False),

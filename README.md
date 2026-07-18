@@ -80,6 +80,29 @@ The larger section explains the [Gren Formatter Rules](#gren-formatter-rules).
   - [The idea both formatters share](#the-idea-both-formatters-share)
   - [The one way they actually differ](#the-one-way-they-actually-differ)
   - [Divergence catalogue](#divergence-catalogue)
+    - [#1 Blank lines: comment- vs declaration-attached](#divergence-1)
+    - [#2 Multi-line block comment's closing `-}`](#divergence-2)
+    - [#3 Exposing-list & import ordering](#divergence-3)
+    - [#4 `import … exposing` wrapping style](#divergence-4)
+    - [#5 Single-line comment after `->` in a signature](#divergence-5)
+    - [#6 Union variants one-per-line (elm)](#divergence-6)
+    - [#7 Record/array patterns aren't author-driven (elm)](#divergence-7)
+    - [#8 `--` comment inside effect `where { }`](#divergence-8)
+    - [#9 Verbatim literals vs normalization](#divergence-9)
+    - [#10 Redundant parens kept](#divergence-10)
+    - [#11 Doc-comment body contents](#divergence-11)
+    - [#12 Comment after code stays on the line](#divergence-12)
+    - [#13 Comment between two binop operands](#divergence-13)
+    - [#14 Backward `<|`: flat vs nesting](#divergence-14)
+    - [#15 Comment trailing a pipeline step](#divergence-15)
+    - [#16 Comment just after a lambda's `->`](#divergence-16)
+    - [#17 Comment trailing `in`](#divergence-17)
+    - [#18 Operator chain splits at loosest ops](#divergence-18)
+    - [#19 One-line `{- … -}` inside a list/record](#divergence-19)
+    - [#20 Broken pipeline aligns every `|>`](#divergence-20)
+    - [#21 Comment trailing the last `let` binding](#divergence-21)
+    - [#22 Single-item container collapse](#divergence-22)
+    - [#23 Record update as a `|>` operand field indent](#divergence-23)
   - [Out of scope for comparison](#out-of-scope-for-comparison)
 
 ---
@@ -1141,10 +1164,9 @@ guard r =
 ```
 
 This is one shared rule for every record update, regardless of how many fields
-it has (matching elm-format). One case still differs from elm-format: when the
-field's value is a lambda, gren keeps the `\arg ->` on the `= ` line
-(`| field = \arg ->`) and drops only the body, whereas elm-format drops the
-whole lambda to its own line. This is a known remaining difference.
+it has (matching elm-format). A lambda value follows it too: written across rows,
+the whole lambda — `\arg ->` and body — drops onto its own line below `field =`,
+same as any other multi-line value and same as elm-format.
 
 A multi-field update follows your layout:
 
@@ -1236,30 +1258,33 @@ whether or not it would fit inline (see [Lambdas](#lambdas)).
 
 #### Record field values
 
-A field value that is itself a **lambda** keeps the `\args ->` header on the
-name's line; the body goes on its own line 4 spaces under the field — never 8:
+A field value that renders across rows — a **lambda** with a multi-line body, an
+**`if`**, **`when`**, or **`let`**, or a long binary-operator chain — drops onto
+its own line below `field =`, so it reads the same as a top-level definition's
+body. The whole value drops, header and all: a lambda's `\args ->` goes down with
+its body, not left clinging to the `=`.
 
 ```gren
 parser =
-    { parseFn = \args ->
-        if Array.length args == 0 then
-            Ok {}
+    { parseFn =
+        \args ->
+            if Array.length args == 0 then
+                Ok {}
 
-        else
-            Err WrongArity
+            else
+                Err WrongArity
     , label = "parser"
     }
 ```
 
-A short lambda body stays inline:
+A value that fits on one line stays inline, including a short lambda:
 
 ```gren
 { increment = \v -> v + 1 }
 ```
 
-When the field value is an **`if`**, **`when`**, or **`let`**, those
-constructs drop to the next line so their aligned keywords line up 4 spaces
-under the field name:
+`if`/`when`/`let` always render across rows, so they always drop; their aligned
+keywords (`else`, `in`) line up 4 spaces under the field name:
 
 ```gren
 choices =
@@ -1284,12 +1309,13 @@ The same rules apply in record updates:
 withParser model =
     { model
         | name = "parser"
-        , parseFn = \args ->
-              if Array.length args == 0 then
-                  Ok {}
+        , parseFn =
+            \args ->
+                if Array.length args == 0 then
+                    Ok {}
 
-              else
-                  Err WrongArity
+                else
+                    Err WrongArity
     }
 ```
 
@@ -2647,7 +2673,7 @@ The rest of this section catalogues the places where, given all of the above, we
 made a deliberately different choice from elm-format. Each finding records the
 decision and why.
 
-1. **Blank lines: comment-attached vs. declaration-attached**
+1. <a id="divergence-1"></a>**Blank lines: comment-attached vs. declaration-attached**
    elm-format always puts its 2-blank-line separator immediately above the
    declaration itself, splitting a leading comment away from the code it
    documents. gren-format treats the comment as part of the declaration's
@@ -2684,7 +2710,7 @@ decision and why.
        2
    ```
 
-2. **Multi-line block comment's closing `-}` placement**
+2. <a id="divergence-2"></a>**Multi-line block comment's closing `-}` placement**
    gren-format has no gluing or collapsing logic for a block comment at all:
    whatever line shape the author wrote — `-}` glued to the last content
    line, or on its own line — is reproduced exactly (see
@@ -2712,7 +2738,7 @@ decision and why.
    layout decisions" philosophy; elm-format's normalizing rule is a fixed
    convention, not obviously better.
 
-3. **Exposing list ordering — alphabetical, deliberately independent of
+3. <a id="divergence-3"></a>**Exposing list ordering — alphabetical, deliberately independent of
    `@docs`; import sorting — narrower than elm-format.** gren-format
    alphabetizes every `exposing ( ... )` list — operators, then types, then
    values, alphabetically within each group (see
@@ -2739,7 +2765,7 @@ decision and why.
    crosses. See
    [Import statements sort within unbroken runs](#import-statements-sort-within-unbroken-runs).
 
-4. **`import X exposing (...)` wrapping style** When an
+4. <a id="divergence-4"></a>**`import X exposing (...)` wrapping style** When an
    import's exposing list wraps, gren-format keeps `exposing` on the `import`
    line as its last word and indents the list +4 below it:
 
@@ -2757,7 +2783,7 @@ decision and why.
    are consistent. See [Import statements](#import-statements) for the canonical
    shape.
 
-5. **A single-line comment right after a `->` in a wrapped signature**
+5. <a id="divergence-5"></a>**A single-line comment right after a `->` in a wrapped signature**
    When a multi-row signature has a `--` comment (or a `{- ... -}` that
    fits on one line) right after a `->`, gren-format glues it to that `->` on
    the same line; the rest of the signature still uses the canonical
@@ -2785,14 +2811,14 @@ decision and why.
    case differently again, and neither matches its own single-line-comment
    behavior above.)
 
-6. **Union type declarations always stack one variant per line in
+6. <a id="divergence-6"></a>**Union type declarations always stack one variant per line in
    elm-format** Even when the author wrote
    `= Red | Green | Blue` on one line and it fits, elm-format always splits to
    one `| Variant` per line — contradicting elm-format's own general
    "respects the author's newlines" design. gren-format's author-driven rule
    (see [Custom types](#custom-types)) is preferred and stays.
 
-7. **Record patterns (destructuring) aren't author-driven in
+7. <a id="divergence-7"></a>**Record patterns (destructuring) aren't author-driven in
    elm-format** When you break a record (or array) *pattern*
    across multiple lines with no comment inside it, elm-format collapses it
    back onto one line if it fits — unlike everywhere else, your line break
@@ -2815,7 +2841,7 @@ decision and why.
    case isn't a divergence.) Same reasoning as #6: gren-format's consistent
    author-driven layout is preferred.
 
-8. **A `--` comment inside an effect module's `where { ... }` block escapes it**
+8. <a id="divergence-8"></a>**A `--` comment inside an effect module's `where { ... }` block escapes it**
    Both tools collapse a `where { ... }` clause to one line regardless of how
    the author wrote it, and both keep a short `{- … -}` comment on that line (see
    [Comments in an effect module's header](#comments-in-an-effect-modules-header)).
@@ -2851,7 +2877,7 @@ decision and why.
    keeps something about the block's extent that Gren's does not. Fixing this is
    a matter of recording that information, not of choosing a layout.
 
-9. **Verbatim literal preservation vs. normalization**
+9. <a id="divergence-9"></a>**Verbatim literal preservation vs. normalization**
    elm-format normalizes scientific-notation floats (`1e5` → `1.0e5`,
    `1.5E3` → `1.5e3`, `1.5e+3` → `1.5e3`), uppercases `\u{...}` hex escapes,
    expands named escapes like `\r` to `\u{000D}`, and drops unnecessary `\"`
@@ -2860,7 +2886,7 @@ decision and why.
    [String literals](#string-literals)) — this was already a considered
    design choice, not an oversight.
 
-10. **Redundant parens: gren-format keeps the ones you wrote, elm-format
+10. <a id="divergence-10"></a>**Redundant parens: gren-format keeps the ones you wrote, elm-format
     strips them.** If you put parens somewhere they aren't needed, gren-format
     leaves them exactly as written, in every position, with no exceptions.
     elm-format works out that they're redundant and removes them. This is a
@@ -2952,7 +2978,7 @@ decision and why.
     See [Redundant parens: what each formatter strips](docs/redundantParens.md)
     for the full comparison, and [Function application](#function-application).
 
-11. **Doc-comment body contents** elm-format reaches *inside*
+11. <a id="divergence-11"></a>**Doc-comment body contents** elm-format reaches *inside*
     a `{-| … -}` doc comment and reformats its contents: it re-spaces `@docs`
     lines (inserting blank lines between groups), rewrites Markdown (bullet
     style `*` → `-`, single emphasis `*italic*` → `_italic_`, strong emphasis
@@ -2968,7 +2994,7 @@ decision and why.
     `{- … -}` block comments and `--` line comments too — their text is always
     preserved verbatim.)
 
-12. **A comment written after code stays on that line; elm-format floats it
+12. <a id="divergence-12"></a>**A comment written after code stays on that line; elm-format floats it
     away** When you put a comment after the last code on a line —
     after a value, or after the closing `]`/`}` of a list or record — gren-format
     keeps it right there beside the code:
@@ -3007,7 +3033,7 @@ decision and why.
     argument to a call. If you write two or more comments in a row at the same
     spot, they all stay on that line together.
 
-13. **A comment between two operands of a binop chain**
+13. <a id="divergence-13"></a>**A comment between two operands of a binop chain**
     When a broken operator chain has a comment sitting between an
     operand and the next operator, gren-format keeps it on the operand it trails;
     elm-format re-homes it to lead the following operator:
@@ -3027,7 +3053,7 @@ decision and why.
     both formatters — on its own line at the operator indent, or glued in front of
     the operand.)
 
-14. **Backward `<|` pipelines: flat pipeline layout vs. right-associative
+14. <a id="divergence-14"></a>**Backward `<|` pipelines: flat pipeline layout vs. right-associative
     operator nesting** gren-format treats a run of `<|` steps
     the same way it treats `|>`: one pipeline, every step indented the same
     fixed +4 from the seed (see [Pipelines](#pipelines)). elm-format instead
@@ -3084,7 +3110,7 @@ decision and why.
     rather than append once the left side isn't single-line). Covered by the
     `BackwardPipeMultilineSeed` fixture.
 
-15. **A comment trailing a pipeline step** gren-format keeps it
+15. <a id="divergence-15"></a>**A comment trailing a pipeline step** gren-format keeps it
     on that step; elm-format moves it to lead the next step (the same
     trailing-vs-leading choice as point 13, here for `|>`/`<|` instead of a
     binop operator):
@@ -3103,7 +3129,7 @@ decision and why.
             {- note -} |> stepTwo
     ```
 
-16. **A comment just after a lambda's `->`** gren-format keeps
+16. <a id="divergence-16"></a>**A comment just after a lambda's `->`** gren-format keeps
     it inline; elm-format drops the `->`, the comment, and the body each onto
     their own line:
 
@@ -3119,7 +3145,7 @@ decision and why.
             x + 1
     ```
 
-17. **A comment trailing `in`** gren-format keeps it glued to
+17. <a id="divergence-17"></a>**A comment trailing `in`** gren-format keeps it glued to
     `in` on the same line; elm-format moves it to its own line immediately
     after `in` (no blank line, still outside the `let` block):
 
@@ -3143,7 +3169,7 @@ decision and why.
     ```
 
 
-18. **A multi-line operator chain splits only at its loosest operators;
+18. <a id="divergence-18"></a>**A multi-line operator chain splits only at its loosest operators;
     elm-format splits at every operator.** gren-format keeps tighter-binding
     parts of a chain on one line and breaks only at the weakest operators (see
     [Binary operators](#binary-operators)); elm-format puts every operator on its
@@ -3201,7 +3227,7 @@ decision and why.
     across two lines apiece and buries the `||` structure that's actually the
     point of the expression.
 
-19. **A one-line `{- … -}` inside a list or record stays on the line the author
+19. <a id="divergence-19"></a>**A one-line `{- … -}` inside a list or record stays on the line the author
     wrote; elm-format breaks the whole thing open.** When a comment sits inside a
     list, record, record update, or record type and the author wrote the whole
     thing on one line, gren-format leaves it alone — the comment fits, so nothing
@@ -3293,7 +3319,7 @@ decision and why.
         }
     ```
 
-20. **When a pipeline breaks, every `|>` lines up; elm-format keeps the steps
+20. <a id="divergence-20"></a>**When a pipeline breaks, every `|>` lines up; elm-format keeps the steps
     that still fit up on the seed's line.** If a pipeline has to break — because
     a step holds a `when`, an `if`, or a `let`, which break however you write
     them — gren-format puts the seed on its own line and every `|>` under it, all
@@ -3344,7 +3370,7 @@ decision and why.
     line. A multi-line record argument doesn't trigger it either — writing the
     record across rows breaks the chain for both formatters, so they agree.
 
-21. **A comment trailing the *last* `let` binding drops below `in`; elm-format
+21. <a id="divergence-21"></a>**A comment trailing the *last* `let` binding drops below `in`; elm-format
     keeps it with the bindings.** When you write a comment after the value of the
     *last* binding in a `let`, gren-format moves it onto its own line after `in`,
     at the result-expression column. elm-format keeps it at the bindings' indent,
@@ -3401,14 +3427,9 @@ decision and why.
     output is stable when reformatted. (A comment trailing `in` itself is a
     separate case — point 17.)
 
-22. **A single-field record or update whose value fits collapses to one line;
-    elm-format keeps any author-broken record expanded.** gren-format opens a
-    record *literal* only when it has two or more fields on their own rows, and a
-    record *update* only when its one field's value spans several lines (see
-    [Record values](#record-values) and [Record updates](#record-updates)). So a
-    single field whose value fits on one line collapses back to inline, however
-    you broke it — dropping the value below `=`, or breaking before the field
-    doesn't hold it open:
+22. <a id="divergence-22"></a>**A single-item container (record, update, or array) whose contents fit
+    collapses to one line; elm-format keeps anything you broke inside the brackets
+    expanded.**
 
     ```gren
     -- you wrote:
@@ -3428,45 +3449,48 @@ decision and why.
         }
     ```
 
-    The same holds for a single-field update (`{ r | x = 1 }`). This is the one
-    direction where gren-format is *less* author-driven than elm-format for a
-    record: it treats a lone fitting value the way it treats a
-    [binary operator chain](#binary-operators) that fits — collapse it — rather
-    than preserving a break that carries no structure. Two things still open the
-    record for both formatters, so they agree there: a second field on its own
-    row, and a field value that genuinely renders across rows (an `if`/`when`/`let`,
-    or one long enough to wrap — the same rule that drops a multi-line value below
-    `=`). It is stable when reformatted.
+    **What gren-format is doing.** The signal that decides whether a bracketed
+    container renders one-per-line is *a gap between its items* — some item
+    starting on a row below where the previous item ended (`itemsSpanRows`). That
+    is what "you broke this" means for a list: `[ 1, 2\n, 3 ]` has a gap before
+    `3`, so it opens; `[ 1, 2, 3 ]` has none, so it stays flat. A break *inside* a
+    single item — dropping a field's value below its `=`, or putting the one field
+    on its own row — is not a gap *between* items, so it doesn't open the
+    container; the value is then laid out on its own (and if it fits, it fits).
+    With only one item there can never be a between-item gap, so a single-item
+    container collapses unless its one item is itself unavoidably multi-line.
 
-23. **A lambda as a record field value keeps its `\arg ->` head on the `= ` line;
-    elm-format drops the whole lambda below `=`.** When a record literal or update
-    field's value is a lambda, gren-format leaves `\arg ->` glued to `= ` and puts
-    only the body on its own line 4 spaces under the field (see
-    [Record field values](#record-field-values)); elm-format drops the entire
-    lambda, `\arg ->` and all, onto its own line below `=`:
+    **Why this is consistent.** It is one rule, applied to every bracketed
+    container. A single-item *array* collapses exactly as a single-field record
+    does — `[ 1\n]` formats to `[ 1 ]` — and multi-item containers of either kind
+    honour the break. Records and arrays share the same `itemsSpanRows` signal, so
+    there is no record-vs-array or one-field-vs-many special case; the behaviour
+    falls straight out of "a break between items is your layout; a break inside one
+    item is that item's business."
 
-    ```gren
-    -- gren-format:
-    v =
-        { fld = \q ->
-            q + one
-        }
+    **Why it differs from elm-format.** elm-format uses a simpler signal — *any*
+    newline between the brackets opens the container — so it keeps a single-field
+    record or single-item array expanded whenever you put a newline anywhere in it.
+    Both formatters still agree once there is real structure to preserve: a second
+    item on its own row, or an item that genuinely renders across rows (an
+    `if`/`when`/`let`, or one long enough to wrap) opens the container in both.
 
-    -- elm-format:
-    v =
-        { fld =
-            \q ->
-                q + one
-        }
-    ```
+    **The trade-off (and why this may be revisited).** This is the one place
+    gren-format is *less* author-driven than its usual "your line breaks are your
+    layout" rule: for a single-item container you cannot force it to stay expanded
+    by hand — a lone fitting value always collapses. The argument for the current
+    behaviour is that item-per-line breaks carry structure (a list reads down its
+    items) while a lone value-break carries none — it is just where a line happened
+    to wrap — so collapsing what fits keeps a one-item container in its natural
+    compact form, the same way a [binary operator chain](#binary-operators) that
+    fits collapses. The argument against is that it quietly overrides an intent the
+    author did express. If that agency wins out, the change is local — make
+    `itemsSpanRows` also count a single item that spans rows — but note it would
+    then apply to arrays too (`[ 1\n]` would stay open), which is why it is one
+    deliberate rule here rather than a record-only tweak. It is stable when
+    reformatted either way.
 
-    The same holds for a single-field update (`{ r | fld = \q -> … }`). Keeping the
-    header on the `= ` line reads as "this field is a function of `q`" without
-    spending a line on the `\q ->`; it is the same instinct as keeping a short
-    lambda inline. (This is the record-field case only — a lambda body elsewhere,
-    e.g. an array item, indents its body a plain 4, same as elm-format.)
-
-24. **A record update as a direct multi-line `|>` operand keeps gren's field
+23. <a id="divergence-23"></a>**A record update as a direct multi-line `|>` operand keeps gren's field
     indent; elm-format compresses it.** gren-format renders a record update the
     same everywhere: `{` and the base on the first line, the `|`/`,` field lines
     4 spaces past the `{`, and `}` back at the `{` column (see

@@ -29,12 +29,13 @@ singleLet r =
 
 singleLambda r =
     { r
-        | field = \n ->
-            if n then
-                aaaaa
+        | field =
+            \n ->
+                if n then
+                    aaaaa
 
-            else
-                bbbbb
+                else
+                    bbbbb
     }
 
 

@@ -1133,10 +1133,13 @@ value's shape, because a field value that is itself a block-bodied construct
 would otherwise double-indent: the field's own flow adds +4, and the value's
 body block adds a second +4.
 
-  - A **lambda** keeps its `\args ->` header inline on the `=` line, with its
-    body one level under the field. Its body is already a `SoftIndentedBlock`
-    (which nests +4), so the field flow is rendered at +0 (an `IndentedBlock`
-    list item adds no indent of its own); the body's own +4 is then the only one.
+  - A **lambda** drops as a unit when the author broke its body across rows: the
+    whole lambda — header and all — drops one level under the field via `BodyBlock`
+    (`\pats ->` at the field's indent, body +4 under that), matching elm-format and
+    this formatter's own lambda in a decl body / `let` binding / `when` branch. A
+    lambda with a single-line body instead stays glued on the `=` line, header and
+    body together (`IndentedBlock` around the whole field, no extra nest). The body
+    being an `IndentedBlock` (vs `SoftIndentedBlock`) is the multi-line signal.
   - An **always-breaking** value — `if`, `when`, `let`, or parens around one
     (`valueAlwaysBreaks`) — drops its header onto the next line, so the
     construct's aligned keywords (`else`, `in`) sit one level under the field.
@@ -1169,7 +1172,21 @@ folderInsertRecordField field accNodes =
                     container =
                         when field.value.value is
                             Src.Lambda _ ->
-                                lpnNode IndentedBlock ([ fieldNameNode, eqNode ] ++ valueNodes)
+                                -- `insertLambda` gives the body an `IndentedBlock`
+                                -- exactly when the author broke it across rows (or it
+                                -- is an `if`/`when`/`let`). In that case drop the WHOLE
+                                -- lambda below `field =` like any other multi-line value
+                                -- (`BodyBlock`, +0), so `\pats ->` lands at the field's
+                                -- indent — matching elm-format and this formatter's own
+                                -- lambda everywhere else (decl body, `let` binding, `when`
+                                -- branch all drop it). A single-line-bodied lambda stays
+                                -- glued on the `= ` line (header inline, body +4).
+                                when Maybe.map lpnBox (Array.last valueNodes) is
+                                    Just IndentedBlock ->
+                                        plainAcross [ fieldNameNode, eqNode, lpnNode BodyBlock valueNodes ]
+
+                                    _ ->
+                                        lpnNode IndentedBlock ([ fieldNameNode, eqNode ] ++ valueNodes)
 
                             _ ->
                                 if valueAlwaysBreaks field.value then

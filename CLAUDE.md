@@ -93,7 +93,7 @@ The corpus reaches only the syntax somebody thought to write, and both fuzzers
 perturb *comments* and *whitespace* over that fixed corpus — **neither varies
 syntax**. A bug needing a conjunction of features therefore has no fixture. This
 is the syntax axis: it embeds every expression form in every context, in up to
-four **layout variants**, and checks each one (**1688 cells**).
+four **layout variants**, and checks each one (**1738 cells**).
 
 The variants are the author-broken axis (added 2026-07-18, after a record-literal
 binop-field crash slipped through a flat-only matrix):
@@ -163,14 +163,14 @@ genuine bug gets a `BUG:` reason, which is **also** printed every run — being
 understood is not the same as being acceptable, and a baseline entry is the
 easiest place in this repo for a known bug to go quiet.
 
-Current state: **1688/1688 pass oracles 1–3**; 1130 are byte-identical to
-elm-format, with 558 registered divergences — 398 redundant parens (#10), 100
-single-field record/update value-collapse (#22), 38 precedence-split binop
-chains (#18), 12 lambda-field-value head-glue (#23), 6 backward-`<|` flat layout
-(#14), 3 pipeline-`|>` alignment (#20), 1 record-update `|>`-operand field indent
-(#24), **0 UNREVIEWED**, and **0 known BUGs** — every divergence is a documented
-catalogue entry. The author-broken axis found four real bugs, all **fixed**: a
-lambda body over-indenting to +8 in array-item / nested-lambda-body positions
+Current state: **1738/1738 pass oracles 1–3**; 1167 are byte-identical to
+elm-format, with 571 registered divergences — 398 redundant parens (#10), 125
+single-item-container collapse (#22, records *and* arrays), 38 precedence-split
+binop chains (#18), 6 backward-`<|` flat layout (#14), 3 pipeline-`|>` alignment
+(#20), 1 record-update `|>`-operand field indent (#23), **0 UNREVIEWED**, and
+**0 known BUGs** — every divergence is a documented catalogue entry. The
+author-broken axis found four real bugs, all **fixed**: a lambda body
+over-indenting to +8 in array-item / nested-lambda-body positions
 (`LambdaBodyIndentInBrackets`); a `let` as a `<|` body over-indenting its
 `in`/result by 4 (`LetAsBackwardPipeBody`); a multi-line container operand
 dropping below a dangling `|>` instead of gluing to it (`PipelineContainerOperand`);
@@ -178,7 +178,11 @@ and a bare `if`/`let` as an array item over-indenting its body by +4
 (`BareIfListItem`, `BareLetListItem`). All four were the same class — an extra
 `AcrossOrVertical` item-wrapper (or pipeline-step spread) stacking its +4 on a
 block's own +4 — surfaced only because the author-broken axis feeds pre-broken
-input. Use `-v` to see each divergence beside elm-format's output.
+input. (A former divergence, a lambda record-field value keeping its head on the
+`= ` line, was reviewed and eliminated the same way — it now drops whole below
+`field =` like every other value, matching elm-format; the old catalogue #23 was
+removed and later entries renumbered.) Use `-v` to see each divergence beside
+elm-format's output.
 `docs/redundantParens.md` is the reader-facing write-up of the #10 family,
 every example verified against both formatters. gren-format never strips a
 redundant paren, in any position, including call arguments — the former

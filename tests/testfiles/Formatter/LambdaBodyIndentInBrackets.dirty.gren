@@ -1,4 +1,4 @@
-module LambdaBodyIndentInBrackets exposing (inArray, nested, inArrayMulti, recordFieldKeepsHead)
+module LambdaBodyIndentInBrackets exposing (inArray, nested, inArrayMulti, recordFieldDropsLambda)
 
 
 inArray =
@@ -21,7 +21,7 @@ inArrayMulti =
     ]
 
 
-recordFieldKeepsHead =
+recordFieldDropsLambda =
     { fld = \q ->
         q + one
     }

@@ -6,12 +6,13 @@ x =
         { usage = ""
         , short = \v -> v + 1
         , twoArgs = \a b -> a + b
-        , parseFn = \args ->
-            if Array.length args /= 0 then
-                Err Bad
+        , parseFn =
+            \args ->
+                if Array.length args /= 0 then
+                    Err Bad
 
-            else
-                Ok {}
+                else
+                    Ok {}
         , ifField =
             if cond then
                 aaaaaaaaaaaaaaaaaaaa
@@ -37,12 +38,13 @@ x =
 update model =
     { model
         | short = \v -> v + 1
-        , parseFn = \args ->
-            if Array.length args /= 0 then
-                Err Bad
+        , parseFn =
+            \args ->
+                if Array.length args /= 0 then
+                    Err Bad
 
-            else
-                Ok {}
+                else
+                    Ok {}
         , ifField =
             if cond then
                 aaaaaaaaaaaaaaaaaaaa
@@ -67,10 +69,11 @@ update model =
 
 singleUpdate model =
     { model
-        | parseFn = \args ->
-            if Array.length args /= 0 then
-                Err Bad
+        | parseFn =
+            \args ->
+                if Array.length args /= 0 then
+                    Err Bad
 
-            else
-                Ok {}
+                else
+                    Ok {}
     }
