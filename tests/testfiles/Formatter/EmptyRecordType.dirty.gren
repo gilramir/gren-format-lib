@@ -1,0 +1,10 @@
+module EmptyRecordType exposing (R, f)
+
+
+type alias R =
+    {}
+
+
+f : {} -> R
+f _ =
+    {}

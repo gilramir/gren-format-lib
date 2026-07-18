@@ -1,0 +1,10 @@
+effect module EffectModuleSubscriptionOnly where { subscription = MySub } exposing (a)
+
+import Task
+
+
+type MySub msg = MySub
+
+
+a =
+    1

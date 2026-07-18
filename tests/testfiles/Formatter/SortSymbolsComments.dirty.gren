@@ -1,0 +1,12 @@
+module SortSymbolsComments exposing (b {- keeps its place -}, a)
+
+import Zebra -- z comment
+import Apple
+
+
+a =
+    1
+
+
+b =
+    2

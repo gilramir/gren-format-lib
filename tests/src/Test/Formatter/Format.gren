@@ -267,6 +267,7 @@ importSuite fsPerm =
             , assertPretty fsPerm "import statements sort alphabetically only within a run with no blank line or comment between them; blank lines and own-line comments are boundaries that split groups and never move" "ImportGroupSort"
             , assertPretty fsPerm "a comment trailing an import on its own source row travels with it within its group, unlike an own-line comment" "ImportGroupSortTrailingComment"
             , assertPretty fsPerm "imports of the same module keep their original relative order (stable sort tie-break)" "ImportSameModuleStableSort"
+            , assertPretty fsPerm "a comment among exposing-list items (a non-name list child), and an out-of-order import carrying a same-row trailing comment, both sort correctly" "SortSymbolsComments"
             , assertPretty fsPerm "<| lambda body indents +4 per level, not +8" "BackwardPipelineLambda"
             , assertPretty fsPerm "when/if/let as a binop operand forces the operator onto its own line, matching elm-format" "ParenBlock"
             , assertPretty fsPerm "when/if/let inside parens as a call argument: paren-block layout at ( + 4, matching elm-format" "ParenBlockCallArg"
@@ -396,6 +397,9 @@ declarationSuite fsPerm =
             , assertPretty fsPerm "effect module where { command = ... } renders each binding as one field" "EffectModuleWhere"
             , assertPretty fsPerm "effect module with a named (non-wildcard) exposing list renders it tight" "EffectModuleNamedExposing"
             , assertPretty fsPerm "effect module with an author-broken named exposing list drops it to +4" "EffectModuleNamedExposingVertical"
+            , assertPretty fsPerm "subscription-only effect module (the Src.Sub where-block case)" "EffectModuleSubscriptionOnly"
+            , assertPretty fsPerm "empty record type `{}` in a type alias and a signature" "EmptyRecordType"
+            , assertPretty fsPerm "empty-bodied doc comment `{-| -}`" "EmptyDocComment"
             ]
         }
 

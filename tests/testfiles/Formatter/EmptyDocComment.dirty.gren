@@ -1,0 +1,6 @@
+module EmptyDocComment exposing (a)
+
+
+{-| -}
+a =
+    1
