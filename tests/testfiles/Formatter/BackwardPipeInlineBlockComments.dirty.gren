@@ -1,0 +1,5 @@
+module Main exposing (fn)
+
+
+fn =
+    z <| {- k5 -} 73 {- k6 -}

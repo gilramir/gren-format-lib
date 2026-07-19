@@ -949,38 +949,62 @@ makeBackwardPipelineBox forceVertical children =
         seedNodes =
             Array.keepIf (\n -> not (isPipelineStepNode n)) children
 
-        stepFirstIsComment stepNode =
-            when Array.first (lpnChildren stepNode) is
-                Just firstChild ->
-                    nodeIsComment firstChild
+        -- A step needs the operator-LEADING commented layout when it carries a
+        -- comment the flat assembler cannot place inline. Two kinds:
+        --
+        --   1. Its FIRST child is a comment — a genuine own-line comment BEFORE
+        --      the `<|` (`foo`⏎`{- c -}`⏎`<| bar`). The flat assembler pops the
+        --      first child as the operator, so a leading comment must route here.
+        --   2. It contains a `--` line comment or a MULTI-LINE block comment
+        --      anywhere — neither can ride a single flat line (a `--` runs to EOL,
+        --      a multi-line `{- … -}` brings its own newlines).
+        --
+        -- A SINGLE-LINE block comment in the body (leading it right after `<|`,
+        -- trailing it, or inline) is NOT a trigger: `buildBackwardBodyBox` renders
+        -- the body with `inlineStart = True`, so such a comment rides the body's
+        -- line, and on a multi-line body it lands own-line above the body — both
+        -- fixed points under the flat layout. (The former test keyed off whether
+        -- every comment shared an inline content row, which flipped to the
+        -- commented path on reparse once a multi-line body pushed its leading
+        -- comment own-line — reintroducing the +4 ↔ operator-leading oscillation.)
+        stepNeedsCommentedLayout stepNode =
+            let
+                kids =
+                    lpnChildren stepNode
 
-                Nothing ->
-                    False
+                firstIsComment =
+                    when Array.first kids is
+                        Just firstChild ->
+                            nodeIsComment firstChild
 
-        stepLastIsComment stepNode =
-            when Array.last (lpnChildren stepNode) is
-                Just lastChild ->
-                    nodeIsComment lastChild
+                        Nothing ->
+                            False
 
-                Nothing ->
-                    False
+                hasNonRidingComment =
+                    Array.any
+                        (\n ->
+                            when lpnBox n is
+                                SingleLineComment _ ->
+                                    True
 
-        -- A boundary comment forces the operator-LEADING layout only when it
-        -- cannot ride the line it was written on, the same rule the bracketed
-        -- constructs use. `literalCommentsRideFlatLine` reads each node array in
-        -- source order, so a comment trailing the body on the body's own row
-        -- rides; a leading comment (nothing before it to trail) or one the
-        -- author put on its own row does not, and still forces the layout.
+                                BlockComment loc ->
+                                    String.contains "\n" loc.value
+
+                                DocComment _ ->
+                                    True
+
+                                _ ->
+                                    False
+                        )
+                        kids
+            in
+            firstIsComment || hasNonRidingComment
+
         hasBoundaryComment =
             (Array.any nodeIsComment seedNodes
                 && not (literalCommentsRideFlatLine seedNodes)
             )
-                || Array.any
-                    (\n ->
-                        (stepFirstIsComment n || stepLastIsComment n)
-                            && not (literalCommentsRideFlatLine (lpnChildren n))
-                    )
-                    stepNodes
+                || Array.any stepNeedsCommentedLayout stepNodes
 
         -- The operator is the first NON-comment child (a step may lead with an
         -- own-line comment before `<|`).
@@ -1155,7 +1179,16 @@ buildBackwardBodyBox bodyNodes =
                         |> Result.map (\box -> { box = box, isBrokenCall = True })
 
                 else
-                    assembleFlow False 0 items
+                    -- `inlineStart = True`: the body is glued right after `<| `,
+                    -- so a leading single-line block comment (`<| {- c -} body`)
+                    -- stays inline instead of dropping to its own line. Rendering
+                    -- it own-line (`inlineStart = False`) made an otherwise
+                    -- single-line body multi-line, forcing the `<|` to break onto
+                    -- the seed's continuation — which reparses (comment now on its
+                    -- own row) into the operator-leading commented layout and
+                    -- oscillates. This is the same "continues a line the caller
+                    -- emitted" case `buildFlowBoxInline` names.
+                    assembleFlow True 0 items
                         |> Result.map (\box -> { box = box, isBrokenCall = False })
             )
 
