@@ -451,6 +451,7 @@ commentsSuite fsPerm =
             , assertPretty fsPerm "a `--` line comment trailing the last operand of a broken binop chain (`// acc -- c`) rides that operand's line instead of detaching at the operator indent and oscillating +N ↔ col-0" "TrailingLineCommentBinopOperand"
             , assertPretty fsPerm "a backward `<|` body with inline block comments (`z <| {- a -} 73 {- b -}`) stays flat inline instead of oscillating flat ↔ operator-leading" "BackwardPipeInlineBlockComments"
             , assertPretty fsPerm "a broken backward `<|` whose body carries inline block comments keeps `<|` on the seed line with the comment-bearing body dropped +4, a fixed point (not flipping to operator-leading)" "BackwardPipeBrokenInlineBlockComments"
+            , assertPretty fsPerm "a record field (literal or update) whose value is a lambda with an always-breaking body (`\\n -> 0 // 0 * (if …)`) drops the whole `\\… ->` below `field =` on the first format instead of gluing then dropping on reparse" "RecordFieldLambdaParenIfValue"
             , assertPretty fsPerm "comment trailing a signature's last token stays glued inline" "SignatureTrailingComment"
             , assertPretty fsPerm "a comment leading a multi-line type record drops onto its own line above the record (elm-format match)" "TypeRecordLeadingComment"
             , assertPretty fsPerm "comment trailing the last let binding routes after `in` (not own-line, which would oscillate)" "LetInTrailingComment"

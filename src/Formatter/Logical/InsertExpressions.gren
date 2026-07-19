@@ -1171,22 +1171,36 @@ folderInsertRecordField field accNodes =
                 let
                     container =
                         when field.value.value is
-                            Src.Lambda _ ->
-                                -- `insertLambda` gives the body an `IndentedBlock`
-                                -- exactly when the author broke it across rows (or it
-                                -- is an `if`/`when`/`let`). In that case drop the WHOLE
-                                -- lambda below `field =` like any other multi-line value
-                                -- (`BodyBlock`, +0), so `\pats ->` lands at the field's
-                                -- indent — matching elm-format and this formatter's own
-                                -- lambda everywhere else (decl body, `let` binding, `when`
-                                -- branch all drop it). A single-line-bodied lambda stays
-                                -- glued on the `= ` line (header inline, body +4).
-                                when Maybe.map lpnBox (Array.last valueNodes) is
-                                    Just IndentedBlock ->
-                                        plainAcross [ fieldNameNode, eqNode, lpnNode BodyBlock valueNodes ]
+                            Src.Lambda lam ->
+                                -- Drop the WHOLE lambda below `field =` (`BodyBlock`,
+                                -- +0) whenever the lambda renders multi-line, so
+                                -- `\pats ->` lands at the field's indent — matching
+                                -- elm-format and this formatter's lambda everywhere
+                                -- else (decl body, `let` binding, `when` branch all
+                                -- drop it). A single-line-bodied lambda stays glued
+                                -- on the `= ` line (header inline, body +4).
+                                --
+                                -- Two ways a lambda renders multi-line, and the drop
+                                -- decision must agree on both across reformats or it
+                                -- oscillates:
+                                --   • the author broke the body across rows —
+                                --     `insertLambda` marks that with an `IndentedBlock`
+                                --     body (stable: an author-broken body stays broken);
+                                --   • the body's CONTENT forces a break — it contains
+                                --     an `if`/`when`/`let` (which always break) anywhere,
+                                --     even written flat and even behind parens/binops/a
+                                --     call (`\n -> 0 * (if …)`). `insertLambda` gives
+                                --     THAT a `SoftIndentedBlock` on the first format (the
+                                --     body is still on the `->` row), so keying only off
+                                --     `IndentedBlock` glued the head, then reparse — body
+                                --     now on its own row — flipped it to the drop.
+                                --     `exprAlwaysBreaks` is the row-independent content
+                                --     test that makes both formats agree.
+                                if lambdaValueNodesAreBroken valueNodes || exprAlwaysBreaks lam.body then
+                                    plainAcross [ fieldNameNode, eqNode, lpnNode BodyBlock valueNodes ]
 
-                                    _ ->
-                                        lpnNode IndentedBlock ([ fieldNameNode, eqNode ] ++ valueNodes)
+                                else
+                                    lpnNode IndentedBlock ([ fieldNameNode, eqNode ] ++ valueNodes)
 
                             _ ->
                                 if valueAlwaysBreaks field.value then
@@ -1229,6 +1243,71 @@ valueAlwaysBreaks expr =
 
         Src.Parens inner ->
             valueAlwaysBreaks inner
+
+        _ ->
+            False
+
+
+{-| True when a lambda's already-built value nodes carry an author-broken body —
+`insertLambda`'s `IndentedBlock` marker (the last node), set when the body was
+written across rows. Row-stable: an author-broken body stays broken on reparse. -}
+lambdaValueNodesAreBroken : Array LPNode -> Bool
+lambdaValueNodesAreBroken valueNodes =
+    when Maybe.map lpnBox (Array.last valueNodes) is
+        Just IndentedBlock ->
+            True
+
+        _ ->
+            False
+
+
+{-| True when an expression renders multi-line no matter how the author wrote it,
+because it TRANSITIVELY contains an `if`/`when`/`let` — the only constructs that
+always break. Unlike `valueAlwaysBreaks` (which stops at `Parens`), this descends
+through the wrappers a breaking child can hide behind — parens, binops, a call, a
+negation, `.field` access, a nested lambda, and bracket literals — so a lambda
+body like `0 // 0 * (if …)` is recognized as always-breaking. Used only for the
+record-field lambda-drop decision, where the test must be independent of the
+author's row layout to be a reparse fixed point. -}
+exprAlwaysBreaks : Src.Expression -> Bool
+exprAlwaysBreaks expr =
+    when expr.value is
+        Src.If _ ->
+            True
+
+        Src.When _ ->
+            True
+
+        Src.Let _ ->
+            True
+
+        Src.Parens inner ->
+            exprAlwaysBreaks inner
+
+        Src.Negate inner ->
+            exprAlwaysBreaks inner
+
+        Src.Binops payload ->
+            exprAlwaysBreaks payload.left || exprAlwaysBreaks payload.right
+
+        Src.Call payload ->
+            exprAlwaysBreaks payload.fn || Array.any exprAlwaysBreaks payload.args
+
+        Src.Access payload ->
+            exprAlwaysBreaks payload.expression
+
+        Src.Lambda payload ->
+            exprAlwaysBreaks payload.body
+
+        Src.ArrayLiteral items ->
+            Array.any exprAlwaysBreaks items
+
+        Src.Record fields ->
+            Array.any (\f -> exprAlwaysBreaks f.value) fields
+
+        Src.Update payload ->
+            exprAlwaysBreaks payload.record
+                || Array.any (\f -> exprAlwaysBreaks f.value) payload.newValues
 
         _ ->
             False

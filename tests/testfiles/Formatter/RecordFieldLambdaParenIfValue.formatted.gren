@@ -1,0 +1,26 @@
+module M exposing (z)
+
+
+z =
+    { next0 =
+        \node ->
+            0
+                // 0
+                * (if a then
+                    b
+
+                   else
+                    c
+                  )
+    , other =
+        { y
+            | k =
+                \n ->
+                    (if p then
+                        q
+
+                     else
+                        r
+                    )
+        }
+    }
