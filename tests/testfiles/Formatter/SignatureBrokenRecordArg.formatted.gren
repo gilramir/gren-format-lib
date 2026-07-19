@@ -1,0 +1,10 @@
+module SignatureBrokenRecordArg exposing (defineProgram)
+
+
+defineProgram :
+    { a : Int
+    , onInput : Input -> msg
+    }
+    -> Program model msg
+defineProgram config =
+    config

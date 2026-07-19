@@ -16,6 +16,7 @@ module Formatter.Render.Box exposing
     , literal
     , mapFirstLine
     , mustBreak
+    , noTrim
     , prefix
     , punc
     , render
@@ -40,12 +41,17 @@ import Json.Encode as Json
 
 
 {-| A `Line` is always exactly one line. `Tab` aligns to the nearest multiple
-of 4 spaces; `Row` joins elements onto one line. -}
+of 4 spaces; `Row` joins elements onto one line. `NoTrim` is literal text whose
+trailing whitespace is *significant* (the content of a `"""…"""` string): when
+it is the rightmost leaf of a rendered line, `render` skips its usual per-line
+right-trim so the trailing spaces survive. It renders and measures exactly like
+`Text` — the two differ only in that trim exemption. -}
 type Line
     = Text String
     | Row (Array Line)
     | Space
     | Tab
+    | NoTrim String
 
 
 {-| A `Box` holds at least one line. `SingleLine` can appear mid-line; `Stack`
@@ -75,6 +81,13 @@ punc =
 literal : String -> Line
 literal =
     Text
+
+
+{-| Literal text whose trailing whitespace must be preserved verbatim — the
+content line of a `"""…"""` string. See the `NoTrim` `Line` constructor. -}
+noTrim : String -> Line
+noTrim =
+    NoTrim
 
 
 row : Array Line -> Line
@@ -244,6 +257,9 @@ freezeLine startColumn line_ =
         Text t ->
             { line = line_, endColumn = startColumn + String.count t }
 
+        NoTrim t ->
+            { line = line_, endColumn = startColumn + String.count t }
+
         Space ->
             { line = line_, endColumn = startColumn + 1 }
 
@@ -332,6 +348,9 @@ renderLine startColumn line_ =
         Text text ->
             text
 
+        NoTrim text ->
+            text
+
         Space ->
             " "
 
@@ -347,6 +366,9 @@ lineLength startColumn line_ =
     startColumn
         + (when line_ is
             Text s ->
+                String.count s
+
+            NoTrim s ->
                 String.count s
 
             Space ->
@@ -369,6 +391,9 @@ renderLineState : Int -> Line -> { string : String, endColumn : Int }
 renderLineState startColumn line_ =
     when line_ is
         Text text ->
+            { string = text, endColumn = startColumn + String.count text }
+
+        NoTrim text ->
             { string = text, endColumn = startColumn + String.count text }
 
         Space ->
@@ -411,9 +436,35 @@ rowLength startColumn lines_ =
     (renderRowState startColumn lines_).endColumn - startColumn
 
 
+{-| Does this line's rightmost leaf carry significant trailing whitespace
+(`NoTrim`)? If so, `render` must not right-trim it. `indent`/`prefix` only ever
+prepend to the left, so a `NoTrim` content leaf stays rightmost through any
+amount of indentation. -}
+endsNoTrim : Line -> Bool
+endsNoTrim line_ =
+    when line_ is
+        NoTrim _ ->
+            True
+
+        Row lines_ ->
+            when Array.last lines_ is
+                Just l ->
+                    endsNoTrim l
+
+                Nothing ->
+                    False
+
+        _ ->
+            False
+
+
 renderOneLine : Line -> String
 renderOneLine l =
-    String.trimRight (renderLine 0 l)
+    if endsNoTrim l then
+        renderLine 0 l
+
+    else
+        String.trimRight (renderLine 0 l)
 
 
 render : Box -> String
@@ -462,6 +513,12 @@ lineToJson line_ =
         Text s ->
             Json.object
                 [ { key = "type", value = Json.string "Text" }
+                , { key = "text", value = Json.string s }
+                ]
+
+        NoTrim s ->
+            Json.object
+                [ { key = "type", value = Json.string "NoTrim" }
                 , { key = "text", value = Json.string s }
                 ]
 

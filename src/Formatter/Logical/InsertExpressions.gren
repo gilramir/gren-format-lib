@@ -1369,12 +1369,31 @@ folderInsertElseIfBranch branch accNodes =
             Array.last accNodes
                 |> Maybe.andThen
                     (\last ->
-                        when lpnLastBracketEnd last is
-                            Just pos ->
-                                Just pos
+                        -- Take whichever of the closing-bracket position and the
+                        -- last positioned token sits on the LATER row. The bracket
+                        -- end matters when the body ENDS in a multi-line record /
+                        -- array whose `}` / `]` is not itself a token (it would
+                        -- underreport the last row by one). But when the container
+                        -- is only PART of the body and a real token follows it
+                        -- (`|> Array.pushLast { … }\n    |> Loop`), the bracket end
+                        -- is an EARLIER row than that trailing token, and preferring
+                        -- it unconditionally underreports the body's true last row —
+                        -- making `test.row > prevEnd.row + 2` fire and stacking an
+                        -- `else if` the author wrote flat (non-idempotent: the stack
+                        -- shifts rows, which flips the decision again on reparse).
+                        when { brk = lpnLastBracketEnd last, tok = lpnLastPos last } is
+                            { brk = Just brkPos, tok = Just tokPos } ->
+                                if brkPos.row >= tokPos.row then
+                                    Just brkPos
 
-                            Nothing ->
-                                lpnLastPos last
+                                else
+                                    Just tokPos
+
+                            { brk = Just brkPos, tok = Nothing } ->
+                                Just brkPos
+
+                            { brk = Nothing, tok = tok } ->
+                                tok
                     )
                 |> Maybe.withDefault branch.test.start
 

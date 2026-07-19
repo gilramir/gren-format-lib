@@ -65,7 +65,15 @@ bracketOperandForcesVertical children =
 
 operandIsMultilineBracketLiteral : Array LPNode -> Bool
 operandIsMultilineBracketLiteral operand =
-    when Array.popFirst operand is
+    -- Comment nodes are skipped before locating the sole operand node: a comment
+    -- that rides the operator (`++ -- c\n [ … ]`, a leading comment on the bracket
+    -- re-homed onto the operator) sits in this operand array alongside the bracket,
+    -- so a bare `Array.popFirst` would see two nodes and miss the bracket. Without
+    -- the skip the decision is unstable: with the comment inside the operand rows
+    -- (`++ [\n -- c`) the operator/seed glue one way, and once a reparse moves the
+    -- comment onto the operator line the bracket starts a later row and the LPT's
+    -- own `forceVertical` flips the layout — the two formats disagree.
+    when Array.popFirst (Array.keepIf (\n -> not (nodeIsComment n)) operand) is
         Just { first = node, rest = rest } ->
             Array.isEmpty rest
                 && isChainBreakingOperandBox (lpnBox node)

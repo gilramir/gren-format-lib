@@ -1,0 +1,14 @@
+module ElseIfAfterRecordPipe exposing (f)
+
+
+f par line =
+    if String.endsWith "\n" par then
+        initial
+            |> Array.pushLast (RawParagraph { closed = False, string = line })
+            |> Loop
+
+    else if par == "" then
+        initial
+
+    else
+        other

@@ -1,0 +1,15 @@
+module PipelineCallMultiBlockArgs exposing (f)
+
+
+f =
+    xs
+        |> Array.foldl
+            (\a b ->
+                b
+            )
+            (\c d ->
+                d
+            )
+            (\e g ->
+                g
+            )

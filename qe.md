@@ -12,6 +12,14 @@ author-broken syntax matrix extension is now **done** — 850 → 1738 cells,
 4 real bugs found and fixed, 0 UNREVIEWED, 0 known BUGs remaining (see
 `gren-format-lib/CLAUDE.md` for the full writeup).
 
+Updated again 2026-07-18 (second session): **the real-corpus sweep (avenue #1)
+was run** against 10 published packages and found **9 real bugs in 5 classes**
+(A–E, see `scan.md`) — the single most productive method to date, more than the
+matrix and both fuzzers combined. All 5 are now fixed with fixtures, and the
+sweep was turned into a repeatable gate (`tests/corpus-check.py`). The bugs it
+found were *conjunctions of features* that every single-axis synthetic tool
+missed by construction; see "Why the synthetic gates missed these" below.
+
 ## Already built and run
 
 - **`tests/matrix-syntax.py`** — a construct×context grid, in up to four
@@ -36,10 +44,28 @@ author-broken syntax matrix extension is now **done** — 850 → 1738 cells,
   `Render/NodeClassify.gren` against the actual renderer output. The only
   gate that catches a predicate answering "forces vertical" when the real
   Box output doesn't, or vice versa.
+- **`tests/corpus-check.py` — the real-corpus sweep.** Runs `--show` over every
+  `.gren` file in a tree of real published packages and buckets each failure
+  (crash / AST-mismatch / non-idempotent / out-of-scope parse). `--show`
+  internally does parse → format → reparse → AST-compare → format-again →
+  idempotency-compare, so one clean exit per file buys no-crash + meaning-
+  preserved + idempotent + reparses. Run 2026-07-18 against 10 published
+  packages (`~/prj/gren-format-preview/pkgs`, list in
+  `pkgs/format_failed.txt`); the 10 failures minimized to **5 fix classes**
+  (`scan.md`): A multi-line-string content corruption (trailing-whitespace
+  strip + quote over-escape), B a signature record-type crash, C/D two
+  non-idempotencies, E a soft-glue-after-block crash. This found more real bugs
+  in one run than any other tool. **Scope it to package `src/`+`tests/`** — the
+  `examples/` dirs in that corpus are old-Gren-version syntax the current parser
+  rejects (out-of-scope `FAILED TO PARSE`, not formatter bugs). Rebuild the app
+  first; it shells out to `../gren-format/app`.
 - **Manual elm-format diffing** (documented in the root `CLAUDE.md`) —
   mechanically translate a body of real Gren source to Elm syntax, diff
   `elm-format` output against `gren format --show` output. Only ever run
-  once, on `compiler-common/src`.
+  once, on `compiler-common/src`. (The `corpus-check.py` sweep is the
+  crash/AST/idempotency half of this made repeatable; the elm-format *layout*
+  diff still needs the manual translation, and `matrix-syntax.py`'s oracle 4 is
+  the automated version for generated syntax.)
 - **Comment auditing** — grep source comments for stale terminology
   (deleted modules/flags, old architecture references), TODO-style markers,
   hedging language, and "fall back"/"not ported" claims, then empirically
@@ -74,27 +100,62 @@ author-broken syntax matrix extension is now **done** — 850 → 1738 cells,
   `box-err.md` audit, which proved certain `Err` arms *unreachable*; this
   asks which reachable arms are untested.
 
+## Why the synthetic gates missed these (2026-07-18 scan)
+
+Every A–E bug was a **conjunction of features**, and each synthetic gate varies
+exactly ONE axis over a fixed base — so none of them could reach the combination:
+
+- `matrix-syntax.py` embeds ONE construct in ONE context (now in flat/broken
+  variants), but it never *repeats* a multi-line child (class E needed a call
+  with **three** multi-line block args), never reaches a type/signature
+  author-broken variant (class B needed a broken record type at an arrow
+  boundary), and explicitly excludes multi-line strings (class A).
+- `fuzz-idempotency.py` perturbs *comments* over the fixed corpus; it never
+  creates new nesting depth or new construct combinations, so it couldn't build
+  "pipe-to-record-arg then else-if" (D) or "binop with a commented bracket
+  operand" (C) unless a fixture already had that shape.
+- `fuzz-whitespace.py` perturbs whitespace, not structure or literal content.
+- `audit-predicates.py` checks predicate/renderer agreement — it can't see a bug
+  where the predicate and renderer *agree on a wrong answer* (D's row math was
+  wrong in both the LPT flag and the layout).
+
+Real source varies many axes at once, which is why one corpus sweep out-earned
+all four. The lesson isn't "the synthetic gates are weak" — each is exhaustive on
+its axis — it's that **feature co-occurrence is its own axis**, and only real
+code (or random generation, #3) samples it. Concretely, the cheap follow-ups
+that would have caught specific classes ahead of the sweep:
+
+- **Literal-content preservation fuzzer** (would catch A). Mutate string / char /
+  number literal *content* — trailing whitespace, embedded quotes, `"""` runs,
+  control chars, unicode — and assert the reparsed AST *value* is unchanged.
+  Nothing today mutates inside a literal; the AST-compare gate only fires if a
+  fixture already carries the tricky content.
+- **Repetition / arity in the matrix** (would catch E). Generate each
+  multi-line construct as a call's 2nd and 3rd argument, and as the 2nd/3rd
+  item of a container, so "block after block" is exercised.
+- **Author-broken types & signatures in the matrix** (would catch B). The
+  broken variant only covers expression atoms; extend it to record *types* in
+  argument, return, and mid-arrow positions.
+
 ## Untried avenues
 
-1. **Broader real-corpus sweep.** The elm-format comparison audit has only
-   ever been run on `compiler-common/src`. Running it over `core/src`,
-   `compiler-node/src`, and `compiler/src` (translate each to Elm, diff)
-   would surface divergences on code nobody wrote as a test case.
-
-2. **Boundary/pathological inputs.** Deeply nested parens/records, very long
+1. **Boundary/pathological inputs.** Deeply nested parens/records, very long
    identifiers, files that are all comments, empty modules, CRLF line
    endings, unicode in strings/identifiers, huge single-line inputs. The one
    performance bug found historically (an `O(2^depth)` render hang in
    `Box.gren`'s `renderRowState`) came from exactly this category — nothing
    else in the toolbox stress-tests structural depth.
 
-3. **Random AST generation (property-based).** Everything above walks a
+2. **Random AST generation (property-based).** Everything above walks a
    fixed/enumerated space. A generator that builds random-but-valid small
    ASTs (bounded depth) and checks the three standing invariants (parses,
    idempotent, AST-equivalent to the original) would explore combinations
    nobody thought to write by hand — a step up from the matrix's fixed grid.
+   This is the avenue that most directly targets the **feature-co-occurrence**
+   axis the 2026-07-18 scan proved matters (see above) without depending on
+   which real packages happen to exist.
 
-4. **Complexity-guided review.** `assembleFlowImpl`, `MakeRenderBox.gren`
+3. **Complexity-guided review.** `assembleFlowImpl`, `MakeRenderBox.gren`
    generally, and the paren-block tab-stop machinery are the densest,
    most-patched code in the repo — most historical bugs came from there. A
    targeted close-read of the remaining unaudited dense functions (as
@@ -103,12 +164,21 @@ author-broken syntax matrix extension is now **done** — 850 → 1738 cells,
 
 ## Recommendation
 
-The author-broken syntax matrix (formerly #1 here) is **done** — it directly
-targeted the exact bug class found three times (twice on 2026-07-15, once by
-dogfooding on 2026-07-18), found 4 more real instances of it, and closed out
-at 0 UNREVIEWED / 0 known BUGs.
+The real-corpus sweep (formerly untried #1) is **done and paid off biggest** —
+9 bugs in 5 classes, all fixed, and now a repeatable gate (`corpus-check.py`).
+Re-run it on any fresh batch of published packages: it is the cheapest way to
+find real bugs, because someone else already wrote the tricky code. Scope it to
+`src/`+`tests/` (examples are old-Gren parser gaps).
 
-The cheapest next win is **#1, the broader real-corpus sweep** (the
-elm-format method already exists; only the translation is manual), and the
-bigger step up is **#3, property-based random AST generation**, which is the
-only avenue that leaves the fixed/enumerated space entirely.
+Two next steps, in order of leverage:
+
+1. **Property-based random AST generation** (untried #2) — now the top priority.
+   The scan proved the productive axis is *feature co-occurrence*, and this is
+   the only avenue that samples it independent of which packages exist. The
+   three cheap targeted fuzzers listed under "Why the synthetic gates missed
+   these" (literal-content preservation, matrix arity/repetition, matrix broken
+   types/signatures) are the low-effort down-payments — each closes exactly one
+   of the classes A/E/B against future regressions.
+
+2. Keep the corpus sweep in rotation as new packages publish; keep the
+   author-broken matrix and both fuzzers as the fast per-change gate.

@@ -1764,20 +1764,23 @@ makeSignatureBox children =
             -- commits to the fully-broken layout up front
             -- (`segmentHasDroppingRecordBox`), so the drop's extra rows can't
             -- flip the boundary-break decision on reparse (the idempotency
-            -- fixed-point rule). A single-segment, comment-free type (no `->`)
-            -- gets the same treatment at its segment's head position, since
-            -- there's no second segment for `signatureForceVertical` to
-            -- compare against — this is gated on `not hasComment` because a
-            -- comment-bearing single segment already has its own dedicated
-            -- handling below (the `hasComment && typeHasCommentBracket`
-            -- branch), which must run instead, not be preempted here.
+            -- fixed-point rule). The head position (`i == 0`) is checked too
+            -- (`includeHead = True`): a multi-line record can sit at the head of
+            -- a segment while the `->` stays on the record's closing `}` line
+            -- (`{ a : Int, b : Msg } -> X` written with the record broken but
+            -- the arrow un-broken). Then no `->`-boundary row break exists for
+            -- `signatureForceVertical` to see, yet elm-format still commits the
+            -- whole signature to the broken layout (record stays broken, `-> X`
+            -- drops to its own line). Without the head check the flow renders
+            -- multi-line while `forceVertical` is `False`, hitting the
+            -- "inline signature segment unexpectedly broke" Err. Gated on
+            -- `not hasComment` because a comment-bearing type already has its
+            -- own dedicated handling below (the `hasComment &&
+            -- typeHasCommentBracket` branch / the generic comment flow), which
+            -- must run instead of being preempted here.
             forceVertical =
                 signatureForceVertical segments
-                    || (Array.length segments > 1
-                            && Array.any (segmentHasDroppingRecordBox False) segments
-                       )
-                    || (Array.length segments == 1
-                            && not hasComment
+                    || (not hasComment
                             && Array.any (segmentHasDroppingRecordBox True) segments
                        )
         in
@@ -2161,15 +2164,26 @@ makePBox box children =
             -- A `"""…"""` literal: opening `"""`, one line per content element,
             -- closing `"""`, stacked. Box stacking aligns to the box's column
             -- intrinsically when the flow indents it, so continuation lines land
-            -- at the opening `"""`'s column. Box applies per-line trimRight, so a
-            -- content line ending in whitespace, or an interior blank line, is not
-            -- preserved verbatim.
+            -- at the opening `"""`'s column. A content line's *trailing*
+            -- whitespace is significant string data (the parser strips only the
+            -- leading block indentation, never the trailing run), so such a line
+            -- is emitted as `B.noTrim` to exempt it from `render`'s per-line
+            -- right-trim. A content line with no significant trailing whitespace
+            -- (including a blank line) stays a plain `Text`, so its Tab-expanded
+            -- indentation is trimmed away rather than left as a run of spaces.
             let
                 quote =
                     B.line (B.literal "\"\"\"")
 
+                contentLine s =
+                    if String.trimRight s /= s then
+                        B.line (B.noTrim s)
+
+                    else
+                        B.line (B.literal s)
+
                 contentLines =
-                    Array.map (\s -> B.line (B.literal s)) loc.value
+                    Array.map contentLine loc.value
             in
             Ok (B.stack1 ([ quote ] ++ contentLines ++ [ quote ]))
 
@@ -3233,17 +3247,20 @@ assembleFlowImpl inlineStart flowIndent items =
                             -- alignment — see `softGlueAlignment`, the static
                             -- alignment table).
                             if Array.isEmpty acc.curRow then
-                                -- unreachable: an empty current row means the
-                                -- previous item was a block (a multi-line operand).
-                                -- The only multi-line items that soft-glue in this
-                                -- inline flow are binop operands (pipelines render
-                                -- via their own `PipelineStep` path; a `Src.Call`
-                                -- with a multi-line arg goes to `assembleBrokenCall`).
-                                -- A multi-line binop operand that is a bracket /
-                                -- record / paren now forces the whole chain vertical
-                                -- (`isChainBreakingOperandBox` → `verticalBinopChainBox`),
-                                -- so a block never precedes another operand here.
-                                Err "unreachable: multi-line item soft-glued after a block"
+                                -- The previous item was a block, so it flushed the
+                                -- running row and left it empty — there is nothing
+                                -- on the line to soft-glue this multi-line item
+                                -- onto, so it stacks on its own fresh row (exactly
+                                -- what the `AsFirst` Err arm does for the first
+                                -- block). Reached when a pipeline step's trigger
+                                -- `suffix` holds two or more multi-line block
+                                -- arguments (`|> f a b c` with `b` and `c` both
+                                -- multi-line): `splitStepTrigger` relocates only the
+                                -- first, and the rest render through this flow, so a
+                                -- block genuinely can follow a block here. Each lands
+                                -- on its own line at the flow's indent — elm-format's
+                                -- layout for a broken multi-argument call.
+                                Ok { rows = Array.pushLast item.box acc.rows, curRow = [], state = decision.next }
 
                             else
                                 let

@@ -1,0 +1,9 @@
+module BinopCommentBracketOperand exposing (v)
+
+
+v =
+    config.liAttrs ++ [
+    -- Use mousedown to capture the event before blur fires
+    onMouseDown (config.mouseDownMsg item),
+    onMouseEnter (config.mouseEnterMsg idx)
+    ]

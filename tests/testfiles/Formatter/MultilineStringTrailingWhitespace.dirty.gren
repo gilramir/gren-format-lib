@@ -1,0 +1,11 @@
+module MultilineStringTrailingWhitespace exposing (..)
+
+-- Trailing whitespace inside """ content is significant string data (the
+-- parser strips only leading block indentation). It must survive formatting.
+template : String
+template =
+    """
+    Encode.object   
+        [ field ]
+    end
+    """

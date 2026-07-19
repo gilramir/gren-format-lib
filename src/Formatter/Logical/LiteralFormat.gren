@@ -57,11 +57,13 @@ escapeStringContent s =
 -- newlines, carriage returns, and tabs are preserved as themselves — the
 -- whole point of `"""` is that real newlines stand for newlines.
 --
--- Double quotes need escaping when they'd form a 3-run (which would
--- terminate the literal early) or sit adjacent to the closing `"""`.
--- Simplest always-correct rule: escape every `"`. This matches how
--- source code typically embeds `"""` inside a `"""` string (via
--- `\"\"\"`), so it also round-trips cleanly.
+-- A double quote only needs escaping when it is part of a run of three or
+-- more (which would terminate the literal, or embed a stray `"""`) or when
+-- it sits at the very end of the content, adjacent to the closing `"""`. An
+-- isolated `"` (or a run of one or two mid-content) is left verbatim. This
+-- mirrors elm-format's `escapeMultiQuote` exactly, so `gren format` no longer
+-- adds spurious `\` characters in front of every quote — an isolated quote in
+-- an embedded template or fixture (e.g. `Debug.log "u"`) is preserved as-is.
 escapeMultilineContent : String -> String
 escapeMultilineContent s =
     let
@@ -83,9 +85,9 @@ escapeMultilineContent s =
                 13 ->
                     String.fromChar c
 
-                -- QUOTATION MARK
+                -- QUOTATION MARK — handled by escapeQuoteRuns below, not here
                 34 ->
-                    "\\\""
+                    String.fromChar c
 
                 -- REVERSE SOLIDUS
                 92 ->
@@ -99,7 +101,42 @@ escapeMultilineContent s =
                     else
                         String.fromChar c
     in
-    String.foldl (\c acc -> acc ++ escapeChar c) "" s
+    escapeQuoteRuns (String.foldl (\c acc -> acc ++ escapeChar c) "" s)
+
+
+-- Adapted from elm-format's `escapeMultiQuote`. Walk the string, counting each
+-- run of consecutive `"`. A run is escaped (each `"` becomes `\"`) only when it
+-- is 3+ long — a run that would otherwise embed a literal `"""` and terminate
+-- the string early. Runs of one or two quotes pass through verbatim.
+--
+-- Unlike elm-format, a *trailing* run of one or two quotes is **not** escaped:
+-- `gren format` always emits the closing `"""` on its own line, so the last
+-- content character is followed by a newline + indentation, never adjacent to
+-- the delimiter. (elm-format lays the whole string flat, so its trailing quote
+-- really does abut the closing `"""` and must be escaped.) The backslashes
+-- inserted here are *not* re-escaped — this runs after backslash-doubling, so
+-- an inserted `\"` is a genuine escaped quote.
+escapeQuoteRuns : String -> String
+escapeQuoteRuns s =
+    let
+        emitRun quotes =
+            if quotes >= 3 then
+                String.repeat quotes "\\\""
+
+            else
+                String.repeat quotes "\""
+
+        step acc quotes c =
+            if c == '"' then
+                { acc = acc, quotes = quotes + 1 }
+
+            else
+                { acc = acc ++ emitRun quotes ++ String.fromChar c, quotes = 0 }
+
+        folded =
+            String.foldl (\c st -> step st.acc st.quotes c) { acc = "", quotes = 0 } s
+    in
+    folded.acc ++ emitRun folded.quotes
 
 
 charLiteralString : Char -> String
