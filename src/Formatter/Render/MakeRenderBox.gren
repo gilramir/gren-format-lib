@@ -13,7 +13,7 @@ signatures, and comments — each laid out to match elm-format.
 
 import Formatter.Logical.BinopPrecedence exposing (binopMinPrecedence, binopPrecedence)
 import Formatter.Logical.LogicalPrintingTree exposing (CommentRole(..), LPBox(..), LPNode, ListBrackets(..), SyntaxType(..), commentRole, firstRowInSubtree, lpnBox, lpnChildren, lpnLastBracketEnd, lpnLastPos, lpnMaxRow)
-import Formatter.Render.BinopLayout exposing (assembleBinopBox, bracketOperandForcesVertical, flattenBinopNodes, isChainBreakingOperandBox, opText, splitTrailingOwnLineComments)
+import Formatter.Render.BinopLayout exposing (assembleBinopBox, flattenBinopNodes, isChainBreakingOperandBox, opText, splitTrailingOwnLineComments)
 import Formatter.Render.Box as B exposing (Box(..))
 import Formatter.Render.BoxOps exposing (applyIndent, blockIndentSpaces, boxLine, glueCommentSuffix, grenIndent, isBlockNode, isSingleLine, joinInline, prefixOperator, spaceJoinLines, stackWithBlanks, traverseResult, wrapParenVerticalPadded)
 import Formatter.Render.CommentBox exposing (commentNodeBox, emptyBracketedCommentLine, glueTrailingComments, makeCommentLineBox, multiLineBlockCommentBox, peelTrailingCommentNodes, spanLeadingComments, spanTrailingComments)
@@ -95,7 +95,6 @@ makeBinopBox forceVerticalArg children =
     let
         forceVertical =
             forceVerticalArg
-                || bracketOperandForcesVertical children
                 || anyOperandRendersMultiline children
     in
     if forceVertical then
