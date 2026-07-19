@@ -824,8 +824,17 @@ selfBoxBounds box =
             }
 
         EmptyBracketed loc ->
+            -- An empty bracket has no children, so — unlike a populated
+            -- bracket-list, whose `lastPos` intentionally comes from its last
+            -- item — its only meaningful last position is its own closing
+            -- bracket (`loc.end`). Leaving `lastPos = Nothing` made any container
+            -- wrapping *only* an empty bracket (e.g. `( {} )`, `( [] )`) report
+            -- no last position at all, so `subtreeEndsBefore` returned False and
+            -- a trailing line comment (`( {} ) -- c`) was pulled *inside* the
+            -- parens, where it swallowed the `)` and the output no longer parsed.
             { empty
                 | firstPos = Just loc.start
+                , lastPos = Just loc.end
                 , minRow = loc.start.row
                 , maxRow = loc.end.row
                 , isBracket = True

@@ -1,0 +1,8 @@
+module Gen334 exposing (..)
+
+
+fn1 : Bool -> Int -> Char -> Bool -> Int -> String -> Bool
+fn1 1 y =
+    when y is
+        node ->
+            0 >> x <= ( {} ) -- k3
