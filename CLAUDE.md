@@ -237,16 +237,31 @@ cd gren-format-lib/tests
 
 **Rebuild the `gren-format` app first** — it shells out to `--audit-predicates`.
 
-Findings are split into **root** and **propagated**: `subtreeHasVerticalBox`'s
-fallback arm is `Array.any subtreeHasVerticalBox children`, so one wrong answer
-at a leaf makes every ancestor wrong too. Only root findings are a work-list;
-propagated ones disappear when the node below them is fixed.
+Findings are split into **root** and **propagated** (a recursive predicate's
+`Array.any … children` fallback makes one wrong leaf answer wrong at every
+ancestor too); only root findings are a work-list.
 
 Under-approximation is deliberately not reported — these predicates claim only
 the *unconditional* breaks, and a node can still break for reasons they do not
 model (most often the author's own `forceVertical` layout).
 
-The audit itself is `src/Formatter/Audit/PredicateAgreement.gren`.
+The audit itself is `src/Formatter/Audit/PredicateAgreement.gren`. Most of the
+former shape predicates (`subtreeHasVerticalBox`, `nodeSpansRows`, …) were
+retired — verticality is now decided from the rendered box (`isSingleLine` /
+`B.allSingles`), so the audit now covers only the one structural query that
+remains (`isMultilineLambdaParenBlockBox`). See `docs/commentHandling.md`.
+
+### Render-invariant check (`check-render-invariant.py`)
+
+The architecture invariant — **no `Render/*` code reads a source row/position to
+make a layout or comment-placement decision** (placement is the stored
+`CommentRole`; verticality is the rendered box shape) — is enforced by
+`tests/check-render-invariant.py`, which `run-tests.sh` runs first. It greps
+`Render/*` (comment/string-aware) for row/position accessors and fails on any
+outside a small allowlist of genuinely-structural functions. A new render-side
+row-read is almost always a regression toward the oscillation/crash class this
+architecture removed; if a use is truly structural, allowlist its function there
+with a reason. Full model: `docs/commentHandling.md`; rationale: `comment-arch.md`.
 
 ### Whitespace-canonicalization fuzzer
 
@@ -376,3 +391,8 @@ node directly under `RootBox`. Comments and blank lines are inserted as sibling
 - `DEVELOPER.md` — orientation guide for extending the formatter
   with new syntax: the full checklist, position rules, comment-attachment
   hazards, and the "things to worry about" section.
+- `docs/commentHandling.md` — the comment architecture: the `CommentRole`
+  model (placement decided once in `Comments.gren`, never re-derived from rows
+  in `Render/*`), how each renderer consumes the role, verticality from rendered
+  box shape, and the enforced invariant. `comment-arch.md` is the companion
+  rationale / bug-history that motivated it.

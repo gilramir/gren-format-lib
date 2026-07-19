@@ -818,9 +818,12 @@ than one row, using the positions from the AST. See the [Author layout
 section](#author-layout--the-forcevertical-flag) for the pattern.
 
 ### 5. Comments — usually nothing to do
-`Formatter.Logical.Comments` re-attaches every comment by position; it is largely
-construct-agnostic. Its module doc (`Comments.gren`, "Adding support for a new
-construct") is required reading, but the short version:
+`Formatter.Logical.Comments` re-attaches every comment by position **and
+classifies its `CommentRole`** (`TrailsPrevious` / `LeadsOwnLine` /
+`RidesInline` / `Standalone`) once, from the pristine parse rows; the renderer
+reads that role and never re-derives placement from rows. See
+`docs/commentHandling.md` for the whole model and `Comments.gren`, "Adding
+support for a new construct", for the required reading. The short version:
 
 - Emit your tokens as ordinary boxes in a flow and boundary comments place
   correctly on their own.
@@ -830,10 +833,19 @@ construct") is required reading, but the short version:
 - The one recurring hazard is a comment that **trails a node's last token**: it
   must attach at the enclosing flow level (rendered at the outer indent) on
   *every* format, or its indentation oscillates across reformats. This is already
-  enforced generically by position-only tests (`columnClaim`,
-  `nextSiblingIsBoundary`); do **not** add a construct-specific comment branch —
-  if `fuzz-idempotency.py` flags a trailing-comment gap, fix it in those shared
-  places.
+  enforced generically by position-only tests (`nextSiblingIsBoundary`,
+  `boxKeepsTrailingCommentOutside`); do **not** add a construct-specific comment
+  branch — if `fuzz-idempotency.py` flags a trailing-comment gap, fix it in those
+  shared places.
+- **Never read a source row or position in `Render/*` to decide comment
+  placement or verticality.** Placement comes from the stored `CommentRole`;
+  verticality comes from author-intent flags plus the *rendered box* shape
+  (`isSingleLine` / `B.allSingles`), never a source-row predicate. If your
+  construct needs a new glue rule, add a *classifier* arm in
+  `Comments.gren` (pin it with a fixture — see `classifyCommentKind`'s doc), not
+  a render-side row test. `tests/check-render-invariant.py` fails the build on a
+  new render-side row-read; if a use is genuinely structural, allowlist its
+  function there with a reason.
 
 ### 6. Render it — `MakeRenderBox.makePrettyLineBox`
 Add an arm to the `makePrettyLineBox` `when box is …` dispatch (and to the

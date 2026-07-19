@@ -1066,9 +1066,26 @@ isCommentNode node =
             False
 
 
--- Classify a comment being spliced among `before ++ [comment] ++ after`, from
--- its kind and its immediate neighbours. The bracket-container and standalone
--- cases are handled by the caller; this covers the generic-flow and binop roles.
+{-| Classify a comment being spliced among `before ++ [comment] ++ after`, from
+its kind and its immediate neighbours. (The standalone top-level case is handled
+by the caller.) A `CommentRole` is a reparse fixed point: the row it is decided
+from equals the row it renders on, so a reformat re-derives the same role.
+
+The container decides which glue rule applies — the generic flow is the
+*coarse* one (a block comment stays own-line after a call / single-line bracket),
+and the "list-like" contexts (binop, bracket lists, union variants, when
+branches) are *permissive* (a same-row comment trails any item). Each branch is
+pinned by a fixture in `tests/testfiles/Formatter/`:
+
+  - binop (`OpAndRhs`/`Binop`) — `BinopChainMixedComments`,
+    `MultilineBlockComments` (a comment after a multi-line block comment).
+  - bracket list (`AllAcrossOrAllVertical`/`AlwaysVertical`/…) and the
+    `RidesInline` flat-ride — `LiteralInlineComment`.
+  - union variant (`= Ctor {- c -}`) via `prevBlockGlueRow` — `LiteralInlineComment`.
+  - `WhenBranch` predecessor via the glue-rows — `BetweenWhenBranchesComment`.
+  - generic flow, elided `->` scoping, and the deliberate `let … in`
+    divergence — `LetInTrailingComment`.
+-}
 classifyCommentKind : LPBox -> LPNode -> Array LPNode -> Array LPNode -> Int -> CommentRole
 classifyCommentKind containerBox commentNode before after row =
     let
