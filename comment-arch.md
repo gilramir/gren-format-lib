@@ -1,11 +1,36 @@
 # Comment/Layout Architecture Plan: stop re-deriving, start storing
 
-**Status:** Phase 1 + Phase 2 landed — all gates green, every fixture
-byte-identical (2026-07-19), on branch `comments`. This document is a
-self-contained plan meant to be handed to an implementer with no prior
-conversation context.
+**Status:** Change A (Phases 1–3) landed — all gates green, every fixture
+byte-identical (2026-07-19), on branch `comments`. Only Change B
+(observe-don't-predict) remains. This document is a self-contained plan meant
+to be handed to an implementer with no prior conversation context.
 
 ## Progress log
+
+- **Phase 3 (cut the remaining comment sites over) — DONE.** Every remaining
+  comment-*placement* site now reads the stored `CommentRole` instead of
+  re-deriving trailing/leading from source rows:
+  - `commentBracketListBox` (bracket-list items) + `literalCommentsRideFlatLine`
+    (flat-vs-open gate = "every comment child is `RidesInline`").
+  - `makeUnionBodyVerticalBox` (union variants) and `renderWhenBranchesBox`
+    (when branches) — the latter guarded on `pending` so a same-row comment run
+    leading a branch stays together.
+  - `makeCommentLineBox` (top-level comment runs); `commentNodeToBox` simplified
+    to return `Box`.
+  - The classifier gained a permissive **bracket branch** (matching
+    `commentBracketListBox`'s any-item same-row rule) and permissive glue-rows
+    for **union-variant** `AcrossOrVertical` (`= Ctor`/`| Ctor`) and **`WhenBranch`**
+    predecessors — the three "list-like" contexts whose glue rule is looser than
+    the generic flow's.
+  - `RidesInline` lost its `sameRowNext` requirement (it is observed only by
+    `literalCommentsRideFlatLine`; every other consumer glues it like
+    `TrailsPrevious`). The unused `InsideBracketClose` role was removed —
+    `CommentRole` is now 4 constructors.
+  - `--lpt` prints each comment's role. **End state:** a grep of `Render/*` for
+    row accessors returns only Change-B shape-prediction (`nodeSpansRows`, …),
+    signature-segment layout, `isElidedArrow`'s zero-width check, and one
+    `lpnMaxRow >= 0` "has real content" guard — **no comment-placement row
+    re-derivation remains.**
 
 - **Phase 2 (cut the flow paths over to roles) — DONE.** All three flow paths
   the plan names now take the comment glue/own-line decision from the stored
@@ -49,15 +74,13 @@ conversation context.
   row is the last *non-comment* operand (mirrors `contentRow`), so binop
   containers get their own branch in `classifyCommentKind`. All gates
   byte-identical afterward.
-- **NOT YET DONE:** Phase 3 (the remaining comment sites: `commentBracketListBox`
-  bracket-list placement, pipeline comment-peeling / `stepNeedsCommentedLayout`,
-  `literalCommentsRideFlatLine`, `pairLeadingRecordComments`,
-  `pairTypeRecordComments`, `typeHasCommentBracket`) and Phase 4+ (Change B,
-  observe-don't-predict). Note for Phase 3: the classifier currently lumps every
-  bracket-container child as `InsideBracketClose`; `commentBracketListBox` will
-  need the finer trailing/leading distinction inside brackets, so the
-  bracket-container branch of `classifyCommentKind` must gain the same
-  glue-row logic the generic branch has.
+- **NOT YET DONE:** Phase 4+ (Change B, observe-don't-predict) only. The
+  Change-A goal — no `Render/*` comment-placement decision reads source rows —
+  is met. Sites that were *already* row-free (kind/structure only) and so needed
+  no change: `stepNeedsCommentedLayout` (pipeline), `pairLeadingRecordComments`,
+  `pairTypeRecordComments`, `typeHasCommentBracket` (all classify by comment
+  kind / bracket structure, not rows). The remaining row-reads in `Render/*` are
+  Change B's target (shape prediction) plus genuinely-structural uses.
 
 ---
 
