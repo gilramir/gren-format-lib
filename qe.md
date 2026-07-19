@@ -20,6 +20,17 @@ sweep was turned into a repeatable gate (`tests/corpus-check.py`). The bugs it
 found were *conjunctions of features* that every single-axis synthetic tool
 missed by construction; see "Why the synthetic gates missed these" below.
 
+Updated again 2026-07-18 (third session): **the property-based random AST
+generator (avenue #2) was built** — `tests/gen-random.py`, spec in
+`tests/GENERATOR.md`. It samples the feature-co-occurrence axis directly, without
+depending on which real packages exist, and it paid off immediately: on the
+freshly-built app it found **two real bug classes** — a soft-glue crash on a
+record-*update* field holding a multi-line binop chain, and the trailing-`--`-at-
+declaration-end col-4→0 non-idempotency (the latent bug flagged unfixed in the
+coverage-fixture work). Both are now fixed with promoted fixtures. It is now the
+only gate that varies *structure* (not just comments/whitespace over a fixed
+corpus), so it is a per-change gate for the co-occurrence axis.
+
 ## Already built and run
 
 - **`tests/matrix-syntax.py`** — a construct×context grid, in up to four
@@ -59,6 +70,23 @@ missed by construction; see "Why the synthetic gates missed these" below.
   `examples/` dirs in that corpus are old-Gren-version syntax the current parser
   rejects (out-of-scope `FAILED TO PARSE`, not formatter bugs). Rebuild the app
   first; it shells out to `../gren-format/app`.
+- **`tests/gen-random.py` — the property-based random AST generator** (avenue #2,
+  built 2026-07-18; spec in `tests/GENERATOR.md`). Builds random-but-legal Gren
+  modules with bounded depth — structure *and* comments — and checks four
+  oracles per module: parses (`--pre-ast`; a failure is a generator bug, walled
+  off in `quarantine/`, never a formatter find), no-crash + AST-equiv +
+  idempotent + reparses (`--show`, one call), and comment preservation (multiset
+  of `(type, normText)` from `--pre-context` on input vs. formatted, positions
+  discarded — catches drop/dup/invent/kind-change, which AST-compare is blind to
+  and idempotency only catches on a *shift*). Layout decisions are baked into the
+  node tree so emission is pure: `--seed` replays exactly and the shrinker
+  (tree-surgery + deterministic re-emit) minimizes every failure. Artifacts land
+  in gitignored `tests/gen-out/run-NNNNNN/` (failures-only, bucketed,
+  self-contained `report.txt`); `--promote <seed> --name Foo` turns a fixed find
+  into a fixture. This is the ONLY gate that varies structure rather than
+  perturbing comments/whitespace over a fixed corpus, so it reaches
+  co-occurrences no corpus happens to contain. Rebuild the app first; it shells
+  out to `../gren-format/app`. Found two real bugs on its first run (both fixed).
 - **Manual elm-format diffing** (documented in the root `CLAUDE.md`) —
   mechanically translate a body of real Gren source to Elm syntax, diff
   `elm-format` output against `gren format --show` output. Only ever run
@@ -146,14 +174,11 @@ that would have caught specific classes ahead of the sweep:
    `Box.gren`'s `renderRowState`) came from exactly this category — nothing
    else in the toolbox stress-tests structural depth.
 
-2. **Random AST generation (property-based).** Everything above walks a
-   fixed/enumerated space. A generator that builds random-but-valid small
-   ASTs (bounded depth) and checks the three standing invariants (parses,
-   idempotent, AST-equivalent to the original) would explore combinations
-   nobody thought to write by hand — a step up from the matrix's fixed grid.
-   This is the avenue that most directly targets the **feature-co-occurrence**
-   axis the 2026-07-18 scan proved matters (see above) without depending on
-   which real packages happen to exist.
+2. ~~**Random AST generation (property-based).**~~ **Done** — built as
+   `tests/gen-random.py` (see "Already built and run" above). Remaining work is
+   grammar expansion (type aliases/unions/ports, author-broken types,
+   multiline-string content mutation, doc comments, richer patterns), tracked in
+   `tests/GENERATOR.md`.
 
 3. **Complexity-guided review.** `assembleFlowImpl`, `MakeRenderBox.gren`
    generally, and the paren-block tab-stop machinery are the densest,
@@ -172,13 +197,17 @@ find real bugs, because someone else already wrote the tricky code. Scope it to
 
 Two next steps, in order of leverage:
 
-1. **Property-based random AST generation** (untried #2) — now the top priority.
-   The scan proved the productive axis is *feature co-occurrence*, and this is
-   the only avenue that samples it independent of which packages exist. The
-   three cheap targeted fuzzers listed under "Why the synthetic gates missed
-   these" (literal-content preservation, matrix arity/repetition, matrix broken
-   types/signatures) are the low-effort down-payments — each closes exactly one
-   of the classes A/E/B against future regressions.
+1. **Grow `gen-random.py`'s grammar** (avenue #2 is now built and already found
+   two bugs). The productive axis is *feature co-occurrence*, and this is the
+   only gate that samples it independent of which packages exist — so widening
+   the grammar widens the reachable co-occurrences. Priorities in
+   `tests/GENERATOR.md`: type aliases/unions/ports, author-broken types &
+   signatures (the class-B shape), multiline-string literals and literal-content
+   mutation (the class-A shape), doc comments, richer patterns. The three cheap
+   targeted fuzzers under "Why the synthetic gates missed these"
+   (literal-content preservation, matrix arity/repetition, matrix broken
+   types/signatures) remain good down-payments for A/E/B regressions.
 
-2. Keep the corpus sweep in rotation as new packages publish; keep the
-   author-broken matrix and both fuzzers as the fast per-change gate.
+2. Keep the corpus sweep in rotation as new packages publish; keep
+   `gen-random.py`, the author-broken matrix, and both fuzzers as the fast
+   per-change gate.

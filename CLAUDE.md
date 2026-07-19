@@ -262,6 +262,49 @@ python3 fuzz-whitespace.py -j 12           # parallelise
 This machine has 16 cores; both fuzzers default to `-j 2`. Use `-j 12` for a
 fast whole-corpus sweep.
 
+### Property-based random generator
+
+Every gate above walks a fixed space: the matrix enumerates known shapes, both
+fuzzers perturb *comments* / *whitespace* over the fixed corpus, the audit checks
+the corpus. None vary **structure**, so a bug needing a conjunction of features
+that nobody wrote by hand — the axis the 2026-07-18 corpus scan proved productive
+— has no case anywhere. `gen-random.py` is that missing axis: it builds
+random-but-legal Gren modules (structure **and** comments) with bounded depth and
+checks four oracles per module. Full design in `GENERATOR.md`.
+
+```bash
+cd gren-format-lib/tests
+./gen-random.py -n 2000 -j 12               # sweep
+./gen-random.py --seed 12345                # replay one seed, verbose (+ shrunk)
+./gen-random.py -n 500 --max-depth 6        # deeper nesting
+./gen-random.py --no-comments               # structure only
+./gen-random.py --promote 12345 --name Foo  # a fixed find → a fixture
+```
+
+The oracles: **`--pre-ast`** (parses at all — a failure is a *generator* bug, not
+a formatter find; it lands in `gen-out/<run>/quarantine/` and is reported
+separately, and this bucket must stay ~0); **`--show`** (buys no-crash +
+AST-equiv + idempotent + reparses in one call); and **comment preservation** (the
+multiset of `(type, normalizedText)` from `--pre-context` on the input vs. the
+formatted output — positions discarded, so a *moved* comment passes and only a
+drop / duplication / invention / kind-change trips it; AST-compare is blind to a
+dropped comment and idempotency only catches a *shift*).
+
+Layout decisions are baked into the node tree, so emission is a pure function of
+the tree: `--seed` replays exactly, and the shrinker (tree-surgery + deterministic
+re-emit) minimizes every failure to `input.min.gren`. Artifacts land in gitignored
+`gen-out/run-NNNNNN/` — failures-only, bucketed (`crash` / `ast-mismatch` /
+`non-idempotent` / `comment-loss`), each with a self-contained `report.txt`
+carrying the repro command and the pre-computed diff. `--promote` copies the
+minimized repro into `testfiles/Formatter/` and prints the `assertPretty` line.
+
+**Rebuild the `gren-format` app first** — it shells out to `../../gren-format/app`.
+When adding a construct to the grammar, verify the quarantine rate stays ~0 after
+the addition (0 quarantine + 0 emitter exceptions = the generator is honest, and
+only then are its crash/non-idempotent finds trustworthy). Note current-Gren
+**constructor patterns take at most one argument** (`Ctor a b` does not parse;
+multi-field variants carry a record) — a fact the generator encodes.
+
 ## Inspecting formatter internals
 
 Both the standalone CLI and the legacy `gren format` subcommand accept debug flags:
