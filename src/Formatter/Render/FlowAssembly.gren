@@ -3,7 +3,7 @@ module Formatter.Render.FlowAssembly exposing (FlowItem, SoftGlueAlignment(..), 
 {-| Flow-assembly support: the `FlowItem`/`SoftGlueAlignment` types and the pure helpers that lay pre-rendered flow items out into a `Box`.
 -}
 
-import Formatter.Logical.LogicalPrintingTree exposing (LPBox(..), LPNode, ListBrackets(..), lpnBox, lpnChildren, lpnMaxRow)
+import Formatter.Logical.LogicalPrintingTree exposing (CommentRole(..), LPBox(..), LPNode, ListBrackets(..), commentRole, lpnBox, lpnChildren, lpnMaxRow)
 import Formatter.Render.Box as B exposing (Box(..))
 import Formatter.Render.BoxOps exposing (applyIndent, glueCommentSuffix, isSingleLine, joinInline, nodesShareStartRow, traverseResult)
 import Formatter.Render.FlowPolicy as FP
@@ -78,7 +78,6 @@ type alias FlowItem =
     { node : LPNode
     , box : Box
     , isBlock : Bool
-    , startRow : Int
     , comment : Maybe { box : Box, isLineComment : Bool, multiLine : Bool }
     }
 
@@ -86,6 +85,22 @@ type alias FlowItem =
 isCommentItem : FlowItem -> Bool
 isCommentItem item =
     item.comment /= Nothing
+
+
+-- A comment item glues onto the previous item's line (rather than standing on
+-- its own row) exactly when the classifier tagged it `TrailsPrevious` /
+-- `RidesInline`. Reads the stored role, not a source-row comparison.
+commentGlues : FlowItem -> Bool
+commentGlues item =
+    when commentRole (lpnBox item.node) is
+        Just TrailsPrevious ->
+            True
+
+        Just RidesInline ->
+            True
+
+        _ ->
+            False
 
 
 {-| Assemble a broken flow (head at base, each following item at +`indent`) that
@@ -106,10 +121,13 @@ assembleBrokenWithComments indent items =
                             Just c ->
                                 when Array.popLast acc.entries is
                                     Just { last = lastBox, initial } ->
-                                        if item.startRow == acc.lastRow && acc.lastRow >= 0 then
+                                        if commentGlues item && acc.lastRow >= 0 then
                                             -- Glue the comment onto the item's last
                                             -- line; the item may itself be multi-line
                                             -- (`glueCommentSuffix` joins its last line).
+                                            -- `acc.lastRow >= 0` still guards "the
+                                            -- previous entry is real content" (it
+                                            -- resets to -1 after a comment).
                                             Ok { acc | entries = Array.pushLast (glueCommentSuffix c.box lastBox) initial }
 
                                         else

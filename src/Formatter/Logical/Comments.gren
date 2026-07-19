@@ -988,6 +988,21 @@ prevBlockGlueRow node =
             -- Only when the flow ends in a closing bracket (`foo`⏎`  [ … ]`).
             bracketClosingRow node
 
+        -- A same-row block comment glues onto a multi-line paren's closing `)`
+        -- (`(bar baz) {- c -}`); after a single-line paren it stays own-line, as
+        -- after a plain call. `lastRenderedRow` is -1-safe for the single-line
+        -- case only via the span check below.
+        ParenBlock _ ->
+            let
+                range =
+                    subtreeRowRange node
+            in
+            if range.maxRow > range.minRow then
+                lastRenderedRow node
+
+            else
+                -1
+
         AllAcrossOrAllVertical _ ->
             if bracketRendersMultiline node then
                 bracketClosingRow node

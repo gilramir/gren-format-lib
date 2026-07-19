@@ -15,7 +15,7 @@ import Formatter.Logical.BinopPrecedence exposing (binopMinPrecedence, binopPrec
 import Formatter.Logical.LogicalPrintingTree exposing (CommentRole(..), LPBox(..), LPNode, ListBrackets(..), SyntaxType(..), commentRole, firstRowInSubtree, lpnBox, lpnChildren, lpnLastBracketEnd, lpnLastPos, lpnMaxRow)
 import Formatter.Render.BinopLayout exposing (assembleBinopBox, bracketOperandForcesVertical, flattenBinopNodes, isChainBreakingOperandBox, opText, splitTrailingOwnLineComments)
 import Formatter.Render.Box as B exposing (Box(..))
-import Formatter.Render.BoxOps exposing (applyIndent, blockIndentSpaces, boxLine, glueCommentSuffix, grenIndent, isBlockNode, isSingleLine, joinInline, nodeStartRow, prefixOperator, spaceJoinLines, stackWithBlanks, traverseResult, wrapParenVerticalPadded)
+import Formatter.Render.BoxOps exposing (applyIndent, blockIndentSpaces, boxLine, glueCommentSuffix, grenIndent, isBlockNode, isSingleLine, joinInline, prefixOperator, spaceJoinLines, stackWithBlanks, traverseResult, wrapParenVerticalPadded)
 import Formatter.Render.CommentBox exposing (commentNodeBox, emptyBracketedCommentLine, glueTrailingComments, makeCommentLineBox, multiLineBlockCommentBox, peelTrailingCommentNodes, spanLeadingComments, spanTrailingComments)
 import Formatter.Render.ElmStructure as E
 import Formatter.Render.FlowAssembly exposing (FlowItem, SoftGlueAlignment(..), assembleBrokenCall, assembleBrokenWithComments, bracketPunc, gluedExposingBox, pairTypeRecordComments, parenInnerIsAlignCarrying, softBlockChildForcesVerticalBox, softGlueAlignment, trySoftGlueFlow, verticalExposingBox)
@@ -2864,7 +2864,6 @@ renderFlowItem node =
                 { node = node
                 , box = B.blankLine
                 , isBlock = False
-                , startRow = loc.start.row
                 , comment = Just { box = B.line (B.literal ("--" ++ loc.value)), isLineComment = True, multiLine = False }
                 }
 
@@ -2876,7 +2875,6 @@ renderFlowItem node =
                             { node = node
                             , box = B.blankLine
                             , isBlock = False
-                            , startRow = loc.start.row
                             , comment = Just { box = cbox, isLineComment = False, multiLine = True }
                             }
                         )
@@ -2886,7 +2884,6 @@ renderFlowItem node =
                     { node = node
                     , box = B.blankLine
                     , isBlock = False
-                    , startRow = loc.start.row
                     , comment = Just { box = B.line (B.literal ("{-" ++ loc.value ++ "-}")), isLineComment = False, multiLine = False }
                     }
 
@@ -2897,7 +2894,6 @@ renderFlowItem node =
                         { node = node
                         , box = box
                         , isBlock = isBlockNode node box
-                        , startRow = nodeStartRow node
                         , comment = Nothing
                         }
                     )
