@@ -1,41 +1,46 @@
 # Comment/Layout Architecture Plan: stop re-deriving, start storing
 
-**Status:** Change A (Phases 1–3) landed in full; Change B substantially landed
-(the layout decisions already observe rendered box shape; the one redundant pure
-predicate was retired). One pure predicate remains for a documented reason. All
-gates green, every fixture byte-identical (2026-07-19), on branch `comments`.
-This document is a self-contained plan meant to be handed to an implementer with
-no prior conversation context.
+**Status:** Change A (Phases 1–3) AND Change B landed in full — the plan is
+complete. No `Render/*` code re-derives a comment-placement or verticality
+decision from source rows; layout is decided once from author-intent flags and
+the rendered box shape. All gates green, every fixture byte-identical
+(2026-07-19), on branch `comments`. This document is a self-contained plan meant
+to be handed to an implementer with no prior conversation context.
 
 ## Progress log
 
-- **Change B (observe rendered shape) — SUBSTANTIALLY DONE.** On inspection most
-  of Change B was already in place: the verticality decisions observe the
-  rendered box, not a mirror predicate — bracketed literals via
-  `ElmStructure.groupBox`'s `B.allSingles`, record updates via
-  `contentVertical = Array.any (not << isSingleLine) fieldBoxes` (the `27e8903`
-  crash site), and binop chains via `anyOperandRendersMultiline` (`7dfa132`).
-  `checkContentVertical` is *not* a pure predicate but the sound
-  author-vs-synthesized flag §8 describes: it gates whether the renderer consults
-  the rendered box shape (`.isBlock` in the `AcrossOrVertical` arm,
-  `isSingleLine innerBox` in `parenGenericFallbackBox`) — synthesized wraps opt
-  out. Work done this pass:
+- **Change B (observe rendered shape) — DONE.** Most of Change B was already in
+  place: the verticality decisions observe the rendered box, not a mirror
+  predicate — bracketed literals via `ElmStructure.groupBox`'s `B.allSingles`,
+  record updates via `contentVertical = Array.any (not << isSingleLine)
+  fieldBoxes` (the `27e8903` crash site), and binop chains via
+  `anyOperandRendersMultiline` (`7dfa132`). `checkContentVertical` is *not* a pure
+  predicate but the sound author-vs-synthesized flag §8 describes: it gates
+  whether the renderer consults the rendered box shape (`.isBlock` in the
+  `AcrossOrVertical` arm, `isSingleLine innerBox` in `parenGenericFallbackBox`) —
+  synthesized wraps opt out. Work done:
   - Retired the **redundant** pure binop predicate: `makeBinopBox` OR'd
     `bracketOperandForcesVertical` (a source-row shape predicate) with the
-    render-based `anyOperandRendersMultiline`; the former's every hit also
-    renders multi-line, so dropping it was byte-identical. Deleted it plus
+    render-based `anyOperandRendersMultiline`; the former's every hit also renders
+    multi-line, so dropping it was byte-identical. Deleted it plus
     `operandIsMultilineBracketLiteral` / `operandCommentForcesOpen`, and the now
     dead `nodeSpansRows`.
-  - **Remaining pure predicate:** `subtreeHasVerticalBox` / `bracketOpenGate`,
-    consumed **only** by `isMultilineContentParenBlockBox` — which selects a
-    pipeline-step's paren-relocation *renderer* (`makeMultilineParenArgBox` for a
-    paren wrapping a multi-line *bracket*, vs `makePBox` for a paren wrapping an
-    `if`/`when`/`let`). It classifies the *kind* of multi-line content, not just
-    "multi-line", so a plain `isSingleLine` swap would misroute `if`/`when` parens
-    to the bracket renderer. The `audit-predicates` gate confirms it never lies
-    (a sound under-approximation), so it stays until someone restructures
-    `stepBodyBox`'s renderer selection to be shape-based while preserving the
-    bracket-vs-`if`/`when` distinction. That is the only piece of §6 still open.
+  - **Retired `subtreeHasVerticalBox` / `bracketOpenGate` by restructuring
+    `stepBodyBox`** — its sole consumer, `isMultilineContentParenBlockBox`, was
+    used in two pipeline-step sites: (a) the trigger split, where it is subsumed
+    by the render-based `flowChildForcesVerticalBox`; and (b) the trigger-renderer
+    selection, where it picked `makeMultilineParenArgBox` — which turns out to be
+    byte-identical to `makePBox`'s own paren path
+    (`makeParenBlockBox → parenGenericFallbackBox → wrapParenVerticalPadded
+    (buildFlowBoxInline 0 …)`), so the trigger renders via its own box and the
+    special renderer is redundant. Deleted `subtreeHasVerticalBox`,
+    `bracketOpenGate`, `isMultilineContentParenBlockBox`, and
+    `makeMultilineParenArgBox`.
+  - The `audit-predicates` gate now covers only `isMultilineLambdaParenBlockBox`
+    — a structural lambda-shape query (paren + lambda head + `IndentedBlock`
+    second child), *not* a shape prediction from rows — so nothing it audits can
+    lie about verticality anymore. **§8's "`subtreeHasVerticalBox` and the
+    `subtreeHasComment`-as-layout-input family are gone" is met.**
 
 ## Progress log (Change A)
 
