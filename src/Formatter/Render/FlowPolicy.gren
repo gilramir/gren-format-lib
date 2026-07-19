@@ -69,57 +69,24 @@ type NextSeparator
     | AlreadyTerminated
 
 
-{-| The decision state threaded through a flow fold. It records what the
-*previous* item was, so each comment item can decide whether it glues onto that
-item's last line (same source row) or drops to its own line.
-
-  - `prevRowBlock` — the source row a following **block** comment (`{- … -}`) glues
-    onto. It is deliberately *coarse*: only items where a same-row block comment
-    is known to glue safely set a real row (an `UnbreakableText` leaf, a dropped
-    record's closing bracket, a multi-line expression bracket's `]`/`}`);
-    everything else resets it to `-1` ("no glue — stay own-line"). This coarse
-    tracking is part of the proven fixed-point discipline, and it is what keeps a
-    block comment after a plain-token call (`decl x =` ⟶ `{- c -}`) or a lone
-    single-line bracket (`{ x } {- … -}`) on its own line, matching elm-format
-    and the comment fixtures.
-
-  - `prevRowLine` — the source row a following **line** comment (`--`) glues
-    onto. A line comment is *unambiguously trailing*: `--` runs to end-of-line,
-    so nothing can follow it on the row, and gluing it onto the preceding item's
-    last token is always a reparse fixed point. It can therefore glue in strictly
-    more places than a block comment, so it reads this **more liberal** row. The
-    two rows DIFFER exactly where a same-row `--` should glue but a `{- … -}`
-    should not: after a plain-token call (`foo bar -- c`), a lone `{}` / `[]`,
-    and a single-line bracket (`{ a = 1 } -- c`) — there `prevRowBlock = -1` (block
-    stays own-line) while `prevRowLine` is the real last-token / closing-bracket
-    row (line comment glues, so `fn = foo bar -- c` is a fixed point instead of a
-    +4 ↔ col-0 oscillation). Where a block comment already glues (leaf token,
-    multi-line bracket) the two rows are equal.
-
-  - `prevElided` — whether the previous item was a zero-width *elided* token
-    (`->`, `:`, `=`; see `ItemFacts.isElidedArrow`). A comment directly trailing
-    such a token glues regardless of row, because the token has no width/position
-    of its own and can wrap onto a continuation line, so a pure row test would
-    flip the comment's placement on the next format.
+{-| The decision state threaded through a flow fold.
 
   - `separator` — the join to apply *before* the next item (space, forced
     newline, already-terminated, …); see `NextSeparator`.
+
+Comment placement no longer needs any source-row state here: whether a comment
+glues onto the previous item or leads its own line is the stored `CommentRole`,
+decided once in `Formatter.Logical.Comments` (see comment-arch.md). The old
+`prevRowBlock` / `prevRowLine` / `prevElided` two-row state machine that
+re-derived that at render time is gone.
 -}
 type alias FlowState =
-    { prevRowBlock : Int
-    , prevRowLine : Int
-    , prevElided : Bool
-    , separator : NextSeparator
-    }
+    { separator : NextSeparator }
 
 
 initialFlowState : FlowState
 initialFlowState =
-    { prevRowBlock = -1
-    , prevRowLine = -1
-    , prevElided = False
-    , separator = FirstItem
-    }
+    { separator = FirstItem }
 
 
 {-| Per-flow configuration, fixed for the whole fold.
@@ -158,23 +125,16 @@ Renderer-supplied facts (`forcesVertical`, `childForcesVertical`) are computed
 by the caller from the rendered box shape (`not isSingleLine`) — whether the
 child ended up multi-line.
 
-  - `LeafItem.isElidedArrow` — the synthesized signature `->` is a zero-width
-    `UnbreakableText` (start == end) anchored at the end of its `from` type,
-    not where it renders. A comment directly trailing it must glue regardless
-    of row (see `commentPlacement`); scoped to `->` by value — other elided
-    tokens (`exposing`, `:`) precede a short neighbour or a bracketed block,
-    where a comment on its own row legitimately stays own-line.
-  - `BracketLiteralItem.closingRow` — the record's closing-bracket source
-    row, carried into `prevRowBlock` when the record drops so a single-line block
-    comment on that same source row glues onto the `}` line (see
-    `BracketLiteralItem`'s arm in `decide`).
-
+A comment item carries its `CommentRole` (decided once in
+`Formatter.Logical.Comments`), which is all `decide` needs to place it — no
+source rows. `LeafItem` no longer carries any facts: its only role is to advance
+the separator state.
 -}
 type ItemFacts
-    = LeafItem { startRow : Int, startRowLine : Int, isElidedArrow : Bool }
-    | LineCommentItem { startRow : Int, role : CommentRole }
-    | BlockCommentItem { startRow : Int, multiLine : Bool, role : CommentRole }
-    | BracketLiteralItem { forcesVertical : Bool, isTypeRecord : Bool, closingRow : Int }
+    = LeafItem
+    | LineCommentItem { role : CommentRole }
+    | BlockCommentItem { multiLine : Bool, role : CommentRole }
+    | BracketLiteralItem { forcesVertical : Bool, isTypeRecord : Bool }
     | IndentedBlockItem
     | BodyBlockItem
     | SoftBlockItem { childForcesVertical : Bool }
@@ -244,14 +204,10 @@ separated by a blank line, including an own-line comment leading a part.
 decide : FlowConfig -> FlowState -> ItemFacts -> Decision
 decide config state facts =
     when facts is
-        LeafItem f ->
+        LeafItem ->
             { placement = joinPlacement config state.separator
             , next =
-                { prevRowBlock = f.startRow
-                , prevRowLine = f.startRowLine
-                , prevElided = f.isElidedArrow
-                , separator = FlowSep
-                }
+                { separator = FlowSep }
             }
 
         LineCommentItem f ->
@@ -269,11 +225,7 @@ decide config state facts =
             -- `{} -- c` a reparse fixed point instead of a +4 ↔ col-0 oscillation.
             { placement = commentPlacement config state f.role
             , next =
-                { prevRowBlock = f.startRow
-                , prevRowLine = f.startRow
-                , prevElided = False
-                , separator = AlreadyTerminated
-                }
+                { separator = AlreadyTerminated }
             }
 
         BlockCommentItem f ->
@@ -296,11 +248,7 @@ decide config state facts =
             if f.multiLine || standaloneLeading then
                 { placement = commentPlacement config state f.role
                 , next =
-                    { prevRowBlock = f.startRow
-                    , prevRowLine = f.startRow
-                    , prevElided = False
-                    , separator = AlreadyTerminated
-                    }
+                    { separator = AlreadyTerminated }
                 }
 
             else
@@ -330,11 +278,7 @@ decide config state facts =
                     -- would detach on reparse). Only following comments read
                     -- `prevRowBlock`; plain items join by separator, so this is inert
                     -- for them.
-                    { prevRowBlock = f.startRow
-                    , prevRowLine = f.startRow
-                    , prevElided = False
-                    , separator = FlowSep
-                    }
+                    { separator = FlowSep }
                 }
 
         BracketLiteralItem f ->
@@ -377,11 +321,7 @@ decide config state facts =
                 -- (see the BlockCommentItem inline arm's same-row path).
                 { placement = DropBlock rule
                 , next =
-                    { prevRowBlock = f.closingRow
-                    , prevRowLine = f.closingRow
-                    , prevElided = False
-                    , separator = blockNextSep rule
-                    }
+                    { separator = blockNextSep rule }
                 }
 
             else if f.forcesVertical then
@@ -395,11 +335,7 @@ decide config state facts =
                 -- (`separator = FlowSep`); only a same-row comment glues.
                 { placement = joinPlacement config state.separator
                 , next =
-                    { prevRowBlock = f.closingRow
-                    , prevRowLine = f.closingRow
-                    , prevElided = False
-                    , separator = FlowSep
-                    }
+                    { separator = FlowSep }
                 }
 
             else
@@ -414,11 +350,7 @@ decide config state facts =
                 -- non-comment item still joins by separator.
                 { placement = joinPlacement config state.separator
                 , next =
-                    { prevRowBlock = -1
-                    , prevRowLine = f.closingRow
-                    , prevElided = False
-                    , separator = FlowSep
-                    }
+                    { separator = FlowSep }
                 }
 
         IndentedBlockItem ->
@@ -460,11 +392,7 @@ decide config state facts =
                     _ ->
                         OwnLineAfterBlank
             , next =
-                { prevRowBlock = -1
-                , prevRowLine = -1
-                , prevElided = False
-                , separator = FlowSep
-                }
+                { separator = FlowSep }
             }
 
         PipelineStepItem ->
@@ -480,11 +408,7 @@ decide config state facts =
                     _ ->
                         BlockJoin { rule = IndentedRule }
             , next =
-                { prevRowBlock = -1
-                , prevRowLine = -1
-                , prevElided = False
-                , separator = HardNl
-                }
+                { separator = HardNl }
             }
 
         EmptyLineItem ->
@@ -492,11 +416,7 @@ decide config state facts =
             -- HardNl so the following binding still wraps onto its own line.
             { placement = BlankLineOnly
             , next =
-                { prevRowBlock = -1
-                , prevRowLine = -1
-                , prevElided = False
-                , separator = HardNl
-                }
+                { separator = HardNl }
             }
 
 
@@ -575,11 +495,7 @@ blockDecision rule state =
             _ ->
                 BlockJoin { rule = rule }
     , next =
-        { prevRowBlock = -1
-        , prevRowLine = -1
-        , prevElided = False
-        , separator = blockNextSep rule
-        }
+        { separator = blockNextSep rule }
     }
 
 

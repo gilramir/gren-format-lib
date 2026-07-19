@@ -20,7 +20,7 @@ import Formatter.Render.CommentBox exposing (commentNodeBox, emptyBracketedComme
 import Formatter.Render.ElmStructure as E
 import Formatter.Render.FlowAssembly exposing (FlowItem, SoftGlueAlignment(..), assembleBrokenCall, assembleBrokenWithComments, bracketPunc, gluedExposingBox, pairTypeRecordComments, parenInnerIsAlignCarrying, softBlockChildForcesVerticalBox, softGlueAlignment, trySoftGlueFlow, verticalExposingBox)
 import Formatter.Render.FlowPolicy as FP
-import Formatter.Render.NodeClassify exposing (fieldValueDropsToOwnLine, isColonLeaf, isDroppingSignatureRecordNode, isElidedArrow, isMultilineContentParenBlockBox, isMultilineLambdaParenBlockBox, isOpAndRhsNode, isPipelineStepNode, leafLineRow, leafValue, literalCommentsRideFlatLine, nodeIsComment, parenContentIsLambdaHead, rowsSpanMultiple, signatureForceVertical, splitSignatureSegments, subtreeHasComment, subtreeHasMultilineBlockComment, typeHasCommentBracket)
+import Formatter.Render.NodeClassify exposing (fieldValueDropsToOwnLine, isColonLeaf, isDroppingSignatureRecordNode, isMultilineContentParenBlockBox, isMultilineLambdaParenBlockBox, isOpAndRhsNode, isPipelineStepNode, leafLineRow, leafValue, literalCommentsRideFlatLine, nodeIsComment, parenContentIsLambdaHead, rowsSpanMultiple, signatureForceVertical, splitSignatureSegments, subtreeHasComment, subtreeHasMultilineBlockComment, typeHasCommentBracket)
 
 
 {-| Entry point: render one top-level root child to a Box, or `Err` if it
@@ -2848,27 +2848,6 @@ commentBracketListBox bracket nodes =
                     )
 
 
-{-| A flow item's true last rendered source row: the `max` of its last source
-token (`lpnLastPos`) and its closing bracket (`lpnLastBracketEnd`). The two
-differ when a flow carries a plain token AFTER its last bracket (`y (0)`⏎`  0`),
-so neither alone is the anchor a same-row trailing `--` comment glues to. `-1`
-when the node has no position at all (`Maybe.withDefault -1` on both). -}
-lastRenderedRow : LPNode -> Int
-lastRenderedRow node =
-    let
-        lastRow =
-            lpnLastPos node
-                |> Maybe.map (\p -> p.row)
-                |> Maybe.withDefault -1
-
-        bracketRow =
-            lpnLastBracketEnd node
-                |> Maybe.map (\p -> p.row)
-                |> Maybe.withDefault -1
-    in
-    max lastRow bracketRow
-
-
 -- Render each flow node to a Box (Err if any is unported), tagging whether it
 -- occupies its own block line, its start row, and — for a comment — the rendered
 -- comment box so `assembleFlowImpl` can place it by row.
@@ -3013,48 +2992,24 @@ assembleFlowImpl inlineStart flowIndent items =
                                 |> Maybe.withDefault LeadsOwnLine
                     in
                     if c.isLineComment then
-                        FP.LineCommentItem { startRow = item.startRow, role = role }
+                        FP.LineCommentItem { role = role }
 
                     else
-                        FP.BlockCommentItem { startRow = item.startRow, multiLine = c.multiLine, role = role }
+                        FP.BlockCommentItem { multiLine = c.multiLine, role = role }
 
                 Nothing ->
+                    -- Non-comment items now carry no source rows: comment
+                    -- placement reads the stored `CommentRole`, so `decide` only
+                    -- needs the item's structural kind. A bracket literal reports
+                    -- its rendered verticality (for the type-record drop); every
+                    -- block wrapper is its own fact; everything else is a plain
+                    -- `LeafItem` that merely advances the separator.
                     when lpnBox item.node is
                         AllAcrossOrAllVertical _ ->
                             bracketFacts item
 
                         AlwaysVertical _ ->
                             bracketFacts item
-
-                        AcrossOrVertical _ ->
-                            -- `startRowLine` is this flow's last source-token row,
-                            -- the anchor a same-row trailing `--` comment glues to
-                            -- (`foo bar -- c`, `decl x`) instead of dropping to its
-                            -- own line and detaching on reparse (+4 ↔ col-0).
-                            -- `startRow` (the *block*-comment anchor) is the
-                            -- bracket's row when the flow ENDS IN A CLOSING BRACKET
-                            -- (`foo`⏎`  [ … ]`, where a block comment glues onto the
-                            -- `]`), and `-1` otherwise so a block comment after a
-                            -- plain-token flow (`decl x =` ⟶ `{- c -}`) stays
-                            -- own-line — matching elm-format and the comment
-                            -- fixtures. A later-row body-leading comment is on a
-                            -- different row and stays own-line either way.
-                            -- `startRowLine` (the line-comment anchor) is the
-                            -- flow's true last rendered row (`lastRenderedRow` —
-                            -- the `max` of last token and closing bracket, because
-                            -- a flow can carry a plain token AFTER its last bracket:
-                            -- `y (0)`⏎`    0`, the `0` on a later row than the `)`).
-                            -- Using the bracket row alone left a same-row `-- c`
-                            -- after that trailing token failing the glue test and
-                            -- detaching (+N ↔ col-0). `startRow` (the block-comment
-                            -- anchor) stays the bracket's row when the flow ends in a
-                            -- closing bracket, `-1` otherwise.
-                            when lpnLastBracketEnd item.node is
-                                Just p ->
-                                    FP.LeafItem { startRow = p.row, startRowLine = lastRenderedRow item.node, isElidedArrow = False }
-
-                                Nothing ->
-                                    FP.LeafItem { startRow = -1, startRowLine = lastRenderedRow item.node, isElidedArrow = False }
 
                         IndentedBlock ->
                             FP.IndentedBlockItem
@@ -3071,59 +3026,13 @@ assembleFlowImpl inlineStart flowIndent items =
                         PipelineStep ->
                             FP.PipelineStepItem
 
-                        EmptyBracketed loc ->
-                            -- `{}` / `[]`: a single-token literal carrying its own
-                            -- span. A same-row trailing `--` line comment glues onto
-                            -- it (`startRowLine`) instead of dropping to its own line
-                            -- (+4 ↔ col-0 oscillation); a block comment keeps
-                            -- `startRow = -1` and stays own-line, as it did before.
-                            FP.LeafItem { startRow = -1, startRowLine = loc.start.row, isElidedArrow = False }
-
-                        UnbreakableText loc ->
-                            FP.LeafItem { startRow = loc.start.row, startRowLine = loc.start.row, isElidedArrow = isElidedArrow item.node }
-
-                        -- A `( … )` value in a flow position (a `when`-branch
-                        -- body, a `let` binding, a call/pipeline argument).
-                        -- `startRow` stays `-1` (a block comment after it stays
-                        -- own-line, as it always has — matching the
-                        -- `AcrossOrVertical` arm's `Nothing` branch and the
-                        -- block-comment fixtures), but `startRowLine` (the
-                        -- line-comment anchor) is the item's true last rendered
-                        -- row (`lastRenderedRow`, mirroring the `AcrossOrVertical`
-                        -- arm) — so a same-row trailing `--` glues onto that line
-                        -- instead of detaching (`(0) -- c` as a `when`-branch body
-                        -- — the +N ↔ col-0 oscillation the `AcrossOrVertical` /
-                        -- `EmptyBracketed` arms already fixed). A `RecordUpdate` is
-                        -- always multi-line, so a trailing comment on it attaches
-                        -- INSIDE the braces (`Comments.gren`) and never reaches
-                        -- this flow arm — it needs no case here.
-                        ParenBlock _ ->
-                            FP.LeafItem { startRow = -1, startRowLine = lastRenderedRow item.node, isElidedArrow = False }
-
-                        -- Every other flow-item box kind — `RecordUpdate`,
-                        -- `Binop`, `WhenFlow`, `OpAndRhs`, `Glue`, `PrefixGlue`,
-                        -- `MultilineString`. `startRowLine = -1` ("unknown"): a
-                        -- same-row trailing comment after one of these is not
-                        -- recognized as glueable and stays own-line. `PrefixGlue`
-                        -- covers a lambda's argument-pattern head
-                        -- (`\{ x } -- c`⏎`y ->`), where the own-line comment is the
-                        -- intended, elm-format-matching layout — do NOT give this
-                        -- arm a line anchor. The rest are intercepted by a more
-                        -- specific comment path first (`assembleBrokenCall`,
-                        -- `verticalBinopChainBox`, `Comments.gren` nesting) and
-                        -- empirically never misplace (checked 2026-07-13 / -15,
-                        -- call-argument flows).
                         _ ->
-                            FP.LeafItem { startRow = -1, startRowLine = -1, isElidedArrow = False }
+                            FP.LeafItem
 
         bracketFacts item =
             FP.BracketLiteralItem
                 { forcesVertical = not (isSingleLine item.box)
                 , isTypeRecord = FP.isTypeRecordLiteral item.node
-                , closingRow =
-                    lpnLastBracketEnd item.node
-                        |> Maybe.map (\p -> p.row)
-                        |> Maybe.withDefault -1
                 }
 
         -- Glue a single line onto the last completed row's last line — the
