@@ -163,20 +163,21 @@ never re-derives it from source rows.
     before the next sibling. The default for own-row comments.
   - `RidesInline` — an inline `{- -}` that rides in the middle of a flat flow
     without forcing a break (`f {- k -} x`). Only ever a single-line block
-    comment.
-  - `InsideBracketClose` — sits between a container's last item and its closing
-    bracket (placed there by the `commentInside*` descent).
+    comment. Distinguished from `TrailsPrevious` only by
+    `literalCommentsRideFlatLine` (which keeps a bracket/union flat when every
+    comment rides); every other consumer glues both alike.
   - `Standalone` — a top-level detached comment: its own `OriginalRows` at
     column 1.
 
 `DocComment` needs no role — doc comments are top-level-only and already
-unambiguous.
+unambiguous. (A comment inside a bracket container is not a distinct role: the
+classifier's bracket branch tags it `TrailsPrevious` / `RidesInline` /
+`LeadsOwnLine` like any other, which is all `commentBracketListBox` needs.)
 -}
 type CommentRole
     = TrailsPrevious
     | LeadsOwnLine
     | RidesInline
-    | InsideBracketClose
     | Standalone
 
 

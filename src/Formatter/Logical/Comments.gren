@@ -827,8 +827,8 @@ lastRealPosition node =
 
 
 -- True for the bracket container box kinds whose interior comments render via
--- the bracket-list path (placed before the close): a comment that is a child of
--- one of these is `InsideBracketClose`.
+-- the bracket-list path: a comment that is a child of one of these is classified
+-- by `classifyCommentKind`'s bracket branch (its permissive same-row rule).
 isBracketContainerBox : LPBox -> Bool
 isBracketContainerBox box =
     when box is

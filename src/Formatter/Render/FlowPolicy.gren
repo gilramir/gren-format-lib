@@ -445,8 +445,8 @@ joinPlacement config sep =
 
 -- A comment glues onto the previous item's line when the classifier tagged it
 -- `TrailsPrevious` (a `--` or `{- -}` that trails the item) or `RidesInline`
--- (an inline `{- -}` riding a flat flow). `LeadsOwnLine` / `Standalone` /
--- `InsideBracketClose` do not glue here.
+-- (an inline `{- -}` riding a flat flow). `LeadsOwnLine` / `Standalone` do not
+-- glue here.
 roleGlues : CommentRole -> Bool
 roleGlues role =
     role == TrailsPrevious || role == RidesInline

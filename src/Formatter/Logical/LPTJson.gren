@@ -30,9 +30,6 @@ roleString role =
         RidesInline ->
             "RidesInline"
 
-        InsideBracketClose ->
-            "InsideBracketClose"
-
         Standalone ->
             "Standalone"
 
