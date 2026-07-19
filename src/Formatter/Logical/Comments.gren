@@ -880,64 +880,132 @@ lastRenderedRow node =
     max lp be
 
 
--- True when a comment directly trailing this node glues regardless of row: the
--- node is a zero-width elided token (a synthesized `=`/`in`/`->`/… or a
--- zero-width `UnbreakableText` such as the signature `->`) whose rendered
--- position does not match its anchor row, so a pure row test would flip on
--- reformat (matches FlowPolicy's `prevElided`).
+-- True when a comment directly trailing this node glues regardless of row,
+-- matching FlowPolicy's `prevElided` — which is set ONLY from `isElidedArrow`:
+-- the zero-width synthesized signature `->` (an `UnbreakableText "->"` anchored
+-- at the end of its `from` type, not where it renders), so a pure row test would
+-- flip on reformat. Other position-less tokens (`in`, `=`, `:`) are NOT elided
+-- here: a comment on its own row after them legitimately stays own-line (e.g.
+-- the `let … in` trailing comment, a deliberate README divergence).
 nodeIsElided : LPNode -> Bool
 nodeIsElided node =
     when lpnBox node is
-        SynthesizedText _ ->
-            True
-
         UnbreakableText loc ->
-            loc.start.row == loc.end.row && loc.start.col == loc.end.col
+            loc.value == "->"
+                && loc.start.row == loc.end.row
+                && loc.start.col == loc.end.col
 
         _ ->
             False
 
 
--- Whether a same-row *block* comment (`{- -}`) is allowed to glue onto this
--- previous node — matching FlowPolicy's coarse `prevRowBlock`: a block comment
--- glues after a bare token or a multi-line bracket's close, but NOT after a
--- plain-token call, a lone `{}` / `[]`, or a single-line bracket (there it
--- stays own-line, while a `--` still glues — see `classifyCommentKind`).
-blockGlueAllowed : LPNode -> Bool
-blockGlueAllowed node =
+-- The exact closing-bracket row of a bracket container (its `]`/`}`/`)`), or -1.
+bracketClosingRow : LPNode -> Int
+bracketClosingRow node =
+    when lpnLastBracketEnd node is
+        Just p ->
+            p.row
+
+        Nothing ->
+            -1
+
+
+-- True if the subtree contains any line/block comment leaf.
+subtreeContainsComment : LPNode -> Bool
+subtreeContainsComment node =
+    isCommentNode node || Array.any subtreeContainsComment (lpnChildren node)
+
+
+-- Whether a bracket container renders multi-line (so a following block comment
+-- can glue onto its closing bracket's line). An `AlwaysVertical` list always
+-- does; an `AllAcrossOrAllVertical` list stays inline unless a contained comment
+-- (or a multi-row span) forces it open. This mirrors `factsFor`'s render-derived
+-- `forcesVertical` from source structure — the render-observed version arrives
+-- with Change B.
+bracketRendersMultiline : LPNode -> Bool
+bracketRendersMultiline node =
     when lpnBox node is
-        UnbreakableText _ ->
+        AlwaysVertical _ ->
             True
-
-        -- A same-row comment following another *single-row* comment glues onto
-        -- it — a run `] {- a -} {- b -}` keeps every comment on the `]` line
-        -- (FlowPolicy carries the previous comment's row forward for this). A
-        -- `--` is inherently single-row; a `{- … -}` only when it does not span
-        -- rows. After a *multi-line* block comment the next comment leads its
-        -- own line (FlowPolicy's `AlreadyTerminated`), so it must NOT glue.
-        SingleLineComment _ ->
-            True
-
-        BlockComment _ ->
-            let
-                range =
-                    subtreeRowRange node
-            in
-            range.maxRow == range.minRow
 
         _ ->
             let
                 range =
                     subtreeRowRange node
             in
-            (range.maxRow > range.minRow)
-                && (when lpnLastBracketEnd node is
-                        Just _ ->
-                            True
+            range.maxRow > range.minRow || subtreeContainsComment node
 
-                        Nothing ->
-                            False
-                   )
+
+-- The source row a following `--` line comment glues onto (or -1 for "no glue,
+-- stay own-line"). A faithful port of `factsFor`'s `startRowLine` per box kind:
+-- a `--` is unambiguously trailing, so it glues onto the previous item's last
+-- rendered row in strictly more places than a block comment.
+prevLineGlueRow : LPNode -> Int
+prevLineGlueRow node =
+    when lpnBox node is
+        UnbreakableText loc ->
+            loc.start.row
+
+        EmptyBracketed loc ->
+            loc.start.row
+
+        AcrossOrVertical _ ->
+            lastRenderedRow node
+
+        ParenBlock _ ->
+            lastRenderedRow node
+
+        AllAcrossOrAllVertical _ ->
+            bracketClosingRow node
+
+        AlwaysVertical _ ->
+            bracketClosingRow node
+
+        -- A run of comments: the following one glues onto the previous comment's
+        -- start row (FlowPolicy carries it forward as `prevRowLine`).
+        SingleLineComment _ ->
+            firstRowInSubtree node
+
+        BlockComment _ ->
+            firstRowInSubtree node
+
+        _ ->
+            -1
+
+
+-- The source row a following `{- -}` block comment glues onto (or -1). The
+-- coarser counterpart of `prevLineGlueRow` (`factsFor`'s `startRow` /
+-- `prevRowBlock`): a block comment glues after a bare token or a *multi-line*
+-- bracket's close, but NOT after a plain-token call, a lone/empty bracket, or a
+-- single-line bracket — there a `--` still glues but a `{- -}` stays own-line.
+prevBlockGlueRow : LPNode -> Int
+prevBlockGlueRow node =
+    when lpnBox node is
+        UnbreakableText loc ->
+            loc.start.row
+
+        AcrossOrVertical _ ->
+            -- Only when the flow ends in a closing bracket (`foo`⏎`  [ … ]`).
+            bracketClosingRow node
+
+        AllAcrossOrAllVertical _ ->
+            if bracketRendersMultiline node then
+                bracketClosingRow node
+
+            else
+                -1
+
+        AlwaysVertical _ ->
+            bracketClosingRow node
+
+        SingleLineComment _ ->
+            firstRowInSubtree node
+
+        BlockComment _ ->
+            firstRowInSubtree node
+
+        _ ->
+            -1
 
 
 -- True for a line/block comment leaf.
@@ -996,10 +1064,14 @@ classifyCommentKind containerBox commentNode before after row =
             Array.first after
 
         -- A `--` runs to end-of-line, so it is unambiguously trailing: it glues
-        -- onto the previous item's last rendered row (or any elided token),
-        -- else it leads its own line. A `--` can never ride inline.
+        -- onto the previous item's line-glue row (or any elided token), else it
+        -- leads its own line. A `--` can never ride inline.
         classifyLine p =
-            if nodeIsElided p || row == lastRenderedRow p then
+            let
+                g =
+                    prevLineGlueRow p
+            in
+            if nodeIsElided p || (g >= 0 && row == g) then
                 TrailsPrevious
 
             else
@@ -1007,12 +1079,15 @@ classifyCommentKind containerBox commentNode before after row =
 
         -- A single-line `{- -}` between two same-row neighbours rides inline
         -- (`f {- k -} x`); otherwise it trails the previous item where the
-        -- block-glue rules allow, else it leads its own line. A multi-line
-        -- `{- … -}` never rides.
+        -- (coarser) block-glue rules allow, else it leads its own line. A
+        -- multi-line `{- … -}` never rides.
         classifyBlock p multiline =
             let
+                g =
+                    prevBlockGlueRow p
+
                 sameRowPrev =
-                    nodeIsElided p || row == lastRenderedRow p
+                    nodeIsElided p || (g >= 0 && row == g)
 
                 sameRowNext =
                     when next is
@@ -1025,7 +1100,7 @@ classifyCommentKind containerBox commentNode before after row =
             if not multiline && sameRowPrev && sameRowNext then
                 RidesInline
 
-            else if sameRowPrev && blockGlueAllowed p then
+            else if sameRowPrev then
                 TrailsPrevious
 
             else

@@ -44,7 +44,8 @@ surfaced before facts are built.
 -}
 
 import Formatter.Logical.LogicalPrintingTree exposing
-    ( LPBox(..)
+    ( CommentRole(..)
+    , LPBox(..)
     , LPNode
     , ListBrackets(..)
     , lpnBox
@@ -171,8 +172,8 @@ child ended up multi-line.
 -}
 type ItemFacts
     = LeafItem { startRow : Int, startRowLine : Int, isElidedArrow : Bool }
-    | LineCommentItem { startRow : Int }
-    | BlockCommentItem { startRow : Int, multiLine : Bool }
+    | LineCommentItem { startRow : Int, role : CommentRole }
+    | BlockCommentItem { startRow : Int, multiLine : Bool, role : CommentRole }
     | BracketLiteralItem { forcesVertical : Bool, isTypeRecord : Bool, closingRow : Int }
     | IndentedBlockItem
     | BodyBlockItem
@@ -266,7 +267,7 @@ decide config state facts =
             -- bracket — whose `prevRowBlock` is `-1` to keep block comments off-line,
             -- matching elm-format). This is what makes `foo bar -- c` /
             -- `{} -- c` a reparse fixed point instead of a +4 ↔ col-0 oscillation.
-            { placement = commentPlacement config { state | prevRowBlock = state.prevRowLine } f.startRow
+            { placement = commentPlacement config state f.role
             , next =
                 { prevRowBlock = f.startRow
                 , prevRowLine = f.startRow
@@ -293,7 +294,7 @@ decide config state facts =
                         || state.separator == AlreadyTerminated
             in
             if f.multiLine || standaloneLeading then
-                { placement = commentPlacement config state f.startRow
+                { placement = commentPlacement config state f.role
                 , next =
                     { prevRowBlock = f.startRow
                     , prevRowLine = f.startRow
@@ -313,7 +314,10 @@ decide config state facts =
                 -- inline previous item the `SoftSep` join already renders a
                 -- space, so this is a no-op there.
                 { placement =
-                    if state.prevRowBlock >= 0 && f.startRow == state.prevRowBlock then
+                    -- Glue onto the current line only when there IS one: at
+                    -- `FirstItem` nothing precedes, so fall through to
+                    -- `joinPlacement` (which yields `AsFirst`).
+                    if roleGlues f.role && state.separator /= FirstItem then
                         GlueSpace
 
                     else
@@ -519,11 +523,22 @@ joinPlacement config sep =
             GlueNoSep
 
 
--- The own-line-comment join: same-row (or elided-`->`-trailing) comments
--- glue with a space; different-row comments force their own line. `config`
--- is unused today but keeps the helper's signature uniform with the arms.
-commentPlacement : FlowConfig -> FlowState -> Int -> Placement
-commentPlacement _ state startRow =
+-- A comment glues onto the previous item's line when the classifier tagged it
+-- `TrailsPrevious` (a `--` or `{- -}` that trails the item) or `RidesInline`
+-- (an inline `{- -}` riding a flat flow). `LeadsOwnLine` / `Standalone` /
+-- `InsideBracketClose` do not glue here.
+roleGlues : CommentRole -> Bool
+roleGlues role =
+    role == TrailsPrevious || role == RidesInline
+
+
+-- The own-line-comment join: a `TrailsPrevious` / `RidesInline` comment glues
+-- with a space; a `LeadsOwnLine` comment forces its own line. The glue/own-line
+-- call is the stored `CommentRole` — decided once in `Comments.gren` from the
+-- pristine parse rows — not a render-time row comparison. `config` is unused
+-- today but keeps the helper's signature uniform with the arms.
+commentPlacement : FlowConfig -> FlowState -> CommentRole -> Placement
+commentPlacement _ state role =
     when state.separator is
         FirstItem ->
             AsFirst
@@ -532,15 +547,7 @@ commentPlacement _ state startRow =
             GlueNoSep
 
         _ ->
-            -- `|| state.prevElided`: a comment directly trailing a zero-width
-            -- elided token (`->`, `:`, `=`, …) is anchored at that token's
-            -- left-neighbour row, not where the token renders. If the token
-            -- wraps onto its own continuation line, the comment's own row no
-            -- longer equals that anchor — so a pure row test would flip it to
-            -- its own line on the next format even though it stays glued
-            -- beside the (wrapped) token. Gluing whenever it trails an elided
-            -- token keeps the rendering stable across reformats.
-            if startRow == state.prevRowBlock || state.prevElided then
+            if roleGlues role then
                 GlueSpace
 
             else
