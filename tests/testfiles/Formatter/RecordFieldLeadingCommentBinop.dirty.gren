@@ -1,0 +1,14 @@
+module RecordFieldLeadingCommentBinop exposing (..)
+
+
+literalField =
+    { alpha = {- leading the value -} 31
+        >> 0
+    }
+
+
+updateField acc =
+    { acc | bravo = {- leading the value -} acc
+        < acc
+        ^ 0
+    }

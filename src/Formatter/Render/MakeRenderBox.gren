@@ -1303,61 +1303,86 @@ recordFieldValueDrops field =
         Nothing ->
             False
 
-        Just { last = valueNode, initial = headNodes } ->
-            if Array.any nodeIsComment headNodes then
-                -- A comment before the value (`f = {- c -} …`) makes the head
-                -- itself multi-line; the drop composition with the field prefix
-                -- is a separate edge case, so leave it on the existing path.
+        Just { last = valueNode } ->
+            -- A comment before the value (`f = {- c -} 31 >> 0`) does not change
+            -- the drop decision: the value is still the last child, and a soft
+            -- multi-line value must drop below `name =` whether or not a comment
+            -- precedes it (elm-format's `equalsPair` rule). `dropFieldValueBox`
+            -- peels the leading comment onto its own line above the value. (An
+            -- earlier early `False` here left the comment case on the plain flow
+            -- path, where a raw multi-line `Binop` sibling hit an "unreachable"
+            -- soft-glue arm and crashed.)
+            let
+                isHardBlock =
+                    when lpnBox valueNode is
+                        BodyBlock ->
+                            True
+
+                        IndentedBlock ->
+                            True
+
+                        SoftIndentedBlock ->
+                            True
+
+                        WhenBranch ->
+                            True
+
+                        PipelineStep ->
+                            True
+
+                        EmptyLine ->
+                            True
+
+                        _ ->
+                            False
+            in
+            if isHardBlock then
                 False
 
             else
-                let
-                    isHardBlock =
-                        when lpnBox valueNode is
-                            BodyBlock ->
-                                True
+                when makePBox (lpnBox valueNode) (lpnChildren valueNode) is
+                    Ok b ->
+                        not (isSingleLine b)
 
-                            IndentedBlock ->
-                                True
-
-                            SoftIndentedBlock ->
-                                True
-
-                            WhenBranch ->
-                                True
-
-                            PipelineStep ->
-                                True
-
-                            EmptyLine ->
-                                True
-
-                            _ ->
-                                False
-                in
-                if isHardBlock then
-                    False
-
-                else
-                    when makePBox (lpnBox valueNode) (lpnChildren valueNode) is
-                        Ok b ->
-                            not (isSingleLine b)
-
-                        Err _ ->
-                            False
+                    Err _ ->
+                        False
 
 
-{-| elm-format's `equalsPair` drop for a record-update field whose value is a
-soft multi-line node: render `name =` on its own line and stack the value at
+{-| elm-format's `equalsPair` drop for a record field whose value is a soft
+multi-line node: render `name =` on its own line and stack the value at
 +grenIndent below it. The value's own box supplies its internal layout, so a
-broken call `Array.map (\…) xs` becomes `name =` / `Array.map` / args. -}
+broken call `Array.map (\…) xs` becomes `name =` / `Array.map` / args.
+
+A comment authored between `=` and the value (`name = {- c -} 31 >> 0`) is
+peeled off the head (`spanTrailingComments`) and stacked on its own line
+*above* the value inside the dropped block — matching elm-format:
+
+    name =
+        {- c -}
+        31
+            >> 0
+
+Keeping it on the head line (`name = {- c -}`) would leave the multi-line value
+to glue after it in the flow assembler, which has no rule for a raw `Binop`
+sibling and crashed ("unreachable soft-glue item"). -}
 dropFieldValueBox : Array LPNode -> Result String Box
 dropFieldValueBox children =
     when Array.popLast children is
         Just { last = valueNode, initial = headNodes } ->
-            Result.map2
-                (\headBox valueBox -> B.stack1 [ headBox, applyIndent grenIndent valueBox ])
-                (buildFlowBox 0 headNodes)
+            let
+                split =
+                    spanTrailingComments headNodes
+            in
+            Result.map3
+                (\headBox commentBoxes valueBox ->
+                    B.stack1
+                        [ headBox
+                        , applyIndent grenIndent
+                            (B.stack1 (Array.pushLast valueBox commentBoxes))
+                        ]
+                )
+                (buildFlowBox 0 split.body)
+                (traverseResult commentNodeBox split.trailing)
                 (makePBox (lpnBox valueNode) (lpnChildren valueNode))
 
         Nothing ->

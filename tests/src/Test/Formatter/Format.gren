@@ -444,6 +444,7 @@ commentsSuite fsPerm =
             , assertPretty fsPerm "own-line comment before a container's closing bracket stays inside" "BracketTrailingComments"
             , assertPretty fsPerm "an indented comment written below a bracketed container (list/record/update) at a declaration's end detaches to a top-level column-1 comment in a single format, instead of drifting one column left per reformat" "TrailingCommentAfterContainer"
             , assertPretty fsPerm "a `--` line comment trailing a declaration body (call / single-line record / array / `{}` / `[]`) rides the body's last line instead of oscillating +4 ↔ col-0" "TrailingLineCommentBodyEnd"
+            , assertPretty fsPerm "a record field (literal or update) whose value is a multi-line binop led by a block comment drops the comment then value below `name =` (was an unreachable soft-glue crash)" "RecordFieldLeadingCommentBinop"
             , assertPretty fsPerm "comment trailing a signature's last token stays glued inline" "SignatureTrailingComment"
             , assertPretty fsPerm "a comment leading a multi-line type record drops onto its own line above the record (elm-format match)" "TypeRecordLeadingComment"
             , assertPretty fsPerm "comment trailing the last let binding routes after `in` (not own-line, which would oscillate)" "LetInTrailingComment"
