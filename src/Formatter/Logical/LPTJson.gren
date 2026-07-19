@@ -15,7 +15,26 @@ machine consumer.
 import Json.Encode as Json
 
 import Compiler.SourcePosition exposing (Located, Position)
-import Formatter.Logical.LogicalPrintingTree exposing (LPBox(..), LPNode, ListBrackets(..), SyntaxType(..), lpnBox, lpnChildren, stypeToString)
+import Formatter.Logical.LogicalPrintingTree exposing (CommentRole(..), LPBox(..), LPNode, ListBrackets(..), SyntaxType(..), lpnBox, lpnChildren, stypeToString)
+
+
+roleString : CommentRole -> String
+roleString role =
+    when role is
+        TrailsPrevious ->
+            "TrailsPrevious"
+
+        LeadsOwnLine ->
+            "LeadsOwnLine"
+
+        RidesInline ->
+            "RidesInline"
+
+        InsideBracketClose ->
+            "InsideBracketClose"
+
+        Standalone ->
+            "Standalone"
 
 
 {-| Serialise the Logical Printing Tree to JSON for debugging.
@@ -60,16 +79,18 @@ lpBoxFields lpbox =
             , { key = "endCol", value = Json.int loc.end.col }
             ]
 
-        SingleLineComment { loc } ->
+        SingleLineComment { loc, role } ->
             [ { key = "type", value = Json.string "SingleLineComment" }
             , { key = "value", value = Json.string loc.value }
+            , { key = "role", value = Json.string (roleString role) }
             , { key = "startRow", value = Json.int loc.start.row }
             , { key = "startCol", value = Json.int loc.start.col }
             ]
 
-        BlockComment { loc } ->
+        BlockComment { loc, role } ->
             [ { key = "type", value = Json.string "BlockComment" }
             , { key = "value", value = Json.string loc.value }
+            , { key = "role", value = Json.string (roleString role) }
             , { key = "startRow", value = Json.int loc.start.row }
             , { key = "startCol", value = Json.int loc.start.col }
             ]

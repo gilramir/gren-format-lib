@@ -3,7 +3,7 @@ module Formatter.Render.NodeClassify exposing (bracketOpenGate, fieldValueDropsT
 {-| Boolean predicates and small structural queries over LPT nodes.
 -}
 
-import Formatter.Logical.LogicalPrintingTree exposing (LPBox(..), LPNode, firstRowInSubtree, lpnBox, lpnBracketStart, lpnChildren, lpnFirstPos, lpnLastPos, lpnMaxRow)
+import Formatter.Logical.LogicalPrintingTree exposing (CommentRole(..), LPBox(..), LPNode, commentRole, firstRowInSubtree, lpnBox, lpnBracketStart, lpnChildren, lpnFirstPos, lpnLastPos, lpnMaxRow)
 import Formatter.Render.Box as B
 import Formatter.Render.FlowPolicy as FP
 
@@ -44,45 +44,26 @@ put on its own row, whose placement the flat form cannot carry.
 A `{-| … -}` is top-level only — the parser rejects one inside a literal, an
 exposing list, or a union body — so it never reaches here. Excluding it anyway
 costs nothing and keeps the rule right if that ever changes.
+
+Every comment that can ride the flat line is exactly a `RidesInline`
+comment — the classifier's bracket branch tags a single-line `{- -}` trailing
+an item on its row that way, and a `--` / multi-line / own-row comment anything
+else. So this is now "every comment child is `RidesInline`".
 -}
 literalCommentsRideFlatLine : Array LPNode -> Bool
 literalCommentsRideFlatLine children =
-    Array.foldl
-        (\node acc ->
-            when lpnBox node is
-                BlockComment { loc } ->
-                    { acc
-                        | ok =
-                            acc.ok
-                                && not (String.contains "\n" loc.value)
-                                && loc.start.row == acc.prevRow
-                    }
+    not
+        (Array.any
+            (\node ->
+                when commentRole (lpnBox node) is
+                    Just role ->
+                        role /= RidesInline
 
-                SingleLineComment _ ->
-                    { acc | ok = False }
-
-                DocComment _ ->
-                    { acc | ok = False }
-
-                _ ->
-                    { acc | prevRow = literalItemRow node }
+                    Nothing ->
+                        False
+            )
+            children
         )
-        { ok = True, prevRow = -1 }
-        children
-        |> .ok
-
-
--- The row a literal's item ends on, for pairing a trailing comment to it.
--- Mirrors the `itemRow` that `commentBracketListBox` folds with, so both paths
--- agree on which item a comment trails.
-literalItemRow : LPNode -> Int
-literalItemRow node =
-    when lpnBox node is
-        UnbreakableText l ->
-            l.start.row
-
-        _ ->
-            lpnMaxRow node
 
 
 -- True if the subtree contains a MULTI-LINE block comment — the align-anchored

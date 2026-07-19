@@ -2717,6 +2717,22 @@ space, a comment on its own row gets its own line at the bracket column; the
 closing bracket sits on its own line. Box stacking supplies the alignment
 (elm-format). The uniform record-array coupling (a whole-list flat/expanded
 choice) is NOT reproduced — those fall back. -}
+-- True when a comment glues onto the previous bracket-list item (rather than
+-- standing on its own line): the stored `CommentRole` is `TrailsPrevious` or
+-- `RidesInline`. Decided once in `Comments.gren`, not from source rows here.
+commentTrailsRole : LPNode -> Bool
+commentTrailsRole node =
+    when commentRole (lpnBox node) is
+        Just TrailsPrevious ->
+            True
+
+        Just RidesInline ->
+            True
+
+        _ ->
+            False
+
+
 commentBracketListBox : ListBrackets -> Array LPNode -> Result String Box
 commentBracketListBox bracket nodes =
     when bracketPunc bracket is
@@ -2728,15 +2744,17 @@ commentBracketListBox bracket nodes =
 
         Just { left, right } ->
             let
-                placeComment commentRow node acc =
+                placeComment node acc =
                     commentNodeBox node
                         |> Result.andThen
                             (\cbox ->
-                                if commentRow == acc.prevRow then
+                                if commentTrailsRole node then
                                     -- Trailing the preceding item: attach with a
                                     -- single space (layout is author-driven, not
                                     -- width-driven). A multi-line trailing comment
                                     -- pads under its start via `glueCommentSuffix`.
+                                    -- Whether it trails is the stored `CommentRole`
+                                    -- (`TrailsPrevious`/`RidesInline`), not a row test.
                                     when acc.pending is
                                         Nothing ->
                                             Ok
@@ -2765,7 +2783,6 @@ commentBracketListBox bracket nodes =
                                     Ok
                                         { entries = Array.pushLast { box = cbox, isComment = True } flushed
                                         , pending = Nothing
-                                        , prevRow = commentRow
                                         }
                             )
 
@@ -2776,25 +2793,17 @@ commentBracketListBox bracket nodes =
 
                         Ok acc ->
                             when lpnBox node is
-                                SingleLineComment { loc } ->
-                                    placeComment loc.start.row node acc
+                                SingleLineComment _ ->
+                                    placeComment node acc
 
-                                BlockComment { loc } ->
-                                    placeComment loc.start.row node acc
+                                BlockComment _ ->
+                                    placeComment node acc
 
                                 _ ->
                                     literalItemRenderer bracket node
                                         |> Result.andThen
                                             (\box ->
                                                 let
-                                                    itemRow =
-                                                        when lpnBox node is
-                                                            UnbreakableText l ->
-                                                                l.start.row
-
-                                                            _ ->
-                                                                lpnMaxRow node
-
                                                     flushed =
                                                         when acc.pending is
                                                             Nothing ->
@@ -2806,11 +2815,10 @@ commentBracketListBox bracket nodes =
                                                 Ok
                                                     { entries = flushed
                                                     , pending = Just { box = box, isComment = False }
-                                                    , prevRow = itemRow
                                                     }
                                             )
             in
-            Array.foldl step (Ok { entries = [], pending = Nothing, prevRow = -1 }) nodes
+            Array.foldl step (Ok { entries = [], pending = Nothing }) nodes
                 |> Result.map
                     (\state ->
                         let

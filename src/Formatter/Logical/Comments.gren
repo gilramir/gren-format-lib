@@ -487,11 +487,11 @@ insertAmongChildren : LPBox -> LPNode -> Int -> Int -> Array LPNode -> Array LPN
 insertAmongChildren containerBox commentNode row col children =
     if Array.isEmpty children then
         -- No siblings to classify against. A comment inside a bracket container
-        -- (`{ {- c -} }`) is `InsideBracketClose`; otherwise keep the role the
-        -- caller pre-set (`Standalone` for a fresh top-level slot, else the
-        -- `LeadsOwnLine` default).
+        -- (`{ {- c -} }`) classifies via the bracket branch (leads its own line);
+        -- otherwise keep the role the caller pre-set (`Standalone` for a fresh
+        -- top-level slot, else the `LeadsOwnLine` default).
         [ if isBracketContainerBox containerBox then
-            lpnSetCommentRole InsideBracketClose commentNode
+            lpnSetCommentRole (classifyCommentKind containerBox commentNode [] [] row) commentNode
 
           else
             commentNode
@@ -579,12 +579,7 @@ insertAmongChildren containerBox commentNode row col children =
             -- is classified by `classifyCommentKind`.
             classifiedComment =
                 lpnSetCommentRole
-                    (if isBracketContainerBox containerBox then
-                        InsideBracketClose
-
-                     else
-                        classifyCommentKind containerBox commentNode finalBefore finalAfter row
-                    )
+                    (classifyCommentKind containerBox commentNode finalBefore finalAfter row)
                     commentNode
 
             leadingComment =
@@ -853,6 +848,23 @@ isBracketContainerBox box =
             False
 
 
+-- True when an `AcrossOrVertical` is a union variant (`= Ctor` / `| Ctor`)
+-- rather than a call: its first child is the synthesized `=` or `|` head.
+isUnionVariantFlow : LPNode -> Bool
+isUnionVariantFlow node =
+    when Array.first (lpnChildren node) is
+        Just c ->
+            when lpnBox c is
+                SynthesizedText v ->
+                    v == "=" || v == "|"
+
+                _ ->
+                    False
+
+        Nothing ->
+            False
+
+
 -- The last row a node actually renders content on: the max of its last
 -- positioned token and its closing bracket (elm-format's "last rendered line").
 -- This is the row a trailing comment must share to glue onto it. (Exactly the
@@ -985,8 +997,17 @@ prevBlockGlueRow node =
             loc.start.row
 
         AcrossOrVertical _ ->
-            -- Only when the flow ends in a closing bracket (`foo`⏎`  [ … ]`).
-            bracketClosingRow node
+            if isUnionVariantFlow node then
+                -- A union variant (`= Red`, `| Green`) is a bare constructor, not
+                -- a call: a same-row block comment rides it (`= Red {- warm -}`),
+                -- so the union stays flat. Distinguished by the `=`/`|` head.
+                lastRenderedRow node
+
+            else
+                -- A call flow: only glue when it ends in a closing bracket
+                -- (`foo`⏎`  [ … ]`); after a plain-token call a block comment
+                -- stays own-line (`foo bar` ⟶ `{- c -}`).
+                bracketClosingRow node
 
         -- A same-row block comment glues onto a multi-line paren's closing `)`
         -- (`(bar baz) {- c -}`); after a single-line paren it stays own-line, as
@@ -1059,6 +1080,38 @@ classifyCommentKind containerBox commentNode before after row =
                 _ ->
                     False
 
+        -- A comment that is a direct child of a bracketed container renders via
+        -- `commentBracketListBox`, whose glue rule is *permissive*: a comment on
+        -- the same row as the previous item (any item kind — a token, a nested
+        -- record, a paren) trails it; an own-row one leads its own line. This
+        -- differs from the generic-flow coarse rule, and these comments never
+        -- reach the generic `decide` path, so they get their own branch.
+        isBracketBranch =
+            isBracketContainerBox containerBox
+
+        -- The row a bracket-list child ends on, mirroring `commentBracketListBox`'s
+        -- `prevRow` (a bare token by its start; a comment by its start; anything
+        -- else by its max row).
+        bracketItemRow n =
+            if isCommentNode n then
+                firstRowInSubtree n
+
+            else
+                when lpnBox n is
+                    UnbreakableText l ->
+                        l.start.row
+
+                    _ ->
+                        (subtreeRowRange n).maxRow
+
+        bracketPrevRow =
+            when prev is
+                Just p ->
+                    bracketItemRow p
+
+                Nothing ->
+                    -1
+
         -- Last rendered row of the last non-comment sibling before the comment.
         refRow =
             Array.foldl
@@ -1092,10 +1145,13 @@ classifyCommentKind containerBox commentNode before after row =
             else
                 LeadsOwnLine
 
-        -- A single-line `{- -}` between two same-row neighbours rides inline
-        -- (`f {- k -} x`); otherwise it trails the previous item where the
-        -- (coarser) block-glue rules allow, else it leads its own line. A
-        -- multi-line `{- … -}` never rides.
+        -- A single-line `{- -}` on the previous item's row rides the flat line
+        -- (`RidesInline` — the only comment kind `literalCommentsRideFlatLine`
+        -- keeps flat); a multi-line `{- … -}` on that row glues but breaks the
+        -- line (`TrailsPrevious`); an own-row comment leads its own line.
+        -- `RidesInline` vs `TrailsPrevious` is observed only by
+        -- `literalCommentsRideFlatLine`; every other consumer glues both, so the
+        -- distinction need not consider the *next* neighbour.
         classifyBlock p multiline =
             let
                 g =
@@ -1103,25 +1159,38 @@ classifyCommentKind containerBox commentNode before after row =
 
                 sameRowPrev =
                     nodeIsElided p || (g >= 0 && row == g)
-
-                sameRowNext =
-                    when next is
-                        Just n ->
-                            firstRowInSubtree n == row
-
-                        Nothing ->
-                            False
             in
-            if not multiline && sameRowPrev && sameRowNext then
-                RidesInline
+            if not sameRowPrev then
+                LeadsOwnLine
 
-            else if sameRowPrev then
+            else if multiline then
                 TrailsPrevious
 
             else
-                LeadsOwnLine
+                RidesInline
     in
-    if isBinopContainer then
+    if isBracketBranch then
+        -- Own-row → leads its own line at the bracket column. Same-row as the
+        -- previous item → glues: a single-line `{- -}` rides the flat line
+        -- (`RidesInline`, the only kind `literalCommentsRideFlatLine` keeps
+        -- flat); a `--` or a multi-line `{- … -}` glues but breaks the line
+        -- (`TrailsPrevious`).
+        if bracketPrevRow < 0 || row /= bracketPrevRow then
+            LeadsOwnLine
+
+        else
+            when lpnBox commentNode is
+                BlockComment { loc } ->
+                    if String.contains "\n" loc.value then
+                        TrailsPrevious
+
+                    else
+                        RidesInline
+
+                _ ->
+                    TrailsPrevious
+
+    else if isBinopContainer then
         -- Same-row-as-operand trails inline; a later-row comment leads its own
         -- line at the operator indent (relative to `refRow`, the last operand).
         if row > refRow then
