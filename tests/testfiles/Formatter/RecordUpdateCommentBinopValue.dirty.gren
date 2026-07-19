@@ -1,0 +1,17 @@
+module Gen654 exposing (..)
+
+import Foo0
+import Qux1
+import Bar2
+
+
+fn0 z 4 =
+    { x | next0 = {- k0 -} 31
+                      >= 0
+                      <= 0
+                      >= ( let
+                               x = 0
+                           in
+                           acc
+                         )
+    } {- k7 -}

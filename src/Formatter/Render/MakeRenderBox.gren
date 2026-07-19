@@ -1528,7 +1528,19 @@ makeRecordUpdateVerticalBox baseName children =
                                             grenIndent
 
                                 fieldBoxResult =
-                                    if fieldValueDropsToOwnLine node then
+                                    if fieldValueDropsToOwnLine node && not (recordFieldValueDrops node) then
+                                        -- A comment within the field forces its value
+                                        -- onto its own line. For a *single-line* value
+                                        -- (`gamma = {- c -} 3`) `buildFlowBox` drops it
+                                        -- below `= `. But a *multi-line* value (a binop
+                                        -- chain, a broken call) that `recordFieldValueDrops`
+                                        -- already handles must go through
+                                        -- `renderRecordFieldBox` instead: `dropFieldValueBox`
+                                        -- peels the leading comment onto its own line above
+                                        -- the value, whereas `buildFlowBox` would feed the
+                                        -- raw multi-line `Binop` into the flow assembler,
+                                        -- which has no rule for it and crashed
+                                        -- ("unreachable soft-glue item").
                                         buildFlowBox fieldFlowIndent (lpnChildren node)
 
                                     else
