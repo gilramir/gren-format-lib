@@ -68,16 +68,45 @@ type NextSeparator
     | AlreadyTerminated
 
 
-{-| The decision state threaded through a flow fold: the source row of the
-previous positioned leaf (`-1` if none — note the deliberately *coarse*
-tracking: only `UnbreakableText` leaves and a dropped record's closing
-bracket set a real row; every other item resets it to `-1`, which is part of
-the proven fixed-point discipline), whether that leaf was an elided `->`
-(see `ItemFacts.isElidedArrow`), and the separator to apply before the next
-item.
+{-| The decision state threaded through a flow fold. It records what the
+*previous* item was, so each comment item can decide whether it glues onto that
+item's last line (same source row) or drops to its own line.
+
+  - `prevRowBlock` — the source row a following **block** comment (`{- … -}`) glues
+    onto. It is deliberately *coarse*: only items where a same-row block comment
+    is known to glue safely set a real row (an `UnbreakableText` leaf, a dropped
+    record's closing bracket, a multi-line expression bracket's `]`/`}`);
+    everything else resets it to `-1` ("no glue — stay own-line"). This coarse
+    tracking is part of the proven fixed-point discipline, and it is what keeps a
+    block comment after a plain-token call (`decl x =` ⟶ `{- c -}`) or a lone
+    single-line bracket (`{ x } {- … -}`) on its own line, matching elm-format
+    and the comment fixtures.
+
+  - `prevRowLine` — the source row a following **line** comment (`--`) glues
+    onto. A line comment is *unambiguously trailing*: `--` runs to end-of-line,
+    so nothing can follow it on the row, and gluing it onto the preceding item's
+    last token is always a reparse fixed point. It can therefore glue in strictly
+    more places than a block comment, so it reads this **more liberal** row. The
+    two rows DIFFER exactly where a same-row `--` should glue but a `{- … -}`
+    should not: after a plain-token call (`foo bar -- c`), a lone `{}` / `[]`,
+    and a single-line bracket (`{ a = 1 } -- c`) — there `prevRowBlock = -1` (block
+    stays own-line) while `prevRowLine` is the real last-token / closing-bracket
+    row (line comment glues, so `fn = foo bar -- c` is a fixed point instead of a
+    +4 ↔ col-0 oscillation). Where a block comment already glues (leaf token,
+    multi-line bracket) the two rows are equal.
+
+  - `prevElided` — whether the previous item was a zero-width *elided* token
+    (`->`, `:`, `=`; see `ItemFacts.isElidedArrow`). A comment directly trailing
+    such a token glues regardless of row, because the token has no width/position
+    of its own and can wrap onto a continuation line, so a pure row test would
+    flip the comment's placement on the next format.
+
+  - `separator` — the join to apply *before* the next item (space, forced
+    newline, already-terminated, …); see `NextSeparator`.
 -}
 type alias FlowState =
-    { prevRow : Int
+    { prevRowBlock : Int
+    , prevRowLine : Int
     , prevElided : Bool
     , separator : NextSeparator
     }
@@ -85,7 +114,8 @@ type alias FlowState =
 
 initialFlowState : FlowState
 initialFlowState =
-    { prevRow = -1
+    { prevRowBlock = -1
+    , prevRowLine = -1
     , prevElided = False
     , separator = FirstItem
     }
@@ -134,13 +164,13 @@ child ended up multi-line.
     tokens (`exposing`, `:`) precede a short neighbour or a bracketed block,
     where a comment on its own row legitimately stays own-line.
   - `BracketLiteralItem.closingRow` — the record's closing-bracket source
-    row, carried into `prevRow` when the record drops so a single-line block
+    row, carried into `prevRowBlock` when the record drops so a single-line block
     comment on that same source row glues onto the `}` line (see
     `BracketLiteralItem`'s arm in `decide`).
 
 -}
 type ItemFacts
-    = LeafItem { startRow : Int, isElidedArrow : Bool }
+    = LeafItem { startRow : Int, startRowLine : Int, isElidedArrow : Bool }
     | LineCommentItem { startRow : Int }
     | BlockCommentItem { startRow : Int, multiLine : Bool }
     | BracketLiteralItem { forcesVertical : Bool, isTypeRecord : Bool, closingRow : Int }
@@ -216,21 +246,30 @@ decide config state facts =
         LeafItem f ->
             { placement = joinPlacement config state.separator
             , next =
-                { prevRow = f.startRow
+                { prevRowBlock = f.startRow
+                , prevRowLine = f.startRowLine
                 , prevElided = f.isElidedArrow
                 , separator = FlowSep
                 }
             }
 
         LineCommentItem f ->
-            -- A comment on the same row as the preceding item (or one
+            -- A `--` comment on the same row as the preceding item (or one
             -- trailing an elided `->`) glues with a space; on a different
             -- row it forces an own-line break. Either way it ends its line
             -- with a forced newline (the materializer appends it), so the next
-            -- item starts fresh: AlreadyTerminated.
-            { placement = commentPlacement config state f.startRow
+            -- item starts fresh: AlreadyTerminated. A line comment reads
+            -- `prevRowLine`, not `prevRowBlock`: it is unambiguously trailing (a `--`
+            -- runs to EOL, nothing follows it on the row), so it glues onto the
+            -- preceding item's last *token* row even where a block comment there
+            -- stays own-line (a call `foo bar`, a lone `{}` / `[]` / single-line
+            -- bracket — whose `prevRowBlock` is `-1` to keep block comments off-line,
+            -- matching elm-format). This is what makes `foo bar -- c` /
+            -- `{} -- c` a reparse fixed point instead of a +4 ↔ col-0 oscillation.
+            { placement = commentPlacement config { state | prevRowBlock = state.prevRowLine } f.startRow
             , next =
-                { prevRow = f.startRow
+                { prevRowBlock = f.startRow
+                , prevRowLine = f.startRow
                 , prevElided = False
                 , separator = AlreadyTerminated
                 }
@@ -256,7 +295,8 @@ decide config state facts =
             if f.multiLine || standaloneLeading then
                 { placement = commentPlacement config state f.startRow
                 , next =
-                    { prevRow = f.startRow
+                    { prevRowBlock = f.startRow
+                    , prevRowLine = f.startRow
                     , prevElided = False
                     , separator = AlreadyTerminated
                     }
@@ -267,13 +307,13 @@ decide config state facts =
                 -- comment on the same source row as the previous item glues
                 -- onto that item's last rendered line with a space. This
                 -- matters after a *block* (a dropped type record, whose
-                -- `prevRow` is its `}` row): the HardNl separator would push
+                -- `prevRowBlock` is its `}` row): the HardNl separator would push
                 -- the comment to a fresh line, which reparses as an own-line
                 -- comment and detaches (a +4 ↔ col-0 oscillation). For an
                 -- inline previous item the `SoftSep` join already renders a
                 -- space, so this is a no-op there.
                 { placement =
-                    if state.prevRow >= 0 && f.startRow == state.prevRow then
+                    if state.prevRowBlock >= 0 && f.startRow == state.prevRowBlock then
                         GlueSpace
 
                     else
@@ -284,9 +324,10 @@ decide config state facts =
                     -- run like `] {- a -} {- b -}` keeps all of them on the `]`
                     -- line instead of dropping the second to its own line (which
                     -- would detach on reparse). Only following comments read
-                    -- `prevRow`; plain items join by separator, so this is inert
+                    -- `prevRowBlock`; plain items join by separator, so this is inert
                     -- for them.
-                    { prevRow = f.startRow
+                    { prevRowBlock = f.startRow
+                    , prevRowLine = f.startRow
                     , prevElided = False
                     , separator = FlowSep
                     }
@@ -322,7 +363,7 @@ decide config state facts =
                         else
                             BodyRule
                 in
-                -- Carry the record's closing-bracket row as `prevRow` (not -1)
+                -- Carry the record's closing-bracket row as `prevRowBlock` (not -1)
                 -- so a single-line block comment on that same source row glues
                 -- onto the record's `}` line (`} {- c -}`) instead of dropping
                 -- to a fresh line — which would reparse as an own-line comment
@@ -332,7 +373,8 @@ decide config state facts =
                 -- (see the BlockCommentItem inline arm's same-row path).
                 { placement = DropBlock rule
                 , next =
-                    { prevRow = f.closingRow
+                    { prevRowBlock = f.closingRow
+                    , prevRowLine = f.closingRow
                     , prevElided = False
                     , separator = blockNextSep rule
                     }
@@ -341,7 +383,7 @@ decide config state facts =
             else if f.forcesVertical then
                 -- A multi-line EXPRESSION bracket (list / record / update as a
                 -- value). Like the type-record path above, carry its closing-
-                -- bracket row as `prevRow` so a same-row trailing comment glues
+                -- bracket row as `prevRowBlock` so a same-row trailing comment glues
                 -- onto the `]`/`}` line (`] {- c -}`) — a reparse fixed point —
                 -- instead of dropping to its own line at the body indent, which
                 -- reparses as an own-line comment and detaches (the +4 ↔ col-0
@@ -349,16 +391,27 @@ decide config state facts =
                 -- (`separator = FlowSep`); only a same-row comment glues.
                 { placement = joinPlacement config state.separator
                 , next =
-                    { prevRow = f.closingRow
+                    { prevRowBlock = f.closingRow
+                    , prevRowLine = f.closingRow
                     , prevElided = False
                     , separator = FlowSep
                     }
                 }
 
             else
+                -- A single-line EXPRESSION bracket (`{ a = 1 }`, `[ 1, 2 ]`).
+                -- A same-row trailing `--` line comment glues onto the `}`/`]`
+                -- line (`prevRowLine = closingRow`) instead of dropping to its own
+                -- line, which reparses as an own-line comment and detaches (the
+                -- +4 ↔ col-0 oscillation). A *block* comment keeps `prevRowBlock = -1`
+                -- so it stays own-line — matching elm-format and the canonical
+                -- comment fixtures, which put a block comment after a single-line
+                -- bracket (`{ x } {- … -}`) on its own line. A following
+                -- non-comment item still joins by separator.
                 { placement = joinPlacement config state.separator
                 , next =
-                    { prevRow = -1
+                    { prevRowBlock = -1
+                    , prevRowLine = f.closingRow
                     , prevElided = False
                     , separator = FlowSep
                     }
@@ -403,7 +456,8 @@ decide config state facts =
                     _ ->
                         OwnLineAfterBlank
             , next =
-                { prevRow = -1
+                { prevRowBlock = -1
+                , prevRowLine = -1
                 , prevElided = False
                 , separator = FlowSep
                 }
@@ -422,7 +476,8 @@ decide config state facts =
                     _ ->
                         BlockJoin { rule = IndentedRule }
             , next =
-                { prevRow = -1
+                { prevRowBlock = -1
+                , prevRowLine = -1
                 , prevElided = False
                 , separator = HardNl
                 }
@@ -433,7 +488,8 @@ decide config state facts =
             -- HardNl so the following binding still wraps onto its own line.
             { placement = BlankLineOnly
             , next =
-                { prevRow = -1
+                { prevRowBlock = -1
+                , prevRowLine = -1
                 , prevElided = False
                 , separator = HardNl
                 }
@@ -484,7 +540,7 @@ commentPlacement _ state startRow =
             -- its own line on the next format even though it stays glued
             -- beside the (wrapped) token. Gluing whenever it trails an elided
             -- token keeps the rendering stable across reformats.
-            if startRow == state.prevRow || state.prevElided then
+            if startRow == state.prevRowBlock || state.prevElided then
                 GlueSpace
 
             else
@@ -512,7 +568,8 @@ blockDecision rule state =
             _ ->
                 BlockJoin { rule = rule }
     , next =
-        { prevRow = -1
+        { prevRowBlock = -1
+        , prevRowLine = -1
         , prevElided = False
         , separator = blockNextSep rule
         }

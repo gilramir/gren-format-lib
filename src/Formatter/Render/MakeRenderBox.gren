@@ -2878,23 +2878,30 @@ assembleFlowImpl inlineStart flowIndent items =
                             bracketFacts item
 
                         AcrossOrVertical _ ->
-                            -- A call / flow that ENDS IN A CLOSING BRACKET
-                            -- (`foo`⏎`  [ … ]`): carry the bracket's row as
-                            -- `prevRow` so a same-row trailing comment glues onto
-                            -- that `]`/`}` line instead of dropping to its own line —
-                            -- the multi-line-comment counterpart of the bracket-
-                            -- literal carry in `FlowPolicy` (without it the comment
-                            -- reparses own-line and detaches, +4 ↔ col-0). Gated on
-                            -- ending in a bracket: a call ending in a plain token
-                            -- (`decl x`, incl. one a comment inflated to multi-row)
-                            -- keeps the `-1` catch-all, so a following body-leading
-                            -- comment is unaffected.
+                            -- `startRowLine` is this flow's last source-token row,
+                            -- the anchor a same-row trailing `--` comment glues to
+                            -- (`foo bar -- c`, `decl x`) instead of dropping to its
+                            -- own line and detaching on reparse (+4 ↔ col-0).
+                            -- `startRow` (the *block*-comment anchor) is the
+                            -- bracket's row when the flow ENDS IN A CLOSING BRACKET
+                            -- (`foo`⏎`  [ … ]`, where a block comment glues onto the
+                            -- `]`), and `-1` otherwise so a block comment after a
+                            -- plain-token flow (`decl x =` ⟶ `{- c -}`) stays
+                            -- own-line — matching elm-format and the comment
+                            -- fixtures. A later-row body-leading comment is on a
+                            -- different row and stays own-line either way.
+                            let
+                                lastTokenRow =
+                                    lpnLastPos item.node
+                                        |> Maybe.map (\p -> p.row)
+                                        |> Maybe.withDefault -1
+                            in
                             when lpnLastBracketEnd item.node is
                                 Just p ->
-                                    FP.LeafItem { startRow = p.row, isElidedArrow = False }
+                                    FP.LeafItem { startRow = p.row, startRowLine = p.row, isElidedArrow = False }
 
                                 Nothing ->
-                                    FP.LeafItem { startRow = -1, isElidedArrow = False }
+                                    FP.LeafItem { startRow = -1, startRowLine = lastTokenRow, isElidedArrow = False }
 
                         IndentedBlock ->
                             FP.IndentedBlockItem
@@ -2911,8 +2918,16 @@ assembleFlowImpl inlineStart flowIndent items =
                         PipelineStep ->
                             FP.PipelineStepItem
 
+                        EmptyBracketed loc ->
+                            -- `{}` / `[]`: a single-token literal carrying its own
+                            -- span. A same-row trailing `--` line comment glues onto
+                            -- it (`startRowLine`) instead of dropping to its own line
+                            -- (+4 ↔ col-0 oscillation); a block comment keeps
+                            -- `startRow = -1` and stays own-line, as it did before.
+                            FP.LeafItem { startRow = -1, startRowLine = loc.start.row, isElidedArrow = False }
+
                         UnbreakableText loc ->
-                            FP.LeafItem { startRow = loc.start.row, isElidedArrow = isElidedArrow item.node }
+                            FP.LeafItem { startRow = loc.start.row, startRowLine = loc.start.row, isElidedArrow = isElidedArrow item.node }
 
                         -- Every other flow-item box kind — practically:
                         -- `RecordUpdate`, `ParenBlock`, `Binop`, `WhenFlow`,
@@ -2966,7 +2981,7 @@ assembleFlowImpl inlineStart flowIndent items =
                         -- wiring `lpnLastBracketEnd item.node` through
                         -- (mirroring the `AcrossOrVertical` arm) is the fix.
                         _ ->
-                            FP.LeafItem { startRow = -1, isElidedArrow = False }
+                            FP.LeafItem { startRow = -1, startRowLine = -1, isElidedArrow = False }
 
         bracketFacts item =
             FP.BracketLiteralItem

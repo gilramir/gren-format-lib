@@ -1,0 +1,21 @@
+module TrailingLineCommentBodyEnd exposing (..)
+
+
+emptyRecord =
+    {} -- trailing an empty record body
+
+
+emptyArray =
+    [] -- trailing an empty array body
+
+
+call =
+    foo bar -- trailing a multi-token call body
+
+
+recordLit =
+    { a = 1 } -- trailing a single-line record body
+
+
+arrayLit =
+    [ 1, 2 ] -- trailing a single-line array body
