@@ -38,7 +38,7 @@ makeCommentLineBox children =
         Just { first = first0, rest } ->
             commentNodeToBox first0
                 |> Result.andThen
-                    (\i0 ->
+                    (\firstBox ->
                         Array.foldl
                             (\node accResult ->
                                 accResult
@@ -46,7 +46,7 @@ makeCommentLineBox children =
                                         (\acc ->
                                             commentNodeToBox node
                                                 |> Result.andThen
-                                                    (\info ->
+                                                    (\box ->
                                                         if commentTrailsRole node then
                                                             -- Same-row block comment: join
                                                             -- with a space onto the last
@@ -54,7 +54,7 @@ makeCommentLineBox children =
                                                             -- never trails another comment
                                                             -- inline, so the box is single-
                                                             -- line.
-                                                            when B.isLine info.box is
+                                                            when B.isLine box is
                                                                 Ok l ->
                                                                     Ok { box = B.addSuffix (B.row [ B.space, l ]) acc.box }
 
@@ -63,11 +63,11 @@ makeCommentLineBox children =
 
                                                         else
                                                             -- New line: stack below.
-                                                            Ok { box = B.stack1 [ acc.box, info.box ] }
+                                                            Ok { box = B.stack1 [ acc.box, box ] }
                                                     )
                                         )
                             )
-                            (Ok { box = i0.box })
+                            (Ok { box = firstBox })
                             rest
                             |> Result.map .box
                     )
@@ -78,22 +78,21 @@ makeCommentLineBox children =
 -- comment reindents via `multiLineBlockCommentBox`; a doc comment's body is
 -- emitted verbatim as a single literal (safe — it is a standalone root child
 -- ending in `-}`).
-commentNodeToBox : LPNode -> Result String { box : Box, row : Int, isLine : Bool }
+commentNodeToBox : LPNode -> Result String Box
 commentNodeToBox node =
     when lpnBox node is
         SingleLineComment { loc } ->
-            Ok { box = B.line (B.literal ("--" ++ loc.value)), row = loc.start.row, isLine = True }
+            Ok (B.line (B.literal ("--" ++ loc.value)))
 
         BlockComment { loc } ->
             if String.contains "\n" loc.value then
                 multiLineBlockCommentBox loc.value
-                    |> Result.map (\b -> { box = b, row = loc.start.row, isLine = False })
 
             else
-                Ok { box = B.line (B.literal ("{-" ++ loc.value ++ "-}")), row = loc.start.row, isLine = False }
+                Ok (B.line (B.literal ("{-" ++ loc.value ++ "-}")))
 
         DocComment loc ->
-            Ok { box = B.line (B.literal (docCommentString loc.value)), row = loc.start.row, isLine = False }
+            Ok (B.line (B.literal (docCommentString loc.value)))
 
         _ ->
             -- unreachable: this function only ever runs on children of a
