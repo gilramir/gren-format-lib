@@ -65,10 +65,10 @@ commentFirstCol node =
     let
         leafStart child =
             when lpnBox child is
-                SingleLineComment loc ->
+                SingleLineComment { loc } ->
                     Just loc.start
 
-                BlockComment loc ->
+                BlockComment { loc } ->
                     Just loc.start
 
                 DocComment loc ->

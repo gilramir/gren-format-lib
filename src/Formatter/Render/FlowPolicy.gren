@@ -680,7 +680,7 @@ pairLeadingRecordComments nodes =
     let
         pairableComment n =
             when lpnBox n is
-                BlockComment loc ->
+                BlockComment { loc } ->
                     not (isMultiLineCommentValue loc.value)
 
                 _ ->

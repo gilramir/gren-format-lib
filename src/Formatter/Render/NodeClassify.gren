@@ -50,7 +50,7 @@ literalCommentsRideFlatLine children =
     Array.foldl
         (\node acc ->
             when lpnBox node is
-                BlockComment loc ->
+                BlockComment { loc } ->
                     { acc
                         | ok =
                             acc.ok
@@ -91,7 +91,7 @@ literalItemRow node =
 subtreeHasMultilineBlockComment : LPNode -> Bool
 subtreeHasMultilineBlockComment node =
     when lpnBox node is
-        BlockComment loc ->
+        BlockComment { loc } ->
             String.contains "\n" loc.value
 
         _ ->

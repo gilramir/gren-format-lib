@@ -1,7 +1,45 @@
 # Comment/Layout Architecture Plan: stop re-deriving, start storing
 
-**Status:** proposed, not started. This document is a self-contained plan meant
-to be handed to an implementer with no prior conversation context.
+**Status:** Phase 1 landed + first Phase-2 construct (binop) cut over — all gates
+green, every fixture byte-identical (2026-07-19). This document is a
+self-contained plan meant to be handed to an implementer with no prior
+conversation context.
+
+## Progress log
+
+- **Phase 1 (Change A foundation) — DONE.**
+  - Added `CommentRole` (`TrailsPrevious | LeadsOwnLine | RidesInline |
+    InsideBracketClose | Standalone`) to `LogicalPrintingTree`; changed the
+    `SingleLineComment` / `BlockComment` constructors to carry
+    `{ loc, role }`; added `commentRole` accessor and `lpnSetCommentRole`.
+    Every consumer updated (mechanical `{ loc }` destructure).
+  - Implemented the classifier in `Comments.gren` (`classifyCommentKind` +
+    `isBracketContainerBox` / `lastRenderedRow` / `nodeIsElided` /
+    `blockGlueAllowed`), assigning the role at the single splice point in
+    `insertAmongChildren` (plus `Standalone` for a fresh top-level slot and
+    `InsideBracketClose` for a bracket-container child). Roles are decided from
+    the pristine parse rows, §5.3.
+- **Phase 2, construct 1 (binop) — DONE.**
+  `BinopLayout.splitTrailingOwnLineComments` now decides own-line vs inline from
+  `commentRole == LeadsOwnLine` instead of the `contentRow` row arithmetic
+  (deleted). This is the plan's cross-check done as *direct consumption*: driving
+  the idempotency + gen-random sweeps to green surfaced and fixed two classifier
+  bugs — (a) a comment after a *multi-line* block comment must lead its own line
+  (FlowPolicy's `AlreadyTerminated`), (b) a binop trailing comment's reference
+  row is the last *non-comment* operand (mirrors `contentRow`), so binop
+  containers get their own branch in `classifyCommentKind`. All gates
+  byte-identical afterward.
+- **NOT YET DONE:** the rest of Phase 2 (FlowPolicy `prevRowBlock`/`prevRowLine`
+  state machine, `assembleFlowImpl` facts, `FlowAssembly`), Phase 3 (the other
+  comment sites), Phase 4+ (Change B, observe-don't-predict). The generic-flow
+  branch of `classifyCommentKind` (the `blockGlueAllowed` path) is written but
+  **only the binop branch is consumed/verified**; the generic branch is an
+  approximation to be nailed down when FlowPolicy is cut over (its
+  single-line-bracket / elided-token subtleties are §5.3's harder cases).
+
+---
+
+**Original plan status:** proposed. Kept below verbatim.
 
 **Scope:** `gren-format-lib` only (`src/Formatter/`). No behavior changes are
 intended — every current fixture, fuzzer, matrix cell, and parity-baseline

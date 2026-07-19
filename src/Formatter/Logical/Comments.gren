@@ -112,10 +112,12 @@ import Compiler.Parse.Context as Ctx
 import Compiler.SourcePosition exposing (Located, Position, at)
 
 import Formatter.Logical.LogicalPrintingTree exposing
-    ( LPBox(..)
+    ( CommentRole(..)
+    , LPBox(..)
     , LPNode(..)
     , ListBrackets(..)
     , SyntaxType(..)
+    , firstRowInSubtree
     , lpnBox
     , lpnBracketEndExact
     , lpnChildren
@@ -125,6 +127,7 @@ import Formatter.Logical.LogicalPrintingTree exposing
     , lpnLeaf
     , lpnNode
     , lpnReplaceChildren
+    , lpnSetCommentRole
     , subtreeRowRange
     )
 import Formatter.Strings exposing (countNewlines)
@@ -141,7 +144,7 @@ lptAddComments ctx root =
 lptAddComment : Located Ctx.Comment -> LPNode -> LPNode
 lptAddComment locComment root =
     let
-        commentNode =
+        baseCommentNode =
             lpnLeaf (mkCommentLpBox locComment)
 
         row =
@@ -161,8 +164,19 @@ lptAddComment locComment root =
         rootChildren =
             lpnChildren root
 
-        { origRowNode, before, after } =
+        { origRowNode, before, after, created } =
             findOrCreateOrigRow row stype rootChildren
+
+        -- A comment that detaches to a fresh column-1 `OriginalRows` (see
+        -- `findOrCreateOrigRow`) is `Standalone` — the empty-container branch of
+        -- `insertAmongChildren` keeps this role. Otherwise the role is decided at
+        -- the splice point by `classifyCommentKind`.
+        commentNode =
+            if created then
+                lpnSetCommentRole Standalone baseCommentNode
+
+            else
+                baseCommentNode
 
         updatedOrigRow =
             insertCommentIntoSubtree commentNode row col origRowNode
@@ -201,12 +215,14 @@ mkCommentLpBox locComment =
         end =
             locComment.end
     in
+    -- The role is a placeholder here; `classifyCommentRole` assigns the real
+    -- one at the splice point, where the neighbouring siblings are in hand.
     when locComment.value is
         Ctx.Line string ->
-            SingleLineComment <| at start end string
+            SingleLineComment { loc = at start end string, role = LeadsOwnLine }
 
         Ctx.Block string ->
-            BlockComment <| at start end string
+            BlockComment { loc = at start end string, role = LeadsOwnLine }
 
 -- PHASE 1: FIND THE TOP-LEVEL SLOT
 --
@@ -230,6 +246,7 @@ findOrCreateOrigRow :
         { origRowNode : LPNode
         , before : Array LPNode
         , after : Array LPNode
+        , created : Bool
         }
 findOrCreateOrigRow row stype nodes =
     let
@@ -261,6 +278,7 @@ findOrCreateOrigRow row stype nodes =
             { origRowNode = existing
             , before = searchResult.before
             , after = searchResult.after
+            , created = False
             }
 
         Nothing ->
@@ -300,6 +318,7 @@ findOrCreateOrigRow row stype nodes =
             { origRowNode = newNode
             , before = insertResult.before
             , after = insertResult.after
+            , created = True
             }
 
 -- PHASE 2: DESCEND INTO THE OWNING SUBTREE
@@ -455,7 +474,7 @@ insertCommentIntoSubtree commentNode row col node =
 
     else
         -- No matching child found; insert at this level
-        lpnReplaceChildren node (insertAmongChildren commentNode row col children)
+        lpnReplaceChildren node (insertAmongChildren (lpnBox node) commentNode row col children)
 
 
 {-
@@ -464,10 +483,19 @@ insertCommentIntoSubtree commentNode row col node =
    is an IndentedBlock, redirect the comment as its first child so it renders
    at IndentedBlock indentation.
 -}
-insertAmongChildren : LPNode -> Int -> Int -> Array LPNode -> Array LPNode
-insertAmongChildren commentNode row col children =
+insertAmongChildren : LPBox -> LPNode -> Int -> Int -> Array LPNode -> Array LPNode
+insertAmongChildren containerBox commentNode row col children =
     if Array.isEmpty children then
-        [ commentNode ]
+        -- No siblings to classify against. A comment inside a bracket container
+        -- (`{ {- c -} }`) is `InsideBracketClose`; otherwise keep the role the
+        -- caller pre-set (`Standalone` for a fresh top-level slot, else the
+        -- `LeadsOwnLine` default).
+        [ if isBracketContainerBox containerBox then
+            lpnSetCommentRole InsideBracketClose commentNode
+
+          else
+            commentNode
+        ]
 
     else
         let
@@ -543,6 +571,25 @@ insertAmongChildren commentNode row col children =
                 in
                 helper before after
         in
+        let
+            -- The comment's role, decided here from its final neighbours (the
+            -- pristine parse rows are still valid at this splice point). A
+            -- comment redirected *into* an `IndentedBlock` / `PipelineStep`
+            -- leads that body on its own line (`LeadsOwnLine`); everything else
+            -- is classified by `classifyCommentKind`.
+            classifiedComment =
+                lpnSetCommentRole
+                    (if isBracketContainerBox containerBox then
+                        InsideBracketClose
+
+                     else
+                        classifyCommentKind containerBox commentNode finalBefore finalAfter row
+                    )
+                    commentNode
+
+            leadingComment =
+                lpnSetCommentRole LeadsOwnLine commentNode
+        in
         when Array.popFirst finalAfter is
             Just { first = nextNode, rest = afterRest } ->
                 when lpnBox nextNode is
@@ -550,7 +597,7 @@ insertAmongChildren commentNode row col children =
                         -- Redirect into the IndentedBlock as its first child
                         let
                             newNextNode =
-                                lpnNode IndentedBlock (Array.pushFirst commentNode (lpnChildren nextNode))
+                                lpnNode IndentedBlock (Array.pushFirst leadingComment (lpnChildren nextNode))
                         in
                         finalBefore ++ [ newNextNode ] ++ afterRest
 
@@ -558,15 +605,15 @@ insertAmongChildren commentNode row col children =
                         -- Redirect into the PipelineStep as its first child
                         let
                             newNextNode =
-                                lpnNode PipelineStep (Array.pushFirst commentNode (lpnChildren nextNode))
+                                lpnNode PipelineStep (Array.pushFirst leadingComment (lpnChildren nextNode))
                         in
                         finalBefore ++ [ newNextNode ] ++ afterRest
 
                     _ ->
-                        finalBefore ++ [ commentNode ] ++ finalAfter
+                        finalBefore ++ [ classifiedComment ] ++ finalAfter
 
             Nothing ->
-                finalBefore ++ [ commentNode ]
+                finalBefore ++ [ classifiedComment ]
 
 -- PREDICATES: POSITION & BOX-KIND TESTS
 --
@@ -773,3 +820,239 @@ subtreeStartsAfter node row col =
 lastRealPosition : LPNode -> Maybe Position
 lastRealPosition node =
     lpnLastPos node
+
+-- COMMENT-ROLE CLASSIFICATION
+--
+-- Decide, at the single insertion point above (where the parse rows are still
+-- pristine), how a comment joins its neighbours — the `CommentRole` the
+-- renderer then reads instead of re-deriving from source rows. This
+-- consolidates the rules that today live scattered across the render layer
+-- (FlowPolicy's two-row state machine, `lastRenderedRow`, the bracket
+-- descent). See `comment-arch.md` §5.3.
+
+
+-- True for the bracket container box kinds whose interior comments render via
+-- the bracket-list path (placed before the close): a comment that is a child of
+-- one of these is `InsideBracketClose`.
+isBracketContainerBox : LPBox -> Bool
+isBracketContainerBox box =
+    when box is
+        AllAcrossOrAllVertical _ ->
+            True
+
+        AlwaysVertical _ ->
+            True
+
+        EmptyBracketed _ ->
+            True
+
+        RecordUpdate _ ->
+            True
+
+        _ ->
+            False
+
+
+-- The last row a node actually renders content on: the max of its last
+-- positioned token and its closing bracket (elm-format's "last rendered line").
+-- This is the row a trailing comment must share to glue onto it. (Exactly the
+-- `lastRenderedRow` the render layer reconstructs per box kind — computed here
+-- once, from the pristine cached bounds.)
+lastRenderedRow : LPNode -> Int
+lastRenderedRow node =
+    let
+        lp =
+            when lpnLastPos node is
+                Just p ->
+                    p.row
+
+                Nothing ->
+                    -1
+
+        be =
+            when lpnLastBracketEnd node is
+                Just p ->
+                    p.row
+
+                Nothing ->
+                    -1
+    in
+    max lp be
+
+
+-- True when a comment directly trailing this node glues regardless of row: the
+-- node is a zero-width elided token (a synthesized `=`/`in`/`->`/… or a
+-- zero-width `UnbreakableText` such as the signature `->`) whose rendered
+-- position does not match its anchor row, so a pure row test would flip on
+-- reformat (matches FlowPolicy's `prevElided`).
+nodeIsElided : LPNode -> Bool
+nodeIsElided node =
+    when lpnBox node is
+        SynthesizedText _ ->
+            True
+
+        UnbreakableText loc ->
+            loc.start.row == loc.end.row && loc.start.col == loc.end.col
+
+        _ ->
+            False
+
+
+-- Whether a same-row *block* comment (`{- -}`) is allowed to glue onto this
+-- previous node — matching FlowPolicy's coarse `prevRowBlock`: a block comment
+-- glues after a bare token or a multi-line bracket's close, but NOT after a
+-- plain-token call, a lone `{}` / `[]`, or a single-line bracket (there it
+-- stays own-line, while a `--` still glues — see `classifyCommentKind`).
+blockGlueAllowed : LPNode -> Bool
+blockGlueAllowed node =
+    when lpnBox node is
+        UnbreakableText _ ->
+            True
+
+        -- A same-row comment following another *single-row* comment glues onto
+        -- it — a run `] {- a -} {- b -}` keeps every comment on the `]` line
+        -- (FlowPolicy carries the previous comment's row forward for this). A
+        -- `--` is inherently single-row; a `{- … -}` only when it does not span
+        -- rows. After a *multi-line* block comment the next comment leads its
+        -- own line (FlowPolicy's `AlreadyTerminated`), so it must NOT glue.
+        SingleLineComment _ ->
+            True
+
+        BlockComment _ ->
+            let
+                range =
+                    subtreeRowRange node
+            in
+            range.maxRow == range.minRow
+
+        _ ->
+            let
+                range =
+                    subtreeRowRange node
+            in
+            (range.maxRow > range.minRow)
+                && (when lpnLastBracketEnd node is
+                        Just _ ->
+                            True
+
+                        Nothing ->
+                            False
+                   )
+
+
+-- True for a line/block comment leaf.
+isCommentNode : LPNode -> Bool
+isCommentNode node =
+    when lpnBox node is
+        SingleLineComment _ ->
+            True
+
+        BlockComment _ ->
+            True
+
+        _ ->
+            False
+
+
+-- Classify a comment being spliced among `before ++ [comment] ++ after`, from
+-- its kind and its immediate neighbours. The bracket-container and standalone
+-- cases are handled by the caller; this covers the generic-flow and binop roles.
+classifyCommentKind : LPBox -> LPNode -> Array LPNode -> Array LPNode -> Int -> CommentRole
+classifyCommentKind containerBox commentNode before after row =
+    let
+        -- A binop chain (`Binop` / one `OpAndRhs` step) glues a same-row trailing
+        -- comment onto the operand's last line regardless of bracket-ness, and
+        -- drops a later-row one to its own line at the operator indent — line and
+        -- block comments alike, and relative to the last real OPERAND row (not a
+        -- preceding comment). This mirrors `BinopLayout`'s `contentRow` exactly.
+        isBinopContainer =
+            when containerBox is
+                OpAndRhs ->
+                    True
+
+                Binop _ ->
+                    True
+
+                _ ->
+                    False
+
+        -- Last rendered row of the last non-comment sibling before the comment.
+        refRow =
+            Array.foldl
+                (\n acc ->
+                    if isCommentNode n then
+                        acc
+
+                    else
+                        max acc (lastRenderedRow n)
+                )
+                -1
+                before
+
+        prev =
+            Array.last before
+
+        next =
+            Array.first after
+
+        -- A `--` runs to end-of-line, so it is unambiguously trailing: it glues
+        -- onto the previous item's last rendered row (or any elided token),
+        -- else it leads its own line. A `--` can never ride inline.
+        classifyLine p =
+            if nodeIsElided p || row == lastRenderedRow p then
+                TrailsPrevious
+
+            else
+                LeadsOwnLine
+
+        -- A single-line `{- -}` between two same-row neighbours rides inline
+        -- (`f {- k -} x`); otherwise it trails the previous item where the
+        -- block-glue rules allow, else it leads its own line. A multi-line
+        -- `{- … -}` never rides.
+        classifyBlock p multiline =
+            let
+                sameRowPrev =
+                    nodeIsElided p || row == lastRenderedRow p
+
+                sameRowNext =
+                    when next is
+                        Just n ->
+                            firstRowInSubtree n == row
+
+                        Nothing ->
+                            False
+            in
+            if not multiline && sameRowPrev && sameRowNext then
+                RidesInline
+
+            else if sameRowPrev && blockGlueAllowed p then
+                TrailsPrevious
+
+            else
+                LeadsOwnLine
+    in
+    if isBinopContainer then
+        -- Same-row-as-operand trails inline; a later-row comment leads its own
+        -- line at the operator indent (relative to `refRow`, the last operand).
+        if row > refRow then
+            LeadsOwnLine
+
+        else
+            TrailsPrevious
+
+    else
+        when prev is
+            Nothing ->
+                -- Nothing precedes: the comment leads the flow.
+                LeadsOwnLine
+
+            Just p ->
+                when lpnBox commentNode is
+                    SingleLineComment _ ->
+                        classifyLine p
+
+                    BlockComment { loc } ->
+                        classifyBlock p (String.contains "\n" loc.value)
+
+                    _ ->
+                        LeadsOwnLine

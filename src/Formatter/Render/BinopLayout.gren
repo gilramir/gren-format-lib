@@ -4,7 +4,7 @@ module Formatter.Render.BinopLayout exposing (assembleBinopBox, bracketOperandFo
 -}
 
 import Formatter.Logical.BinopPrecedence exposing (binopPrecedence)
-import Formatter.Logical.LogicalPrintingTree exposing (LPBox(..), LPNode, lpnBox, lpnChildren, lpnLastBracketEnd, lpnLastPos)
+import Formatter.Logical.LogicalPrintingTree exposing (CommentRole(..), LPBox(..), LPNode, commentRole, lpnBox, lpnChildren)
 import Formatter.Render.Box as B exposing (Box(..))
 import Formatter.Render.BoxOps exposing (traverseResult)
 import Formatter.Render.NodeClassify exposing (bracketOpenGate, leafValue, literalCommentsRideFlatLine, nodeIsComment, nodeSpansRows, subtreeHasComment, subtreeHasVerticalBox)
@@ -156,46 +156,13 @@ out. -}
 splitTrailingOwnLineComments : Array LPNode -> { content : Array LPNode, ownLine : Array LPNode }
 splitTrailingOwnLineComments nodes =
     let
-        -- The operand's LAST rendered row, including a closing bracket the parser
-        -- discards (`lpnLastBracketEnd`) — so a comment on the `)`/`}` row of a
-        -- multi-line paren/record operand counts as INLINE with it, not own-line
-        -- (which would render it at the operator indent and then detach on reparse).
-        contentRow =
-            Array.foldl
-                (\n acc ->
-                    if nodeIsComment n then
-                        acc
-
-                    else
-                        let
-                            tokRow =
-                                lpnLastPos n |> Maybe.map (\p -> p.row) |> Maybe.withDefault -1
-
-                            brkRow =
-                                lpnLastBracketEnd n |> Maybe.map (\p -> p.row) |> Maybe.withDefault -1
-                        in
-                        max acc (max tokRow brkRow)
-                )
-                -1
-                nodes
-
+        -- A comment leads its own line (rendered at the operator indent, leading
+        -- the next operator) exactly when the classifier tagged it `LeadsOwnLine`
+        -- at insertion time. A `TrailsPrevious` / `RidesInline` comment rides the
+        -- operand's last line inline. (Formerly re-derived here from source rows
+        -- via `contentRow` — the classifier now decides it once; see comment-arch.md.)
         isOwnLineComment node =
-            when lpnBox node is
-                SingleLineComment loc ->
-                    -- A `--` on a LATER row than the operand is one the author
-                    -- put on its own line (leading the next operator) — keep it
-                    -- own-line. A `--` on the operand's OWN last row is trailing
-                    -- it (`// acc -- k1`); gren glues it inline, same as any other
-                    -- same-row trailing `--`. Treating every `--` as own-line
-                    -- detached a same-row trailing one at the operator indent,
-                    -- which then oscillated +N ↔ col-0 on reparse.
-                    loc.start.row > contentRow
-
-                BlockComment loc ->
-                    loc.start.row > contentRow
-
-                _ ->
-                    False
+            commentRole (lpnBox node) == Just LeadsOwnLine
 
         peeled =
             Array.foldr

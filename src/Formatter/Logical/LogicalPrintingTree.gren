@@ -1,8 +1,10 @@
 module Formatter.Logical.LogicalPrintingTree exposing
-    ( LPBox(..)
+    ( CommentRole(..)
+    , LPBox(..)
     , LPNode(..)
     , ListBrackets(..)
     , SyntaxType(..)
+    , commentRole
     , firstRowInSubtree
     , lastRowInSubtree
     , lpnBox
@@ -17,6 +19,7 @@ module Formatter.Logical.LogicalPrintingTree exposing
     , lpnMaxRow
     , lpnNode
     , lpnReplaceChildren
+    , lpnSetCommentRole
     , lpnWithBox
     , lpnWithBracketStart
     , stypeToString
@@ -147,6 +150,36 @@ stypeToString st =
             "infixDecl"
 
 
+{-| How a comment joins the tokens around it — decided **once**, at
+comment-insertion time in `Formatter.Logical.Comments`, from the pristine
+parse rows, and stored on the comment leaf. The renderer reads the role and
+never re-derives it from source rows.
+
+  - `TrailsPrevious` — glues onto the end of the previous sibling's last
+    rendered line, preceded by one space (`<prev-last-line> <comment>`). For a
+    `--` this is always safe (it runs to end-of-line); for a `{- -}` it is only
+    assigned where the block-glue rules allow.
+  - `LeadsOwnLine` — renders on its own line at the current flow/body indent,
+    before the next sibling. The default for own-row comments.
+  - `RidesInline` — an inline `{- -}` that rides in the middle of a flat flow
+    without forcing a break (`f {- k -} x`). Only ever a single-line block
+    comment.
+  - `InsideBracketClose` — sits between a container's last item and its closing
+    bracket (placed there by the `commentInside*` descent).
+  - `Standalone` — a top-level detached comment: its own `OriginalRows` at
+    column 1.
+
+`DocComment` needs no role — doc comments are top-level-only and already
+unambiguous.
+-}
+type CommentRole
+    = TrailsPrevious
+    | LeadsOwnLine
+    | RidesInline
+    | InsideBracketClose
+    | Standalone
+
+
 type LPBox
     -- This is needed just to use as a root node
     = RootBox
@@ -161,9 +194,12 @@ type LPBox
     -- (e.g. "=", "in", "then", "else", "->", "is", "(..)").
     -- Excluded from all row-range computations.
     | SynthesizedText String
-    -- For when the line starts with and is only a single-line comment
-    | SingleLineComment (Located String)
-    | BlockComment (Located String)
+    -- For when the line starts with and is only a single-line comment.
+    -- `role` (see `CommentRole`) is decided at comment-insertion time and
+    -- tells the renderer how the comment joins its neighbours, so no
+    -- render-side code re-derives that from source rows.
+    | SingleLineComment { loc : Located String, role : CommentRole }
+    | BlockComment { loc : Located String, role : CommentRole }
     | DocComment (Located String)
     -- Author-driven binary flow, same as `AllAcrossOrAllVertical` but for a
     -- bare (unbracketed) sequence of tokens rather than a delimited list: all
@@ -444,6 +480,38 @@ lpnChildren node =
     when node is
         LPNode r ->
             r.children
+
+
+{-| The `CommentRole` of a comment box, or `Nothing` for non-comment boxes
+(and `DocComment`, which carries no role). -}
+commentRole : LPBox -> Maybe CommentRole
+commentRole box =
+    when box is
+        SingleLineComment c ->
+            Just c.role
+
+        BlockComment c ->
+            Just c.role
+
+        _ ->
+            Nothing
+
+
+{-| Rebuild a comment leaf carrying `role`. A no-op on any other node. Role
+does not affect the cached position bounds, so they are preserved as-is. -}
+lpnSetCommentRole : CommentRole -> LPNode -> LPNode
+lpnSetCommentRole role node =
+    when node is
+        LPNode r ->
+            when r.box is
+                SingleLineComment c ->
+                    LPNode { r | box = SingleLineComment { c | role = role } }
+
+                BlockComment c ->
+                    LPNode { r | box = BlockComment { c | role = role } }
+
+                _ ->
+                    node
 
 
 {-| First positioned token of the subtree in depth-first pre-order.
@@ -772,7 +840,7 @@ selfBoxBounds box =
                 , maxRow = loc.end.row
             }
 
-        SingleLineComment loc ->
+        SingleLineComment { loc } ->
             { empty
                 | firstPos = Just loc.start
                 , lastPos = Just loc.end
@@ -780,7 +848,7 @@ selfBoxBounds box =
                 , maxRow = loc.end.row
             }
 
-        BlockComment loc ->
+        BlockComment { loc } ->
             { empty
                 | firstPos = Just loc.start
                 , lastPos = Just loc.end

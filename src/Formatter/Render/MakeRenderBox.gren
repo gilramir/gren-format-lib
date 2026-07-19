@@ -508,11 +508,11 @@ makeUnionBodyVerticalBox nodes =
                 |> Result.andThen
                     (\acc ->
                         when lpnBox node is
-                            SingleLineComment loc ->
+                            SingleLineComment { loc } ->
                                 commentNodeBox node
                                     |> Result.map (\cbox -> placeComment acc loc.start.row cbox)
 
-                            BlockComment loc ->
+                            BlockComment { loc } ->
                                 -- Same-row: glue onto the preceding variant's last
                                 -- line (multi-line comments padded under their start
                                 -- by `glueCommentSuffix`). Own row: the comment box
@@ -1029,7 +1029,7 @@ makeBackwardPipelineBox forceVertical children =
                                 SingleLineComment _ ->
                                     True
 
-                                BlockComment loc ->
+                                BlockComment { loc } ->
                                     String.contains "\n" loc.value
 
                                 DocComment _ ->
@@ -1754,10 +1754,10 @@ renderWhenBranchesBox children =
                                             { boxes = Array.pushLast combined acc.boxes, lastRow = lpnMaxRow child, pending = [] }
                                         )
 
-                            SingleLineComment loc ->
+                            SingleLineComment { loc } ->
                                 handleComment acc loc.start.row child
 
-                            BlockComment loc ->
+                            BlockComment { loc } ->
                                 handleComment acc loc.start.row child
 
                             EmptyLine ->
@@ -2776,10 +2776,10 @@ commentBracketListBox bracket nodes =
 
                         Ok acc ->
                             when lpnBox node is
-                                SingleLineComment loc ->
+                                SingleLineComment { loc } ->
                                     placeComment loc.start.row node acc
 
-                                BlockComment loc ->
+                                BlockComment { loc } ->
                                     placeComment loc.start.row node acc
 
                                 _ ->
@@ -2880,7 +2880,7 @@ renderFlowItems nodes =
 renderFlowItem : LPNode -> Result String FlowItem
 renderFlowItem node =
     when lpnBox node is
-        SingleLineComment loc ->
+        SingleLineComment { loc } ->
             Ok
                 { node = node
                 , box = B.blankLine
@@ -2889,7 +2889,7 @@ renderFlowItem node =
                 , comment = Just { box = B.line (B.literal ("--" ++ loc.value)), isLineComment = True, multiLine = False }
                 }
 
-        BlockComment loc ->
+        BlockComment { loc } ->
             if String.contains "\n" loc.value then
                 multiLineBlockCommentBox loc.value
                     |> Result.map

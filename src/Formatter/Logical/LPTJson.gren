@@ -60,14 +60,14 @@ lpBoxFields lpbox =
             , { key = "endCol", value = Json.int loc.end.col }
             ]
 
-        SingleLineComment loc ->
+        SingleLineComment { loc } ->
             [ { key = "type", value = Json.string "SingleLineComment" }
             , { key = "value", value = Json.string loc.value }
             , { key = "startRow", value = Json.int loc.start.row }
             , { key = "startCol", value = Json.int loc.start.col }
             ]
 
-        BlockComment loc ->
+        BlockComment { loc } ->
             [ { key = "type", value = Json.string "BlockComment" }
             , { key = "value", value = Json.string loc.value }
             , { key = "startRow", value = Json.int loc.start.row }

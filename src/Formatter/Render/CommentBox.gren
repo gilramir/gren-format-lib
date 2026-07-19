@@ -68,10 +68,10 @@ makeCommentLineBox children =
 commentNodeToBox : LPNode -> Result String { box : Box, row : Int, isLine : Bool }
 commentNodeToBox node =
     when lpnBox node is
-        SingleLineComment loc ->
+        SingleLineComment { loc } ->
             Ok { box = B.line (B.literal ("--" ++ loc.value)), row = loc.start.row, isLine = True }
 
-        BlockComment loc ->
+        BlockComment { loc } ->
             if String.contains "\n" loc.value then
                 multiLineBlockCommentBox loc.value
                     |> Result.map (\b -> { box = b, row = loc.start.row, isLine = False })
@@ -96,7 +96,7 @@ bracket, so it Errs rather than silently drop the comment. -}
 emptyBracketedCommentLine : LPNode -> Result String B.Line
 emptyBracketedCommentLine node =
     when lpnBox node is
-        BlockComment loc ->
+        BlockComment { loc } ->
             if String.contains "\n" loc.value then
                 -- Not a crash: an `Err` here is the "can't fit the one-line form"
                 -- signal that the `EmptyBracketed` arm catches and renders
@@ -281,7 +281,7 @@ peelTrailingCommentNodes nodes =
                             else
                                 go initial ([ last ] ++ acc) True
 
-                        BlockComment loc ->
+                        BlockComment { loc } ->
                             if String.contains "\n" loc.value then
                                 { bodyNodes = remaining, trailing = acc }
 
@@ -318,10 +318,10 @@ comment) to a Box. Mirrors the comment arms of `renderFlowItem`. -}
 commentNodeBox : LPNode -> Result String Box
 commentNodeBox node =
     when lpnBox node is
-        SingleLineComment loc ->
+        SingleLineComment { loc } ->
             Ok (B.line (B.literal ("--" ++ loc.value)))
 
-        BlockComment loc ->
+        BlockComment { loc } ->
             if String.contains "\n" loc.value then
                 multiLineBlockCommentBox loc.value
 
