@@ -766,10 +766,16 @@ class Gen:
         return TypeAliasDecl(name, params, rhs, lead=lead, trailing=trailing)
 
     def variant_arg_type(self, depth, params):
-        """Like gen_type but never `record` — a record type can only be a
-        variant's SOLE payload (see `variant_payload`'s own "record" case),
-        never one element among several bare arguments (`Ctor { .. } X` does
-        not parse: "Expected end of file" right after the closing `}`)."""
+        """A union variant's single positional argument. Current Gren limits a
+        variant to 0 or 1 argument (a multi-field variant carries a record
+        instead — see `variant_payload`'s "record" case), so this never needs
+        to worry about position; it just needs to avoid `record` itself
+        (which goes through the dedicated "record" payload kind, not here).
+        The parser this generator targets does NOT enforce that 0-or-1 limit
+        for a chain of bare constructor-name arguments (compiler-common#32:
+        https://github.com/gren-lang/compiler-common/issues/32) — this
+        generator still caps arity at 1 to match current valid Gren rather
+        than lean on that gap."""
         r = self.rng.random()
         cons = ["Int", "Float", "String", "Bool", "Char"]
         var_pool = params if params else ["a", "b", "c"]
@@ -786,21 +792,12 @@ class Gen:
         r = self.rng.random()
         if r < 0.4:
             return None
-        if r < 0.6:
+        if r < 0.7:
             k = self.rng.randint(1, 2)
             fields = [(self.pick(self.fields) + str(j), self.gen_type(1, params))
                       for j in range(k)]
             return ("record", fields)
-        # A non-final positional argument must be a bare constructor name — a
-        # type variable, parenthesized app, or arrow type there breaks the
-        # parser ("Ctor b Int" / "Ctor (Array a) Int" fail right after the
-        # non-final argument; only the LAST argument may be complex, matching
-        # what real Gren union payloads use for multi-arg variants).
-        k = self.rng.randint(1, 3)
-        args = [("con", self.pick(["Int", "Float", "String", "Bool", "Char"]))
-                for _ in range(k - 1)]
-        args.append(self.variant_arg_type(1, params))
-        return ("args", args)
+        return ("args", [self.variant_arg_type(1, params)])
 
     def union(self, i):
         name = "Union%d" % i

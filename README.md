@@ -75,6 +75,7 @@ The larger section explains the [Gren Formatter Rules](#gren-formatter-rules).
   - [Comments near an effect module's `where` block](#comments-near-an-effect-modules-where-block)
   - [A comment right after `exposing` doesn't sort with the first name](#a-comment-right-after-exposing-doesnt-sort-with-the-first-name)
   - [A comment after the last binding in a `let`](#a-comment-after-the-last-binding-in-a-let)
+  - [Two fixtures parse a custom-type shape the language no longer allows](#two-fixtures-parse-a-custom-type-shape-the-language-no-longer-allows)
   - [Block comment body indentation](#block-comment-body-indentation)
 - [Comparison with elm-format](#comparison-with-elm-format)
   - [The idea both formatters share](#the-idea-both-formatters-share)
@@ -2624,6 +2625,42 @@ sits alone on its first line. (An earlier version of gren-format treated that
 opener-alone form as a "keep my exact columns" signal and left the body
 verbatim; that was a divergence from elm-format, which re-indents the body the
 same way described here, so it was removed.)
+
+### Two fixtures parse a custom-type shape the language no longer allows
+
+Since [the 24w release](https://gren-lang.org/news/161224_gren_24w), a custom
+type's variant is limited to 0 or 1 argument — `type Person = Person String
+Int` is no longer valid Gren; a multi-field variant must carry a record
+instead (`Person { name : String, age : Int }`). The parser this project is
+built on does not enforce that restriction for a chain of bare
+constructor-name arguments, so `type Person = Person String Int` still parses
+without error today. Tracked at
+[compiler-common#32](https://github.com/gren-lang/compiler-common/issues/32).
+
+Two of this package's own test fixtures rely on that gap —
+`tests/testfiles/Formatter/TypeUnion.formatted.gren`:
+
+```gren
+type Shape
+    = Circle Int
+    | Rectangle Int Int
+```
+
+and `tests/testfiles/Formatter/UnionLayoutByAuthor.formatted.gren`:
+
+```gren
+type WithPayloads
+    = Wrap Int | Pair Int Int
+```
+
+`Rectangle Int Int` and `Pair Int Int` are both 2-argument variants — invalid
+per the 24w rule, yet accepted and formatted today because of the bug above.
+These fixtures will be cleaned up (reduced to 0/1-argument variants) once
+compiler-common#32 is fixed and released; until then they're a known,
+intentional exception to the language's current variant-arity rule, not a
+formatter bug of their own. (`gen-random.py`, the property-based random-input
+generator, no longer emits multi-argument variants for this same reason —
+see `tests/GENERATOR.md`.)
 
 ---
 

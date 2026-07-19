@@ -212,23 +212,30 @@ RHS, con/var/app RHS; 0-2 type params), custom types / unions (`type Name =
 Ctor1 | Ctor2 T | Ctor3 { .. }`, flat or author-broken variant list, per-variant
 lead/trailing comments), and ports (`port module` header emitted iff the module
 has ≥1 port; both the `Type -> Cmd msg` and `(Type -> msg) -> Sub msg` shapes).
-Two real parser-grammar quirks surfaced while building this and are now baked
-into the generator as constraints (not formatter bugs — the *parser's* variant-
-payload grammar, verified against `Compiler.Parse.Declaration.gren`):
-- A variant payload's `record` type must be the variant's **sole** argument —
-  `Ctor { field : T } X` fails to parse right after the `}` (a record type
-  cannot appear as one of several bare positional arguments).
-- In a multi-argument (non-record) payload, every argument **except the last**
-  must be a bare, unparenthesized constructor name (`Int`, `Float`, …). A type
-  variable, a parenthesized arrow type, or an `app` type in a non-final
-  position breaks the parser right after that argument (`Ctor b Int` and
-  `Ctor (Array a) Int` both fail; `Ctor Int b` and `Ctor Int (Array a)` — same
-  shapes with the complex argument moved LAST — both parse fine). Only the
-  final argument may be var/app/arrow; `variant_arg_type` encodes this.
 
-These match what real Gren code already does (`Circle Int`, `Rectangle Int
-Int` in `TypeUnion.formatted.gren` — plain cons only, never a var/paren'd type
-mid-list), so the constraint costs little realism.
+**Variant payloads are capped at 0 or 1 argument**, matching current real Gren
+— [gren-lang.org/news/161224_gren_24w](https://gren-lang.org/news/161224_gren_24w)
+states custom-type variants are limited to 0 or 1 parameter (`type Person =
+Person String Int` is no longer valid; use a record: `Person { name : String,
+age : Int }`). An early version of this generator instead allowed 2-3 bare
+arguments per variant (`Circle Int`, `Rectangle Int Int` — the shape the
+existing `TypeUnion.formatted.gren` / `UnionLayoutByAuthor.formatted.gren`
+fixtures already use) and found that **this repo's parser does not actually
+enforce the 0-or-1 rule**: `Ctor Int Int` (2 bare constructor names) parses
+fine, but `Ctor b Int` or `Ctor (Array a) Int` (a var/paren'd/app type in a
+non-final slot) fails right after that argument, while the same shapes with
+the complex argument moved LAST (`Ctor Int b`, `Ctor Int (Array a)`) parse
+fine. That's not a deliberate "last argument may be complex" grammar rule —
+it's the parser inconsistently enforcing a restriction the language spec says
+is unconditional (reject any variant with >1 argument, full stop; instead it
+only rejects some >1-argument shapes and accepts others). Filed upstream as
+[compiler-common#32](https://github.com/gren-lang/compiler-common/issues/32).
+The generator sidesteps the inconsistency entirely by capping variant payloads
+at ≤1 argument (con/var/app/arrow, or a record), matching current valid Gren —
+which also makes moot the separate observation that a `record`-type payload
+must be a variant's sole argument (`Ctor { field : T } X` fails to parse right
+after the `}`): with arity capped at 1, a record is simply the one argument
+and there is no "several bare arguments" case to collide with.
 
 Type-alias / port RHS types stay **inline-only** for this pass, matching v1's
 existing signature-type scope; author-broken multi-line arrow types are a
@@ -245,5 +252,6 @@ module — a coverage gap, not a correctness one).
 
 The generator is intentionally started small and correct (0 quarantine on the
 core grammar) and expanded one construct at a time, verifying the quarantine rate
-stays at ~0 after each addition. (2026-07-19: 0/500, 0/2000, 0/800@depth-7 after
-the type-alias/union/port addition.)
+stays at ~0 after each addition. (2026-07-19: 10000 seeds (1..10000) + 800 at
+`--max-depth 7` clean after the type-alias/union/port addition; a further 3000
+clean after capping variant arity at ≤1.)
