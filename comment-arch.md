@@ -1,11 +1,31 @@
 # Comment/Layout Architecture Plan: stop re-deriving, start storing
 
-**Status:** Phase 1 landed + first Phase-2 construct (binop) cut over — all gates
-green, every fixture byte-identical (2026-07-19). This document is a
+**Status:** Phase 1 + Phase 2 landed — all gates green, every fixture
+byte-identical (2026-07-19), on branch `comments`. This document is a
 self-contained plan meant to be handed to an implementer with no prior
 conversation context.
 
 ## Progress log
+
+- **Phase 2 (cut the flow paths over to roles) — DONE.** All three flow paths
+  the plan names now take the comment glue/own-line decision from the stored
+  `CommentRole`, not source rows:
+  - `FlowPolicy.decide`'s `LineCommentItem`/`BlockCommentItem` arms +
+    `commentPlacement` (a comment glues iff `TrailsPrevious`/`RidesInline`).
+  - `MakeRenderBox.factsFor` — its ~90-line per-box-kind `startRow`/`startRowLine`
+    table is gone; non-comment items are just `LeafItem`.
+  - `FlowAssembly.assembleBrokenWithComments` (broken binop / broken call) —
+    glues via `commentGlues` (role); `FlowItem.startRow` removed.
+  - The dead row machinery is deleted: `FlowState` is `{ separator }`;
+    `ItemFacts` carries no rows; `lastRenderedRow`/`nodeStartRow` gone.
+  - The classifier gained faithful per-box-kind glue-row helpers
+    (`prevLineGlueRow`/`prevBlockGlueRow`/`bracketRendersMultiline`) reproducing
+    `factsFor`'s tables from pristine rows. A same-row block comment after a
+    multi-line `ParenBlock` glues onto its `)` — unifying the broken-flow rule
+    (glued after any multi-line item) with the generic rule byte-identically.
+  Bugs found+fixed while driving to green: glue-at-`FirstItem` must be `AsFirst`;
+  `nodeIsElided` scoped to the zero-width `->` only (the `let … in` trailing
+  comment must stay own-line); single- vs multi-line bracket block-glue.
 
 - **Phase 1 (Change A foundation) — DONE.**
   - Added `CommentRole` (`TrailsPrevious | LeadsOwnLine | RidesInline |
@@ -29,13 +49,15 @@ conversation context.
   row is the last *non-comment* operand (mirrors `contentRow`), so binop
   containers get their own branch in `classifyCommentKind`. All gates
   byte-identical afterward.
-- **NOT YET DONE:** the rest of Phase 2 (FlowPolicy `prevRowBlock`/`prevRowLine`
-  state machine, `assembleFlowImpl` facts, `FlowAssembly`), Phase 3 (the other
-  comment sites), Phase 4+ (Change B, observe-don't-predict). The generic-flow
-  branch of `classifyCommentKind` (the `blockGlueAllowed` path) is written but
-  **only the binop branch is consumed/verified**; the generic branch is an
-  approximation to be nailed down when FlowPolicy is cut over (its
-  single-line-bracket / elided-token subtleties are §5.3's harder cases).
+- **NOT YET DONE:** Phase 3 (the remaining comment sites: `commentBracketListBox`
+  bracket-list placement, pipeline comment-peeling / `stepNeedsCommentedLayout`,
+  `literalCommentsRideFlatLine`, `pairLeadingRecordComments`,
+  `pairTypeRecordComments`, `typeHasCommentBracket`) and Phase 4+ (Change B,
+  observe-don't-predict). Note for Phase 3: the classifier currently lumps every
+  bracket-container child as `InsideBracketClose`; `commentBracketListBox` will
+  need the finer trailing/leading distinction inside brackets, so the
+  bracket-container branch of `classifyCommentKind` must gain the same
+  glue-row logic the generic branch has.
 
 ---
 
