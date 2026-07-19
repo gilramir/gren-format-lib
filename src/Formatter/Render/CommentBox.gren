@@ -3,10 +3,26 @@ module Formatter.Render.CommentBox exposing (blockCommentBodyOffset, commentNode
 {-| Rendering of comment nodes (line, block, doc) to `Box`.
 -}
 
-import Formatter.Logical.LogicalPrintingTree exposing (LPBox(..), LPNode, lpnBox)
+import Formatter.Logical.LogicalPrintingTree exposing (CommentRole(..), LPBox(..), LPNode, commentRole, lpnBox)
 import Formatter.Render.Box as B exposing (Box(..))
-import Formatter.Render.BoxOps exposing (glueCommentSuffix, traverseResult)
+import Formatter.Render.BoxOps exposing (glueCommentSuffix)
 import Formatter.Render.NodeClassify exposing (nodeIsComment)
+
+
+-- True when a comment glues onto the previous comment on the same line (the
+-- stored `CommentRole` is `TrailsPrevious`/`RidesInline`), rather than stacking
+-- below it. Decided once in `Comments.gren`, not from source rows here.
+commentTrailsRole : LPNode -> Bool
+commentTrailsRole node =
+    when commentRole (lpnBox node) is
+        Just TrailsPrevious ->
+            True
+
+        Just RidesInline ->
+            True
+
+        _ ->
+            False
 
 
 {-| Render a standalone top-level comment-line item. Same-row block comments
@@ -15,49 +31,46 @@ A multi-line block comment renders via `multiLineBlockCommentBox` (the reindent
 stack). -}
 makeCommentLineBox : Array LPNode -> Result String Box
 makeCommentLineBox children =
-    traverseResult commentNodeToBox children
-        |> Result.andThen
-            (\infos ->
-                when Array.popFirst infos is
-                    Nothing ->
-                        Err "box: empty comment line"
+    when Array.popFirst children is
+        Nothing ->
+            Err "box: empty comment line"
 
-                    Just { first = first0, rest } ->
+        Just { first = first0, rest } ->
+            commentNodeToBox first0
+                |> Result.andThen
+                    (\i0 ->
                         Array.foldl
-                            (\info accResult ->
+                            (\node accResult ->
                                 accResult
                                     |> Result.andThen
                                         (\acc ->
-                                            if acc.prevLine || info.row /= acc.prevRow then
-                                                -- New line: stack the comment below.
-                                                Ok
-                                                    { box = B.stack1 [ acc.box, info.box ]
-                                                    , prevRow = info.row
-                                                    , prevLine = info.isLine
-                                                    }
+                                            commentNodeToBox node
+                                                |> Result.andThen
+                                                    (\info ->
+                                                        if commentTrailsRole node then
+                                                            -- Same-row block comment: join
+                                                            -- with a space onto the last
+                                                            -- line. A multi-line comment
+                                                            -- never trails another comment
+                                                            -- inline, so the box is single-
+                                                            -- line.
+                                                            when B.isLine info.box is
+                                                                Ok l ->
+                                                                    Ok { box = B.addSuffix (B.row [ B.space, l ]) acc.box }
 
-                                            else
-                                                -- Same-row block comment: join with a
-                                                -- space onto the accumulator's last line.
-                                                -- A multi-line comment never reaches here
-                                                -- (it always changes the row), so the
-                                                -- box is single-line.
-                                                when B.isLine info.box is
-                                                    Ok l ->
-                                                        Ok
-                                                            { box = B.addSuffix (B.row [ B.space, l ]) acc.box
-                                                            , prevRow = info.row
-                                                            , prevLine = info.isLine
-                                                            }
+                                                                Err _ ->
+                                                                    Err "box: multi-line comment cannot space-join"
 
-                                                    Err _ ->
-                                                        Err "box: multi-line comment cannot space-join"
+                                                        else
+                                                            -- New line: stack below.
+                                                            Ok { box = B.stack1 [ acc.box, info.box ] }
+                                                    )
                                         )
                             )
-                            (Ok { box = first0.box, prevRow = first0.row, prevLine = first0.isLine })
+                            (Ok { box = i0.box })
                             rest
                             |> Result.map .box
-            )
+                    )
 
 
 -- Render one comment node to a Box, tagging its source row and whether it is a
