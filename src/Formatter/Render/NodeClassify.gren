@@ -1,4 +1,4 @@
-module Formatter.Render.NodeClassify exposing (bracketOpenGate, fieldValueDropsToOwnLine, isArrowLeaf, isColonLeaf, isDroppingSignatureRecordNode, isElidedArrow, isEmptyLine, isMultilineContentParenBlockBox, isMultilineLambdaParenBlockBox, isOpAndRhsNode, isPipelineStepNode, leafLineRow, leafValue, literalCommentsRideFlatLine, nodeIsComment, nodeSpansRows, parenContentIsLambdaHead, rowsSpanMultiple, segFirstRow, segLastRow, signatureForceVertical, splitSignatureSegments, subtreeHasComment, subtreeHasMultilineBlockComment, subtreeHasVerticalBox, typeHasCommentBracket)
+module Formatter.Render.NodeClassify exposing (bracketOpenGate, fieldValueDropsToOwnLine, isArrowLeaf, isColonLeaf, isDroppingSignatureRecordNode, isElidedArrow, isEmptyLine, isMultilineContentParenBlockBox, isMultilineLambdaParenBlockBox, isOpAndRhsNode, isPipelineStepNode, leafLineRow, leafValue, literalCommentsRideFlatLine, nodeIsComment, parenContentIsLambdaHead, rowsSpanMultiple, segFirstRow, segLastRow, signatureForceVertical, splitSignatureSegments, subtreeHasComment, subtreeHasMultilineBlockComment, subtreeHasVerticalBox, typeHasCommentBracket)
 
 {-| Boolean predicates and small structural queries over LPT nodes.
 -}
@@ -106,16 +106,6 @@ typeHasCommentBracket node =
 
 
 -- ═══ BINOPS ═══
-
-
-nodeSpansRows : LPNode -> Bool
-nodeSpansRows node =
-    when { f = lpnFirstPos node, l = lpnLastPos node } is
-        { f = Just fp, l = Just lp } ->
-            lp.row > fp.row
-
-        _ ->
-            False
 
 
 isOpAndRhsNode : LPNode -> Bool
