@@ -129,6 +129,36 @@ class Decl:
         self.name, self.params, self.body = name, params, body
         self.sig, self.lead, self.trailing = sig, lead, trailing
 
+
+# Type-alias / custom-type / port declarations. Unlike Decl (function), these
+# carry no expression body, so the shrinker's expr/list machinery (which walks
+# `.body`) must skip them — only the "drop this whole decl" step applies.
+
+class TypeAliasDecl:
+    def __init__(self, name, params, rhs, lead=None, trailing=None):
+        self.name, self.params, self.rhs = name, params, rhs
+        self.lead, self.trailing = lead, trailing
+
+
+class Variant:
+    def __init__(self, name, payload=None, lead=None, trailing=None):
+        # payload: None | ("record", [(field, type), ...]) | ("args", [type, ...])
+        self.name, self.payload = name, payload
+        self.lead, self.trailing = lead, trailing
+
+
+class UnionDecl:
+    def __init__(self, name, params, variants, broken=False, lead=None, trailing=None):
+        self.name, self.params, self.variants, self.broken = name, params, variants, broken
+        self.lead, self.trailing = lead, trailing
+
+
+class PortDecl:
+    def __init__(self, name, type_, lead=None, trailing=None):
+        self.name, self.type_ = name, type_
+        self.lead, self.trailing = lead, trailing
+
+
 class Module:
     def __init__(self, name, imports, decls):
         self.name, self.imports, self.decls = name, imports, decls
@@ -402,6 +432,8 @@ def emit_type(t):
     if kind == "arrow": return " -> ".join(emit_type(x) for x in t[1])
     if kind == "record":
         return "{ " + ", ".join(f + " : " + emit_type(ft) for f, ft in t[1]) + " }"
+    if kind == "paren":
+        return "(" + emit_type(t[1]) + ")"
     raise ValueError("emit_type")
 
 def _type_atom(t):
@@ -411,10 +443,55 @@ def _type_atom(t):
     return s
 
 
+# ───────────────────────── type alias / union / port emission ─────────────
+# Per README: a `type alias` RHS and a custom type's variant list ALWAYS drop
+# to their own line(s) below the header, indented 4 — never glued to `=`, even
+# when they'd fit on one line. Ports and type-alias RHS types stay inline-only
+# for now (matching v1's "type signatures inline only" scope); multi-line
+# author-broken arrow types are a separate, not-yet-implemented expansion.
+
+def emit_type_alias(d):
+    header = "type alias " + d.name + "".join(" " + p for p in d.params) + " ="
+    return [header, pad(INDENT) + emit_type(d.rhs)]
+
+
+def emit_variant_payload(payload):
+    kind, val = payload
+    if kind == "record":
+        return emit_type(("record", val))
+    return " ".join(_type_atom(t) for t in val)
+
+
+def emit_union(d):
+    header = "type " + d.name + "".join(" " + p for p in d.params)
+    parts = []
+    for i, v in enumerate(d.variants):
+        s = ("= " if i == 0 else "| ") + v.name
+        if v.payload is not None:
+            s += " " + emit_variant_payload(v.payload)
+        if v.trailing is not None:
+            s += " " + comment_text(v.trailing)
+        parts.append(s)
+    lines = [header]
+    if not d.broken:
+        lines.append(pad(INDENT) + " ".join(parts))
+    else:
+        for s, v in zip(parts, d.variants):
+            if v.lead is not None:
+                lines.append(pad(INDENT) + comment_text(v.lead))
+            lines.append(pad(INDENT) + s)
+    return lines
+
+
+def emit_port(d):
+    return ["port " + d.name + " : " + emit_type(d.type_)]
+
+
 # ───────────────────────────── module emission ────────────────────────────
 
 def emit_module(m):
-    lines = ["module " + m.name + " exposing (..)", ""]
+    kw = "port module " if any(isinstance(d, PortDecl) for d in m.decls) else "module "
+    lines = [kw + m.name + " exposing (..)", ""]
     for imp in m.imports:
         lines.append(imp)
     if m.imports:
@@ -430,6 +507,25 @@ def emit_module(m):
 
 
 def emit_decl(d):
+    if isinstance(d, TypeAliasDecl):
+        core = emit_type_alias(d)
+    elif isinstance(d, UnionDecl):
+        core = emit_union(d)
+    elif isinstance(d, PortDecl):
+        core = emit_port(d)
+    else:
+        return emit_function_decl(d)
+    out = []
+    if d.lead:
+        for c in d.lead:
+            out.append(comment_text(c))
+    out += core
+    if d.trailing is not None:
+        out[-1] = out[-1] + " " + comment_text(d.trailing)
+    return out
+
+
+def emit_function_decl(d):
     out = []
     if d.lead:
         for c in d.lead:
@@ -618,21 +714,22 @@ class Gen:
 
     # -- types (inline only) ----------------------------------------------
 
-    def gen_type(self, depth):
+    def gen_type(self, depth, vars=None):
         r = self.rng.random()
         cons = ["Int", "Float", "String", "Bool", "Char"]
+        var_pool = vars if vars else ["a", "b", "c"]
         if depth <= 0 or r < 0.4:
             return ("con", self.pick(cons))
         if r < 0.55:
-            return ("var", self.pick(["a", "b", "c"]))
+            return ("var", self.pick(var_pool))
         if r < 0.7:
             return ("app", self.pick(["Array", "Maybe"]),
-                    [("var", self.pick(["a", "b"]))])
+                    [("var", self.pick(var_pool))])
         if r < 0.85:
             k = self.rng.randint(2, 3)
-            return ("arrow", [self.gen_type(depth - 1) for _ in range(k)])
+            return ("arrow", [self.gen_type(depth - 1, vars) for _ in range(k)])
         k = self.rng.randint(1, 2)
-        return ("record", [(self.pick(self.fields) + str(i), self.gen_type(depth - 1))
+        return ("record", [(self.pick(self.fields) + str(i), self.gen_type(depth - 1, vars))
                            for i in range(k)])
 
     # -- declarations / module --------------------------------------------
@@ -652,6 +749,99 @@ class Gen:
             lead = [self.comment() or ("line", "k%d" % self.next_cid())]
         trailing = self.comment()
         return Decl(name, params, body, sig=sig, lead=lead, trailing=trailing)
+
+    def type_params(self):
+        if not self.chance(0.4):
+            return []
+        return self.rng.sample(["a", "b"], self.rng.randint(1, 2))
+
+    def type_alias(self, i):
+        name = "Alias%d" % i
+        params = self.type_params()
+        rhs = self.gen_type(2, params)
+        lead = None
+        if self.chance(self.crate):
+            lead = [self.comment() or ("line", "k%d" % self.next_cid())]
+        trailing = self.comment()
+        return TypeAliasDecl(name, params, rhs, lead=lead, trailing=trailing)
+
+    def variant_arg_type(self, depth, params):
+        """Like gen_type but never `record` — a record type can only be a
+        variant's SOLE payload (see `variant_payload`'s own "record" case),
+        never one element among several bare arguments (`Ctor { .. } X` does
+        not parse: "Expected end of file" right after the closing `}`)."""
+        r = self.rng.random()
+        cons = ["Int", "Float", "String", "Bool", "Char"]
+        var_pool = params if params else ["a", "b", "c"]
+        if depth <= 0 or r < 0.45:
+            return ("con", self.pick(cons))
+        if r < 0.65:
+            return ("var", self.pick(var_pool))
+        if r < 0.85:
+            return ("app", self.pick(["Array", "Maybe"]), [("var", self.pick(var_pool))])
+        k = self.rng.randint(2, 3)
+        return ("arrow", [self.variant_arg_type(depth - 1, params) for _ in range(k)])
+
+    def variant_payload(self, params):
+        r = self.rng.random()
+        if r < 0.4:
+            return None
+        if r < 0.6:
+            k = self.rng.randint(1, 2)
+            fields = [(self.pick(self.fields) + str(j), self.gen_type(1, params))
+                      for j in range(k)]
+            return ("record", fields)
+        # A non-final positional argument must be a bare constructor name — a
+        # type variable, parenthesized app, or arrow type there breaks the
+        # parser ("Ctor b Int" / "Ctor (Array a) Int" fail right after the
+        # non-final argument; only the LAST argument may be complex, matching
+        # what real Gren union payloads use for multi-arg variants).
+        k = self.rng.randint(1, 3)
+        args = [("con", self.pick(["Int", "Float", "String", "Bool", "Char"]))
+                for _ in range(k - 1)]
+        args.append(self.variant_arg_type(1, params))
+        return ("args", args)
+
+    def union(self, i):
+        name = "Union%d" % i
+        params = self.type_params()
+        k = self.rng.randint(1, 4)
+        variants = []
+        for _ in range(k):
+            vname = self.pick(["Alpha", "Bravo", "Charlie", "Delta", "Echo", "Foxtrot"]) \
+                    + str(self.next_cid())
+            lead = self.comment() if self.chance(0.3) else None
+            trailing = self.comment()
+            variants.append(Variant(vname, self.variant_payload(params),
+                                    lead=lead, trailing=trailing))
+        # A `--` trailing comment or an own-line lead comment can't share the
+        # variant-list's flat line (README "Custom types"), so either forces
+        # the broken (one-variant-per-line) layout.
+        forced = any(v.lead is not None for v in variants) or \
+                 any(v.trailing is not None and v.trailing[0] == "line" for v in variants)
+        broken = forced or self.chance(0.5)
+        lead = None
+        if self.chance(self.crate):
+            lead = [self.comment() or ("line", "k%d" % self.next_cid())]
+        trailing = self.comment()
+        return UnionDecl(name, params, variants, broken=broken, lead=lead, trailing=trailing)
+
+    def port(self, i):
+        name = "port%d" % i
+        if self.chance(0.5):
+            # outgoing: Type -> ... -> Cmd msg
+            k = self.rng.randint(1, 2)
+            segs = [self.gen_type(1) for _ in range(k)] + [("app", "Cmd", [("var", "msg")])]
+            t = ("arrow", segs) if len(segs) > 1 else segs[0]
+        else:
+            # incoming: (Type -> msg) -> Sub msg
+            inner = ("arrow", [self.gen_type(1), ("var", "msg")])
+            t = ("arrow", [("paren", inner), ("app", "Sub", [("var", "msg")])])
+        lead = None
+        if self.chance(self.crate):
+            lead = [self.comment() or ("line", "k%d" % self.next_cid())]
+        trailing = self.comment()
+        return PortDecl(name, t, lead=lead, trailing=trailing)
 
     def next_cid(self):
         c = self.cid
@@ -673,7 +863,17 @@ class Gen:
                 names = ", ".join(self.pick(self.vars) for _ in range(self.rng.randint(1, 2)))
                 imports.append("import " + mod + " exposing (" + names + ")")
         ndecls = self.rng.randint(1, 4)
-        decls = [self.decl(i) for i in range(ndecls)]
+        decls = []
+        for i in range(ndecls):
+            r = self.rng.random()
+            if r < 0.65:
+                decls.append(self.decl(i))
+            elif r < 0.8:
+                decls.append(self.type_alias(i))
+            elif r < 0.95:
+                decls.append(self.union(i))
+            else:
+                decls.append(self.port(i))
         return Module(name, imports, decls)
 
 
@@ -783,7 +983,8 @@ def expr_slots(m):
         for child, cset in child_slots(node):
             yield from walk(child, cset)
     for i, d in enumerate(m.decls):
-        yield from walk(d.body, _attr_setter(d, "body"))
+        if isinstance(d, Decl):
+            yield from walk(d.body, _attr_setter(d, "body"))
 
 
 def child_slots(n):
@@ -843,6 +1044,10 @@ def list_containers(m):
     """Yield (owner, attr, min_len) for every reducible list in the module."""
     yield m, "decls", 1
     for d in m.decls:
+        if isinstance(d, UnionDecl):
+            yield d, "variants", 1
+        if not isinstance(d, Decl):
+            continue
         for node in _all_nodes(d.body):
             if isinstance(node, Call):
                 yield node, "args", 0
@@ -871,6 +1076,14 @@ def comment_clearers(m):
             yield clear_attr(d, "lead")
         if d.trailing is not None:
             yield clear_attr(d, "trailing")
+        if isinstance(d, UnionDecl):
+            for v in d.variants:
+                if v.lead is not None:
+                    yield clear_attr(v, "lead")
+                if v.trailing is not None:
+                    yield clear_attr(v, "trailing")
+        if not isinstance(d, Decl):
+            continue
         for node in _all_nodes(d.body):
             if getattr(node, "pre", None):
                 yield clear_attr(node, "pre")

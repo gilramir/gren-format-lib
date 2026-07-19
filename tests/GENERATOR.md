@@ -1,10 +1,12 @@
 # Property-based random AST generator (`gen-random.py`)
 
-Status: **v1** — core grammar (module header, imports, function declarations,
-binops, records, record updates, arrays, `let`, `when`, `if`, lambda, calls,
-field access, parens, atoms), plus line/block comment injection. Type aliases,
-custom types, ports, patterns beyond the core set, and doc comments are the
-first expansion targets (see [Grammar scope](#grammar-scope)).
+Status: **v1.1** — v1's core expression grammar (module header, imports,
+function declarations, binops, records, record updates, arrays, `let`, `when`,
+`if`, lambda, calls, field access, parens, atoms), plus line/block comment
+injection, **plus top-level type aliases, custom types (unions), and ports**
+(added 2026-07-19). Author-broken types/signatures at arrow boundaries,
+multi-line string literals, doc comments, and patterns beyond the core set are
+the next expansion targets (see [Grammar scope](#grammar-scope)).
 
 This is `qe.md` avenue #2. Every other gate in this repo varies **one** axis over
 a fixed base — `matrix-syntax.py` embeds one construct in one context,
@@ -205,12 +207,43 @@ constructor-with-args, record destructure); line and block comments at the
 bug-prone gaps (own-line before decl / `let` binding / `when` branch / broken
 container item; inline block before an atom; trailing after a binding or decl).
 
-**First expansion targets:** type aliases, custom types (unions), ports;
-author-broken **types/signatures** at arrow boundaries (the class-B shape);
-multi-line string literals and literal-*content* mutation (the class-A shape);
-doc comments; richer patterns (`as`, list patterns — respecting the
-parenthesized-`as` parser gap).
+**v1.1 (implemented 2026-07-19):** top-level `type alias` (record RHS, arrow
+RHS, con/var/app RHS; 0-2 type params), custom types / unions (`type Name =
+Ctor1 | Ctor2 T | Ctor3 { .. }`, flat or author-broken variant list, per-variant
+lead/trailing comments), and ports (`port module` header emitted iff the module
+has ≥1 port; both the `Type -> Cmd msg` and `(Type -> msg) -> Sub msg` shapes).
+Two real parser-grammar quirks surfaced while building this and are now baked
+into the generator as constraints (not formatter bugs — the *parser's* variant-
+payload grammar, verified against `Compiler.Parse.Declaration.gren`):
+- A variant payload's `record` type must be the variant's **sole** argument —
+  `Ctor { field : T } X` fails to parse right after the `}` (a record type
+  cannot appear as one of several bare positional arguments).
+- In a multi-argument (non-record) payload, every argument **except the last**
+  must be a bare, unparenthesized constructor name (`Int`, `Float`, …). A type
+  variable, a parenthesized arrow type, or an `app` type in a non-final
+  position breaks the parser right after that argument (`Ctor b Int` and
+  `Ctor (Array a) Int` both fail; `Ctor Int b` and `Ctor Int (Array a)` — same
+  shapes with the complex argument moved LAST — both parse fine). Only the
+  final argument may be var/app/arrow; `variant_arg_type` encodes this.
+
+These match what real Gren code already does (`Circle Int`, `Rectangle Int
+Int` in `TypeUnion.formatted.gren` — plain cons only, never a var/paren'd type
+mid-list), so the constraint costs little realism.
+
+Type-alias / port RHS types stay **inline-only** for this pass, matching v1's
+existing signature-type scope; author-broken multi-line arrow types are a
+separate, not-yet-implemented expansion (next target below).
+
+**Next expansion targets:** author-broken **types/signatures** at arrow
+boundaries (the class-B shape) — this now applies to type aliases and ports
+too, not just function signatures; multi-line string literals and literal-
+*content* mutation (the class-A shape); doc comments; richer patterns (`as`,
+list patterns — respecting the parenthesized-`as` parser gap); referencing a
+module's own declared union constructors from `pattern()`/`leaf()` (currently
+generated unions are declared but never constructed/matched elsewhere in the
+module — a coverage gap, not a correctness one).
 
 The generator is intentionally started small and correct (0 quarantine on the
 core grammar) and expanded one construct at a time, verifying the quarantine rate
-stays at ~0 after each addition.
+stays at ~0 after each addition. (2026-07-19: 0/500, 0/2000, 0/800@depth-7 after
+the type-alias/union/port addition.)
