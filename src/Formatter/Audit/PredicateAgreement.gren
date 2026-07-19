@@ -30,7 +30,7 @@ import Formatter.Logical.LogicalPrintingTree exposing (LPBox(..), LPNode, lpnBox
 import Formatter.Render.Box as B exposing (Box)
 import Formatter.Render.BoxOps exposing (isSingleLine)
 import Formatter.Render.MakeRenderBox exposing (makePBox)
-import Formatter.Render.NodeClassify exposing (isMultilineContentParenBlockBox, isMultilineLambdaParenBlockBox, subtreeHasVerticalBox)
+import Formatter.Render.NodeClassify exposing (isMultilineLambdaParenBlockBox)
 import Json.Encode as Json
 
 
@@ -58,9 +58,7 @@ answers "this will break", so every one of them owes the renderer agreement.
 -}
 auditedPredicates : Array { name : String, test : LPNode -> Bool }
 auditedPredicates =
-    [ { name = "subtreeHasVerticalBox", test = subtreeHasVerticalBox }
-    , { name = "isMultilineContentParenBlockBox", test = isMultilineContentParenBlockBox }
-    , { name = "isMultilineLambdaParenBlockBox", test = isMultilineLambdaParenBlockBox }
+    [ { name = "isMultilineLambdaParenBlockBox", test = isMultilineLambdaParenBlockBox }
     ]
 
 

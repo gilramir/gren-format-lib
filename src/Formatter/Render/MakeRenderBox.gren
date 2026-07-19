@@ -20,7 +20,7 @@ import Formatter.Render.CommentBox exposing (commentNodeBox, emptyBracketedComme
 import Formatter.Render.ElmStructure as E
 import Formatter.Render.FlowAssembly exposing (FlowItem, SoftGlueAlignment(..), assembleBrokenCall, assembleBrokenWithComments, bracketPunc, gluedExposingBox, pairTypeRecordComments, parenInnerIsAlignCarrying, softBlockChildForcesVerticalBox, softGlueAlignment, trySoftGlueFlow, verticalExposingBox)
 import Formatter.Render.FlowPolicy as FP
-import Formatter.Render.NodeClassify exposing (fieldValueDropsToOwnLine, isColonLeaf, isDroppingSignatureRecordNode, isMultilineContentParenBlockBox, isMultilineLambdaParenBlockBox, isOpAndRhsNode, isPipelineStepNode, leafLineRow, leafValue, literalCommentsRideFlatLine, nodeIsComment, parenContentIsLambdaHead, rowsSpanMultiple, signatureForceVertical, splitSignatureSegments, subtreeHasComment, subtreeHasMultilineBlockComment, typeHasCommentBracket)
+import Formatter.Render.NodeClassify exposing (fieldValueDropsToOwnLine, isColonLeaf, isDroppingSignatureRecordNode, isMultilineLambdaParenBlockBox, isOpAndRhsNode, isPipelineStepNode, leafLineRow, leafValue, literalCommentsRideFlatLine, nodeIsComment, parenContentIsLambdaHead, rowsSpanMultiple, signatureForceVertical, splitSignatureSegments, subtreeHasComment, subtreeHasMultilineBlockComment, typeHasCommentBracket)
 
 
 {-| Entry point: render one top-level root child to a Box, or `Err` if it
@@ -727,7 +727,6 @@ splitStepTrigger stepChildren =
                     if
                         not isDirectGluedOperand
                             && (isMultilineLambdaParenBlockBox node
-                                    || isMultilineContentParenBlockBox node
                                     || flowChildForcesVerticalBox node
                                )
                     then
@@ -826,20 +825,6 @@ directOperandLambdaSplit node =
                 Nothing
 
 
-{-| Render a relocated non-lambda multi-line paren argument — content glued to
-`(`, `)` on its own line at the `(` column (elm-format). The vertical content
-(an `AlwaysVertical` / bracket literal) aligns itself at the `(` + 1 column;
-`B.prefix`'s exact-width padding produces that for punctuation-prefixed
-continuation lines. -}
-makeMultilineParenArgBox : Array LPNode -> Result String Box
-makeMultilineParenArgBox children =
-    buildFlowBoxInline 0 children
-        |> Result.map
-            (\innerBox ->
-                B.stack1 [ B.prefix (B.punc "(") innerBox, B.line (B.punc ")") ]
-            )
-
-
 -- One `|> step`. A step with a *trigger* (see `splitStepTrigger`) relocates it:
 -- the preamble (`|> fn …`) glues inline, the trigger drops to its own line at
 -- +grenIndent (relative to the step's own base — the pipeline assembler adds
@@ -925,10 +910,13 @@ stepBodyBox children =
                     if isMultilineLambdaParenBlockBox trigger then
                         makeMultilineLambdaArgBox (lpnChildren trigger)
 
-                    else if isMultilineContentParenBlockBox trigger then
-                        makeMultilineParenArgBox (lpnChildren trigger)
-
                     else
+                        -- A multi-line non-lambda paren (or a bracket container)
+                        -- relocates via its own box: `makeParenBlockBox`'s vertical
+                        -- form is `wrapParenVerticalPadded (buildFlowBoxInline 0 …)`,
+                        -- byte-identical to the former `makeMultilineParenArgBox`
+                        -- special case — so one renderer serves both, no
+                        -- `subtreeHasVerticalBox` shape prediction needed.
                         makePBox (lpnBox trigger) (lpnChildren trigger)
             in
             buildFlowBoxInline 0 preamble
