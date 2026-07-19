@@ -104,6 +104,21 @@ operandCommentForcesOpen node =
         RecordUpdate _ ->
             bracketOpenGate False (lpnChildren node)
 
+        ParenBlock _ ->
+            -- A paren operand breaks the chain exactly when it renders multi-line,
+            -- which depends on its content in ways this pure predicate cannot see
+            -- (an `if`/`when`/`let`, a multi-field record, an inline `{- c -}` that
+            -- rides vs a `--` that forces the `)` down). That decision is made
+            -- render-side in `MakeRenderBox.anyOperandRendersMultiline`, which
+            -- inspects the operand's actual box (`isSingleLine`) — a reparse-stable
+            -- signal. So this arm contributes nothing: an author-broken paren is
+            -- already covered by the caller's `nodeSpansRows`, and every
+            -- content-forced break is covered by the render check. (Keying off
+            -- `subtreeHasComment` here broke the chain on ANY nested comment, even
+            -- an inline one that rides — over-breaking vs elm-format, which keeps
+            -- `0 + (0 * f {- k -}) - 0` flat.)
+            False
+
         _ ->
             subtreeHasComment node
 

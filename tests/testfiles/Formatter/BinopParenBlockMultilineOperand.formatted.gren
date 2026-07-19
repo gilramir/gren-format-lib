@@ -1,0 +1,17 @@
+module Gen312 exposing (..)
+
+
+fn0 : a
+fn0 =
+    { name1 =
+        0
+            ++ ({ y
+                    | next0 =
+                        if 79 then
+                            Node
+
+                        else
+                            z
+                }
+               )
+    }
