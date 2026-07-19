@@ -166,8 +166,15 @@ splitTrailingOwnLineComments nodes =
 
         isOwnLineComment node =
             when lpnBox node is
-                SingleLineComment _ ->
-                    True
+                SingleLineComment loc ->
+                    -- A `--` on a LATER row than the operand is one the author
+                    -- put on its own line (leading the next operator) — keep it
+                    -- own-line. A `--` on the operand's OWN last row is trailing
+                    -- it (`// acc -- k1`); gren glues it inline, same as any other
+                    -- same-row trailing `--`. Treating every `--` as own-line
+                    -- detached a same-row trailing one at the operator indent,
+                    -- which then oscillated +N ↔ col-0 on reparse.
+                    loc.start.row > contentRow
 
                 BlockComment loc ->
                     loc.start.row > contentRow

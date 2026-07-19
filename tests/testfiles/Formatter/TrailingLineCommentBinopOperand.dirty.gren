@@ -1,0 +1,7 @@
+module Main exposing (fn1)
+
+
+fn1 y =
+    Nothing
+        || node
+        // acc -- k1

@@ -1,0 +1,7 @@
+module Main exposing (fn)
+
+
+fn x =
+    when x is
+        node ->
+            (0) -- k9
