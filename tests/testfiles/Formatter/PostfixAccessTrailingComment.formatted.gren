@@ -1,0 +1,13 @@
+module PostfixAccessTrailingComment exposing (..)
+
+
+blockComment =
+    (x).name {- rides the postfix-access line -}
+
+
+lineComment =
+    (x).name -- rides the postfix-access line
+
+
+inBinop =
+    0 / (x).name {- last operand carries the comment -}

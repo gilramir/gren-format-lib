@@ -2265,7 +2265,15 @@ makePBox box children =
 single-line. -}
 makeGlueBox : Array LPNode -> Result String Box
 makeGlueBox children =
-    when Array.popFirst children is
+    -- A trailing comment on a postfix access (`(x).name {- c -}`, `(x).name -- c`)
+    -- rides the glued line with a space; it must not go through `makePBox` (a bare
+    -- comment node has no makePBox arm — it hit "comment never reaches makePBox").
+    -- Peel it off first, glue the tokens with no space, then append the comment(s).
+    let
+        split =
+            spanTrailingComments children
+    in
+    when Array.popFirst split.body is
         Nothing ->
             Err "box: empty glue"
 
@@ -2286,10 +2294,10 @@ makeGlueBox children =
                                                                 Ok (B.addSuffix l acc)
 
                                                             Err _ ->
-                                                                -- unreachable: every non-base Glue child is
-                                                                -- a freshly built plain-text ".field" leaf
-                                                                -- (InsertExpressions.gren's insertAccess),
-                                                                -- always single-line.
+                                                                -- unreachable: every non-base, non-comment
+                                                                -- Glue child is a freshly built plain-text
+                                                                -- ".field" leaf (InsertExpressions.gren's
+                                                                -- insertAccess), always single-line.
                                                                 Err "unreachable: multi-line glue suffix"
                                                     )
                                         )
@@ -2297,6 +2305,7 @@ makeGlueBox children =
                             (Ok baseBox)
                             rest
                     )
+                |> Result.andThen (\glued -> glueTrailingComments glued split.trailing)
 
 
 {-| Render a `ParenBlock`: inline `(inner)`, the generic vertical form
