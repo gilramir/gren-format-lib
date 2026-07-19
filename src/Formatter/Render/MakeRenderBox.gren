@@ -470,37 +470,21 @@ A multi-line block-comment SIBLING (rare) falls back. -}
 makeUnionBodyVerticalBox : Array LPNode -> Result String Box
 makeUnionBodyVerticalBox nodes =
     let
-        placeComment acc row commentBox =
+        -- Same-row (role `TrailsPrevious`/`RidesInline`): glue onto the preceding
+        -- variant's last line (multi-line comments padded under their start by
+        -- `glueCommentSuffix`). Own row (`LeadsOwnLine`): the comment box stands
+        -- on its own line. The glue call is the stored role, not a row test.
+        placeComment acc node commentBox =
             when Array.popLast acc.boxes is
                 Just { last = lastBox, initial } ->
-                    if row == acc.prevRow && acc.prevRow >= 0 then
-                        { acc
-                            | boxes = Array.pushLast (glueCommentSuffix commentBox lastBox) initial
-                            , prevRow = row
-                        }
+                    if commentTrailsRole node then
+                        { acc | boxes = Array.pushLast (glueCommentSuffix commentBox lastBox) initial }
 
                     else
-                        { acc | boxes = Array.pushLast commentBox acc.boxes, prevRow = row }
+                        { acc | boxes = Array.pushLast commentBox acc.boxes }
 
                 Nothing ->
-                    { acc | boxes = [ commentBox ], prevRow = row }
-
-        variantLastRow node =
-            let
-                tokenRow =
-                    lpnLastPos node |> Maybe.map (\p -> p.row) |> Maybe.withDefault -1
-
-                bracketRow =
-                    lpnLastBracketEnd node |> Maybe.map (\p -> p.row) |> Maybe.withDefault -1
-
-                maxR =
-                    max tokenRow bracketRow
-            in
-            if maxR >= 0 then
-                maxR
-
-            else
-                firstRowInSubtree node
+                    { acc | boxes = [ commentBox ] }
     in
     Array.foldl
         (\node accResult ->
@@ -508,27 +492,23 @@ makeUnionBodyVerticalBox nodes =
                 |> Result.andThen
                     (\acc ->
                         when lpnBox node is
-                            SingleLineComment { loc } ->
+                            SingleLineComment _ ->
                                 commentNodeBox node
-                                    |> Result.map (\cbox -> placeComment acc loc.start.row cbox)
+                                    |> Result.map (\cbox -> placeComment acc node cbox)
 
-                            BlockComment { loc } ->
-                                -- Same-row: glue onto the preceding variant's last
-                                -- line (multi-line comments padded under their start
-                                -- by `glueCommentSuffix`). Own row: the comment box
-                                -- (reindented if multi-line) stands on its own line.
+                            BlockComment _ ->
                                 commentNodeBox node
-                                    |> Result.map (\cbox -> placeComment acc loc.start.row cbox)
+                                    |> Result.map (\cbox -> placeComment acc node cbox)
 
                             _ ->
                                 buildFlowBox 0 (lpnChildren node)
                                     |> Result.map
                                         (\childBox ->
-                                            { boxes = Array.pushLast childBox acc.boxes, prevRow = variantLastRow node }
+                                            { acc | boxes = Array.pushLast childBox acc.boxes }
                                         )
                     )
         )
-        (Ok { boxes = [], prevRow = -1 })
+        (Ok { boxes = [] })
         nodes
         |> Result.andThen
             (\acc ->
@@ -1707,10 +1687,13 @@ lead), still fall back. -}
 renderWhenBranchesBox : Array LPNode -> Result String Box
 renderWhenBranchesBox children =
     let
-        handleComment acc row node =
-            if row == acc.lastRow && acc.lastRow >= 0 then
-                -- Trailing the previous branch on its last line (multi-line
-                -- comments padded under their start by `glueCommentSuffix`).
+        handleComment acc node =
+            -- Trails the previous branch on its last line when the classifier
+            -- tagged it `TrailsPrevious`/`RidesInline` — but only while not
+            -- already accumulating own-line comments that LEAD the next branch
+            -- (`pending`), so a same-row run leading a branch stays together
+            -- rather than the second gluing back onto the previous branch.
+            if commentTrailsRole node && not (Array.isEmpty acc.boxes) && Array.isEmpty acc.pending then
                 commentNodeBox node
                     |> Result.andThen
                         (\cbox ->
@@ -1720,11 +1703,7 @@ renderWhenBranchesBox children =
                                         { acc | boxes = Array.pushLast (glueCommentSuffix cbox lastBox) initial }
 
                                 Nothing ->
-                                    -- unreachable: lastRow only ever becomes >= 0 in the
-                                    -- same fold step that pushes onto boxes (the
-                                    -- WhenBranch arm below), so boxes being empty here
-                                    -- implies lastRow == -1 — contradicting the guard
-                                    -- above that required lastRow >= 0 to reach this arm.
+                                    -- unreachable: guarded by `not (Array.isEmpty acc.boxes)`.
                                     Err "unreachable: comment before first when-branch"
                         )
 
@@ -1751,14 +1730,14 @@ renderWhenBranchesBox children =
                                                     else
                                                         B.stack1 (Array.pushLast bx acc.pending)
                                             in
-                                            { boxes = Array.pushLast combined acc.boxes, lastRow = lpnMaxRow child, pending = [] }
+                                            { boxes = Array.pushLast combined acc.boxes, pending = [] }
                                         )
 
-                            SingleLineComment { loc } ->
-                                handleComment acc loc.start.row child
+                            SingleLineComment _ ->
+                                handleComment acc child
 
-                            BlockComment { loc } ->
-                                handleComment acc loc.start.row child
+                            BlockComment _ ->
+                                handleComment acc child
 
                             EmptyLine ->
                                 -- The blank-line marker that precedes an own-line
@@ -1770,7 +1749,7 @@ renderWhenBranchesBox children =
                                 -- position (leading, or after a pending comment)
                                 -- falls back.
                                 if Array.isEmpty acc.pending && not (Array.isEmpty acc.boxes) then
-                                    Ok { acc | lastRow = -1 }
+                                    Ok acc
 
                                 else
                                     Err "box: unexpected blank line among when-branches"
@@ -1779,7 +1758,7 @@ renderWhenBranchesBox children =
                                 Err "box: unexpected node among when-branches"
                     )
         )
-        (Ok { boxes = [], lastRow = -1, pending = [] })
+        (Ok { boxes = [], pending = [] })
         children
         |> Result.andThen
             (\acc ->

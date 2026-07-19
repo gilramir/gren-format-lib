@@ -973,6 +973,9 @@ prevLineGlueRow node =
         AlwaysVertical _ ->
             bracketClosingRow node
 
+        WhenBranch ->
+            (subtreeRowRange node).maxRow
+
         -- A run of comments: the following one glues onto the previous comment's
         -- start row (FlowPolicy carries it forward as `prevRowLine`).
         SingleLineComment _ ->
@@ -1033,6 +1036,11 @@ prevBlockGlueRow node =
 
         AlwaysVertical _ ->
             bracketClosingRow node
+
+        -- A when-branch: a same-row comment trails it (`renderWhenBranchesBox`
+        -- glues onto the branch's `lpnMaxRow`).
+        WhenBranch ->
+            (subtreeRowRange node).maxRow
 
         SingleLineComment _ ->
             firstRowInSubtree node
