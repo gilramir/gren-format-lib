@@ -1,11 +1,43 @@
 # Comment/Layout Architecture Plan: stop re-deriving, start storing
 
-**Status:** Change A (Phases 1–3) landed — all gates green, every fixture
-byte-identical (2026-07-19), on branch `comments`. Only Change B
-(observe-don't-predict) remains. This document is a self-contained plan meant
-to be handed to an implementer with no prior conversation context.
+**Status:** Change A (Phases 1–3) landed in full; Change B substantially landed
+(the layout decisions already observe rendered box shape; the one redundant pure
+predicate was retired). One pure predicate remains for a documented reason. All
+gates green, every fixture byte-identical (2026-07-19), on branch `comments`.
+This document is a self-contained plan meant to be handed to an implementer with
+no prior conversation context.
 
 ## Progress log
+
+- **Change B (observe rendered shape) — SUBSTANTIALLY DONE.** On inspection most
+  of Change B was already in place: the verticality decisions observe the
+  rendered box, not a mirror predicate — bracketed literals via
+  `ElmStructure.groupBox`'s `B.allSingles`, record updates via
+  `contentVertical = Array.any (not << isSingleLine) fieldBoxes` (the `27e8903`
+  crash site), and binop chains via `anyOperandRendersMultiline` (`7dfa132`).
+  `checkContentVertical` is *not* a pure predicate but the sound
+  author-vs-synthesized flag §8 describes: it gates whether the renderer consults
+  the rendered box shape (`.isBlock` in the `AcrossOrVertical` arm,
+  `isSingleLine innerBox` in `parenGenericFallbackBox`) — synthesized wraps opt
+  out. Work done this pass:
+  - Retired the **redundant** pure binop predicate: `makeBinopBox` OR'd
+    `bracketOperandForcesVertical` (a source-row shape predicate) with the
+    render-based `anyOperandRendersMultiline`; the former's every hit also
+    renders multi-line, so dropping it was byte-identical. Deleted it plus
+    `operandIsMultilineBracketLiteral` / `operandCommentForcesOpen`, and the now
+    dead `nodeSpansRows`.
+  - **Remaining pure predicate:** `subtreeHasVerticalBox` / `bracketOpenGate`,
+    consumed **only** by `isMultilineContentParenBlockBox` — which selects a
+    pipeline-step's paren-relocation *renderer* (`makeMultilineParenArgBox` for a
+    paren wrapping a multi-line *bracket*, vs `makePBox` for a paren wrapping an
+    `if`/`when`/`let`). It classifies the *kind* of multi-line content, not just
+    "multi-line", so a plain `isSingleLine` swap would misroute `if`/`when` parens
+    to the bracket renderer. The `audit-predicates` gate confirms it never lies
+    (a sound under-approximation), so it stays until someone restructures
+    `stepBodyBox`'s renderer selection to be shape-based while preserving the
+    bracket-vs-`if`/`when` distinction. That is the only piece of §6 still open.
+
+## Progress log (Change A)
 
 - **Phase 3 (cut the remaining comment sites over) — DONE.** Every remaining
   comment-*placement* site now reads the stored `CommentRole` instead of
