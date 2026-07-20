@@ -3404,6 +3404,7 @@ decision and why.
 
     We keep the aligned form on purpose. A pipeline is a list of steps, and
     reading it means scanning the `|>` column; elm-format doesn't do that.
+    Filed upstream as [elm-format#842](https://github.com/avh4/elm-format/issues/842).
 
     **Case B — same pipeline, but the block is already broken across its own
     lines.** The `|>` chain itself is still written flat; only the `when`/`case`
