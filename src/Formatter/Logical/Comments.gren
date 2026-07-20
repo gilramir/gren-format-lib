@@ -432,13 +432,46 @@ insertCommentIntoSubtree commentNode row col node =
                             childHasBody =
                                 not (Array.isEmpty childChildren) || commentInsideEmptyBracket child row col
 
+                            -- A record-update EXPRESSION at the end of its flow (no
+                            -- following sibling) whose trailing comment sits *past* the
+                            -- `}` keeps that comment OUTSIDE, flat — like arrays and
+                            -- record literals. This is scoped to the last-sibling case
+                            -- on purpose: the `RecordUpdate` box is *also* the
+                            -- extensible-record TYPE (`{ r | x : Int } -> …`), where a
+                            -- `->` continuation follows; there the comment must descend
+                            -- to the last field, so keeping it outside would strand it
+                            -- between `}` and `->` and oscillate on reparse. (A comment
+                            -- *before* the `}` is handled by `commentInsideTrailingBracket`
+                            -- below, keeping the author's chosen side either way.)
+                            childIsRecordUpdate =
+                                when lpnBox child is
+                                    RecordUpdate _ ->
+                                        True
+
+                                    _ ->
+                                        False
+
+                            hasNoFollowingSibling =
+                                when Array.get (acc.index + 1) children is
+                                    Nothing ->
+                                        True
+
+                                    Just _ ->
+                                        False
+
+                            recordUpdateEndOfFlow =
+                                childIsRecordUpdate && hasNoFollowingSibling
+
                             -- The comment merely *trails* `child`'s last token and
                             -- must stay OUTSIDE it: `child` is a boundary-/bracket-
                             -- keeping box (or the next sibling starts a new flow
                             -- item) and the comment isn't genuinely inside child's
                             -- closing bracket. See the trailing-comment boundary rule.
                             trailingCommentEscapes =
-                                (boxKeepsTrailingCommentOutside child || nextSiblingIsBoundary)
+                                (boxKeepsTrailingCommentOutside child
+                                    || nextSiblingIsBoundary
+                                    || recordUpdateEndOfFlow
+                                )
                                     && subtreeEndsBefore child row col
                                     && not (commentInsideTrailingBracket child row col)
 
@@ -971,6 +1004,12 @@ prevLineGlueRow node =
             bracketClosingRow node
 
         AlwaysVertical _ ->
+            bracketClosingRow node
+
+        -- Same as the other bracketed containers: a `--` past the `}` glues onto
+        -- the update's closing-bracket row (so it stays on that line instead of
+        -- dropping to its own, which would oscillate).
+        RecordUpdate _ ->
             bracketClosingRow node
 
         WhenBranch ->

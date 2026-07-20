@@ -9,5 +9,5 @@ bump z =
 
             else
                 1
-        , value1 = 0 {- trails value1 -}
-    }
+        , value1 = 0
+    } {- trails value1 -}

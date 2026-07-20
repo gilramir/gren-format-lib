@@ -4,3 +4,6 @@ gren_packages/
 # gren-coverage-node: sourcemapped test build for coverage
 tests/cov-app
 tests/__pycache__/
+
+# scratch notes, not meant to be committed
+tbd.md

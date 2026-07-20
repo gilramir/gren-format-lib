@@ -146,10 +146,11 @@ class PAs:
 
 class Decl:
     def __init__(self, name, params, body, sig=None, sig_broken=False,
-                 doc=None, lead=None, trailing=None):
+                 doc=None, lead=None, trailing=None, arrow_comment=None):
         self.name, self.params, self.body = name, params, body
         self.sig, self.sig_broken = sig, sig_broken
         self.doc, self.lead, self.trailing = doc, lead, trailing
+        self.arrow_comment = arrow_comment  # (seg_idx, (kind, text)) | None
 
 
 # Type-alias / custom-type / port declarations. Unlike Decl (function), these
@@ -157,9 +158,11 @@ class Decl:
 # `.body`) must skip them — only the "drop this whole decl" step applies.
 
 class TypeAliasDecl:
-    def __init__(self, name, params, rhs, broken=False, doc=None, lead=None, trailing=None):
+    def __init__(self, name, params, rhs, broken=False, doc=None, lead=None,
+                 trailing=None, arrow_comment=None):
         self.name, self.params, self.rhs, self.broken = name, params, rhs, broken
         self.doc, self.lead, self.trailing = doc, lead, trailing
+        self.arrow_comment = arrow_comment
 
 
 class Variant:
@@ -176,9 +179,11 @@ class UnionDecl:
 
 
 class PortDecl:
-    def __init__(self, name, type_, broken=False, doc=None, lead=None, trailing=None):
+    def __init__(self, name, type_, broken=False, doc=None, lead=None,
+                 trailing=None, arrow_comment=None):
         self.name, self.type_, self.broken = name, type_, broken
         self.doc, self.lead, self.trailing = doc, lead, trailing
+        self.arrow_comment = arrow_comment
 
 
 class Module:
@@ -546,16 +551,32 @@ def _flatten_arrow(t):
     return out
 
 
-def emit_type_multiline(t, broken):
+def emit_type_multiline(t, broken, arrow_comment=None):
     """Emit a top-level signature/alias/port type. Per README "Type
     signatures": written across rows, the canonical shape puts each `->`
     segment on its own line, `->` leading each continuation — so this only
     ever applies when `t` is an arrow chain; a non-arrow RHS (record, con,
-    var, app) has no `->` boundary to break at and always stays inline."""
+    var, app) has no `->` boundary to break at and always stays inline.
+
+    `arrow_comment`, if given, is `(seg_idx, (kind, text))` — a comment riding
+    the `->` that leads `segs[seg_idx]` (README divergence #5). A single-line
+    block comment glues onto the SAME line as its segment (`-> {- k -} Type`);
+    a line comment can't share a line with anything after it, so the segment
+    drops to its own next line with no `->` prefix (it's a continuation of
+    the same arrow step, not a new one)."""
     if not broken or t[0] != "arrow":
         return [emit_type(t)]
     segs = _flatten_arrow(t)
-    return [emit_type(segs[0])] + ["-> " + emit_type(s) for s in segs[1:]]
+    lines = [emit_type(segs[0])] + ["-> " + emit_type(s) for s in segs[1:]]
+    if arrow_comment is not None:
+        idx, c = arrow_comment
+        kind, _ = c
+        if 0 < idx < len(lines):
+            if kind == "line":
+                lines[idx:idx + 1] = ["-> " + comment_text(c), emit_type(segs[idx])]
+            else:
+                lines[idx] = "-> " + comment_text(c) + " " + emit_type(segs[idx])
+    return lines
 
 
 # ───────────────────────── type alias / union / port emission ─────────────
@@ -565,7 +586,8 @@ def emit_type_multiline(t, broken):
 
 def emit_type_alias(d):
     header = "type alias " + d.name + "".join(" " + p for p in d.params) + " ="
-    return [header] + [pad(INDENT) + l for l in emit_type_multiline(d.rhs, d.broken)]
+    return [header] + [pad(INDENT) + l
+                        for l in emit_type_multiline(d.rhs, d.broken, d.arrow_comment)]
 
 
 def emit_variant_payload(payload):
@@ -599,7 +621,8 @@ def emit_union(d):
 def emit_port(d):
     if d.broken and d.type_[0] == "arrow":
         return ["port " + d.name + " :"] + \
-               [pad(INDENT) + l for l in emit_type_multiline(d.type_, True)]
+               [pad(INDENT) + l
+                for l in emit_type_multiline(d.type_, True, d.arrow_comment)]
     return ["port " + d.name + " : " + emit_type(d.type_)]
 
 
@@ -652,7 +675,8 @@ def emit_function_decl(d):
     if d.sig is not None:
         if d.sig_broken and d.sig[0] == "arrow":
             out.append(d.name + " :")
-            out += [pad(INDENT) + l for l in emit_type_multiline(d.sig, True)]
+            out += [pad(INDENT) + l
+                    for l in emit_type_multiline(d.sig, True, d.arrow_comment)]
         else:
             out.append(d.name + " : " + emit_type(d.sig))
     prefix = d.name + "".join(" " + emit_pat(p) for p in d.params) + " = "
@@ -909,6 +933,21 @@ class Gen:
         return ("record", [(self.pick(self.fields) + str(i), self.gen_type(depth - 1, vars))
                            for i in range(k)])
 
+    def maybe_arrow_comment(self, t, broken):
+        """Maybe a comment riding one of an author-broken arrow type's `->`
+        continuations (README divergence #5) — never the first segment,
+        which has no leading `->` to ride."""
+        if not broken or t[0] != "arrow":
+            return None
+        segs = _flatten_arrow(t)
+        if len(segs) < 2:
+            return None
+        c = self.comment(kinds=("line", "block"))
+        if c is None:
+            return None
+        idx = self.rng.randint(1, len(segs) - 1)
+        return (idx, c)
+
     # -- declarations / module --------------------------------------------
 
     def doc_comment(self):
@@ -937,13 +976,15 @@ class Gen:
             sig = ("arrow", [self.gen_type(2) for _ in range(k)]) if k > 1 \
                   else self.gen_type(2)
             sig_broken = sig[0] == "arrow" and self.chance(0.5)
+        arrow_comment = self.maybe_arrow_comment(sig, sig_broken) if sig is not None else None
         doc = self.doc_comment()
         lead = None
         if doc is None and self.chance(self.crate):
             lead = [self.comment() or ("line", "k%d" % self.next_cid())]
         trailing = self.comment()
         return Decl(name, params, body, sig=sig, sig_broken=sig_broken,
-                    doc=doc, lead=lead, trailing=trailing)
+                    doc=doc, lead=lead, trailing=trailing,
+                    arrow_comment=arrow_comment)
 
     def type_params(self):
         if not self.chance(0.4):
@@ -955,13 +996,15 @@ class Gen:
         params = self.type_params()
         rhs = self.gen_type(2, params)
         broken = rhs[0] == "arrow" and self.chance(0.5)
+        arrow_comment = self.maybe_arrow_comment(rhs, broken)
         doc = self.doc_comment()
         lead = None
         if doc is None and self.chance(self.crate):
             lead = [self.comment() or ("line", "k%d" % self.next_cid())]
         trailing = self.comment()
         return TypeAliasDecl(name, params, rhs, broken=broken, doc=doc,
-                             lead=lead, trailing=trailing)
+                             lead=lead, trailing=trailing,
+                             arrow_comment=arrow_comment)
 
     def variant_arg_type(self, depth, params):
         """A union variant's single positional argument. Current Gren limits a
@@ -1035,12 +1078,14 @@ class Gen:
             inner = ("arrow", [self.gen_type(1), ("var", "msg")])
             t = ("arrow", [("paren", inner), ("app", "Sub", [("var", "msg")])])
         broken = t[0] == "arrow" and self.chance(0.5)
+        arrow_comment = self.maybe_arrow_comment(t, broken)
         doc = self.doc_comment()
         lead = None
         if doc is None and self.chance(self.crate):
             lead = [self.comment() or ("line", "k%d" % self.next_cid())]
         trailing = self.comment()
-        return PortDecl(name, t, broken=broken, doc=doc, lead=lead, trailing=trailing)
+        return PortDecl(name, t, broken=broken, doc=doc, lead=lead, trailing=trailing,
+                        arrow_comment=arrow_comment)
 
     def next_cid(self):
         c = self.cid
@@ -1279,6 +1324,8 @@ def comment_clearers(m):
             yield clear_attr(d, "lead")
         if d.trailing is not None:
             yield clear_attr(d, "trailing")
+        if getattr(d, "arrow_comment", None) is not None:
+            yield clear_attr(d, "arrow_comment")
         if isinstance(d, UnionDecl):
             for v in d.variants:
                 if v.lead is not None:

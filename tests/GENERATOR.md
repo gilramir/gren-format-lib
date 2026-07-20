@@ -466,17 +466,64 @@ seeds, the full effectful suite (229, up from 227 — new fixtures
 fuzzers, audit-predicates, and the 1738-cell matrix — all clean, 0
 regressions. Re-swept 3000 seeds clean after the fix.
 
-**Next expansion targets:** list patterns beyond fixed-length arrays (Gren has
-none — noted above, not a gap); comments *inside* a broken type signature (a
-`--`/block comment riding a `->`, per README divergence #5 — not yet
-generated, v1.2's broken types carry no comments); comments *inside* a
-multi-line string's surrounding expression aside from the trailing-comment
-shape already fixed; referencing a module's own declared union constructors
-from `pattern()`/`leaf()` (currently generated unions are declared but never
+**2026-07-20: comments riding a broken signature's `->` (README divergence
+#5), and the crash it found.** `Gen.maybe_arrow_comment` puts a `--` or
+single-line `{- -}` on a random non-first segment of a broken arrow type
+(`Decl.sig`, `TypeAliasDecl.rhs`, `PortDecl.type_`); `emit_type_multiline`
+grew an `arrow_comment` parameter to place it (a line comment pushes its
+segment to the next line with no `->`, since `--` can't share a line with
+anything after it; a block comment glues `-> {- c -} Type` on one line) —
+both shapes verified directly against the built app before wiring into the
+generator. A `-n 500` sweep at the default comment-rate came back clean, but
+raising `--comment-rate` to 0.5 (to exercise the new path harder — it only
+fires on an already-1-in-8-ish broken-arrow-with-comment combination) found a
+**pre-existing crash unrelated to the new grammar**: seed 809 shrunk to `{ y |
+next0 = \a -> 0 } -- k13`, a decl-trailing line comment on a single-line
+record UPDATE whose last field's value is a lambda. `gren format` emitted `{
+y | next0 = \a -> 0 -- k13 }` — the comment swallowed the `}` that had to
+follow it on the same line, producing unparseable output.
+
+Root cause chain (three code paths, all in the comment-role/render-role
+split from [[project_comment_arch_plan]]): (1) `Comments.gren`'s
+`boxKeepsTrailingCommentOutside` had no entry for `SoftIndentedBlock` (a
+lambda body / port payload has no bracket of its own to register, so
+`commentInsideTrailingBracket` can never rescue a genuinely-inside comment
+there) — a comment trailing the whole declaration sank past the field into
+the lambda body's own children instead of stopping at the field boundary.
+(2) Once excluded, the escaped comment needed a same-row glue rule to land on
+the body's last rendered line rather than dropping to its own line —
+`prevLineGlueRow`/`prevBlockGlueRow` gained a `SoftIndentedBlock` case
+mirroring `AcrossOrVertical`'s call-flow rule (line comment glues
+unconditionally; block only if the body ends in a bracket). (3)
+`MakeRenderBox.gren`'s `commentForcesBracketOpen` — the check deciding
+whether a comment forces the whole record update onto the vertical layout —
+only scanned RecordUpdate's DIRECT children; a multi-field update wraps each
+field in an `IndentedBlock`, so the escaped comment (now IndentedBlock's own
+child, not RecordUpdate's) stayed invisible, and the flat-layout path glued
+` }` onto the un-terminated comment's line regardless. Fix: a new
+`recordUpdateForcesOpen` reaches one level into an `IndentedBlock` field
+wrapper. All three were verified necessary and sufficient — reverting any one
+reintroduces the crash. **First attempt was wider and wrong**: adding
+`RecordUpdate` itself to `boxKeepsTrailingCommentOutside` (mirroring
+`AllAcrossOrAllVertical`) also fixed the crash, but silently changed the
+already-fixture-verified `RecordUpdateFieldTrailingComment` /
+`RecordUpdateCommentBinopValue` behavior (a comment meant to trail the last
+field, staying inside before `}`, moved outside instead) — caught by
+`run-tests.sh`, not by the fuzzer, underscoring why the effectful suite runs
+before any fuzzer sweep is trusted. Fixed forward-clean: 229 effectful tests,
+both fuzzers, 1738-cell matrix (0 UNREVIEWED/BUGs), predicate audit,
+corpus-check, the original seed 809, and a fresh 8000-seed sweep at
+`--comment-rate 0.5` all clean.
+
+**Remaining expansion targets:** comments *inside* a multi-line string's
+surrounding expression aside from the trailing-comment shape already fixed;
+referencing a module's own declared union constructors from
+`pattern()`/`leaf()` (currently generated unions are declared but never
 constructed/matched elsewhere in the module — a coverage gap, not a
 correctness one); `as` nested in non-top-level pattern positions (lambda/
 function params, ctor args, array items) — deliberately not generated yet,
-unverified against the parser.
+unverified against the parser; list patterns beyond fixed-length arrays (Gren
+has none — not a gap).
 
 The generator is intentionally started small and correct (0 quarantine on the
 core grammar) and expanded one construct at a time, verifying the quarantine rate
@@ -488,4 +535,5 @@ at `--max-depth 7` clean after the author-broken-arrow-type addition; a further
 a further 10000 seeds (1..10000) + 800 at `--max-depth 7` clean after the
 doc-comment addition and its two record-update/EmptyBracketed fixes; a further
 3000 clean after the richer-patterns addition and its alias-pattern-parens
-fix.)
+fix; a further 8000 seeds at `--comment-rate 0.5` clean after the
+arrow-comment addition and its RecordUpdate/SoftIndentedBlock crash fix.)

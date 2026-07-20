@@ -1,0 +1,5 @@
+module RecordUpdateLambdaFieldTrailingComment exposing (..)
+
+
+bump z =
+    { z | apply = \x -> x + 1 } -- trails the whole update
