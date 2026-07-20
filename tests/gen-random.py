@@ -125,10 +125,23 @@ class PVar:
 class PWild: pass
 class PInt:
     def __init__(self, v): self.v = v
+class PStr:
+    def __init__(self, v): self.v = v
+class PChar:
+    def __init__(self, v): self.v = v
 class PCtor:
     def __init__(self, name, args): self.name, self.args = name, args
 class PRecord:
     def __init__(self, fields): self.fields = fields
+class PArray:
+    def __init__(self, items): self.items = items
+class PAs:
+    # `inner as name` — the parenthesization rule is verified empirically
+    # (see Gen.pattern_base/pattern): bare `as` parses after PVar/PWild/PStr/
+    # PChar/PArray/PRecord, but NEVER after PInt or PCtor (0-arg included) —
+    # broader than the documented compiler-common#31 gap ("constructor
+    # application"), which doesn't mention 0-arg constructors or int literals.
+    def __init__(self, inner, name): self.inner, self.name = inner, name
 
 
 class Decl:
@@ -464,7 +477,13 @@ def emit_pat(p):
     if isinstance(p, PVar):  return p.name
     if isinstance(p, PWild): return "_"
     if isinstance(p, PInt):  return str(p.v)
+    if isinstance(p, PStr):  return '"' + p.v + '"'
+    if isinstance(p, PChar): return "'" + p.v + "'"
     if isinstance(p, PRecord): return "{ " + ", ".join(p.fields) + " }"
+    if isinstance(p, PArray):
+        if not p.items:
+            return "[]"
+        return "[ " + ", ".join(emit_pat(i) for i in p.items) + " ]"
     if isinstance(p, PCtor):
         if not p.args:
             return p.name
@@ -475,6 +494,11 @@ def emit_pat(p):
                 s = "(" + s + ")"
             parts.append(s)
         return p.name + " " + " ".join(parts)
+    if isinstance(p, PAs):
+        inner = emit_pat(p.inner)
+        if isinstance(p.inner, (PCtor, PInt)):
+            inner = "(" + inner + ")"
+        return inner + " as " + p.name
     raise ValueError("emit_pat: " + type(p).__name__)
 
 
@@ -802,7 +826,7 @@ class Gen:
 
     def mk_lambda(self, d):
         k = self.rng.randint(1, 2)
-        return Lambda([self.pattern(d) for _ in range(k)], self.value(d))
+        return Lambda([self.pattern_base(d) for _ in range(k)], self.value(d))
 
     # -- multi-line (triple-quoted) strings ---------------------------------
     # Content-line legality, verified directly against the built app: a row
@@ -838,16 +862,32 @@ class Gen:
     # -- patterns ----------------------------------------------------------
 
     def pattern(self, depth):
+        """Top-level pattern position (currently: a `when`-branch pattern
+        only — see call sites). May wrap the base pattern in an `as` alias;
+        every OTHER pattern position (lambda/function params, ctor args,
+        array items) calls `pattern_base` directly instead, since nesting
+        `as` inside those hasn't been verified against the parser."""
+        base = self.pattern_base(depth)
+        if self.chance(0.08):
+            return PAs(base, self.pick(self.vars))
+        return base
+
+    def pattern_base(self, depth):
         r = self.rng.random()
-        if r < 0.45:  return PVar(self.pick(self.vars))
-        if r < 0.6:   return PWild()
-        if r < 0.7:   return PInt(self.rng.randint(0, 9))
-        if r < 0.82:  return PRecord([self.pick(self.fields) for _ in range(self.rng.randint(1, 2))])
+        if r < 0.32:  return PVar(self.pick(self.vars))
+        if r < 0.42:  return PWild()
+        if r < 0.50:  return PInt(self.rng.randint(0, 9))
+        if r < 0.57:  return PStr(self.pick(WORDS))
+        if r < 0.63:  return PChar(self.pick(["a", "b", "x", "y", "z"]))
+        if r < 0.75:  return PRecord([self.pick(self.fields) for _ in range(self.rng.randint(1, 2))])
+        if depth > 0 and r < 0.85:
+            k = self.rng.randint(0, 2)
+            return PArray([self.pattern_base(depth - 1) for _ in range(k)])
         # Constructor pattern. Current Gren allows AT MOST ONE argument (a
         # multi-field variant carries a record); `Ctor a b` does not parse.
         if depth <= 0 or self.chance(0.4):
             return PCtor(self.pick(self.ctors), [])
-        return PCtor(self.pick(self.ctors), [self.pattern(depth - 1)])
+        return PCtor(self.pick(self.ctors), [self.pattern_base(depth - 1)])
 
     # -- types (inline only) ----------------------------------------------
 
@@ -888,7 +928,7 @@ class Gen:
     def decl(self, i):
         name = "fn%d" % i
         nparams = self.rng.randint(0, 3)
-        params = [self.pattern(self.max_depth) for _ in range(nparams)]
+        params = [self.pattern_base(self.max_depth) for _ in range(nparams)]
         body = self.value(self.max_depth)
         sig = None
         sig_broken = False

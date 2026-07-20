@@ -79,13 +79,12 @@ insertPattern locPat =
                             nameNode =
                                 lpnLeaf (mkTextFromLocString name)
 
-                            -- The inner pattern needs parens when it is a
-                            -- constructor-with-payload: `(Just n) as whole` is the
-                            -- canonical form. Without parens, `Just n as whole`
-                            -- re-parses as `(Just) as n` with the new parser (Ctor
-                            -- no longer consumes args at the top level of `parser`).
+                            -- The inner pattern needs parens more often here than
+                            -- a plain function-arg/ctor-payload pattern does
+                            -- (`aliasBaseNeedsParens` vs `argNeedsParens`) — see
+                            -- its definition below.
                             wrappedPatNodes =
-                                if argNeedsParens pat.value then
+                                if aliasBaseNeedsParens pat.value then
                                     [ syntheticParens patNodes ]
 
                                 else
@@ -224,6 +223,33 @@ argNeedsParens pat =
 
         _ ->
             False
+
+
+-- The inner pattern of an `as`-alias needs parens in strictly more cases
+-- than `argNeedsParens` covers, verified directly against the parser: bare
+-- `as` fails not just after a constructor-with-payload but after ANY
+-- constructor pattern (0-arg included) and after a bare Int literal —
+-- `Nothing as whole` and `0 as n` both fail to parse ("Expected keyword
+-- '->'"), the same way `Just n as whole` does. `"hi" as s`, `'a' as c`,
+-- `[ a, b ] as whole`, and `{ x } as whole` all parse fine bare, same as
+-- `argNeedsParens` already assumed. Kept separate from `argNeedsParens`
+-- rather than widening it: a bare `Nothing`/`0` is fine as a plain function
+-- argument (`f 0 x`) or a nested ctor payload (`Just Nothing`), so forcing
+-- parens there too would be an unrelated, unnecessary behavior change.
+aliasBaseNeedsParens : Src.Pattern_ -> Bool
+aliasBaseNeedsParens pat =
+    when pat is
+        Src.PInt _ ->
+            True
+
+        Src.PCtor _ ->
+            True
+
+        Src.PCtorQual _ ->
+            True
+
+        _ ->
+            argNeedsParens pat
 
 
 folderInsertPatternAsItem : Src.Pattern -> Array LPNode -> Result String (Array LPNode)

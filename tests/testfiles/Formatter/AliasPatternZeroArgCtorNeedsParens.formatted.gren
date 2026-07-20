@@ -1,0 +1,10 @@
+module AliasPatternZeroArgCtorNeedsParens exposing (..)
+
+
+f x =
+    when x is
+        (Nothing) as whole ->
+            whole
+
+        _ ->
+            Nothing

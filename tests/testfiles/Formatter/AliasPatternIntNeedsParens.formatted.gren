@@ -1,0 +1,10 @@
+module AliasPatternIntNeedsParens exposing (..)
+
+
+f x =
+    when x is
+        (8) as z ->
+            z
+
+        _ ->
+            0

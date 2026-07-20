@@ -1,6 +1,6 @@
 # Property-based random AST generator (`gen-random.py`)
 
-Status: **v1.4** — v1's core expression grammar (module header, imports,
+Status: **v1.5** — v1's core expression grammar (module header, imports,
 function declarations, binops, records, record updates, arrays, `let`, `when`,
 `if`, lambda, calls, field access, parens, atoms), plus line/block comment
 injection; v1.1 added top-level type aliases, custom types (unions), and ports;
@@ -8,11 +8,13 @@ v1.2 added author-broken (multi-line, one `->` segment per line) types for
 function signatures, type-alias RHS, and port types; v1.3 added multi-line
 (triple-quoted) string literals as a value/argument-position atom, with
 content-mutation (escaped quotes, embedded `\"\"\"`, trailing backslash,
-literal tabs, blank rows, extra indentation) — see
-[Multi-line string literals](#multi-line-string-literals) below; v1.4 added
-**doc comments** (`{-| ... -}`, module-level and per-declaration) — see
-[Doc comments](#doc-comments) below. Patterns beyond the core set are the next
-expansion target (see [Grammar scope](#grammar-scope)).
+literal tabs, blank rows, extra indentation); v1.4 added doc comments
+(`{-| ... -}`, module-level and per-declaration); v1.5 added **richer
+when-branch patterns** — string/char/array-literal patterns and `as`
+aliasing — see [Richer patterns](#richer-patterns) below. List patterns
+beyond fixed-length arrays, and comments inside a broken type signature or a
+multi-line string's surrounding expression, are the next expansion targets
+(see [Grammar scope](#grammar-scope)).
 
 This is `qe.md` avenue #2. Every other gate in this repo varies **one** axis over
 a fixed base — `matrix-syntax.py` embeds one construct in one context,
@@ -394,15 +396,87 @@ Both verified against the full effectful suite (227, up from 224), both
 fuzzers, audit-predicates, and the 1738-cell matrix — all clean, 0
 regressions, same registered-divergence counts.
 
-**Next expansion targets:** richer patterns (`as`, list patterns — respecting
-the parenthesized-`as` parser gap); comments *inside* a broken type signature
-(a `--`/block comment riding a `->`, per README divergence #5 — not yet
+### Richer patterns
+
+**v1.5 (implemented 2026-07-19):** `PStr`/`PChar`/`PArray` (string/char/
+fixed-length-array literal patterns — Gren has no cons/spread list pattern,
+only fixed shapes like `[]`/`[ a ]`/`[ a, b ]`, matching array literal
+expressions structurally) and `PAs` (`inner as name` aliasing). `PAs` is only
+ever generated at the outermost position of a `when`-branch pattern
+(`pattern()`) — every nested pattern position (lambda/function params, ctor
+args, array items) calls `pattern_base()` directly instead, since nesting
+`as` inside those hasn't been verified against the parser and isn't needed for
+this addition.
+
+The parenthesization rule for `PAs`'s inner pattern was verified directly
+against the app, not assumed from the existing README/known-limitations
+writeup — which turned out to **understate** the gap. The documented rule
+("accepts `as` after a bare variable or wildcard, and after a parenthesized
+constructor application, but not after an unparenthesized one" —
+compiler-common#31) describes only the constructor-with-payload case,
+but bare `as` also fails after a **0-argument** constructor and after a
+bare **Int literal**:
+
+```
+n as whole        -- OK (bare var)
+_ as whole        -- OK (bare wildcard)
+"hi" as s         -- OK (bare string literal)
+'a' as c          -- OK (bare char literal)
+[ a, b ] as whole -- OK (bare array pattern)
+{ x, y } as whole -- OK (bare record pattern)
+(Just n) as whole -- OK (parenthesized ctor-with-payload — the documented case)
+Nothing as whole  -- FAILS ("Expected keyword '->'") — 0-arg ctor, undocumented
+0 as n            -- FAILS ("Expected keyword '->'") — Int literal, undocumented
+(Nothing) as whole -- OK (parenthesized)
+(0) as n           -- OK (parenthesized)
+```
+
+`emit_pat`'s `PAs` case parenthesizes exactly `PCtor`/`PInt`, matching this.
+
+**Real formatter bug found and fixed — this one an ast-mismatch, not a
+non-idempotency** (the formatted *output does not parse at all*, a more
+serious class than the prior rounds' oscillations): the very first 2000-seed
+sweep found 51 ast-mismatch cases, all one class. gren-format was **stripping
+a semantically required paren**:
+
+```gren
+-- input:
+(8) as z -> 0
+
+-- gren-format's (buggy) output:
+8 as z -> 0     -- does not parse!
+```
+
+This is not the "redundant parens" case (gren-format's documented, deliberate
+policy of never stripping a paren the author wrote, anywhere) — this paren is
+*required* for the output to parse at all, the same undocumented gap above.
+Root cause: `InsertPatterns.gren`'s `argNeedsParens` — the predicate deciding
+when a pattern needs parens before `as` — only covered `PCtor`/`PCtorQual`
+*with an argument*, matching the documented (incomplete) compiler-common#31
+description, missing the 0-arg-constructor and Int-literal cases. **Not
+fixed by widening `argNeedsParens`** — it's shared with two other contexts
+(a plain function-argument pattern, a nested constructor-payload pattern)
+where a bare `0`/`Nothing` is already correct and doesn't need parens, so
+widening it would be an unrelated, unnecessary behavior change there. Instead
+added a new, narrower `aliasBaseNeedsParens` predicate used only at the
+`PAlias` call site (`PInt` / any `PCtor` / any `PCtorQual` → parens; else
+falls back to `argNeedsParens`). Verified against all 51 originally-failing
+seeds, the full effectful suite (229, up from 227 — new fixtures
+`AliasPatternIntNeedsParens` and `AliasPatternZeroArgCtorNeedsParens`), both
+fuzzers, audit-predicates, and the 1738-cell matrix — all clean, 0
+regressions. Re-swept 3000 seeds clean after the fix.
+
+**Next expansion targets:** list patterns beyond fixed-length arrays (Gren has
+none — noted above, not a gap); comments *inside* a broken type signature (a
+`--`/block comment riding a `->`, per README divergence #5 — not yet
 generated, v1.2's broken types carry no comments); comments *inside* a
 multi-line string's surrounding expression aside from the trailing-comment
 shape already fixed; referencing a module's own declared union constructors
 from `pattern()`/`leaf()` (currently generated unions are declared but never
 constructed/matched elsewhere in the module — a coverage gap, not a
-correctness one).
+correctness one); `as` nested in non-top-level pattern positions (lambda/
+function params, ctor args, array items) — deliberately not generated yet,
+unverified against the parser.
 
 The generator is intentionally started small and correct (0 quarantine on the
 core grammar) and expanded one construct at a time, verifying the quarantine rate
@@ -412,4 +486,6 @@ clean after capping variant arity at ≤1; a further 7000 seeds (1..7000) + 800
 at `--max-depth 7` clean after the author-broken-arrow-type addition; a further
 3000 clean after the multi-line-string addition and its trailing-comment fix;
 a further 10000 seeds (1..10000) + 800 at `--max-depth 7` clean after the
-doc-comment addition and its two record-update/EmptyBracketed fixes.)
+doc-comment addition and its two record-update/EmptyBracketed fixes; a further
+3000 clean after the richer-patterns addition and its alias-pattern-parens
+fix.)
