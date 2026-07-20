@@ -976,6 +976,11 @@ prevLineGlueRow node =
         WhenBranch ->
             (subtreeRowRange node).maxRow
 
+        -- Always multi-line by construction; a `--` unambiguously glues onto
+        -- the closing `"""`'s row (`"""..."""` ⏎ `-- c` stays on that line).
+        MultilineString _ ->
+            lastRenderedRow node
+
         -- A run of comments: the following one glues onto the previous comment's
         -- start row (FlowPolicy carries it forward as `prevRowLine`).
         SingleLineComment _ ->
@@ -1041,6 +1046,11 @@ prevBlockGlueRow node =
         -- glues onto the branch's `lpnMaxRow`).
         WhenBranch ->
             (subtreeRowRange node).maxRow
+
+        -- Same reasoning as `prevLineGlueRow`: always multi-line, so a
+        -- same-row `{- -}` glues onto the closing `"""`'s row too.
+        MultilineString _ ->
+            lastRenderedRow node
 
         SingleLineComment _ ->
             firstRowInSubtree node

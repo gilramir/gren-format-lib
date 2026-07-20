@@ -375,6 +375,7 @@ expressionSuite fsPerm =
             , assertPretty fsPerm "multi-line string content escapes backslashes and embedded triple quotes but leaves isolated quotes verbatim" "MultilineStringContent"
             , assertPretty fsPerm "trailing whitespace on triple-quoted string content lines is significant and preserved verbatim" "MultilineStringTrailingWhitespace"
             , assertPretty fsPerm "in a triple-quoted string a horizontal tab is preserved verbatim while a non-printable control character is written as a \\u{...} escape" "MultilineStringControlChars"
+            , assertPretty fsPerm "a `--` trailing a multi-line string's closing delimiter glues onto that row and stays put (was non-idempotent: prevLineGlueRow/prevBlockGlueRow had no MultilineString case, so it defaulted to -1 and always classified LeadsOwnLine)" "MultilineStringTrailingLineComment"
             , assertPretty fsPerm "negation of parenthesized expression keeps `-` outside the parens" "NegateParens"
             , assertPretty fsPerm "field access glues directly to a paren/record/qualified-name base with no space (compiler-common#27)" "PostfixAccess"
             , assertPretty fsPerm "a multi-line record operand breaks the chain at its lowest-precedence operator; the tighter `*` stays glued after the record's closing brace" "BinopTrailingMultilineOperand"

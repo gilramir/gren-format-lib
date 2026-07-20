@@ -1,0 +1,9 @@
+module MultilineStringTrailingLineComment exposing (..)
+
+
+template =
+    """
+            alpha
+        delta sierra
+        tango tango
+    """ -- trailing comment on the closing delimiter's row

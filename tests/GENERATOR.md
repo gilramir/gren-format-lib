@@ -1,13 +1,17 @@
 # Property-based random AST generator (`gen-random.py`)
 
-Status: **v1.2** — v1's core expression grammar (module header, imports,
+Status: **v1.3** — v1's core expression grammar (module header, imports,
 function declarations, binops, records, record updates, arrays, `let`, `when`,
 `if`, lambda, calls, field access, parens, atoms), plus line/block comment
 injection; v1.1 added top-level type aliases, custom types (unions), and ports;
-v1.2 added **author-broken (multi-line, one `->` segment per line) types** for
-function signatures, type-alias RHS, and port types (all added 2026-07-19).
-Multi-line string literals, doc comments, and patterns beyond the core set are
-the next expansion targets (see [Grammar scope](#grammar-scope)).
+v1.2 added author-broken (multi-line, one `->` segment per line) types for
+function signatures, type-alias RHS, and port types; v1.3 added **multi-line
+(triple-quoted) string literals** as a value/argument-position atom, with
+content-mutation (escaped quotes, embedded `\"\"\"`, trailing backslash,
+literal tabs, blank rows, extra indentation) — see
+[Multi-line string literals](#multi-line-string-literals) below. Doc comments
+and patterns beyond the core set are the next expansion targets (see
+[Grammar scope](#grammar-scope)).
 
 This is `qe.md` avenue #2. Every other gate in this repo varies **one** axis over
 a fixed base — `matrix-syntax.py` embeds one construct in one context,
@@ -263,19 +267,74 @@ lines; a `("paren", ...)`-wrapped arrow correctly does NOT get flattened,
 since that genuinely represents one opaque parenthesized segment (e.g. README's
 own `(String -> Bool)` example, or a port's `(Type -> msg) -> Sub msg`).
 
-**Next expansion targets:** multi-line string literals and literal-*content*
-mutation (the class-A shape); doc comments; richer patterns (`as`, list
+### Multi-line string literals
+
+**v1.3 (implemented 2026-07-19):** `MultilineStr` — a `"""..."""` triple-quoted
+string, generated as a bare atom (`atom()`) and as a full value-position
+alternative (`value()`), so it appears both as a whole declaration/binding body
+and glued into binop chains / call arguments, matching real usage like
+`"prefix " ++ x ++ """..."""`. It never needs parens — like any string — so
+it's included directly alongside the leaf/field/paren atoms, not treated as a
+block construct the way `if`/`when`/`let` are.
+
+Content-line legality was verified directly against the built app before
+writing the generator (not assumed): a content row may be indented **deeper**
+than the block's base column freely (that extra indent is just part of the
+row's own text), but never **less** — under-indenting is a real parse error,
+"Multi-line string lines are not indented equally". A row may also be **wholly
+empty** (zero characters, no padding at all) — that's the one exception.
+`multiline_string_line()` never emits an under-indented row. Content mutation
+covers the shapes real bugs have come from before: an escaped quote pair
+(`\"word\"`), an embedded escaped triple-quote (`\"\"\"word\"\"\"`), a trailing
+escaped backslash, a literal embedded tab character, and a wholly blank row.
+
+**Real formatter bug found and fixed** (not a generator issue): a 1000-seed
+sweep immediately found 22 non-idempotent cases, all one class — a `--`
+comment trailing a multi-line string's closing `"""` at the end of a
+declaration stayed indented on the first format, then dropped to column 0 on
+the second:
+
+```gren
+fn0 =
+    """
+    alpha
+    """
+    -- k1        (format 1: indented)
+-- k1            (format 2: dropped to column 0 — non-idempotent)
+```
+
+Root cause: `Comments.gren`'s `prevLineGlueRow` and `prevBlockGlueRow` — the
+functions that decide which row a following `--`/`{- -}` comment glues onto —
+each match on `LPBox` kind, and neither had a case for `MultilineString`, so
+both silently fell through to their `_ -> -1` default. That made the
+classifier think a same-row trailing comment could never glue onto a multi-line
+string's close, so it always emitted `LeadsOwnLine` — pushing the comment onto
+its own new line "for now" at the body's indent, which is not the same
+decision the *next* format pass makes for that new (now own-row) position,
+hence the oscillation. Fixed by adding `MultilineString _ -> lastRenderedRow
+node` to both functions (the same delegation `ParenBlock` and the union-variant
+`AcrossOrVertical` case already use) — a multi-line string is *always*
+multi-line, so no conditional check is needed, unlike `ParenBlock`, which only
+delegates when it actually spans multiple rows. Verified against all 22
+originally-failing seeds, the full effectful suite (225, up from 224 — new
+fixture `MultilineStringTrailingLineComment`), both fuzzers, audit-predicates,
+and the 1738-cell matrix — all clean, 0 regressions. Re-swept 3000 seeds clean
+after the fix (was 978/1000 before).
+
+**Next expansion targets:** doc comments; richer patterns (`as`, list
 patterns — respecting the parenthesized-`as` parser gap); comments *inside* a
 broken type signature (a `--`/block comment riding a `->`, per README
 divergence #5 — not yet generated, v1.2's broken types carry no comments);
-referencing a module's own declared union constructors from
-`pattern()`/`leaf()` (currently generated unions are declared but never
-constructed/matched elsewhere in the module — a coverage gap, not a
-correctness one).
+comments *inside* a multi-line string's surrounding expression aside from the
+one trailing-comment shape just fixed; referencing a module's own declared
+union constructors from `pattern()`/`leaf()` (currently generated unions are
+declared but never constructed/matched elsewhere in the module — a coverage
+gap, not a correctness one).
 
 The generator is intentionally started small and correct (0 quarantine on the
 core grammar) and expanded one construct at a time, verifying the quarantine rate
 stays at ~0 after each addition. (2026-07-19: 10000 seeds (1..10000) + 800 at
 `--max-depth 7` clean after the type-alias/union/port addition; a further 3000
 clean after capping variant arity at ≤1; a further 7000 seeds (1..7000) + 800
-at `--max-depth 7` clean after the author-broken-arrow-type addition.)
+at `--max-depth 7` clean after the author-broken-arrow-type addition; a further
+3000 clean after the multi-line-string addition and its trailing-comment fix.)

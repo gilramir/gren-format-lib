@@ -57,6 +57,13 @@ class Int(E):
 class Str(E):
     def __init__(self, v): self.v = v
 
+class MultilineStr(E):
+    def __init__(self, lines):
+        # lines: list of str (a content row's already-escaped source text) or
+        # None (a wholly empty row — legal; a row with SOME but too-little
+        # indentation is not, see emit_multiline_str).
+        self.lines = lines
+
 class Var(E):
     def __init__(self, name): self.name = name
 
@@ -177,6 +184,8 @@ def multiline(n):
     """Does this node render across >1 line? Structural (col-independent)."""
     if isinstance(n, (Int, Str, Var, Qual, Ctor)):
         return False
+    if isinstance(n, MultilineStr):
+        return True
     if isinstance(n, Field):
         return multiline(n.base)
     if isinstance(n, Paren):
@@ -210,6 +219,7 @@ def pad(n): return " " * n
 def emit(n, col):
     if isinstance(n, Int):   return [_inline(n, str(n.v))]
     if isinstance(n, Str):   return [_inline(n, '"' + n.v + '"')]
+    if isinstance(n, MultilineStr): return emit_multiline_str(n, col)
     if isinstance(n, Var):   return [_inline(n, n.name)]
     if isinstance(n, Qual):  return [_inline(n, n.mod + "." + n.name)]
     if isinstance(n, Ctor):  return [_inline(n, n.name)]
@@ -387,6 +397,23 @@ def emit_array(n, col):
         out.append(line0 if i == 0 else pad(col) + line0)
         out += vl[1:]
     out.append(pad(col) + "]")
+    return out
+
+
+def emit_multiline_str(n, col):
+    """`\"\"\"` at `col` (headless — the caller glues it after whatever
+    precedes it, matching real Gren: the opener can follow other tokens on
+    its row, e.g. `"prefix " ++ x ++ \"\"\"`). Content lines and the closing
+    `\"\"\"` are absolute at `col` — every content row MUST be indented to AT
+    LEAST that column (a real parser error otherwise: "Multi-line string
+    lines are not indented equally"); a wholly empty row is the one exception
+    and needs no padding at all. Rows may be indented DEEPER than `col`
+    (`n.lines[i]` already includes any such extra indent as part of its own
+    text) — only under-indenting is illegal."""
+    out = ['"""']
+    for line in n.lines:
+        out.append("" if line is None else pad(col) + line)
+    out.append(pad(col) + '"""')
     return out
 
 
@@ -614,13 +641,19 @@ class Gen:
     # -- expressions -------------------------------------------------------
 
     def atom(self, depth):
-        """Single-line, argument-safe: leaf / field / qualified / parenthesized."""
+        """Single-line, argument-safe: leaf / field / qualified / parenthesized.
+        MultilineStr is included bare (no parens) — like any string, it never
+        needs them; this is also how it lands as a binop operand / call
+        argument, matching how a real triple-quoted string glues onto a
+        preceding binop chain in Gren source."""
         r = self.rng.random()
         if depth <= 0 or r < 0.5:
             n = self.leaf()
-        elif r < 0.65:
+        elif r < 0.62:
             n = Field(self.field_base(depth), self.pick(self.fields))
-        elif r < 0.8:
+        elif r < 0.72:
+            n = self.mk_multiline_str()
+        elif r < 0.85:
             n = Paren(self.inline(depth - 1))
         else:
             n = Paren(self.value(depth - 1))  # parenthesize anything (may break)
@@ -682,10 +715,11 @@ class Gen:
         if r < 0.42:  return self.mk_record(d)
         if r < 0.50:  return self.mk_update(d)
         if r < 0.60:  return self.mk_array(d)
-        if r < 0.70:  return self.mk_if(d)
-        if r < 0.80:  return self.mk_when(d)
-        if r < 0.88:  return self.mk_let(d)
-        if r < 0.94:  return self.mk_lambda(d)
+        if r < 0.63:  return self.mk_if(d)
+        if r < 0.71:  return self.mk_when(d)
+        if r < 0.79:  return self.mk_let(d)
+        if r < 0.85:  return self.mk_lambda(d)
+        if r < 0.91:  return self.mk_multiline_str()
         return self.atom(d)
 
     def mk_call(self, d):
@@ -738,6 +772,37 @@ class Gen:
     def mk_lambda(self, d):
         k = self.rng.randint(1, 2)
         return Lambda([self.pattern(d) for _ in range(k)], self.value(d))
+
+    # -- multi-line (triple-quoted) strings ---------------------------------
+    # Content-line legality, verified directly against the built app: a row
+    # may be indented DEEPER than the block's base column (freely — that
+    # extra indent is just part of the row's own text), but never LESS —
+    # under-indenting is a real parse error ("Multi-line string lines are not
+    # indented equally"). A row may also be wholly empty (zero characters,
+    # no padding at all) — always legal, that's the one exception.
+
+    def multiline_string_line(self):
+        r = self.rng.random()
+        words = " ".join(self.pick(WORDS) for _ in range(self.rng.randint(1, 3)))
+        if r < 0.5:
+            text = words
+        elif r < 0.65:
+            text = "\\\"" + words + "\\\""                  # \"word\"
+        elif r < 0.75:
+            text = "\\\"\\\"\\\"" + words + "\\\"\\\"\\\""   # \"\"\"word\"\"\"
+        elif r < 0.85:
+            text = words + "\\\\"                            # trailing \\
+        elif r < 0.93:
+            text = words + "\t" + words                       # literal tab
+        else:
+            return None                                       # wholly empty row
+        extra_indent = " " * (4 * self.rng.randint(0, 2))
+        trailing_ws = "  " if self.chance(0.15) else ""
+        return extra_indent + text + trailing_ws
+
+    def mk_multiline_str(self):
+        k = self.rng.randint(1, 3)
+        return MultilineStr([self.multiline_string_line() for _ in range(k)])
 
     # -- patterns ----------------------------------------------------------
 
