@@ -3357,14 +3357,27 @@ decision and why.
     ```
 
 20. <a id="divergence-20"></a>**When a pipeline breaks, every `|>` lines up; elm-format keeps the steps
-    that still fit up on the seed's line.** If a pipeline has to break — because
-    a step holds a `when`, an `if`, or a `let`, which break however you write
-    them — gren-format puts the seed on its own line and every `|>` under it, all
-    at the same indent:
+    that still fit up on the seed's line.** This one only shows up under a
+    narrow condition, so it helps to see it alongside a lookalike case that
+    *doesn't* trigger the divergence.
+
+    **Case A — the whole expression on one physical source line.** The author
+    writes the pipeline flat, and the last step holds a `when`, an `if`, or a
+    `let` — which always renders multi-line, however compactly it's written:
+
+    ```gren
+    -- what the author wrote (one physical line):
+    v =
+        seed |> fn |> gn (when sel is Just w -> w)
+    ```
+
+    Because of the `when`, the whole expression becomes multi-line.
+    gren-format puts the seed on its own line and every `|>` under it, all at
+    the same indent:
 
     ```gren
     -- gren-format:
-    result =
+    v =
         seed
             |> fn
             |> gn
@@ -3376,11 +3389,11 @@ decision and why.
 
     elm-format instead fills the first line with as many steps as it can and only
     starts breaking at the step that forced the issue, so `seed` and `fn` share a
-    row while the rest do not:
+    row while the rest do not. And then, the two "|>" misalign:
 
     ```gren
-    -- elm-format:
-    result =
+    -- elm-format (case instead of when):
+    v =
         seed |> fn
             |> gn
                 (case sel of
@@ -3389,23 +3402,36 @@ decision and why.
                 )
     ```
 
-    elm-format builds that line up a step at a time: a step joins the line so far
-    as long as both still fit on one line, so everything before the step that
-    forced the break stays up there and everything from it down stacks. The
-    longer the pipeline, the more of it collects on the seed's row — four steps
-    give you `seed |> fn |> gn` with only `|> hn` below.
-
     We keep the aligned form on purpose. A pipeline is a list of steps, and
-    reading it means scanning the `|>` column; elm-format's version puts the
-    first step (or first several) somewhere else, so how much of the pipeline
-    rides the seed's line depends on which step happens to contain the block. The
-    aligned form doesn't move when you add a step or wrap one in an `if`.
+    reading it means scanning the `|>` column; elm-format doesn't do that.
 
-    This only shows up when the author wrote the whole pipeline on one row *and*
-    a step breaks on its own anyway. If you break the pipeline yourself, both
-    formatters align every step; if nothing forces a break, both leave it on one
-    line. A multi-line record argument doesn't trigger it either — writing the
-    record across rows breaks the chain for both formatters, so they agree.
+    **Case B — same pipeline, but the block is already broken across its own
+    lines.** The `|>` chain itself is still written flat; only the `when`/`case`
+    inside `gn`'s argument spans multiple rows in the source:
+
+    ```gren
+    -- what the author wrote (|> chain flat, block pre-broken):
+    v =
+        seed |> fn |> gn (when sel is
+            Just w ->
+                w
+        )
+    ```
+
+    Both formatters now agree on the fully aligned shape — byte-for-byte the
+    same except for the `when`/`case` keyword:
+
+    ```gren
+    -- gren-format AND elm-format (case instead of when for the latter):
+    v =
+        seed
+            |> fn
+            |> gn
+                (when sel is
+                    Just w ->
+                        w
+                )
+    ```
 
 21. <a id="divergence-21"></a>**A comment trailing the *last* `let` binding drops below `in`; elm-format
     keeps it with the bindings.** When you write a comment after the value of the

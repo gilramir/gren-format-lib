@@ -1,0 +1,5 @@
+module Divergence20 exposing (..)
+
+
+v =
+    seed |> fn |> gn (when sel is Just w -> w)
