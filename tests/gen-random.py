@@ -125,9 +125,11 @@ class PRecord:
 
 
 class Decl:
-    def __init__(self, name, params, body, sig=None, lead=None, trailing=None):
+    def __init__(self, name, params, body, sig=None, sig_broken=False,
+                 lead=None, trailing=None):
         self.name, self.params, self.body = name, params, body
-        self.sig, self.lead, self.trailing = sig, lead, trailing
+        self.sig, self.sig_broken = sig, sig_broken
+        self.lead, self.trailing = lead, trailing
 
 
 # Type-alias / custom-type / port declarations. Unlike Decl (function), these
@@ -135,8 +137,8 @@ class Decl:
 # `.body`) must skip them — only the "drop this whole decl" step applies.
 
 class TypeAliasDecl:
-    def __init__(self, name, params, rhs, lead=None, trailing=None):
-        self.name, self.params, self.rhs = name, params, rhs
+    def __init__(self, name, params, rhs, broken=False, lead=None, trailing=None):
+        self.name, self.params, self.rhs, self.broken = name, params, rhs, broken
         self.lead, self.trailing = lead, trailing
 
 
@@ -154,8 +156,8 @@ class UnionDecl:
 
 
 class PortDecl:
-    def __init__(self, name, type_, lead=None, trailing=None):
-        self.name, self.type_ = name, type_
+    def __init__(self, name, type_, broken=False, lead=None, trailing=None):
+        self.name, self.type_, self.broken = name, type_, broken
         self.lead, self.trailing = lead, trailing
 
 
@@ -421,7 +423,11 @@ def emit_pat(p):
     raise ValueError("emit_pat: " + type(p).__name__)
 
 
-# ───────────────────────────── type signatures (inline only) ──────────────
+# ───────────────────────────── type signatures ─────────────────────────────
+# emit_type renders a type as ONE line — used for nested/inner types (record
+# fields, app args, a paren'd atom) which are never author-broken on their
+# own. emit_type_multiline is the top-level entry point for a signature / type
+# alias RHS / port type, where the author's flat-vs-broken choice is baked in.
 
 def emit_type(t):
     # t is a small tuple-based type IR built by gen_type
@@ -443,16 +449,44 @@ def _type_atom(t):
     return s
 
 
+def _flatten_arrow(t):
+    """gen_type's "arrow" branch can recursively nest an arrow inside one of
+    its own elements (e.g. `("arrow", [("arrow", [A, B]), C])`) — harmless for
+    single-line emit_type (string-joining with the same " -> " separator is
+    associative, so it renders identically to a flat chain), but the per-line
+    segment breaker below needs the TRUE flat segment list, matching how the
+    type is actually written: `A -> B -> C` is always one flat chain, and the
+    only way to make a sub-arrow its own segment is to wrap it in `paren`
+    (which this does NOT recurse into — a paren'd arrow is genuinely one
+    opaque segment, e.g. `(String -> Bool)` in README's own example)."""
+    if t[0] != "arrow":
+        return [t]
+    out = []
+    for x in t[1]:
+        out += _flatten_arrow(x)
+    return out
+
+
+def emit_type_multiline(t, broken):
+    """Emit a top-level signature/alias/port type. Per README "Type
+    signatures": written across rows, the canonical shape puts each `->`
+    segment on its own line, `->` leading each continuation — so this only
+    ever applies when `t` is an arrow chain; a non-arrow RHS (record, con,
+    var, app) has no `->` boundary to break at and always stays inline."""
+    if not broken or t[0] != "arrow":
+        return [emit_type(t)]
+    segs = _flatten_arrow(t)
+    return [emit_type(segs[0])] + ["-> " + emit_type(s) for s in segs[1:]]
+
+
 # ───────────────────────── type alias / union / port emission ─────────────
 # Per README: a `type alias` RHS and a custom type's variant list ALWAYS drop
 # to their own line(s) below the header, indented 4 — never glued to `=`, even
-# when they'd fit on one line. Ports and type-alias RHS types stay inline-only
-# for now (matching v1's "type signatures inline only" scope); multi-line
-# author-broken arrow types are a separate, not-yet-implemented expansion.
+# when they'd fit on one line.
 
 def emit_type_alias(d):
     header = "type alias " + d.name + "".join(" " + p for p in d.params) + " ="
-    return [header, pad(INDENT) + emit_type(d.rhs)]
+    return [header] + [pad(INDENT) + l for l in emit_type_multiline(d.rhs, d.broken)]
 
 
 def emit_variant_payload(payload):
@@ -484,6 +518,9 @@ def emit_union(d):
 
 
 def emit_port(d):
+    if d.broken and d.type_[0] == "arrow":
+        return ["port " + d.name + " :"] + \
+               [pad(INDENT) + l for l in emit_type_multiline(d.type_, True)]
     return ["port " + d.name + " : " + emit_type(d.type_)]
 
 
@@ -531,7 +568,11 @@ def emit_function_decl(d):
         for c in d.lead:
             out.append(comment_text(c))
     if d.sig is not None:
-        out.append(d.name + " : " + emit_type(d.sig))
+        if d.sig_broken and d.sig[0] == "arrow":
+            out.append(d.name + " :")
+            out += [pad(INDENT) + l for l in emit_type_multiline(d.sig, True)]
+        else:
+            out.append(d.name + " : " + emit_type(d.sig))
     prefix = d.name + "".join(" " + emit_pat(p) for p in d.params) + " = "
     if multiline(d.body):
         out.append(d.name + "".join(" " + emit_pat(p) for p in d.params) + " =")
@@ -740,15 +781,18 @@ class Gen:
         params = [self.pattern(self.max_depth) for _ in range(nparams)]
         body = self.value(self.max_depth)
         sig = None
+        sig_broken = False
         if self.chance(0.4):
             k = nparams + 1
             sig = ("arrow", [self.gen_type(2) for _ in range(k)]) if k > 1 \
                   else self.gen_type(2)
+            sig_broken = sig[0] == "arrow" and self.chance(0.5)
         lead = None
         if self.chance(self.crate):
             lead = [self.comment() or ("line", "k%d" % self.next_cid())]
         trailing = self.comment()
-        return Decl(name, params, body, sig=sig, lead=lead, trailing=trailing)
+        return Decl(name, params, body, sig=sig, sig_broken=sig_broken,
+                    lead=lead, trailing=trailing)
 
     def type_params(self):
         if not self.chance(0.4):
@@ -759,11 +803,12 @@ class Gen:
         name = "Alias%d" % i
         params = self.type_params()
         rhs = self.gen_type(2, params)
+        broken = rhs[0] == "arrow" and self.chance(0.5)
         lead = None
         if self.chance(self.crate):
             lead = [self.comment() or ("line", "k%d" % self.next_cid())]
         trailing = self.comment()
-        return TypeAliasDecl(name, params, rhs, lead=lead, trailing=trailing)
+        return TypeAliasDecl(name, params, rhs, broken=broken, lead=lead, trailing=trailing)
 
     def variant_arg_type(self, depth, params):
         """A union variant's single positional argument. Current Gren limits a
@@ -834,11 +879,12 @@ class Gen:
             # incoming: (Type -> msg) -> Sub msg
             inner = ("arrow", [self.gen_type(1), ("var", "msg")])
             t = ("arrow", [("paren", inner), ("app", "Sub", [("var", "msg")])])
+        broken = t[0] == "arrow" and self.chance(0.5)
         lead = None
         if self.chance(self.crate):
             lead = [self.comment() or ("line", "k%d" % self.next_cid())]
         trailing = self.comment()
-        return PortDecl(name, t, lead=lead, trailing=trailing)
+        return PortDecl(name, t, broken=broken, lead=lead, trailing=trailing)
 
     def next_cid(self):
         c = self.cid

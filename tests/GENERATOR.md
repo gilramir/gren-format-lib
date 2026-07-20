@@ -1,11 +1,12 @@
 # Property-based random AST generator (`gen-random.py`)
 
-Status: **v1.1** — v1's core expression grammar (module header, imports,
+Status: **v1.2** — v1's core expression grammar (module header, imports,
 function declarations, binops, records, record updates, arrays, `let`, `when`,
 `if`, lambda, calls, field access, parens, atoms), plus line/block comment
-injection, **plus top-level type aliases, custom types (unions), and ports**
-(added 2026-07-19). Author-broken types/signatures at arrow boundaries,
-multi-line string literals, doc comments, and patterns beyond the core set are
+injection; v1.1 added top-level type aliases, custom types (unions), and ports;
+v1.2 added **author-broken (multi-line, one `->` segment per line) types** for
+function signatures, type-alias RHS, and port types (all added 2026-07-19).
+Multi-line string literals, doc comments, and patterns beyond the core set are
 the next expansion targets (see [Grammar scope](#grammar-scope)).
 
 This is `qe.md` avenue #2. Every other gate in this repo varies **one** axis over
@@ -237,21 +238,44 @@ must be a variant's sole argument (`Ctor { field : T } X` fails to parse right
 after the `}`): with arity capped at 1, a record is simply the one argument
 and there is no "several bare arguments" case to collide with.
 
-Type-alias / port RHS types stay **inline-only** for this pass, matching v1's
-existing signature-type scope; author-broken multi-line arrow types are a
-separate, not-yet-implemented expansion (next target below).
+**v1.2 (implemented 2026-07-19):** author-broken (multi-line) types for
+function signatures, type-alias RHS, and port types (the class-B shape). Per
+README's "Type signatures": a signature/alias-RHS/port-type that's an arrow
+chain can be author-broken across rows, one `->`-segment per line, `->`
+leading each continuation (`emit_type_multiline`); a non-arrow RHS (record,
+con, var, app) has no `->` boundary and always stays inline. A `broken` flag
+is baked per-declaration (`Decl.sig_broken`, `TypeAliasDecl.broken`,
+`PortDecl.broken`), same pattern as the existing bracketed-container `broken`
+flags. Nested/inner types (record field types, `app` args, a paren'd atom)
+stay single-line always — only the outermost type of a signature/alias/port
+is ever multi-line.
 
-**Next expansion targets:** author-broken **types/signatures** at arrow
-boundaries (the class-B shape) — this now applies to type aliases and ports
-too, not just function signatures; multi-line string literals and literal-
-*content* mutation (the class-A shape); doc comments; richer patterns (`as`,
-list patterns — respecting the parenthesized-`as` parser gap); referencing a
-module's own declared union constructors from `pattern()`/`leaf()` (currently
-generated unions are declared but never constructed/matched elsewhere in the
-module — a coverage gap, not a correctness one).
+**Bug found and fixed while building this:** `gen_type`'s "arrow" branch can
+recursively nest an arrow tuple inside one of its own elements (e.g.
+`("arrow", [("arrow", [A, B]), C])`), which is harmless for single-line
+`emit_type` (string-joining with the same `" -> "` separator is associative,
+so a nested-vs-flat tree renders as the identical string) but under-counts
+`->` boundaries for the per-line segment breaker, producing an incorrect
+layout like `A -> B` / `-> C` (2 lines, 1 real segment merged with another)
+instead of the canonical `A` / `-> B` / `-> C` (3 lines, one segment each).
+Fixed by flattening the arrow tree (`_flatten_arrow`) before splitting into
+lines; a `("paren", ...)`-wrapped arrow correctly does NOT get flattened,
+since that genuinely represents one opaque parenthesized segment (e.g. README's
+own `(String -> Bool)` example, or a port's `(Type -> msg) -> Sub msg`).
+
+**Next expansion targets:** multi-line string literals and literal-*content*
+mutation (the class-A shape); doc comments; richer patterns (`as`, list
+patterns — respecting the parenthesized-`as` parser gap); comments *inside* a
+broken type signature (a `--`/block comment riding a `->`, per README
+divergence #5 — not yet generated, v1.2's broken types carry no comments);
+referencing a module's own declared union constructors from
+`pattern()`/`leaf()` (currently generated unions are declared but never
+constructed/matched elsewhere in the module — a coverage gap, not a
+correctness one).
 
 The generator is intentionally started small and correct (0 quarantine on the
 core grammar) and expanded one construct at a time, verifying the quarantine rate
 stays at ~0 after each addition. (2026-07-19: 10000 seeds (1..10000) + 800 at
 `--max-depth 7` clean after the type-alias/union/port addition; a further 3000
-clean after capping variant arity at ≤1.)
+clean after capping variant arity at ≤1; a further 7000 seeds (1..7000) + 800
+at `--max-depth 7` clean after the author-broken-arrow-type addition.)
