@@ -354,10 +354,18 @@ insertExpression locExpr =
             -- The author's layout decides the list shape (see `authoredBracketList`):
             -- items across rows stay one-per-line, items on one row stay inline.
             -- `locExpr.end` is the `]`; the empty form is an `EmptyBracketed` `[]`.
+            -- Built via `lpnBracketNode` (not plain `lpnLeaf`) so its close is
+            -- marked EXACT: `loc.end` genuinely IS the `]`'s position (unlike a
+            -- populated bracket-list's inexact last-item fallback), so a comment
+            -- one or two columns past it (`[] {- c -}`) must not fall inside the
+            -- trailing-bracket slack window meant for that other case — doing so
+            -- absorbed the comment into the surrounding field on reparse
+            -- (non-idempotent: `{ z | next0 = [] } -- c` re-broken as
+            -- `{ z | next0 = [] -- c }` collapsed back to one line).
             resultFoldl folderInsertExprAsItem [] exprArray
                 |> Result.map
                     (\itemNodes ->
-                        [ authoredBracketList ListSquare (itemsSpanRows exprArray) locExpr.end (lpnLeaf (EmptyBracketed { start = locExpr.start, end = locExpr.end, value = ListSquare })) itemNodes ]
+                        [ authoredBracketList ListSquare (itemsSpanRows exprArray) locExpr.end (lpnBracketNode (EmptyBracketed { start = locExpr.start, end = locExpr.end, value = ListSquare }) locExpr.end []) itemNodes ]
                     )
 
         Src.Record fieldArray ->
@@ -365,7 +373,7 @@ insertExpression locExpr =
             resultFoldl folderInsertRecordField [] fieldArray
                 |> Result.map
                     (\fieldNodes ->
-                        [ authoredBracketList ListCurly (recordFieldsSpanRows fieldArray) locExpr.end (lpnLeaf (EmptyBracketed { start = locExpr.start, end = locExpr.end, value = ListCurly })) fieldNodes ]
+                        [ authoredBracketList ListCurly (recordFieldsSpanRows fieldArray) locExpr.end (lpnBracketNode (EmptyBracketed { start = locExpr.start, end = locExpr.end, value = ListCurly }) locExpr.end []) fieldNodes ]
                     )
 
         Src.Update payload ->

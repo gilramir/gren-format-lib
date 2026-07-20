@@ -1,0 +1,5 @@
+module RecordUpdateFieldTrailingComment exposing (..)
+
+
+bump z =
+    { z | name0 = if z.flag then 0 else 1, value1 = 0 } {- trails value1 -}

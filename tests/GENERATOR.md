@@ -1,17 +1,18 @@
 # Property-based random AST generator (`gen-random.py`)
 
-Status: **v1.3** — v1's core expression grammar (module header, imports,
+Status: **v1.4** — v1's core expression grammar (module header, imports,
 function declarations, binops, records, record updates, arrays, `let`, `when`,
 `if`, lambda, calls, field access, parens, atoms), plus line/block comment
 injection; v1.1 added top-level type aliases, custom types (unions), and ports;
 v1.2 added author-broken (multi-line, one `->` segment per line) types for
-function signatures, type-alias RHS, and port types; v1.3 added **multi-line
-(triple-quoted) string literals** as a value/argument-position atom, with
+function signatures, type-alias RHS, and port types; v1.3 added multi-line
+(triple-quoted) string literals as a value/argument-position atom, with
 content-mutation (escaped quotes, embedded `\"\"\"`, trailing backslash,
 literal tabs, blank rows, extra indentation) — see
-[Multi-line string literals](#multi-line-string-literals) below. Doc comments
-and patterns beyond the core set are the next expansion targets (see
-[Grammar scope](#grammar-scope)).
+[Multi-line string literals](#multi-line-string-literals) below; v1.4 added
+**doc comments** (`{-| ... -}`, module-level and per-declaration) — see
+[Doc comments](#doc-comments) below. Patterns beyond the core set are the next
+expansion target (see [Grammar scope](#grammar-scope)).
 
 This is `qe.md` avenue #2. Every other gate in this repo varies **one** axis over
 a fixed base — `matrix-syntax.py` embeds one construct in one context,
@@ -321,15 +322,87 @@ fixture `MultilineStringTrailingLineComment`), both fuzzers, audit-predicates,
 and the 1738-cell matrix — all clean, 0 regressions. Re-swept 3000 seeds clean
 after the fix (was 978/1000 before).
 
-**Next expansion targets:** doc comments; richer patterns (`as`, list
-patterns — respecting the parenthesized-`as` parser gap); comments *inside* a
-broken type signature (a `--`/block comment riding a `->`, per README
-divergence #5 — not yet generated, v1.2's broken types carry no comments);
-comments *inside* a multi-line string's surrounding expression aside from the
-one trailing-comment shape just fixed; referencing a module's own declared
-union constructors from `pattern()`/`leaf()` (currently generated unions are
-declared but never constructed/matched elsewhere in the module — a coverage
-gap, not a correctness one).
+### Doc comments
+
+**v1.4 (implemented 2026-07-19):** `{-| ... -}` doc comments, both module-level
+(`Module.doc`) and per-declaration (`Decl`/`TypeAliasDecl`/`UnionDecl`/
+`PortDecl.doc`, mutually exclusive with the existing regular `lead` comment on
+the same declaration — a doc comment stacked above a floating comment is an
+untested combination, so the generator never produces it). Content is plain
+prose (`doc_comment()`'s own word pool) since doc comments are AST-level, not
+Context — excluded from the comment-preservation oracle entirely, so no
+unique `kN` tokens are needed.
+
+Placement rules were verified directly against the app first, not assumed:
+a module doc gets exactly **one** blank line after the module header, and then
+the *same* spacing logic that already follows the header applies again (one
+blank before imports if any follow, else the standard two blanks before the
+first top-level declaration) — modeled by simply emitting the module doc as
+part of the header block rather than adding a parallel set of spacing rules.
+A per-declaration doc glues directly above its declaration with zero blank
+lines, exactly like the existing `lead` comment list already does structurally
+— `emit_leading()` is the single shared function both `emit_decl` and
+`emit_function_decl` call, so doc-vs-comment handling can't drift between
+declaration kinds. (Aside, not modeled: a multi-line doc — opener alone on its
+own line — gets a blank line auto-inserted before `-}` if the content doesn't
+already end with one; verified stable/idempotent either way, so which the
+generator picks doesn't matter. This APPEARS to be in tension with README
+divergence #11's "gren-format leaves the entire doc-comment body exactly as
+the author wrote it" claim, since it does change body content, not just
+placement — flagged here as a possible doc inaccuracy, not fixed, since it's
+tangential to this addition and doesn't trip any oracle.)
+
+**Two more real formatter bugs found and fixed** by the very next sweep after
+adding doc comments (0 quarantine, but 2 non-idempotent findings in the first
+6000 seeds combined) — neither involves a doc comment directly; both are in
+the pre-existing record-update comment-handling machinery, reached for the
+first time via the RNG shift a new generator feature always causes:
+
+1. **`makeRecordUpdateVerticalBox` ignored `CommentRole` entirely**, always
+   placing a trailing comment on its own line regardless of role — violating
+   the documented invariant that `RidesInline` glues exactly like
+   `TrailsPrevious` everywhere except the flat-line-eligibility check
+   (`LogicalPrintingTree.gren`'s own `CommentRole` doc comment says so
+   explicitly). Verified against real elm-format that gluing is at least as
+   reasonable a choice as the old behavior (elm-format itself does something
+   third and different here, already an established area of divergence, so
+   "matches elm-format" wasn't the bar — "matches the project's own stated
+   invariant, and is idempotent" was). Fixed to glue onto a preceding REAL
+   FIELD only, gated by `lastWasField` — mirrors `commentBracketListBox`'s
+   more careful `pending`-item tracking, NOT `makeUnionBodyVerticalBox`'s
+   simpler always-glue-onto-whatever-was-last approach, since the latter would
+   have also chained a comment onto an unrelated PRECEDING comment (confirmed
+   by a first attempt at this fix, which the checked-in `KitchenComments`
+   fixture caught: two comments flanking `|` merged onto one line that should
+   have stayed separate). Fixture `RecordUpdateFieldTrailingComment`;
+   `KitchenComments.formatted.gren` regenerated (3 lines changed — exactly the
+   comments that directly trail a real field value; everything else
+   unchanged).
+2. **`EmptyBracketed` (`[]`/`{}`) built via plain `lpnLeaf` instead of
+   `lpnBracketNode`**, so its closing-bracket position was marked *inexact*
+   even though it's always exactly known (`loc.end`) — unlike a populated
+   bracket-list, which genuinely needs the separate exact-vs-fallback
+   distinction. That let a same-row trailing comment one or two columns past
+   `[]`/`{}` fall inside the inexact-close slack window and get absorbed into
+   the surrounding field on reparse, flipping `{ z | next0 = [] } -- c`
+   (correctly forced open by the comment) back to flat on the second format.
+   Fixed by constructing both empty-literal sites in `InsertExpressions.gren`
+   via `lpnBracketNode` with an explicit exact close. Fixture
+   `EmptyBracketFieldTrailingLineComment`.
+
+Both verified against the full effectful suite (227, up from 224), both
+fuzzers, audit-predicates, and the 1738-cell matrix — all clean, 0
+regressions, same registered-divergence counts.
+
+**Next expansion targets:** richer patterns (`as`, list patterns — respecting
+the parenthesized-`as` parser gap); comments *inside* a broken type signature
+(a `--`/block comment riding a `->`, per README divergence #5 — not yet
+generated, v1.2's broken types carry no comments); comments *inside* a
+multi-line string's surrounding expression aside from the trailing-comment
+shape already fixed; referencing a module's own declared union constructors
+from `pattern()`/`leaf()` (currently generated unions are declared but never
+constructed/matched elsewhere in the module — a coverage gap, not a
+correctness one).
 
 The generator is intentionally started small and correct (0 quarantine on the
 core grammar) and expanded one construct at a time, verifying the quarantine rate
@@ -337,4 +410,6 @@ stays at ~0 after each addition. (2026-07-19: 10000 seeds (1..10000) + 800 at
 `--max-depth 7` clean after the type-alias/union/port addition; a further 3000
 clean after capping variant arity at ≤1; a further 7000 seeds (1..7000) + 800
 at `--max-depth 7` clean after the author-broken-arrow-type addition; a further
-3000 clean after the multi-line-string addition and its trailing-comment fix.)
+3000 clean after the multi-line-string addition and its trailing-comment fix;
+a further 10000 seeds (1..10000) + 800 at `--max-depth 7` clean after the
+doc-comment addition and its two record-update/EmptyBracketed fixes.)

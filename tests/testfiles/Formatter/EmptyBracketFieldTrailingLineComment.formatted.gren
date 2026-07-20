@@ -1,0 +1,7 @@
+module EmptyBracketFieldTrailingLineComment exposing (..)
+
+
+bump z =
+    { z
+        | next0 = [] -- trails the update
+    }

@@ -313,11 +313,9 @@ extremelyCommented {-c22-} {-c23-} {-c24-} ({ score {-c25-} {-c26-}, label {-c27
                     { r
                         {-c63-}
                         {-c64-}
-                        | score = {-c65-} {-c66-} bumpedScore
-                        {-c67-}
+                        | score = {-c65-} {-c66-} bumpedScore {-c67-}
                         {-c68-}
-                        , label = {-c69-} {-c70-} expandedLabel
-                        {-c71-}
+                        , label = {-c69-} {-c70-} expandedLabel {-c71-}
                     }
 
                 else
@@ -336,8 +334,7 @@ extremelyCommented {-c22-} {-c23-} {-c24-} ({ score {-c25-} {-c26-}, label {-c27
                             { r
                                 {-c83-}
                                 {-c84-}
-                                | label = {-c85-} {-c86-} "zero"
-                                {-c87-}
+                                | label = {-c85-} {-c86-} "zero" {-c87-}
                             } {-c88-}
 
                         {-c89-}

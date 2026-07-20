@@ -133,10 +133,10 @@ class PRecord:
 
 class Decl:
     def __init__(self, name, params, body, sig=None, sig_broken=False,
-                 lead=None, trailing=None):
+                 doc=None, lead=None, trailing=None):
         self.name, self.params, self.body = name, params, body
         self.sig, self.sig_broken = sig, sig_broken
-        self.lead, self.trailing = lead, trailing
+        self.doc, self.lead, self.trailing = doc, lead, trailing
 
 
 # Type-alias / custom-type / port declarations. Unlike Decl (function), these
@@ -144,9 +144,9 @@ class Decl:
 # `.body`) must skip them — only the "drop this whole decl" step applies.
 
 class TypeAliasDecl:
-    def __init__(self, name, params, rhs, broken=False, lead=None, trailing=None):
+    def __init__(self, name, params, rhs, broken=False, doc=None, lead=None, trailing=None):
         self.name, self.params, self.rhs, self.broken = name, params, rhs, broken
-        self.lead, self.trailing = lead, trailing
+        self.doc, self.lead, self.trailing = doc, lead, trailing
 
 
 class Variant:
@@ -157,20 +157,20 @@ class Variant:
 
 
 class UnionDecl:
-    def __init__(self, name, params, variants, broken=False, lead=None, trailing=None):
+    def __init__(self, name, params, variants, broken=False, doc=None, lead=None, trailing=None):
         self.name, self.params, self.variants, self.broken = name, params, variants, broken
-        self.lead, self.trailing = lead, trailing
+        self.doc, self.lead, self.trailing = doc, lead, trailing
 
 
 class PortDecl:
-    def __init__(self, name, type_, broken=False, lead=None, trailing=None):
+    def __init__(self, name, type_, broken=False, doc=None, lead=None, trailing=None):
         self.name, self.type_, self.broken = name, type_, broken
-        self.lead, self.trailing = lead, trailing
+        self.doc, self.lead, self.trailing = doc, lead, trailing
 
 
 class Module:
-    def __init__(self, name, imports, decls):
-        self.name, self.imports, self.decls = name, imports, decls
+    def __init__(self, name, imports, decls, doc=None):
+        self.name, self.imports, self.decls, self.doc = name, imports, decls, doc
 
 
 # ───────────────────────────── structural queries ─────────────────────────
@@ -432,6 +432,34 @@ def comment_lines(c, ind):
     return [pad(ind) + comment_text(c)]
 
 
+def emit_doc_comment(doc):
+    """`{-| ... -}` doc comment, always at column 0 (module-level or a
+    top-level declaration's own doc — Gren has no nested/local doc comments).
+    `doc` is either a str (one-line shorthand, `{-| text -}`) or a list of
+    raw content lines (opener/closer alone on their own lines, content
+    verbatim at column 0 — per README divergence #11, gren-format NEVER
+    reindents or reflows a doc comment's body, unlike a plain `{- -}` block
+    comment). A multi-line doc missing a blank line before `-}` gets one
+    inserted by the formatter (a stable, idempotent one-time normalization,
+    verified directly against the app) — not modeled here, since including
+    or omitting a trailing blank in the input is equally safe either way."""
+    if isinstance(doc, str):
+        return ["{-| " + doc + " -}"]
+    return ["{-|"] + list(doc) + ["-}"]
+
+
+def emit_leading(d):
+    """A declaration's leading lines: its doc comment if it has one,
+    otherwise its regular own-line comments (mutually exclusive — a decl
+    never gets both, to avoid the untested "comment stacked above a doc
+    comment" combination)."""
+    if getattr(d, "doc", None) is not None:
+        return emit_doc_comment(d.doc)
+    if d.lead:
+        return [comment_text(c) for c in d.lead]
+    return []
+
+
 def emit_pat(p):
     if isinstance(p, PVar):  return p.name
     if isinstance(p, PWild): return "_"
@@ -555,7 +583,16 @@ def emit_port(d):
 
 def emit_module(m):
     kw = "port module " if any(isinstance(d, PortDecl) for d in m.decls) else "module "
-    lines = [kw + m.name + " exposing (..)", ""]
+    header = [kw + m.name + " exposing (..)"]
+    if m.doc is not None:
+        # Module doc: exactly one blank line after the header, verified
+        # directly against the app — then the SAME import/decl spacing logic
+        # applies as if the doc were part of the header block (one blank
+        # before imports if any follow, else the standard two blanks before
+        # the first top-level declaration).
+        header.append("")
+        header += emit_doc_comment(m.doc)
+    lines = header + [""]
     for imp in m.imports:
         lines.append(imp)
     if m.imports:
@@ -579,10 +616,7 @@ def emit_decl(d):
         core = emit_port(d)
     else:
         return emit_function_decl(d)
-    out = []
-    if d.lead:
-        for c in d.lead:
-            out.append(comment_text(c))
+    out = emit_leading(d)
     out += core
     if d.trailing is not None:
         out[-1] = out[-1] + " " + comment_text(d.trailing)
@@ -590,10 +624,7 @@ def emit_decl(d):
 
 
 def emit_function_decl(d):
-    out = []
-    if d.lead:
-        for c in d.lead:
-            out.append(comment_text(c))
+    out = emit_leading(d)
     if d.sig is not None:
         if d.sig_broken and d.sig[0] == "arrow":
             out.append(d.name + " :")
@@ -840,6 +871,20 @@ class Gen:
 
     # -- declarations / module --------------------------------------------
 
+    def doc_comment(self):
+        """Maybe a `{-| ... -}` doc-comment content: None, a one-line
+        string, or a list of 1-3 raw content lines. Doc comments are
+        AST-level, not Context — excluded from the comment-preservation
+        oracle, so plain prose (no unique `kN` tokens) is fine."""
+        if not self.chance(0.3):
+            return None
+        words = " ".join(self.pick(WORDS) for _ in range(self.rng.randint(2, 4)))
+        if self.chance(0.6):
+            return words.capitalize() + "."
+        k = self.rng.randint(1, 3)
+        return [" ".join(self.pick(WORDS) for _ in range(self.rng.randint(2, 4)))
+                for _ in range(k)]
+
     def decl(self, i):
         name = "fn%d" % i
         nparams = self.rng.randint(0, 3)
@@ -852,12 +897,13 @@ class Gen:
             sig = ("arrow", [self.gen_type(2) for _ in range(k)]) if k > 1 \
                   else self.gen_type(2)
             sig_broken = sig[0] == "arrow" and self.chance(0.5)
+        doc = self.doc_comment()
         lead = None
-        if self.chance(self.crate):
+        if doc is None and self.chance(self.crate):
             lead = [self.comment() or ("line", "k%d" % self.next_cid())]
         trailing = self.comment()
         return Decl(name, params, body, sig=sig, sig_broken=sig_broken,
-                    lead=lead, trailing=trailing)
+                    doc=doc, lead=lead, trailing=trailing)
 
     def type_params(self):
         if not self.chance(0.4):
@@ -869,11 +915,13 @@ class Gen:
         params = self.type_params()
         rhs = self.gen_type(2, params)
         broken = rhs[0] == "arrow" and self.chance(0.5)
+        doc = self.doc_comment()
         lead = None
-        if self.chance(self.crate):
+        if doc is None and self.chance(self.crate):
             lead = [self.comment() or ("line", "k%d" % self.next_cid())]
         trailing = self.comment()
-        return TypeAliasDecl(name, params, rhs, broken=broken, lead=lead, trailing=trailing)
+        return TypeAliasDecl(name, params, rhs, broken=broken, doc=doc,
+                             lead=lead, trailing=trailing)
 
     def variant_arg_type(self, depth, params):
         """A union variant's single positional argument. Current Gren limits a
@@ -927,11 +975,13 @@ class Gen:
         forced = any(v.lead is not None for v in variants) or \
                  any(v.trailing is not None and v.trailing[0] == "line" for v in variants)
         broken = forced or self.chance(0.5)
+        doc = self.doc_comment()
         lead = None
-        if self.chance(self.crate):
+        if doc is None and self.chance(self.crate):
             lead = [self.comment() or ("line", "k%d" % self.next_cid())]
         trailing = self.comment()
-        return UnionDecl(name, params, variants, broken=broken, lead=lead, trailing=trailing)
+        return UnionDecl(name, params, variants, broken=broken, doc=doc,
+                         lead=lead, trailing=trailing)
 
     def port(self, i):
         name = "port%d" % i
@@ -945,11 +995,12 @@ class Gen:
             inner = ("arrow", [self.gen_type(1), ("var", "msg")])
             t = ("arrow", [("paren", inner), ("app", "Sub", [("var", "msg")])])
         broken = t[0] == "arrow" and self.chance(0.5)
+        doc = self.doc_comment()
         lead = None
-        if self.chance(self.crate):
+        if doc is None and self.chance(self.crate):
             lead = [self.comment() or ("line", "k%d" % self.next_cid())]
         trailing = self.comment()
-        return PortDecl(name, t, broken=broken, lead=lead, trailing=trailing)
+        return PortDecl(name, t, broken=broken, doc=doc, lead=lead, trailing=trailing)
 
     def next_cid(self):
         c = self.cid
@@ -982,7 +1033,7 @@ class Gen:
                 decls.append(self.union(i))
             else:
                 decls.append(self.port(i))
-        return Module(name, imports, decls)
+        return Module(name, imports, decls, doc=self.doc_comment())
 
 
 def generate(seed, max_depth, comment_rate):
@@ -1179,7 +1230,11 @@ def comment_clearers(m):
     """Yield closures that remove one comment (for the shrinker)."""
     def clear_attr(obj, attr):
         return lambda: setattr(obj, attr, None)
+    if getattr(m, "doc", None) is not None:
+        yield clear_attr(m, "doc")
     for d in m.decls:
+        if getattr(d, "doc", None) is not None:
+            yield clear_attr(d, "doc")
         if d.lead:
             yield clear_attr(d, "lead")
         if d.trailing is not None:

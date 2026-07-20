@@ -1509,10 +1509,34 @@ makeRecordUpdateVerticalBox baseName children =
                 |> Result.andThen
                     (\acc ->
                         if nodeIsComment node then
+                            -- Same-row (role `TrailsPrevious`/`RidesInline`): glue
+                            -- onto the preceding FIELD's box — but only a real
+                            -- field, never a preceding comment (`acc.lastWasField`
+                            -- mirrors `commentBracketListBox`'s `pending`, which
+                            -- resets to Nothing after placing a comment: two
+                            -- RidesInline comments in a row, e.g. flanking `|`,
+                            -- each stand on their own line rather than chaining
+                            -- onto each other — only `makeUnionBodyVerticalBox`'s
+                            -- simpler always-glue-onto-last approach would merge
+                            -- them). Own row (`LeadsOwnLine`): stands on its own
+                            -- line regardless. Before this fix every comment here
+                            -- landed on its own line unconditionally, disagreeing
+                            -- with the role `Comments.gren` had already assigned
+                            -- and oscillating once the update was reformatted
+                            -- across rows.
                             commentNodeBox node
                                 |> Result.map
                                     (\cbox ->
-                                        { acc | lines = Array.pushLast cbox acc.lines }
+                                        if commentTrailsRole node && acc.lastWasField then
+                                            when Array.popLast acc.lines is
+                                                Just { last = lastBox, initial } ->
+                                                    { acc | lines = Array.pushLast (glueCommentSuffix cbox lastBox) initial, lastWasField = False }
+
+                                                Nothing ->
+                                                    { acc | lines = [ cbox ], lastWasField = False }
+
+                                        else
+                                            { acc | lines = Array.pushLast cbox acc.lines, lastWasField = False }
                                     )
 
                         else
@@ -1568,11 +1592,12 @@ makeRecordUpdateVerticalBox baseName children =
                                         in
                                         { lines = Array.pushLast (B.prefix pref fieldBox) acc.lines
                                         , seenField = True
+                                        , lastWasField = True
                                         }
                                     )
                     )
     in
-    Array.foldl step (Ok { lines = [], seenField = False }) children
+    Array.foldl step (Ok { lines = [], seenField = False, lastWasField = False }) children
         |> Result.map
             (\acc ->
                 B.stack1
