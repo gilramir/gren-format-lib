@@ -1,0 +1,11 @@
+module LambdaCommentBuriedMixedPipeline exposing (..)
+
+
+fn y =
+    x
+        && 0 >> (\node ->
+                {- k10 -}
+                node
+                    |> 0
+                    <| 0 / String.y
+              )

@@ -81,6 +81,36 @@ flattenPipeline locExpr =
             { seed = locExpr, steps = [] }
 
 
+{-| True when `expr` renders as a mixed `|>`/`<|` pipeline that always breaks one
+step per line — its outermost pipeline operator is `<|` yet not every step is
+`<|` (`makeBackwardPipelineBox`'s `not allBackward` path), independent of the
+author's row layout.
+
+The pipeline may be BURIED under a tighter-precedence operator: the parser
+left-nests `node |> 0 <| 0 / String.y` as `((node |> 0) <| 0) / String.y`, so the
+mixed pipeline is the LEFT operand of the top `/`. Walk the left spine of
+non-pipeline binops to reach it — the whole expression still renders multi-line,
+since the tighter operator keeps its multi-line pipeline operand multi-line
+(`<| 0 / String.y` on the last step's line). Missing this buried case left a
+lambda body in `SoftIndentedBlock` when it actually breaks, oscillating a leading
+comment (see `insertLambda`'s `bodyAlwaysBreaksVertical`).
+-}
+mixedPipelineBreaksVertical : Src.Expression -> Bool
+mixedPipelineBreaksVertical expr =
+    when expr.value is
+        Src.Binops { left = leftExpr, operator = op } ->
+            if isPipelineOp op.value then
+                op.value
+                    == "<|"
+                    && not (Array.all (\s -> s.op.value == "<|") (flattenPipeline expr).steps)
+
+            else
+                mixedPipelineBreaksVertical leftExpr
+
+        _ ->
+            False
+
+
 {-| Render the body of a pipeline step.
 
 The intent: if the body itself is a pipeline `Binops` whose operator differs
@@ -738,15 +768,13 @@ insertLambda locExpr { patterns = patterns, body = body } =
                     -- file would oscillate. Treating this body as force-vertical
                     -- up front picks `IndentedBlock` from the very first format,
                     -- matching what every later reparse settles on.
+                    --
+                    -- The mixed pipeline can be BURIED under a tighter operator
+                    -- (`node |> 0 <| 0 / String.y` parses as
+                    -- `((node |> 0) <| 0) / String.y`); `mixedPipelineBreaksVertical`
+                    -- walks the left spine to find it.
                     bodyAlwaysBreaksVertical =
-                        when body.value is
-                            Src.Binops { operator } ->
-                                operator.value
-                                    == "<|"
-                                    && not (Array.all (\s -> s.op.value == "<|") (flattenPipeline body).steps)
-
-                            _ ->
-                                False
+                        mixedPipelineBreaksVertical body
 
                     -- A `let`/`if`/`when` body always drops to its own line
                     -- under `->` (elm-format never glues the keyword to the

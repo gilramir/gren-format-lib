@@ -335,6 +335,7 @@ expressionSuite fsPerm =
             , assertPretty fsPerm "pipeline step made multi-line by a block comment (no relocatable trigger)" "PipelineNoTriggerStep"
             , assertPretty fsPerm "backward pipeline (<|) treated like forward pipeline (|>)" "BackwardPipeline"
             , assertPretty fsPerm "an own-line comment authored between a backward-pipeline seed and its <| stays on its own line (author-driven; elm-format reflows it inline after the seed)" "BackwardPipelineSeedComment"
+            , assertPretty fsPerm "a leading comment on a lambda body that is a mixed |>/<| pipeline BURIED under a tighter operator (node |> 0 <| 0 / y) drops to its own line from the first format — the body is force-vertical up front (IndentedBlock), not left as a SoftIndentedBlock that oscillates the comment" "LambdaCommentBuriedMixedPipeline"
             , assertPretty fsPerm "a pipeline step that is a call whose last argument is a parenthesized multi-line record: the redundant paren is kept as a relocated trigger, its ) on its own line at the ( column (divergence #10; elm-format strips the paren)" "PipelineParenRecordOperand"
             , assertPretty fsPerm "mixed |>/<| pipeline chain renders operator-leading" "PipelineMixedOps"
             , assertPretty fsPerm "string escape sequences preserved" "StringEscapes"
