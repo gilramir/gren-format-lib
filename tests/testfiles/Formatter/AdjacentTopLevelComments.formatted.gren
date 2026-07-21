@@ -11,7 +11,6 @@ first =
 
 
 {- multi
-   line -}
-{- trailing -}
+   line -} {- trailing -}
 second =
     2

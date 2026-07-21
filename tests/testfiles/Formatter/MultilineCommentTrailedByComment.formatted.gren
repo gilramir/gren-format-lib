@@ -1,0 +1,59 @@
+module MultilineCommentTrailedByComment exposing (..)
+
+
+fn0 =
+    0 {- a
+         b -}
+
+
+fn0c =
+    0 {- a
+         b -} -- comment
+
+
+fn1 =
+    0 {- a
+         b -} {- c -}
+
+
+fn1c =
+    0 {- a
+         b -} {- c -} --comment
+
+
+fn2 =
+    0 {- a
+         b -} {- c
+                 d -}
+
+
+fn2c =
+    0 {- a
+         b -} {- c
+                 d -} -- comment
+
+
+fn3 =
+    0 {- a
+         b -} {- c
+                 d -} {- e -}
+
+
+fn3c =
+    0 {- a
+         b -} {- c
+                 d -} {- e -} -- comment
+
+
+fn4 =
+    0 {- a
+         b -} {- c
+                 d -} {- e
+                         f -}
+
+
+fn4c =
+    0 {- a
+         b -} {- c
+                 d -} {- e
+                         f -} -- comment

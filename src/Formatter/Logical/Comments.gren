@@ -119,6 +119,7 @@ import Formatter.Logical.LogicalPrintingTree exposing
     , SyntaxType(..)
     , firstRowInSubtree
     , gluesTrailingComment
+    , lastRowInSubtree
     , lpnBox
     , lpnBracketEndExact
     , lpnChildren
@@ -1040,11 +1041,18 @@ prevLineGlueRow node =
             else
                 -1
 
+        -- A run of comments: the following one glues onto the previous
+        -- comment's LAST row, not its first. For a `--` (always one row) the
+        -- two coincide, but a multi-line `{- … -}`'s `-}` can close several
+        -- rows below its `{-`, and a same-row successor sits on that close
+        -- row (`{- multi⏎line -} {- c -}`). Using the first row misclassified
+        -- the successor as `LeadsOwnLine`, which (with the render-side
+        -- `TerminatedByBlockComment` policy) oscillated col 4 ↔ col 0.
         SingleLineComment _ ->
-            firstRowInSubtree node
+            lastRowInSubtree node
 
         BlockComment _ ->
-            firstRowInSubtree node
+            lastRowInSubtree node
 
         _ ->
             -1
@@ -1133,11 +1141,15 @@ prevBlockGlueRow node =
             else
                 -1
 
+        -- Same fix as `prevLineGlueRow`'s matching arms: glue onto the
+        -- previous comment's LAST row, not its first — a multi-line
+        -- `{- … -}`'s `-}` closes below its `{-`, and a same-row successor
+        -- glues onto that close row. See there for the full rationale.
         SingleLineComment _ ->
-            firstRowInSubtree node
+            lastRowInSubtree node
 
         BlockComment _ ->
-            firstRowInSubtree node
+            lastRowInSubtree node
 
         _ ->
             -1

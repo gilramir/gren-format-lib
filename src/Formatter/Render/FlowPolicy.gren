@@ -58,8 +58,16 @@ import Formatter.Logical.LogicalPrintingTree exposing
   - `FirstItem` — nothing precedes; emit no separator.
   - `FlowSep` — normal flow: space or newline (a groupable soft break).
   - `HardNl` — after an `IndentedBlock`: forced newline.
-  - `AlreadyTerminated` — after a comment has ended its own line: no extra
-    separator.
+  - `AlreadyTerminated` — after a `--`, or a single-line own-line comment, has
+    ended its own line: no extra separator, and a following comment can NOT glue
+    back onto that line (a `--` runs to EOL; a single-line own-line comment is
+    its own line).
+  - `TerminatedByBlockComment` — after a *multi-line* block comment has ended
+    its line: like `AlreadyTerminated`, except a same-row trailing comment (role
+    `TrailsPrevious`/`RidesInline`) DOES glue onto that comment's closing
+    delimiter line rather than dropping to its own. Kept distinct from
+    `AlreadyTerminated` so a comment after a `--` / single-line comment still
+    never glues.
 
 -}
 type NextSeparator
@@ -67,6 +75,7 @@ type NextSeparator
     | FlowSep
     | HardNl
     | AlreadyTerminated
+    | TerminatedByBlockComment
 
 
 {-| The decision state threaded through a flow fold.
@@ -244,11 +253,40 @@ decide config state facts =
                 standaloneLeading =
                     (state.separator == FirstItem && not config.inlineStart)
                         || state.separator == AlreadyTerminated
+                        || state.separator == TerminatedByBlockComment
             in
             if f.multiLine || standaloneLeading then
-                { placement = commentPlacement config state f.role
+                let
+                    placement =
+                        commentPlacement config state f.role
+                in
+                { placement = placement
                 , next =
-                    { separator = AlreadyTerminated }
+                    -- A multi-line block comment always leaves the glueable
+                    -- terminator (a same-row trailing comment rides onto its
+                    -- `-}` line, whether this one itself glued or stands alone).
+                    -- A single-line comment that GLUED onto a preceding line
+                    -- (placement `GlueSpace`) leaves `HardNl`: a further
+                    -- same-row comment still glues onto the same line (a 3+ run
+                    -- like `{- multi⏎line -} {- a -} {- b -}` stays together —
+                    -- `commentPlacement`'s `_` arm glues a `roleGlues` comment
+                    -- after `HardNl`), but a following *token* is forced onto
+                    -- its own line (`joinPlacement HardNl == OwnLine`) instead
+                    -- of gluing onto the comment — the glued comment did NOT
+                    -- terminate its line, so `FlowSep` would space-join the next
+                    -- token onto it (`-} {- c -} second =`, which misparses).
+                    -- A single-line comment that stood on its own line leaves
+                    -- the plain terminator (a following comment stays own-line).
+                    { separator =
+                        if f.multiLine then
+                            TerminatedByBlockComment
+
+                        else if placement == GlueSpace then
+                            HardNl
+
+                        else
+                            AlreadyTerminated
+                    }
                 }
 
             else
@@ -442,6 +480,12 @@ joinPlacement config sep =
         AlreadyTerminated ->
             GlueNoSep
 
+        -- A non-comment item after a comment-terminated line glues directly,
+        -- same as `AlreadyTerminated` (only a following *comment* treats the
+        -- two states differently — see `commentPlacement`).
+        TerminatedByBlockComment ->
+            GlueNoSep
+
 
 -- A comment glues onto the previous item's line when the classifier tagged it
 -- `TrailsPrevious` (a `--` or `{- -}` that trails the item) or `RidesInline`
@@ -466,6 +510,16 @@ commentPlacement _ state role =
         AlreadyTerminated ->
             GlueNoSep
 
+        -- After a multi-line block comment: a same-row trailing comment glues
+        -- onto its `-}` line; an own-line one stays own-line (`GlueNoSep`
+        -- materializes as its own line, like `AlreadyTerminated`).
+        TerminatedByBlockComment ->
+            if roleGlues role then
+                GlueSpace
+
+            else
+                GlueNoSep
+
         _ ->
             if roleGlues role then
                 GlueSpace
@@ -486,6 +540,15 @@ blockDecision rule state =
                 AsFirst
 
             AlreadyTerminated ->
+                if rule == BodyRule then
+                    GlueNoSep
+
+                else
+                    IndentNoBreak
+
+            -- Same as `AlreadyTerminated`: a block item after a comment-ended
+            -- line indents without a leading break.
+            TerminatedByBlockComment ->
                 if rule == BodyRule then
                     GlueNoSep
 

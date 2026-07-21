@@ -62,10 +62,9 @@ type Shape
 
 port output : {- 45 a
                  45 b
-                 45 c -}
-    {- 46 a
-       46 b
-       46 c -}
+                 45 c -} {- 46 a
+                            46 b
+                            46 c -}
     String -> Cmd msg
 
 
@@ -107,10 +106,9 @@ letFirst x =
         y =
             {- 16 a
                16 b
-               16 c -}
-            {- 17 a
-               17 b
-               17 c -}
+               16 c -} {- 17 a
+                          17 b
+                          17 c -}
             x
 
         {- 47 a — leading comment of a NON-FIRST let binding
@@ -138,10 +136,9 @@ whenExpr x =
         0 ->
             {- 21 a
                21 b
-               21 c -}
-            {- 22 a
-               22 b
-               22 c -}
+               21 c -} {- 22 a
+                          22 b
+                          22 c -}
             "zero"
 
         _ ->
@@ -241,10 +238,9 @@ lambdas =
      x ->
         {- 38 a
            38 b
-           38 c -}
-        {- 39 a
-           39 b
-           39 c -}
+           38 c -} {- 39 a
+                      39 b
+                      39 c -}
         x
 
 
