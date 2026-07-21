@@ -1,6 +1,6 @@
 # Property-based random AST generator (`gen-random.py`)
 
-Status: **v1.5** — v1's core expression grammar (module header, imports,
+Status: **v1.6** — v1's core expression grammar (module header, imports,
 function declarations, binops, records, record updates, arrays, `let`, `when`,
 `if`, lambda, calls, field access, parens, atoms), plus line/block comment
 injection; v1.1 added top-level type aliases, custom types (unions), and ports;
@@ -11,10 +11,14 @@ content-mutation (escaped quotes, embedded `\"\"\"`, trailing backslash,
 literal tabs, blank rows, extra indentation); v1.4 added doc comments
 (`{-| ... -}`, module-level and per-declaration); v1.5 added **richer
 when-branch patterns** — string/char/array-literal patterns and `as`
-aliasing — see [Richer patterns](#richer-patterns) below. List patterns
-beyond fixed-length arrays, and comments inside a broken type signature or a
-multi-line string's surrounding expression, are the next expansion targets
-(see [Grammar scope](#grammar-scope)).
+aliasing — see [Richer patterns](#richer-patterns) below; v1.6 added
+**constructor references** — a generated module now actually constructs and
+pattern-matches the unions it declares, instead of only ever declaring them —
+see [Constructor references](#constructor-references) below. Comments inside a
+broken type signature or a multi-line string's surrounding expression, and
+`as` nested in non-top-level pattern positions, remain the next expansion
+targets (see [Grammar scope](#grammar-scope)). List patterns beyond
+fixed-length arrays are NOT a gap — Gren has none.
 
 This is `qe.md` avenue #2. Every other gate in this repo varies **one** axis over
 a fixed base — `matrix-syntax.py` embeds one construct in one context,
@@ -515,15 +519,66 @@ both fuzzers, 1738-cell matrix (0 UNREVIEWED/BUGs), predicate audit,
 corpus-check, the original seed 809, and a fresh 8000-seed sweep at
 `--comment-rate 0.5` all clean.
 
+### Constructor references
+
+**v1.6 (implemented 2026-07-20):** until this addition, a generated module's
+`union()` calls declared custom types that nothing else in the module ever
+referenced — `pattern()`/`leaf()` only ever drew constructor NAMES from a
+fixed generic pool (`Just`/`Nothing`/`Ok`/`Err`/`Leaf`/`Node`), unconnected to
+any real declaration, so a declared union's variants were never actually
+constructed or matched anywhere. This closed that gap: `Gen.declared_ctors`
+(a `[(name, kind)]` list, `kind` ∈ `"none"`/`"record"`/`"value"`, mirroring
+`variant_payload`'s three payload shapes) is appended to as each `union()`
+call builds its variants, then read back by two new methods:
+
+- `ctor_ref()` — replaces `leaf()`'s bare-`Ctor` branch. Half the time picks a
+  declared constructor instead of the generic pool; a 1-arg declared
+  constructor is applied to a matching-shape argument (`"record"` → a bare
+  record-literal argument, `"value"` → a plain atom). **Always single-line**
+  (`broken=False`, argument via the new `_flat_leaf()` — Var/Int/Str/Qual
+  only, never recursing back into `ctor_ref`) — required because `leaf()` is
+  called directly by `inline()`, whose contract is a GUARANTEED single-line
+  result (`one_line`'s assertion). The richer, possibly-multi-line applied
+  form lives in `mk_call` instead (below), which has no such contract.
+- `pctor_ref(depth)` — replaces `pattern_base`'s constructor-pattern tail.
+  Half the time matches a declared constructor with its REAL arity (0-arg
+  bare, `"record"` via `PRecord`, `"value"` via a nested pattern) rather than
+  the generic pool's arity chosen independently of any real declaration.
+- `mk_call` (used only from `value()`, which carries no single-line
+  contract) also now sometimes applies a declared 1-arg constructor, with the
+  full depth/broken richness a normal call gets — including, for a
+  `"record"`-payload constructor, a **bare record-literal call argument**
+  (`Ctor { a = 1, b = 2 }`, no parens) — legal Gren, verified directly
+  against the app before wiring in, and a shape the existing `arg()`
+  machinery could never produce on its own (it only ever offers `atom()` or
+  `Paren(value)` as a call argument, never an unparenthesized record
+  literal).
+
+**Generator bug found and fixed while building this** (not a formatter bug):
+the first `ctor_ref()` draft applied a declared "record"-payload constructor
+via `Call(Ctor(name), [self.mk_record(1)], broken=self.chance(0.3))` directly
+inside `leaf()`. A 2000-seed sweep immediately hit a Python
+`AssertionError: one_line on multiline node Paren` inside `emit_when`'s
+scrutinee — `inline()` had called `leaf()`, which produced a `Call` wrapping a
+`Record` that could itself go multi-line (a broken `Record`, or a field value
+recursing through `value()` into a block), breaking `inline()`'s single-line
+guarantee two frames away from where the violation was introduced. Fixed by
+splitting the single-line-safe path (`ctor_ref`/`_flat_leaf`, used from
+`leaf()`) from the richer possibly-multi-line path (`mk_call`, never reached
+from a single-line context) rather than trying to thread a "must stay flat"
+flag through `leaf()` itself.
+
+Verified: 8000 seeds (1..8000) + 2000 at `--comment-rate 0.6 --max-depth 7`
+clean (0 quarantine, 0 findings) after the fix, plus the full gate suite (231
+effectful tests, both fuzzers, 1738-cell matrix — 0 UNREVIEWED/BUGs, unchanged
+divergence counts — and the predicate audit) all clean, confirming this
+generator-only change didn't perturb the formatter itself.
+
 **Remaining expansion targets:** comments *inside* a multi-line string's
 surrounding expression aside from the trailing-comment shape already fixed;
-referencing a module's own declared union constructors from
-`pattern()`/`leaf()` (currently generated unions are declared but never
-constructed/matched elsewhere in the module — a coverage gap, not a
-correctness one); `as` nested in non-top-level pattern positions (lambda/
-function params, ctor args, array items) — deliberately not generated yet,
-unverified against the parser; list patterns beyond fixed-length arrays (Gren
-has none — not a gap).
+`as` nested in non-top-level pattern positions (lambda/function params, ctor
+args, array items) — deliberately not generated yet, unverified against the
+parser; list patterns beyond fixed-length arrays (Gren has none — not a gap).
 
 The generator is intentionally started small and correct (0 quarantine on the
 core grammar) and expanded one construct at a time, verifying the quarantine rate
@@ -536,4 +591,7 @@ a further 10000 seeds (1..10000) + 800 at `--max-depth 7` clean after the
 doc-comment addition and its two record-update/EmptyBracketed fixes; a further
 3000 clean after the richer-patterns addition and its alias-pattern-parens
 fix; a further 8000 seeds at `--comment-rate 0.5` clean after the
-arrow-comment addition and its RecordUpdate/SoftIndentedBlock crash fix.)
+arrow-comment addition and its RecordUpdate/SoftIndentedBlock crash fix; a
+further 8000 seeds (1..8000) + 2000 at `--comment-rate 0.6 --max-depth 7`
+clean after the constructor-references addition and its single-line-guarantee
+generator fix.)

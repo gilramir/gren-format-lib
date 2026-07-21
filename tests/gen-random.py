@@ -704,6 +704,15 @@ class Gen:
         self.fields = ["name", "count", "value", "next", "kind"]
         self.ctors = ["Just", "Nothing", "Ok", "Err", "Leaf", "Node"]
         self.mods = ["String", "Array", "Dict", "Maybe"]
+        # Constructors declared by this module's own `union()` calls so far
+        # (populated as decls are generated, in source order — see `union`).
+        # [(name, kind)], kind in "none" / "record" / "value" (mirrors
+        # `variant_payload`'s None / ("record", ...) / ("args", ...) shapes).
+        # Referenced back from `leaf`/`pattern_base` (via `ctor_ref`/
+        # `pctor_ref`) so a generated module actually constructs and matches
+        # the unions it declares, instead of only ever declaring them — see
+        # GENERATOR.md's "Remaining expansion targets".
+        self.declared_ctors = []
 
     def chance(self, p): return self.rng.random() < p
     def pick(self, xs):  return self.rng.choice(xs)
@@ -751,7 +760,49 @@ class Gen:
         if r < 0.4:   return Var(self.pick(self.vars))
         if r < 0.6:   return Int(self.rng.randint(0, 99))
         if r < 0.75:  return Str(self.pick(WORDS))
-        if r < 0.9:   return Ctor(self.pick(self.ctors))
+        if r < 0.9:   return self.ctor_ref()
+        return Qual(self.pick(self.mods), self.pick(self.vars))
+
+    def ctor_ref(self):
+        """A constructor reference: bare, or (for a declared 1-arg variant)
+        applied to a matching-shape argument — half the time drawn from this
+        module's own `declared_ctors` (see `union`), else the generic
+        built-in-style pool, same as before this method existed.
+
+        `leaf()` calls this, and `leaf()` is in turn called directly by
+        `inline()`, whose contract is a GUARANTEED single-line result (it
+        feeds `if`/`when` conditions and scrutinees, rendered via `one_line`,
+        which asserts). So this — like every other `leaf()` branch — must
+        always be single-line: `broken=False`, and the argument is a plain
+        `_flat_leaf()` rather than `atom()`/`mk_record()`, neither of which
+        that guarantee (an `atom()` can recurse into a multi-line `Paren`, and
+        a record's OWN field values recurse through `value()`, which can nest
+        an `if`/`when`/`let`/lambda). The richer, possibly-multi-line
+        applied-constructor shape — including a bare record-literal argument,
+        `Ctor { a = 1 }`, legal Gren and previously never generated at all —
+        lives in `mk_call` instead, which is only ever reached from `value()`
+        (no single-line contract)."""
+        if self.declared_ctors and self.chance(0.5):
+            name, kind = self.pick(self.declared_ctors)
+            if kind == "none" or self.chance(0.25):
+                return Ctor(name)
+            if kind == "record":
+                fields = [(self.pick(self.fields) + str(j), self._flat_leaf())
+                          for j in range(self.rng.randint(1, 2))]
+                return Call(Ctor(name), [Record(fields, broken=False)])
+            return Call(Ctor(name), [self._flat_leaf()])
+        return Ctor(self.pick(self.ctors))
+
+    def _flat_leaf(self):
+        """Like `leaf()`, but never `ctor_ref` — Var/Int/Str/Qual only.
+        Guaranteed single-line AND guaranteed not to recurse back into
+        `ctor_ref` (which `leaf()` otherwise would, geometrically-decaying
+        but uncapped). Used as a constructor-call argument in the
+        single-line-guaranteed path."""
+        r = self.rng.random()
+        if r < 0.45:  return Var(self.pick(self.vars))
+        if r < 0.7:   return Int(self.rng.randint(0, 99))
+        if r < 0.85:  return Str(self.pick(WORDS))
         return Qual(self.pick(self.mods), self.pick(self.vars))
 
     def maybe_inline_comment(self, n):
@@ -802,6 +853,21 @@ class Gen:
         return self.atom(d)
 
     def mk_call(self, d):
+        # A declared 1-arg constructor applied here (unlike `ctor_ref`'s
+        # single-line-guaranteed version) may go multi-line/broken — this is
+        # only ever reached from `value()`, which carries no single-line
+        # contract. A "record" payload gets a BARE record-literal argument
+        # (`Ctor { a = 1, b = 2 }`, no parens) — legal Gren, and previously
+        # never generated at all: the existing `arg()` call-argument
+        # machinery only ever offers `atom()` or `Paren(value)`, never an
+        # unparenthesized record literal (verified directly against the app
+        # before wiring this in).
+        applyable = [c for c in self.declared_ctors if c[1] != "none"]
+        if applyable and self.chance(0.3):
+            name, kind = self.pick(applyable)
+            if kind == "record":
+                return Call(Ctor(name), [self.mk_record(d)], broken=self.chance(0.5))
+            return Call(Ctor(name), [self.arg(d)], broken=self.chance(0.5))
         k = self.rng.randint(1, 3)
         return Call(Var(self.pick(self.vars)),
                     [self.arg(d) for _ in range(k)],
@@ -909,6 +975,22 @@ class Gen:
             return PArray([self.pattern_base(depth - 1) for _ in range(k)])
         # Constructor pattern. Current Gren allows AT MOST ONE argument (a
         # multi-field variant carries a record); `Ctor a b` does not parse.
+        return self.pctor_ref(depth)
+
+    def pctor_ref(self, depth):
+        """Like `ctor_ref`, but for a `when`-branch/lambda/etc. pattern: half
+        the time matches a declared union constructor with its REAL arity
+        (0-arg bare, "record"-payload matched via `PRecord`, "value"-payload
+        via a nested pattern) instead of the generic pool's arity-independent
+        of any real declaration."""
+        if self.declared_ctors and self.chance(0.5):
+            name, kind = self.pick(self.declared_ctors)
+            if kind == "none" or depth <= 0:
+                return PCtor(name, [])
+            if kind == "record":
+                return PCtor(name, [PRecord([self.pick(self.fields)
+                                             for _ in range(self.rng.randint(1, 2))])])
+            return PCtor(name, [self.pattern_base(depth - 1)])
         if depth <= 0 or self.chance(0.4):
             return PCtor(self.pick(self.ctors), [])
         return PCtor(self.pick(self.ctors), [self.pattern_base(depth - 1)])
@@ -1050,8 +1132,10 @@ class Gen:
                     + str(self.next_cid())
             lead = self.comment() if self.chance(0.3) else None
             trailing = self.comment()
-            variants.append(Variant(vname, self.variant_payload(params),
-                                    lead=lead, trailing=trailing))
+            payload = self.variant_payload(params)
+            variants.append(Variant(vname, payload, lead=lead, trailing=trailing))
+            kind = "none" if payload is None else payload[0]  # "none"/"record"/"args"->"value"
+            self.declared_ctors.append((vname, "value" if kind == "args" else kind))
         # A `--` trailing comment or an own-line lead comment can't share the
         # variant-list's flat line (README "Custom types"), so either forces
         # the broken (one-variant-per-line) layout.
