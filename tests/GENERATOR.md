@@ -1,6 +1,6 @@
 # Property-based random AST generator (`gen-random.py`)
 
-Status: **v1.6** — v1's core expression grammar (module header, imports,
+Status: **v1.8** — v1's core expression grammar (module header, imports,
 function declarations, binops, records, record updates, arrays, `let`, `when`,
 `if`, lambda, calls, field access, parens, atoms), plus line/block comment
 injection; v1.1 added top-level type aliases, custom types (unions), and ports;
@@ -14,11 +14,19 @@ when-branch patterns** — string/char/array-literal patterns and `as`
 aliasing — see [Richer patterns](#richer-patterns) below; v1.6 added
 **constructor references** — a generated module now actually constructs and
 pattern-matches the unions it declares, instead of only ever declaring them —
-see [Constructor references](#constructor-references) below. Comments inside a
-broken type signature or a multi-line string's surrounding expression, and
-`as` nested in non-top-level pattern positions, remain the next expansion
-targets (see [Grammar scope](#grammar-scope)). List patterns beyond
-fixed-length arrays are NOT a gap — Gren has none.
+see [Constructor references](#constructor-references) below; v1.7 added **unary
+minus, float literals, string/char escape sequences, destructuring `let`
+patterns, and `exposing (..)`**; v1.8 added **char literal expressions, local
+`let` function bindings (`f a b = ...`) with optional signatures, the bare
+`.field` accessor function, and operator references (`(+)`, `(|>)`)** — see
+[Char/accessor/operator atoms and let functions](#char-accessor-operator-atoms-and-let-functions)
+below. Comments inside a broken type signature or a multi-line string's
+surrounding expression, `as` nested in non-top-level pattern positions, and the
+remaining coverage gaps (qualified constructor/type references, richer type
+application, extensible record types, type/operator exposing, hex literals,
+infix and effect-module declarations) remain the next expansion targets (see
+[Grammar scope](#grammar-scope)). List patterns beyond fixed-length arrays are
+NOT a gap — Gren has none.
 
 This is `qe.md` avenue #2. Every other gate in this repo varies **one** axis over
 a fixed base — `matrix-syntax.py` embeds one construct in one context,
@@ -574,11 +582,56 @@ effectful tests, both fuzzers, 1738-cell matrix — 0 UNREVIEWED/BUGs, unchanged
 divergence counts — and the predicate audit) all clean, confirming this
 generator-only change didn't perturb the formatter itself.
 
-**Remaining expansion targets:** comments *inside* a multi-line string's
-surrounding expression aside from the trailing-comment shape already fixed;
-`as` nested in non-top-level pattern positions (lambda/function params, ctor
-args, array items) — deliberately not generated yet, unverified against the
-parser; list patterns beyond fixed-length arrays (Gren has none — not a gap).
+### Char/accessor/operator atoms and let functions
+
+**v1.8 (implemented 2026-07-21):** three narrow expression-position gaps the
+AST-vs-generator audit surfaced, plus local `let` functions.
+
+- **Char literal *expressions* (`Chr`).** Char literals previously appeared only
+  as `when`-branch patterns (`PChar`); the char-atom escape/normalization path
+  in expression position (a `\u{...}` escape survives with its hex lowercased —
+  the same normalization the string-escape path exercises, now reached in char
+  position too) was never driven. Added to `leaf()`/`_flat_leaf()`, reusing the
+  existing `char_content()` mutation, and eligible for an inline `{- -}` comment
+  like every other single-line atom.
+- **Bare `.field` accessor function (`Accessor`)** and **operator references
+  (`OpRef`, `(+)`/`(|>)`).** Function-valued atoms — distinct from `Field`
+  (`x.name`, which has a base) and from an inline `Binop` operator. Every
+  operator in `BINOPS + PIPES` was verified to parse as `(op)` in value
+  position, and both forms were verified legal in the tricky positions `leaf()`
+  reaches (`if` condition, `when` scrutinee, binop operand, call fn/argument) —
+  gren-format only parses and formats, so a function value used where a concrete
+  value is expected is a *type* error it never sees, and does not quarantine.
+- **Local `let` function bindings (`f a b = ...`) with optional signatures.**
+  `let` bindings were value/destructure-only; `LetBind` grew `params` (making it
+  a function binding, `lhs` then a `PVar` name) and `sig` (a single-line
+  `name : Type` on the line directly above the binding, `name : Int -> Int` for a
+  function). This is the let-flow blank-line / signature-attachment machinery
+  that only *fixtures* reached before — now on the random co-occurrence axis.
+  Params use `pattern_base` like lambda/decl params; a bare ctor param parses as
+  separate params, which is harmless because the node tree is only an emission
+  recipe and every oracle compares format-vs-reformat, not tree-vs-parse.
+
+The shrinker needs no new cases: `Chr`/`Accessor`/`OpRef` are childless leaves
+(replaced wholesale by the trivial-atom step), and a `LetBind`'s new `params`
+(patterns) and `sig` (a type) are not expression slots, so `child_slots` is
+unchanged. Verified: 7000 seeds — 2000 default, 2000 `--comment-rate 0.6`, 3000
+`--max-depth 7 --comment-rate 0.5` — all clean (0 quarantine, 0 findings).
+
+**Remaining expansion targets** (the still-open coverage gaps from the
+2026-07-21 AST-vs-generator audit, in rough value order): local-function bodies
+aside, **qualified constructor patterns (`Maybe.Just x`)** and **qualified type
+references (`Maybe.Maybe a`)**; **richer type application** (concrete/multi-arg/
+nested — `Dict String Int`, `Array (Array a)`, currently capped at `Array`/
+`Maybe` of a single var); **extensible record types (`{ r | field : T }`)**;
+**type/operator exposing** (`T(..)`, `(|=)`) and explicit module-header export
+lists (always `(..)` today); **hex literals** (`0xFF`, expr and pattern); and the
+low-frequency **infix declarations** and **effect modules**. Also still open:
+comments *inside* a multi-line string's surrounding expression aside from the
+trailing-comment shape already fixed; `as` nested in non-top-level pattern
+positions (lambda/function params, ctor args, array items) — deliberately not
+generated yet, unverified against the parser; list patterns beyond fixed-length
+arrays (Gren has none — not a gap).
 
 The generator is intentionally started small and correct (0 quarantine on the
 core grammar) and expanded one construct at a time, verifying the quarantine rate
@@ -594,4 +647,7 @@ fix; a further 8000 seeds at `--comment-rate 0.5` clean after the
 arrow-comment addition and its RecordUpdate/SoftIndentedBlock crash fix; a
 further 8000 seeds (1..8000) + 2000 at `--comment-rate 0.6 --max-depth 7`
 clean after the constructor-references addition and its single-line-guarantee
-generator fix.)
+generator fix; and a further 7000 seeds — 2000 default + 2000 at
+`--comment-rate 0.6` + 3000 at `--max-depth 7 --comment-rate 0.5` — clean after
+the v1.8 char-expression / accessor / operator-reference / let-function
+addition.)

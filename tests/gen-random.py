@@ -90,8 +90,22 @@ class Qual(E):
 class Ctor(E):
     def __init__(self, name): self.name = name
 
+class Chr(E):
+    def __init__(self, v): self.v = v  # v: already-escaped char content (see char_content)
+
 class Field(E):
     def __init__(self, base, field): self.base, self.field = base, field
+
+class Accessor(E):
+    # Bare `.field` accessor FUNCTION (e.g. `Array.map .name xs`) — distinct
+    # from `Field` (`x.name`), which has a base. No expr children.
+    def __init__(self, field): self.field = field
+
+class OpRef(E):
+    # Operator reference `(+)` / `(|>)` — an operator used as a plain value /
+    # function argument. Verified against the app: every operator in
+    # BINOPS + PIPES parses as `(op)` in value position. No expr children.
+    def __init__(self, op): self.op = op
 
 class Paren(E):
     def __init__(self, inner, broken=False): self.inner, self.broken = inner, broken
@@ -117,8 +131,16 @@ class Let(E):
         self.binds, self.body = binds, body
 
 class LetBind:
-    def __init__(self, lhs, val, lead=None, trailing=None):
-        self.lhs, self.val, self.lead, self.trailing = lhs, val, lead, trailing
+    def __init__(self, lhs, val, params=None, sig=None, lead=None, trailing=None):
+        # `params` (list of patterns) makes this a local FUNCTION binding
+        # (`f a b = ...`); when non-empty, `lhs` is a PVar (the function name).
+        # `sig`, if set, is a gen_type IR emitted single-line as `name : Type`
+        # on the line directly above the binding — only used when `lhs` is a
+        # PVar (a signature needs a name, not a destructure).
+        self.lhs, self.val = lhs, val
+        self.params = params or []
+        self.sig = sig
+        self.lead, self.trailing = lead, trailing
 
 class Lambda(E):
     def __init__(self, params, body): self.params, self.body = params, body
@@ -217,7 +239,7 @@ def is_block(n):
 
 def multiline(n):
     """Does this node render across >1 line? Structural (col-independent)."""
-    if isinstance(n, (Int, Str, Var, Qual, Ctor)):
+    if isinstance(n, (Int, Str, Var, Qual, Ctor, Chr, Accessor, OpRef)):
         return False
     if isinstance(n, MultilineStr):
         return True
@@ -260,6 +282,9 @@ def emit(n, col):
     if isinstance(n, Var):   return [_inline(n, n.name)]
     if isinstance(n, Qual):  return [_inline(n, n.mod + "." + n.name)]
     if isinstance(n, Ctor):  return [_inline(n, n.name)]
+    if isinstance(n, Chr):   return [_inline(n, "'" + n.v + "'")]
+    if isinstance(n, Accessor): return [_inline(n, "." + n.field)]
+    if isinstance(n, OpRef): return [_inline(n, "(" + n.op + ")")]
     if isinstance(n, Field):
         base = one_line(n.base)
         return [_inline(n, base + "." + n.field)]
@@ -367,7 +392,11 @@ def emit_let(n, col):
     for b in n.binds:
         if b.lead is not None:
             out += comment_lines(b.lead, bcol)
-        head = emit_binding(b.lhs, b.val, bcol)
+        if b.sig is not None:
+            # `name : Type` on its own line directly above the binding (no
+            # blank between), exactly like a top-level signature.
+            out.append(pad(bcol) + emit_pat(b.lhs) + " : " + emit_type(b.sig))
+        head = emit_binding(b, bcol)
         line0 = head[0]
         if b.trailing is not None:
             # trailing comment rides the last line of the value
@@ -380,15 +409,18 @@ def emit_let(n, col):
     return out
 
 
-def emit_binding(lhs, val, col):
-    """`lhs = val` at column `col` (headless line0). Block/multiline value drops
-    to its own line indented +4; otherwise it hangs after `= `."""
-    prefix = emit_pat(lhs) + " = "
-    if multiline(val):
-        out = [emit_pat(lhs) + " ="]
-        out += own_line(val, col + INDENT)
+def emit_binding(b, col):
+    """`lhs <params> = val` at column `col` (headless line0). A local function
+    binding (`b.params` non-empty) puts its parameters after the name, exactly
+    like a top-level declaration. Block/multiline value drops to its own line
+    indented +4; otherwise it hangs after `= `."""
+    head = emit_pat(b.lhs) + "".join(" " + emit_pat(p) for p in b.params)
+    prefix = head + " = "
+    if multiline(b.val):
+        out = [head + " ="]
+        out += own_line(b.val, col + INDENT)
         return out
-    vl = emit(val, col + len(prefix))
+    vl = emit(b.val, col + len(prefix))
     return [prefix + vl[0]] + vl[1:]
 
 
@@ -782,11 +814,14 @@ class Gen:
 
     def leaf(self):
         r = self.rng.random()
-        if r < 0.35:  return Var(self.pick(self.vars))
-        if r < 0.5:   return Int(self.rng.randint(0, 99))
-        if r < 0.58:  return self.float_lit()
-        if r < 0.73:  return Str(self.str_word())
-        if r < 0.88:  return self.ctor_ref()
+        if r < 0.30:  return Var(self.pick(self.vars))
+        if r < 0.44:  return Int(self.rng.randint(0, 99))
+        if r < 0.52:  return self.float_lit()
+        if r < 0.64:  return Str(self.str_word())
+        if r < 0.70:  return Chr(self.char_content())
+        if r < 0.82:  return self.ctor_ref()
+        if r < 0.88:  return Accessor(self.pick(self.fields))
+        if r < 0.93:  return OpRef(self.pick(BINOPS + PIPES))
         return Qual(self.pick(self.mods), self.pick(self.vars))
 
     def float_lit(self):
@@ -814,8 +849,11 @@ class Gen:
         return " ".join(words)
 
     def char_content(self):
-        """A PChar's already-escaped content: a plain letter normally, else
-        one of `CHAR_ESCAPES`."""
+        """An already-escaped char content for a `PChar` pattern or a `Chr`
+        expression: a plain letter normally, else one of `CHAR_ESCAPES` (a
+        `\\u{...}` escape survives with its hex lowercased on format — the same
+        normalization the str-escape path exercises, now reached in char
+        position too)."""
         if self.chance(0.3):
             return self.pick(CHAR_ESCAPES)
         return self.pick(["a", "b", "x", "y", "z"])
@@ -857,15 +895,16 @@ class Gen:
         but uncapped). Used as a constructor-call argument in the
         single-line-guaranteed path."""
         r = self.rng.random()
-        if r < 0.4:   return Var(self.pick(self.vars))
-        if r < 0.6:   return Int(self.rng.randint(0, 99))
-        if r < 0.7:   return self.float_lit()
-        if r < 0.85:  return Str(self.str_word())
+        if r < 0.38:  return Var(self.pick(self.vars))
+        if r < 0.56:  return Int(self.rng.randint(0, 99))
+        if r < 0.64:  return self.float_lit()
+        if r < 0.78:  return Str(self.str_word())
+        if r < 0.85:  return Chr(self.char_content())
         return Qual(self.pick(self.mods), self.pick(self.vars))
 
     def maybe_inline_comment(self, n):
         # inline comments ride single-line atoms only
-        if isinstance(n, (Int, FloatLit, Str, Var, Qual, Ctor)) and n.pre is None:
+        if isinstance(n, (Int, FloatLit, Str, Var, Qual, Ctor, Chr)) and n.pre is None:
             c = self.comment(kinds=("block",))
             if c:
                 n.pre = c[1]
@@ -989,12 +1028,31 @@ class Gen:
 
     def mk_let(self, d):
         k = self.rng.randint(1, 3)
-        binds = []
-        for _ in range(k):
-            binds.append(LetBind(self.let_pattern(d), self.value(d),
-                                 lead=self.comment(),
-                                 trailing=self.comment()))
+        binds = [self.let_bind(d) for _ in range(k)]
         return Let(binds, self.value(d))
+
+    def let_bind(self, d):
+        """One `let` binding: usually a plain value/destructure binding, but
+        ~30% of the time a local FUNCTION binding (`f a b = ...`) — a distinct
+        formatter path (the let-flow blank-line/signature machinery) that only
+        fixtures reached before. A function binding, and a value binding whose
+        LHS is a plain name, may carry a single-line type signature on the line
+        above (`f : Int -> Int`), verified directly against the app. Params use
+        `pattern_base` like lambda/decl params (bare ctor params parse as
+        separate params — harmless: the tree is only an emission recipe, and
+        the oracles compare format-vs-reformat, not tree-vs-parse)."""
+        if self.chance(0.30):
+            name = PVar(self.pick(self.vars))
+            nparams = self.rng.randint(1, 2)
+            params = [self.pattern_base(d) for _ in range(nparams)]
+            sig = ("arrow", [self.gen_type(2) for _ in range(nparams + 1)]) \
+                if self.chance(0.5) else None
+            return LetBind(name, self.value(d), params=params, sig=sig,
+                           lead=self.comment(), trailing=self.comment())
+        lhs = self.let_pattern(d)
+        sig = self.gen_type(2) if isinstance(lhs, PVar) and self.chance(0.3) else None
+        return LetBind(lhs, self.value(d), sig=sig,
+                       lead=self.comment(), trailing=self.comment())
 
     def let_pattern(self, depth):
         """A let-binding LHS: `PVar` most of the time, else a destructuring
