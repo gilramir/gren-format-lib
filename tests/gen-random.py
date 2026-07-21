@@ -169,7 +169,12 @@ class PStr:
 class PChar:
     def __init__(self, v): self.v = v
 class PCtor:
-    def __init__(self, name, args): self.name, self.args = name, args
+    # `mod`, if set, qualifies the constructor (`Mod.Ctor`) — verified
+    # directly against the app in every position `pctor_ref`/`let_pattern`
+    # reach (when-branch, lambda/decl param, array item, let LHS bare and
+    # paren'd, `as`-aliased): a qualified 0-arg pattern parses bare same as
+    # unqualified, and an applied one glues the same way (`Maybe.Just y`).
+    def __init__(self, name, args, mod=None): self.name, self.args, self.mod = name, args, mod
 class PRecord:
     def __init__(self, fields): self.fields = fields
 class PArray:
@@ -541,15 +546,16 @@ def emit_pat(p):
             return "[]"
         return "[ " + ", ".join(emit_pat(i) for i in p.items) + " ]"
     if isinstance(p, PCtor):
+        qname = (p.mod + "." + p.name) if p.mod else p.name
         if not p.args:
-            return p.name
+            return qname
         parts = []
         for a in p.args:
             s = emit_pat(a)
             if isinstance(a, PCtor) and a.args:
                 s = "(" + s + ")"
             parts.append(s)
-        return p.name + " " + " ".join(parts)
+        return qname + " " + " ".join(parts)
     if isinstance(p, PAs):
         inner = emit_pat(p.inner)
         if isinstance(p.inner, (PCtor, PInt)):
@@ -1057,14 +1063,14 @@ class Gen:
     def let_pattern(self, depth):
         """A let-binding LHS: `PVar` most of the time, else a destructuring
         pattern legal there (verified directly against the app: `[ a, b ] =
-        pair`, `(Just c) = maybeVal`, `_ = ignored`, `{ x, y } = point` all
-        parse — `PRecord`/`PArray`/0-arg-`PCtor`/`PWild` are all fine bare; a
-        `PVar as name` alias LHS does NOT parse there, so `PAs` is never
-        used here). A 1-arg constructor pattern needs parens as a
-        let-binding LHS (`(Just c) = ...`; bare `Just c = ...` fails to
-        parse) — sidestepped by only ever using an ARITY-0 constructor here,
-        rather than adding a pattern-level paren wrapper for this one
-        caller."""
+        pair`, `(Just c) = maybeVal`, `_ = ignored`, `{ x, y } = point`,
+        `Maybe.Nothing = pair` all parse — `PRecord`/`PArray`/0-arg-`PCtor`
+        (qualified or not)/`PWild` are all fine bare; a `PVar as name` alias
+        LHS does NOT parse there, so `PAs` is never used here). A 1-arg
+        constructor pattern needs parens as a let-binding LHS (`(Just c) =
+        ...`; bare `Just c = ...` fails to parse) — sidestepped by only ever
+        using an ARITY-0 constructor here, rather than adding a
+        pattern-level paren wrapper for this one caller."""
         r = self.rng.random()
         if r < 0.55:
             return PVar(self.pick(self.vars))
@@ -1078,7 +1084,8 @@ class Gen:
         none_ctors = [c for c in self.declared_ctors if c[1] == "none"]
         if none_ctors and self.chance(0.5):
             return PCtor(self.pick(none_ctors)[0], [])
-        return PCtor(self.pick(self.ctors), [])
+        mod = self.pick(self.mods) if self.chance(0.35) else None
+        return PCtor(self.pick(self.ctors), [], mod=mod)
 
     def mk_lambda(self, d):
         k = self.rng.randint(1, 2)
@@ -1159,7 +1166,14 @@ class Gen:
         the time matches a declared union constructor with its REAL arity
         (0-arg bare, "record"-payload matched via `PRecord`, "value"-payload
         via a nested pattern) instead of the generic pool's arity-independent
-        of any real declaration."""
+        of any real declaration.
+
+        A generic-pool pick (never a `declared_ctors` one — those are this
+        module's OWN unions, in scope unqualified) is sometimes qualified
+        (`Maybe.Just y`), reusing the same fake-module pool `Qual` draws
+        from — verified directly against the app in every position this
+        reaches: bare 0-arg, applied to a nested pattern, and (via
+        `pattern`'s `PAs` wrapper) `as`-aliased."""
         if self.declared_ctors and self.chance(0.5):
             name, kind = self.pick(self.declared_ctors)
             if kind == "none" or depth <= 0:
@@ -1168,9 +1182,10 @@ class Gen:
                 return PCtor(name, [PRecord([self.pick(self.fields)
                                              for _ in range(self.rng.randint(1, 2))])])
             return PCtor(name, [self.pattern_base(depth - 1)])
+        mod = self.pick(self.mods) if self.chance(0.35) else None
         if depth <= 0 or self.chance(0.4):
-            return PCtor(self.pick(self.ctors), [])
-        return PCtor(self.pick(self.ctors), [self.pattern_base(depth - 1)])
+            return PCtor(self.pick(self.ctors), [], mod=mod)
+        return PCtor(self.pick(self.ctors), [self.pattern_base(depth - 1)], mod=mod)
 
     # -- types (inline only) ----------------------------------------------
 

@@ -618,11 +618,40 @@ The shrinker needs no new cases: `Chr`/`Accessor`/`OpRef` are childless leaves
 unchanged. Verified: 7000 seeds — 2000 default, 2000 `--comment-rate 0.6`, 3000
 `--max-depth 7 --comment-rate 0.5` — all clean (0 quarantine, 0 findings).
 
+### Qualified constructor patterns
+
+**v1.9 (implemented 2026-07-21):** `PCtor` grew an optional `mod` — a
+qualifying module (`Maybe.Just y`), drawn from the same fake-module pool
+`Qual`/`_flat_leaf` already use for qualified *value* references (`String`/
+`Array`/`Dict`/`Maybe` — arbitrary pairing, since gren-format never
+type-checks). Only applied to a **generic-pool** pick (`self.ctors`), never a
+`declared_ctors` one — those are the generated module's own unions, already in
+scope unqualified, so qualifying them would be a shape nothing real ever
+writes. Wired into both callers that emit a generic-pool constructor pattern:
+`pctor_ref` (when-branch / lambda / array item / ctor-arg position, bare or
+applied to a nested pattern) and `let_pattern` (let-binding LHS, arity-0 only,
+same constraint as the unqualified case). Verified directly against the app in
+every position each reaches before wiring in — bare 0-arg, applied to a
+pattern argument, a bare qualified 0-arg let LHS, a record-payload argument,
+and `as`-aliased (`(Maybe.Just b) as whole`) — all parse and format identically
+to the unqualified case (`emit_pat` just prepends `mod + "."`; the existing
+paren rules — arity-1 needs parens as a let LHS, `PAs`'s inner always
+parenthesizes a `PCtor` — are unaffected by qualification, since they test
+`isinstance(..., PCtor)`, not the name).
+
+The shrinker needs no new case: patterns aren't expression slots (`child_slots`
+never descends into a `when`-branch pattern, a lambda param, or a let LHS —
+only their *bodies*), so a `PCtor.mod` is invisible to `variants()` regardless.
+Verified: 9000 seeds — 3000 default (1..3000), 3000 `--comment-rate 0.6`
+(80000..82999), 3000 `--max-depth 7 --comment-rate 0.5` (90000..92999) — all
+clean (0 quarantine, 0 findings). No formatter source changed, so no gate-suite
+rerun was needed (generator-only change).
+
 **Remaining expansion targets** (the still-open coverage gaps from the
 2026-07-21 AST-vs-generator audit, in rough value order): local-function bodies
-aside, **qualified constructor patterns (`Maybe.Just x`)** and **qualified type
-references (`Maybe.Maybe a`)**; **richer type application** (concrete/multi-arg/
-nested — `Dict String Int`, `Array (Array a)`, currently capped at `Array`/
+aside, **qualified type references (`Maybe.Maybe a`)**; **richer type
+application** (concrete/multi-arg/nested — `Dict String Int`, `Array (Array
+a)`, currently capped at `Array`/
 `Maybe` of a single var); **extensible record types (`{ r | field : T }`)**;
 **type/operator exposing** (`T(..)`, `(|=)`) and explicit module-header export
 lists (always `(..)` today); **hex literals** (`0xFF`, expr and pattern); and the
@@ -650,4 +679,9 @@ clean after the constructor-references addition and its single-line-guarantee
 generator fix; and a further 7000 seeds — 2000 default + 2000 at
 `--comment-rate 0.6` + 3000 at `--max-depth 7 --comment-rate 0.5` — clean after
 the v1.8 char-expression / accessor / operator-reference / let-function
-addition.)
+addition; a further 17000 fresh seeds (50000..59999 default, 60000..62999 at
+`--comment-rate 0.6`, 70000..73999 at `--max-depth 7 --comment-rate 0.5`), run
+2026-07-21 with no generator changes, still clean; and a further 9000 seeds —
+3000 default (1..3000) + 3000 `--comment-rate 0.6` (80000..82999) + 3000
+`--max-depth 7 --comment-rate 0.5` (90000..92999) — clean after the v1.9
+qualified-constructor-pattern addition.)
