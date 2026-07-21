@@ -36,6 +36,12 @@ BINOPS = ["||", "&&", "==", "/=", "<", ">", "<=", ">=", "++", "+", "-", "*",
           "/", "//", "^", "<<", ">>"]
 PIPES = ["|>", "<|"]
 WORDS = ["alpha", "bravo", "delta", "echo", "foxtrot", "sierra", "tango"]
+# Escape sequences spliced into Str/PStr/PChar content — verified directly
+# against the app: all round-trip stably, and \u{...} is NORMALIZED on
+# format (expands to its literal character in a string; survives with its
+# hex lowercased in a char literal) rather than merely echoed back.
+STR_ESCAPES = ["\\n", "\\t", "\\\\", "\\\"", "\\u{0041}", "\\u{00e9}", "\\u{1F600}"]
+CHAR_ESCAPES = ["\\n", "\\t", "\\\\", "\\'", "\\u{0041}", "\\u{1F600}"]
 INDENT = 4
 
 
@@ -53,6 +59,17 @@ class E:
 
 class Int(E):
     def __init__(self, v): self.v = v
+
+class FloatLit(E):
+    def __init__(self, v): self.v = v  # v: already-formatted source text, e.g. "3.14"
+
+class Neg(E):
+    """Unary minus (`-x`) — a distinct AST node from binary `-`, verified
+    directly against the app: `foo -5` parses as a CALL whose argument is a
+    negate node, not subtraction, and glues with no space before its operand
+    in every position tried (bare, binop operand leading/trailing, call
+    argument, when-scrutinee)."""
+    def __init__(self, inner): self.inner = inner
 
 class Str(E):
     def __init__(self, v): self.v = v
@@ -236,6 +253,8 @@ def pad(n): return " " * n
 
 def emit(n, col):
     if isinstance(n, Int):   return [_inline(n, str(n.v))]
+    if isinstance(n, FloatLit): return [_inline(n, n.v)]
+    if isinstance(n, Neg):   return [_inline(n, "-" + one_line(n.inner))]
     if isinstance(n, Str):   return [_inline(n, '"' + n.v + '"')]
     if isinstance(n, MultilineStr): return emit_multiline_str(n, col)
     if isinstance(n, Var):   return [_inline(n, n.name)]
@@ -733,10 +752,16 @@ class Gen:
         MultilineStr is included bare (no parens) — like any string, it never
         needs them; this is also how it lands as a binop operand / call
         argument, matching how a real triple-quoted string glues onto a
-        preceding binop chain in Gren source."""
+        preceding binop chain in Gren source. `Neg` (unary minus) is included
+        bare too, for the same reason — verified directly against the app
+        that `foo -5` parses as a call whose argument is a distinct negate
+        node (not subtraction), gluing with no space in every position
+        tried (bare, binop operand, call argument, when-scrutinee)."""
         r = self.rng.random()
-        if depth <= 0 or r < 0.5:
+        if depth <= 0 or r < 0.42:
             n = self.leaf()
+        elif r < 0.5:
+            n = Neg(self._flat_leaf())
         elif r < 0.62:
             n = Field(self.field_base(depth), self.pick(self.fields))
         elif r < 0.72:
@@ -757,11 +782,43 @@ class Gen:
 
     def leaf(self):
         r = self.rng.random()
-        if r < 0.4:   return Var(self.pick(self.vars))
-        if r < 0.6:   return Int(self.rng.randint(0, 99))
-        if r < 0.75:  return Str(self.pick(WORDS))
-        if r < 0.9:   return self.ctor_ref()
+        if r < 0.35:  return Var(self.pick(self.vars))
+        if r < 0.5:   return Int(self.rng.randint(0, 99))
+        if r < 0.58:  return self.float_lit()
+        if r < 0.73:  return Str(self.str_word())
+        if r < 0.88:  return self.ctor_ref()
         return Qual(self.pick(self.mods), self.pick(self.vars))
+
+    def float_lit(self):
+        """A Float literal's already-formatted source text. No PFloat pattern
+        exists — verified directly against the app that the parser rejects a
+        Float literal pattern outright ("Float patterns are not supported"),
+        unlike Int, so this is expression-position only. Each form here was
+        verified to parse/format/round-trip stably (bare, as a binop operand,
+        negated, as a call argument)."""
+        return FloatLit(self.pick(["0.0", "0.5", "1.0", "2.5", "3.14",
+                                   "12.5", "100.0", "0.25"]))
+
+    def str_word(self):
+        """A Str/PStr content chunk: plain words normally, occasionally with
+        an embedded escape sequence (`\\n`/`\\t`/`\\\\`/`\\"`/`\\u{...}`)
+        spliced between them — verified directly against the app that each
+        round-trips stably even though the formatter NORMALIZES some of them
+        on format (a `\\u{...}` string escape expands to its literal
+        character; the same escape in a char literal instead survives but
+        with its hex lowercased) — exercising that normalization is the
+        point."""
+        words = [self.pick(WORDS) for _ in range(self.rng.randint(1, 2))]
+        if self.chance(0.25):
+            words.insert(self.rng.randint(0, len(words)), self.pick(STR_ESCAPES))
+        return " ".join(words)
+
+    def char_content(self):
+        """A PChar's already-escaped content: a plain letter normally, else
+        one of `CHAR_ESCAPES`."""
+        if self.chance(0.3):
+            return self.pick(CHAR_ESCAPES)
+        return self.pick(["a", "b", "x", "y", "z"])
 
     def ctor_ref(self):
         """A constructor reference: bare, or (for a declared 1-arg variant)
@@ -800,14 +857,15 @@ class Gen:
         but uncapped). Used as a constructor-call argument in the
         single-line-guaranteed path."""
         r = self.rng.random()
-        if r < 0.45:  return Var(self.pick(self.vars))
-        if r < 0.7:   return Int(self.rng.randint(0, 99))
-        if r < 0.85:  return Str(self.pick(WORDS))
+        if r < 0.4:   return Var(self.pick(self.vars))
+        if r < 0.6:   return Int(self.rng.randint(0, 99))
+        if r < 0.7:   return self.float_lit()
+        if r < 0.85:  return Str(self.str_word())
         return Qual(self.pick(self.mods), self.pick(self.vars))
 
     def maybe_inline_comment(self, n):
         # inline comments ride single-line atoms only
-        if isinstance(n, (Int, Str, Var, Qual, Ctor)) and n.pre is None:
+        if isinstance(n, (Int, FloatLit, Str, Var, Qual, Ctor)) and n.pre is None:
             c = self.comment(kinds=("block",))
             if c:
                 n.pre = c[1]
@@ -909,10 +967,36 @@ class Gen:
         k = self.rng.randint(1, 3)
         binds = []
         for _ in range(k):
-            binds.append(LetBind(PVar(self.pick(self.vars)), self.value(d),
+            binds.append(LetBind(self.let_pattern(d), self.value(d),
                                  lead=self.comment(),
                                  trailing=self.comment()))
         return Let(binds, self.value(d))
+
+    def let_pattern(self, depth):
+        """A let-binding LHS: `PVar` most of the time, else a destructuring
+        pattern legal there (verified directly against the app: `[ a, b ] =
+        pair`, `(Just c) = maybeVal`, `_ = ignored`, `{ x, y } = point` all
+        parse — `PRecord`/`PArray`/0-arg-`PCtor`/`PWild` are all fine bare; a
+        `PVar as name` alias LHS does NOT parse there, so `PAs` is never
+        used here). A 1-arg constructor pattern needs parens as a
+        let-binding LHS (`(Just c) = ...`; bare `Just c = ...` fails to
+        parse) — sidestepped by only ever using an ARITY-0 constructor here,
+        rather than adding a pattern-level paren wrapper for this one
+        caller."""
+        r = self.rng.random()
+        if r < 0.55:
+            return PVar(self.pick(self.vars))
+        if r < 0.65:
+            return PWild()
+        if r < 0.8:
+            return PRecord([self.pick(self.fields) for _ in range(self.rng.randint(1, 2))])
+        if r < 0.9 and depth > 0:
+            k = self.rng.randint(0, 2)
+            return PArray([self.pattern_base(depth - 1) for _ in range(k)])
+        none_ctors = [c for c in self.declared_ctors if c[1] == "none"]
+        if none_ctors and self.chance(0.5):
+            return PCtor(self.pick(none_ctors)[0], [])
+        return PCtor(self.pick(self.ctors), [])
 
     def mk_lambda(self, d):
         k = self.rng.randint(1, 2)
@@ -956,7 +1040,18 @@ class Gen:
         only — see call sites). May wrap the base pattern in an `as` alias;
         every OTHER pattern position (lambda/function params, ctor args,
         array items) calls `pattern_base` directly instead, since nesting
-        `as` inside those hasn't been verified against the parser."""
+        `as` inside those hasn't been verified against the parser.
+
+        Deliberately NOT generated: a negative int literal pattern (`-3 ->`).
+        Verified directly against the app that this parses ONLY as a `when`
+        expression's very FIRST branch — `_ -> 1` / `-8 -> 0` / `_ -> 2`
+        (negative pattern second) fails to parse with "Not a valid number",
+        and even `-8 -> 0` / `-3 -> 1` (negative pattern second, first ALSO
+        negative) fails the same way; only `-8 -> 0` as branch #1 works. A
+        real (narrow) parser gap in the same family as compiler-common#31/#32
+        — not modeled here since `pattern()` has no notion of "am I branch
+        #1", and getting it wrong would put a quarantine-triggering shape
+        back in the generator's own output."""
         base = self.pattern_base(depth)
         if self.chance(0.08):
             return PAs(base, self.pick(self.vars))
@@ -967,8 +1062,8 @@ class Gen:
         if r < 0.32:  return PVar(self.pick(self.vars))
         if r < 0.42:  return PWild()
         if r < 0.50:  return PInt(self.rng.randint(0, 9))
-        if r < 0.57:  return PStr(self.pick(WORDS))
-        if r < 0.63:  return PChar(self.pick(["a", "b", "x", "y", "z"]))
+        if r < 0.57:  return PStr(self.str_word())
+        if r < 0.63:  return PChar(self.char_content())
         if r < 0.75:  return PRecord([self.pick(self.fields) for _ in range(self.rng.randint(1, 2))])
         if depth > 0 and r < 0.85:
             k = self.rng.randint(0, 2)
@@ -1183,13 +1278,15 @@ class Gen:
         for i in range(nimp):
             r = self.rng.random()
             mod = self.pick(["Foo", "Bar", "Baz", "Qux"]) + str(i)
-            if r < 0.5:
+            if r < 0.4:
                 imports.append("import " + mod)
-            elif r < 0.75:
+            elif r < 0.6:
                 imports.append("import " + mod + " as M" + str(i))
-            else:
+            elif r < 0.8:
                 names = ", ".join(self.pick(self.vars) for _ in range(self.rng.randint(1, 2)))
                 imports.append("import " + mod + " exposing (" + names + ")")
+            else:
+                imports.append("import " + mod + " exposing (..)")
         ndecls = self.rng.randint(1, 4)
         decls = []
         for i in range(ndecls):
