@@ -536,6 +536,19 @@ commentsSuite fsPerm =
             -- picking IndentedBlock up front for a body that structurally always
             -- breaks, in InsertExpressions.gren.
             , assertPretty fsPerm "a leading comment before a lambda body that is a mixed `|>`/`<|` pipeline (always multi-line) leads its own line even when written on the arrow's row" "LambdaMixedPipelineCommentBody"
+            -- gen-random.py seed 108 (comment-rate 0.6, v1.6's new Neg/unary-minus
+            -- grammar): a `--` trailing a unary-minus (`-expr`) body glues onto
+            -- that row and stays put (was non-idempotent: prevLineGlueRow/
+            -- prevBlockGlueRow had no PrefixGlue case, so a same-row comment
+            -- after `-expr` always classified LeadsOwnLine — same bug shape as
+            -- MultilineStringTrailingLineComment above, reached for the first
+            -- time via a construct this generator had never produced before).
+            -- PrefixGlue is shared with a lambda's `\`-glued parameter head,
+            -- where a same-row `--` deliberately stays own-line
+            -- (KitchenComments) — the fix branches on the prefix string
+            -- ("-" glues, "\\" doesn't) rather than gluing unconditionally.
+            , assertPretty fsPerm "a `--` trailing a unary-minus expression glues onto that row and stays put" "NegateTrailingLineComment"
+            , assertPretty fsPerm "a `{- -}` trailing a unary-minus expression glues onto that row unconditionally, bracket-free and call operand alike (a unary minus is a self-contained unit, unlike a call flow, which only glues after a bracket)" "NegateTrailingBlockComment"
             ]
         }
 

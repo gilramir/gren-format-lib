@@ -15,7 +15,7 @@ machine consumer.
 import Json.Encode as Json
 
 import Compiler.SourcePosition exposing (Located, Position)
-import Formatter.Logical.LogicalPrintingTree exposing (CommentRole(..), LPBox(..), LPNode, ListBrackets(..), SyntaxType(..), lpnBox, lpnChildren, stypeToString)
+import Formatter.Logical.LogicalPrintingTree exposing (CommentRole(..), LPBox(..), LPNode, ListBrackets(..), SyntaxType(..), lpnBox, lpnChildren, prefixGlyph, stypeToString)
 
 
 roleString : CommentRole -> String
@@ -183,7 +183,7 @@ lpBoxFields lpbox =
 
         PrefixGlue prefix ->
             [ { key = "type", value = Json.string "PrefixGlue" }
-            , { key = "prefix", value = Json.string prefix.value }
+            , { key = "prefix", value = Json.string (prefixGlyph prefix.value) }
             , { key = "startRow", value = Json.int prefix.start.row }
             , { key = "startCol", value = Json.int prefix.start.col }
             , { key = "endRow", value = Json.int prefix.end.row }

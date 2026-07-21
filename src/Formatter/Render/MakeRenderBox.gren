@@ -12,7 +12,7 @@ signatures, and comments — each laid out to match elm-format.
 -}
 
 import Formatter.Logical.BinopPrecedence exposing (binopMinPrecedence, binopPrecedence)
-import Formatter.Logical.LogicalPrintingTree exposing (CommentRole(..), LPBox(..), LPNode, ListBrackets(..), SyntaxType(..), commentRole, firstRowInSubtree, lpnBox, lpnChildren, lpnLastBracketEnd, lpnLastPos, lpnMaxRow)
+import Formatter.Logical.LogicalPrintingTree exposing (CommentRole(..), LPBox(..), LPNode, ListBrackets(..), SyntaxType(..), commentRole, firstRowInSubtree, lpnBox, lpnChildren, lpnLastBracketEnd, lpnLastPos, lpnMaxRow, prefixGlyph)
 import Formatter.Render.BinopLayout exposing (assembleBinopBox, flattenBinopNodes, isChainBreakingOperandBox, opText, splitTrailingOwnLineComments)
 import Formatter.Render.Box as B exposing (Box(..))
 import Formatter.Render.BoxOps exposing (applyIndent, blockIndentSpaces, boxLine, glueCommentSuffix, grenIndent, isBlockNode, isSingleLine, joinInline, prefixOperator, spaceJoinLines, stackWithBlanks, traverseResult, wrapParenVerticalPadded)
@@ -2178,7 +2178,7 @@ makePBox box children =
             -- (`\[ a {- c -}\n, b\n] -> …`) aligns under the opening bracket.
             -- `buildFlowBoxInline` keeps a leading comment in the inner on-line.
             buildFlowBoxInline 0 children
-                |> Result.map (\inner -> B.prefix (B.literal prefix.value) inner)
+                |> Result.map (\inner -> B.prefix (B.literal (prefixGlyph prefix.value)) inner)
 
         AllAcrossOrAllVertical bracket ->
             makeLiteralBox False bracket children

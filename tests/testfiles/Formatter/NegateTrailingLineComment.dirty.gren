@@ -1,0 +1,5 @@
+module Gen133 exposing (..)
+
+
+fn2 : Bool -> Float -> String -> Array a
+fn2 Err x = -String.acc -- k3

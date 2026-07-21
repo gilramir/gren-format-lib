@@ -118,6 +118,7 @@ import Formatter.Logical.LogicalPrintingTree exposing
     , ListBrackets(..)
     , SyntaxType(..)
     , firstRowInSubtree
+    , gluesTrailingComment
     , lpnBox
     , lpnBracketEndExact
     , lpnChildren
@@ -1020,8 +1021,25 @@ prevLineGlueRow node =
         MultilineString _ ->
             lastRenderedRow node
 
-        -- A run of comments: the following one glues onto the previous comment's
-        -- start row (FlowPolicy carries it forward as `prevRowLine`).
+        -- Unary `-` (`-String.acc -- c`): a `--` is unambiguously trailing,
+        -- so it glues onto the negated content's last rendered row same as
+        -- any other single-child wrapper (`AcrossOrVertical`/`ParenBlock`
+        -- above). Missing this case (falling through to the `_ -> -1`
+        -- default) made a same-row `--` after a bare unary-minus body
+        -- always classify as `LeadsOwnLine`, oscillating on reparse exactly
+        -- like the `MultilineString` gap above once did. A lambda head does
+        -- NOT glue (`gluesTrailingComment` is `False` for it) —
+        -- `KitchenComments`' fixture-verified behavior keeps a same-row `--`
+        -- after a destructured lambda parameter own-line (`\{ a, b }` ⏎
+        -- `-- c` ⏎ next-param), so this stays `-1` (own-line) for that
+        -- prefix, same as before this case existed at all.
+        PrefixGlue loc ->
+            if gluesTrailingComment loc.value then
+                lastRenderedRow node
+
+            else
+                -1
+
         SingleLineComment _ ->
             firstRowInSubtree node
 
@@ -1090,6 +1108,30 @@ prevBlockGlueRow node =
         -- same-row `{- -}` glues onto the closing `"""`'s row too.
         MultilineString _ ->
             lastRenderedRow node
+
+        -- Unary `-` is a single self-contained unit (its operand IS the
+        -- entire content — nothing else can follow inside the `PrefixGlue`,
+        -- unlike an `AcrossOrVertical` call flow, which stays open for more
+        -- arguments), so — like `UnbreakableText`'s own unconditional
+        -- `loc.start.row` and `MultilineString`'s unconditional
+        -- `lastRenderedRow` above — a same-row block comment glues
+        -- unconditionally, not only when the operand happens to end in a
+        -- bracket. (An earlier version of this fix gated on
+        -- `bracketClosingRow`, mirroring `AcrossOrVertical`'s call-flow
+        -- rule; that left a bracket-free operand's MULTI-LINE trailing
+        -- block comment — `-x {- multi⏎line -}` — still oscillating, since
+        -- a multi-line comment's placement is decided by `sameRowPrev`
+        -- alone, not by the render-layer's separate always-inline-if-
+        -- single-line default that masks this gate for single-line
+        -- comments.) A lambda head does NOT glue here either way
+        -- (`gluesTrailingComment` is `False`) — see the matching case in
+        -- `prevLineGlueRow` for why (KitchenComments).
+        PrefixGlue loc ->
+            if gluesTrailingComment loc.value then
+                lastRenderedRow node
+
+            else
+                -1
 
         SingleLineComment _ ->
             firstRowInSubtree node

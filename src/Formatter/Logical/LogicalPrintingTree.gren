@@ -3,9 +3,11 @@ module Formatter.Logical.LogicalPrintingTree exposing
     , LPBox(..)
     , LPNode(..)
     , ListBrackets(..)
+    , PrefixKind(..)
     , SyntaxType(..)
     , commentRole
     , firstRowInSubtree
+    , gluesTrailingComment
     , lastRowInSubtree
     , lpnBox
     , lpnBracketEndExact
@@ -22,6 +24,7 @@ module Formatter.Logical.LogicalPrintingTree exposing
     , lpnSetCommentRole
     , lpnWithBox
     , lpnWithBracketStart
+    , prefixGlyph
     , stypeToString
     , subtreeRowRange
     )
@@ -384,16 +387,22 @@ type LPBox
     --         Nothing -> …
     | WhenFlow { forceVertical : Bool }
     -- Prefix glued (no space) to the rendered children. Used for
-    -- prefix-negation `-expr` (PrefixGlue "-") and lambdas `\pat -> body`
-    -- (PrefixGlue "\\"). Mapping the prefix onto the first text leaf
+    -- prefix-negation `-expr` (`PrefixMinus`) and a lambda's `\`-glued
+    -- FIRST parameter — `\pat` in `\pat -> body` (`PrefixLambdaHead`);
+    -- the rest of the lambda (further params, `->`, body) are sibling
+    -- flow nodes, so this wraps only the head fragment, not the whole
+    -- lambda. Mapping the prefix onto the first text leaf instead
     -- descends into nested containers and corrupts the AST (e.g.
     -- `-(n - 1)` would render as `(-n - 1)`); a record/array pattern
     -- would similarly land the prefix *inside* the brackets.
     -- The prefix carries its own source position so the comment-
     -- placement logic can anchor on it (otherwise a comment between
     -- the prefix and its content lands outside the PrefixGlue
-    -- entirely).
-    | PrefixGlue (Located String)
+    -- entirely). The `PrefixKind` payload — not a bare glyph string —
+    -- is what lets `Comments` branch on `gluesTrailingComment` (minus
+    -- owns a same-row trailing comment; a lambda head does not, since
+    -- `-> body` still follows).
+    | PrefixGlue (Located PrefixKind)
     -- Children concatenated with NO separator. Used for a postfix
     -- accessor glued after a bracket-rendered base: `(expr).field`,
     -- `{ a = 1 }.a`, `{ r | a = 1 }.a`. Mapping the accessor onto the
@@ -426,6 +435,46 @@ type LPBox
     -- enclosing OriginalRows extends over the whole literal and
     -- adjacent comments can be anchored to it.
     | MultilineString (Located (Array String))
+
+
+{-| Which prefix a `PrefixGlue` carries. Both render identically (the glyph
+glued onto the inner's first line with no space), but they differ in one leaf
+property — whether a same-row trailing comment belongs to them — so the two
+uses are one constructor with a payload, not two constructors. See
+`gluesTrailingComment`.
+-}
+type PrefixKind
+    = PrefixMinus
+    | PrefixLambdaHead
+
+
+{-| The literal glyph a `PrefixGlue` prints: `-` for negation, `\` for a
+lambda head. The single source of truth for the emitted character.
+-}
+prefixGlyph : PrefixKind -> String
+prefixGlyph kind =
+    when kind is
+        PrefixMinus ->
+            "-"
+
+        PrefixLambdaHead ->
+            "\\"
+
+
+{-| Does a same-row comment trailing this prefix's content belong to it (glue
+onto its last row) rather than lead its own line? A unary minus is a
+self-contained unit — nothing follows its operand — so it owns the comment. A
+lambda head does not: `-> body` still follows the `\`-glued first parameter, so
+a comment there leads its own line (see `KitchenComments`).
+-}
+gluesTrailingComment : PrefixKind -> Bool
+gluesTrailingComment kind =
+    when kind is
+        PrefixMinus ->
+            True
+
+        PrefixLambdaHead ->
+            False
 
 
 {-| The logical-printing-tree node.

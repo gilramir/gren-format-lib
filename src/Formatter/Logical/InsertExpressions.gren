@@ -32,6 +32,7 @@ import Formatter.Logical.LogicalPrintingTree exposing
     ( LPBox(..)
     , LPNode(..)
     , ListBrackets(..)
+    , PrefixKind(..)
     , lpnBox
     , lpnBracketNode
     , lpnChildren
@@ -335,7 +336,7 @@ insertExpression locExpr =
                 negLoc =
                     { start = locExpr.start
                     , end = { row = locExpr.start.row, col = locExpr.start.col + 1 }
-                    , value = "-"
+                    , value = PrefixMinus
                     }
             in
             insertExpression expr
@@ -664,15 +665,16 @@ insertLambda locExpr { patterns = patterns, body = body } =
         |> Result.andThen
             (\patNodes ->
                 let
-                    -- Wrap first pattern in PrefixGlue "\\" so Formatter.Render
-                    -- emits \ immediately before the pattern (no space). This
-                    -- works for all pattern shapes including record ({ x, y })
-                    -- and array ([ x, y ]) whose opening bracket is synthesised
-                    -- during rendering and would be skipped by tryMapFirstLeaf.
+                    -- Wrap first pattern in PrefixGlue PrefixLambdaHead so
+                    -- Formatter.Render emits \ immediately before the pattern
+                    -- (no space). This works for all pattern shapes including
+                    -- record ({ x, y }) and array ([ x, y ]) whose opening
+                    -- bracket is synthesised during rendering and would be
+                    -- skipped by tryMapFirstLeaf.
                     backslashLoc =
                         { start = locExpr.start
                         , end = { row = locExpr.start.row, col = locExpr.start.col + 1 }
-                        , value = "\\"
+                        , value = PrefixLambdaHead
                         }
 
                     updatedPatNodes =

@@ -1,0 +1,13 @@
+module NegateBlockComment exposing (..)
+
+
+fn0 =
+    -x {- c -}
+
+
+fn1 =
+    -Foo.bar {- trails a bracket-free negate -}
+
+
+fn2 =
+    -foo bar {- trails a negated call -}
