@@ -722,11 +722,35 @@ insertLambda locExpr { patterns = patterns, body = body } =
                     lambdaBodyForceVertical =
                         body.start.row > lastPatternEndRow
 
+                    -- A mixed `|>`/`<|` pipeline (outer-tagged `<|`, containing
+                    -- at least one forward `|>` step) always renders one step
+                    -- per line — `makeBackwardPipelineBox`'s `not allBackward`
+                    -- path — regardless of the author's row layout or of
+                    -- `Pipeline.forceVertical`. If the body were left in
+                    -- `SoftIndentedBlock` on a same-row source (`\x -> {- c -}
+                    -- y |> 0 <| 0`), the render would still break the body onto
+                    -- its own line while a leading comment stayed glued to
+                    -- `->` — a shape that only reparses back into an
+                    -- `IndentedBlock` (whose leading-comment redirect forces
+                    -- the comment onto its own line unconditionally), so the
+                    -- file would oscillate. Treating this body as force-vertical
+                    -- up front picks `IndentedBlock` from the very first format,
+                    -- matching what every later reparse settles on.
+                    bodyAlwaysBreaksVertical =
+                        when body.value is
+                            Src.Binops { operator } ->
+                                operator.value
+                                    == "<|"
+                                    && not (Array.all (\s -> s.op.value == "<|") (flattenPipeline body).steps)
+
+                            _ ->
+                                False
+
                     -- A `let`/`if`/`when` body always drops to its own line
                     -- under `->` (elm-format never glues the keyword to the
                     -- arrow); other bodies follow the author's row placement.
                     bodyBox =
-                        if lambdaBodyForceVertical || isBlockBody then
+                        if lambdaBodyForceVertical || isBlockBody || bodyAlwaysBreaksVertical then
                             IndentedBlock
 
                         else

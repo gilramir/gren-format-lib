@@ -526,6 +526,16 @@ commentsSuite fsPerm =
             , assertPretty fsPerm "an `if`/lambda-valued field in a comment-bearing record update renders (drops the block)" "RecordUpdateCommentBlockValue"
             , assertPretty fsPerm "a multi-line call as an inline lambda body drops to its own line at +4" "LambdaMultilineCallBody"
             , assertPretty fsPerm "a multi-line triple-quoted string as an inline lambda body drops to its own line" "LambdaMultilineStringBody"
+            -- gen-random.py seed 21546 (comment-rate 0.6): a comment right after
+            -- a lambda `->`, same row as everything, whose body is a mixed
+            -- `|>`/`<|` pipeline (unconditionally multi-line regardless of the
+            -- author's row layout) oscillated between gluing to `->` (the body's
+            -- SoftIndentedBlock, chosen because the body sat on the same source
+            -- row as the pattern) and leading its own line (IndentedBlock, chosen
+            -- on reparse once the body rendered onto a later row) — fixed by
+            -- picking IndentedBlock up front for a body that structurally always
+            -- breaks, in InsertExpressions.gren.
+            , assertPretty fsPerm "a leading comment before a lambda body that is a mixed `|>`/`<|` pipeline (always multi-line) leads its own line even when written on the arrow's row" "LambdaMixedPipelineCommentBody"
             ]
         }
 

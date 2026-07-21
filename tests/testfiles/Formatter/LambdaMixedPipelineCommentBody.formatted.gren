@@ -1,0 +1,11 @@
+module Gen285 exposing (..)
+
+import Foo0 exposing (item, y)
+
+
+fn1 =
+    \node ->
+        {- k4 -}
+        y
+            |> 0
+            <| 0
