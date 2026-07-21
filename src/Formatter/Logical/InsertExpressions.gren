@@ -1325,12 +1325,14 @@ lambdaValueNodesAreBroken valueNodes =
 
 {-| True when an expression renders multi-line no matter how the author wrote it,
 because it TRANSITIVELY contains an `if`/`when`/`let` — the only constructs that
-always break. Unlike `valueAlwaysBreaks` (which stops at `Parens`), this descends
-through the wrappers a breaking child can hide behind — parens, binops, a call, a
-negation, `.field` access, a nested lambda, and bracket literals — so a lambda
-body like `0 // 0 * (if …)` is recognized as always-breaking. Used only for the
-record-field lambda-drop decision, where the test must be independent of the
-author's row layout to be a reparse fixed point. -}
+always break — OR a mixed `|>`/`<|` pipeline, which always renders one step per
+line (`mixedPipelineBreaksVertical`, keyed on the operators, not the operands, so
+the operand recursion below can never see it). Unlike `valueAlwaysBreaks` (which
+stops at `Parens`), this descends through the wrappers a breaking child can hide
+behind — parens, binops, a call, a negation, `.field` access, a nested lambda, and
+bracket literals — so a lambda body like `0 // 0 * (if …)` is recognized as
+always-breaking. Used only for the record-field lambda-drop decision, where the
+test must be independent of the author's row layout to be a reparse fixed point. -}
 exprAlwaysBreaks : Src.Expression -> Bool
 exprAlwaysBreaks expr =
     when expr.value is
@@ -1350,7 +1352,9 @@ exprAlwaysBreaks expr =
             exprAlwaysBreaks inner
 
         Src.Binops payload ->
-            exprAlwaysBreaks payload.left || exprAlwaysBreaks payload.right
+            mixedPipelineBreaksVertical expr
+                || exprAlwaysBreaks payload.left
+                || exprAlwaysBreaks payload.right
 
         Src.Call payload ->
             exprAlwaysBreaks payload.fn || Array.any exprAlwaysBreaks payload.args

@@ -1,0 +1,18 @@
+module Gen71 exposing (..)
+
+import Qux0 as M0
+
+
+fn1 x =
+    { next1 =
+        { name1 =
+            \3 ->
+                { next0 =
+                    acc
+                        <| 0
+                        |> 0
+                        |> 0
+                        <| 0
+                }
+        }
+    }
