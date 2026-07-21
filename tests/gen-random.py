@@ -899,7 +899,8 @@ class Gen:
         r = self.rng.random()
         d = depth - 1
         if r < 0.14:  return self.mk_call(d)
-        if r < 0.30:  return self.mk_binop(d)
+        if r < 0.24:  return self.mk_binop(d)
+        if r < 0.30:  return self.mk_pipeline(d)
         if r < 0.42:  return self.mk_record(d)
         if r < 0.50:  return self.mk_update(d)
         if r < 0.60:  return self.mk_array(d)
@@ -932,10 +933,33 @@ class Gen:
                     broken=self.chance(0.5))
 
     def mk_binop(self, d):
-        k = self.rng.randint(2, 4)
+        # Chain length is usually short (2-4 operands) but a meaningful
+        # fraction stretch long (5-8 operands / 4-7 operators) to exercise
+        # precedence-split layout and long-chain wrapping. Ops are drawn from
+        # the full BINOPS+PIPES pool, so a long chain mixes precedence levels
+        # and pipe directions — the shape that surfaced seed 608's buried
+        # mixed pipeline.
+        if self.chance(0.30):
+            k = self.rng.randint(5, 8)
+        else:
+            k = self.rng.randint(2, 4)
         operands = [self.arg(d) for _ in range(k)]
         pool = BINOPS + PIPES
         ops = [self.pick(pool) for _ in range(k - 1)]
+        return Binop(operands, ops, broken=self.chance(0.5))
+
+    def mk_pipeline(self, d):
+        # A dedicated, longer PIPELINE chain: 4-9 operands (3-8 steps),
+        # predominantly forward `|>` with occasional backward `<|` steps — the
+        # mixed shape `makeBackwardPipelineBox` always breaks one-per-line.
+        # Operands are `arg(d)` (atom or parenthesized), so each step body
+        # stays a self-contained unit and the chain is a genuine flat pipeline
+        # rather than nested sub-pipelines. Distinct from `mk_binop` (which
+        # mixes in arithmetic/comparison ops): this stresses pure and
+        # mixed-direction pipeline wrapping at length.
+        k = self.rng.randint(4, 9)
+        operands = [self.arg(d) for _ in range(k)]
+        ops = ["<|" if self.chance(0.25) else "|>" for _ in range(k - 1)]
         return Binop(operands, ops, broken=self.chance(0.5))
 
     def mk_record(self, d):
