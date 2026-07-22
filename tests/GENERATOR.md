@@ -22,7 +22,7 @@ patterns, and `exposing (..)`**; v1.8 added **char literal expressions, local
 [Char/accessor/operator atoms and let functions](#char-accessor-operator-atoms-and-let-functions)
 below. Comments inside a broken type signature or a multi-line string's
 surrounding expression, `as` nested in non-top-level pattern positions, and the
-remaining coverage gaps (qualified constructor/type references, richer type
+remaining coverage gaps (richer type
 application, extensible record types, type/operator exposing, hex literals,
 infix and effect-module declarations) remain the next expansion targets (see
 [Grammar scope](#grammar-scope)). List patterns beyond fixed-length arrays are
@@ -647,9 +647,30 @@ Verified: 9000 seeds — 3000 default (1..3000), 3000 `--comment-rate 0.6`
 clean (0 quarantine, 0 findings). No formatter source changed, so no gate-suite
 rerun was needed (generator-only change).
 
+### Qualified type references
+
+**v1.10 (implemented 2026-07-21):** type *names* can now be qualified with a
+fake module (`Maybe.Int`, `Array.String`, `Maybe.Array a`), via a new
+`qualify_type_name` helper that ~30% of the time prepends `self.pick(self.mods)
++ "."` — the same fake-module pool (`String`/`Array`/`Dict`/`Maybe`) that `Qual`
+value references and v1.9 constructor patterns already draw from (arbitrary
+pairing, since gren-format never type-checks). Wired into the two type-name
+emitters, `gen_type` and `variant_arg_type`, at both the 0-arg `con` pick and
+the `app` head. Emission is transparent — `emit_type` renders the name string
+verbatim, so a qualified name needs no new emit case (exactly like `PCtor.mod`
+in v1.9). Verified directly against the app before wiring in — as a signature
+type, alias RHS, record field, port payload, and variant-arg type, both as a
+bare `con` and as an `app` head — all parse and format identically to the
+unqualified name.
+
+Only the *name* is qualified, not the type variables or the whole application
+(`Maybe.Array a`, never `Maybe.(Array a)`), matching how real qualified type
+references are written. The shrinker needs no new case (a type is not an
+expression slot; `child_slots` never descends into a signature).
+
 **Remaining expansion targets** (the still-open coverage gaps from the
 2026-07-21 AST-vs-generator audit, in rough value order): local-function bodies
-aside, **qualified type references (`Maybe.Maybe a`)**; **richer type
+aside, **richer type
 application** (concrete/multi-arg/nested — `Dict String Int`, `Array (Array
 a)`, currently capped at `Array`/
 `Maybe` of a single var); **extensible record types (`{ r | field : T }`)**;
@@ -684,4 +705,13 @@ addition; a further 17000 fresh seeds (50000..59999 default, 60000..62999 at
 2026-07-21 with no generator changes, still clean; and a further 9000 seeds —
 3000 default (1..3000) + 3000 `--comment-rate 0.6` (80000..82999) + 3000
 `--max-depth 7 --comment-rate 0.5` (90000..92999) — clean after the v1.9
-qualified-constructor-pattern addition.)
+qualified-constructor-pattern addition; and a further 8000 seeds — 3000
+`--comment-rate 0.6` (100000..102999) + 3000 default (1..3000) + 2000
+`--max-depth 7 --comment-rate 0.6` (200000..201999) — clean after the v1.10
+qualified-type-reference addition. The `--comment-rate 0.6` (100000..102999)
+sweep originally surfaced a pre-existing formatter non-idempotency bug — a
+lambda-body leading comment before a `<|`-rooted mixed pipeline with the `|>`
+buried in a binop operand — unrelated to this generator change (it reproduced
+with a fully unqualified hand-written repro); that bug is now fixed
+(`LambdaCommentPipelineBinopSeed`, `exprAlwaysBreaks` in `insertLambda`), and
+the sweep is clean against the fixed formatter.)

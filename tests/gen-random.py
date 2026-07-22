@@ -1189,16 +1189,27 @@ class Gen:
 
     # -- types (inline only) ----------------------------------------------
 
+    def qualify_type_name(self, name):
+        """Sometimes qualifies a builtin-style type name with a fake module
+        (`Maybe.Maybe`, `Maybe.Int`) — reusing the same fake-module pool
+        `Qual`/qualified constructor patterns already draw from (arbitrary
+        pairing, since gren-format never type-checks). Verified directly
+        against the app as a signature/alias-RHS/record-field/port/variant-
+        arg type, both as a bare `con` and as an `app` head."""
+        if self.chance(0.3):
+            return self.pick(self.mods) + "." + name
+        return name
+
     def gen_type(self, depth, vars=None):
         r = self.rng.random()
         cons = ["Int", "Float", "String", "Bool", "Char"]
         var_pool = vars if vars else ["a", "b", "c"]
         if depth <= 0 or r < 0.4:
-            return ("con", self.pick(cons))
+            return ("con", self.qualify_type_name(self.pick(cons)))
         if r < 0.55:
             return ("var", self.pick(var_pool))
         if r < 0.7:
-            return ("app", self.pick(["Array", "Maybe"]),
+            return ("app", self.qualify_type_name(self.pick(["Array", "Maybe"])),
                     [("var", self.pick(var_pool))])
         if r < 0.85:
             k = self.rng.randint(2, 3)
@@ -1295,11 +1306,12 @@ class Gen:
         cons = ["Int", "Float", "String", "Bool", "Char"]
         var_pool = params if params else ["a", "b", "c"]
         if depth <= 0 or r < 0.45:
-            return ("con", self.pick(cons))
+            return ("con", self.qualify_type_name(self.pick(cons)))
         if r < 0.65:
             return ("var", self.pick(var_pool))
         if r < 0.85:
-            return ("app", self.pick(["Array", "Maybe"]), [("var", self.pick(var_pool))])
+            return ("app", self.qualify_type_name(self.pick(["Array", "Maybe"])),
+                    [("var", self.pick(var_pool))])
         k = self.rng.randint(2, 3)
         return ("arrow", [self.variant_arg_type(depth - 1, params) for _ in range(k)])
 
