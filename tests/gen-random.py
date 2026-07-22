@@ -77,11 +77,18 @@ class Str(E):
     def __init__(self, v): self.v = v
 
 class MultilineStr(E):
-    def __init__(self, lines):
+    def __init__(self, lines, trailing=None):
         # lines: list of str (a content row's already-escaped source text) or
         # None (a wholly empty row — legal; a row with SOME but too-little
         # indentation is not, see emit_multiline_str).
         self.lines = lines
+        # An optional line/block comment riding the closing `"""` — legal in
+        # every surrounding-expression position this atom reaches (record
+        # field value, array item, call/binop/pipeline operand, decl body),
+        # not just at a declaration's own end (the shape v1.3 originally
+        # fixed) — verified directly against the app for each position before
+        # generating; see GENERATOR.md.
+        self.trailing = trailing
 
 class Var(E):
     def __init__(self, name): self.name = name
@@ -232,12 +239,31 @@ class PortDecl:
         self.arrow_comment = arrow_comment
 
 
+# `infix left 6 (+++) = add0` — a fixity declaration. Parsed by a dedicated
+# loop that runs strictly after imports and before every other top-level
+# declaration (`Compiler.Parse.Module.operatorLoopParser`), so these live on
+# their own `Module.infixes` list, not mixed into `decls`. No `doc` field —
+# `Compiler.Ast.Source.Infix` carries no doc-comment slot, unlike every other
+# declaration kind — only a regular own-line `lead` / same-row `trailing`
+# comment.
+
+class InfixDecl:
+    def __init__(self, assoc, prec, symbol, fn, lead=None, trailing=None):
+        self.assoc, self.prec, self.symbol, self.fn = assoc, prec, symbol, fn
+        self.lead, self.trailing = lead, trailing
+
+
 class Module:
-    def __init__(self, name, imports, decls, doc=None, exposing="(..)"):
+    def __init__(self, name, imports, decls, infixes=None, doc=None, exposing="(..)",
+                 effect=None):
         self.name, self.imports, self.decls, self.doc = name, imports, decls, doc
+        self.infixes = infixes if infixes is not None else []
         # The header export list, already rendered: "(..)" or an explicit
         # "(foo, Bar(..))" built from the real declared names (see module_exposing).
         self.exposing = exposing
+        # None, or an effect module's `where { ... }` clause: a list of
+        # (field, name, comment|None) in emission order — see `Gen.effect_header`.
+        self.effect = effect
 
 
 # ───────────────────────────── structural queries ─────────────────────────
@@ -432,7 +458,7 @@ def emit_binding(b, col):
     binding (`b.params` non-empty) puts its parameters after the name, exactly
     like a top-level declaration. Block/multiline value drops to its own line
     indented +4; otherwise it hangs after `= `."""
-    head = emit_pat(b.lhs) + "".join(" " + emit_pat(p) for p in b.params)
+    head = emit_pat(b.lhs) + "".join(" " + emit_param(p) for p in b.params)
     prefix = head + " = "
     if multiline(b.val):
         out = [head + " ="]
@@ -443,9 +469,9 @@ def emit_binding(b, col):
 
 
 def emit_lambda(n, col):
-    prefix = "\\" + " ".join(emit_pat(p) for p in n.params) + " -> "
+    prefix = "\\" + " ".join(emit_param(p) for p in n.params) + " -> "
     if multiline(n.body):
-        out = ["\\" + " ".join(emit_pat(p) for p in n.params) + " ->"]
+        out = ["\\" + " ".join(emit_param(p) for p in n.params) + " ->"]
         out += own_line(n.body, col + INDENT)
         return out
     bl = emit(n.body, col + len(prefix))
@@ -500,7 +526,10 @@ def emit_multiline_str(n, col):
     out = ['"""']
     for line in n.lines:
         out.append("" if line is None else pad(col) + line)
-    out.append(pad(col) + '"""')
+    close = pad(col) + '"""'
+    if n.trailing is not None:
+        close += " " + comment_text(n.trailing)
+    out.append(close)
     return out
 
 
@@ -567,6 +596,15 @@ def emit_pat(p):
             s = emit_pat(a)
             if isinstance(a, PCtor) and a.args:
                 s = "(" + s + ")"
+            # A ctor's own argument slot is parsed without alias-awareness
+            # (`Compiler.Parse.Pattern`'s `parserNoAlias`), so a bare `n as
+            # whole` there doesn't parse at all — verified directly against
+            # the app (`Just (n as whole) -> ...` needs exactly this wrap;
+            # `Just (Nothing as whole)` still fails even wrapped once, since
+            # the alias base itself ALSO needs its own inner paren, already
+            # supplied by the `PAs` case below).
+            elif isinstance(a, PAs):
+                s = "(" + s + ")"
             parts.append(s)
         return qname + " " + " ".join(parts)
     if isinstance(p, PAs):
@@ -575,6 +613,26 @@ def emit_pat(p):
             inner = "(" + inner + ")"
         return inner + " as " + p.name
     raise ValueError("emit_pat: " + type(p).__name__)
+
+
+def emit_param(p):
+    """A pattern in a function/lambda/let-binding PARAMETER slot. A bare
+    `PAs` there DOES parse on its own (`f n as whole = whole` is legal,
+    confirmed directly against the app) — but if the alias base is itself a
+    multi-token constructor-with-argument, the ctor's own argument slot
+    doesn't reach across the `as` at all: `f Just n as whole = whole`
+    silently reparses as TWO separate params (`Just` a bare 0-arg pattern,
+    `n as whole` the next param) rather than failing — a different AST, not
+    a parse error, so no oracle would catch the drift. One extra pair of
+    parens around the WHOLE alias sidesteps this uniformly for every inner
+    kind (var/0-arg-ctor/ctor-with-arg/array/record), matching the exact
+    canonical form gren-format itself always normalizes a param-position
+    alias to — verified directly against the app for each kind before
+    wiring in."""
+    s = emit_pat(p)
+    if isinstance(p, PAs):
+        s = "(" + s + ")"
+    return s
 
 
 # ───────────────────────────── type signatures ─────────────────────────────
@@ -703,11 +761,46 @@ def emit_port(d):
     return ["port " + d.name + " : " + emit_type(d.type_)]
 
 
+def emit_where(effect):
+    """The `where { command = MyCmd, subscription = MySub }` clause. Always
+    inline (like `emit_infix`, it collapses to one line regardless of input
+    layout, so there's no broken variant to model — see `effect_header`)."""
+    parts = []
+    for field, name, cmt in effect:
+        s = field + " = " + name
+        if cmt is not None:
+            s += " " + comment_text(cmt)
+        parts.append(s)
+    return "where { " + ", ".join(parts) + " }"
+
+
+def emit_infix(d):
+    """Always single-line — README: 'An infix declaration is always written
+    on one line' — the generator never author-breaks it (the formatter
+    collapses a broken one anyway; see the checked-in InfixWrapped fixture,
+    which covers that collapse directly)."""
+    out = emit_leading(d)
+    line = "infix %s %d (%s) = %s" % (d.assoc, d.prec, d.symbol, d.fn)
+    if d.trailing is not None:
+        line += " " + comment_text(d.trailing)
+    out.append(line)
+    return out
+
+
 # ───────────────────────────── module emission ────────────────────────────
 
 def emit_module(m):
-    kw = "port module " if any(isinstance(d, PortDecl) for d in m.decls) else "module "
-    header = [kw + m.name + " exposing " + m.exposing]
+    if m.effect is not None:
+        kw = "effect module "
+    elif any(isinstance(d, PortDecl) for d in m.decls):
+        kw = "port module "
+    else:
+        kw = "module "
+    head = kw + m.name
+    if m.effect is not None:
+        head += " " + emit_where(m.effect)
+    head += " exposing " + m.exposing
+    header = [head]
     if m.doc is not None:
         # Module doc: exactly one blank line after the header, verified
         # directly against the app — then the SAME import/decl spacing logic
@@ -722,6 +815,11 @@ def emit_module(m):
     if m.imports:
         lines.append("")
     lines.append("")
+    for d in m.infixes:
+        lines += emit_infix(d)
+    if m.infixes:
+        lines.append("")
+        lines.append("")
     body = []
     for i, d in enumerate(m.decls):
         body += emit_decl(d)
@@ -756,9 +854,9 @@ def emit_function_decl(d):
                     for l in emit_type_multiline(d.sig, True, d.arrow_comment)]
         else:
             out.append(d.name + " : " + emit_type(d.sig))
-    prefix = d.name + "".join(" " + emit_pat(p) for p in d.params) + " = "
+    prefix = d.name + "".join(" " + emit_param(p) for p in d.params) + " = "
     if multiline(d.body):
-        out.append(d.name + "".join(" " + emit_pat(p) for p in d.params) + " =")
+        out.append(d.name + "".join(" " + emit_param(p) for p in d.params) + " =")
         out += own_line(d.body, INDENT)
     else:
         bl = emit(d.body, len(prefix))
@@ -777,6 +875,10 @@ class Gen:
         self.max_depth = max_depth
         self.crate = comment_rate
         self.cid = 0
+        # Dynamically-scoped claim flag: set by `mk_multiline_str` when a
+        # generated `MultilineStr` grabs its own trailing comment, read (and
+        # save/restored) by `gen_body_with_trailing` — see that method.
+        self._multiline_trailing_claimed = False
         self.vars = ["x", "y", "z", "acc", "item", "node"]
         self.fields = ["name", "count", "value", "next", "kind"]
         self.ctors = ["Just", "Nothing", "Ok", "Err", "Leaf", "Node"]
@@ -795,6 +897,13 @@ class Gen:
         # list, which draws only real declared names.
         self.exp_types = ["Alpha", "Bravo", "Gamma", "Delta"]
         self.exp_ops = ["(|=)", "(|.)", "(</>)", "(>>>)", "(<?>)"]
+        # Bare (unparenthesized — `emit_infix` adds the parens) operator
+        # symbols for `infix` fixity declarations. Each is built only from
+        # `Compiler.Parse.Operator`'s accepted charset (+-/*=.<>:&|^?%!) and
+        # confirmed distinct from its five reserved exact-match tokens
+        # (".", "|", "->", "=", ":") — verified directly against the app
+        # before use, alongside every other shape below.
+        self.custom_ops = ["+++", "<+>", "^^", "%%", "&&&", "???", "<->", "==>", "**", "!!"]
         # Constructors declared by this module's own `union()` calls so far
         # (populated as decls are generated, in source order — see `union`).
         # [(name, kind)], kind in "none" / "record" / "value" (mirrors
@@ -807,6 +916,38 @@ class Gen:
 
     def chance(self, p): return self.rng.random() < p
     def pick(self, xs):  return self.rng.choice(xs)
+
+    def gen_body_with_trailing(self, gen_fn):
+        """Run `gen_fn()` (a thunk building a decl/let-binding's value) and
+        return `(value, trailing_comment_for_the_container)`. A `MultilineStr`
+        ANYWHERE in that value — not just at the top: nested as a call's last
+        argument, a binop's last operand, a record's last field, … — may end
+        up rendering as the value's own last line, and `mk_multiline_str` may
+        independently give IT a trailing comment (see GENERATOR.md's
+        surrounding-expression addition). Two trailing comments would then
+        collide on that one rendered line, merging into a single comment's
+        text instead of staying distinct tokens (breaking the
+        comment-preservation oracle's multiset check) — regardless of how
+        deeply nested the multiline string is, or through how many
+        containers, since none of them (`Call`/`Binop`/`Record`/`Array`/…)
+        have a competing per-item comment mechanism of their own to
+        disambiguate against.
+
+        Rather than statically re-deriving "is this multiline string the
+        rightmost rendered token" (a property of the renderer, not the tree —
+        parens, container brackets, and layout choices all affect it), this
+        tracks the claim DYNAMICALLY via `self._multiline_trailing_claimed`,
+        save/restored around `gen_fn()` so a NESTED trailing-owning construct
+        (a `let`'s own bindings, each independently calling this same method)
+        doesn't leak its own claim into an outer caller's decision — only a
+        claim that survives all the way to the top of `gen_fn()`, unconsumed
+        by any inner scope, reaches this method's own read-back."""
+        saved = self._multiline_trailing_claimed
+        self._multiline_trailing_claimed = False
+        val = gen_fn()
+        claimed = self._multiline_trailing_claimed
+        self._multiline_trailing_claimed = saved
+        return val, (None if claimed else self.comment())
 
     def comment(self, kinds=("line", "block")):
         """Maybe return a fresh unique comment (kind, text), else None."""
@@ -1103,12 +1244,14 @@ class Gen:
             params = [self.pattern_base(d) for _ in range(nparams)]
             sig = ("arrow", [self.gen_type(2) for _ in range(nparams + 1)]) \
                 if self.chance(0.5) else None
-            return LetBind(name, self.value(d), params=params, sig=sig,
-                           lead=self.comment(), trailing=self.comment())
+            val, trailing = self.gen_body_with_trailing(lambda: self.value(d))
+            return LetBind(name, val, params=params, sig=sig,
+                           lead=self.comment(), trailing=trailing)
         lhs = self.let_pattern(d)
         sig = self.gen_type(2) if isinstance(lhs, PVar) and self.chance(0.3) else None
-        return LetBind(lhs, self.value(d), sig=sig,
-                       lead=self.comment(), trailing=self.comment())
+        val, trailing = self.gen_body_with_trailing(lambda: self.value(d))
+        return LetBind(lhs, val, sig=sig,
+                       lead=self.comment(), trailing=trailing)
 
     def let_pattern(self, depth):
         """A let-binding LHS: `PVar` most of the time, else a destructuring
@@ -1170,16 +1313,32 @@ class Gen:
 
     def mk_multiline_str(self):
         k = self.rng.randint(1, 3)
-        return MultilineStr([self.multiline_string_line() for _ in range(k)])
+        trailing = None
+        if not self._multiline_trailing_claimed:
+            # A trailing `--` comment on a multiline string used as a
+            # mid-chain binop/pipeline operand currently hits a real, OPEN
+            # formatter bug (a backward-pipe step's operator glues onto the
+            # same line as the `--`, silently swallowing the operator into
+            # the comment text — an ast-mismatch). Left in place
+            # DELIBERATELY, not restricted to block-only, per the user's
+            # call 2026-07-22: the bug and its repro seeds are written up in
+            # `gren-format-lib/tbd.md` (seeds 1480/2303/2767) for review
+            # before deciding the fix; the generator should keep finding it
+            # rather than being narrowed to hide it.
+            trailing = self.comment()
+            if trailing is not None:
+                self._multiline_trailing_claimed = True
+        return MultilineStr([self.multiline_string_line() for _ in range(k)],
+                            trailing=trailing)
 
     # -- patterns ----------------------------------------------------------
 
     def pattern(self, depth):
         """Top-level pattern position (currently: a `when`-branch pattern
         only — see call sites). May wrap the base pattern in an `as` alias;
-        every OTHER pattern position (lambda/function params, ctor args,
-        array items) calls `pattern_base` directly instead, since nesting
-        `as` inside those hasn't been verified against the parser.
+        guards against double-wrapping when `pattern_base` already produced
+        one itself (an alias-of-an-alias, `(x as a) as b`, is untested and
+        not generated).
 
         Deliberately NOT generated: a negative int literal pattern (`-3 ->`).
         Verified directly against the app that this parses ONLY as a `when`
@@ -1192,11 +1351,33 @@ class Gen:
         #1", and getting it wrong would put a quarantine-triggering shape
         back in the generator's own output."""
         base = self.pattern_base(depth)
-        if self.chance(0.08):
+        if not isinstance(base, PAs) and self.chance(0.08):
             return PAs(base, self.pick(self.vars))
         return base
 
     def pattern_base(self, depth):
+        """Any NON-top-level pattern position: lambda/function/let-bound-function
+        params, a ctor's own argument, an array item — `pattern()` above is
+        the only caller that additionally allows the outermost `as`; every
+        other position reaches its `as` through THIS function's own
+        alias-wrapping instead, which recurses naturally into every position
+        that itself calls `pattern_base` (ctor args, array items, params).
+
+        The wrapping is bare here (`PAs(base, name)`, no parens baked in) —
+        each RENDER call site adds exactly the wrap its own grammar position
+        needs: `emit_pat`'s ctor-argument loop and the dedicated `emit_param`
+        (function/lambda/let-binding params) both add one extra pair of
+        parens around a `PAs` child; a plain array item needs none (verified
+        directly against the app for all three positions, including the
+        paren-count edge cases already known from `pattern()`'s v1.5 work —
+        0-arg ctor / Int alias bases still need their OWN inner paren in
+        every position, unchanged by nesting depth)."""
+        base = self._pattern_base_core(depth)
+        if not isinstance(base, PAs) and self.chance(0.08):
+            return PAs(base, self.pick(self.vars))
+        return base
+
+    def _pattern_base_core(self, depth):
         r = self.rng.random()
         if r < 0.32:  return PVar(self.pick(self.vars))
         if r < 0.42:  return PWild()
@@ -1331,7 +1512,7 @@ class Gen:
         name = "fn%d" % i
         nparams = self.rng.randint(0, 3)
         params = [self.pattern_base(self.max_depth) for _ in range(nparams)]
-        body = self.value(self.max_depth)
+        body, trailing = self.gen_body_with_trailing(lambda: self.value(self.max_depth))
         sig = None
         sig_broken = False
         if self.chance(0.4):
@@ -1344,7 +1525,6 @@ class Gen:
         lead = None
         if doc is None and self.chance(self.crate):
             lead = [self.comment() or ("line", "k%d" % self.next_cid())]
-        trailing = self.comment()
         return Decl(name, params, body, sig=sig, sig_broken=sig_broken,
                     doc=doc, lead=lead, trailing=trailing,
                     arrow_comment=arrow_comment)
@@ -1402,9 +1582,9 @@ class Gen:
             return ("record", fields)
         return ("args", [self.variant_arg_type(1, params)])
 
-    def union(self, i):
-        name = "Union%d" % i
-        params = self.type_params()
+    def union(self, i, name=None, params=None):
+        name = name if name is not None else "Union%d" % i
+        params = params if params is not None else self.type_params()
         k = self.rng.randint(1, 4)
         variants = []
         for _ in range(k):
@@ -1426,7 +1606,21 @@ class Gen:
         lead = None
         if doc is None and self.chance(self.crate):
             lead = [self.comment() or ("line", "k%d" % self.next_cid())]
-        trailing = self.comment()
+        # The decl's own trailing comment rides the union's LAST rendered
+        # line (`emit_decl`), same as the last variant's own trailing — a
+        # PRE-EXISTING collision (found incidentally while verifying the
+        # multiline-string trailing-comment addition, unrelated to it): if
+        # the last variant already has a LINE (`--`) trailing comment, `--`
+        # has no closing delimiter, so anything appended after it becomes
+        # part of THAT SAME comment's text instead of a second, distinct
+        # comment (`| Delta7 -- k8 -- k10` is really ONE comment reading
+        # "k8 -- k10", not two) — silently merging two comments that were
+        # meant to stay separate. A BLOCK (`{- -}`) last-variant trailing is
+        # self-delimiting, so it's safe to append after; only the LINE case
+        # needs the guard.
+        last_is_line = variants and variants[-1].trailing is not None \
+                       and variants[-1].trailing[0] == "line"
+        trailing = None if last_is_line else self.comment()
         return UnionDecl(name, params, variants, broken=broken, doc=doc,
                          lead=lead, trailing=trailing)
 
@@ -1450,6 +1644,60 @@ class Gen:
         trailing = self.comment()
         return PortDecl(name, t, broken=broken, doc=doc, lead=lead, trailing=trailing,
                         arrow_comment=arrow_comment)
+
+    def manager_type(self, name):
+        """The `command`/`subscription` handler type an effect module's
+        `where { ... }` clause names — a union with a single `msg` type
+        param, matching the real convention (`type MyCmd msg = ...` in
+        core/src/Task.gren, core/src/Time.gren) though the parser does not
+        check the name or its shape at all."""
+        return self.union(0, name=name, params=["msg"])
+
+    def effect_header(self):
+        """Bake an effect module's manager declaration: which of
+        `command`/`subscription` are present (never neither — the parser has
+        no such shape), each naming a fresh `manager_type`, plus an optional
+        short block comment on one handler. Always emitted command-first —
+        verified directly against the app that gren-format canonicalizes the
+        clause to that order unconditionally, so a subscription-first input
+        both gets reordered AND (if it carried the comment) has the comment
+        relocated by that reordering; baking canonical order sidesteps
+        exercising that already-covered renormalization path (`AmbiguousEffectModule`)
+        redundantly and keeps the comment-placement coverage clean. Returns
+        `(effect, manager_decls)` — `effect` is `None` or a list of
+        `(field, name, comment|None)` in emission order; `manager_decls` are
+        the `UnionDecl`s to splice into the module's declarations."""
+        r = self.rng.random()
+        if r < 0.4:
+            has_cmd, has_sub = True, False
+        elif r < 0.7:
+            has_cmd, has_sub = False, True
+        else:
+            has_cmd, has_sub = True, True
+        entries = []
+        decls = []
+        if has_cmd:
+            cname = "EffCmd%d" % self.rng.randint(0, 9999)
+            cmt = self.comment(kinds=("block",))
+            entries.append(("command", cname, cmt))
+            decls.append(self.manager_type(cname))
+        if has_sub:
+            sname = "EffSub%d" % self.rng.randint(0, 9999)
+            cmt = self.comment(kinds=("block",))
+            entries.append(("subscription", sname, cmt))
+            decls.append(self.manager_type(sname))
+        return entries, decls
+
+    def infix_decl(self, i):
+        assoc = self.pick(["left", "right", "non"])
+        prec = self.rng.randint(0, 9)
+        symbol = self.custom_ops[i % len(self.custom_ops)]
+        fn = "infixFn%d" % i
+        lead = None
+        if self.chance(self.crate):
+            lead = [self.comment() or ("line", "k%d" % self.next_cid())]
+        trailing = self.comment()
+        return InfixDecl(assoc, prec, symbol, fn, lead=lead, trailing=trailing)
 
     def next_cid(self):
         c = self.cid
@@ -1487,8 +1735,17 @@ class Gen:
                 imports.append("import " + mod + " exposing (" + names + ")")
             else:
                 imports.append("import " + mod + " exposing (..)")
+        ninfix = self.rng.randint(0, 2) if self.chance(0.4) else 0
+        infixes = [self.infix_decl(i) for i in range(ninfix)]
+        # `effect module`/`port module` are mutually exclusive header
+        # keywords (the parser has no combined form — see `GENERATOR.md`),
+        # so an effect module never generates a `port` declaration below;
+        # its manager types are spliced into `decls` up front instead.
+        effect, manager_decls = (None, [])
+        if self.chance(0.2):
+            effect, manager_decls = self.effect_header()
         ndecls = self.rng.randint(1, 4)
-        decls = []
+        decls = list(manager_decls)
         for i in range(ndecls):
             r = self.rng.random()
             if r < 0.65:
@@ -1497,10 +1754,12 @@ class Gen:
                 decls.append(self.type_alias(i))
             elif r < 0.95:
                 decls.append(self.union(i))
+            elif effect is not None:
+                decls.append(self.union(i))
             else:
                 decls.append(self.port(i))
-        return Module(name, imports, decls, doc=self.doc_comment(),
-                      exposing=self.module_exposing(decls))
+        return Module(name, imports, decls, infixes=infixes, doc=self.doc_comment(),
+                      exposing=self.module_exposing(decls), effect=effect)
 
     def module_exposing(self, decls):
         """The module header's export list. Half the time the wildcard `(..)`;
@@ -1688,6 +1947,7 @@ def _branch_body_setter(branches, i):
 def list_containers(m):
     """Yield (owner, attr, min_len) for every reducible list in the module."""
     yield m, "decls", 1
+    yield m, "infixes", 0
     for d in m.decls:
         if isinstance(d, UnionDecl):
             yield d, "variants", 1
@@ -1718,6 +1978,17 @@ def comment_clearers(m):
         return lambda: setattr(obj, attr, None)
     if getattr(m, "doc", None) is not None:
         yield clear_attr(m, "doc")
+    if getattr(m, "effect", None):
+        for idx, (field, ename, cmt) in enumerate(m.effect):
+            if cmt is not None:
+                def clr(entries=m.effect, i=idx):
+                    entries[i] = (entries[i][0], entries[i][1], None)
+                yield clr
+    for d in m.infixes:
+        if d.lead:
+            yield clear_attr(d, "lead")
+        if d.trailing is not None:
+            yield clear_attr(d, "trailing")
     for d in m.decls:
         if getattr(d, "doc", None) is not None:
             yield clear_attr(d, "doc")
@@ -1738,6 +2009,8 @@ def comment_clearers(m):
         for node in _all_nodes(d.body):
             if getattr(node, "pre", None):
                 yield clear_attr(node, "pre")
+            if isinstance(node, MultilineStr) and node.trailing is not None:
+                yield clear_attr(node, "trailing")
             if isinstance(node, Let):
                 for b in node.binds:
                     if b.lead is not None:
@@ -1758,11 +2031,19 @@ def variants(m):
     if len(m.decls) > 1:
         for i in range(len(m.decls)):
             c = copy.deepcopy(m)
+            dropped_name = c.decls[i].name
             del c.decls[i]
             # An explicit header export list names the declared decls; once one
             # is gone, fall back to `(..)` so the shrunk module never exposes a
             # removed name (harmless — it parses — but confusing in a repro).
             c.exposing = "(..)"
+            # Likewise, if the dropped decl was an effect module's manager
+            # type, drop its entry from the where-clause too (and the whole
+            # clause if that empties it — an effect module can't have
+            # neither `command` nor `subscription`).
+            if c.effect is not None:
+                remaining = [e for e in c.effect if e[1] != dropped_name]
+                c.effect = remaining if remaining else None
             yield c
     # 2. drop a list item
     base = copy.deepcopy(m)

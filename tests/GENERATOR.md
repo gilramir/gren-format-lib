@@ -776,15 +776,190 @@ hex round-trip up to 2^53 - 1, the largest exact JS integer; beyond that the
 parser itself is lossy, so the generator caps at 2^44. Pinned by the pure
 `intToHex` unit suite and the `HexLiteralLarge` end-to-end fixture.
 
-**Remaining expansion targets** (the still-open coverage gaps from the
-2026-07-21 AST-vs-generator audit, in rough value order): local-function bodies
-aside, the
-low-frequency **infix declarations** and **effect modules**. Also still open:
-comments *inside* a multi-line string's surrounding expression aside from the
-trailing-comment shape already fixed; `as` nested in non-top-level pattern
-positions (lambda/function params, ctor args, array items) — deliberately not
-generated yet, unverified against the parser; list patterns beyond fixed-length
-arrays (Gren has none — not a gap).
+### Infix declarations
+
+**v1.15 (implemented 2026-07-22):** `infix left 6 (+++) = infixFn0` — fixity
+declarations. `Compiler.Ast.Source.Module` carries these on a dedicated
+`binops : Array (Located Infix)` field, parsed by a standalone loop
+(`Compiler.Parse.Module.operatorLoopParser`) that runs strictly after imports
+and before every other top-level declaration — so they live on a new
+`Module.infixes` list, never mixed into `decls`, and are always emitted as a
+single contiguous block right after the imports. The formatter side needed no
+work (`processInfixDecls`/`StInfixDecl` in `MakeLogical.gren` already existed,
+documented in README's "Infix operator declarations" and already covered by the
+`InfixWrapped`/`KitchenSink` fixtures) — this addition is purely the missing
+generator emitter for a construct the formatter already handled.
+
+Verified directly against the app before wiring in, not assumed from the
+existing fixtures: the exact grammar (`infix (left|right|non) <int> (<symbol>)
+= <lowerName>`, symbol built only from `Compiler.Parse.Operator`'s accepted
+charset `+-/*=.<>:&|^?%!` and distinct from its five reserved exact-match
+tokens `.`/`|`/`->`/`=`/`:`); that a custom symbol never used elsewhere in the
+module (e.g. `+++`, `<+>`, `^^`) parses and formats fine standalone, with no
+need to also emit a binop expression using it; that an own-line leading
+comment, a same-row trailing comment, and an own-line comment *between* two
+infix declarations in a group all parse, format, and stay idempotent (`--show`
+on a hand-written probe file, exit 0); and that `InfixDecl` gets no `doc` field
+(`Src.Infix` has none, unlike every other declaration kind) — mirrored by
+`emit_leading`'s existing doc/lead mutual-exclusivity falling through to plain
+`lead` automatically via `getattr`.
+
+Emission is always single-line (`emit_infix`) — README states an infix
+declaration is always written on one line regardless of input layout, and the
+already-checked-in `InfixWrapped` fixture covers the author-broken-collapses-to-flat
+case directly, so the generator does not need an author-broken variant to
+exercise that path. `Module.infixes` is wired into the shrinker generically:
+`list_containers` yields `(m, "infixes", 0)` so the existing "drop a list item"
+step can remove individual infix declarations down to zero, and
+`comment_clearers` gained a loop over `m.infixes` for `lead`/`trailing` — no new
+case was needed in `variants()`'s "drop a top-level decl" step, since infix
+comments/removal are fully covered by the generic list-container and
+comment-clearer machinery already in place for every other list-typed field.
+
+Verified: 8000 seeds — 3000 default (1..3000), 3000 `--comment-rate 0.6`
+(1600000..1602999), 2000 `--max-depth 7 --comment-rate 0.6`
+(1700000..1701999) — all clean (0 quarantine, 0 findings). No formatter source
+changed, so no gate-suite rerun was needed (generator-only change, same as
+v1.9/v1.10).
+
+### Effect modules
+
+**v1.16 (implemented 2026-07-22):** `effect module Foo where { command = MyCmd,
+subscription = MySub } exposing (..)` — the effect-manager module-header form.
+`Compiler.Ast.Source.Module.effects : Effects` is a 3-way sum
+(`NoEffects`/`Ports`/`Manager`), and `Manager` itself is `Cmd`/`Sub`/`Fx { cmd,
+sub }` — command-only, subscription-only, or both, never neither. The formatter
+side needed no work (`MakeLogical.gren`'s `processModuleLine`/`buildWhereBlock`,
+~13 existing fixtures, README's "Comments in an effect module's header" section)
+— purely a missing generator emitter, like v1.15.
+
+Verified directly against the app before wiring in: `effect module` is legal in
+*any* user module (no parser-level restriction — the one `-- TODO` comment in
+`Compiler.Parse.Module.gren` about ports+effects is about that specific
+combination, not effect modules generally, so the generator simply never emits
+a `port` declaration alongside an `effect module` header, matching how ports
+and effects are separate, mutually exclusive header keywords); `where { ... }`
+is mandatory the moment the `effect` keyword is used (`effect module Foo
+exposing (..)` with no `where` clause fails to parse — confirmed, not assumed);
+and — the one surprising finding — **gren-format unconditionally canonicalizes
+a two-handler clause to command-then-subscription order**, regardless of which
+order the author wrote, confirmed both with and without a comment present. A
+subscription-first input still round-trips fine (`AmbiguousEffectModule`
+already covers that reordering), but a comment riding the reordered handler
+lands somewhere the input's own column position no longer predicts, so the
+generator always bakes canonical (command-first) order — it gets full coverage
+of the single-line and comment-attachment paths without redundantly
+re-exercising the already-fixture-covered reordering path. A short block
+comment glued to either handler's name (mid-clause on `command`, or trailing on
+the last handler) was verified to stay attached exactly as README describes,
+in canonical order.
+
+`Gen.effect_header` bakes which handler(s) are present (never neither), each
+naming a fresh `manager_type` — a `UnionDecl` forced to a single `msg` type
+param (`type EffCmd7 msg = ...`, matching `core/src/Task.gren`'s `type MyCmd msg`
+convention, though the parser doesn't check this at all) via a new optional
+`name`/`params` override on `Gen.union`. The manager decls are spliced to the
+front of `Module.decls` so they participate in every existing decl-level
+mechanism for free — `module_exposing`'s explicit-list building, the
+shrinker's variant-list dropping, `declared_ctors` (so `ctor_ref`/`pctor_ref`
+can construct/match the manager type's own constructors elsewhere in the
+module, same bonus v1.6 gave regular unions). `Module.effect` is `None` or a
+list of `(field, name, comment|None)` tuples in emission order; `emit_where`
+renders it, always inline (no broken variant, same reasoning as `emit_infix`).
+
+Shrinker: dropping a top-level decl (`variants()` step 1) now also drops that
+decl's entry from `m.effect` if it was a manager type, collapsing `m.effect` to
+`None` if that empties it — an effect module can never end up with a `where {}`
+naming a removed type, or a `where` clause with neither handler. `m.effect`
+itself was deliberately **not** added to `list_containers` (which would let the
+generic "drop a list item" step remove a handler independently of its manager
+decl) — that path is only useful for reaching a state the decl-drop path
+doesn't already reach, and an orphaned handler-with-no-backing-type is a
+confusing repro for no shrinking benefit. `comment_clearers` gained a case for
+`m.effect`'s per-handler comment. Verified by direct unit exercise of
+`variants`/`comment_clearers` on a generated both-handlers-with-comments
+module, not just by the sweep: dropping either manager decl correctly leaves
+the other handler's clause entry intact and reflows the where-clause; dropping
+both empties `m.effect` to `None`.
+
+Verified: 8000 seeds — 3000 default (1..3000), 3000 `--comment-rate 0.6`
+(1800000..1802999), 2000 `--max-depth 7 --comment-rate 0.6`
+(1900000..1901999) — all clean (0 quarantine, 0 findings). No formatter source
+changed, so no gate-suite rerun was needed (generator-only change).
+
+### Nested `as` patterns
+
+**v1.17 (implemented 2026-07-22):** `as` aliasing, previously only generated at
+the outermost position of a `when`-branch pattern (v1.5), now nests inside
+lambda/function/let-bound-function params, a constructor's own argument, and
+array items — `f ((Just n) as whole) = whole`, `Just (n as whole) -> whole`,
+`[ n as first, m ] -> first`.
+
+Verified directly against the app before wiring in, not assumed from v1.5's
+top-level rules: `as` is grafted onto exactly one parser production
+(`Pattern.parser` = `parserNoAlias` + optional `as` suffix), not part of
+`parserNoAlias` itself or the ctor-argument/param-list machinery — but `parser`
+is reached recursively from a parenthesized sub-pattern and from an array
+item's own parsing, so those two positions accept a **bare** alias with no
+extra wrapping beyond what v1.5's existing rule already adds (0-arg-ctor/`Int`
+alias bases still need their own inner paren, unchanged by nesting depth). A
+constructor's own argument slot and a function/lambda/let-bound-function
+**parameter slot** are the two positions that parse via the narrower
+non-alias-aware production directly, so a `PAs` used there needs exactly one
+*additional* outer pair of parens around the whole alias, on top of whatever
+inner paren the base already needs — confirmed for every inner-pattern kind
+(var/wildcard/0-arg-ctor/ctor-with-arg/array/record) via direct probes, and
+this single rule (`emit_pat`'s ctor-argument loop, and the new `emit_param`
+used at every param call site) was sufficient in every case.
+
+**The one genuine hazard, caught only by direct verification, not reasoning
+from the v1.5 rules:** a *fully bare* (zero extra parens) alias of a
+ctor-with-argument in a parameter slot doesn't fail to parse — it silently
+**reparses as two separate parameters**. `f Just n as whole = whole` (no
+parens at all) is accepted, but as `Just` (a bare 0-arg pattern) followed by
+`n as whole` (a separate, fully independent aliased param) — because the
+ctor's own argument-consumption doesn't reach across the `as` at all, so the
+parser backs off to treating `Just` alone as its whole first param and
+resumes independently from there. This is a **different AST**, not a parse
+failure, so no oracle (parseable / AST-equiv / idempotent / comment-preserving)
+would ever catch a generator emitting this by accident — it would just
+silently fail to exercise the intended shape while still passing every check.
+Always emitting the full double-wrap (`emit_param`) sidesteps this
+entirely — the reason `emit_param` is a hard requirement here rather than an
+optional canonicalization.
+
+Implementation: `pattern_base`'s existing body became `_pattern_base_core`;
+the public `pattern_base` wraps ~8% of results in a bare `PAs` (matching
+`pattern()`'s own top-level rate), which is enough to reach the ctor-argument,
+array-item, and param-slot recursions this function already backs — no new
+call sites were needed, since every non-top-level pattern position already
+goes through `pattern_base`. `pattern()` gained an `isinstance(base, PAs)`
+guard so it never wraps an already-`PAs` result in a second, untested
+alias-of-an-alias (`(x as a) as b` — not generated, not verified). Rendering
+needed two changes: `emit_pat`'s ctor-argument loop gained an `elif
+isinstance(a, PAs)` case (one extra wrap), and a new `emit_param` (used at
+every function-decl/lambda/let-binding param call site, replacing bare
+`emit_pat`) adds the same extra wrap for the parameter-slot position — array
+items needed no change at all, since a plain `emit_pat(item)` inside
+`PArray`'s existing loop was already correct.
+
+No shrinker changes: patterns are not expression slots (`child_slots` never
+descends into a pattern), so a nested `PAs` anywhere in a pattern tree is
+already opaque to the shrinker exactly like every other pattern-level addition
+before it (v1.9's `PCtor.mod`, v1.13's exposing lists) — confirmed by direct
+unit exercise of `variants()`/`comment_clearers()` on a generated module
+containing nested `as`, not just by the sweep coming back clean.
+
+Verified: 8000 seeds — 3000 default (1..3000), 3000 `--comment-rate 0.6`
+(2000000..2002999), 2000 `--max-depth 7 --comment-rate 0.6`
+(2100000..2101999) — all clean (0 quarantine, 0 findings). No formatter source
+changed, so no gate-suite rerun was needed (generator-only change).
+
+**Remaining expansion targets:** the 2026-07-21 AST-vs-generator audit's gap
+list (local-function bodies, infix declarations, effect modules, nested `as`)
+is now fully closed. What's left: comments *inside* a multi-line string's
+surrounding expression aside from the trailing-comment shape already fixed;
+list patterns beyond fixed-length arrays (Gren has none — not a gap).
 
 The generator is intentionally started small and correct (0 quarantine on the
 core grammar) and expanded one construct at a time, verifying the quarantine rate
@@ -833,7 +1008,8 @@ through `lpnBracketNode` like a record-update expression fixed both
 --comment-rate 0.6` (1200000..1201999) — clean after the v1.13
 type/operator-exposing addition (no formatter bug surfaced; generator-only); and
 a further 6000 seeds — 3000 default (1..3000) + 3000 `--comment-rate 0.6`
-(1400000..1402999) — clean after the v1.14 hex-literal addition (the
-`--max-depth 7` sweep was not run for this addition; run it before relying on
-deep-nesting coverage). The v1.14 hex work is what uncovered the intToHex 2^35
-`//`-truncation bug, fixed first in `6428cbf`.)
+(1400000..1402999) — clean after the v1.14 hex-literal addition; and a further
+3000 seeds at `--max-depth 7 --comment-rate 0.6` (1500000..1502999), run
+2026-07-22, clean — closing the deep-nesting gap this addition had left open.
+The v1.14 hex work is what uncovered the intToHex 2^35 `//`-truncation bug,
+fixed first in `6428cbf`.)
