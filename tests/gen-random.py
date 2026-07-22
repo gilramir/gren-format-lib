@@ -233,8 +233,11 @@ class PortDecl:
 
 
 class Module:
-    def __init__(self, name, imports, decls, doc=None):
+    def __init__(self, name, imports, decls, doc=None, exposing="(..)"):
         self.name, self.imports, self.decls, self.doc = name, imports, decls, doc
+        # The header export list, already rendered: "(..)" or an explicit
+        # "(foo, Bar(..))" built from the real declared names (see module_exposing).
+        self.exposing = exposing
 
 
 # ───────────────────────────── structural queries ─────────────────────────
@@ -696,7 +699,7 @@ def emit_port(d):
 
 def emit_module(m):
     kw = "port module " if any(isinstance(d, PortDecl) for d in m.decls) else "module "
-    header = [kw + m.name + " exposing (..)"]
+    header = [kw + m.name + " exposing " + m.exposing]
     if m.doc is not None:
         # Module doc: exactly one blank line after the header, verified
         # directly against the app — then the SAME import/decl spacing logic
@@ -776,6 +779,14 @@ class Gen:
         # count is cosmetic; these mirror Gren core types (`Array a`, `Maybe a`,
         # `Result e a`, `Dict k v`) so the generated types read as real code.
         self.type_apps = [("Array", 1), ("Maybe", 1), ("Result", 2), ("Dict", 2)]
+        # Fake imported type names and operator symbols for import `exposing`
+        # lists (`import Foo exposing (Alpha(..), (|=), value)`) — these name
+        # things in OTHER modules, which a generated single module never
+        # defines, so any parseable spelling is fine (verified they sort as
+        # operators → types → values). Not reused for the module-header export
+        # list, which draws only real declared names.
+        self.exp_types = ["Alpha", "Bravo", "Gamma", "Delta"]
+        self.exp_ops = ["(|=)", "(|.)", "(</>)", "(>>>)", "(<?>)"]
         # Constructors declared by this module's own `union()` calls so far
         # (populated as decls are generated, in source order — see `union`).
         # [(name, kind)], kind in "none" / "record" / "value" (mirrors
@@ -1421,6 +1432,21 @@ class Gen:
         self.cid += 1
         return c
 
+    def import_exposing_items(self):
+        """A mixed import `exposing` list — value names, type names (bare `T` or
+        open `T(..)`), and operators `(|=)`, in arbitrary author order (the
+        formatter sorts them operators → types → values). Distinct within the
+        list; at least one item."""
+        items = []
+        items += self.rng.sample(self.vars, k=self.rng.randint(0, 2))
+        for tn in self.rng.sample(self.exp_types, k=self.rng.randint(0, 2)):
+            items.append(tn + ("(..)" if self.chance(0.4) else ""))
+        items += self.rng.sample(self.exp_ops, k=self.rng.randint(0, 2))
+        if not items:
+            items.append(self.pick(self.vars))
+        self.rng.shuffle(items)
+        return items
+
     def module(self):
         name = "Gen%d" % self.rng.randint(0, 999)
         nimp = self.rng.randint(0, 3)
@@ -1433,7 +1459,7 @@ class Gen:
             elif r < 0.6:
                 imports.append("import " + mod + " as M" + str(i))
             elif r < 0.8:
-                names = ", ".join(self.pick(self.vars) for _ in range(self.rng.randint(1, 2)))
+                names = ", ".join(self.import_exposing_items())
                 imports.append("import " + mod + " exposing (" + names + ")")
             else:
                 imports.append("import " + mod + " exposing (..)")
@@ -1449,7 +1475,27 @@ class Gen:
                 decls.append(self.union(i))
             else:
                 decls.append(self.port(i))
-        return Module(name, imports, decls, doc=self.doc_comment())
+        return Module(name, imports, decls, doc=self.doc_comment(),
+                      exposing=self.module_exposing(decls))
+
+    def module_exposing(self, decls):
+        """The module header's export list. Half the time the wildcard `(..)`;
+        otherwise an EXPLICIT list of the real declared names — a union may be
+        exposed open (`Name(..)`, exposing its constructors) or closed, every
+        other decl by its bare name. Arbitrary order (the formatter sorts it
+        operators → types → values). Explicit lists reference only names this
+        module actually declares, so the module is well-formed, not just
+        parseable."""
+        if self.chance(0.5):
+            return "(..)"
+        items = []
+        for d in decls:
+            if isinstance(d, UnionDecl):
+                items.append(d.name + ("(..)" if self.chance(0.5) else ""))
+            else:
+                items.append(d.name)
+        self.rng.shuffle(items)
+        return "(" + ", ".join(items) + ")"
 
 
 def generate(seed, max_depth, comment_rate):
@@ -1689,6 +1735,10 @@ def variants(m):
         for i in range(len(m.decls)):
             c = copy.deepcopy(m)
             del c.decls[i]
+            # An explicit header export list names the declared decls; once one
+            # is gone, fall back to `(..)` so the shrunk module never exposes a
+            # removed name (harmless — it parses — but confusing in a repro).
+            c.exposing = "(..)"
             yield c
     # 2. drop a list item
     base = copy.deepcopy(m)

@@ -22,8 +22,8 @@ patterns, and `exposing (..)`**; v1.8 added **char literal expressions, local
 [Char/accessor/operator atoms and let functions](#char-accessor-operator-atoms-and-let-functions)
 below. Comments inside a broken type signature or a multi-line string's
 surrounding expression, `as` nested in non-top-level pattern positions, and the
-remaining coverage gaps (type/operator exposing, hex literals, infix and
-effect-module declarations) remain the next expansion targets (see
+remaining coverage gaps (hex literals, infix and effect-module declarations)
+remain the next expansion targets (see
 [Grammar scope](#grammar-scope)). List patterns beyond fixed-length arrays are
 NOT a gap — Gren has none.
 
@@ -728,11 +728,38 @@ through `lpnBracketNode locType.end` too fixed both shapes. Fixture:
 `ExtensibleRecordTypeTrailingComment`. This is the class the corpus/matrix can't
 reach — a comment adjacent to a construct nobody had hand-written a fixture for.
 
+### Type / operator exposing
+
+**v1.13 (implemented 2026-07-21):** exposing lists gained the two shapes the
+formatter sorts but the generator never emitted — **type exposing** (`T` and the
+constructor-opening `T(..)`) and **operator exposing** (`(|=)`) — in both
+positions:
+
+- **Import `exposing` lists** (`import_exposing_items`): were value names only;
+  now a mixed, arbitrary-order list of value names, type names (bare or open
+  `T(..)`, from a fake `exp_types` pool), and operators (`exp_ops`). These name
+  things in *other* modules, which a generated single module never defines, so
+  any parseable spelling is fine (verified they sort operators → types →
+  values).
+- **The module header export list** (`module_exposing`): was always the wildcard
+  `(..)`; now ~50% an EXPLICIT list built from the module's OWN declared names —
+  a union may be exposed open (`Name(..)`) or closed, every other decl by its
+  bare name. Explicit lists reference only real declarations, so the module is
+  well-formed, not merely parseable. Stored pre-rendered on `Module.exposing`;
+  the shrinker resets it to `(..)` when it drops a decl, so a reduced module
+  never exposes a removed name.
+
+The lists are emitted in arbitrary author order precisely so the formatter's
+sort (operators → types → values, alpha within each — `SortSymbols`) is
+exercised on every run; the sort is AST-safe (exposing order is already
+canonicalized for the existing corpus, so AST-compare treats it as a set). No
+new emit path beyond the header/import strings, and no shrinker case beyond the
+`(..)` reset.
+
 **Remaining expansion targets** (the still-open coverage gaps from the
 2026-07-21 AST-vs-generator audit, in rough value order): local-function bodies
 aside,
-**type/operator exposing** (`T(..)`, `(|=)`) and explicit module-header export
-lists (always `(..)` today); **hex literals** (`0xFF`, expr and pattern); and the
+**hex literals** (`0xFF`, expr and pattern); and the
 low-frequency **infix declarations** and **effect modules**. Also still open:
 comments *inside* a multi-line string's surrounding expression aside from the
 trailing-comment shape already fixed; `as` nested in non-top-level pattern
@@ -782,4 +809,7 @@ non-idempotency in the extensible-record-*type* comment path — a trailing `--`
 after `}` and an own-line comment before `}` both oscillated because the type
 node was built via plain `lpnNode` with no closing-`}` position; routing it
 through `lpnBracketNode` like a record-update expression fixed both
-(`ExtensibleRecordTypeTrailingComment`).)
+(`ExtensibleRecordTypeTrailingComment`); and a further 8000 seeds — 3000 default
+(1..3000) + 3000 `--comment-rate 0.6` (1100000..1102999) + 2000 `--max-depth 7
+--comment-rate 0.6` (1200000..1201999) — clean after the v1.13
+type/operator-exposing addition (no formatter bug surfaced; generator-only).)
