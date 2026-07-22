@@ -22,8 +22,8 @@ patterns, and `exposing (..)`**; v1.8 added **char literal expressions, local
 [Char/accessor/operator atoms and let functions](#char-accessor-operator-atoms-and-let-functions)
 below. Comments inside a broken type signature or a multi-line string's
 surrounding expression, `as` nested in non-top-level pattern positions, and the
-remaining coverage gaps (hex literals, infix and effect-module declarations)
-remain the next expansion targets (see
+remaining coverage gaps (infix and effect-module declarations) remain the next
+expansion targets (see
 [Grammar scope](#grammar-scope)). List patterns beyond fixed-length arrays are
 NOT a gap — Gren has none.
 
@@ -756,10 +756,29 @@ canonicalized for the existing corpus, so AST-compare treats it as a set). No
 new emit path beyond the header/import strings, and no shrinker case beyond the
 `(..)` reset.
 
+### Hex integer literals
+
+**v1.14 (implemented 2026-07-21):** an int literal (expression *and* pattern) is
+now ~25% a **hex literal** rather than always decimal. `gen_int` / `gen_pint`
+pick a log-uniform magnitude up to 2^44 — spanning the everyday small values and
+the `>= 2^35` range — and `Int`/`PInt` carry a `hex` flag rendered by `_int_text`
+as `"0x" + format(v, "x")` (LOWERCASE digits, so the formatter's uppercasing —
+`intToHex` — is exercised; `0xdeadbeef` → `0xDEADBEEF`). The shrinker is
+unaffected (a hex `Int` is an atom; its slot-replacement placeholder stays the
+decimal `Int(0)`).
+
+Hex generation deliberately reaches above 2^35 to guard a formatter bug this
+target uncovered and fixed first (commit `6428cbf`): `intToHex` recursed on
+`n // 16`, and Gren's `//` compiles to JS `(a / b) | 0` — 32-bit-signed — so any
+literal `>= 2^35` was silently corrupted and the AST check then *refused to
+format valid input* (`0x800000000`). The fix (`floor (toFloat n / 16)`) makes
+hex round-trip up to 2^53 - 1, the largest exact JS integer; beyond that the
+parser itself is lossy, so the generator caps at 2^44. Pinned by the pure
+`intToHex` unit suite and the `HexLiteralLarge` end-to-end fixture.
+
 **Remaining expansion targets** (the still-open coverage gaps from the
 2026-07-21 AST-vs-generator audit, in rough value order): local-function bodies
-aside,
-**hex literals** (`0xFF`, expr and pattern); and the
+aside, the
 low-frequency **infix declarations** and **effect modules**. Also still open:
 comments *inside* a multi-line string's surrounding expression aside from the
 trailing-comment shape already fixed; `as` nested in non-top-level pattern
@@ -812,4 +831,9 @@ through `lpnBracketNode` like a record-update expression fixed both
 (`ExtensibleRecordTypeTrailingComment`); and a further 8000 seeds — 3000 default
 (1..3000) + 3000 `--comment-rate 0.6` (1100000..1102999) + 2000 `--max-depth 7
 --comment-rate 0.6` (1200000..1201999) — clean after the v1.13
-type/operator-exposing addition (no formatter bug surfaced; generator-only).)
+type/operator-exposing addition (no formatter bug surfaced; generator-only); and
+a further 6000 seeds — 3000 default (1..3000) + 3000 `--comment-rate 0.6`
+(1400000..1402999) — clean after the v1.14 hex-literal addition (the
+`--max-depth 7` sweep was not run for this addition; run it before relying on
+deep-nesting coverage). The v1.14 hex work is what uncovered the intToHex 2^35
+`//`-truncation bug, fixed first in `6428cbf`.)

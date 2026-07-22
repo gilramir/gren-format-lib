@@ -60,7 +60,7 @@ class E:
 
 
 class Int(E):
-    def __init__(self, v): self.v = v
+    def __init__(self, v, hex=False): self.v, self.hex = v, hex
 
 class FloatLit(E):
     def __init__(self, v): self.v = v  # v: already-formatted source text, e.g. "3.14"
@@ -165,7 +165,7 @@ class PVar:
     def __init__(self, name): self.name = name
 class PWild: pass
 class PInt:
-    def __init__(self, v): self.v = v
+    def __init__(self, v, hex=False): self.v, self.hex = v, hex
 class PStr:
     def __init__(self, v): self.v = v
 class PChar:
@@ -284,7 +284,7 @@ def multiline(n):
 def pad(n): return " " * n
 
 def emit(n, col):
-    if isinstance(n, Int):   return [_inline(n, str(n.v))]
+    if isinstance(n, Int):   return [_inline(n, _int_text(n.v, n.hex))]
     if isinstance(n, FloatLit): return [_inline(n, n.v)]
     if isinstance(n, Neg):   return [_inline(n, "-" + one_line(n.inner))]
     if isinstance(n, Str):   return [_inline(n, '"' + n.v + '"')]
@@ -316,6 +316,14 @@ def _inline(n, s):
     if getattr(n, "pre", None):
         return "{- " + n.pre + " -} " + s
     return s
+
+
+def _int_text(v, is_hex):
+    """Source text for an int literal. Hex is emitted with LOWERCASE digits so
+    the formatter's uppercasing (intToHex) is exercised; the value round-trips
+    up to 2^53 - 1 (the exact-integer limit) since the intToHex 32-bit-`//` bug
+    was fixed."""
+    return ("0x" + format(v, "x")) if is_hex else str(v)
 
 
 def one_line(n):
@@ -542,7 +550,7 @@ def emit_leading(d):
 def emit_pat(p):
     if isinstance(p, PVar):  return p.name
     if isinstance(p, PWild): return "_"
-    if isinstance(p, PInt):  return str(p.v)
+    if isinstance(p, PInt):  return _int_text(p.v, p.hex)
     if isinstance(p, PStr):  return '"' + p.v + '"'
     if isinstance(p, PChar): return "'" + p.v + "'"
     if isinstance(p, PRecord): return "{ " + ", ".join(p.fields) + " }"
@@ -844,10 +852,26 @@ class Gen:
             return Var(self.pick(self.vars))
         return Paren(self.inline(depth - 1))  # base of `.field` must be single line
 
+    def gen_int(self):
+        """An int literal — usually a small decimal, ~25% a hex literal. Hex
+        magnitude is log-uniform up to 2^44: this spans the everyday small
+        values AND the >= 2^35 range that used to corrupt intToHex, while
+        staying well under the 2^53 exact-integer limit. Emitted lowercase so
+        the formatter's uppercasing is exercised."""
+        if self.chance(0.25):
+            return Int(self.rng.randint(0, (1 << self.rng.randint(1, 44)) - 1), hex=True)
+        return Int(self.rng.randint(0, 99))
+
+    def gen_pint(self):
+        """A pattern int literal — same hex spread as `gen_int`."""
+        if self.chance(0.25):
+            return PInt(self.rng.randint(0, (1 << self.rng.randint(1, 44)) - 1), hex=True)
+        return PInt(self.rng.randint(0, 9))
+
     def leaf(self):
         r = self.rng.random()
         if r < 0.30:  return Var(self.pick(self.vars))
-        if r < 0.44:  return Int(self.rng.randint(0, 99))
+        if r < 0.44:  return self.gen_int()
         if r < 0.52:  return self.float_lit()
         if r < 0.64:  return Str(self.str_word())
         if r < 0.70:  return Chr(self.char_content())
@@ -928,7 +952,7 @@ class Gen:
         single-line-guaranteed path."""
         r = self.rng.random()
         if r < 0.38:  return Var(self.pick(self.vars))
-        if r < 0.56:  return Int(self.rng.randint(0, 99))
+        if r < 0.56:  return self.gen_int()
         if r < 0.64:  return self.float_lit()
         if r < 0.78:  return Str(self.str_word())
         if r < 0.85:  return Chr(self.char_content())
@@ -1176,7 +1200,7 @@ class Gen:
         r = self.rng.random()
         if r < 0.32:  return PVar(self.pick(self.vars))
         if r < 0.42:  return PWild()
-        if r < 0.50:  return PInt(self.rng.randint(0, 9))
+        if r < 0.50:  return self.gen_pint()
         if r < 0.57:  return PStr(self.str_word())
         if r < 0.63:  return PChar(self.char_content())
         if r < 0.75:  return PRecord([self.pick(self.fields) for _ in range(self.rng.randint(1, 2))])
