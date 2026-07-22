@@ -770,11 +770,21 @@ insertLambda locExpr { patterns = patterns, body = body } =
                     -- matching what every later reparse settles on.
                     --
                     -- The mixed pipeline can be BURIED under a tighter operator
-                    -- (`node |> 0 <| 0 / String.y` parses as
-                    -- `((node |> 0) <| 0) / String.y`); `mixedPipelineBreaksVertical`
-                    -- walks the left spine to find it.
+                    -- at ANY position, not just the outer one: `node |> 0 <| 0
+                    -- / y` parses as `((node |> 0) <| 0) / y` (buried in the
+                    -- left spine), while `a |> b <| c + d <| e` parses as
+                    -- `(((a |> b) <| c) + d) <| e` — a `<|`-rooted tree whose
+                    -- forward `|>` is buried inside the LEFT operand of a `+`
+                    -- that `flattenPipeline` treats as an opaque seed, so
+                    -- `mixedPipelineBreaksVertical` alone reports "all backward"
+                    -- and misses it. `exprAlwaysBreaks` is the closed, full-tree
+                    -- recursion (it descends BOTH operands of every binop, and
+                    -- calls `mixedPipelineBreaksVertical` at each), so it finds a
+                    -- break-forcing pipeline (or if/when/let) at any depth — one
+                    -- predicate that subsumes every buried shape instead of a
+                    -- left-spine walk extended per newly-found nesting position.
                     bodyAlwaysBreaksVertical =
-                        mixedPipelineBreaksVertical body
+                        exprAlwaysBreaks body
 
                     -- A `let`/`if`/`when` body always drops to its own line
                     -- under `->` (elm-format never glues the keyword to the

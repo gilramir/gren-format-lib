@@ -1,0 +1,9 @@
+module LambdaCommentPipelineBinopSeed exposing (..)
+
+
+fn0 3 =
+    \Just ->
+        {- k -}
+        a
+            |> b
+            <| c + d <| e
