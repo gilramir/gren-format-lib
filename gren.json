@@ -13,6 +13,7 @@
         "Formatter.Audit.PredicateAgreement",
         "Formatter.Logical",
         "Formatter.Logical.LPTJson",
+        "Formatter.Logical.LiteralFormat",
         "Formatter.Render"
     ],
     "gren-version": "0.6.0 <= v < 0.7.0",

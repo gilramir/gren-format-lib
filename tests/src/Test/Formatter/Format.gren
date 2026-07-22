@@ -13,6 +13,7 @@ import Compiler.Parse.Module as PM
 import Compiler.Parse.Context as Context
 import Compiler.Ast.Compare as AstCompare
 import Formatter as PPrint
+import Formatter.Logical.LiteralFormat as LiteralFormat
 import String.Parser.Advanced as Parser
 
 import UnifiedDiff exposing (unifiedDiffStrings)
@@ -20,12 +21,51 @@ import UnifiedDiff exposing (unifiedDiffStrings)
 
 suites : FileSystem.Permission -> Array U.Suite
 suites fsPerm =
-    [ importSuite fsPerm
+    [ intToHexSuite
+    , importSuite fsPerm
     , expressionSuite fsPerm
     , declarationSuite fsPerm
     , commentsSuite fsPerm
     , kitchenSinkSuite fsPerm
     ]
+
+
+{-| Pure unit tests for `LiteralFormat.intToHex` (no fixture, no I/O). The large
+cases pin the fix for the 32-bit-`//` truncation bug: before it, `intToHex`
+corrupted any value >= 2^35 (the first quotient `n // 16` that reaches 2^31
+overflowed negative under JS `(a / b) | 0`), so the formatter emitted a wrong
+hex literal — e.g. `intToHex (2^35)` returned `"F0"` instead of `"800000000"` —
+and the AST check then refused to format valid input like `0x800000000`. These
+cases fail on the old code and pass on `floor (toFloat n / 16)`.
+-}
+intToHexSuite : U.Suite
+intToHexSuite =
+    U.suite
+        { name = "intToHex"
+        , setUpSuite = U.noSuiteFixture
+        , tearDownSuite = U.noTearDown
+        , setUp = U.noFixture
+        , tearDown = U.noTearDown
+        , tests =
+            [ hexCase "0" 0 "0"
+            , hexCase "single digit 10 uppercases to A" 10 "A"
+            , hexCase "15 -> F" 15 "F"
+            , hexCase "255 -> FF" 255 "FF"
+            , hexCase "0xABCDEF" 11259375 "ABCDEF"
+            , hexCase "2^32 - 1 (largest the old code still got right)" 4294967295 "FFFFFFFF"
+            , hexCase "2^35 (exact onset of the old bug)" 34359738368 "800000000"
+            , hexCase "2^35 + 1" 34359738369 "800000001"
+            , hexCase "2^40 - 1 (the reported failure 0xFFFFFFFFFF)" 1099511627775 "FFFFFFFFFF"
+            , hexCase "2^53 - 1 (max exact JS integer)" 9007199254740991 "1FFFFFFFFFFFFF"
+            ]
+        }
+
+
+hexCase : String -> Int -> String -> U.Test {}
+hexCase name input expected =
+    U.test name <|
+        \_ ->
+            Task.succeed (Expect.equal (LiteralFormat.intToHex input) expected)
 
 
 {-| Format a dirty fixture and return the result.
@@ -347,6 +387,7 @@ expressionSuite fsPerm =
             , assertPretty fsPerm "lambda with record and array destructure patterns" "LambdaPatterns"
             , assertPretty fsPerm "binary operators, negation, hex literals" "BinaryOps"
             , assertPretty fsPerm "hex literals are reformatted to uppercase across the whole digit table, in expressions and in patterns; a wrong digit trips the AST-equivalence check" "HexLiteralDigits"
+            , assertPretty fsPerm "hex literals above 2^35 (up to 2^53 - 1) round-trip in expressions and patterns; before the intToHex `//` 32-bit-truncation fix the formatter corrupted them and refused to format valid input" "HexLiteralLarge"
             , assertPretty fsPerm "extensible record types in signatures and aliases" "ExtensibleRecords"
             , assertPretty fsPerm "an extensible record TYPE carries its closing `}` as `lastBracketEnd` (built via `lpnBracketNode`, like a record-update expression and a plain record type), so a trailing `--` after `}` stays at the declaration column and an own-line comment before `}` stays inside — previously the type path used plain `lpnNode` with no close position and both oscillated" "ExtensibleRecordTypeTrailingComment"
             , assertPretty fsPerm "constructor argument that is an as-alias keeps its parens" "CtorAsPattern"

@@ -232,7 +232,16 @@ intToHex n =
         hexDigit n
 
     else
-        intToHex (n // 16) ++ hexDigit (Math.modBy 16 n)
+        -- `n // 16` would truncate to 32-bit signed: Gren's `//` compiles to JS
+        -- `(a / b) | 0`, so the first quotient that reaches 2^31 (i.e. any input
+        -- `n >= 2^35`) overflows negative and the recursion collapses — the
+        -- formatter then emitted a wrong hex literal (caught by the AST check,
+        -- which refused to format valid input like `0x800000000`). `floor
+        -- (toFloat n / 16)` divides in Float (exact for n < 2^53, since /16 just
+        -- shifts the exponent) and takes the exact quotient with no 32-bit
+        -- coercion, so hex round-trips up to the real 2^53 parser limit.
+        -- `Math.modBy` is unaffected (not a bitwise op) and stays as-is.
+        intToHex (Math.floor (toFloat n / 16)) ++ hexDigit (Math.modBy 16 n)
 
 
 -- Format a code point for a `\u{...}` escape: lowercase hex, padded to 4 digits.

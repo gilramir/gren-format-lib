@@ -1,0 +1,26 @@
+module HexLiteralLarge exposing (..)
+
+
+-- Hex literals above 2^35 used to be corrupted by intToHex's `//` (32-bit
+-- truncation), so `gren format` refused valid input. These round-trip now,
+-- up to 2^53 - 1, the largest integer JS represents exactly.
+onset =
+    0x800000000
+
+
+fortyBits =
+    0xFFFFFFFFFF
+
+
+maxSafe =
+    0x1FFFFFFFFFFFFF
+
+
+-- The pattern path (InsertPatterns) reaches intToHex separately.
+classify n =
+    when n is
+        0xDEADBEEF00 ->
+            "big"
+
+        _ ->
+            "other"
