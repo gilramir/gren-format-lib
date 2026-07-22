@@ -20,7 +20,7 @@ import Formatter.Render.CommentBox exposing (commentNodeBox, emptyBracketedComme
 import Formatter.Render.ElmStructure as E
 import Formatter.Render.FlowAssembly exposing (FlowItem, SoftGlueAlignment(..), assembleBrokenCall, assembleBrokenWithComments, bracketPunc, gluedExposingBox, pairTypeRecordComments, parenInnerIsAlignCarrying, softBlockChildForcesVerticalBox, softGlueAlignment, trySoftGlueFlow, verticalExposingBox)
 import Formatter.Render.FlowPolicy as FP
-import Formatter.Render.NodeClassify exposing (fieldValueDropsToOwnLine, isColonLeaf, isDroppingSignatureRecordNode, isMultilineLambdaParenBlockBox, isOpAndRhsNode, isPipelineStepNode, leafLineRow, leafValue, literalCommentsRideFlatLine, nodeIsComment, parenContentIsLambdaHead, rowsSpanMultiple, signatureForceVertical, splitSignatureSegments, subtreeHasComment, subtreeHasMultilineBlockComment, typeHasCommentBracket)
+import Formatter.Render.NodeClassify exposing (fieldValueDropsToOwnLine, isColonLeaf, isDroppingSignatureRecordNode, isMultilineLambdaParenBlockBox, isOpAndRhsNode, isPipelineStepNode, leafLineRow, leafValue, literalCommentsRideFlatLine, nodeIsComment, parenContentIsLambdaHead, rowsSpanMultiple, signatureForceVertical, splitSignatureSegments, subtreeEndsWithLineComment, subtreeHasComment, subtreeHasMultilineBlockComment, typeHasCommentBracket)
 
 
 {-| Entry point: render one top-level root child to a Box, or `Err` if it
@@ -1014,6 +1014,13 @@ makeBackwardPipelineBox forceVertical children =
                 && not (literalCommentsRideFlatLine seedNodes)
             )
                 || Array.any stepNeedsCommentedLayout stepNodes
+                -- A `--` line comment buried at the end of the seed's own
+                -- subtree (e.g. a nested binop's `"""…""" -- c` operand) is
+                -- invisible to the shallow `nodeIsComment seedNodes` scan above,
+                -- but the trailing-operator path would `B.addSuffix " <|"` onto
+                -- the seed's `-- c` line and swallow the `<|`. Route to the
+                -- comment-aware layout, which stacks `<| body` on its own line.
+                || Array.any subtreeEndsWithLineComment seedNodes
 
         -- The operator is the first NON-comment child (a step may lead with an
         -- own-line comment before `<|`).
@@ -3552,7 +3559,24 @@ assembleFlowImpl inlineStart flowIndent items =
                     paired.item
 
                 decision =
-                    FP.decide config acc.state (factsFor item)
+                    let
+                        base =
+                            FP.decide config acc.state (factsFor item)
+                    in
+                    if subtreeEndsWithLineComment item.node then
+                        -- This item's rendered box ends its last line in an open
+                        -- `--` (a `--` buried at the end of a multi-line operand's
+                        -- subtree — e.g. a `<|`-pipeline operand whose last step is
+                        -- `"""…""" -- c`). The following operator/leaf would glue
+                        -- onto that line via `glueOntoLastRow`, landing inside the
+                        -- comment and being swallowed. Leave the separator
+                        -- `AlreadyTerminated` — the state a `--` comment ITEM
+                        -- leaves, meaning "the previous line ended in a terminating
+                        -- comment; the next item starts its own line, no glue".
+                        { base | next = { separator = FP.AlreadyTerminated } }
+
+                    else
+                        base
             in
             when item.comment is
                 Just c ->

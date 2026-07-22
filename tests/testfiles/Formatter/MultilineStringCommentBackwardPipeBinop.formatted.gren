@@ -1,0 +1,11 @@
+module M exposing (acc)
+
+
+acc rec =
+    0
+        + """
+
+              foxtrot alpha
+              "delta"
+          """ -- k19
+        <| rec

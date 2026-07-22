@@ -555,6 +555,16 @@ commentsSuite fsPerm =
             , assertPretty fsPerm "multi-line block comment trailing a when-branch body glues onto its last line" "WhenBranchMultilineTrailingComment"
             , assertPretty fsPerm "multi-line block comment trailing a bracket-list item glues onto its last line" "ListItemMultilineTrailingComment"
             , assertPretty fsPerm "multi-line block comment trailing a backward-pipeline step glues onto its last line" "BackwardPipeMultilineTrailingComment"
+            -- Regression guards for the multiline-string `--`-swallow fix
+            -- (subtreeEndsWithLineComment). A `--` comment buried at the end of a
+            -- multi-line-string operand's subtree must NOT let the following
+            -- operator/step glue onto its line (a `--` runs to EOL, swallowing the
+            -- operator into the comment — an ast-mismatch). Two code paths:
+            -- the backward-pipeline seed (Site A) and the binop precedence group
+            -- (Site B).
+            , assertPretty fsPerm "backward `<|` whose seed ends in a `\"\"\"…\"\"\" -- c` operand stacks `<|` below the comment, not glued onto it" "MultilineStringCommentBackwardPipeSeed"
+            , assertPretty fsPerm "backward `<|` seed `0 + \"\"\"…\"\"\" -- c` stacks `<| rhs` below the comment line" "MultilineStringCommentBackwardPipeBinop"
+            , assertPretty fsPerm "binop precedence chain around a `<|`-pipeline operand ending `\"\"\"…\"\"\" -- c` breaks the next operator below, not onto the comment" "MultilineStringCommentBinopPrecedence"
             , assertPretty fsPerm "multi-line block comment trailing a multi-line item in a broken call glues onto its last line" "BrokenCallMultilineTrailingComment"
             -- Regression guards for the broken/blockrec oscillation fix: a multi-line
             -- comment trailing a dropped EXPRESSION block (list / record, incl. under

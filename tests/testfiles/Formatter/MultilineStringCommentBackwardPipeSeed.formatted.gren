@@ -1,0 +1,9 @@
+module M exposing (fn0)
+
+
+fn0 =
+    z
+        * """
+                  echo sierra delta
+          """ -- k1
+        <| 0

@@ -1,4 +1,4 @@
-module Formatter.Render.NodeClassify exposing (fieldValueDropsToOwnLine, isArrowLeaf, isColonLeaf, isDroppingSignatureRecordNode, isElidedArrow, isEmptyLine, isMultilineLambdaParenBlockBox, isOpAndRhsNode, isPipelineStepNode, leafLineRow, leafValue, literalCommentsRideFlatLine, nodeIsComment, parenContentIsLambdaHead, rowsSpanMultiple, segFirstRow, segLastRow, signatureForceVertical, splitSignatureSegments, subtreeHasComment, subtreeHasMultilineBlockComment, typeHasCommentBracket)
+module Formatter.Render.NodeClassify exposing (fieldValueDropsToOwnLine, isArrowLeaf, isColonLeaf, isDroppingSignatureRecordNode, isElidedArrow, isEmptyLine, isMultilineLambdaParenBlockBox, isOpAndRhsNode, isPipelineStepNode, leafLineRow, leafValue, literalCommentsRideFlatLine, nodeIsComment, parenContentIsLambdaHead, rowsSpanMultiple, segFirstRow, segLastRow, signatureForceVertical, splitSignatureSegments, subtreeEndsWithLineComment, subtreeHasComment, subtreeHasMultilineBlockComment, typeHasCommentBracket)
 
 {-| Boolean predicates and small structural queries over LPT nodes.
 -}
@@ -30,6 +30,53 @@ nodeIsComment node =
 subtreeHasComment : LPNode -> Bool
 subtreeHasComment node =
     nodeIsComment node || Array.any subtreeHasComment (lpnChildren node)
+
+
+{-| True when the node's last-rendered descendant is a `--` line comment — so
+gluing anything onto the rendered box's last line would land inside that comment
+and be silently swallowed (a `--` runs to end of line). The binop/pipeline
+assemblers glue an operator/step onto an operand's last line with `B.addSuffix`
+/ `glueOntoLastRow`; consulting this first lets them break instead when the
+operand ends in an open `--`.
+
+Descends the right spine (the last child at each level) reading LPT shape only —
+no rendered text, no source rows — so it is render-invariant safe. It STOPS at
+bracket / paren container boxes, whose rendered last line is a synthesized
+closing delimiter (`]` `}` `)`) emitted AFTER their last child: gluing onto that
+delimiter is safe even when the container's own last child is a comment, and
+descending into them would over-trigger. Only `SingleLineComment` is a hazard —
+`{- … -}` / `{-| … -}` self-terminate, so a block or doc comment as the last
+descendant is safe to glue after; `MultilineString` is a childless leaf ending
+in `"""`, so the empty-children branch already returns False for it.
+-}
+subtreeEndsWithLineComment : LPNode -> Bool
+subtreeEndsWithLineComment node =
+    when lpnBox node is
+        SingleLineComment _ ->
+            True
+
+        AllAcrossOrAllVertical _ ->
+            False
+
+        AlwaysVertical _ ->
+            False
+
+        RecordUpdate _ ->
+            False
+
+        ParenBlock _ ->
+            False
+
+        EmptyBracketed _ ->
+            False
+
+        _ ->
+            when Array.last (lpnChildren node) is
+                Just child ->
+                    subtreeEndsWithLineComment child
+
+                Nothing ->
+                    False
 
 
 {-| True when every comment among a bracketed literal's direct children can ride
