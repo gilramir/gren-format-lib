@@ -42,6 +42,8 @@ WORDS = ["alpha", "bravo", "delta", "echo", "foxtrot", "sierra", "tango"]
 # hex lowercased in a char literal) rather than merely echoed back.
 STR_ESCAPES = ["\\n", "\\t", "\\\\", "\\\"", "\\u{0041}", "\\u{00e9}", "\\u{1F600}"]
 CHAR_ESCAPES = ["\\n", "\\t", "\\\\", "\\'", "\\u{0041}", "\\u{1F600}"]
+# Concrete (arity-0) type-constructor names, used as leaf types and type-app args.
+TYPE_CONS = ["Int", "Float", "String", "Bool", "Char"]
 INDENT = 4
 
 
@@ -761,6 +763,12 @@ class Gen:
         self.fields = ["name", "count", "value", "next", "kind"]
         self.ctors = ["Just", "Nothing", "Ok", "Err", "Leaf", "Node"]
         self.mods = ["String", "Array", "Dict", "Maybe"]
+        # Type-application heads paired with a realistic arg count, for richer
+        # type application (`Dict String Int`, `Array (Array a)`) — see
+        # `gen_type_app`. The parser this targets does not enforce arity, so the
+        # count is cosmetic; these mirror Gren core types (`Array a`, `Maybe a`,
+        # `Result e a`, `Dict k v`) so the generated types read as real code.
+        self.type_apps = [("Array", 1), ("Maybe", 1), ("Result", 2), ("Dict", 2)]
         # Constructors declared by this module's own `union()` calls so far
         # (populated as decls are generated, in source order — see `union`).
         # [(name, kind)], kind in "none" / "record" / "value" (mirrors
@@ -1200,17 +1208,37 @@ class Gen:
             return self.pick(self.mods) + "." + name
         return name
 
+    def gen_type_arg(self, depth, var_pool):
+        """One argument of a type application. A concrete con, a var, or — when
+        depth allows — a nested application (`Array (Maybe a)`). `_type_atom`
+        parenthesizes a nested `app` automatically, so this returns the bare IR.
+        Kept to con/var/app (no bare arrow or record arg) — those need their own
+        verification pass and are a separate expansion target."""
+        r = self.rng.random()
+        if depth <= 0 or r < 0.5:
+            return ("con", self.qualify_type_name(self.pick(TYPE_CONS)))
+        if r < 0.75:
+            return ("var", self.pick(var_pool))
+        return self.gen_type_app(depth - 1, var_pool)
+
+    def gen_type_app(self, depth, var_pool):
+        """A type application `Head arg…` with a realistic arg count from
+        `self.type_apps` — concrete (`Array String`), multi-arg (`Dict String
+        Int`), and nested (`Array (Array a)`) via `gen_type_arg`. The head may
+        be qualified like any other type name (`Array.Dict String Int`)."""
+        head, arity = self.pick(self.type_apps)
+        args = [self.gen_type_arg(depth, var_pool) for _ in range(arity)]
+        return ("app", self.qualify_type_name(head), args)
+
     def gen_type(self, depth, vars=None):
         r = self.rng.random()
-        cons = ["Int", "Float", "String", "Bool", "Char"]
         var_pool = vars if vars else ["a", "b", "c"]
         if depth <= 0 or r < 0.4:
-            return ("con", self.qualify_type_name(self.pick(cons)))
+            return ("con", self.qualify_type_name(self.pick(TYPE_CONS)))
         if r < 0.55:
             return ("var", self.pick(var_pool))
         if r < 0.7:
-            return ("app", self.qualify_type_name(self.pick(["Array", "Maybe"])),
-                    [("var", self.pick(var_pool))])
+            return self.gen_type_app(depth, var_pool)
         if r < 0.85:
             k = self.rng.randint(2, 3)
             return ("arrow", [self.gen_type(depth - 1, vars) for _ in range(k)])
@@ -1303,15 +1331,13 @@ class Gen:
         generator still caps arity at 1 to match current valid Gren rather
         than lean on that gap."""
         r = self.rng.random()
-        cons = ["Int", "Float", "String", "Bool", "Char"]
         var_pool = params if params else ["a", "b", "c"]
         if depth <= 0 or r < 0.45:
-            return ("con", self.qualify_type_name(self.pick(cons)))
+            return ("con", self.qualify_type_name(self.pick(TYPE_CONS)))
         if r < 0.65:
             return ("var", self.pick(var_pool))
         if r < 0.85:
-            return ("app", self.qualify_type_name(self.pick(["Array", "Maybe"])),
-                    [("var", self.pick(var_pool))])
+            return self.gen_type_app(depth, var_pool)
         k = self.rng.randint(2, 3)
         return ("arrow", [self.variant_arg_type(depth - 1, params) for _ in range(k)])
 

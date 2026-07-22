@@ -22,9 +22,9 @@ patterns, and `exposing (..)`**; v1.8 added **char literal expressions, local
 [Char/accessor/operator atoms and let functions](#char-accessor-operator-atoms-and-let-functions)
 below. Comments inside a broken type signature or a multi-line string's
 surrounding expression, `as` nested in non-top-level pattern positions, and the
-remaining coverage gaps (richer type
-application, extensible record types, type/operator exposing, hex literals,
-infix and effect-module declarations) remain the next expansion targets (see
+remaining coverage gaps (extensible record types, type/operator exposing, hex
+literals, infix and effect-module declarations) remain the next expansion
+targets (see
 [Grammar scope](#grammar-scope)). List patterns beyond fixed-length arrays are
 NOT a gap — Gren has none.
 
@@ -668,12 +668,44 @@ Only the *name* is qualified, not the type variables or the whole application
 references are written. The shrinker needs no new case (a type is not an
 expression slot; `child_slots` never descends into a signature).
 
+### Richer type application
+
+**v1.11 (implemented 2026-07-21):** type application was capped at `Array a` /
+`Maybe a` — a single-var argument under one of two arity-1 heads. It now spans
+the real shape space: **concrete args** (`Array String`), **multi-arg heads**
+(`Dict String Int`, `Result Error a`), and **nested application** (`Array (Array
+a)`, `Maybe (Dict String Int)`). Two new helpers replace the old inline `app`
+tuple in `gen_type` and `variant_arg_type`:
+
+- `gen_type_app` picks a `(head, arity)` from the new `self.type_apps` pool
+  (`Array`/`Maybe` arity 1, `Result`/`Dict` arity 2 — mirroring Gren core
+  types) and emits `arity` arguments. The head is run through
+  `qualify_type_name` like any other type name, so `Array.Dict String Int` can
+  occur (the parser does not enforce arity, so a qualified/fake head with any
+  count still parses).
+- `gen_type_arg` produces one argument — a concrete `con`, a `var`, or (when
+  depth allows) a nested `gen_type_app` — bounded by the same depth counter as
+  the rest of type generation.
+
+No new emit case: `emit_type`'s `app` arm already renders `head arg…`, and
+`_type_atom` already parenthesizes a nested `app` (or `arrow`) argument. This
+parenthesization is load-bearing for variant payloads — a variant's single arg
+is emitted via `_type_atom`, so a multi-arg app becomes `Ctor (Dict String
+Int)`, never `Ctor Dict String Int` (which would reparse as a three-argument
+variant, a different AST). Arguments are kept to con/var/app; a bare `arrow` or
+`record` argument (`Array (a -> b)`, `Array { f : T }`) needs its own
+verification pass and is left as a separate target. The concrete leaf-con list
+that was duplicated inline in `gen_type`/`variant_arg_type`/`gen_type_arg` is
+now the module-level `TYPE_CONS`.
+
+Verified against the app before wiring in — concrete, multi-arg, nested, and
+qualified-head applications as a signature type, alias RHS, record field, port
+payload, and variant arg all parse and format identically to their canonical
+form. The shrinker needs no new case (a type is not an expression slot).
+
 **Remaining expansion targets** (the still-open coverage gaps from the
 2026-07-21 AST-vs-generator audit, in rough value order): local-function bodies
-aside, **richer type
-application** (concrete/multi-arg/nested — `Dict String Int`, `Array (Array
-a)`, currently capped at `Array`/
-`Maybe` of a single var); **extensible record types (`{ r | field : T }`)**;
+aside, **extensible record types (`{ r | field : T }`)**;
 **type/operator exposing** (`T(..)`, `(|=)`) and explicit module-header export
 lists (always `(..)` today); **hex literals** (`0xFF`, expr and pattern); and the
 low-frequency **infix declarations** and **effect modules**. Also still open:
@@ -714,4 +746,7 @@ lambda-body leading comment before a `<|`-rooted mixed pipeline with the `|>`
 buried in a binop operand — unrelated to this generator change (it reproduced
 with a fully unqualified hand-written repro); that bug is now fixed
 (`LambdaCommentPipelineBinopSeed`, `exprAlwaysBreaks` in `insertLambda`), and
-the sweep is clean against the fixed formatter.)
+the sweep is clean against the fixed formatter; and a further 8000 seeds — 3000
+default (1..3000) + 3000 `--comment-rate 0.6` (500000..502999) + 2000
+`--max-depth 7 --comment-rate 0.6` (600000..601999) — clean after the v1.11
+richer-type-application addition.)
