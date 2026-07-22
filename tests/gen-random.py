@@ -581,6 +581,13 @@ def emit_type(t):
     if kind == "arrow": return " -> ".join(emit_type(x) for x in t[1])
     if kind == "record":
         return "{ " + ", ".join(f + " : " + emit_type(ft) for f, ft in t[1]) + " }"
+    if kind == "exrecord":
+        # Extensible record `{ base | field : T, … }`. Emitted inline like any
+        # record type; the formatter breaks it (base on the `{` line, `|`/`,`
+        # fields +4 beneath) only when the author wrote it broken, which this
+        # generator never does for a record type — same as the plain `record`.
+        base, fields = t[1], t[2]
+        return "{ " + base + " | " + ", ".join(f + " : " + emit_type(ft) for f, ft in fields) + " }"
     if kind == "paren":
         return "(" + emit_type(t[1]) + ")"
     raise ValueError("emit_type")
@@ -1243,8 +1250,16 @@ class Gen:
             k = self.rng.randint(2, 3)
             return ("arrow", [self.gen_type(depth - 1, vars) for _ in range(k)])
         k = self.rng.randint(1, 2)
-        return ("record", [(self.pick(self.fields) + str(i), self.gen_type(depth - 1, vars))
-                           for i in range(k)])
+        fields = [(self.pick(self.fields) + str(i), self.gen_type(depth - 1, vars))
+                  for i in range(k)]
+        # Sometimes an EXTENSIBLE record `{ base | field : T }` — a type var
+        # (drawn from the same pool as a bare `var` type) extends the record.
+        # gren-format never type-checks, so any lowercase base parses; realistic
+        # ones (an alias param, `type alias Ext a = { a | … }`) fall out
+        # naturally since the pool is the enclosing params for an alias RHS.
+        if self.chance(0.35):
+            return ("exrecord", self.pick(var_pool), fields)
+        return ("record", fields)
 
     def maybe_arrow_comment(self, t, broken):
         """Maybe a comment riding one of an author-broken arrow type's `->`

@@ -22,9 +22,8 @@ patterns, and `exposing (..)`**; v1.8 added **char literal expressions, local
 [Char/accessor/operator atoms and let functions](#char-accessor-operator-atoms-and-let-functions)
 below. Comments inside a broken type signature or a multi-line string's
 surrounding expression, `as` nested in non-top-level pattern positions, and the
-remaining coverage gaps (extensible record types, type/operator exposing, hex
-literals, infix and effect-module declarations) remain the next expansion
-targets (see
+remaining coverage gaps (type/operator exposing, hex literals, infix and
+effect-module declarations) remain the next expansion targets (see
 [Grammar scope](#grammar-scope)). List patterns beyond fixed-length arrays are
 NOT a gap — Gren has none.
 
@@ -703,9 +702,35 @@ qualified-head applications as a signature type, alias RHS, record field, port
 payload, and variant arg all parse and format identically to their canonical
 form. The shrinker needs no new case (a type is not an expression slot).
 
+### Extensible record types
+
+**v1.12 (implemented 2026-07-21):** the record-type branch of `gen_type` now
+~35% of the time emits an **extensible record** `{ base | field : T, … }`
+instead of a plain `{ field : T, … }`. The `base` is a type variable drawn from
+the same pool as a bare `var` type — which for an alias RHS is the alias's own
+params (`gen_type(2, params)`), so `type alias Ext a = { a | … }` falls out
+naturally; gren-format never type-checks, so any lowercase base parses. New IR
+kind `("exrecord", base, fields)` with one new `emit_type` arm; no `_type_atom`
+change (a record is self-delimiting by `{ }`, never parenthesized as an arg) and
+no shrinker case (a type is not an expression slot). Like every record type it
+is emitted inline — the formatter breaks it (base on the `{` line, `|`/`,`
+fields +4 beneath) only when the author wrote it broken, which this generator
+never does for a record type.
+
+**Surfaced a real formatter bug, fixed the same day** (`InsertTypes.gren`): an
+extensible record *type* built its LPT node via plain `lpnNode`, which records
+no closing-`}` position, so a trailing `--` after `}` at a declaration's end
+oscillated col 4 ↔ col 0, and an own-line comment before `}` oscillated too. A
+record-*update expression* and a plain record type both build through
+`lpnBracketNode` (which stores the `}` as `lastBracketEnd` for the
+comment-placement descent guards) and were fine. Routing the extensible type
+through `lpnBracketNode locType.end` too fixed both shapes. Fixture:
+`ExtensibleRecordTypeTrailingComment`. This is the class the corpus/matrix can't
+reach — a comment adjacent to a construct nobody had hand-written a fixture for.
+
 **Remaining expansion targets** (the still-open coverage gaps from the
 2026-07-21 AST-vs-generator audit, in rough value order): local-function bodies
-aside, **extensible record types (`{ r | field : T }`)**;
+aside,
 **type/operator exposing** (`T(..)`, `(|=)`) and explicit module-header export
 lists (always `(..)` today); **hex literals** (`0xFF`, expr and pattern); and the
 low-frequency **infix declarations** and **effect modules**. Also still open:
@@ -749,4 +774,12 @@ with a fully unqualified hand-written repro); that bug is now fixed
 the sweep is clean against the fixed formatter; and a further 8000 seeds — 3000
 default (1..3000) + 3000 `--comment-rate 0.6` (500000..502999) + 2000
 `--max-depth 7 --comment-rate 0.6` (600000..601999) — clean after the v1.11
-richer-type-application addition.)
+richer-type-application addition; and a further 8000 seeds — 3000 default
+(1..3000) + 3000 `--comment-rate 0.6` (800000..802999) + 2000 `--max-depth 7
+--comment-rate 0.6` (900000..901999) — clean after the v1.12 extensible-record
+addition, which itself surfaced (and drove the fix of) a formatter
+non-idempotency in the extensible-record-*type* comment path — a trailing `--`
+after `}` and an own-line comment before `}` both oscillated because the type
+node was built via plain `lpnNode` with no closing-`}` position; routing it
+through `lpnBracketNode` like a record-update expression fixed both
+(`ExtensibleRecordTypeTrailingComment`).)
