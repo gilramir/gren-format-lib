@@ -348,6 +348,7 @@ expressionSuite fsPerm =
             , assertPretty fsPerm "binary operators, negation, hex literals" "BinaryOps"
             , assertPretty fsPerm "hex literals are reformatted to uppercase across the whole digit table, in expressions and in patterns; a wrong digit trips the AST-equivalence check" "HexLiteralDigits"
             , assertPretty fsPerm "extensible record types in signatures and aliases" "ExtensibleRecords"
+            , assertPretty fsPerm "an extensible record TYPE carries its closing `}` as `lastBracketEnd` (built via `lpnBracketNode`, like a record-update expression and a plain record type), so a trailing `--` after `}` stays at the declaration column and an own-line comment before `}` stays inside — previously the type path used plain `lpnNode` with no close position and both oscillated" "ExtensibleRecordTypeTrailingComment"
             , assertPretty fsPerm "constructor argument that is an as-alias keeps its parens" "CtorAsPattern"
             , assertPretty fsPerm "multi-line string opened mid-line aligns content to opening column" "MultilineStringInline"
             , assertPretty fsPerm "let-binding type signature is preserved; every binding drops its body to the next line" "LetBindingSignature"

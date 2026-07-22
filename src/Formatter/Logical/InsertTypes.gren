@@ -172,15 +172,26 @@ makeSignatureBranch locType =
                                     Just locVar ->
                                         -- Extensible record type: render with the
                                         -- same layout as a record update, so `|` and
-                                        -- `,` align under the base name. Extend the
-                                        -- RecordUpdate box's range to the closing `}`
-                                        -- (locVar.end is only the extension variable).
-                                        [ lpnNode
+                                        -- `,` align under the base name. Build it
+                                        -- through `lpnBracketNode` with the closing
+                                        -- `}` (`locType.end`), exactly like a record-
+                                        -- update expression (`insertUpdate`) and a
+                                        -- plain record type above — that records the
+                                        -- `}` as the node's `lastBracketEnd`, which the
+                                        -- comment-placement descent guards read to keep
+                                        -- an own-line comment before `}` inside the
+                                        -- record and a trailing comment after `}` at the
+                                        -- declaration's own column. Plain `lpnNode` set
+                                        -- no close position (`name.end` is not it), so
+                                        -- both comment shapes oscillated. `name.end` is
+                                        -- also extended to the `}` to match `insertUpdate`.
+                                        [ lpnBracketNode
                                             (RecordUpdate
                                                 { name = { locVar | end = locType.end }
                                                 , forceVertical = fieldsMultiLine
                                                 }
                                             )
+                                            locType.end
                                             fieldNodes
                                             |> lpnWithBracketStart locType.start
                                         ]

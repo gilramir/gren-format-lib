@@ -1,0 +1,13 @@
+module ExtensibleRecordTypeTrailingComment exposing (..)
+
+
+type alias Extend a =
+    { a | count : Int } -- trailing
+
+
+type alias ExtendMulti base =
+    { base
+        | name : String
+        -- inside, before the close
+        , kind : Bool
+    }
