@@ -74,7 +74,9 @@ The larger section explains the [Gren Formatter Rules](#gren-formatter-rules).
   - [A line break inside a declaration's head](#a-line-break-inside-a-declarations-head)
   - [Comments near an effect module's `where` block](#comments-near-an-effect-modules-where-block)
   - [A comment right after `exposing` doesn't sort with the first name](#a-comment-right-after-exposing-doesnt-sort-with-the-first-name)
-  - [A comment past a flat module `exposing` list](#a-comment-past-a-flat-module-exposing-list)
+  - [A module `exposing` list's closing paren isn't recorded](#a-module-exposing-lists-closing-paren-isnt-recorded)
+    - [A comment past a flat list](#a-comment-past-a-flat-list)
+    - [Two comments stacked before a vertical list's `)`](#two-comments-stacked-before-a-vertical-lists-)
   - [A comment after the last binding in a `let`](#a-comment-after-the-last-binding-in-a-let)
   - [Two fixtures parse a custom-type shape the language no longer allows](#two-fixtures-parse-a-custom-type-shape-the-language-no-longer-allows)
   - [Block comment body indentation](#block-comment-body-indentation)
@@ -2410,7 +2412,7 @@ belongs to the name and travels with it (see
 The same canonical choice can't be made when you wrote the list flat, on one
 row: there, "before the `)`" and "after the `)`" are the same row, and the `)`
 you'd measure against isn't recorded. See
-[A comment past a flat module `exposing` list](#a-comment-past-a-flat-module-exposing-list).
+[A module `exposing` list's closing paren isn't recorded](#a-module-exposing-lists-closing-paren-isnt-recorded).
 
 An import's exposing list has none of this ambiguity — the parser does record
 where an import ends, so both a flat and a vertical import list keep a comment
@@ -2593,14 +2595,21 @@ A comment before any *other* name in the list (not the first) doesn't have
 this issue — it travels with its name normally, as shown in
 [Exposed names sort automatically](#exposed-names-sort-automatically).
 
-### A comment past a flat module `exposing` list
+### A module `exposing` list's closing paren isn't recorded
 
 The closing `)` of a module header's `exposing ( ... )` list has no position in
 the AST — the parser records where each exposed *name* is, but nothing about the
-brackets around them. When you wrote the list across rows that costs nothing: the
-`)` is on its own row below the last name, so a comment after that name is
-recognised by its row and stays inside the list (see
+brackets around them. Mostly that costs nothing: when you wrote the list across
+rows, the `)` is on its own row below the last name, so a comment after that name
+is recognised by its row and stays inside the list (see
 [When the formatter can't tell what you meant](#when-the-formatter-cant-tell-what-you-meant)).
+Two shapes do pay for it.
+
+An import's list pays for neither — the parser records where an import ends, `)`
+included, so a comment there stays on whichever side of the `)` you wrote it,
+however much space you left, and however many comments you stack up.
+
+#### A comment past a flat list
 
 When you wrote the list flat, everything is on one row and the row tells you
 nothing. A comment written *inside* the brackets and one written *past* them look
@@ -2638,9 +2647,60 @@ it as the list sorts, while a comment you set apart at the end of the header is
 usually about the module. Telling them apart properly needs the parser to record
 the exposing list's brackets; until then the gap is the only signal there is.
 
-An import's list has no such problem — the parser records where an import ends,
-`)` included, so a comment stays on whichever side of the `)` you wrote it,
-however much space you left.
+#### Two comments stacked before a vertical list's `)`
+
+One comment on its own line between the last name and the `)` stays inside the
+list. A second one directly below it does not — it's moved out and below,
+becoming a comment of its own above the declarations:
+
+```gren
+module Stacked exposing
+    ( apple
+    , zebra
+    {- first, above the close paren -}
+    {- second, also above the close paren -}
+    )
+```
+
+becomes:
+
+```gren
+module Stacked exposing
+    ( apple
+    , zebra
+    {- first, above the close paren -}
+    )
+
+{- second, also above the close paren -}
+```
+
+Nothing is lost and the result is stable — reformatting it leaves it alone — but
+the second comment has moved out of the brackets it was written in.
+
+The reason is again the unrecorded `)`. The module line is known to reach one row
+past its last name, which is where a vertical list's `)` sits — that's how the
+first comment is recognised as being inside. Absorbing it pushes the `)` down a
+row, but the formatter can't extend the module line to follow, because the row it
+would extend onto is also where a comment written *below* the `)` lands. These
+two files are handed to the formatter as byte-identical ASTs and byte-identical
+comment positions:
+
+```gren
+module Amb exposing            module Amb exposing
+    ( apple                        ( apple
+    , zebra                        , zebra
+      {- first -}                  ) {- first -}
+      {- second -}                   {- second -}
+    )
+```
+
+so keeping the second comment inside the list on the left would equally pull the
+right-hand one in — and that one was written below the close. The same reasoning
+protects a comment written after a `) -- note` line, which is the common version
+of the right-hand shape. Only the column tells the two apart, and comment
+placement here is deliberately decided by row, never by how deeply a comment is
+indented — see
+[A comment on its own line below a declaration](#a-comment-on-its-own-line-below-a-declaration).
 
 ### A comment after the last binding in a `let`
 
