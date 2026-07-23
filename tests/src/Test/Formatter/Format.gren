@@ -306,6 +306,7 @@ importSuite fsPerm =
             , assertPretty fsPerm "a blank-line-separated leading comment in an exposing list still travels with its name, not treated as a section barrier" "ExposingListSortCommentBarrier"
             , assertPretty fsPerm "import statements sort alphabetically only within a run with no blank line or comment between them; blank lines and own-line comments are boundaries that split groups and never move" "ImportGroupSort"
             , assertPretty fsPerm "a comment trailing an import on its own source row travels with it within its group, unlike an own-line comment" "ImportGroupSortTrailingComment"
+            , assertPretty fsPerm "a block comment the author glued to the front of a top-level declaration (single- and multi-line, one or more) stays glued on that line (LeadsInline); a glued import travels with its module name when the run sorts and never breaks the run" "LeadingGluedComment"
             , assertPretty fsPerm "imports of the same module keep their original relative order (stable sort tie-break)" "ImportSameModuleStableSort"
             , assertPretty fsPerm "a comment among exposing-list items (a non-name list child), and an out-of-order import carrying a same-row trailing comment, both sort correctly" "SortSymbolsComments"
             , assertPretty fsPerm "<| lambda body indents +4 per level, not +8" "BackwardPipelineLambda"

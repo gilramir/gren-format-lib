@@ -15,8 +15,8 @@ import Formatter.Logical.BinopPrecedence exposing (binopMinPrecedence, binopPrec
 import Formatter.Logical.LogicalPrintingTree exposing (CommentRole(..), LPBox(..), LPNode, ListBrackets(..), SyntaxType(..), commentRole, firstRowInSubtree, lpnBox, lpnChildren, lpnLastBracketEnd, lpnLastPos, lpnMaxRow, prefixGlyph)
 import Formatter.Render.BinopLayout exposing (assembleBinopBox, flattenBinopNodes, isChainBreakingOperandBox, opText, splitTrailingOwnLineComments)
 import Formatter.Render.Box as B exposing (Box(..))
-import Formatter.Render.BoxOps exposing (applyIndent, blockIndentSpaces, boxLine, glueCommentSuffix, grenIndent, isBlockNode, isSingleLine, joinInline, prefixOperator, spaceJoinLines, stackWithBlanks, traverseResult, wrapParenVerticalPadded)
-import Formatter.Render.CommentBox exposing (commentNodeBox, emptyBracketedCommentLine, glueTrailingComments, makeCommentLineBox, multiLineBlockCommentBox, peelTrailingCommentNodes, spanLeadingComments, spanTrailingComments)
+import Formatter.Render.BoxOps exposing (applyIndent, blockIndentSpaces, boxLine, glueCommentSuffix, glueLeadingCommentPrefix, grenIndent, isBlockNode, isSingleLine, joinInline, prefixOperator, spaceJoinLines, stackWithBlanks, traverseResult, wrapParenVerticalPadded)
+import Formatter.Render.CommentBox exposing (commentNodeBox, commentNodeToBox, emptyBracketedCommentLine, glueTrailingComments, makeCommentLineBox, multiLineBlockCommentBox, peelTrailingCommentNodes, spanLeadingComments, spanTrailingComments)
 import Formatter.Render.ElmStructure as E
 import Formatter.Render.FlowAssembly exposing (FlowItem, SoftGlueAlignment(..), assembleBrokenCall, assembleBrokenWithComments, bracketPunc, gluedExposingBox, pairTypeRecordComments, parenInnerIsAlignCarrying, softBlockChildForcesVerticalBox, softGlueAlignment, trySoftGlueFlow, verticalExposingBox)
 import Formatter.Render.FlowPolicy as FP
@@ -30,45 +30,28 @@ makePrettyLineBox : LPNode -> Result String Box
 makePrettyLineBox node =
     when lpnBox node is
         OriginalRows { stype = stype } ->
-            when stype is
-                StFunctionDeclaration ->
-                    -- `buildFlowBox`'s comment machinery places inline,
-                    -- standalone, and multi-line comments in a funcDecl body
-                    -- directly. Anything it can't handle returns Err from within
-                    -- the flow, which propagates to the caller.
-                    buildFlowBox grenIndent (lpnChildren node)
+            let
+                { leading, rest } =
+                    peelLeadingInlineComments (lpnChildren node)
+            in
+            if Array.isEmpty leading then
+                makeDeclBodyBox stype (lpnChildren node)
 
-                StFunctionSignature ->
-                    makeSignatureBox (lpnChildren node)
-
-                StPort ->
-                    makeSignatureBox (lpnChildren node)
-
-                StTypeAlias ->
-                    renderHeaderIndentedBody makeTypeAliasBody (lpnChildren node)
-
-                StTypeUnion ->
-                    renderHeaderIndentedBody makeUnionBodyBox (lpnChildren node)
-
-                StSingleLineComment ->
-                    makeCommentLineBox (lpnChildren node)
-
-                StBlockComment ->
-                    makeCommentLineBox (lpnChildren node)
-
-                StDocComment ->
-                    makeCommentLineBox (lpnChildren node)
-
-                StModule ->
-                    makeExposingLineBox StModule (lpnChildren node)
-
-                StImport ->
-                    makeExposingLineBox StImport (lpnChildren node)
-
-                StInfixDecl ->
-                    -- `infix left 6 (+) = add` — a flat single-line leaf flow,
-                    -- same shape as a funcDecl (both render via `buildFlowBox`).
-                    buildFlowBox grenIndent (lpnChildren node)
+            else
+                -- A `LeadsInline` block comment the author glued to the front of
+                -- this declaration's line (`{- c -} import Qux`): render the
+                -- declaration from the remaining children, then glue each leading
+                -- comment onto its first line (right-to-left so the comments keep
+                -- source order). See `CommentRole.LeadsInline`.
+                Result.andThen
+                    (\declBox ->
+                        traverseResult commentNodeToBox leading
+                            |> Result.map
+                                (\commentBoxes ->
+                                    Array.foldr glueLeadingCommentPrefix declBox commentBoxes
+                                )
+                    )
+                    (makeDeclBodyBox stype rest)
 
         EmptyLine ->
             -- A top-level blank separator. `B.blankLine` is `SingleLine (literal
@@ -77,6 +60,71 @@ makePrettyLineBox node =
 
         _ ->
             Err "box: root child not an OriginalRows funcDecl"
+
+
+{-| Peel any leading `LeadsInline` block-comment children off the front of a
+declaration's child list, returning them (in source order) and the remainder. -}
+peelLeadingInlineComments : Array LPNode -> { leading : Array LPNode, rest : Array LPNode }
+peelLeadingInlineComments children =
+    Array.foldl
+        (\child acc ->
+            if acc.stopped then
+                { acc | rest = Array.pushLast child acc.rest }
+
+            else if commentRole (lpnBox child) == Just LeadsInline then
+                { acc | leading = Array.pushLast child acc.leading }
+
+            else
+                { acc | rest = Array.pushLast child acc.rest, stopped = True }
+        )
+        { leading = [], rest = [], stopped = False }
+        children
+        |> (\acc -> { leading = acc.leading, rest = acc.rest })
+
+
+{-| Render a declaration's body (its children, minus any leading glued comment)
+via the renderer for its `SyntaxType`. -}
+makeDeclBodyBox : SyntaxType -> Array LPNode -> Result String Box
+makeDeclBodyBox stype children =
+    when stype is
+        StFunctionDeclaration ->
+            -- `buildFlowBox`'s comment machinery places inline,
+            -- standalone, and multi-line comments in a funcDecl body
+            -- directly. Anything it can't handle returns Err from within
+            -- the flow, which propagates to the caller.
+            buildFlowBox grenIndent children
+
+        StFunctionSignature ->
+            makeSignatureBox children
+
+        StPort ->
+            makeSignatureBox children
+
+        StTypeAlias ->
+            renderHeaderIndentedBody makeTypeAliasBody children
+
+        StTypeUnion ->
+            renderHeaderIndentedBody makeUnionBodyBox children
+
+        StSingleLineComment ->
+            makeCommentLineBox children
+
+        StBlockComment ->
+            makeCommentLineBox children
+
+        StDocComment ->
+            makeCommentLineBox children
+
+        StModule ->
+            makeExposingLineBox StModule children
+
+        StImport ->
+            makeExposingLineBox StImport children
+
+        StInfixDecl ->
+            -- `infix left 6 (+) = add` — a flat single-line leaf flow,
+            -- same shape as a funcDecl (both render via `buildFlowBox`).
+            buildFlowBox grenIndent children
 
 
 {-| Render a binary-operator chain. Groups break at minimum-precedence

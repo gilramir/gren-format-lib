@@ -169,6 +169,14 @@ never re-derives it from source rows.
     comment. Distinguished from `TrailsPrevious` only by
     `literalCommentsRideFlatLine` (which keeps a bracket/union flat when every
     comment rides); every other consumer glues both alike.
+  - `LeadsInline` — a block comment the author glued to the *front* of a
+    top-level declaration's line, before its first token (`{- c -} import Qux`).
+    The front-of-line mirror of `TrailsPrevious`: it travels with the
+    declaration (so it never breaks an import run) and renders glued — the
+    comment's last line joined by one space to the declaration's first line, its
+    earlier lines above. Only ever a leading block-comment child of a
+    declaration's `OriginalRows`; assigned in `Comments.gren` when the comment's
+    closing-delimiter end row equals the following declaration's start-token row.
   - `Standalone` — a top-level detached comment: its own `OriginalRows` at
     column 1.
 
@@ -181,6 +189,7 @@ type CommentRole
     = TrailsPrevious
     | LeadsOwnLine
     | RidesInline
+    | LeadsInline
     | Standalone
 
 

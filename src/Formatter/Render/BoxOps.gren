@@ -1,4 +1,4 @@
-module Formatter.Render.BoxOps exposing (applyIndent, blockIndentSpaces, boxLine, glueCommentSuffix, grenIndent, isBlockNode, isSingleLine, joinInline, nodeStartRow, nodesShareStartRow, prefixOperator, spaceJoinLines, stackWithBlanks, traverseResult, wrapParenVerticalPadded)
+module Formatter.Render.BoxOps exposing (applyIndent, blockIndentSpaces, boxLine, glueCommentSuffix, glueLeadingCommentPrefix, grenIndent, isBlockNode, isSingleLine, joinInline, nodeStartRow, nodesShareStartRow, prefixOperator, spaceJoinLines, stackWithBlanks, traverseResult, wrapParenVerticalPadded)
 
 {-| Low-level `Box`/`Line` manipulation helpers shared by the renderer.
 -}
@@ -101,6 +101,45 @@ a multi-line base) no longer needs to fall back. -}
 glueCommentSuffix : Box -> Box -> Box
 glueCommentSuffix commentBox base =
     B.addSuffixBox commentBox (B.addSuffix B.space base)
+
+
+{-| Glue a leading comment box onto the *front* of `declBox`: the declaration's
+first line continues the comment's last line (one space between), the comment's
+earlier lines sit above, and the declaration's continuation lines stay at their
+own column — untouched. The mirror of `glueCommentSuffix`, and unlike
+`B.addSuffixBox` it does NOT pad the declaration's continuation lines by the
+comment width (the declaration's own layout must not shift). Used to render a
+`LeadsInline` comment (`{- c -} import Qux`). -}
+glueLeadingCommentPrefix : Box -> Box -> Box
+glueLeadingCommentPrefix commentBox declBox =
+    let
+        c =
+            B.destructure commentBox
+
+        commentLines =
+            [ c.first ] ++ c.rest
+    in
+    when Array.popLast commentLines is
+        Nothing ->
+            declBox
+
+        Just { last = commentLast, initial = commentInitial } ->
+            let
+                d =
+                    B.destructure declBox
+
+                seam =
+                    B.row [ commentLast, B.space, d.first ]
+
+                allLines =
+                    commentInitial ++ [ seam ] ++ d.rest
+            in
+            when Array.popFirst allLines is
+                Just { first = f, rest = r } ->
+                    B.andThen (Array.map B.line r) (B.line f)
+
+                Nothing ->
+                    declBox
 
 
 nodeStartRow : LPNode -> Int

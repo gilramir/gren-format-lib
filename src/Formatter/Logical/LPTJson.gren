@@ -30,6 +30,9 @@ roleString role =
         RidesInline ->
             "RidesInline"
 
+        LeadsInline ->
+            "LeadsInline"
+
         Standalone ->
             "Standalone"
 

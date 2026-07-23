@@ -6,6 +6,7 @@ module Formatter.Render.Box exposing
     , allSingles
     , andThen
     , blankLine
+    , destructure
     , freezeTabs
     , identifier
     , indent

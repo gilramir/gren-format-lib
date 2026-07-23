@@ -41,6 +41,7 @@ import Formatter.Logical.LogicalPrintingTree exposing
     , LPNode(..)
     , ListBrackets(..)
     , SyntaxType(..)
+    , commentRole
     , lpnBox
     , lpnChildren
     , lpnFirstPos
@@ -417,12 +418,17 @@ compareIndexedUnits a b =
             other
 
 
-{-| An import's module name -- always the second child of its
+{-| An import's module name -- the second *non-comment* child of its
 `OriginalRows` node (`moduleNode` in `MakeLogical.processImport`), an
-`UnbreakableText` leaf. -}
+`UnbreakableText` leaf. Leading comment children (a `LeadsInline` block comment
+glued to the front of the import) are skipped so they don't shift the index. -}
 importModuleName : LPNode -> String
 importModuleName item =
-    when Array.get 1 (lpnChildren item) is
+    let
+        nonComments =
+            Array.keepIf (\n -> commentRole (lpnBox n) == Nothing) (lpnChildren item)
+    in
+    when Array.get 1 nonComments is
         Just n ->
             when lpnBox n is
                 UnbreakableText loc ->

@@ -145,6 +145,16 @@ lptAddComments ctx root =
 
 lptAddComment : Located Ctx.Comment -> LPNode -> LPNode
 lptAddComment locComment root =
+    when tryLeadingGluedAttach locComment root is
+        Just gluedRoot ->
+            gluedRoot
+
+        Nothing ->
+            lptAddCommentGeneric locComment root
+
+
+lptAddCommentGeneric : Located Ctx.Comment -> LPNode -> LPNode
+lptAddCommentGeneric locComment root =
     let
         baseCommentNode =
             lpnLeaf (mkCommentLpBox locComment)
@@ -225,6 +235,313 @@ mkCommentLpBox locComment =
 
         Ctx.Block string ->
             BlockComment { loc = at start end string, role = LeadsOwnLine }
+
+
+-- LEADING GLUED BLOCK COMMENT
+--
+-- A block comment the author wrote glued to the *front* of a top-level
+-- declaration's line — its closing delimiter ends on the declaration's
+-- first-token row, before that token — stays glued on that line (single-line
+-- `{- c -} import Qux`, or multi-line whose final row carries the keyword). It
+-- attaches as a leading child of that declaration's `OriginalRows`, role
+-- `LeadsInline`, so it travels with the declaration when an import run sorts and
+-- renders glued (see `CommentRole`). This is the front-of-line mirror of a
+-- `TrailsPrevious` trailing comment, and — unlike the generic path, which keys
+-- off the comment's *start* row — it keys off the comment's *end* row so the
+-- multi-line shape is recognised too.
+
+
+{-| If `locComment` is a block comment glued to the front of a top-level
+declaration, attach it there and return the updated root; otherwise `Nothing`
+(the generic placement runs).
+-}
+tryLeadingGluedAttach : Located Ctx.Comment -> LPNode -> Maybe LPNode
+tryLeadingGluedAttach locComment root =
+    when locComment.value is
+        Ctx.Line _ ->
+            Nothing
+
+        Ctx.Block _ ->
+            let
+                startPos =
+                    locComment.start
+
+                endPos =
+                    locComment.end
+
+                rootChildren =
+                    lpnChildren root
+
+                -- The declaration this comment is glued to: a declaration
+                -- `OriginalRows` whose first row is the comment's end row, where
+                -- the comment leads the declaration's content (see
+                -- `commentLeadsDecl` — the rule differs for imports, whose keyword
+                -- carries no real column), and whose gluing does not steal a
+                -- comment that trails a previous declaration (`coveredByOtherDecl`).
+                target =
+                    findIndexed
+                        (\i child ->
+                            when lpnBox child is
+                                OriginalRows { stype } ->
+                                    isDeclStype stype
+                                        -- The comment's closing delimiter ends on
+                                        -- the declaration's first-token row. Using
+                                        -- the token row (not the OriginalRows
+                                        -- `first`) is what lets a *second* leading
+                                        -- comment match after the first already
+                                        -- extended `first` up to its own row.
+                                        && (when firstTokenPos child is
+                                                Just tokPos ->
+                                                    tokPos.row == endPos.row
+
+                                                Nothing ->
+                                                    False
+                                           )
+                                        && commentLeadsDecl stype child startPos
+                                        && not (coveredByOtherDecl i startPos.row rootChildren)
+
+                                _ ->
+                                    False
+                        )
+                        rootChildren
+            in
+            when target is
+                Nothing ->
+                    Nothing
+
+                Just { index } ->
+                    let
+                        commentNode =
+                            lpnSetCommentRole LeadsInline (lpnLeaf (mkCommentLpBox locComment))
+
+                        updatedChildren =
+                            Array.indexedMap
+                                (\i child ->
+                                    if i == index then
+                                        attachLeadingChild startPos commentNode child
+
+                                    else
+                                        child
+                                )
+                                rootChildren
+                    in
+                    Just (lpnNode (lpnBox root) updatedChildren)
+
+
+{-| Insert `commentNode` among a declaration's children at the position dictated
+by the comment's start, and extend the declaration's recorded `first` row up to
+the comment's start row so the range stays consistent for later passes.
+-}
+attachLeadingChild : Position -> LPNode -> LPNode -> LPNode
+attachLeadingChild startPos commentNode declNode =
+    let
+        children =
+            lpnChildren declNode
+
+        -- Leading comments precede the declaration's first real token. Walk the
+        -- existing leading-comment prefix (comment children that start before
+        -- this one) into `head`, and stop at the first non-comment child — the
+        -- keyword — inserting the new comment there. Stopping at the keyword
+        -- (rather than comparing columns against it) is what makes a second
+        -- leading comment land *before* an import's keyword, whose recorded
+        -- column is pinned to 1 and so cannot be compared against.
+        placement =
+            Array.foldl
+                (\child acc ->
+                    if acc.placed then
+                        { acc | rest = Array.pushLast child acc.rest }
+
+                    else if
+                        isCommentNode child
+                            && (when lpnFirstPos child is
+                                    Just p ->
+                                        posBefore p startPos
+
+                                    Nothing ->
+                                        False
+                               )
+                    then
+                        { acc | head = Array.pushLast child acc.head }
+
+                    else
+                        { acc | rest = Array.pushLast child acc.rest, placed = True }
+                )
+                { head = [], rest = [], placed = False }
+                children
+
+        newChildren =
+            placement.head ++ [ commentNode ] ++ placement.rest
+    in
+    when lpnBox declNode is
+        OriginalRows rowInfo ->
+            lpnNode
+                (OriginalRows { rowInfo | first = min rowInfo.first startPos.row })
+                newChildren
+
+        _ ->
+            lpnNode (lpnBox declNode) newChildren
+
+
+{-| True when a block comment starting at `startPos` (its end row already known
+to equal the declaration's first row) *leads* the declaration `child` — sits
+before the declaration's real content — rather than sitting after the keyword.
+
+For a function / alias / union / port the first real token carries a true source
+column, so "no token starts before the comment" settles it, and multiple leading
+comments each pass (each starts before the name).
+
+An `import` keyword carries **no** real column (it is pinned to column 1 in
+`MakeLogical.processImport`, and the AST import region also starts at column 1),
+so that test can't be used. Instead a leading comment run is recognised by being
+**anchored at column 1**: the comment itself starts at column 1, or a
+sibling comment already attached to this import starts at column 1 and ends on
+the same row (the run's anchor) — and it sits before the module name. A comment
+written *after* the keyword (`import {- c -} Zebra`) has no column-1 anchor, so
+it is left to the generic path. -}
+commentLeadsDecl : SyntaxType -> LPNode -> Position -> Bool
+commentLeadsDecl stype child startPos =
+    when stype is
+        StImport ->
+            (startPos.col == 1 || hasCol1CommentChild child startPos.row)
+                && (when importModuleNamePos child is
+                        Just namePos ->
+                            posBefore startPos namePos
+
+                        Nothing ->
+                            False
+                   )
+
+        _ ->
+            when firstTokenPos child is
+                Just tokPos ->
+                    not (posBefore tokPos startPos)
+
+                Nothing ->
+                    False
+
+
+{-| The source position of an import's module name — the first non-comment child
+after the (column-1-pinned) `import` keyword. -}
+importModuleNamePos : LPNode -> Maybe Position
+importModuleNamePos node =
+    lpnChildren node
+        |> Array.keepIf (\n -> not (isCommentNode n))
+        |> Array.get 1
+        |> Maybe.andThen lpnFirstPos
+
+
+{-| True when this declaration already has a leading comment child that starts at
+column 1 and ends on `row` — the column-1 anchor of an import's leading run, so a
+second glued comment on the same row is recognised as leading too. -}
+hasCol1CommentChild : LPNode -> Int -> Bool
+hasCol1CommentChild node row =
+    Array.any
+        (\child ->
+            isCommentNode child
+                && (when lpnFirstPos child is
+                        Just p ->
+                            p.col == 1 && lastRowInSubtree child == row
+
+                        Nothing ->
+                            False
+                   )
+        )
+        (lpnChildren node)
+
+
+{-| The position of a declaration node's first non-comment token. -}
+firstTokenPos : LPNode -> Maybe Position
+firstTokenPos node =
+    Array.foldl
+        (\child acc ->
+            when acc is
+                Just _ ->
+                    acc
+
+                Nothing ->
+                    if isCommentNode child then
+                        Nothing
+
+                    else
+                        lpnFirstPos child
+        )
+        Nothing
+        (lpnChildren node)
+
+
+{-| True when some declaration `OriginalRows` other than the one at `skipIndex`
+covers `row` in its `[first, last]` range — i.e. the comment starts inside a
+previous declaration and should trail it, not lead this one. -}
+coveredByOtherDecl : Int -> Int -> Array LPNode -> Bool
+coveredByOtherDecl skipIndex row nodes =
+    Array.indexedMap
+        (\i node ->
+            if i == skipIndex then
+                False
+
+            else
+                when lpnBox node is
+                    OriginalRows { first, last, stype } ->
+                        isDeclStype stype && first <= row && row <= last
+
+                    _ ->
+                        False
+        )
+        nodes
+        |> Array.any (\x -> x)
+
+
+isDeclStype : SyntaxType -> Bool
+isDeclStype st =
+    when st is
+        StImport ->
+            True
+
+        StFunctionSignature ->
+            True
+
+        StFunctionDeclaration ->
+            True
+
+        StTypeAlias ->
+            True
+
+        StTypeUnion ->
+            True
+
+        StPort ->
+            True
+
+        StInfixDecl ->
+            True
+
+        _ ->
+            False
+
+
+posBefore : Position -> Position -> Bool
+posBefore a b =
+    a.row < b.row || (a.row == b.row && a.col < b.col)
+
+
+findIndexed : (Int -> a -> Bool) -> Array a -> Maybe { index : Int, value : a }
+findIndexed predicate arr =
+    Array.foldl
+        (\v acc ->
+            when acc.found is
+                Just _ ->
+                    acc
+
+                Nothing ->
+                    if predicate acc.index v then
+                        { acc | found = Just { index = acc.index, value = v } }
+
+                    else
+                        { acc | index = acc.index + 1 }
+        )
+        { index = 0, found = Nothing }
+        arr
+        |> .found
 
 -- PHASE 1: FIND THE TOP-LEVEL SLOT
 --
