@@ -1,0 +1,18 @@
+module Foo exposing
+    {- describes apple -}
+    ( apple
+    , mango
+    , zebra
+    )
+
+
+zebra =
+    0
+
+
+apple =
+    1
+
+
+mango =
+    2

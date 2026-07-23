@@ -2079,7 +2079,46 @@ makeExposingLineBox stype children =
                             |> Result.onError (\_ -> exposingLineFallback children)
 
                     else
-                        exposingLineFallback children
+                        -- A comment sits between the leaf header (`… exposing`)
+                        -- and the list — the `SortSymbols` hoist puts a comment
+                        -- whose exposed name sorted to first place here (out of
+                        -- the bracket, since the parser never keeps a pre-first-
+                        -- item comment inside). Render the comment(s) on their
+                        -- own line(s) at +4, list below at +4, matching the
+                        -- bracket-first-child form the sort produced pre-hoist so
+                        -- the two are byte-identical. A comment buried *among* the
+                        -- leaf tokens (name-wrap, `import {- c -} Foo`) leaves a
+                        -- non-leaf body, so it stays on the generic flow path.
+                        when spanTrailingComments headerNodes is
+                            { body = leafHeader, trailing = leadComments } ->
+                                if not (Array.isEmpty leadComments) && not (Array.isEmpty leafHeader) && Array.all (\n -> leafValue n /= Nothing) leafHeader && Array.all (\n -> commentRole (lpnBox n) == Just LeadsOwnLine) leadComments then
+                                    let
+                                        listChildren =
+                                            lpnChildren lastNode
+
+                                        listBoxResult =
+                                            if commentForcesBracketOpen forceVertical listChildren then
+                                                commentBracketListBox ListParen listChildren
+
+                                            else
+                                                makeExposingListBox forceVertical listChildren
+                                    in
+                                    listBoxResult
+                                        |> Result.andThen
+                                            (\listBox ->
+                                                traverseResult commentNodeBox leadComments
+                                                    |> Result.map
+                                                        (\commentBoxes ->
+                                                            B.stack1
+                                                                ([ B.line (leafLineRow leafHeader) ]
+                                                                    ++ Array.map B.indent commentBoxes
+                                                                    ++ [ B.indent listBox ]
+                                                                )
+                                                        )
+                                            )
+
+                                else
+                                    exposingLineFallback children
 
                 Nothing ->
                     exposingLineFallback children

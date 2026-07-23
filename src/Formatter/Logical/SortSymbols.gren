@@ -492,7 +492,7 @@ sortExposingLists : LPNode -> LPNode
 sortExposingLists node =
     let
         recursed =
-            lpnReplaceChildren node (Array.map sortExposingLists (lpnChildren node))
+            lpnReplaceChildren node (hoistBracketLeadingComments (Array.map sortExposingLists (lpnChildren node)))
     in
     when lpnBox recursed is
         AllAcrossOrAllVertical ListParen ->
@@ -503,6 +503,51 @@ sortExposingLists node =
 
         _ ->
             recursed
+
+
+{-| Move any comment(s) that the sort left at the *front* of an exposing-list
+bracket out to become siblings *before* the bracket. When a between-items
+comment's owning name sorts to first place, `sortExposedChildren` places that
+comment as the bracket's first child (leading the new first item) -- a
+structurally legitimate slot, but one the *parser* never produces: a comment
+before a bracket's first item always reparses as a sibling ahead of the bracket
+(the bracket node's range starts at its first item, so anything earlier falls
+outside it -- the same is true for record/array literals). Emitting it inside
+therefore guarantees non-idempotency (the bracket-first-child form renders the
+comment above `(`, which reparses back out). Hoisting it here makes the sorted
+tree byte-identical to what a reparse yields, so the two agree by construction.
+`ListParen` is exclusively exposing lists, so this only ever fires on them. -}
+hoistBracketLeadingComments : Array LPNode -> Array LPNode
+hoistBracketLeadingComments children =
+    Array.foldl
+        (\child acc ->
+            when lpnBox child is
+                AllAcrossOrAllVertical ListParen ->
+                    acc ++ hoistOne child
+
+                AlwaysVertical ListParen ->
+                    acc ++ hoistOne child
+
+                _ ->
+                    Array.pushLast child acc
+        )
+        []
+        children
+
+
+{-| Split a sorted exposing-list bracket into its leading comment sibling(s)
+followed by the bracket stripped of them (unchanged if it has none). -}
+hoistOne : LPNode -> Array LPNode
+hoistOne bracket =
+    let
+        { pending, afterPending } =
+            takeLeadingComments (lpnChildren bracket)
+    in
+    if Array.isEmpty pending then
+        [ bracket ]
+
+    else
+        Array.pushLast (lpnReplaceChildren bracket afterPending) pending
 
 
 {-| Sort one exposing list's children. Every child here is already "inside

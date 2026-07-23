@@ -1,0 +1,19 @@
+module Foo exposing (..)
+
+
+import Bar exposing
+    ( zebra
+    {- k0 -}
+    , apple
+    , mango
+    )
+import Baz exposing
+    ( yak
+    -- leads elk after sort
+    , elk
+    , cod
+    )
+
+
+x =
+    0
