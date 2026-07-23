@@ -7,7 +7,7 @@ import Array
 import Dict exposing {- comment between import module name and `exposing` -} ( Dict )
 
 -- comments inside an import without an `as`, using `exposing`
-import Math exposing (..) {- between Math and `exposing` -}
+import Math exposing {- between Math and `exposing` -} (..)
 
 
 foo : Int -> Int

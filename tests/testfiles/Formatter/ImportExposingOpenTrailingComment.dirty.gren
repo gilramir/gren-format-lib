@@ -1,0 +1,10 @@
+module Foo exposing (..)
+
+
+import Alpha exposing (..) -- line trails open
+import Beta exposing (..) {- block trails open -}
+import Gamma as G exposing (..) -- alias then open
+
+
+x =
+    0

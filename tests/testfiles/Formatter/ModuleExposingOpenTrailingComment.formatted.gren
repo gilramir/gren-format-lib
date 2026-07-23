@@ -1,0 +1,5 @@
+module Foo exposing (..) -- header open trails
+
+
+x =
+    0

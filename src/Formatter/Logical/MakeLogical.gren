@@ -171,7 +171,22 @@ processModuleLine modAst root =
         exportsNode =
             when modAst.exports is
                 Src.Open ->
-                    lpnLeaf (SynthesizedText "(..)")
+                    -- Anchor `(..)` at the module name's end (`exposingPos`, the
+                    -- same real position the synthesized `exposing` keyword uses),
+                    -- so a trailing `-- c` on the header's row glues onto that row
+                    -- (`TrailsPrevious`) instead of dropping to its own line, which
+                    -- oscillated indented↔col-0 on reparse — a bare position-less
+                    -- `SynthesizedText` gave the trailing `--` no glue row. For an
+                    -- effect module the exposing area's real column depends on the
+                    -- where-block contents and isn't tracked, so `exposing` itself
+                    -- falls back to `SynthesizedText`; keep `(..)` position-less
+                    -- there too.
+                    when modAst.effects is
+                        Src.Manager _ ->
+                            lpnLeaf (SynthesizedText "(..)")
+
+                        _ ->
+                            lpnLeaf (mkZeroWidthText exposingPos "(..)")
 
                 Src.Explicit exposed ->
                     lpnNode
@@ -450,8 +465,16 @@ processImport locImport root =
         exposeNodes =
             when locImport.value.expose is
                 Src.Open ->
+                    -- Anchor `(..)` at `locImport.end` (past the `)`), exactly the
+                    -- position the `Explicit` branch below uses. A bare
+                    -- position-less `SynthesizedText` gave a trailing `-- c` no
+                    -- glue row, so it classified `LeadsOwnLine`, dropped below the
+                    -- import, then escaped the import's row range on reparse and
+                    -- oscillated indented↔col-0. With a real end position the `--`
+                    -- glues onto the import line (`TrailsPrevious`), matching how
+                    -- `import Foo exposing (a, b) -- c` already round-trips.
                     [ lpnLeaf (mkZeroWidthText exposingStart "exposing")
-                    , lpnLeaf (SynthesizedText "(..)")
+                    , lpnLeaf (mkZeroWidthText locImport.end "(..)")
                     ]
 
                 Src.Explicit xlist ->
