@@ -579,56 +579,14 @@ run of imports — see below.)
 ### Import statements sort within unbroken runs
 
 `import` statements sort alphabetically by module name, but only within a
-*run* — a stretch of imports with nothing between them: no blank line, no
-comment on its own line. A blank line or an own-line comment is a boundary:
-it never moves, and it splits the imports around it into independently
-sorted groups. A run is fine with multi-row imports (a wrapped exposing
-list doesn't break it) — only a blank line or a comment does.
+*run* — a stretch of imports with nothing between them: a blank line or an
+own-line comment is a boundary that splits them into independently sorted
+groups, while a same-row trailing comment travels with its import and doesn't
+break the run.
 
-```gren
-import Zebra
-import Mango
--- a section note
-import Kiwi
-import Apple
-
-import Delta
-```
-
-becomes:
-
-```gren
-import Mango
-import Zebra
--- a section note
-import Apple
-import Kiwi
-
-import Delta
-```
-
-`[Zebra, Mango]` and `[Kiwi, Apple]` are separate runs (split by the
-comment), each sorted independently; `Delta` is alone in its own run (blank
-line above it), so there's nothing to sort. The comment and the blank line
-stay exactly where they were.
-
-A comment trailing an import on that import's *own* source row is the one
-exception — unlike an own-line comment, it does not break the run, and it
-travels with its import if that import moves within the group:
-
-```gren
-import Foo -- deprecated, remove soon
-import Bar
-import Baz
-```
-
-becomes:
-
-```gren
-import Bar
-import Baz
-import Foo -- deprecated, remove soon
-```
+The full rules — for both import-statement sorting and exposing-list sorting,
+including every comment case (line, single-line block, and multiline block) —
+now live in **[docs/sorting.md](docs/sorting.md)**.
 
 ---
 
