@@ -220,7 +220,10 @@ class TypeAliasDecl:
 
 class Variant:
     def __init__(self, name, payload=None, lead=None, trailing=None):
-        # payload: None | ("record", [(field, type), ...]) | ("args", [type, ...])
+        # payload: None | ("record", [(field, type, None), ...]) | ("args", [type, ...])
+        # (the payload record's fields are always comment-free — see
+        # emit_variant_payload — the trailing None keeps the triple shape
+        # gen_type's own record/exrecord fields use)
         self.name, self.payload = name, payload
         self.lead, self.trailing = lead, trailing
 
@@ -251,6 +254,25 @@ class InfixDecl:
     def __init__(self, assoc, prec, symbol, fn, lead=None, trailing=None):
         self.assoc, self.prec, self.symbol, self.fn = assoc, prec, symbol, fn
         self.lead, self.trailing = lead, trailing
+
+
+# A single `import` statement. `SortSymbols` only reorders a contiguous run of
+# imports with no blank line or own-line comment between them (README
+# "Import group sort") — `blank`/`lead` are exactly those two boundary
+# markers, so this doubles as generator coverage for that sort-grouping rule,
+# not just comment placement. `trailing` rides the import's own last line
+# (module name, `as` alias, `(..)`, or the exposing list's close paren).
+# `item_lead`/`item_trailing`, each `(index, (kind, text)) | None`, put an
+# own-line-before / same-row-after comment on one item of a list-form
+# `exposing` — verified directly against the app that this is legal and forces
+# the list to break across lines; NEVER on a "(..)" or bare (no-exposing)
+# import, which have no item to attach to.
+class Import:
+    def __init__(self, mod, as_name=None, exposing=None, lead=None, blank=False,
+                 trailing=None, item_lead=None, item_trailing=None):
+        self.mod, self.as_name, self.exposing = mod, as_name, exposing
+        self.lead, self.blank, self.trailing = lead, blank, trailing
+        self.item_lead, self.item_trailing = item_lead, item_trailing
 
 
 class Module:
@@ -649,14 +671,20 @@ def emit_type(t):
     if kind == "app":  return t[1] + " " + " ".join(_type_atom(a) for a in t[2])
     if kind == "arrow": return " -> ".join(emit_type(x) for x in t[1])
     if kind == "record":
-        return "{ " + ", ".join(f + " : " + emit_type(ft) for f, ft in t[1]) + " }"
+        # Fields are (name, type, lead) triples; `lead` is only ever non-None
+        # on a `top` record generated `broken` (see Gen.gen_type), which
+        # always renders through emit_type_multiline's own-line branch
+        # instead of reaching here — so it's structurally guaranteed None
+        # whenever this flat, single-line join runs.
+        return "{ " + ", ".join(f + " : " + emit_type(ft) for f, ft, _ in t[1]) + " }"
     if kind == "exrecord":
         # Extensible record `{ base | field : T, … }`. Emitted inline like any
         # record type; the formatter breaks it (base on the `{` line, `|`/`,`
-        # fields +4 beneath) only when the author wrote it broken, which this
-        # generator never does for a record type — same as the plain `record`.
+        # fields +4 beneath) only when the author wrote it broken — handled
+        # by emit_type_multiline for a `top`, `broken` record (see there);
+        # this flat join is for every other (always comment-free) occurrence.
         base, fields = t[1], t[2]
-        return "{ " + base + " | " + ", ".join(f + " : " + emit_type(ft) for f, ft in fields) + " }"
+        return "{ " + base + " | " + ", ".join(f + " : " + emit_type(ft) for f, ft, _ in fields) + " }"
     if kind == "paren":
         return "(" + emit_type(t[1]) + ")"
     raise ValueError("emit_type")
@@ -686,6 +714,52 @@ def _flatten_arrow(t):
     return out
 
 
+def emit_record_type(kind, base, fields):
+    """Multi-line record TYPE — a `top`, `broken` record/exrecord from
+    `Gen.gen_type` (fields are (name, type, lead) triples). Returned lines are
+    in LOCAL coordinates (0 = the record's own `{` column); the caller pads
+    every line by the enclosing INDENT, same as emit_type_multiline's arrow
+    branch. Two shapes, both verified directly against the app:
+
+    plain, field 0 glues onto the `{` line, every other field gets its own
+    `, f : T` line at column 0 (RecordTypeLayoutByAuthor/Vertical,
+    SignatureRecordTypeComment):
+
+        { f0 : T0
+        , f1 : T1
+        }
+
+    extensible, `base` is alone on the `{` line, and EVERY field (including
+    0) gets its own `| `/`, ` line at column INDENT — so field 0 can carry a
+    lead comment too, unlike the plain shape (RecordTypeLayoutByAuthor/
+    ExtVertical, ExtensibleRecordTypeTrailingComment):
+
+        { base
+            | f0 : T0
+            , f1 : T1
+            }
+
+    A field's `lead` (own-line comment right before its own line) rides at
+    the SAME column as the field lines — confirmed against the app: it is
+    NOT glued to the record's own `{`/base line."""
+    if kind == "exrecord":
+        lines = ["{ " + base]
+        fcol = INDENT
+    else:
+        lines = []
+        fcol = 0
+    for i, (f, ft, lead) in enumerate(fields):
+        if kind == "record" and i == 0:
+            lines.append("{ " + f + " : " + emit_type(ft))
+            continue
+        if lead is not None:
+            lines.append(pad(fcol) + comment_text(lead))
+        prefix = "| " if (kind == "exrecord" and i == 0) else ", "
+        lines.append(pad(fcol) + prefix + f + " : " + emit_type(ft))
+    lines.append("}")
+    return lines
+
+
 def emit_type_multiline(t, broken, arrow_comment=None):
     """Emit a top-level signature/alias/port type. Per README "Type
     signatures": written across rows, the canonical shape puts each `->`
@@ -693,12 +767,23 @@ def emit_type_multiline(t, broken, arrow_comment=None):
     ever applies when `t` is an arrow chain; a non-arrow RHS (record, con,
     var, app) has no `->` boundary to break at and always stays inline.
 
+    A `top`, `broken` record/exrecord (see `Gen.gen_type`) is the other
+    multi-line shape a type can take, independent of the arrow-breaking
+    `broken` parameter below — its OWN broken flag lives in the tuple
+    (`t[-1]`), checked first since a record/exrecord is never itself an arrow.
+
     `arrow_comment`, if given, is `(seg_idx, (kind, text))` — a comment riding
     the `->` that leads `segs[seg_idx]` (README divergence #5). A single-line
     block comment glues onto the SAME line as its segment (`-> {- k -} Type`);
     a line comment can't share a line with anything after it, so the segment
     drops to its own next line with no `->` prefix (it's a continuation of
     the same arrow step, not a new one)."""
+    if t[0] in ("record", "exrecord") and t[-1]:
+        if t[0] == "record":
+            fields = t[1]
+            return emit_record_type("record", None, fields)
+        base, fields = t[1], t[2]
+        return emit_record_type("exrecord", base, fields)
     if not broken or t[0] != "arrow":
         return [emit_type(t)]
     segs = _flatten_arrow(t)
@@ -728,7 +813,11 @@ def emit_type_alias(d):
 def emit_variant_payload(payload):
     kind, val = payload
     if kind == "record":
-        return emit_type(("record", val))
+        # A variant payload record is always flat/comment-free (never `top`,
+        # so `gen_type` never applies to it — it's built by hand in
+        # Gen.variant_payload) — pass broken=False to match emit_type's
+        # 3-element "record" tuple shape.
+        return emit_type(("record", val, False))
     return " ".join(_type_atom(t) for t in val)
 
 
@@ -787,6 +876,51 @@ def emit_infix(d):
     return out
 
 
+def emit_import(imp):
+    """Emit one `import` statement, possibly preceded by its own group-
+    boundary lines (a blank line and/or an own-line comment — both verified
+    directly against the app to act as a `SortSymbols` boundary, independent
+    of each other) and possibly broken across lines to carry a comment on one
+    `exposing` item."""
+    out = []
+    if imp.blank:
+        out.append("")
+    if imp.lead is not None:
+        out.append(comment_text(imp.lead))
+    head = "import " + imp.mod
+    if imp.as_name is not None:
+        head += " as " + imp.as_name
+    if imp.exposing is None or imp.exposing == "(..)":
+        line = head if imp.exposing is None else head + " exposing (..)"
+        if imp.trailing is not None:
+            line += " " + comment_text(imp.trailing)
+        out.append(line)
+        return out
+    items = imp.exposing
+    if imp.item_lead is None and imp.item_trailing is None:
+        line = head + " exposing (" + ", ".join(items) + ")"
+        if imp.trailing is not None:
+            line += " " + comment_text(imp.trailing)
+        out.append(line)
+        return out
+    lead_idx, lead_c = imp.item_lead if imp.item_lead is not None else (None, None)
+    trail_idx, trail_c = imp.item_trailing if imp.item_trailing is not None else (None, None)
+    out.append(head + " exposing")
+    for i, it in enumerate(items):
+        if i == lead_idx:
+            out.append(pad(INDENT) + comment_text(lead_c))
+        prefix = "( " if i == 0 else ", "
+        line = pad(INDENT) + prefix + it
+        if i == trail_idx:
+            line += " " + comment_text(trail_c)
+        out.append(line)
+    close = pad(INDENT) + ")"
+    if imp.trailing is not None:
+        close += " " + comment_text(imp.trailing)
+    out.append(close)
+    return out
+
+
 # ───────────────────────────── module emission ────────────────────────────
 
 def emit_module(m):
@@ -811,7 +945,7 @@ def emit_module(m):
         header += emit_doc_comment(m.doc)
     lines = header + [""]
     for imp in m.imports:
-        lines.append(imp)
+        lines += emit_import(imp)
     if m.imports:
         lines.append("")
     lines.append("")
@@ -848,10 +982,15 @@ def emit_decl(d):
 def emit_function_decl(d):
     out = emit_leading(d)
     if d.sig is not None:
-        if d.sig_broken and d.sig[0] == "arrow":
+        # A `top`, `broken` record/exrecord sig (see Gen.gen_type) also needs
+        # the multiline path, same as a broken arrow — checked via the type's
+        # own embedded broken flag (t[-1]) since d.sig_broken only ever tracks
+        # arrow-breaking (it's False for a record sig by construction).
+        sig_is_broken_record = d.sig[0] in ("record", "exrecord") and d.sig[-1]
+        if (d.sig_broken and d.sig[0] == "arrow") or sig_is_broken_record:
             out.append(d.name + " :")
             out += [pad(INDENT) + l
-                    for l in emit_type_multiline(d.sig, True, d.arrow_comment)]
+                    for l in emit_type_multiline(d.sig, d.sig_broken, d.arrow_comment)]
         else:
             out.append(d.name + " : " + emit_type(d.sig))
     prefix = d.name + "".join(" " + emit_param(p) for p in d.params) + " = "
@@ -1027,7 +1166,21 @@ class Gen:
         Float literal pattern outright ("Float patterns are not supported"),
         unlike Int, so this is expression-position only. Each form here was
         verified to parse/format/round-trip stably (bare, as a binop operand,
-        negated, as a call argument)."""
+        negated, as a call argument, with a leading inline comment).
+
+        ~30% of the time this is scientific notation instead — confirmed
+        valid Gren via `Compiler/Parse/Number.gren`'s `exponentParser` (an
+        exponent may follow either an integer or a fractional literal, with an
+        optional `+`/`-` sign, `e` or `E`) and confirmed the formatter does
+        NOT normalize it: case and sign are echoed verbatim (unlike a hex
+        literal's forced-lowercase digits), since `FloatingPoint.text` is
+        emitted as-is with no recomputation."""
+        if self.chance(0.3):
+            mantissa = self.pick(["1", "2.5", "0.5", "12", "3", "9.99"])
+            e = self.pick(["e", "E"])
+            sign = self.pick(["", "+", "-"])
+            exp = str(self.rng.randint(0, 20))
+            return FloatLit(mantissa + e + sign + exp)
         return FloatLit(self.pick(["0.0", "0.5", "1.0", "2.5", "3.14",
                                    "12.5", "100.0", "0.25"]))
 
@@ -1453,7 +1606,17 @@ class Gen:
         args = [self.gen_type_arg(depth, var_pool) for _ in range(arity)]
         return ("app", self.qualify_type_name(head), args)
 
-    def gen_type(self, depth, vars=None):
+    def gen_type(self, depth, vars=None, top=False):
+        """`top=True` marks a call that generates the WHOLE type of a
+        signature/alias RHS (the only two call sites that pass it) — never a
+        nested field type, type-app arg, or arrow segment, which always leave
+        it False. A record/exrecord type may only be emitted `broken`
+        (multi-line, with per-field lead comments) when `top` is True: the
+        flat single-line `emit_type` renderer is what handles every non-top
+        occurrence, and it has no way to render a comment, so a comment on a
+        non-top record field would be silently dropped from the output —
+        `top` is the guarantee that never happens. See GENERATOR.md's
+        "Record type comments" section."""
         r = self.rng.random()
         var_pool = vars if vars else ["a", "b", "c"]
         if depth <= 0 or r < 0.4:
@@ -1465,17 +1628,29 @@ class Gen:
         if r < 0.85:
             k = self.rng.randint(2, 3)
             return ("arrow", [self.gen_type(depth - 1, vars) for _ in range(k)])
-        k = self.rng.randint(1, 2)
-        fields = [(self.pick(self.fields) + str(i), self.gen_type(depth - 1, vars))
-                  for i in range(k)]
+        k = self.rng.randint(1, 3)
         # Sometimes an EXTENSIBLE record `{ base | field : T }` — a type var
         # (drawn from the same pool as a bare `var` type) extends the record.
         # gren-format never type-checks, so any lowercase base parses; realistic
         # ones (an alias param, `type alias Ext a = { a | … }`) fall out
         # naturally since the pool is the enclosing params for an alias RHS.
-        if self.chance(0.35):
-            return ("exrecord", self.pick(var_pool), fields)
-        return ("record", fields)
+        is_ext = self.chance(0.35)
+        broken = top and self.chance(0.4)
+        fields = []
+        for i in range(k):
+            ftype = self.gen_type(depth - 1, vars)  # top=False: never itself broken
+            # A field's own-line lead comment needs a dedicated line to sit
+            # on. A broken PLAIN record glues field 0 onto the `{` line (no
+            # room before it), but a broken EXTENSIBLE record gives every
+            # field, including 0, its own `| `/`, ` line below `{ base` — both
+            # verified directly against the app (RecordTypeLayoutByAuthor /
+            # ExtensibleRecordTypeTrailingComment / SignatureRecordTypeComment).
+            eligible = broken and (is_ext or i > 0)
+            lead = self.comment() if (eligible and self.chance(0.3)) else None
+            fields.append((self.pick(self.fields) + str(i), ftype, lead))
+        if is_ext:
+            return ("exrecord", self.pick(var_pool), fields, broken)
+        return ("record", fields, broken)
 
     def maybe_arrow_comment(self, t, broken):
         """Maybe a comment riding one of an author-broken arrow type's `->`
@@ -1518,7 +1693,7 @@ class Gen:
         if self.chance(0.4):
             k = nparams + 1
             sig = ("arrow", [self.gen_type(2) for _ in range(k)]) if k > 1 \
-                  else self.gen_type(2)
+                  else self.gen_type(2, top=True)
             sig_broken = sig[0] == "arrow" and self.chance(0.5)
         arrow_comment = self.maybe_arrow_comment(sig, sig_broken) if sig is not None else None
         doc = self.doc_comment()
@@ -1537,7 +1712,7 @@ class Gen:
     def type_alias(self, i):
         name = "Alias%d" % i
         params = self.type_params()
-        rhs = self.gen_type(2, params)
+        rhs = self.gen_type(2, params, top=True)
         broken = rhs[0] == "arrow" and self.chance(0.5)
         arrow_comment = self.maybe_arrow_comment(rhs, broken)
         doc = self.doc_comment()
@@ -1577,7 +1752,7 @@ class Gen:
             return None
         if r < 0.7:
             k = self.rng.randint(1, 2)
-            fields = [(self.pick(self.fields) + str(j), self.gen_type(1, params))
+            fields = [(self.pick(self.fields) + str(j), self.gen_type(1, params), None)
                       for j in range(k)]
             return ("record", fields)
         return ("args", [self.variant_arg_type(1, params)])
@@ -1719,22 +1894,45 @@ class Gen:
         self.rng.shuffle(items)
         return items
 
+    def import_stmt(self, i):
+        """One `import` — see the `Import` class for the shapes covered.
+        `blank`/`lead` (group-boundary markers) are only ever eligible for
+        i > 0: a marker before the very FIRST import would just double up
+        with the header's own blank-line spacing (harmless, but pointless to
+        generate) rather than testing the group-boundary rule itself."""
+        r = self.rng.random()
+        mod = self.pick(["Foo", "Bar", "Baz", "Qux"]) + str(i)
+        as_name, exposing = None, None
+        if r < 0.4:
+            pass
+        elif r < 0.6:
+            as_name = "M" + str(i)
+        elif r < 0.8:
+            exposing = self.import_exposing_items()
+        else:
+            exposing = "(..)"
+        lead, blank = None, False
+        if i > 0:
+            if self.chance(0.15):
+                lead = self.comment() or ("line", "k%d" % self.next_cid())
+            elif self.chance(0.15):
+                blank = True
+        trailing = self.comment()
+        item_lead = item_trailing = None
+        if isinstance(exposing, list) and self.chance(0.3):
+            idx = self.rng.randrange(len(exposing))
+            c = self.comment() or ("line", "k%d" % self.next_cid())
+            if self.chance(0.5):
+                item_lead = (idx, c)
+            else:
+                item_trailing = (idx, c)
+        return Import(mod, as_name=as_name, exposing=exposing, lead=lead, blank=blank,
+                      trailing=trailing, item_lead=item_lead, item_trailing=item_trailing)
+
     def module(self):
         name = "Gen%d" % self.rng.randint(0, 999)
         nimp = self.rng.randint(0, 3)
-        imports = []
-        for i in range(nimp):
-            r = self.rng.random()
-            mod = self.pick(["Foo", "Bar", "Baz", "Qux"]) + str(i)
-            if r < 0.4:
-                imports.append("import " + mod)
-            elif r < 0.6:
-                imports.append("import " + mod + " as M" + str(i))
-            elif r < 0.8:
-                names = ", ".join(self.import_exposing_items())
-                imports.append("import " + mod + " exposing (" + names + ")")
-            else:
-                imports.append("import " + mod + " exposing (..)")
+        imports = [self.import_stmt(i) for i in range(nimp)]
         ninfix = self.rng.randint(0, 2) if self.chance(0.4) else 0
         infixes = [self.infix_decl(i) for i in range(ninfix)]
         # `effect module`/`port module` are mutually exclusive header
@@ -1948,6 +2146,7 @@ def list_containers(m):
     """Yield (owner, attr, min_len) for every reducible list in the module."""
     yield m, "decls", 1
     yield m, "infixes", 0
+    yield m, "imports", 0
     for d in m.decls:
         if isinstance(d, UnionDecl):
             yield d, "variants", 1
@@ -1989,6 +2188,15 @@ def comment_clearers(m):
             yield clear_attr(d, "lead")
         if d.trailing is not None:
             yield clear_attr(d, "trailing")
+    for imp in m.imports:
+        if imp.lead is not None:
+            yield clear_attr(imp, "lead")
+        if imp.trailing is not None:
+            yield clear_attr(imp, "trailing")
+        if imp.item_lead is not None:
+            yield clear_attr(imp, "item_lead")
+        if imp.item_trailing is not None:
+            yield clear_attr(imp, "item_trailing")
     for d in m.decls:
         if getattr(d, "doc", None) is not None:
             yield clear_attr(d, "doc")

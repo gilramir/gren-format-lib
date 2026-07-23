@@ -955,6 +955,156 @@ Verified: 8000 seeds — 3000 default (1..3000), 3000 `--comment-rate 0.6`
 (2100000..2101999) — all clean (0 quarantine, 0 findings). No formatter source
 changed, so no gate-suite rerun was needed (generator-only change).
 
+**v1.19 (implemented 2026-07-22): record type comments.** `gen_type`'s
+record/exrecord branches previously ALWAYS emitted flat/single-line (noted as
+a known gap in the v1.11 write-up's comment on `emit_type`'s `exrecord`
+branch) — this generator had never once broken a record TYPE across lines,
+let alone put a comment inside one, even though the formatter has hand-written
+fixture coverage for exactly that shape (`RecordTypeLayoutByAuthor`,
+`ExtensibleRecordTypeTrailingComment`, `SignatureRecordTypeComment`) —
+including a real bug (`ExtensibleRecordTypeTrailingComment`, v1.12's
+comment-oscillation fix) that a property-based sweep could never have
+reproduced or guarded against a regression of, since the generator was
+structurally incapable of emitting the shape that triggered it.
+
+`gen_type` gained a `top` parameter: `True` only at the two call sites that
+generate the WHOLE type of a function signature or a `type alias` RHS
+(`Gen.decl`'s no-arrow-segment case, `Gen.type_alias`), `False` everywhere
+else (every nested field type, type-app argument, and arrow segment). Only a
+`top` record/exrecord may be generated `broken` (a fresh coin flip,
+independent of the existing arrow-breaking `broken` flag), and only a
+`broken` record's fields may carry an own-line `lead` comment before their
+own line. This `top`-gating is the safety property the whole addition rests
+on: the flat, single-line `emit_type` has no way to render a comment, so if a
+*nested* record type could end up `broken` with a `lead`, that comment would
+be silently dropped from the output the instant it appeared anywhere flat
+`emit_type` is reached — restricting `broken`/`lead` to exactly the two call
+sites that route through the new multi-line emitter closes that hole by
+construction, not by a runtime check.
+
+Two broken shapes, both verified directly against the built app before
+writing the generator (not assumed): a plain record glues field 0 onto the
+`{` line (`{ f0 : T0` / `, f1 : T1` / `}`), so only fields **after** the first
+have an own line to hold a lead comment; an extensible record puts `base`
+alone on the `{` line and gives **every** field, including the first, its own
+`| `/`, ` line beneath it — so field 0 is eligible there too. A field's lead
+comment rides at the field's own column (not the `{`/base line's column) in
+both shapes — confirmed empirically, not assumed (a hand-written probe with
+the comment indented to the `{` column got reformatted onto the field's
+column). A comment before the record's opening `{` itself (i.e., between the
+signature's `:` and the type) is a real, different shape the app also accepts
+— but it was left out of scope for this addition (it's a comment on the type
+as a whole, not on a field) and is noted here rather than silently ignored.
+
+New `emit_record_type(kind, base, fields)` renders both shapes in local
+coordinates (0 = the record's own `{` column); `emit_type_multiline` checks
+the record/exrecord's own embedded broken flag (`t[-1]`) before its existing
+arrow-breaking check, since the two are independent flags on different
+tuple kinds. `emit_function_decl` needed a matching fix — it only ever
+special-cased `d.sig_broken and d.sig[0] == "arrow"` to route through the
+multi-line emitter, so a broken record/exrecord signature (which never sets
+`d.sig_broken`, a flag that only ever tracks arrow-breaking) would have fallen
+through to the flat branch and dropped its comments the same way a nested
+record would have; it now also checks the type's own `t[-1]` flag. Record
+fields are now uniformly `(name, type, lead)` triples everywhere a record/
+exrecord field list appears, including a union variant's record payload
+(`variant_payload`/`emit_variant_payload`), which stays flat and comment-free
+by construction (`lead` always `None` there) — updated only for shape
+consistency with `emit_type`'s new 3-tuple destructuring, not to add coverage
+there.
+
+No shrinker changes: types are not expression slots (`child_slots`/
+`list_containers`/`comment_clearers` never descend into `Decl.sig`/
+`TypeAliasDecl.rhs` at all — confirmed by reading them, not assumed), so a
+field's `lead` comment is exactly as opaque to the shrinker as every other
+type-level attribute already is (the arrow-breaking `arrow_comment`, by
+contrast, IS shrinkable — but only because it lives on the surrounding `Decl`/
+`TypeAliasDecl` object directly, not nested inside the type tuple itself). A
+finding here would still shrink down to "drop every other declaration",
+matching the existing precedent for pattern-level additions (v1.9, v1.17).
+
+Verified: 8000 seeds against the fixed generator — 3000 `--comment-rate 0.6
+--max-depth 6` (5000000..5002999, the profile most likely to hit the new
+`top`-gated paths), 3000 default (5100000..5102999), 2000 `--max-depth 7
+--comment-rate 0.6` (5200000..5201999) — all clean (0 quarantine, 0 findings).
+No formatter source changed, so no gate-suite rerun was needed (generator-only
+change). Seed 5000030 was hand-inspected mid-sweep and confirmed to exercise
+both the extensible-record field-comment path and the whole-type trailing
+comment together in one module, formatting clean.
+
+**v1.20 (implemented 2026-07-22): scientific-notation float literals.**
+`float_lit()` previously only picked from a fixed pool of plain decimals
+(`"0.5"`, `"3.14"`, …), even though `1e10`/`2.5e-3`/`3E+4` is valid Gren —
+confirmed via `compiler-common/src/Compiler/Parse/Number.gren`'s
+`exponentParser` (an exponent, `e`/`E` plus optional `+`/`-` sign plus digits,
+may follow either an integer or a fractional literal) — and confirmed the
+formatter does **not** normalize it: case and sign are echoed verbatim
+(unlike a hex literal's forced-lowercase digits), since `FloatingPoint.text`
+is emitted as-is with no recomputation. ~30% of `float_lit()`'s calls now
+build `mantissa + e|E + sign|"" + digits`, verified directly against the app
+in every position the plain pool already reaches (bare, negated via `Neg`,
+call argument, binop operand, with a leading inline comment) before wiring
+in. No generator-internal structure changed (still a single `FloatLit`
+leaf), so no shrinker/emitter plumbing was needed beyond the pool itself.
+Verified clean as part of the v1.21 sweep below (the two additions were
+verified together).
+
+**v1.21 (implemented 2026-07-22): import-statement comments — found 2 real,
+undocumented formatter bugs.** `Module.imports` was a list of pre-rendered
+plain strings with no comment support at all — own-line comments, trailing
+comments, and blank-line group boundaries around imports were entirely
+untested by this generator (fixture-only coverage), despite `SortSymbols`
+having a documented, non-trivial rule specifically about them (imports sort
+alphabetically only within a contiguous run with no blank line or own-line
+comment between them — see `README`'s "Import group sort"). Replaced with a
+structured `Import` class (`mod`, `as_name`, `exposing`, `lead`/`blank`
+group-boundary markers, `trailing`, and `item_lead`/`item_trailing` — a
+comment on one item of a list-form `exposing`, forcing it to break across
+lines) and a new `emit_import`. `imports` is now a normal shrinkable list
+container (`list_containers`) with matching `comment_clearers` entries, same
+as every other list-of-declarations in the generator.
+
+This is exactly the kind of construct this generator exists to reach: within
+one 3000-seed targeted sweep (`--comment-rate 0.6 --max-depth 6`, seeds
+6000000..6002999), **294 modules (~10%) came back non-idempotent** — not a
+generator mistake (every other bucket, including `comment-loss` and
+`ast-mismatch`, stayed at 0; the generator itself is producing legal,
+well-formed input) but two distinct, real, previously-undocumented formatter
+bugs, both now written up in full in `../tbd.md` with root-cause tracing:
+
+- **Bug A** — a comment trailing `exposing (..)` (either the module header's
+  own, or an import's) is non-idempotent: `Exposing.Open` carries no AST
+  position at all (unlike `Explicit`, whose array of positioned items is
+  exactly why that branch already needed, and got, a `locImport.end` anchor
+  after an earlier non-idempotency finding — see the comment right next to
+  it in `MakeLogical.gren`). `Open` never got the equivalent fix, so a `--`
+  comment forced onto its own row has no stable anchor to compute its indent
+  from — a `{- -}` comment that stays glued inline never hits this path,
+  which is why only line comments trigger it.
+- **Bug B** — an exposing-list comment that ends up leading the item
+  `SortSymbols` moves to the front (alphabetically, or an operator/type/value
+  rank change) renders two different ways depending on which pass produced
+  it (own line before `(` vs. glued after `exposing` before `(`, with
+  different continuation alignment) — so formatting one produces the other,
+  never a fixed point. Isolated precisely: the same shape with the comment on
+  an item that stays in the *middle* after sorting is stable; only the
+  post-sort-*first* item's leading comment triggers it.
+
+294 findings decompose as 274 Bug A + 20 Bug B (confirmed by inspecting every
+failing seed's minimized repro — 0 unclassified, 0 crashes, 0 ast-mismatches,
+0 comment-loss). The generator was left as-is (still generates both shapes)
+rather than taught to avoid its own finds — that would defeat the point of
+having added this coverage; both bugs will keep resurfacing in sweeps until
+fixed, which is the correct, expected state per `tbd.md`.
+
+Verified (structural/plumbing correctness of the new generator code, not a
+"clean sweep" — this addition is expected to keep finding Bugs A/B until they
+are fixed in the formatter): the 3000-seed sweep above found exactly the two
+known bugs and nothing else; every non-`non-idempotent` oracle (parse,
+crash, ast-mismatch, comment-loss) was 0/3000. Re-run this same sweep after
+Bug A/B are fixed to confirm 0 remaining findings, then promote minimized
+repros as fixtures (see `tbd.md`'s "notes for whoever picks this up").
+
 **Remaining expansion targets:** the 2026-07-21 AST-vs-generator audit's gap
 list (local-function bodies, infix declarations, effect modules, nested `as`)
 is now fully closed. What's left: comments *inside* a multi-line string's
@@ -1013,3 +1163,22 @@ a further 6000 seeds — 3000 default (1..3000) + 3000 `--comment-rate 0.6`
 2026-07-22, clean — closing the deep-nesting gap this addition had left open.
 The v1.14 hex work is what uncovered the intToHex 2^35 `//`-truncation bug,
 fixed first in `6428cbf`.)
+
+**Post-fix re-sweep (2026-07-22, after `ada1dd8`):** the multiline-string
+`--`-swallow bug documented in `tbd.md` (binop/pipeline operator gluing onto a
+`"""…""" -- c` operand's comment line) is fixed — `subtreeEndsWithLineComment`
+in `Render/NodeClassify.gren`, consulted at the pipeline `hasBoundaryComment`
+gate and the binop-group `AlreadyTerminated` override. A further 9000 fresh
+seeds against the fixed formatter — 4000 default (3000000..3003999), 3000
+`--comment-rate 0.6` (3100000..3102999), 2000 `--max-depth 7 --comment-rate
+0.6` (3200000..3201999) — all clean (0 quarantine, 0 findings), confirming no
+regression and no further instance of the bug class.
+
+**Higher-volume / deeper-nesting round (2026-07-22):** pushed both axes past
+their previous ceilings with no formatter change in between (pure
+verification). A `-n 50 --max-depth 8 --comment-rate 0.6` sanity check (base
+3900000) came back clean before committing to the full run. Then 20000 fresh
+seeds: 10000 default (4000000..4009999), 6000 `--comment-rate 0.6`
+(4100000..4105999), 4000 `--max-depth 8 --comment-rate 0.6`
+(4200000..4203999) — the first sweep at depth 8 (prior ceiling was 7). All
+clean (0 quarantine, 0 findings).
