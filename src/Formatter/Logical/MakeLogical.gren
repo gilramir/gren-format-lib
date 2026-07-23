@@ -10,6 +10,7 @@ stage's entry point.
 
 import Compiler.Ast.Source as Src
 import Compiler.SourcePosition exposing (Located, Position)
+import Math exposing (maxSafeInteger)
 
 import Formatter.Logical.InsertExpressions exposing (insertExpression)
 import Formatter.Logical.InsertPatterns exposing (folderInsertPattern)
@@ -189,9 +190,19 @@ processModuleLine modAst root =
                             lpnLeaf (mkZeroWidthText exposingPos "(..)")
 
                 Src.Explicit exposed ->
-                    lpnNode
-                        (exposingListBox (exposedSpansRows exposed))
-                        (Array.map processExposed exposed)
+                    let
+                        itemNodes =
+                            Array.map processExposed exposed
+
+                        listBox =
+                            exposingListBox (exposedSpansRows exposed)
+                    in
+                    when moduleExposingClose exposed is
+                        Just closePos ->
+                            lpnBracketNode listBox closePos itemNodes
+
+                        Nothing ->
+                            lpnNode listBox itemNodes
 
         -- The module line's range starts at row 1, the keyword's row (see
         -- keywordNode), NOT the module name's row. A long header comment can push the name
@@ -291,41 +302,73 @@ buildWhereBlock effects =
             []
 
 
+{-| The synthesized closing-bracket position of a module header's
+`exposing ( … )` list, for a list the author wrote across rows; `Nothing` for a
+flat one.
+
+An import hands `lpnBracketNode` its real closing position (`locImport.end` is
+one column past the `)`), but the module header's `)` has no position anywhere
+in the AST. For a **vertical** list it can still be synthesized: the `)` sits one
+row below the last item, and the module header's row range reaches exactly that
+far, so every comment the header claims past the last item was written *inside*
+the brackets. The column is unknown, hence `maxSafeInteger` — "past anything that
+can appear on this row" — which makes the inside/outside call depend only on the
+row.
+
+That is the whole fix for the vertical shape. Without a closing position the call
+fell to the two-column slack
+`Formatter.Logical.Comments.commentInsideTrailingBracket` allows an inexact
+close, so it depended on how much whitespace the author left: `, zebra -- c`
+stayed inside the list, `, zebra   -- c` escaped past it — and an escaped comment
+renders on its own line *below* the `)`, which on reparse lies past the module
+header's rows and detaches to the top level. That was the oscillation
+(`) -- c` ↔ own-line comment) the whitespace fuzzer found in
+`SortingCommentZoo`.
+
+A **flat** list gets no synthesized close (`Nothing`), because on its single row
+"inside the brackets" and "past the `)`" are indistinguishable without the `)`'s
+column, and the corpus needs both answers: `ExposingInlineComment` requires
+`exposing (Kiwi, apple, zebra {- the last one -})` to keep its comment inside
+(it rides the last name), while `ModuleLineFloatingComment` requires
+`exposing ( value )    {- c -}` to keep its comment outside. Only the gap width
+tells them apart, which is exactly what the inexact close's slack measures — so a
+flat list keeps using it. Unlike the vertical shape this is at least stable: a
+comment that escapes a flat list still glues to the header's own row.
+
+-}
+moduleExposingClose : Array Src.Exposed -> Maybe Position
+moduleExposingClose exposed =
+    let
+        lastItemRow =
+            Array.foldl (\item acc -> max acc (exposedRow item)) 1 exposed
+    in
+    if exposedSpansRows exposed then
+        Just { row = lastItemRow + 1, col = maxSafeInteger }
+
+    else
+        Nothing
+
+
 {-| True when the module line's closing bracket sits one row below its last
 positioned item, so its `OriginalRows` range must be bumped by a row.
 
-Two cases, both where a `)`/`}` has no AST position of its own:
-
-  - a vertical `exposing ( … )` list (its items span rows): the `)` drops
-    below the last item. A list that merely *wrapped* but stayed horizontal
-    (`exposing⏎    ( a, b, c )`) keeps its `)` on the item row and must NOT be
-    bumped — the distinguishing signal is whether the items span more than one row.
-  - a vertical effect-module `where { … }` block (only `Fx` has two fields and
-    can wrap): the closing `}` — and the `exposing` after it — drop below the
-    last field.
+This covers the vertical effect-module `where { … }` block (only `Fx` has two
+fields and can wrap): the closing `}` — and the `exposing` after it — drop below
+the last field, and neither has an AST position. (The other such bracket, a
+vertical `exposing ( … )` list, no longer needs the bump: `moduleExposingClose`
+gives it a synthesized closing position, and `lpnBracketNode` already widens the
+node's row range to cover it.)
 
 Without the bump, VerticalSpace sees a spurious one-row gap to the first
 declaration and inserts a blank line on reparse (non-idempotent). -}
 moduleLineClosesBelow : Src.Module -> Bool
 moduleLineClosesBelow modAst =
-    let
-        exposingClosesBelow =
-            when modAst.exports is
-                Src.Explicit exposed ->
-                    exposedSpansRows exposed
+    when modAst.effects is
+        Src.Manager (Src.Fx { cmd = cmd, sub = sub }) ->
+            sub.start.row > cmd.start.row
 
-                Src.Open ->
-                    False
-
-        whereClosesBelow =
-            when modAst.effects is
-                Src.Manager (Src.Fx { cmd = cmd, sub = sub }) ->
-                    sub.start.row > cmd.start.row
-
-                _ ->
-                    False
-    in
-    exposingClosesBelow || whereClosesBelow
+        _ ->
+            False
 
 
 {-| Render a single item in an `exposing (...)` list.

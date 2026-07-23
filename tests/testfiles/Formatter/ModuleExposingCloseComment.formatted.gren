@@ -1,0 +1,25 @@
+module ModuleExposingCloseComment exposing
+    ( (+++) -- an operator, sorts to the front of the list
+    , apple -- trails a name, well past that name's end
+    , zebra
+    -- written on its own line, above the closing paren
+    )
+
+{-| A vertical module `exposing` list closes on a row of its own, but that `)`
+has no position in the AST. Every comment past the last name is placed inside
+the list by its row, rather than by how far right the author happened to put it.
+-}
+
+infix left  5 (+++) = combine
+
+
+apple =
+    1
+
+
+zebra =
+    2
+
+
+combine a b =
+    a + b

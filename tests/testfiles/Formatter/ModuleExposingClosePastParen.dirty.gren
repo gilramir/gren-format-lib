@@ -1,0 +1,12 @@
+module ModuleExposingClosePastParen exposing
+    ( apple
+    , zebra
+    ) -- written past the closing paren of a vertical exposing list
+
+
+apple =
+    1
+
+
+zebra =
+    2

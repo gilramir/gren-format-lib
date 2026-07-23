@@ -74,6 +74,7 @@ The larger section explains the [Gren Formatter Rules](#gren-formatter-rules).
   - [A line break inside a declaration's head](#a-line-break-inside-a-declarations-head)
   - [Comments near an effect module's `where` block](#comments-near-an-effect-modules-where-block)
   - [A comment right after `exposing` doesn't sort with the first name](#a-comment-right-after-exposing-doesnt-sort-with-the-first-name)
+  - [A comment past a flat module `exposing` list](#a-comment-past-a-flat-module-exposing-list)
   - [A comment after the last binding in a `let`](#a-comment-after-the-last-binding-in-a-let)
   - [Two fixtures parse a custom-type shape the language no longer allows](#two-fixtures-parse-a-custom-type-shape-the-language-no-longer-allows)
   - [Block comment body indentation](#block-comment-body-indentation)
@@ -2354,6 +2355,67 @@ import Foo as {- c -} Bar
 import Foo {- c -} as Bar
 ```
 
+A module header's `exposing ( ... )` list is another one of these: its closing
+`)` has no position in the AST either. When you wrote the list across rows, a
+comment after the last name always lands **inside** the list, whichever side of
+the `)` you wrote it on:
+
+```gren
+-- both of these:
+module M exposing
+    ( apple
+    , zebra
+    -- the last one
+    )
+
+module M exposing
+    ( apple
+    , zebra
+    ) -- the last one
+
+-- format to:
+module M exposing
+    ( apple
+    , zebra
+    -- the last one
+    )
+```
+
+Inside the list it belongs to the name it follows, so if sorting moves that name
+the comment goes with it — the same thing an import's list does with a comment in
+the same spot:
+
+```gren
+module M exposing
+    ( zebra
+    , apple
+    -- follows apple, the last name written
+    )
+```
+
+becomes:
+
+```gren
+module M exposing
+    ( apple
+    -- follows apple, the last name written
+    , zebra
+    )
+```
+
+A comment trailing a name on that name's *own* row works the same way — it
+belongs to the name and travels with it (see
+[Exposed names sort automatically](#exposed-names-sort-automatically)).
+
+The same canonical choice can't be made when you wrote the list flat, on one
+row: there, "before the `)`" and "after the `)`" are the same row, and the `)`
+you'd measure against isn't recorded. See
+[A comment past a flat module `exposing` list](#a-comment-past-a-flat-module-exposing-list).
+
+An import's exposing list has none of this ambiguity — the parser does record
+where an import ends, so both a flat and a vertical import list keep a comment
+on whichever side of the `)` you wrote it.
+
 ---
 
 ## Known limitations
@@ -2530,6 +2592,55 @@ module ExposingListSort exposing
 A comment before any *other* name in the list (not the first) doesn't have
 this issue — it travels with its name normally, as shown in
 [Exposed names sort automatically](#exposed-names-sort-automatically).
+
+### A comment past a flat module `exposing` list
+
+The closing `)` of a module header's `exposing ( ... )` list has no position in
+the AST — the parser records where each exposed *name* is, but nothing about the
+brackets around them. When you wrote the list across rows that costs nothing: the
+`)` is on its own row below the last name, so a comment after that name is
+recognised by its row and stays inside the list (see
+[When the formatter can't tell what you meant](#when-the-formatter-cant-tell-what-you-meant)).
+
+When you wrote the list flat, everything is on one row and the row tells you
+nothing. A comment written *inside* the brackets and one written *past* them look
+alike, so the only thing left to measure is how far past the last name the
+comment starts. Up to two columns — one space and the `)` the formatter can't
+see — it is treated as inside the list; further out, as past it:
+
+```gren
+module FlatClose exposing (apple, zebra) {- both names -}
+```
+
+keeps the comment inside the list, riding the last name:
+
+```gren
+module FlatClose exposing (apple, zebra {- both names -})
+```
+
+while the same comment written a few spaces further right:
+
+```gren
+module FlatClose exposing (apple, zebra)    {- both names -}
+```
+
+is treated as trailing the whole module line, and stays past the close:
+
+```gren
+module FlatClose exposing ( apple, zebra ) {- both names -}
+```
+
+Both are stable — reformatting either output leaves it alone — but which one you
+get depends on spacing you probably didn't think about, and that is the only
+place in the formatter where it does. Both readings are needed in practice: a
+comment you wrote after the last name is usually about that name and should ride
+it as the list sorts, while a comment you set apart at the end of the header is
+usually about the module. Telling them apart properly needs the parser to record
+the exposing list's brackets; until then the gap is the only signal there is.
+
+An import's list has no such problem — the parser records where an import ends,
+`)` included, so a comment stays on whichever side of the `)` you wrote it,
+however much space you left.
 
 ### A comment after the last binding in a `let`
 
