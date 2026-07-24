@@ -1592,12 +1592,35 @@ classifyCommentKind containerBox commentNode before after row =
         -- A `--` runs to end-of-line, so it is unambiguously trailing: it glues
         -- onto the previous item's line-glue row (or any elided token), else it
         -- leads its own line. A `--` can never ride inline.
+        --
+        -- On a top-level declaration line whose trailing tokens are position-less
+        -- synthesized text, the immediate `prev` yields no glue row (-1). The one
+        -- case is an effect module's `exposing (..)`: its real column depends on
+        -- the untracked `where { … }` contents, so `(..)`/`exposing` stay
+        -- position-less `SynthesizedText`. Without a glue row a same-row trailing
+        -- `-- c` classifies `LeadsOwnLine` and drops to its own line, oscillating
+        -- indented↔col-0 on reparse. Fall back to the last real content row on
+        -- the line (`refRow`) so it glues onto the header row (`TrailsPrevious`)
+        -- instead. (A block trailer already renders inline from `LeadsOwnLine`,
+        -- so this only needs to cover the `--` case.)
         classifyLine p =
             let
                 g =
                     prevLineGlueRow p
+
+                glueRow =
+                    if g >= 0 then
+                        g
+
+                    else
+                        when containerBox is
+                            OriginalRows _ ->
+                                refRow
+
+                            _ ->
+                                g
             in
-            if nodeIsElided p || (g >= 0 && row == g) then
+            if nodeIsElided p || (glueRow >= 0 && row == glueRow) then
                 TrailsPrevious
 
             else

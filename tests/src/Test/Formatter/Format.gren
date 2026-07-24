@@ -541,6 +541,7 @@ commentsSuite fsPerm =
             , assertPretty fsPerm "trailing comment on a long when-branch body glues inline regardless of length" "WhenBranchTrailingComment"
             , assertPretty fsPerm "single-line comment around the arrow of a wrapping signature soft-breaks" "SignatureArrowLineComment"
             , assertPretty fsPerm "comment after the exposing list of a vertical effect-module where block" "EffectModuleFxWhereComment"
+            , assertPretty fsPerm "trailing -- line comment after an effect module's open exposing glues onto the header row (internal where comments stay put)" "EffectModuleOpenLineTrailer"
             , assertPretty fsPerm "comment spaced too far from the handler name falls out of an effect-module where block" "EffectModuleWideSpacingComment"
             , assertPretty fsPerm "comment on an item in a multi-line import exposing list" "ImportExposingMultilineComment"
             , assertPretty fsPerm "a comment trailing an import's `exposing (..)` glues onto the import line (line and block; with and without an alias)" "ImportExposingOpenTrailingComment"

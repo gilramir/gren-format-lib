@@ -1,0 +1,11 @@
+effect module EffectModuleOpenLineTrailer where { command = TrickyCmd {- c2 -}, subscription = TrickySub {- c3 -} } exposing (..) -- trailing line comment after the open exposing
+
+import Task
+
+
+type TrickyCmd msg
+    = TrickyCmd (Task.Task Never msg)
+
+
+type TrickySub msg
+    = TrickySub Never
