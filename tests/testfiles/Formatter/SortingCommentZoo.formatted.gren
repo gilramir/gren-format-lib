@@ -18,20 +18,25 @@ and first import statement -}
 import DocA
 import DocZ
 
--- an own-line comment above the very first import (run boundary)
 import Apple {- trailing single-line block on an import -}
-import Mango -- trailing line comment on an import
-import {- between iz -} Zebra -- after-zebra
-{- an own-line multiline block
-   comment between imports
-   (is this a run boundary?) -}
-import Delta
 {- Charlie pre1
    pre2
    pre3 -} {- ch2 -}
 {- ch3 -} -- ch4
 import Charlie
+{- an own-line multiline block
+   comment between imports
+   (is this a run boundary?) -}
+import Delta
+import Mango -- trailing line comment on an import
+-- an own-line comment above the very first import (run boundary)
+import {- between iz -} Zebra -- after-zebra
 
+--
+-- Bar 1
+-- Bar 2
+--
+import Bar exposing (Charlie, alpha, delta)
 {- legal multiline
    before import -} import Baz exposing
     {- pre-yak -}
@@ -47,11 +52,6 @@ import Charlie
     , aardvark
     , wombat
     )
---
--- Bar 1
--- Bar 2
---
-import Bar exposing (Charlie, alpha, delta)
 
 import Foo exposing
     {- g -}

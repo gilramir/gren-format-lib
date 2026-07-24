@@ -1,8 +1,8 @@
 module ImportGroupSortTrailingComment exposing (..)
 
 import Apple
+import Delta
+-- boundary comment
+import Kiwi -- k note
 import Mango -- m note
 import Zebra -- z note
--- boundary comment
-import Delta
-import Kiwi -- k note

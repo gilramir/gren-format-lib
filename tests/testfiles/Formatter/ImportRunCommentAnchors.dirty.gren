@@ -1,0 +1,13 @@
+module ImportRunCommentAnchors exposing (..)
+
+-- A header with a blank line under it leads no import, so it stays put
+-- and the run below it still sorts as one.
+
+import Zebra
+-- travels with Kiwi, which sorts to the front
+import Kiwi
+import Mango
+-- written below the run's last import: leads nothing, so it stays at the end
+
+value =
+    1

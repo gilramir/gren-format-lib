@@ -11,12 +11,13 @@ module Formatter.Logical.SortSymbols exposing (sortSymbols)
 
 2. **Import statements.** `import` lines sort alphabetically by module
    name, but *only within a maximal run of imports that sit with zero rows
-   between them* -- no blank line, no comment on its own line. A blank line
-   or an own-line comment is a hard boundary: it never moves, and it splits
-   the imports around it into independently-sorted groups. A comment
-   trailing an import on that import's own source row (`import Foo --
-   note`) is the one exception -- it does not break the run, and it travels
-   with `Foo` if `Foo` moves within its group.
+   between them*. A **blank line** is the only boundary: it never moves, and
+   it splits the imports around it into independently-sorted groups.
+   Comments do not break a run -- they travel with the import they belong
+   to, which is the import below them for an own-line comment and the
+   import on their own row for a trailing one (`import Foo -- note`). A
+   comment with a blank line under it therefore stays put, being nobody's
+   leading comment, and so does one written below the run's last import.
 
 Runs *after* `Formatter.Logical.Comments` has attached every comment by its
 real source position -- that ordering is load-bearing for both sorts.
@@ -314,18 +315,24 @@ flattenClusters clusters =
 -- IMPORT STATEMENTS
 
 
-{-| One `import` statement together with any comment(s) trailing it on its
-own source row -- the only comment shape that travels with an import (see
-the module doc comment for the full rule). -}
+{-| One `import` statement together with the comments that travel with it:
+own-line comment(s) written directly above it with no blank line between, and
+any comment(s) trailing it on its own source row. -}
 type alias ImportUnit =
-    { item : LPNode
+    { leading : Array LPNode
+    , item : LPNode
     , trailing : Array LPNode
     }
 
 
 unitFirstRow : ImportUnit -> Int
 unitFirstRow unit =
-    origRowsFirst unit.item
+    when Array.first unit.leading is
+        Just n ->
+            origRowsFirst n
+
+        Nothing ->
+            origRowsFirst unit.item
 
 
 unitLastRow : ImportUnit -> Int
@@ -338,11 +345,90 @@ unitLastRow unit =
             origRowsLast unit.item
 
 
+{-| True for a root-level comment: an `OriginalRows` wrapping one detached
+line or block comment. (A doc comment is deliberately not one of these -- it
+belongs to the declaration it documents, and never travels with an import.) -}
+isCommentOrigRows : LPNode -> Bool
+isCommentOrigRows node =
+    when lpnBox node is
+        OriginalRows { stype = StSingleLineComment } ->
+            True
+
+        OriginalRows { stype = StBlockComment } ->
+            True
+
+        _ ->
+            False
+
+
+{-| Take the next import unit off the front of `nodes`: the own-line comments
+glued above the import (each row-adjacent to what follows it), the import
+itself, and the comments trailing it on its own row. `Nothing` when `nodes`
+does not start one -- including when a comment chain leads to something that
+is not an import, in which case nothing is consumed and the caller emits the
+nodes as they are. -}
+takeUnit : Array LPNode -> Maybe { unit : ImportUnit, after : Array LPNode }
+takeUnit nodes =
+    let
+        { leading, afterLeading } =
+            takeGluedLeading nodes
+    in
+    when Array.popFirst afterLeading is
+        Just { first = node, rest } ->
+            if isImportNode node then
+                let
+                    { trailing, afterTrailing } =
+                        takeSameRowTrailing node rest
+                in
+                Just
+                    { unit = { leading = leading, item = node, trailing = trailing }
+                    , after = afterTrailing
+                    }
+
+            else
+                Nothing
+
+        Nothing ->
+            Nothing
+
+
+{-| Pop comments off the front of `nodes` for as long as each one is followed
+immediately -- next row, no blank line -- by another node. The chain stops at a
+comment with a gap under it, which is nobody's leading comment and stays put. -}
+takeGluedLeading : Array LPNode -> { leading : Array LPNode, afterLeading : Array LPNode }
+takeGluedLeading nodes =
+    when Array.popFirst nodes is
+        Just { first = node, rest } ->
+            if isCommentOrigRows node && startsOnRow (origRowsLast node + 1) rest then
+                let
+                    inner =
+                        takeGluedLeading rest
+                in
+                { leading = Array.pushFirst node inner.leading, afterLeading = inner.afterLeading }
+
+            else
+                { leading = [], afterLeading = nodes }
+
+        Nothing ->
+            { leading = [], afterLeading = nodes }
+
+
+-- True when the first node of `nodes` starts on `row`.
+startsOnRow : Int -> Array LPNode -> Bool
+startsOnRow row nodes =
+    when Array.first nodes is
+        Just n ->
+            origRowsFirst n == row
+
+        Nothing ->
+            False
+
+
 {-| Reorder `import` statements alphabetically by module name, but only
-within a maximal run of imports that sit with zero rows between them --
-see the module doc comment for the exact rule (blank lines and own-line
-comments are hard boundaries; a same-row trailing comment is not). Walks
-the root's children once, left to right. -}
+within a maximal run of import units that sit with zero rows between them --
+see the module doc comment for the exact rule (a blank line is the only
+boundary; comments travel with their import). Walks the root's children once,
+left to right. -}
 sortImportGroups : LPNode -> LPNode
 sortImportGroups root =
     lpnReplaceChildren root (walkTop (lpnChildren root) [])
@@ -350,24 +436,25 @@ sortImportGroups root =
 
 walkTop : Array LPNode -> Array LPNode -> Array LPNode
 walkTop remaining acc =
-    when Array.popFirst remaining is
-        Nothing ->
-            acc
-
-        Just { first = node, rest } ->
-            if isImportNode node then
-                let
-                    { units, afterRun } =
-                        collectRun node rest
-                in
-                if Array.length units >= 2 then
-                    walkTop afterRun (acc ++ renderSortedRun (origRowsFirst node) units)
-
-                else
-                    walkTop afterRun (acc ++ flattenUnits units)
+    when takeUnit remaining is
+        Just { unit = firstUnit, after } ->
+            let
+                { units, afterRun } =
+                    collectRun firstUnit after
+            in
+            if Array.length units >= 2 then
+                walkTop afterRun (acc ++ renderSortedRun (unitFirstRow firstUnit) units)
 
             else
-                walkTop rest (Array.pushLast node acc)
+                walkTop afterRun (acc ++ flattenUnits units)
+
+        Nothing ->
+            when Array.popFirst remaining is
+                Nothing ->
+                    acc
+
+                Just { first = node, rest } ->
+                    walkTop rest (Array.pushLast node acc)
 
 
 renderSortedRun : Int -> Array ImportUnit -> Array LPNode
@@ -378,41 +465,31 @@ renderSortedRun runFirstRow units =
         |> flattenUnits
 
 
-{-| Collect one run starting at `firstImport`: absorb any comment(s)
-trailing it on its own row (`takeSameRowTrailing`), then check whether the
-very next node is another import starting immediately after (zero rows) --
-if so, that import continues the run; anything else (a blank line, an
-own-line comment, the end of the children array) ends it. -}
-collectRun : LPNode -> Array LPNode -> { units : Array ImportUnit, afterRun : Array LPNode }
-collectRun firstImport remaining =
-    collectRunHelp firstImport remaining []
+{-| Collect one run starting at `firstUnit`: keep taking import units for as
+long as the next one starts on the row right after the previous one ends. A
+blank line leaves a gap, which ends the run; so does anything that is not an
+import unit (a declaration, or a comment chain that leads to one). -}
+collectRun : ImportUnit -> Array LPNode -> { units : Array ImportUnit, afterRun : Array LPNode }
+collectRun firstUnit remaining =
+    collectRunHelp firstUnit remaining []
 
 
-collectRunHelp : LPNode -> Array LPNode -> Array ImportUnit -> { units : Array ImportUnit, afterRun : Array LPNode }
-collectRunHelp importNode remaining acc =
+collectRunHelp : ImportUnit -> Array LPNode -> Array ImportUnit -> { units : Array ImportUnit, afterRun : Array LPNode }
+collectRunHelp unit remaining acc =
     let
-        { trailing, afterTrailing } =
-            takeSameRowTrailing importNode remaining
-
-        unit =
-            { item = importNode, trailing = trailing }
-
         newAcc =
             Array.pushLast unit acc
-
-        unitEnd =
-            unitLastRow unit
     in
-    when Array.popFirst afterTrailing is
-        Just { first = nextNode, rest } ->
-            if isImportNode nextNode && origRowsFirst nextNode == unitEnd + 1 then
-                collectRunHelp nextNode rest newAcc
+    when takeUnit remaining is
+        Just { unit = nextUnit, after } ->
+            if unitFirstRow nextUnit == unitLastRow unit + 1 then
+                collectRunHelp nextUnit after newAcc
 
             else
-                { units = newAcc, afterRun = afterTrailing }
+                { units = newAcc, afterRun = remaining }
 
         Nothing ->
-            { units = newAcc, afterRun = afterTrailing }
+            { units = newAcc, afterRun = remaining }
 
 
 sortUnitsStable : Array ImportUnit -> Array ImportUnit
@@ -489,14 +566,15 @@ shiftUnit delta unit =
 
     else
         { unit
-            | item = shiftOrigRows delta unit.item
+            | leading = Array.map (shiftOrigRows delta) unit.leading
+            , item = shiftOrigRows delta unit.item
             , trailing = Array.map (shiftOrigRows delta) unit.trailing
         }
 
 
 flattenUnits : Array ImportUnit -> Array LPNode
 flattenUnits units =
-    Array.foldl (\u acc -> acc ++ [ u.item ] ++ u.trailing) [] units
+    Array.foldl (\u acc -> acc ++ u.leading ++ [ u.item ] ++ u.trailing) [] units
 
 
 -- EXPOSING LISTS

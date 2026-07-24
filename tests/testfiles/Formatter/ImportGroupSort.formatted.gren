@@ -1,9 +1,9 @@
 module ImportGroupSort exposing (..)
 
+import Apple
+-- a section note
+import Kiwi
 import Mango
 import Zebra
--- a section note
-import Apple
-import Kiwi
 
 import Delta

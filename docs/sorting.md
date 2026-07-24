@@ -217,11 +217,10 @@ starts on, exactly like a single-line comment:
 ### Runs and boundaries
 
 `import` statements sort alphabetically by module name, but only within a
-**run** — a stretch of imports with nothing between them: no blank line, and no
-comment on its own line. A blank line or an own-line comment is a **boundary**:
-it never moves, and it splits the imports around it into independently sorted
-groups. A run is fine with multi-row imports (a wrapped exposing list does not
-break it) — only a blank line or an own-line comment does.
+**run** — a stretch of imports with no blank line anywhere in it. A **blank line
+is the only boundary**: it never moves, and it splits the imports around it into
+independently sorted groups. Multi-row imports are fine (a wrapped exposing list
+does not break a run), and neither do comments.
 
 ```gren
 import Zebra
@@ -236,46 +235,83 @@ import Delta
 becomes
 
 ```gren
+import Apple
+-- a section note
+import Kiwi
 import Mango
 import Zebra
--- a section note
-import Apple
-import Kiwi
 
 import Delta
 ```
 
-`[Zebra, Mango]` and `[Kiwi, Apple]` are separate runs (split by the comment),
-each sorted independently; `Delta` is alone in its own run (blank line above it),
-so there is nothing to sort. The comment and the blank line stay exactly where
-they were.
+`[Zebra, Mango, Kiwi, Apple]` is one run — the comment does not split it — sorted
+as one; `Delta` is alone in its own run (blank line above it), so there is
+nothing to sort. The blank line stays exactly where it was, and the comment
+travels with `Kiwi`, the import it leads.
 
-### Trailing comments travel, and don't break the run
+This is a 2026-07-23 change. Before it, an own-line comment was a hard boundary
+like a blank line, and the example above sorted as `[Zebra, Mango]` and
+`[Kiwi, Apple]` separately. Rows of imports separated only by comments read as
+one block, so they now sort as one. elm-format agrees on this much — it sorts
+every import as a single list regardless of comments — though it then hoists all
+the comments above the block and drops the blank lines, which gren-format does
+not.
 
-A comment trailing an import on that import's *own* source row is the one
-exception — unlike an own-line comment, it does not break the run, and it travels
-with its import if that import moves within the group:
+### Which import a comment travels with
 
-```gren
-import Foo -- deprecated, remove soon
-import Bar
-import Baz
-```
+- **Trailing an import on that import's own row** — belongs to that import:
 
-becomes
+  ```gren
+  import Foo -- deprecated, remove soon
+  import Bar
+  import Baz
+  ```
 
-```gren
-import Bar
-import Baz
-import Foo -- deprecated, remove soon
-```
+  becomes
+
+  ```gren
+  import Bar
+  import Baz
+  import Foo -- deprecated, remove soon
+  ```
+
+- **On its own line directly above an import**, no blank line between — belongs
+  to the import below it, and moves with it. Several stacked comments all travel
+  together, and so does a comment leading the *first* import of a run (there is
+  no special case for the head of a run).
+
+- **With a blank line under it** — it leads no import, so it stays where it is
+  while the run below it sorts. This is how a section header keeps its place:
+
+  ```gren
+  -- Third-party
+
+  import Zebra
+  -- the fast one
+  import Apple
+  ```
+
+  becomes
+
+  ```gren
+  -- Third-party
+
+  -- the fast one
+  import Apple
+  import Zebra
+  ```
+
+- **Below the run's last import** — also leads nothing, so it stays at the end of
+  the block.
+
+  `ImportRunCommentAnchors` is the fixture for the last two.
 
 ### Multiline block comments (current behavior)
 
 Classification again follows the `{-`'s start row:
 
-- On its own line between two imports → a run boundary, just like an own-line
-  single-line comment. It stays put and splits the runs around it.
+- On its own line between two imports → leads the import below it and travels
+  with it, just like an own-line single-line comment.
 - Starting on an import's own row (trailing) → travels with that import and does
   **not** break the run, even though the comment's later rows sit below the import
   line. Continuation lines pad to align under the `{-`.
@@ -306,9 +342,10 @@ worth deciding explicitly:
 
 - A multiline block comment whose `{-` starts on an item/import row but whose
   `-}` closes several rows down: it currently counts as "same-row trailing" (by
-  its start) and so travels and does not break a run. Is start-row the intended
-  rule, or should a comment that *visually occupies* the gap between two items be
-  a boundary/own-line comment regardless of where it opens?
+  its start), so it belongs to the item it opens on. Is start-row the intended
+  rule, or should a comment that *visually occupies* the gap between two items
+  belong to the one below it, like an own-line comment, regardless of where it
+  opens?
 - A multiline block comment sitting alone between two exposing-list items, when
   its owning name sorts to first place: it hoists to between `exposing` and `(`
   like a single-line comment. Confirm the multi-row rendering there is the

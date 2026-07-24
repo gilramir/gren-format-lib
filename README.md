@@ -582,10 +582,32 @@ run of imports — see below.)
 ### Import statements sort within unbroken runs
 
 `import` statements sort alphabetically by module name, but only within a
-*run* — a stretch of imports with nothing between them: a blank line or an
-own-line comment is a boundary that splits them into independently sorted
-groups, while a same-row trailing comment travels with its import and doesn't
-break the run.
+*run* — a stretch of imports with no blank line anywhere in it. A blank line is
+the only boundary; it never moves, and it splits the imports around it into
+independently sorted groups.
+
+Comments don't split a run. A comment travels with the import it belongs to:
+the one on its own row for a trailing comment, the one directly below it for an
+own-line comment. Leave a blank line under a comment and it belongs to no
+import, so it stays where you put it and everything below it still sorts:
+
+```gren
+-- Third-party
+
+import Zebra
+-- the fast one
+import Apple
+```
+
+becomes:
+
+```gren
+-- Third-party
+
+-- the fast one
+import Apple
+import Zebra
+```
 
 The full rules — for both import-statement sorting and exposing-list sorting,
 including every comment case (line, single-line block, and multiline block) —
@@ -2924,11 +2946,12 @@ decision and why.
    predictable, and unaffected by how the docs happen to be written.
 
    `import` statements sort alphabetically too (they carry no `@docs`, so both
-   formatters just alphabetize them) — but, unlike elm-format, which always
-   alphabetizes the whole `import` block regardless of the author's spacing,
-   gren-format only sorts within a run of imports that sit with nothing between
-   them; a blank line or a comment on its own line is a boundary the sort never
-   crosses. See
+   formatters just alphabetize them) — and neither formatter lets a comment split
+   that sort. Where they part company is spacing and comment placement:
+   elm-format alphabetizes the whole `import` block whatever the author wrote,
+   discarding blank lines and hoisting every comment above the block, while
+   gren-format treats a blank line as a boundary the sort never crosses and keeps
+   each comment with the import it belongs to. See
    [Import statements sort within unbroken runs](#import-statements-sort-within-unbroken-runs).
 
 4. <a id="divergence-4"></a>**`import X exposing (...)` wrapping style** When an
