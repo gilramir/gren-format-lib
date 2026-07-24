@@ -1534,12 +1534,25 @@ classifyCommentKind containerBox commentNode before after row =
         isBracketBranch =
             isBracketContainerBox containerBox
 
-        -- The row a bracket-list child ends on, mirroring `commentBracketListBox`'s
-        -- `prevRow` (a bare token by its start; a comment by its start; anything
-        -- else by its max row).
+        -- The row a bracket-list child ends on: a bare token by its start (it
+        -- cannot span rows), a comment by its LAST row, anything else by its max
+        -- row.
+        --
+        -- A comment is keyed by its last row for the same reason
+        -- `prevLineGlueRow` / `prevBlockGlueRow` key one that way in the generic
+        -- flow below: a multi-line `{- … -}` closes several rows under its `{-`,
+        -- and a comment written after that `-}` sits on the closing row. It
+        -- trails the run, exactly as a reader reads it —
+        --
+        --     , Mango {- mango's
+        --         comment -} -- and mango's trailing line comment
+        --
+        -- — rather than leading the name below. `SortSymbols.takeSameRowTrailing`
+        -- chains the same rows, so the whole run travels with `Mango` when the
+        -- list sorts.
         bracketItemRow n =
             if isCommentNode n then
-                firstRowInSubtree n
+                lastRowInSubtree n
 
             else
                 when lpnBox n is

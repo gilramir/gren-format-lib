@@ -2842,11 +2842,26 @@ commentBracketListBox bracket nodes =
                                     -- (`TrailsPrevious`/`RidesInline`), not a row test.
                                     when acc.pending is
                                         Nothing ->
-                                            Ok
-                                                { acc
-                                                    | entries = Array.pushLast { box = cbox, isComment = True } acc.entries
-                                                    , pending = Nothing
-                                                }
+                                            -- The item was already flushed because a
+                                            -- comment glued onto it. A second trailing
+                                            -- comment (`{- … -} -- c`) glues onto that
+                                            -- one's last line rather than dropping to
+                                            -- its own — which is where its role says it
+                                            -- belongs, and where a reparse re-derives
+                                            -- the same role from.
+                                            when Array.popLast acc.entries is
+                                                Just { last = e, initial } ->
+                                                    Ok
+                                                        { acc
+                                                            | entries = Array.pushLast { e | box = glueCommentSuffix cbox e.box } initial
+                                                        }
+
+                                                Nothing ->
+                                                    Ok
+                                                        { acc
+                                                            | entries = Array.pushLast { box = cbox, isComment = True } acc.entries
+                                                            , pending = Nothing
+                                                        }
 
                                         Just e ->
                                             Ok

@@ -11,12 +11,13 @@ The code is `Formatter.Logical.SortSymbols` (`sortExposingLists` and
 `sortImportGroups`); comment attachment happens earlier, in
 `Formatter.Logical.Comments` (see [commentHandling.md](commentHandling.md)).
 
-> **Status.** The plain-name ordering and the single-line-comment cases below
-> are deliberately specified and fixture-covered. The **multiline block comment**
-> cases are documented here as *current behavior* — they fall out of the same
-> start-row rule that governs single-line comments, but they were never a
-> deliberate design decision. Treat the "Comment handling" subsections as
-> descriptive until reviewed; see [Open questions](#open-questions-not-yet-deliberately-specified).
+> **Status.** The plain-name ordering, the single-line-comment cases, and the
+> comment-chain rule below are deliberately specified and fixture-covered. The
+> remaining **multiline block comment** cases are documented here as *current
+> behavior* — they fall out of the same start-row rule that governs single-line
+> comments, but they were never a deliberate design decision. Treat those parts of
+> the "Comment handling" subsections as descriptive until reviewed; see
+> [Open questions](#open-questions-not-yet-deliberately-specified).
 
 ---
 
@@ -53,8 +54,8 @@ README's "Comparison with elm-format", point 3).
 ### Comment handling
 
 Each name in the list can carry comments, and they travel with the name when it
-moves. Which name a comment belongs to is decided by **where the comment starts**,
-not by what it says:
+moves. Which name a comment belongs to is decided by **where the comment starts**
+— specifically, by what its starting row already holds — not by what it says:
 
 - **Trailing, same row as a name** (`zebra -- note` / `zebra {- note -}`): the
   comment belongs to that name and moves with it.
@@ -76,6 +77,37 @@ not by what it says:
       , zebra -- the last one
       )
   ```
+
+- **Trailing a comment that trails a name** (`zebra {- one -} -- two`): comments
+  chain. A comment starting on the last row of the comment before it joins that
+  comment's run, and the whole run belongs to the name the run started on. This
+  is what makes the multi-row case read the way a person reads it — the `--`
+  below starts on the row where Mango's block comment closes, not on Mango's own
+  row, and it still belongs to `Mango`:
+
+  ```gren
+  module Demo exposing
+      ( zebra
+      , Mango {- mango's
+          comment -} -- and mango's trailing line comment
+      , apple
+      )
+  ```
+
+  becomes (the whole run rides `Mango`, glued to the row it was written on)
+
+  ```gren
+  module Demo exposing
+      ( Mango {- mango's
+                 comment -} -- and mango's trailing line comment
+      , apple
+      , zebra
+      )
+  ```
+
+  Without the chain the `--` would be an own-line comment leading `apple`, and if
+  the name below it sorted to the front, the comment would be carried across the
+  list away from the name it describes. `SortingCommentZoo` covers this.
 
 - **On its own line, between two names** (`itemA` ⏎ `{- note -}` ⏎ `, itemB`):
   the comment leads the name *below* it (`itemB`) and travels with that name.
@@ -172,6 +204,11 @@ starts on, exactly like a single-line comment:
 
 - On its own line → leads the name below it (or hoists to the front if that name
   sorts first), same as a single-line own-line comment.
+
+- A comment starting on the row where a multiline block *closes* is part of that
+  block's run and belongs to the same name — see "Trailing a comment that trails
+  a name" above. This is the one multiline case that has been decided on purpose
+  rather than inherited from the start-row rule.
 
 ---
 
@@ -276,9 +313,16 @@ worth deciding explicitly:
   its owning name sorts to first place: it hoists to between `exposing` and `(`
   like a single-line comment. Confirm the multi-row rendering there is the
   desired shape.
-- Interaction of a trailing multiline block with a following own-line comment on
-  the same item/import.
 
-The fixture `SortingCommentZoo.dirty.gren` exists to exercise these; format it
-and inspect the result before promoting any of the above from "current behavior"
-to "specified".
+**Decided** (2026-07-23), previously listed here as "interaction of a trailing
+multiline block with a following own-line comment on the same item": a comment
+starting on the row where the preceding comment ends belongs to that comment's
+run, and the run belongs to the name it started on. See "Trailing a comment that
+trails a name" above. Before this, such a comment led the *next* name — and if
+that name sorted to the front, it travelled across the list away from the name it
+described.
+
+`SortingCommentZoo` is the fixture for all of this: it is registered in the test
+suite (`tests/src/Test/Formatter/Format.gren`), so a change to any rule on this
+page shows up as a diff in `SortingCommentZoo.formatted.gren`. Inspect that diff
+before promoting anything above from "current behavior" to "specified".

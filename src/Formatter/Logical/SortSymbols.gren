@@ -186,21 +186,35 @@ takeLeadingComments arr =
             { pending = [], afterPending = arr }
 
 
-{-| Pop comments off the front of `arr` for as long as each one starts on
-`item`'s own last source row -- a comment trailing `item` on the same
-line. -}
+-- Pop comments off the front of `arr` for as long as each one starts on the last
+-- row of what precedes it -- a chain of comments trailing `item` on the same
+-- line.
+--
+-- The chain matters because a comment's own last row is not always its first. A
+-- multi-line block comment trailing a name closes several rows down, and a `--`
+-- written after that closing delimiter is on the closing row, not the name's:
+--
+--     , Mango {- mango's
+--         comment -} -- and mango's trailing line comment
+--
+-- A reader takes the whole run as belonging to `Mango`, so the run travels with
+-- `Mango` when the list sorts. Comparing each comment against the *item*'s last
+-- row instead would end the run at the block comment and leave the `--` to lead
+-- whatever name came next -- which, if that name sorted to the front, carried
+-- the comment across the list with it.
 takeSameRowTrailing : LPNode -> Array LPNode -> { trailing : Array LPNode, afterTrailing : Array LPNode }
 takeSameRowTrailing item arr =
-    let
-        itemLastRow =
-            rowSpan item |> .last
-    in
+    takeSameRowTrailingFrom (rowSpan item |> .last) arr
+
+
+takeSameRowTrailingFrom : Int -> Array LPNode -> { trailing : Array LPNode, afterTrailing : Array LPNode }
+takeSameRowTrailingFrom prevLastRow arr =
     when Array.popFirst arr is
         Just { first = node, rest } ->
-            if isSweepComment node && (rowSpan node |> .first) == itemLastRow then
+            if isSweepComment node && (rowSpan node |> .first) == prevLastRow then
                 let
                     inner =
-                        takeSameRowTrailing item rest
+                        takeSameRowTrailingFrom (rowSpan node |> .last) rest
                 in
                 { trailing = Array.pushFirst node inner.trailing, afterTrailing = inner.afterTrailing }
 

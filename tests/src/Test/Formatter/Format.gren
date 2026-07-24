@@ -309,6 +309,7 @@ importSuite fsPerm =
             , assertPretty fsPerm "a block comment the author glued to the front of a top-level declaration (single- and multi-line, one or more) stays glued on that line (LeadsInline); a glued import travels with its module name when the run sorts and never breaks the run" "LeadingGluedComment"
             , assertPretty fsPerm "imports of the same module keep their original relative order (stable sort tie-break)" "ImportSameModuleStableSort"
             , assertPretty fsPerm "a comment among exposing-list items (a non-name list child), and an out-of-order import carrying a same-row trailing comment, both sort correctly" "SortSymbolsComments"
+            , assertPretty fsPerm "every comment shape a sorting exposing list or import run can carry, in one module: leading, trailing, own-line, multiline, sort-to-first, run boundaries (see docs/sorting.md)" "SortingCommentZoo"
             , assertPretty fsPerm "<| lambda body indents +4 per level, not +8" "BackwardPipelineLambda"
             , assertPretty fsPerm "a let as a <| body keeps its in and result aligned with let (regression guard: the pipeline-step builder spread the let's nodes into the step's +4 flow, shifting in/result down to the bindings column)" "LetAsBackwardPipeBody"
             , assertPretty fsPerm "a multi-line container (array/record/update) directly after |> glues to the operator instead of dropping below a dangling |> (regression guard: matches elm for array/record; the update keeps gren's own field indent, README #24)" "PipelineContainerOperand"

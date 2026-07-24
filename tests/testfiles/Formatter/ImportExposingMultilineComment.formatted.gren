@@ -3,8 +3,7 @@ module ImportExposingMultilineComment exposing (..)
 import Basics exposing (max)
 import Dict exposing
     ( Dict
-    , empty {- block comment after the exposed name -}
-    -- line comment after the exposed name
+    , empty {- block comment after the exposed name -} -- line comment after the exposed name
     )
 
 

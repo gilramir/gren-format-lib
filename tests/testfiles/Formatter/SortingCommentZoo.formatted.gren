@@ -1,0 +1,69 @@
+module SortingCommentZoo exposing
+    {- pre-zebra -}
+    ( (|=) -- an operator, trailing line comment
+    {- own-line single-line block, leads the name below -}
+    , Kiwi
+    {- a multiline block comment
+       sitting on its own line
+       between two exposed names -} {- another second
+                                       multie-line comment -}
+    , Mango {- mango's
+               comment -} -- and mango's trailing line comment
+    , apple {- trailing single-line block -}
+    , zebra -- trailing line comment on a value name
+    )
+
+{-| doc must come between module statement
+and first import statement -}
+import DocA
+import DocZ
+
+-- an own-line comment above the very first import (run boundary)
+import Apple {- trailing single-line block on an import -}
+import Mango -- trailing line comment on an import
+import {- between iz -} Zebra -- after-zebra
+{- an own-line multiline block
+   comment between imports
+   (is this a run boundary?) -}
+import Delta
+{- Charlie pre1
+   pre2
+   pre3 -} {- ch2 -}
+{- ch3 -} -- ch4
+import Charlie
+
+{- legal multiline
+   before import -} import Baz exposing
+    {- pre-yak -}
+    ( cod -- trailing line comment inside an exposing list
+    {- own-line block leading a name that will sort to the front -}
+    , elk
+    , yak {- post yak line1
+             line2 -} -- post-yak line comment
+    )
+{- legal singleline -} import Qux exposing
+    -- comment written before the first name in the list
+    ( (>>>)
+    , aardvark
+    , wombat
+    )
+--
+-- Bar 1
+-- Bar 2
+--
+import Bar exposing (Charlie, alpha, delta)
+
+import Foo exposing
+    {- g -}
+    {- a -}
+    ( alpha
+    {- b -}
+    , beta
+    , gamma {- trailing multiline block
+               that spans several rows while
+               its name gets sorted elsewhere -}
+    )
+
+
+value =
+    0
