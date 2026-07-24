@@ -1,0 +1,3 @@
+effect module EffectModuleNamedLineTrailer where { command = MyCmd } exposing (MyCmd, foo) -- trailing line comment after the named exposing
+type MyCmd msg = A msg
+foo = 1

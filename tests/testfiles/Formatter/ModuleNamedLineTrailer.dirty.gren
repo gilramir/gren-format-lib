@@ -1,0 +1,3 @@
+module ModuleNamedLineTrailer exposing (foo, bar) -- trailing line comment after the named exposing
+foo = 1
+bar = 2

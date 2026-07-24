@@ -1,0 +1,7 @@
+port module PortModuleOpenBlockTrailer exposing (..) {- trailing block comment after the open exposing -}
+
+
+port outgoing : String -> Cmd msg
+
+
+port incoming : (String -> msg) -> Sub msg

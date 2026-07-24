@@ -1,0 +1,10 @@
+port module PortModuleNamedLineTrailer exposing
+    ( incoming -- trailing line comment after the named exposing
+    , outgoing
+    )
+
+
+port outgoing : String -> Cmd msg
+
+
+port incoming : (String -> msg) -> Sub msg

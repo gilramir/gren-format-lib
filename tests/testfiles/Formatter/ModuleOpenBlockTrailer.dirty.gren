@@ -1,0 +1,2 @@
+module ModuleOpenBlockTrailer exposing (..) {- trailing block comment after the open exposing -}
+foo = 1
