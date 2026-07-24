@@ -519,6 +519,7 @@ commentsSuite fsPerm =
             , assertPretty fsPerm "comment on the module line's own row stays glued inline" "ModuleLineFloatingComment"
             , assertPretty fsPerm "comments past a name in a vertical module exposing list stay inside the list however far right they start, and travel with their name through the sort" "ModuleExposingCloseComment"
             , assertPretty fsPerm "a comment written past a vertical module exposing list's closing paren moves inside the list (the `)` has no AST position, and rendering it below oscillated)" "ModuleExposingClosePastParen"
+            , assertPretty fsPerm "a comment past a vertical module exposing list's `)` is pinned above the `)` rather than riding the last-written name, so the output does not depend on the order the names were authored in" "ModuleExposingClosePinned"
             , assertPretty fsPerm "comment trailing a non-last when-branch body (nested in if/let) sits between branches, no blank" "BetweenWhenBranchesComment"
             -- Regression guards for the 2026-05-24 fuzzer-found idempotency fixes.
             , assertPretty fsPerm "trailing comment after a multi-line union variant stays on the variant's last row" "UnionVariantTrailingComment"

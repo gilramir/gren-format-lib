@@ -522,6 +522,41 @@ module ExposingListSort exposing
     )
 ```
 
+A comment written *past* the closing `)` of a list you wrote across rows is a
+different thing: it isn't attached to any name, so it has nothing to travel
+with. It's pinned to the end of the list, above the `)`, and stays there
+whatever the sort does to the names:
+
+```gren
+module ClosePinned exposing
+    ( zebra
+    , apple
+    ) -- about the list, not about a name
+```
+
+becomes:
+
+```gren
+module ClosePinned exposing
+    ( apple
+    , zebra
+    -- about the list, not about a name
+    )
+```
+
+Writing the same two names the other way round (`apple` first) gives exactly the
+same result. That's the point: the output of a sort shouldn't depend on the
+order you happened to type things in. A comment on its own line above the `)`
+is pinned the same way.
+
+A flat list has the same property but for a different reason — a comment you set
+apart at the end of the header stays outside the list entirely, so the sort never
+touches it. The one case that *does* depend on the order you wrote is a comment
+close enough to a flat list's `)` to be read as trailing the last name instead;
+on a single row the formatter can't see the `)` to tell the two apart, and that
+whole trade-off is described under
+[A comment past a flat list](#a-comment-past-a-flat-list).
+
 This applies the same way to an import's own exposing list — see
 [An import's exposing list sorts automatically](#an-imports-exposing-list-sorts-automatically).
 
@@ -2502,7 +2537,7 @@ until this is resolved.
 
 ### Comment placement near invisible tokens
 
-As described in [When the formatter can't tell what you meant](#when-the-formatter-genuinely-cant-tell-what-you-meant), a comment beside `=`, `:`, `|`, or an import's `as` always snaps to one
+As described in [When the formatter can't tell what you meant](#when-the-formatter-cant-tell-what-you-meant), a comment beside `=`, `:`, `|`, or an import's `as` always snaps to one
 canonical side. Two different intents produce the same output.
 
 ### A line break inside a declaration's head
@@ -2668,6 +2703,16 @@ comment you wrote after the last name is usually about that name and should ride
 it as the list sorts, while a comment you set apart at the end of the header is
 usually about the module. Telling them apart properly needs the parser to record
 the exposing list's brackets; until then the gap is the only signal there is.
+
+The inside reading has a second cost: because the comment rides the last name
+you *wrote*, the formatted result depends on the order you wrote the names in.
+`(apple, zebra) {- c -}` keeps the comment on `zebra`, while `(zebra, apple)
+{- c -}` — the same module — moves it to `apple`, since `apple` sorts to the
+front and takes the comment with it. A vertical list doesn't have this problem:
+there the `)` is on a row of its own, that row is enough to recognise a comment
+as belonging to the end of the list rather than to a name, and such a comment is
+pinned above the `)` regardless of the order the names were written in (see
+[Exposed names sort automatically](#exposed-names-sort-automatically)).
 
 #### Two comments stacked before a vertical list's `)`
 

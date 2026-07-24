@@ -291,12 +291,28 @@ class Import:
 
 class Module:
     def __init__(self, name, imports, decls, infixes=None, doc=None, exposing="(..)",
-                 effect=None, imports_tail=None):
+                 effect=None, imports_tail=None, exposing_broken=False,
+                 exposing_item_lead=None, exposing_item_trailing=None,
+                 header_trailing=None):
         self.name, self.imports, self.decls, self.doc = name, imports, decls, doc
         self.infixes = infixes if infixes is not None else []
-        # The header export list, already rendered: "(..)" or an explicit
-        # "(foo, Bar(..))" built from the real declared names (see module_exposing).
+        # The header export list: the literal string "(..)", or a list of item
+        # strings built from the real declared names (see module_exposing).
+        # The module header sorts and carries comments under exactly the same
+        # rules as an import's own `exposing` (docs/sorting.md treats them
+        # together), so these fields mirror `Import`'s:
+        #   exposing_broken         render one item per row rather than flat
+        #   exposing_item_lead      (index, comment) own-line above one item
+        #   exposing_item_trailing  (index, comment) same-row after one item
+        #   header_trailing         comment after the header's LAST line — the
+        #                           `(..)` / `)` row. This is Bug A's shape.
+        # Item comments are only emitted in the broken form, the same
+        # restriction emit_import works under.
         self.exposing = exposing
+        self.exposing_broken = exposing_broken
+        self.exposing_item_lead = exposing_item_lead
+        self.exposing_item_trailing = exposing_item_trailing
+        self.header_trailing = header_trailing
         # None, or an effect module's `where { ... }` clause: a list of
         # (field, name, comment|None) in emission order — see `Gen.effect_header`.
         self.effect = effect
@@ -948,6 +964,46 @@ def emit_import(imp):
 
 # ───────────────────────────── module emission ────────────────────────────
 
+def render_exposing_flat(exposing):
+    """The header export list on one line: `(..)` verbatim, or `(a, B(..))`."""
+    if isinstance(exposing, str):
+        return exposing
+    return "(" + ", ".join(exposing) + ")"
+
+
+def emit_header_exposing(m, head):
+    """Rows for `<head> exposing <list>`, flat or one item per row.
+
+    The broken form is the same shape `emit_import` produces for an import's
+    `exposing`, and for the same reason: an item comment only has a row to sit
+    on once the list is broken. `header_trailing` rides the header's LAST row —
+    the `(..)` or the closing `)` — which is where a trailing comment on the
+    module header actually lands."""
+    items = m.exposing
+    if isinstance(items, str) or not m.exposing_broken:
+        line = head + " exposing " + render_exposing_flat(items)
+        if m.header_trailing is not None:
+            line += " " + comment_text(m.header_trailing)
+        return [line]
+    lead_idx, lead_c = (m.exposing_item_lead
+                        if m.exposing_item_lead is not None else (None, None))
+    trail_idx, trail_c = (m.exposing_item_trailing
+                          if m.exposing_item_trailing is not None else (None, None))
+    out = [head + " exposing"]
+    for i, it in enumerate(items):
+        if i == lead_idx:
+            out.append(pad(INDENT) + comment_text(lead_c))
+        line = pad(INDENT) + ("( " if i == 0 else ", ") + it
+        if i == trail_idx:
+            line += " " + comment_text(trail_c)
+        out.append(line)
+    close = pad(INDENT) + ")"
+    if m.header_trailing is not None:
+        close += " " + comment_text(m.header_trailing)
+    out.append(close)
+    return out
+
+
 def emit_module(m):
     if m.effect is not None:
         kw = "effect module "
@@ -958,8 +1014,7 @@ def emit_module(m):
     head = kw + m.name
     if m.effect is not None:
         head += " " + emit_where(m.effect)
-    head += " exposing " + m.exposing
-    header = [head]
+    header = emit_header_exposing(m, head)
     if m.doc is not None:
         # Module doc: exactly one blank line after the header, verified
         # directly against the app — then the SAME import/decl spacing logic
@@ -2028,18 +2083,58 @@ class Gen:
                 decls.append(self.union(i))
             else:
                 decls.append(self.port(i))
+        exposing = self.module_exposing(decls)
+        hdr = self.header_exposing_comments(exposing, effect)
         return Module(name, imports, decls, infixes=infixes, doc=self.doc_comment(),
-                      exposing=self.module_exposing(decls), effect=effect,
-                      imports_tail=imports_tail)
+                      exposing=exposing, effect=effect,
+                      imports_tail=imports_tail, **hdr)
+
+    def header_exposing_comments(self, exposing, effect):
+        """Layout and comments for the module header's export list.
+
+        The header obeys the same rules as an import's `exposing`
+        (docs/sorting.md covers both together), and until now it was emitted
+        flat and comment-free, so every header-side case in that document was
+        fixture-only. Returns the `Module` kwargs."""
+        broken = isinstance(exposing, list) and len(exposing) > 1 and self.chance(0.4)
+        item_lead = item_trailing = None
+        if broken and self.chance(0.45):
+            idx = self.rng.randrange(len(exposing))
+            c = self.forced_comment()
+            if c is not None:
+                if self.chance(0.5):
+                    item_lead = (idx, c)
+                else:
+                    item_trailing = (idx, c)
+        header_trailing = None
+        if self.chance(0.2):
+            # KNOWN FORMATTER GAP — an `effect module`'s `exposing (..)` is the
+            # one header shape that still oscillates (indented ↔ column 0) with
+            # a trailing comment on it. `MakeLogical.processModuleLine` says why
+            # and does it on purpose: the Bug A fix anchored `(..)` at a real
+            # position for plain modules (`exposingPos`) and imports
+            # (`locImport.end`), but an effect module's exposing column depends
+            # on the untracked `where { … }` contents, so `exposing` and `(..)`
+            # both stay position-less there and a trailing `--` gets no glue row.
+            # Generating it would rediscover a documented, deliberate limitation
+            # on every sweep rather than tell anyone anything new. Every OTHER
+            # header shape below is generated, including this same comment on a
+            # plain module's `(..)` and on an effect module's EXPLICIT list.
+            known_gap = effect is not None and not isinstance(exposing, list)
+            if not known_gap:
+                header_trailing = self.forced_comment()
+        return {"exposing_broken": broken,
+                "exposing_item_lead": item_lead,
+                "exposing_item_trailing": item_trailing,
+                "header_trailing": header_trailing}
 
     def module_exposing(self, decls):
-        """The module header's export list. Half the time the wildcard `(..)`;
-        otherwise an EXPLICIT list of the real declared names — a union may be
-        exposed open (`Name(..)`, exposing its constructors) or closed, every
-        other decl by its bare name. Arbitrary order (the formatter sorts it
-        operators → types → values). Explicit lists reference only names this
-        module actually declares, so the module is well-formed, not just
-        parseable."""
+        """The module header's export list: the string `(..)` half the time,
+        otherwise a LIST of the real declared names — a union may be exposed
+        open (`Name(..)`, exposing its constructors) or closed, every other decl
+        by its bare name. Arbitrary order (the formatter sorts it operators →
+        types → values). Explicit lists reference only names this module
+        actually declares, so the module is well-formed, not just parseable."""
         if self.chance(0.5):
             return "(..)"
         items = []
@@ -2049,7 +2144,7 @@ class Gen:
             else:
                 items.append(d.name)
         self.rng.shuffle(items)
-        return "(" + ", ".join(items) + ")"
+        return items
 
 
 def generate(seed, max_depth, comment_rate):
@@ -2136,52 +2231,67 @@ def _reverse_run(run):
     return rev
 
 
-def _reverse_exposing(imp):
-    """Reverse an import's `exposing` list, index 0 pinned, remapping the
-    commented item's index. True if anything moved.
+def _reverse_exposing_items(items, lead, trailing):
+    """Reverse an `exposing` list with index 0 pinned, remapping the commented
+    items' indices. `(new_items, new_lead, new_trailing)`, or None if the list
+    cannot be safely reordered.
 
     Index 0 is pinned because a comment leading the FIRST item is not attached
     to that item at all: the parser hands it back as a header comment after
-    `exposing` (docs/sorting.md, "A comment written before the first name"),
-    so it stays at the front of the list while the names sort. The same comment
-    at index >= 1 travels with its name. Moving an item across that boundary
-    would change the output for a legitimate reason and report a false find."""
-    items = imp.exposing
+    `exposing` (docs/sorting.md, "A comment written before the first name"), so
+    it stays at the front of the list while the names sort. The same comment at
+    index >= 1 travels with its name. Moving an item across that boundary would
+    change the output for a legitimate reason and report a false find.
+
+    Shared by an import's `exposing` and the module header's, which sort and
+    carry comments under identical rules."""
     if not isinstance(items, list) or len(items) < 3:
-        return False  # with index 0 pinned, < 3 items has no other arrangement
+        return None  # with index 0 pinned, < 3 items has no other arrangement
     bases = [_base_name(it) for it in items]
     if len(set(bases)) != len(bases):
-        return False
+        return None
     n = len(items)
     perm = [0] + list(range(n - 1, 0, -1))  # old index now sitting in each slot
-    imp.exposing = [items[j] for j in perm]
     inv = {old: new for new, old in enumerate(perm)}
-    if imp.item_lead is not None:
-        idx, c = imp.item_lead
-        imp.item_lead = (inv[idx], c)
-    if imp.item_trailing is not None:
-        idx, c = imp.item_trailing
-        imp.item_trailing = (inv[idx], c)
+    remap = lambda t: None if t is None else (inv[t[0]], t[1])
+    return [items[j] for j in perm], remap(lead), remap(trailing)
+
+
+def _reverse_exposing(imp):
+    """`_reverse_exposing_items` applied to one import. True if it moved."""
+    r = _reverse_exposing_items(imp.exposing, imp.item_lead, imp.item_trailing)
+    if r is None:
+        return False
+    imp.exposing, imp.item_lead, imp.item_trailing = r
     return True
 
 
-def _reverse_header_exposing(s):
-    """Reverse the module header's export list (a pre-rendered string). It
-    carries no comments, so this is a plain reordering. Returns None if the
-    list is `(..)`, too short, or not the simple comma-separated vocabulary
-    `module_exposing` builds."""
-    if not (s.startswith("(") and s.endswith(")")):
-        return None
-    inner = s[1:-1].strip()
-    if inner == ".." or "," not in inner:
-        return None
-    parts = [p.strip() for p in inner.split(",")]
-    for p in parts:
-        if "(" in p and not p.endswith("(..)"):
-            return None  # not a shape this splitter can round-trip
-    if len(set(_base_name(p) for p in parts)) != len(parts):
-        return None
-    return "(" + ", ".join(reversed(parts)) + ")"
+def _reverse_header_exposing(m):
+    """`_reverse_exposing_items` applied to the module header. True if it moved.
+
+    One exemption, alongside the pinned index 0 and the tie bail-out: a **flat**
+    header list carrying a trailing comment is order-dependent BY DESIGN, so
+    permuting it would report a divergence that is documented behavior rather
+    than a bug. On one row, a comment past the `)` and a comment trailing the
+    last name are written in the same place, and the `)` has no position in the
+    AST to separate them, so a comment close enough to it is read as trailing
+    that name — and then travels with it through the sort. The README's "A
+    comment past a flat list" explains why both readings are needed and why the
+    gap width is the only signal available.
+
+    The shape is still GENERATED, and still checked by every other oracle
+    (crash, AST equivalence, idempotency, comment preservation) — it is legal,
+    stable input. Only the invariance check, the one thing it cannot satisfy,
+    skips it. A vertical list has no such problem: its `)` is on a row of its
+    own, which is what made the pin possible, so it is permuted normally."""
+    if not m.exposing_broken and m.header_trailing is not None:
+        return False
+    r = _reverse_exposing_items(m.exposing, m.exposing_item_lead,
+                                m.exposing_item_trailing)
+    if r is None:
+        return False
+    m.exposing, m.exposing_item_lead, m.exposing_item_trailing = r
+    return True
 
 
 def permute_module(m):
@@ -2217,9 +2327,7 @@ def permute_module(m):
         if _reverse_exposing(imp):
             changed = True
 
-    head = _reverse_header_exposing(p.exposing)
-    if head is not None:
-        p.exposing = head
+    if _reverse_header_exposing(p):
         changed = True
 
     return p if changed else None
@@ -2440,6 +2548,12 @@ def comment_clearers(m):
         return lambda: setattr(obj, attr, None)
     if getattr(m, "doc", None) is not None:
         yield clear_attr(m, "doc")
+    if m.header_trailing is not None:
+        yield clear_attr(m, "header_trailing")
+    if m.exposing_item_lead is not None:
+        yield clear_attr(m, "exposing_item_lead")
+    if m.exposing_item_trailing is not None:
+        yield clear_attr(m, "exposing_item_trailing")
     if getattr(m, "effect", None):
         for idx, (field, ename, cmt) in enumerate(m.effect):
             if cmt is not None:
@@ -2509,7 +2623,13 @@ def variants(m):
             # An explicit header export list names the declared decls; once one
             # is gone, fall back to `(..)` so the shrunk module never exposes a
             # removed name (harmless — it parses — but confusing in a repro).
+            # The item-comment fields index INTO that list, so they have to go
+            # with it or they dangle past the end of a list that no longer
+            # exists; `(..)` has no items to hang a comment on either way.
             c.exposing = "(..)"
+            c.exposing_broken = False
+            c.exposing_item_lead = None
+            c.exposing_item_trailing = None
             # Likewise, if the dropped decl was an effect module's manager
             # type, drop its entry from the where-clause too (and the whole
             # clause if that empties it — an effect module can't have
@@ -2590,16 +2710,26 @@ def next_run_dir(out_root):
     return d
 
 
-def write_report(fdir, seed, bucket, detail, src_full, src_min, tmpdir):
+def write_report(fdir, seed, bucket, detail, src_full, src_min, tmpdir,
+                 max_depth=None, comment_rate=None):
     os.makedirs(fdir, exist_ok=True)
     with open(os.path.join(fdir, "input.gren"), "w") as f:
         f.write(src_full)
     with open(os.path.join(fdir, "input.min.gren"), "w") as f:
         f.write(src_min)
+    # The repro must carry the sweep's OWN parameters. `--seed` alone re-runs at
+    # the defaults, which generates a different module and usually replays as
+    # `ok` — a report that cannot reproduce its own find is worse than no repro.
+    repro = "./gen-random.py --seed %d" % seed
+    if max_depth is not None:
+        repro += " --max-depth %d" % max_depth
+    if comment_rate is not None:
+        repro += (" --no-comments" if comment_rate <= 0
+                  else " --comment-rate %g" % comment_rate)
     lines = [
         "class:   %s" % bucket,
         "seed:    %d" % seed,
-        "reproduce: ./gen-random.py --seed %d" % seed,
+        "reproduce: %s" % repro,
         "message: %s" % detail.get("msg", ""),
         "",
     ]
@@ -2823,7 +2953,8 @@ def main():
             fdir = os.path.join(run_dir, "failures", str(seed))
             with tempfile.TemporaryDirectory() as tmp:
                 write_report(fdir, seed, bucket, detail, src,
-                             minsrc or src, tmp)
+                             minsrc or src, tmp,
+                             max_depth=args.max_depth, comment_rate=crate)
 
     # summary
     order = ["crash", "ast-mismatch", "non-idempotent", "comment-loss",

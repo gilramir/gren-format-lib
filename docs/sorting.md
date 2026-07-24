@@ -176,6 +176,42 @@ moves. Which name a comment belongs to is decided by **where the comment starts*
   the *meaning* differs: here the comment is anchored to the front of the list,
   not to `zebra`.
 
+- **Past the closing `)` of a vertical list**: like the comment before the first
+  name, this one leads no name, so it does not travel with one. It is pinned to
+  the *end* of the list, rendered on its own line above the `)`:
+
+  ```gren
+  module Demo exposing
+      ( zebra
+      , apple
+      ) -- about the list, not about a name
+  ```
+
+  becomes
+
+  ```gren
+  module Demo exposing
+      ( apple
+      , zebra
+      -- about the list, not about a name
+      )
+  ```
+
+  Writing the two names in the other order gives the same result — which is the
+  point, and was not true before 2026-07-23. Previously such a comment was
+  folded onto whichever name was written last and rode it to its sorted
+  position, so the same module formatted two ways depending on the order it was
+  typed in. `ModuleExposingClosePinned` is the fixture; the older
+  `ModuleExposingCloseComment` and `ModuleExposingClosePastParen` cannot detect
+  the difference, because both were written with the names already sorted.
+
+  A **flat** one-row list is the exception, and unavoidably so: its `)` has no
+  position in the AST, so a comment past it and a comment trailing the last name
+  occupy the same place and only the gap width distinguishes them. A comment
+  close to the `)` is read as trailing that name and travels with it, so a flat
+  list's result *does* depend on the authored order. See the README's "A comment
+  past a flat list".
+
 #### Multiline block comments (current behavior)
 
 A `{- ... -}` that spans multiple source rows is classified by the row its `{-`
@@ -382,8 +418,10 @@ the position, not the import) and index 0 of an exposing list (a comment before
 the first name is a header comment, not that name's). If a rule here changes,
 those pins have to change with it or the sweeps start reporting false finds.
 
-Still fixture-only, unreachable by the generator: every **module-header**
-exposing case (the header list is emitted flat and comment-free), comment
-**chains**, all **multiline block comment** behavior including both open
-questions above, **stacked** own-line comments on one import, and a leading
-block comment **glued** onto the import line.
+Still fixture-only, unreachable by the generator: comment **chains**, all
+**multiline block comment** behavior including both open questions above,
+**stacked** own-line comments on one import, and a leading block comment
+**glued** onto the import line. The module-header exposing list joined the
+generated set on 2026-07-23, and the oracle immediately found that a comment
+past a vertical header list's `)` rode whichever name was written last through
+the sort; it is now pinned above the `)` (see below).

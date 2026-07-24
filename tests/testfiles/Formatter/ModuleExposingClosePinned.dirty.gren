@@ -1,0 +1,26 @@
+module ModuleExposingClosePinned exposing
+    ( zebra
+    , mango -- trails mango, and travels with it
+    , apple
+    ) -- past the closing paren, so it leads nothing and stays above the `)`
+
+{-| The names here are written in an order the sort changes, which is what makes
+this file different from `ModuleExposingCloseComment` and
+`ModuleExposingClosePastParen`: in both of those the author's order already
+matched the sorted order, so a comment pinned above the `)` and a comment riding
+the last-written name produce the same bytes, and neither file can tell the two
+apart. Here they differ — riding the last-written name would carry the comment
+up between `apple` and `mango`.
+-}
+
+
+apple =
+    1
+
+
+mango =
+    2
+
+
+zebra =
+    3

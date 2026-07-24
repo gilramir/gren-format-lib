@@ -1,6 +1,6 @@
 # Property-based random AST generator (`gen-random.py`)
 
-Status: **v1.22** — v1's core expression grammar (module header, imports,
+Status: **v1.23** — v1's core expression grammar (module header, imports,
 function declarations, binops, records, record updates, arrays, `let`, `when`,
 `if`, lambda, calls, field access, parens, atoms), plus line/block comment
 injection; v1.1 added top-level type aliases, custom types (unions), and ports;
@@ -20,12 +20,13 @@ patterns, and `exposing (..)`**; v1.8 added **char literal expressions, local
 `let` function bindings (`f a b = ...`) with optional signatures, the bare
 `.field` accessor function, and operator references (`(+)`, `(|>)`)** — see
 [Char/accessor/operator atoms and let functions](#char-accessor-operator-atoms-and-let-functions)
-below. **v1.9 through v1.22 are logged in [Grammar scope](#grammar-scope)**
+below. **v1.9 through v1.23 are logged in [Grammar scope](#grammar-scope)**
 rather than enumerated here — qualified constructor patterns and type
 references, richer type application, extensible record types, type/operator
 exposing, hex and scientific-notation literals, infix declarations, effect
-modules, nested `as` patterns, import-statement comments, and the import-run
-anchoring shapes with the author-order oracle. That section is also where the
+modules, nested `as` patterns, import-statement comments, the import-run
+anchoring shapes with the author-order oracle, and the module header's exposing
+list. That section is also where the
 current expansion targets live. List patterns beyond fixed-length arrays are
 NOT a gap — Gren has none.
 
@@ -1215,19 +1216,72 @@ override the rate roll, which under rate 0 turned into an unconditional comment
 comments (`{-| … -}`) still appear, by design: they are AST-level, not Context,
 and are not what `--comment-rate` governs.
 
+**v1.23 (implemented 2026-07-23): the module header's `exposing` list — found a
+real formatter bug.** The header list was emitted as a flat, comment-free
+string, so every header-side case in `docs/sorting.md` was fixture-only even
+though the header sorts and carries comments under exactly the same rules as an
+import's list. `Module.exposing` is now a real list (or the string `"(..)"`)
+with the same fields `Import` has — `exposing_broken` (one item per row),
+`exposing_item_lead` / `exposing_item_trailing`, and `header_trailing` (a
+comment on the header's last row, the `(..)` or the closing `)`). Header lists
+feed the author-order oracle too, sharing `_reverse_exposing_items` with the
+import path — same pinned index 0, same reason.
+
+Frequencies across 3000 modules, all previously 0%: broken header list 15.4%,
+header item comment 7.2%, header trailing comment 16.9%.
+
+**The find:** a comment written past a *vertical* header list's `)` was attached
+to whichever name was written last and rode that name to its sorted position, so
+`( apple, zebra ) -- c` and `( zebra, apple ) -- c` — the same module — formatted
+differently. 154 of 3000 seeds (5%). `SortSymbols.sortExposedChildren` now keeps
+such a comment out of the sortable clusters and appends it after them, pinning it
+above the `)`; fixed in the same change, with `ModuleExposingClosePinned` as the
+fixture. The two existing fixtures for this area could not have caught it —
+both were written with the names already in sorted order, which makes "pinned
+above the `)`" and "rides the last-written name" produce identical bytes.
+
+**Two shapes are exempted, both deliberately and both narrowly:**
+
+- An `effect module`'s `exposing (..)` with a trailing comment is not
+  **generated**. It oscillates indented ↔ column 0, but
+  `MakeLogical.processModuleLine` documents that as intentional: the Bug A fix
+  anchored `(..)` at a real position for plain modules and imports, while an
+  effect module's exposing column depends on the untracked `where { … }`
+  contents. Generating it would rediscover a documented limitation every sweep.
+- A **flat** header list carrying a trailing comment is generated, and checked by
+  every oracle except **author-order invariance**, which it cannot satisfy: on
+  one row a comment past the `)` and a comment trailing the last name are written
+  in the same place, and the `)` has no AST position to separate them, so a
+  comment close enough is read as trailing that name and travels with it. That
+  ambiguity is the README's "A comment past a flat list", and the exemption lives
+  in `_reverse_header_exposing` beside the other pins. Exempting the oracle
+  rather than suppressing the shape keeps it covered for crashes, AST
+  equivalence, idempotency, and comment preservation.
+
+Also fixed here: a failure report's repro line printed `--seed N` without the
+sweep's `--comment-rate` / `--max-depth`, so any find from a non-default sweep
+replayed as `ok` from its own artifact.
+
+Verified on one sweep run three times — 3000 seeds (700000..702999) at
+`--comment-rate 0.5`, 0 quarantine throughout: **154** sort-order findings before
+the formatter fix, **74** after it (every one classified, 74/74 the flat shape and
+0 vertical — so the fix cleared that class outright), and **0** once the flat
+shape was exempted from the invariance oracle. Alongside: 262 effectful tests,
+the idempotency fuzzer, both whitespace-fuzzer modes, and the predicate audit all
+clean.
+
 **Remaining expansion targets:** the 2026-07-21 AST-vs-generator audit's gap
 list (local-function bodies, infix declarations, effect modules, nested `as`)
 is now fully closed. What's left: comments *inside* a multi-line string's
 surrounding expression aside from the trailing-comment shape already fixed;
 list patterns beyond fixed-length arrays (Gren has none — not a gap). On the
 sorting axis specifically, `docs/sorting.md` still has rules this generator
-cannot reach: the **module header's** exposing list is emitted as a flat,
-comment-free string (so every header-side comment case is fixture-only), a
-comment **chaining onto another comment** is never emitted, comments are always
-single-row (so the whole "Multiline block comments" section, including both of
-that document's open questions, is unreachable), an import carries at most one
-`lead` (never a stack), and a leading block comment is never *glued* onto the
-import line (`{- c -} import Foo`, the `LeadsInline` role).
+cannot reach: a comment **chaining onto another comment** is never emitted,
+comments are always single-row (so the whole "Multiline block comments" section,
+including both of that document's open questions, is unreachable), an import
+carries at most one `lead` (never a stack), and a leading block comment is never
+*glued* onto the import line (`{- c -} import Foo`, the `LeadsInline` role).
+The module header's exposing list was on this list until v1.23 closed it.
 
 The generator is intentionally started small and correct (0 quarantine on the
 core grammar) and expanded one construct at a time, verifying the quarantine rate

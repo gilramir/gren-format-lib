@@ -265,15 +265,16 @@ clusterRegionHelp isItem remaining acc =
                 { clusters = acc, leftover = pending ++ [ node ] ++ afterNode, ok = False }
 
 
-{-| Cluster `region`, then fold any leftover trailing comments (nothing
-left to lead) into the last cluster's trailing position -- there is
-nowhere else for them to go once a comment "barrier" is off the table.
+{-| Cluster `region` into sortable clusters, plus any trailing comments that
+lead nothing -- kept SEPARATE from the clusters rather than folded into the last
+one, because they belong to the end of the list rather than to whichever name
+the author happened to write last. See `sortExposedChildren`.
 
 Returns `Nothing` if the region didn't match what clustering expects (see
 `clusterRegionHelp`'s `ok` flag) -- the caller should fall back to `region`
 unchanged rather than trust a partial result. -}
-clusterAndAttachLeftover : (LPNode -> Bool) -> Array LPNode -> Maybe (Array Cluster)
-clusterAndAttachLeftover isItem region =
+clusterExposedRegion : (LPNode -> Bool) -> Array LPNode -> Maybe { clusters : Array Cluster, leftover : Array LPNode }
+clusterExposedRegion isItem region =
     let
         { clusters, leftover, ok } =
             clusterRegionHelp isItem region []
@@ -281,20 +282,8 @@ clusterAndAttachLeftover isItem region =
     if not ok then
         Nothing
 
-    else if Array.isEmpty leftover then
-        Just clusters
-
     else
-        when Array.popLast clusters is
-            Just { last = lastCluster, initial } ->
-                Just (Array.pushLast { lastCluster | trailing = lastCluster.trailing ++ leftover } initial)
-
-            Nothing ->
-                -- Unreachable: the only call site invokes this on a slice
-                -- already confirmed (via `isItem`) to contain at least one item,
-                -- so `ok = True` with no clusters can't happen alongside a
-                -- non-empty leftover.
-                Nothing
+        Just { clusters = clusters, leftover = leftover }
 
 
 compareClusters : (LPNode -> LPNode -> Order) -> Cluster -> Cluster -> Order
@@ -648,27 +637,51 @@ hoistOne bracket =
         Array.pushLast (lpnReplaceChildren bracket afterPending) pending
 
 
-{-| Sort one exposing list's children. Every child here is already "inside
-the parens" -- there is no boundary to respect, so a comment left dangling
-after the last item (nothing left to lead) simply becomes that item's
-trailing comment instead of being excluded. -}
+{-| Sort one exposing list's children. Every child here is already "inside the
+parens", so there is no boundary to respect -- but there are two kinds of
+comment inside, and they must not be treated alike:
+
+  - one written on a NAME's own row trails that name, and travels with it
+    through the sort (`takeSameRowTrailing` folds it into that name's cluster);
+  - one written past the last name -- on the closing `)`'s own row -- leads
+    nothing and describes the list's end, so it is **pinned after the sorted
+    names**, staying above the `)`.
+
+Pinning is what makes the result independent of the order the author wrote the
+names in, which is the entire point of sorting. Folding such a comment into the
+last cluster instead (what this did before) attached it to whichever name
+happened to be written last, so it then rode that name to its sorted position:
+`( apple, zebra ) -- c` and `( zebra, apple ) -- c` are the same module, yet the
+first kept the comment above `)` and the second moved it up between the names.
+The random generator's author-order oracle found this on 5% of modules.
+
+Only a **vertical** list can tell the two apart, and only because their rows
+differ. On a flat one-row list a comment past the `)` and a comment trailing the
+last name are written on the same row, and the `)` has no position in the AST to
+separate them (see `MakeLogical.moduleExposingClose`) -- so there it stays a
+same-row trailing comment on the last authored name, and stays order-dependent.
+That limitation is documented in the README under "Known limitations" ->
+"A module `exposing` list's closing paren isn't recorded" -> "A comment past a
+flat list". -}
 sortExposedChildren : Array LPNode -> Array LPNode
 sortExposedChildren items =
     if not (Array.any isExposedItem items) then
         items
 
     else
-        when clusterAndAttachLeftover isExposedItem items is
+        when clusterExposedRegion isExposedItem items is
             Nothing ->
                 -- Didn't match what clustering expects (see
                 -- `clusterRegionHelp`). Leave it exactly as authored rather
                 -- than risk losing content.
                 items
 
-            Just clusters ->
-                clusters
+            Just { clusters, leftover } ->
+                (clusters
                     |> Array.sortWith (compareClusters compareExposedText)
                     |> flattenClusters
+                )
+                    ++ leftover
 
 
 compareExposedText : LPNode -> LPNode -> Order
