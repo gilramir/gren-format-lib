@@ -3,8 +3,9 @@
 
 Builds random-but-legal Gren modules with bounded depth and checks the standing
 invariants on each: parses, formats without crashing, AST-equivalent, idempotent,
-and comment-preserving. Targets the *feature co-occurrence* axis the 2026-07-18
-scan proved productive — the axis every single-axis synthetic gate misses.
+comment-preserving, and independent of the order the author wrote sortable things
+in. Targets the *feature co-occurrence* axis the 2026-07-18 scan proved
+productive — the axis every single-axis synthetic gate misses.
 
 See GENERATOR.md for the full design (oracles, legal-layout emission, shrinking,
 artifact management). Rebuild the app first: `cd ../../gren-format && ./build.sh`.
@@ -21,6 +22,7 @@ import hashlib
 import json
 import os
 import random
+import re
 import shutil
 import subprocess
 import sys
@@ -256,12 +258,23 @@ class InfixDecl:
         self.lead, self.trailing = lead, trailing
 
 
-# A single `import` statement. `SortSymbols` only reorders a contiguous run of
-# imports with no blank line or own-line comment between them (README
-# "Import group sort") — `blank`/`lead` are exactly those two boundary
-# markers, so this doubles as generator coverage for that sort-grouping rule,
-# not just comment placement. `trailing` rides the import's own last line
-# (module name, `as` alias, `(..)`, or the exposing list's close paren).
+# A single `import` statement. `SortSymbols` reorders a contiguous **run** of
+# imports, and since 2026-07-23 a blank line is the ONLY thing that splits one
+# (docs/sorting.md, "Runs and boundaries") — an own-line comment no longer
+# breaks a run, it travels with the import below it. `blank` is therefore the
+# run boundary, and every comment field is a placement case from that document:
+#
+#   anchor   own-line comment emitted BEFORE this import's blank line, so it has
+#            a blank under it and leads nothing — the "section header keeps its
+#            place" case. Only meaningful together with `blank`; pinned to the
+#            position, it does NOT travel with the import when the run sorts.
+#   lead     own-line comment directly above the import, no blank between —
+#            belongs to it and MOVES with it. Legal on the first import of a run
+#            too: cd1afeb made the head of a run uniform with the rest, so there
+#            is deliberately no `i > 0` restriction here.
+#   trailing rides the import's own last line (module name, `as` alias, `(..)`,
+#            or the exposing list's close paren) and moves with it.
+#
 # `item_lead`/`item_trailing`, each `(index, (kind, text)) | None`, put an
 # own-line-before / same-row-after comment on one item of a list-form
 # `exposing` — verified directly against the app that this is legal and forces
@@ -269,15 +282,16 @@ class InfixDecl:
 # import, which have no item to attach to.
 class Import:
     def __init__(self, mod, as_name=None, exposing=None, lead=None, blank=False,
-                 trailing=None, item_lead=None, item_trailing=None):
+                 trailing=None, item_lead=None, item_trailing=None, anchor=None):
         self.mod, self.as_name, self.exposing = mod, as_name, exposing
         self.lead, self.blank, self.trailing = lead, blank, trailing
         self.item_lead, self.item_trailing = item_lead, item_trailing
+        self.anchor = anchor
 
 
 class Module:
     def __init__(self, name, imports, decls, infixes=None, doc=None, exposing="(..)",
-                 effect=None):
+                 effect=None, imports_tail=None):
         self.name, self.imports, self.decls, self.doc = name, imports, decls, doc
         self.infixes = infixes if infixes is not None else []
         # The header export list, already rendered: "(..)" or an explicit
@@ -286,6 +300,12 @@ class Module:
         # None, or an effect module's `where { ... }` clause: a list of
         # (field, name, comment|None) in emission order — see `Gen.effect_header`.
         self.effect = effect
+        # Own-line comments emitted after the LAST import, before the blank
+        # lines that separate the import block from the declarations. Such a
+        # comment leads no import, so it stays at the end of the block while
+        # the run above it sorts (docs/sorting.md, "Below the run's last
+        # import"). Position-anchored: it never travels.
+        self.imports_tail = imports_tail if imports_tail is not None else []
 
 
 # ───────────────────────────── structural queries ─────────────────────────
@@ -877,12 +897,17 @@ def emit_infix(d):
 
 
 def emit_import(imp):
-    """Emit one `import` statement, possibly preceded by its own group-
-    boundary lines (a blank line and/or an own-line comment — both verified
-    directly against the app to act as a `SortSymbols` boundary, independent
-    of each other) and possibly broken across lines to carry a comment on one
-    `exposing` item."""
+    """Emit one `import` statement, preceded by its own boundary lines and
+    possibly broken across lines to carry a comment on one `exposing` item.
+
+    Emission order is `anchor`, blank, `lead`, import — and the order is the
+    whole point: an own-line comment ABOVE the blank line leads nothing and
+    stays put, while one BELOW it (directly above the import) belongs to that
+    import and travels with it. The two shapes are a comment on either side of
+    the same blank line, so nothing but this ordering distinguishes them."""
     out = []
+    if imp.anchor is not None:
+        out.append(comment_text(imp.anchor))
     if imp.blank:
         out.append("")
     if imp.lead is not None:
@@ -947,6 +972,12 @@ def emit_module(m):
     for imp in m.imports:
         lines += emit_import(imp)
     if m.imports:
+        # Only meaningful below an actual import — with no imports at all this
+        # would just be a leading comment on the first declaration, a shape
+        # emit_decl already covers. The shrinker can delete every import, so
+        # this guard is load-bearing, not just a generation-time nicety.
+        for c in m.imports_tail:
+            lines.append(comment_text(c))
         lines.append("")
     lines.append("")
     for d in m.infixes:
@@ -1096,6 +1127,28 @@ class Gen:
         text = "k%d" % self.cid
         self.cid += 1
         return (kind, text)
+
+    def forced_comment(self, kinds=("line", "block")):
+        """A comment for a site that has ALREADY decided it wants one.
+
+        `comment()` rolls the comment-rate dice itself, so a caller whose whole
+        purpose is to place a comment (a run boundary, a section header) has to
+        override that roll or it mostly gets None. The override stops at
+        `--no-comments`, which promises structure only: rate 0 means no
+        comments anywhere, not "no comments except the insistent ones"."""
+        if self.crate <= 0:
+            return None
+        return self.comment(kinds) or (self.pick(list(kinds)),
+                                       "k%d" % self.next_cid())
+
+    def forced_comments(self, n=1, kinds=("line", "block")):
+        """`forced_comment` as a list — empty under `--no-comments`."""
+        out = []
+        for _ in range(n):
+            c = self.forced_comment(kinds)
+            if c is not None:
+                out.append(c)
+        return out
 
     # -- expressions -------------------------------------------------------
 
@@ -1896,10 +1949,14 @@ class Gen:
 
     def import_stmt(self, i):
         """One `import` — see the `Import` class for the shapes covered.
-        `blank`/`lead` (group-boundary markers) are only ever eligible for
-        i > 0: a marker before the very FIRST import would just double up
-        with the header's own blank-line spacing (harmless, but pointless to
-        generate) rather than testing the group-boundary rule itself."""
+
+        `blank`/`lead`/`anchor` are eligible on EVERY import including the
+        first. An earlier version gated them behind `i > 0`, reasoning that a
+        marker before the first import merely doubles up with the header's own
+        spacing; that reasoning predates cd1afeb, which made the head of a run
+        obey the same rule as the rest, so the head is now exactly the position
+        worth generating — a `lead` there must travel with its import when the
+        run sorts, and nothing else in the corpus proves it does."""
         r = self.rng.random()
         mod = self.pick(["Foo", "Bar", "Baz", "Qux"]) + str(i)
         as_name, exposing = None, None
@@ -1911,28 +1968,43 @@ class Gen:
             exposing = self.import_exposing_items()
         else:
             exposing = "(..)"
-        lead, blank = None, False
-        if i > 0:
-            if self.chance(0.15):
-                lead = self.comment() or ("line", "k%d" % self.next_cid())
-            elif self.chance(0.15):
-                blank = True
+        lead, blank, anchor = None, False, None
+        if self.chance(0.2):
+            lead = self.forced_comment()
+        if self.chance(0.2):
+            blank = True
+            # A section header: own-line comment with the blank UNDER it, so it
+            # leads nothing and must stay put while the run below it sorts.
+            # Only generated with `blank`, which is what makes it anchored —
+            # without one it would be an ordinary `lead`.
+            if self.chance(0.4):
+                anchor = self.forced_comment()
         trailing = self.comment()
         item_lead = item_trailing = None
         if isinstance(exposing, list) and self.chance(0.3):
             idx = self.rng.randrange(len(exposing))
-            c = self.comment() or ("line", "k%d" % self.next_cid())
-            if self.chance(0.5):
-                item_lead = (idx, c)
-            else:
-                item_trailing = (idx, c)
+            c = self.forced_comment()
+            if c is not None:
+                if self.chance(0.5):
+                    item_lead = (idx, c)
+                else:
+                    item_trailing = (idx, c)
         return Import(mod, as_name=as_name, exposing=exposing, lead=lead, blank=blank,
-                      trailing=trailing, item_lead=item_lead, item_trailing=item_trailing)
+                      trailing=trailing, item_lead=item_lead, item_trailing=item_trailing,
+                      anchor=anchor)
 
     def module(self):
         name = "Gen%d" % self.rng.randint(0, 999)
-        nimp = self.rng.randint(0, 3)
+        # Skewed toward small, but with a long tail: a run only exercises the
+        # sort if it has several imports in it, and the boundary markers split
+        # what is generated into shorter runs still.
+        nimp = self.rng.choice([0, 1, 2, 2, 3, 3, 4, 5, 6, 7])
         imports = [self.import_stmt(i) for i in range(nimp)]
+        # Own-line comments below the last import — they lead nothing and stay
+        # at the end of the block while the run sorts.
+        imports_tail = []
+        if imports and self.chance(0.15):
+            imports_tail = self.forced_comments(self.rng.randint(1, 2))
         ninfix = self.rng.randint(0, 2) if self.chance(0.4) else 0
         infixes = [self.infix_decl(i) for i in range(ninfix)]
         # `effect module`/`port module` are mutually exclusive header
@@ -1957,7 +2029,8 @@ class Gen:
             else:
                 decls.append(self.port(i))
         return Module(name, imports, decls, infixes=infixes, doc=self.doc_comment(),
-                      exposing=self.module_exposing(decls), effect=effect)
+                      exposing=self.module_exposing(decls), effect=effect,
+                      imports_tail=imports_tail)
 
     def module_exposing(self, decls):
         """The module header's export list. Half the time the wildcard `(..)`;
@@ -2018,9 +2091,146 @@ def comment_multiset(path):
     return ms
 
 
-def check(src, tmpdir):
+# ─────────────────── permutation oracle (author-order invariance) ─────────
+
+def _base_name(item):
+    """The sort key of an exposing item, minus its `(..)` suffix / operator
+    parens — two items with the same base name are a TIE, and a tie makes the
+    author's order observable through the stable sort."""
+    s = item[:-4] if item.endswith("(..)") else item
+    return s.strip("()")
+
+
+def _split_runs(imports):
+    """Split into runs at the blank lines. A blank line is the only boundary
+    (docs/sorting.md), so an import carrying `blank` starts a new run."""
+    runs, cur = [], []
+    for imp in imports:
+        if imp.blank and cur:
+            runs.append(cur)
+            cur = []
+        cur.append(imp)
+    if cur:
+        runs.append(cur)
+    return runs
+
+
+def _reverse_run(run):
+    """Reverse one import run, leaving the position-anchored markers behind.
+
+    `blank` and `anchor` describe the SLOT, not the import — the run's blank
+    line and the section header above it stay where they are while the imports
+    beneath them move. Returns None if the run cannot be safely reordered."""
+    if len(run) < 2:
+        return None
+    if any(imp.anchor is not None for imp in run[1:]):
+        return None  # an anchor off the head slot: not a shape we can pin
+    names = [imp.mod for imp in run]
+    if len(set(names)) != len(names):
+        return None  # duplicate module names sort stably, so order is observable
+    head_blank, head_anchor = run[0].blank, run[0].anchor
+    rev = list(reversed(run))
+    for imp in rev:
+        imp.blank, imp.anchor = False, None
+    rev[0].blank, rev[0].anchor = head_blank, head_anchor
+    return rev
+
+
+def _reverse_exposing(imp):
+    """Reverse an import's `exposing` list, index 0 pinned, remapping the
+    commented item's index. True if anything moved.
+
+    Index 0 is pinned because a comment leading the FIRST item is not attached
+    to that item at all: the parser hands it back as a header comment after
+    `exposing` (docs/sorting.md, "A comment written before the first name"),
+    so it stays at the front of the list while the names sort. The same comment
+    at index >= 1 travels with its name. Moving an item across that boundary
+    would change the output for a legitimate reason and report a false find."""
+    items = imp.exposing
+    if not isinstance(items, list) or len(items) < 3:
+        return False  # with index 0 pinned, < 3 items has no other arrangement
+    bases = [_base_name(it) for it in items]
+    if len(set(bases)) != len(bases):
+        return False
+    n = len(items)
+    perm = [0] + list(range(n - 1, 0, -1))  # old index now sitting in each slot
+    imp.exposing = [items[j] for j in perm]
+    inv = {old: new for new, old in enumerate(perm)}
+    if imp.item_lead is not None:
+        idx, c = imp.item_lead
+        imp.item_lead = (inv[idx], c)
+    if imp.item_trailing is not None:
+        idx, c = imp.item_trailing
+        imp.item_trailing = (inv[idx], c)
+    return True
+
+
+def _reverse_header_exposing(s):
+    """Reverse the module header's export list (a pre-rendered string). It
+    carries no comments, so this is a plain reordering. Returns None if the
+    list is `(..)`, too short, or not the simple comma-separated vocabulary
+    `module_exposing` builds."""
+    if not (s.startswith("(") and s.endswith(")")):
+        return None
+    inner = s[1:-1].strip()
+    if inner == ".." or "," not in inner:
+        return None
+    parts = [p.strip() for p in inner.split(",")]
+    for p in parts:
+        if "(" in p and not p.endswith("(..)"):
+            return None  # not a shape this splitter can round-trip
+    if len(set(_base_name(p) for p in parts)) != len(parts):
+        return None
+    return "(" + ", ".join(reversed(parts)) + ")"
+
+
+def permute_module(m):
+    """A copy of `m` with every sortable list written in a DIFFERENT author
+    order, each comment still attached to the same owner. None if there is
+    nothing safely reorderable.
+
+    This is the sort's actual contract: reordering imports within a run, or
+    names within an `exposing` list, must not change the formatted output.
+    Unlike every other oracle here it needs no model of where a comment is
+    supposed to land — only that both author orders agree on where it lands.
+    A comment that travels with the wrong neighbour is invisible to the
+    comment-multiset oracle (which discards positions) and to idempotency
+    (a wrong-but-stable placement is still a fixed point); it shows up here.
+
+    Reversal rather than a shuffle: it is a maximal reordering, and being
+    deterministic it keeps `--seed` an exact replay."""
+    p = copy.deepcopy(m)
+    changed = False
+
+    runs = _split_runs(p.imports)
+    out = []
+    for run in runs:
+        rev = _reverse_run(run)
+        if rev is None:
+            out.extend(run)
+        else:
+            out.extend(rev)
+            changed = True
+    p.imports = out
+
+    for imp in p.imports:
+        if _reverse_exposing(imp):
+            changed = True
+
+    head = _reverse_header_exposing(p.exposing)
+    if head is not None:
+        p.exposing = head
+        changed = True
+
+    return p if changed else None
+
+
+def check(src, tmpdir, m=None):
     """Run all oracles on `src`. Returns (bucket, detail_dict).
     bucket == 'ok' on full pass; 'quarantine' for a parse failure (generator bug).
+
+    `m` is the module `src` was emitted from; passing it enables the
+    author-order permutation oracle, which needs the tree rather than the text.
     """
     inp = os.path.join(tmpdir, "input.gren")
     with open(inp, "w") as f:
@@ -2062,7 +2272,59 @@ def check(src, tmpdir):
         return "comment-loss", {"msg": "comments changed",
                                 "missing": missing, "extra": extra,
                                 "formatted": formatted}
+
+    # Oracle 4: author-order invariance. Rewriting the same module with its
+    # imports / exposing names in a different order must format identically.
+    if m is not None:
+        bucket, detail = _check_permutation(m, src, formatted, tmpdir)
+        if bucket is not None:
+            return bucket, detail
+
     return "ok", {"formatted": formatted}
+
+
+def _check_permutation(m, src, formatted, tmpdir):
+    """Format the reordered twin of `m` and require the same output.
+    Returns (None, None) when the oracle passes or does not apply.
+
+    A failure of ANY kind on the twin is reported as `sort-order` rather than
+    as its own crash/idempotency class, because the artifact a human needs is
+    the pair of inputs — the twin's own bucket is visible in the message."""
+    perm = permute_module(m)
+    if perm is None:
+        return None, None
+    try:
+        psrc = emit_module(perm)
+    except Exception as e:
+        # The permuter built a tree the emitter cannot render — a bug in this
+        # script, not a formatter find. Surfaced as gen-error rather than
+        # swallowed, so it cannot quietly disable the oracle.
+        return "gen-error", {"msg": "permuted emit failed: %r" % (e,)}
+    if psrc == src:
+        return None, None
+    # Reordering must not lose, add, or rename a comment — the generator's
+    # comments are unique `kN` tokens, so this is exact. A permuter that
+    # dropped one would show up as a formatter find (two orders, two outputs)
+    # when the real fault is in this script; check it before blaming anyone.
+    if sorted(re.findall(r"k\d+", src)) != sorted(re.findall(r"k\d+", psrc)):
+        return "gen-error", {"msg": "permutation changed the comment multiset"}
+    ppath = os.path.join(tmpdir, "permuted.gren")
+    with open(ppath, "w") as f:
+        f.write(psrc)
+    try:
+        pshow = run_app(["--show", ppath])
+    except subprocess.TimeoutExpired:
+        return "sort-order", {"msg": "reordered twin timed out", "permuted": psrc}
+    pout = pshow.stdout + pshow.stderr
+    if pshow.returncode != 0:
+        return "sort-order", {"msg": "reordered twin failed to format: %s"
+                                     % first_real_line(pout),
+                              "permuted": psrc, "stderr": pout}
+    if pshow.stdout != formatted:
+        return "sort-order", {"msg": "output depends on the author's order",
+                              "permuted": psrc, "formatted": formatted,
+                              "perm_formatted": pshow.stdout}
+    return None, None
 
 
 def _ms_diff(a, b):
@@ -2147,6 +2409,7 @@ def list_containers(m):
     yield m, "decls", 1
     yield m, "infixes", 0
     yield m, "imports", 0
+    yield m, "imports_tail", 0
     for d in m.decls:
         if isinstance(d, UnionDecl):
             yield d, "variants", 1
@@ -2191,6 +2454,8 @@ def comment_clearers(m):
     for imp in m.imports:
         if imp.lead is not None:
             yield clear_attr(imp, "lead")
+        if imp.anchor is not None:
+            yield clear_attr(imp, "anchor")
         if imp.trailing is not None:
             yield clear_attr(imp, "trailing")
         if imp.item_lead is not None:
@@ -2297,7 +2562,7 @@ def shrink(m, target_bucket, tmpdir, budget=4000):
                 src = emit_module(v)
             except Exception:
                 continue
-            bucket, _ = check(src, tmpdir)
+            bucket, _ = check(src, tmpdir, v)
             if bucket == target_bucket:
                 cur = v
                 improved = True
@@ -2350,6 +2615,30 @@ def write_report(fdir, seed, bucket, detail, src_full, src_min, tmpdir):
         if fmt is not None:
             with open(os.path.join(fdir, "formatted.gren"), "w") as f:
                 f.write(fmt)
+    elif bucket == "sort-order":
+        # The artifact is the PAIR: same module, two author orders, two
+        # outputs. Both inputs and the diff go in, so the reader never has to
+        # re-derive the permutation.
+        perm_src = detail.get("permuted", "")
+        with open(os.path.join(fdir, "permuted.gren"), "w") as f:
+            f.write(perm_src)
+        lines.append("input.gren and permuted.gren are the same module written")
+        lines.append("in two author orders; the sort should erase the difference.")
+        lines.append("")
+        a, b = detail.get("formatted"), detail.get("perm_formatted")
+        if a is not None and b is not None:
+            with open(os.path.join(fdir, "formatted.gren"), "w") as f:
+                f.write(a)
+            with open(os.path.join(fdir, "permuted.formatted.gren"), "w") as f:
+                f.write(b)
+            import difflib
+            lines.append("format(input) vs format(permuted):")
+            lines += list(difflib.unified_diff(
+                a.splitlines(), b.splitlines(),
+                "format(input)", "format(permuted)", lineterm=""))
+        else:
+            lines.append("stderr:")
+            lines.append(detail.get("stderr", ""))
     elif bucket == "non-idempotent":
         f1 = format_once(src_min, tmpdir)
         if f1 is not None:
@@ -2403,7 +2692,7 @@ def process_seed(args_tuple):
             src = emit_module(m)
         except Exception as e:
             return seed, "gen-error", {"msg": repr(e)}, None, None
-        bucket, detail = check(src, tmp)
+        bucket, detail = check(src, tmp, m)
         if bucket == "ok":
             return seed, "ok", detail, None, None
         if bucket == "quarantine":
@@ -2413,7 +2702,14 @@ def process_seed(args_tuple):
             minm = shrink(m, bucket, tmp)
             minsrc = emit_module(minm)
         except Exception:
-            minsrc = src
+            minm, minsrc = None, src
+        if bucket == "sort-order" and minm is not None:
+            # The report's permuted twin and diff have to describe the SHRUNK
+            # module, not the one the find came in on — `detail` here still
+            # holds the unminimized pair.
+            b2, d2 = check(minsrc, tmp, minm)
+            if b2 == bucket:
+                detail = d2
         return seed, bucket, detail, src, minsrc
 
 
@@ -2487,8 +2783,12 @@ def main():
             src = emit_module(m)
             print(src)
             print("=" * 60)
-            bucket, detail = check(src, tmp)
+            bucket, detail = check(src, tmp, m)
             print("seed %d -> %s: %s" % (args.seed, bucket, detail.get("msg", "")))
+            if bucket == "sort-order" and detail.get("permuted"):
+                print("=" * 60)
+                print("PERMUTED (same module, different author order):")
+                print(detail["permuted"])
             if bucket not in ("ok", "quarantine"):
                 minm = shrink(m, bucket, tmp)
                 print("=" * 60)
@@ -2527,11 +2827,12 @@ def main():
 
     # summary
     order = ["crash", "ast-mismatch", "non-idempotent", "comment-loss",
-             "timeout", "gen-error", "quarantine"]
+             "sort-order", "timeout", "gen-error", "quarantine"]
     counts = {b: len(v) for b, v in buckets.items()}
     ok = counts.get("ok", 0)
     finds = sum(counts.get(b, 0) for b in
-                ("crash", "ast-mismatch", "non-idempotent", "comment-loss", "timeout"))
+                ("crash", "ast-mismatch", "non-idempotent", "comment-loss",
+                 "sort-order", "timeout"))
     summary_lines = ["%d/%d clean" % (ok, len(seeds)),
                      "app build: %s" % app_build_id(), ""]
     for b in order:

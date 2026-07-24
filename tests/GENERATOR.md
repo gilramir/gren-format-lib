@@ -1,6 +1,6 @@
 # Property-based random AST generator (`gen-random.py`)
 
-Status: **v1.8** — v1's core expression grammar (module header, imports,
+Status: **v1.22** — v1's core expression grammar (module header, imports,
 function declarations, binops, records, record updates, arrays, `let`, `when`,
 `if`, lambda, calls, field access, parens, atoms), plus line/block comment
 injection; v1.1 added top-level type aliases, custom types (unions), and ports;
@@ -20,11 +20,13 @@ patterns, and `exposing (..)`**; v1.8 added **char literal expressions, local
 `let` function bindings (`f a b = ...`) with optional signatures, the bare
 `.field` accessor function, and operator references (`(+)`, `(|>)`)** — see
 [Char/accessor/operator atoms and let functions](#char-accessor-operator-atoms-and-let-functions)
-below. Comments inside a broken type signature or a multi-line string's
-surrounding expression, `as` nested in non-top-level pattern positions, and the
-remaining coverage gaps (infix and effect-module declarations) remain the next
-expansion targets (see
-[Grammar scope](#grammar-scope)). List patterns beyond fixed-length arrays are
+below. **v1.9 through v1.22 are logged in [Grammar scope](#grammar-scope)**
+rather than enumerated here — qualified constructor patterns and type
+references, richer type application, extensible record types, type/operator
+exposing, hex and scientific-notation literals, infix declarations, effect
+modules, nested `as` patterns, import-statement comments, and the import-run
+anchoring shapes with the author-order oracle. That section is also where the
+current expansion targets live. List patterns beyond fixed-length arrays are
 NOT a gap — Gren has none.
 
 This is `qe.md` avenue #2. Every other gate in this repo varies **one** axis over
@@ -55,6 +57,9 @@ The generator produces **input**; the formatter is under test. Per module:
 3. **Comment preservation** (a 4th oracle this generator uniquely enables) — the
    formatter must never drop, invent, duplicate, or change the kind of a
    comment. See below.
+4. **Author-order invariance** (a 5th, likewise only possible here) — the same
+   module rewritten with its sortable lists in a different order must format to
+   the same bytes. See below.
 
 ### Comment-preservation oracle
 
@@ -92,6 +97,61 @@ assert  comments(input.gren) == comments(formatted.gren)
   **AST** (module / declaration documentation), not the Context comment stream,
   so oracle 2's AST-compare already covers them. The generator does not emit doc
   comments in v1.
+
+### Author-order invariance oracle (`sort-order`)
+
+The formatter sorts two things: the names in an `exposing ( … )` list, and the
+imports within a run (`docs/sorting.md`). The point of sorting is that the
+author's order stops mattering — so:
+
+```
+assert  format(m) == format(permute(m))
+```
+
+where `permute` rewrites the same module with those lists in a different order,
+each comment still attached to the same owner. Emitting *both* orders is
+something only a generator can do; every other gate in this repo has a single
+fixed input per case.
+
+**What it catches that nothing else does.** A comment that travels with the
+wrong neighbour is invisible to oracle 3, which discards positions by design,
+and invisible to idempotency, because a wrong-but-stable placement is still a
+fixed point. It shows up here as two author orders disagreeing. This is the
+`ExposingSortCommentToFront` / comment-chain bug class — historically found by
+reading a fixture diff, which only works for cases somebody wrote by hand.
+
+**Reversal, not a shuffle.** It is a maximal reordering and it is deterministic,
+so `--seed` stays an exact replay.
+
+**Two pinned positions**, both because a comment there is anchored to the
+*position* rather than to a name, so moving the name out from under it changes
+the output for a legitimate reason:
+
+- **The first slot of each import run**, which carries the run's blank line and
+  its `anchor` section header. Those describe the slot; the imports beneath them
+  move, they don't.
+- **Index 0 of an exposing list.** A comment leading the first item is not
+  attached to that item at all — the parser hands it back as a header comment
+  after `exposing` (`docs/sorting.md`, "A comment written before the first
+  name"), so it stays at the front while the names sort, whereas the same
+  comment at index ≥ 1 travels with its name. Verified directly against the app:
+  the two shapes format differently, so permuting across that boundary would
+  report a false find.
+
+The oracle also **bails on a tie** — duplicate module names in a run, or
+duplicate base names in an exposing list — since a stable sort makes the
+author's order observable there on purpose (`ImportSameModuleStableSort`).
+
+Both pins are load-bearing rather than superstition, and that was measured, not
+assumed: removing the index-0 pin makes the oracle fire on 1/120 seeds, and
+letting the run's blank/anchor travel with its import makes it fire on 33/100.
+Roughly **85%** of generated modules have something to permute.
+
+A failure of any kind on the reordered twin — including a crash or a
+non-idempotency that only the twin triggers — is bucketed as `sort-order`,
+because the artifact a human needs is the *pair* of inputs; the twin's own class
+is named in the report's message. The failure directory holds `input.gren`,
+`permuted.gren`, both formatted outputs, and the unified diff between them.
 
 ## Legal-layout emission (the crux)
 
@@ -1105,11 +1165,69 @@ crash, ast-mismatch, comment-loss) was 0/3000. Re-run this same sweep after
 Bug A/B are fixed to confirm 0 remaining findings, then promote minimized
 repros as fixtures (see `tbd.md`'s "notes for whoever picks this up").
 
+**v1.22 (implemented 2026-07-23): the import-run anchoring shapes + the
+author-order oracle.** `docs/sorting.md` was extracted the same week, and
+reading the generator against it showed three of its rules were unreachable *by
+construction* — not thinly covered, impossible to generate — and all three
+belonged to `cd1afeb`, the most recently changed rule in the file:
+
+- **A comment above the first import of a run.** `import_stmt` gated its
+  boundary markers behind `i > 0`, on the reasoning that a marker before the
+  first import merely doubles up with the header's own spacing. That reasoning
+  predates `cd1afeb`, which made the head of a run obey the same rule as the
+  rest — so the head became precisely the position worth generating, and was
+  the one position excluded. Gate removed.
+- **A comment with a blank line *under* it** (the section header that stays put
+  while the run below it sorts). `emit_import` emitted `blank` *before* `lead`,
+  so a comment could only ever appear *below* the blank, never above it — the
+  two shapes are a comment on either side of the same blank line, and only one
+  of them existed. New `Import.anchor` field, emitted before the blank.
+- **A comment below the run's last import.** Nothing emitted anything after the
+  final import. New `Module.imports_tail`.
+
+The first two are `ImportRunCommentAnchors`'s two halves. Import runs were also
+lengthened (`nimp` 0–3 → a 0–7 distribution skewed small): a run only exercises
+a sort if several imports are in it, and the boundary markers split what is
+generated into shorter runs still.
+
+Alongside these, the `sort-order` oracle above — the two are the same work, in
+that the new shapes are exactly the ones whose *anchoring* the oracle has to pin
+in order not to report false finds, and pinning them correctly is what proves
+the shapes were understood.
+
+Verified: 3000 seeds (500000..502999) at the default rate, **3000/3000 clean, 0
+quarantine**, plus 3000 more (6000000..6002999) at `--comment-rate 0.6
+--max-depth 6` — the configuration that surfaced Bugs A and B in v1.21, and
+where import comments concentrate — also **3000/3000 clean, 0 quarantine**. The
+new emission shapes are legal and the new oracle reports no finds against the
+current formatter. The shapes are not rare: across 3000
+modules, 32.5% carry a marker on the first import of a run, 22.9% a section
+header with a blank under it, and 13.4% a comment below the run's last import —
+three shapes that were previously generated 0% of the time. The oracle costs one
+extra `--show` per module that has something to permute (~85%).
+
+Also fixed while here: `--no-comments` did not actually produce comment-free
+modules. Sites whose whole job is to place a comment (`lead`, `item_lead`, and
+the new `anchor`/`imports_tail`) wrote `self.comment() or <a comment>` to
+override the rate roll, which under rate 0 turned into an unconditional comment
+— 261/299 rate-0 modules contained one. Those sites now go through
+`Gen.forced_comment`, which keeps the override but stops at rate 0. Doc
+comments (`{-| … -}`) still appear, by design: they are AST-level, not Context,
+and are not what `--comment-rate` governs.
+
 **Remaining expansion targets:** the 2026-07-21 AST-vs-generator audit's gap
 list (local-function bodies, infix declarations, effect modules, nested `as`)
 is now fully closed. What's left: comments *inside* a multi-line string's
 surrounding expression aside from the trailing-comment shape already fixed;
-list patterns beyond fixed-length arrays (Gren has none — not a gap).
+list patterns beyond fixed-length arrays (Gren has none — not a gap). On the
+sorting axis specifically, `docs/sorting.md` still has rules this generator
+cannot reach: the **module header's** exposing list is emitted as a flat,
+comment-free string (so every header-side comment case is fixture-only), a
+comment **chaining onto another comment** is never emitted, comments are always
+single-row (so the whole "Multiline block comments" section, including both of
+that document's open questions, is unreachable), an import carries at most one
+`lead` (never a stack), and a leading block comment is never *glued* onto the
+import line (`{- c -} import Foo`, the `LeadsInline` role).
 
 The generator is intentionally started small and correct (0 quarantine on the
 core grammar) and expanded one construct at a time, verifying the quarantine rate

@@ -299,18 +299,33 @@ cd gren-format-lib/tests
 The oracles: **`--pre-ast`** (parses at all — a failure is a *generator* bug, not
 a formatter find; it lands in `gen-out/<run>/quarantine/` and is reported
 separately, and this bucket must stay ~0); **`--show`** (buys no-crash +
-AST-equiv + idempotent + reparses in one call); and **comment preservation** (the
+AST-equiv + idempotent + reparses in one call); **comment preservation** (the
 multiset of `(type, normalizedText)` from `--pre-context` on the input vs. the
 formatted output — positions discarded, so a *moved* comment passes and only a
 drop / duplication / invention / kind-change trips it; AST-compare is blind to a
-dropped comment and idempotency only catches a *shift*).
+dropped comment and idempotency only catches a *shift*); and **author-order
+invariance** (`sort-order`) — the same module re-emitted with its import runs and
+`exposing` lists in reversed order, each comment still on the same owner, must
+format to the same bytes.
+
+That last one is the only gate that sees a comment attached to the **wrong**
+name: the multiset oracle discards positions on purpose, and a wrong-but-stable
+attachment is still an idempotent fixed point, so both pass it. Emitting the same
+module in two author orders is something only a generator can do. Two positions
+are deliberately pinned, since a comment there anchors to the position rather
+than to a name — the first slot of each import run (which owns the run's blank
+line and its section-header comment) and index 0 of an exposing list (a comment
+leading the first item is parsed as a header comment after `exposing`, so it does
+not travel, while the same comment at index ≥ 1 does). Ties bail out, because a
+stable sort makes author order observable there by design. See `GENERATOR.md`.
 
 Layout decisions are baked into the node tree, so emission is a pure function of
 the tree: `--seed` replays exactly, and the shrinker (tree-surgery + deterministic
 re-emit) minimizes every failure to `input.min.gren`. Artifacts land in gitignored
 `gen-out/run-NNNNNN/` — failures-only, bucketed (`crash` / `ast-mismatch` /
-`non-idempotent` / `comment-loss`), each with a self-contained `report.txt`
-carrying the repro command and the pre-computed diff. `--promote` copies the
+`non-idempotent` / `comment-loss` / `sort-order`), each with a self-contained
+`report.txt` carrying the repro command and the pre-computed diff (for
+`sort-order`, both author orders and both outputs). `--promote` copies the
 minimized repro into `testfiles/Formatter/` and prints the `assertPretty` line.
 
 **Rebuild the `gren-format` app first** — it shells out to `../../gren-format/app`.

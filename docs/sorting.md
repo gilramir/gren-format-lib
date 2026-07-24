@@ -363,3 +363,27 @@ described.
 suite (`tests/src/Test/Formatter/Format.gren`), so a change to any rule on this
 page shows up as a diff in `SortingCommentZoo.formatted.gren`. Inspect that diff
 before promoting anything above from "current behavior" to "specified".
+
+---
+
+## What automatically enforces this page
+
+`gen-random.py` generates import runs and `exposing` lists with comments in
+these positions and checks, among its other oracles, **author-order
+invariance**: the same module re-emitted with its runs and lists in reversed
+order must format to the same bytes (`GENERATOR.md`, "Author-order invariance
+oracle"). That is the one check that can see a comment attached to the *wrong*
+name — the comment-multiset oracle discards positions on purpose, and a
+wrong-but-stable attachment is still an idempotent fixed point.
+
+The oracle encodes the rules on this page as its two pinned positions: the first
+slot of an import run (the blank line and the section header above it belong to
+the position, not the import) and index 0 of an exposing list (a comment before
+the first name is a header comment, not that name's). If a rule here changes,
+those pins have to change with it or the sweeps start reporting false finds.
+
+Still fixture-only, unreachable by the generator: every **module-header**
+exposing case (the header list is emitted flat and comment-free), comment
+**chains**, all **multiline block comment** behavior including both open
+questions above, **stacked** own-line comments on one import, and a leading
+block comment **glued** onto the import line.
