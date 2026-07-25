@@ -1380,8 +1380,37 @@ prevLineGlueRow node =
 -- `prevRowBlock`): a block comment glues after a bare token or a *multi-line*
 -- bracket's close, but NOT after a plain-token call, a lone/empty bracket, or a
 -- single-line bracket — there a `--` still glues but a `{- -}` stays own-line.
-prevBlockGlueRow : LPNode -> Int
-prevBlockGlueRow node =
+--
+-- `commentIsMultiline` is the trailing comment's OWN shape, not the preceding
+-- node's — it overrides the "stays own-line after a single-line bracket"
+-- refusal, but ONLY for `AllAcrossOrAllVertical ListParen`. `ListParen` is
+-- exclusively an exposing list (`SortSymbols.gren`'s own comment: "ListParen
+-- is exclusively exposing lists, so this only ever fires on them" — never a
+-- record/array pattern or literal, which use `ListCurly`/`ListSquare`), so
+-- this override cannot reach those. A comment that is itself multi-line can
+-- never render truly inline no matter what precedes it, so denying it a glue
+-- row after a single-line EXPOSING list is never correct: without this
+-- override, `import Foo exposing (y) {- multi⏎line -}` classified
+-- `LeadsOwnLine`, which renders on a fresh row; reparsing that output then
+-- reads the comment as an unattached standalone (its row no longer falls
+-- inside the import's own row range) instead of the import's own trailing
+-- comment, so the SECOND format drops it back to a different placement — an
+-- oscillation only a multi-row comment can trigger, so it was unreachable
+-- before comments themselves could span rows (GENERATOR.md v1.25, which
+-- found it).
+--
+-- The SAME override on the general `ListCurly`/`ListSquare` case, or on
+-- `ParenBlock` (any parenthesized expression), was tried first and reverted:
+-- it fixed the same bug but ALSO changed an already-fixture-verified,
+-- deliberately-own-line shape — `{ x } {- multi⏎line -} as whole` (a record
+-- PATTERN, `KitchenSink`'s "3-line block comments at every round-tripping
+-- position") started gluing onto `{ x }` instead of staying own-line. Only
+-- the exposing-list shape was ever actually found broken; scope the fix to
+-- exactly that shape rather than the broader "any bracket, any comment"
+-- rule the first attempt used, which the fixture suite (not the generator)
+-- caught.
+prevBlockGlueRow : Bool -> LPNode -> Int
+prevBlockGlueRow commentIsMultiline node =
     when lpnBox node is
         UnbreakableText loc ->
             loc.start.row
@@ -1410,6 +1439,13 @@ prevBlockGlueRow node =
             in
             if range.maxRow > range.minRow then
                 lastRenderedRow node
+
+            else
+                -1
+
+        AllAcrossOrAllVertical ListParen ->
+            if bracketRendersMultiline node || commentIsMultiline then
+                bracketClosingRow node
 
             else
                 -1
@@ -1636,7 +1672,7 @@ classifyCommentKind containerBox commentNode before after row =
         classifyBlock p multiline =
             let
                 g =
-                    prevBlockGlueRow p
+                    prevBlockGlueRow multiline p
 
                 sameRowPrev =
                     nodeIsElided p || (g >= 0 && row == g)

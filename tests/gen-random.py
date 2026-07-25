@@ -608,17 +608,79 @@ def own_line(n, ind):
 
 
 def comment_text(c):
+    """Render a comment as ONE string. Only valid for a `line` comment or a
+    single-row `block` comment (`text` a plain `str`) — a multi-row `block`
+    comment (`text` a `list[str]`, `Gen.maybe_multirow`'s shape, v1.25) has
+    no single-string rendering by construction; callers that might see one
+    use `comment_rows` instead."""
     kind, text = c
     return ("-- " + text) if kind == "line" else ("{- " + text + " -}")
 
 
+def comment_rows(c):
+    """Render ONE comment as a list of raw text ROWS — the multi-row-aware
+    counterpart to `comment_text`. A `line` comment, or a `block` comment
+    with plain `str` content, is always exactly one row (delegates to
+    `comment_text`); a `block` comment whose content is a `list[str]`
+    (`Gen.maybe_multirow`'s shape, v1.25 — one element per physical content
+    line) becomes one row per element, `{-` glued onto the first and `-}`
+    onto the last — mirroring exactly how the app renders a genuinely
+    multi-row block comment, verified directly against it before wiring in."""
+    kind, text = c
+    if not isinstance(text, list):
+        return [comment_text(c)]
+    rows = list(text)
+    rows[0] = "{- " + rows[0]
+    rows[-1] = rows[-1] + " -}"
+    return rows
+
+
 def emit_comment_chain(chain):
     """Render a trailing comment CHAIN (`Gen.comment_chain`'s shape, a
-    non-empty list of `(kind, text)`) — each link is single-row here, and the
-    chain rule ("Trailing a comment that trails a name", docs/sorting.md) has
-    each link start on the row the previous one ends, so gluing them on one
-    row with a space is the correct rendering, not a simplification."""
-    return " ".join(comment_text(c) for c in chain)
+    non-empty list of comments) as a list of raw text ROWS. Each link's own
+    rows (`comment_rows`) are appended in turn; a link after the first is
+    GLUED onto the previous link's LAST row with a space rather than started
+    on a fresh row — the chain rule ("Trailing a comment that trails a
+    name", docs/sorting.md): a comment starting on the row the previous one
+    ends belongs to the same run. A multi-row link (v1.25) contributes its
+    own extra rows the same way a genuinely multi-row single comment would;
+    verified directly against the app that this composes correctly (a
+    multi-row `block` link followed by a `line` link glues the `line` onto
+    the block's closing row, exactly as a single-row chain would)."""
+    rows = []
+    for i, c in enumerate(chain):
+        crows = comment_rows(c)
+        if i == 0:
+            rows = crows
+        else:
+            rows[-1] = rows[-1] + " " + crows[0]
+            rows.extend(crows[1:])
+    return rows
+
+
+def _append_trailing(out, line, chain):
+    """Append `line` to `out`, gluing a trailing CHAIN's first row onto it
+    (or appending `line` bare if `chain` is `None`) and any further rows —
+    a multi-row link, v1.25 — as their own rows right after it."""
+    if chain is None:
+        out.append(line)
+        return
+    rows = emit_comment_chain(chain)
+    out.append(line + " " + rows[0])
+    out.extend(rows[1:])
+
+
+def _append_own_line(out, ind, c):
+    """Append ONE comment on its own line(s) at indent `ind` — the
+    multi-row-aware (v1.25) counterpart of `out.append(pad(ind) +
+    comment_text(c))`. Only the FIRST row gets the structural indent;
+    continuation rows already carry their own (possibly zero) leading
+    whitespace, since a block comment's continuation-line column has no
+    legality floor at all — verified directly against the app, unlike a
+    multi-line STRING's "not indented equally" rule."""
+    rows = comment_rows(c)
+    out.append(pad(ind) + rows[0])
+    out.extend(rows[1:])
 
 
 def comment_lines(c, ind):
@@ -942,42 +1004,34 @@ def emit_import(imp):
     the same blank line, so nothing but this ordering distinguishes them."""
     out = []
     if imp.anchor is not None:
-        out.append(comment_text(imp.anchor))
+        _append_own_line(out, 0, imp.anchor)
     if imp.blank:
         out.append("")
     if imp.lead is not None:
-        out.append(comment_text(imp.lead))
+        _append_own_line(out, 0, imp.lead)
     head = "import " + imp.mod
     if imp.as_name is not None:
         head += " as " + imp.as_name
     if imp.exposing is None or imp.exposing == "(..)":
         line = head if imp.exposing is None else head + " exposing (..)"
-        if imp.trailing is not None:
-            line += " " + emit_comment_chain(imp.trailing)
-        out.append(line)
+        _append_trailing(out, line, imp.trailing)
         return out
     items = imp.exposing
     if imp.item_lead is None and imp.item_trailing is None:
         line = head + " exposing (" + ", ".join(items) + ")"
-        if imp.trailing is not None:
-            line += " " + emit_comment_chain(imp.trailing)
-        out.append(line)
+        _append_trailing(out, line, imp.trailing)
         return out
     lead_idx, lead_c = imp.item_lead if imp.item_lead is not None else (None, None)
     trail_idx, trail_c = imp.item_trailing if imp.item_trailing is not None else (None, None)
     out.append(head + " exposing")
     for i, it in enumerate(items):
         if i == lead_idx:
-            out.append(pad(INDENT) + comment_text(lead_c))
+            _append_own_line(out, INDENT, lead_c)
         prefix = "( " if i == 0 else ", "
         line = pad(INDENT) + prefix + it
-        if i == trail_idx:
-            line += " " + emit_comment_chain(trail_c)
-        out.append(line)
+        _append_trailing(out, line, trail_c if i == trail_idx else None)
     close = pad(INDENT) + ")"
-    if imp.trailing is not None:
-        close += " " + emit_comment_chain(imp.trailing)
-    out.append(close)
+    _append_trailing(out, close, imp.trailing)
     return out
 
 
@@ -1001,9 +1055,9 @@ def emit_header_exposing(m, head):
     items = m.exposing
     if isinstance(items, str) or not m.exposing_broken:
         line = head + " exposing " + render_exposing_flat(items)
-        if m.header_trailing is not None:
-            line += " " + emit_comment_chain(m.header_trailing)
-        return [line]
+        out = []
+        _append_trailing(out, line, m.header_trailing)
+        return out
     lead_idx, lead_c = (m.exposing_item_lead
                         if m.exposing_item_lead is not None else (None, None))
     trail_idx, trail_c = (m.exposing_item_trailing
@@ -1011,15 +1065,11 @@ def emit_header_exposing(m, head):
     out = [head + " exposing"]
     for i, it in enumerate(items):
         if i == lead_idx:
-            out.append(pad(INDENT) + comment_text(lead_c))
+            _append_own_line(out, INDENT, lead_c)
         line = pad(INDENT) + ("( " if i == 0 else ", ") + it
-        if i == trail_idx:
-            line += " " + emit_comment_chain(trail_c)
-        out.append(line)
+        _append_trailing(out, line, trail_c if i == trail_idx else None)
     close = pad(INDENT) + ")"
-    if m.header_trailing is not None:
-        close += " " + emit_comment_chain(m.header_trailing)
-    out.append(close)
+    _append_trailing(out, close, m.header_trailing)
     return out
 
 
@@ -1051,7 +1101,7 @@ def emit_module(m):
         # emit_decl already covers. The shrinker can delete every import, so
         # this guard is load-bearing, not just a generation-time nicety.
         for c in m.imports_tail:
-            lines.append(comment_text(c))
+            _append_own_line(lines, 0, c)
         lines.append("")
     lines.append("")
     for d in m.infixes:
@@ -1229,14 +1279,16 @@ class Gen:
         chained together on the same row — docs/sorting.md's "Trailing a
         comment that trails a name" rule (a comment starting on the row the
         previous one ends joins its run, and the whole run travels with
-        whatever it trails). Every comment here is single-row (v1's
-        multi-row-block gap is separate, see GENERATOR.md), so "starts on the
-        row the previous ends" collapses to "glued on the same row".
+        whatever it trails). Each link may independently be single- or
+        multi-row (`maybe_multirow`, v1.25) — "starts on the row the
+        previous one ends" collapses to "glued on the same row" only when
+        both are single-row; a multi-row link glues the NEXT link onto its
+        own closing row instead, which `emit_comment_chain` handles.
 
         A `line` comment eats the rest of its row, so it can only ever be the
         chain's LAST link — the loop below only extends past a `block`.
         Returns `None` (no trailing comment at all) or a non-empty list of
-        `(kind, text)`, never a bare tuple, so every caller renders through
+        comments, never a bare tuple, so every caller renders through
         `emit_comment_chain` uniformly regardless of chain length.
 
         `forced=True` mirrors `forced_comment` — the site has already decided
@@ -1246,10 +1298,43 @@ class Gen:
         first = self.forced_comment() if forced else self.comment()
         if first is None:
             return None
-        chain = [first]
+        chain = [self.maybe_multirow(first)]
         while chain[-1][0] == "block" and len(chain) < max_len and self.chance(0.3):
-            chain.append(self.forced_comment())
+            chain.append(self.maybe_multirow(self.forced_comment()))
         return chain
+
+    def multirow_block_lines(self, first_word):
+        """Extra continuation-line content for a multi-row `block` comment.
+
+        Verified directly against the app before wiring in: a block
+        comment's continuation lines have NO indentation-legality floor at
+        all — even column 0 parses fine — unlike a multi-line STRING's "not
+        indented equally" rule, so indentation here is purely a
+        co-occurrence axis to fuzz, matching `multiline_string_line`'s
+        randomized-indent style. A line's trailing whitespace is exercised
+        too: the app right-trims it on reformat (also verified), which
+        `comment_multiset`'s block-comment normalization already accounts
+        for (GENERATOR.md v1.25)."""
+        lines = [first_word]
+        for _ in range(self.rng.randint(1, 2)):
+            indent = " " * (4 * self.rng.randint(0, 3))
+            trailing_ws = "  " if self.chance(0.2) else ""
+            lines.append(indent + self.pick(WORDS) + trailing_ws)
+        return lines
+
+    def maybe_multirow(self, c, p=0.35):
+        """Expand a `block` comment into multi-row content with probability
+        `p`. A `line` comment (can't span rows — `--` eats the rest of its
+        own row) or `None` passes through unchanged.
+
+        Only called at the sorting-axis sites verified against the app to
+        accept it (GENERATOR.md v1.25: import/header lead, anchor, item
+        comments, trailing chains, imports-tail) — `comment`/`forced_comment`
+        themselves stay single-row everywhere else in the generator, so
+        every OTHER comment position is unaffected by this addition."""
+        if c is None or c[0] != "block" or not self.chance(p):
+            return c
+        return (c[0], self.multirow_block_lines(c[1]))
 
     # -- expressions -------------------------------------------------------
 
@@ -2071,7 +2156,7 @@ class Gen:
             exposing = "(..)"
         lead, blank, anchor = None, False, None
         if self.chance(0.2):
-            lead = self.forced_comment()
+            lead = self.maybe_multirow(self.forced_comment())
         if self.chance(0.2):
             blank = True
             # A section header: own-line comment with the blank UNDER it, so it
@@ -2079,13 +2164,13 @@ class Gen:
             # Only generated with `blank`, which is what makes it anchored —
             # without one it would be an ordinary `lead`.
             if self.chance(0.4):
-                anchor = self.forced_comment()
+                anchor = self.maybe_multirow(self.forced_comment())
         trailing = self.comment_chain()
         item_lead = item_trailing = None
         if isinstance(exposing, list) and self.chance(0.3):
             idx = self.rng.randrange(len(exposing))
             if self.chance(0.5):
-                c = self.forced_comment()
+                c = self.maybe_multirow(self.forced_comment())
                 if c is not None:
                     item_lead = (idx, c)
             else:
@@ -2107,7 +2192,8 @@ class Gen:
         # at the end of the block while the run sorts.
         imports_tail = []
         if imports and self.chance(0.15):
-            imports_tail = self.forced_comments(self.rng.randint(1, 2))
+            imports_tail = [self.maybe_multirow(c) for c in
+                            self.forced_comments(self.rng.randint(1, 2))]
         ninfix = self.rng.randint(0, 2) if self.chance(0.4) else 0
         infixes = [self.infix_decl(i) for i in range(ninfix)]
         # `effect module`/`port module` are mutually exclusive header
@@ -2149,7 +2235,7 @@ class Gen:
         if broken and self.chance(0.45):
             idx = self.rng.randrange(len(exposing))
             if self.chance(0.5):
-                c = self.forced_comment()
+                c = self.maybe_multirow(self.forced_comment())
                 if c is not None:
                     item_lead = (idx, c)
             else:
@@ -2219,7 +2305,22 @@ def first_real_line(out):
 
 
 def comment_multiset(path):
-    """(type, normalizedText) multiset from the real lexer via --pre-context."""
+    """(type, normalizedText) multiset from the real lexer via --pre-context.
+
+    A `block` comment's value is verbatim byte-for-byte ONLY while it stays
+    on one physical row — verified directly against the app: `{-   x   -}`
+    round-trips with its interior padding untouched. The instant a block
+    comment spans multiple rows (v1.25), the formatter re-derives each
+    continuation line's leading whitespace (re-based under `{-`, preserving
+    the lines' RELATIVE indentation to each other but not their absolute
+    column) and right-trims every line's trailing whitespace — verified by
+    diffing a multi-row comment's `--pre-context` value before and after a
+    `--show` round-trip. Comparing raw bytes there would report a false
+    comment-loss finding on every multi-row block comment purely from that
+    legitimate re-layout, so a multi-row value is compared as its sequence
+    of per-line-stripped content instead — the same "positions are
+    discarded, only content matters" principle a `line` comment's
+    right-trim already applies, extended to each physical row."""
     r = run_app(["--pre-context", path])
     if r.returncode != 0:
         return None
@@ -2231,7 +2332,12 @@ def comment_multiset(path):
     for c in data.get("comments", []):
         t = c.get("type")
         v = c.get("value", "")
-        key = (t, v.rstrip() if t == "line" else v)
+        if t == "line":
+            key = (t, v.rstrip())
+        elif "\n" in v:
+            key = (t, tuple(line.strip() for line in v.split("\n")))
+        else:
+            key = (t, v)
         ms[key] = ms.get(key, 0) + 1
     return ms
 
@@ -2698,10 +2804,19 @@ def variants(m):
             # The item-comment fields index INTO that list, so they have to go
             # with it or they dangle past the end of a list that no longer
             # exists; `(..)` has no items to hang a comment on either way.
+            # `header_trailing` has to go too, not just the item-comment
+            # fields: for an EFFECT module, `exposing (..)` + a trailing
+            # comment is the one known, deliberately-exempted gap
+            # (`header_exposing_comments`'s `known_gap`, never generated on
+            # purpose) — leaving a stale `header_trailing` attached across
+            # this reset let the shrinker "minimize" a real bug into that
+            # already-known gap instead, a confusing and wrong repro
+            # (found via GENERATOR.md v1.25's sweep, seed 700046).
             c.exposing = "(..)"
             c.exposing_broken = False
             c.exposing_item_lead = None
             c.exposing_item_trailing = None
+            c.header_trailing = None
             # Likewise, if the dropped decl was an effect module's manager
             # type, drop its entry from the where-clause too (and the whole
             # clause if that empties it — an effect module can't have

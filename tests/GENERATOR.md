@@ -1,6 +1,6 @@
 # Property-based random AST generator (`gen-random.py`)
 
-Status: **v1.24** — v1's core expression grammar (module header, imports,
+Status: **v1.25** — v1's core expression grammar (module header, imports,
 function declarations, binops, records, record updates, arrays, `let`, `when`,
 `if`, lambda, calls, field access, parens, atoms), plus line/block comment
 injection; v1.1 added top-level type aliases, custom types (unions), and ports;
@@ -20,7 +20,7 @@ patterns, and `exposing (..)`**; v1.8 added **char literal expressions, local
 `let` function bindings (`f a b = ...`) with optional signatures, the bare
 `.field` accessor function, and operator references (`(+)`, `(|>)`)** — see
 [Char/accessor/operator atoms and let functions](#char-accessor-operator-atoms-and-let-functions)
-below. **v1.9 through v1.24 are logged in [Grammar scope](#grammar-scope)**
+below. **v1.9 through v1.25 are logged in [Grammar scope](#grammar-scope)**
 rather than enumerated here — qualified constructor patterns and type
 references, richer type application, extensible record types, type/operator
 exposing, hex and scientific-notation literals, infix declarations, effect
@@ -1341,21 +1341,165 @@ observed. No formatter source changed, so no gate-suite rerun was strictly
 needed, but the full effectful suite (269 tests) was run anyway and stayed
 clean.
 
+### Multi-row block comments — 2 real bugs fixed, 1 deeper class found and deferred
+
+**v1.25 (implemented 2026-07-24):** every comment this generator had ever
+emitted was single-row — `docs/sorting.md`'s "Multiline block comments"
+sections (and both of that document's open questions) were entirely
+unreachable, a gap that predated even v1.24's comment chains. `Gen.comment_chain`
+now applies a new `Gen.maybe_multirow` to each `block` link (a `line` comment
+can't span rows — `--` eats the rest of its own row — so it's untouched), and
+the same helper is applied at every OTHER sorting-axis site that generates a
+`block`-eligible comment: `Import.lead`, `Import.anchor`, `Import.item_lead`
+(both an import's own list and the module header's), and `Module.imports_tail`.
+`Gen.multirow_block_lines` builds 1-2 extra content lines, each with a random
+0/4/8/12-space indent and occasional trailing whitespace — mirroring
+`multiline_string_line`'s randomized-indent style, and verified directly
+against the app first: a block comment's continuation lines have **no**
+indentation-legality floor at all (even column 0 parses), unlike a multi-line
+STRING's "not indented equally" rule, so indentation here is purely a
+co-occurrence axis to fuzz, not a legality constraint to respect.
+
+**Representation.** A comment tuple's `text` is now `str` (single-row, as
+before) or `list[str]` (multi-row, one element per physical content line) —
+never ambiguous, since only `maybe_multirow`'s handful of call sites can
+produce the second shape. New `comment_rows(c)` renders either shape as a
+list of raw text ROWS (`{-` glued onto the first, `-}` onto the last);
+`emit_comment_chain` now returns rows instead of a single string, gluing a
+later link's first row onto the previous link's *last* row (unchanged chain
+rule, now multi-row-aware); two new small helpers, `_append_trailing` and
+`_append_own_line`, replace the direct `comment_text` calls at every emission
+site this touches so a multi-row comment's extra rows land correctly whether
+it's gluing onto an existing line or leading its own.
+
+**Oracle fix needed first, verified before wiring anything in:** the
+comment-preservation oracle's "block verbatim" assumption
+(`comment_multiset`) turned out to hold only for a **single-row** block
+comment — confirmed directly (`{-   padded text   -}` round-trips its interior
+padding byte-for-byte). The instant a block comment spans multiple physical
+rows, the formatter re-derives each continuation line's leading whitespace
+(re-based under `{-`, though the lines' *relative* indentation to each other
+survives) and right-trims every line's trailing whitespace — confirmed by
+diffing a multi-row comment's `--pre-context` value before and after a
+`--show` round-trip. Comparing raw bytes there would report a false
+comment-loss finding on *every* multi-row comment purely from that legitimate
+re-layout, so `comment_multiset` now compares a multi-row value (detected by
+an embedded `\n`) as its sequence of per-line-**stripped** content instead —
+extending the same "positions are discarded, content is not" principle a
+`line` comment's right-trim already applies, one physical row at a time. A
+single-row block comment's comparison is untouched (still raw-byte verbatim),
+so this is a strict widening with no effect on any previously-generated shape.
+
+**Bug found and fixed** (the dominant class — 28 of the first 29 findings, plus
+a crash): a same-row multi-row `{- -}` trailing an import's or module header's
+**flat, `ListParen`** exposing list classified `LeadsOwnLine` and rendered on a
+fresh row; reparsing that output then read the comment as an unattached
+`Standalone` top-level comment (its start row no longer fell inside the
+import's/header's own declared row range) instead of the construct's own
+trailing comment — an oscillation (and, when two such comments chained
+together, an outright `box: multi-line comment cannot space-join` render
+crash) only a multi-row comment could trigger, unreachable before v1.25. Root
+cause: `Comments.gren`'s `prevBlockGlueRow` — the function `classifyBlock`
+asks "which row does a same-row block comment glue onto?" — answered `-1`
+("refuse, stay own-line") for `AllAcrossOrAllVertical`/`ParenBlock` whenever
+the bracket itself rendered single-line, a deliberate stylistic rule for a
+*single-row* comment that is never correct for a comment that is itself
+multi-row (it can never render truly inline regardless of what precedes it,
+so refusing a glue row there only produces an unstable placement). Fixed by
+threading the comment's own multi-line-ness into `prevBlockGlueRow` as a new
+parameter (one call site, so no wider ripple) and overriding the refusal when
+it's set.
+
+**First attempt was broader and wrong, caught by the fixture suite, not the
+generator:** applying the override to `ParenBlock` and to `AllAcrossOrAllVertical`
+generally fixed the same bug but also changed an already-fixture-verified,
+deliberately-own-line shape — a record *pattern* `{ x } {- multi⏎line -} as
+whole` (`KitchenSink`'s "3-line block comments at every round-tripping
+position") started gluing onto `{ x }` instead of staying own-line, because
+`AllAcrossOrAllVertical` is shared by record/array patterns and literals
+(`ListCurly`/`ListSquare`), not just exposing lists. Narrowed to
+`AllAcrossOrAllVertical ListParen` specifically — `SortSymbols.gren`'s own
+comment states `ListParen` is exclusively exposing lists, so this cannot reach
+a pattern or literal — and the `ParenBlock` change (never actually needed by
+any found bug; added speculatively "for symmetry") was reverted outright
+rather than risk an equally unverified change to a much more heavily-used
+code path. `run-tests.sh` (269/269), the idempotency fuzzer, `matrix-syntax.py`
+(1738/1738, same divergence counts), and `audit-predicates.py` (0 findings)
+all confirmed clean after narrowing.
+
+**Shrinker bug found and fixed** (seed 700046): dropping a top-level
+declaration resets a module's explicit header export list to `"(..)"`
+(`variants()`'s step 1) but wasn't clearing `header_trailing` alongside the
+other exposing-related fields — for an **effect module** specifically, `exposing
+(..)` plus a trailing comment is the one already-known, deliberately-exempted
+gap (`header_exposing_comments`'s `known_gap`, never generated on purpose,
+per `MakeLogical.processModuleLine`'s own documentation of why an effect
+module's exposing column is untracked). Leaving `header_trailing` attached
+across the reset let the shrinker "minimize" a real, different bug into that
+unrelated known gap instead — a confusing, invalid repro once traced back
+through the unshrunk `input.gren`, which reproduced the real bug directly.
+Fixed by clearing `header_trailing` in the same step.
+
+**Deferred: a deeper, rarer class in the same family, left generatable and
+documented rather than fixed (matching the v1.21 Bugs A/B precedent).** After
+the fix above, three configurations totalling 8000 seeds still found 39
+non-idempotent, 5 sort-order, and 1 crash finding (≈0.5-1%, scaling with
+`--comment-rate`) — all one further class: a comment **chain** trailing a
+**module header's** (not an import's) exposing list, where a non-last link is
+multi-row, can still detach on reparse — both for a flat header list and,
+differently, for a vertical one (700020: a chain's *interior* link ends up
+attached to the sorted-last exposing item instead of pinned above `)`). Root
+cause traced one level deeper than the fix above reaches: `MakeLogical.gren`
+computes each declaration's `OriginalRows` row range (`processModuleLine`'s
+`origRow`, extended by exactly one row for a vertical list's own `)`) *before*
+any comment is attached, so a comment that itself needs more rows than the
+header's own tokens do — a multi-row link, or a chain whose links together
+span further than the header's static range accounts for — falls outside that
+range once rendered, and reparsing detaches it as a `Standalone` top-level
+comment instead of the header's own child. An import doesn't have this
+problem (`locImport.end` already anchors its own range correctly for every
+shape tried), which is why the fix above was sufficient there but not for the
+module header. The **crash** variant needs one more ingredient: an **effect
+module** header specifically, where two *consecutive* links are each
+multi-row (`box: multi-line comment cannot space-join` — a Box-render-level
+limit on gluing two already-multi-line boxes side by side) — reproducible
+with a plain module in the same shape only as a (non-crashing) non-idempotency,
+so effect modules route this case through a less-robust code path than
+`gluedExposingBox`'s "coupled" one (plausibly `exposingLineFallback`'s generic
+flow, since an effect module's exposing position is already known to be
+partly untracked). Not scoped away — per the v1.21 precedent, teaching the
+generator to avoid its own finds would defeat the point of having added this
+coverage; it will keep resurfacing in sweeps until fixed at the
+`MakeLogical`/row-range layer.
+
+Verified: 8000 seeds — 3000 default (700000..702999) plus a direct chain-frequency
+check alongside it (1071/3000 modules, ~36%, carrying a chain of length > 1
+across all four sites; see v1.24's own count for the pre-multi-row baseline),
+3000 `--comment-rate 0.6 --max-depth 6` (720000..722999), 2000 `--max-depth 7
+--comment-rate 0.6` (730000..731999) — 0 quarantine throughout (the generator
+itself stayed honest); non-`Standalone`-family findings (crash/non-idempotent/
+sort-order) were the deferred class above, isolated and root-caused by hand
+before accepting them as "expected residual" rather than assumed. `run-tests.sh`
+(269/269), `fuzz-idempotency.py`, `matrix-syntax.py`, and `audit-predicates.py`
+all clean; `fuzz-whitespace.py` has one PRE-EXISTING, unrelated failure
+(`*NamedLineTrailer` fixtures' stretch-mode format-drift) confirmed via
+`git stash` to reproduce identically against the formatter *before* this
+addition's source changes, so not a regression from this work.
+
 **Remaining expansion targets:** the 2026-07-21 AST-vs-generator audit's gap
 list (local-function bodies, infix declarations, effect modules, nested `as`)
 is now fully closed. What's left: comments *inside* a multi-line string's
 surrounding expression aside from the trailing-comment shape already fixed;
 list patterns beyond fixed-length arrays (Gren has none — not a gap). On the
 sorting axis specifically, `docs/sorting.md` still has rules this generator
-cannot reach: comments are always single-row (so the whole "Multiline block
-comments" section, including both of that document's open questions, is
-unreachable — this is a *different* gap from the trailing-comment chain v1.24
-closed: a chain of single-row comments now round-trips, but a single comment
-genuinely spanning several rows still never appears), an import carries at
-most one `lead` (never a stack of own-line comments), and a leading block
-comment is never *glued* onto the import line (`{- c -} import Foo`, the
-`LeadsInline` role). The module header's exposing list was on this list until
-v1.23 closed it; trailing comment chains were on it until v1.24 closed it.
+cannot reach: an import carries at most one `lead` (never a stack of own-line
+comments), and a leading block comment is never *glued* onto the import line
+(`{- c -} import Foo`, the `LeadsInline` role). The module header's exposing
+list was on this list until v1.23 closed it; trailing comment chains until
+v1.24; single-row-vs-multi-row comments (including both of `docs/sorting.md`'s
+open questions) until v1.25 — though v1.25 also *found* rather than closed a
+new, narrower gap of its own: the module-header row-range/reparse-detach class
+documented above, a `MakeLogical.gren` fix for another day.
 
 The generator is intentionally started small and correct (0 quarantine on the
 core grammar) and expanded one construct at a time, verifying the quarantine rate

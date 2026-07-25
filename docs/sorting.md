@@ -418,15 +418,19 @@ the position, not the import) and index 0 of an exposing list (a comment before
 the first name is a header comment, not that name's). If a rule here changes,
 those pins have to change with it or the sweeps start reporting false finds.
 
-Still fixture-only, unreachable by the generator: all **multiline block
-comment** behavior including both open questions above (a chain of genuinely
-multi-row comments is still out of reach — the generator's own comments are
-always single-row), **stacked** own-line comments on one import, and a leading
-block comment **glued** onto the import line. The module-header exposing list
-joined the generated set on 2026-07-23, and the oracle immediately found that a
-comment past a vertical header list's `)` rode whichever name was written last
-through the sort; it is now pinned above the `)` (see below). **Trailing
-comment chains** (a comment starting on the row the previous one ends, `zebra
-{- one -} -- two`) joined the generated set on 2026-07-24 (`GENERATOR.md`
-v1.24) — single-row-comment chains only, since that's all the generator can
-build a chain out of.
+Still fixture-only, unreachable by the generator: **stacked** own-line
+comments on one import, and a leading block comment **glued** onto the import
+line. The module-header exposing list joined the generated set on 2026-07-23,
+and the oracle immediately found that a comment past a vertical header list's
+`)` rode whichever name was written last through the sort; it is now pinned
+above the `)` (see below). **Trailing comment chains** (a comment starting on
+the row the previous one ends, `zebra {- one -} -- two`) joined the generated
+set on 2026-07-24 (`GENERATOR.md` v1.24), and **multiline block comments** —
+both a standalone comment genuinely spanning several rows, and a chain with a
+multi-row link, including a chain of two multi-row comments back to back —
+joined it the same day (v1.25), closing both of this section's open questions
+as generated shapes (not necessarily as *decided* ones: v1.25 found a new,
+narrower reparse-detach bug in this area for module-header-level trailing
+chains specifically — an import's own exposing list doesn't have it — see
+`GENERATOR.md` v1.25 for the root cause and why it was left generatable rather
+than fixed immediately).
