@@ -1,0 +1,46 @@
+# fuzzrun.toml — settings profiles for long gen-random.py sweeps.
+#
+#   ./fuzzrun.py run --for 2h        sweep, then stop
+#   ./fuzzrun.py status              cursors, coverage, failure counts
+#
+# Each [lanes.NAME] table is a lane with its own persistent seed cursor, swept
+# independently and resumed across sessions. `weight` is the lane's share of a
+# session's chunks relative to the other enabled lanes.
+#
+# max_depth, comment_rate, no_comments and base_seed decide what a lane covers,
+# so changing one makes its swept range describe settings it no longer uses —
+# fuzzrun notices and offers to restart that lane. jobs, weight and enabled are
+# free to change at any time.
+
+[defaults]
+jobs = 6                    # gen-random -j per chunk; this host has 16 cores
+nice = 19                   # scheduling niceness for the child
+idle_io = true              # and idle I/O priority — both inherited by node
+chunk_minutes = 10          # target wall-clock per chunk
+bootstrap_seeds = 40        # first chunk of a lane, before its rate is known
+max_shrinks_per_chunk = 20  # per-failure minimization cap; the rest are
+                            # recorded unshrunk and counted, never dropped
+
+# Base seeds start at 10,000,000 to sit clear of the by-hand sweeps that ran up
+# to ~9.7M. Lower them to re-cover that ground; raise them to skip more.
+
+[lanes.dense-comments]
+# Comment placement is where the bugs have been. Heaviest weight.
+max_depth = 6
+comment_rate = 0.7
+base_seed = 10000000
+weight = 3
+
+[lanes.deep-structure]
+# Deep nesting with no comments: the feature-conjunction axis on its own.
+max_depth = 8
+no_comments = true
+base_seed = 10000000
+weight = 2
+
+[lanes.default-mix]
+# The generator's own defaults — broad and shallow, cheap seeds per second.
+max_depth = 5
+comment_rate = 0.25
+base_seed = 10000000
+weight = 1

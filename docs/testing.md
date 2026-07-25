@@ -365,11 +365,25 @@ most one argument (`Ctor a b` doesn't parse; multi-field variants carry a
 record instead) — a fact the generator's pattern grammar has to encode rather
 than assume.
 
+### Long sweeps
+
+The command above sweeps a range and exits. To grind through hundreds of
+thousands of modules across many sessions — a time budget rather than a seed
+count, a resumable cursor per settings profile, and a record of every failure —
+use `fuzzrun.py`, which drives this generator. See
+[fuzzTesting.md](fuzzTesting.md).
+
+```bash
+./fuzzrun.py run --for 2h     # sweep for two hours, then stop
+./fuzzrun.py status           # coverage and findings so far
+```
+
 ### Where the code lives
 
 - **`tests/gen-random.py`** — the generator, shrinker, and oracle driver.
 - **`GENERATOR.md`** — the full design spec (grammar, depth bounds, shrinking
   algorithm).
+- **`tests/fuzzrun.py`** — the long-sweep coordinator ([fuzzTesting.md](fuzzTesting.md)).
 
 ## Predicate/renderer agreement audit (`audit-predicates.py`)
 

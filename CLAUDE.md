@@ -335,6 +335,58 @@ only then are its crash/non-idempotent finds trustworthy). Note current-Gren
 **constructor patterns take at most one argument** (`Ctor a b` does not parse;
 multi-field variants carry a record) — a fact the generator encodes.
 
+Two flags exist for unattended use: `--max-shrinks N` caps how many failures a
+run minimizes (one bug can hit hundreds of seeds, and shrinking each one can eat
+the whole run — the skipped count is printed and stored, never silent), and
+`--seeds 1,2,3 --json` re-checks an explicit seed list with no shrinking and no
+artifacts, one JSON verdict per line, exiting non-zero if any still fails.
+
+### Long sweeps across sessions (`fuzzrun.py`)
+
+`gen-random.py` sweeps a seed range and exits. `fuzzrun.py` drives it over days
+without Claude Code in the loop: you give it a time budget, it splits that into
+~10-minute chunks under `nice`, advances a persistent seed cursor per settings
+profile, and records every failure with its repro.
+
+```bash
+cd gren-format-lib/tests
+./fuzzrun.py run --for 2h      # sweep for two hours, then stop
+./fuzzrun.py status            # cursors, coverage, failure counts
+./fuzzrun.py failures -v       # what was found, with the report head
+./fuzzrun.py resweep           # re-test open failures against this build
+```
+
+Config is `fuzzrun.toml` (tracked); state is `fuzzrun.db` (sqlite) and
+`fuzzrun-out/` (both gitignored). Ctrl-C stops cleanly.
+
+**Lanes.** Each `[lanes.NAME]` profile — comment density, nesting depth — has
+its own cursor and a weight, and a session round-robins chunks across them by
+weight so no profile starves. A lane's coverage is the contiguous prefix
+`[base_seed, cursor)`: the cursor advances only when a chunk *completes*, so an
+interrupted or timed-out chunk is re-swept rather than leaving a hole. Chunk size
+is adaptive (measured seeds/sec, capped at 3× the lane's previous chunk), and the
+final chunk of a session is sized to the time left — a chunk is never killed to
+meet the deadline.
+
+**Generations.** The grammar decides what a seed *means*, so `fuzzrun` hashes
+`gen-random.py` and, when it changes, starts a new generation: cursors reset to
+base, old results stay queryable under the old hash, and open failures become
+`stale-grammar` — their seeds no longer generate the modules that failed, so
+re-testing them proves nothing. **Promote any find you still care about to a
+fixture before changing the grammar.** It asks before doing this (`--yes` to
+skip the prompt, which a cron/`at` invocation needs). The same applies per-lane
+when a lane's coverage-affecting parameters change.
+
+**Failures dedupe** by `(bucket, minimized source)`, so one bug hit 400 times is
+one entry with 400 hits. Past the per-chunk shrink cap, failures are recorded
+unshrunk and dedupe by full source — that under-merges rather than hides, and
+the unshrunk count is reported. `resweep` re-runs every recorded seed of each
+open failure and closes the ones that now pass.
+
+`run` refuses to start if the built app is older than the formatter sources —
+a two-hour sweep of a stale binary tests the wrong code. Override with
+`--allow-stale-app`.
+
 ## Inspecting formatter internals
 
 Both the standalone CLI and the legacy `gren format` subcommand accept debug flags:

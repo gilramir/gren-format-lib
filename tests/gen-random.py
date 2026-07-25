@@ -27,6 +27,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -2855,6 +2856,29 @@ def variants(m):
         yield c
 
 
+# Shrinking is per-failure and unbounded, which is right for a hand-run sweep
+# but wrong for an unattended one: a sweep over a broken build can spend all of
+# its time minimizing hundreds of hits of the same bug. `--max-shrinks` caps how
+# many failures in a run get minimized; the rest are reported unshrunk and
+# counted, so the cap is never silent.
+_SHRINK_CAP = None          # None = unlimited
+_SHRINKS_TAKEN = 0
+_SHRINKS_SKIPPED = 0
+_SHRINK_LOCK = threading.Lock()
+
+
+def take_shrink_slot():
+    """True if this failure may be minimized. Workers are threads, so the
+    counter is shared and needs the lock."""
+    global _SHRINKS_TAKEN, _SHRINKS_SKIPPED
+    with _SHRINK_LOCK:
+        if _SHRINK_CAP is not None and _SHRINKS_TAKEN >= _SHRINK_CAP:
+            _SHRINKS_SKIPPED += 1
+            return False
+        _SHRINKS_TAKEN += 1
+        return True
+
+
 def shrink(m, target_bucket, tmpdir, budget=4000):
     cur = m
     steps = 0
@@ -2913,13 +2937,23 @@ def write_report(fdir, seed, bucket, detail, src_full, src_min, tmpdir,
     if comment_rate is not None:
         repro += (" --no-comments" if comment_rate <= 0
                   else " --comment-rate %g" % comment_rate)
+    shrunk = not detail.get("unshrunk", False)
     lines = [
         "class:   %s" % bucket,
         "seed:    %d" % seed,
         "reproduce: %s" % repro,
         "message: %s" % detail.get("msg", ""),
+        "minimized: %s" % ("yes" if shrunk else
+                           "NO (run shrink budget exhausted; "
+                           "input.min.gren is the full module)"),
         "",
     ]
+    # Machine-readable twin of the header, so a runner never parses report.txt.
+    with open(os.path.join(fdir, "meta.json"), "w") as f:
+        json.dump({"seed": seed, "bucket": bucket, "shrunk": shrunk,
+                   "msg": detail.get("msg", ""), "repro": repro,
+                   "max_depth": max_depth, "comment_rate": comment_rate,
+                   "app_build": app_build_id()}, f, indent=2)
     # relevant diff per class
     if bucket == "comment-loss":
         lines.append("MISSING (in input, absent from output):")
@@ -3014,12 +3048,16 @@ def process_seed(args_tuple):
             return seed, "ok", detail, None, None
         if bucket == "quarantine":
             return seed, "quarantine", detail, src, None
-        # a real find — shrink it
-        try:
-            minm = shrink(m, bucket, tmp)
-            minsrc = emit_module(minm)
-        except Exception:
+        # a real find — shrink it, unless the run's shrink budget is used up
+        if take_shrink_slot():
+            try:
+                minm = shrink(m, bucket, tmp)
+                minsrc = emit_module(minm)
+            except Exception:
+                minm, minsrc = None, src
+        else:
             minm, minsrc = None, src
+            detail = dict(detail, unshrunk=True)
         if bucket == "sort-order" and minm is not None:
             # The report's permuted twin and diff have to describe the SHRUNK
             # module, not the one the find came in on — `detail` here still
@@ -3028,6 +3066,19 @@ def process_seed(args_tuple):
             if b2 == bucket:
                 detail = d2
         return seed, bucket, detail, src, minsrc
+
+
+def recheck_seed(args_tuple):
+    """`process_seed` without the shrink or the artifacts — just the verdict."""
+    seed, max_depth, comment_rate = args_tuple
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            m = generate(seed, max_depth, comment_rate)
+            src = emit_module(m)
+        except Exception as e:
+            return seed, "gen-error", {"msg": repr(e)}, None, None
+        bucket, detail = check(src, tmp, m)
+        return seed, bucket, detail, None, None
 
 
 # ───────────────────────────── promote ────────────────────────────────────
@@ -3076,10 +3127,22 @@ def main():
     ap.add_argument("--no-comments", action="store_true")
     ap.add_argument("--keep-all", action="store_true")
     ap.add_argument("--out", default=OUT_DEFAULT)
+    ap.add_argument("--max-shrinks", type=int, default=None, metavar="N",
+                    help="minimize at most N failures this run; the rest are "
+                         "reported unshrunk and counted (for unattended sweeps, "
+                         "where one bug can otherwise eat the whole run)")
+    ap.add_argument("--seeds", metavar="LIST",
+                    help="re-check exactly these seeds (comma-separated); no "
+                         "shrinking, no artifacts. For re-testing known "
+                         "failures against a new build.")
+    ap.add_argument("--json", action="store_true",
+                    help="with --seeds: one JSON verdict per line on stdout")
     ap.add_argument("--promote", type=int, metavar="SEED")
     ap.add_argument("--name", help="fixture name for --promote")
     args = ap.parse_args()
 
+    global _SHRINK_CAP
+    _SHRINK_CAP = args.max_shrinks
     crate = 0.0 if args.no_comments else args.comment_rate
 
     if args.promote is not None:
@@ -3092,6 +3155,29 @@ def main():
         print("app not found: %s\n(cd ../../gren-format && ./build.sh)" % APP,
               file=sys.stderr)
         return 2
+
+    # Re-check an explicit seed list: verdict only, no shrinking, no artifacts.
+    # Exit 1 if any seed still fails, so a caller can gate on it.
+    if args.seeds:
+        try:
+            seed_list = [int(s) for s in args.seeds.replace(",", " ").split()]
+        except ValueError:
+            print("--seeds takes a comma-separated list of integers",
+                  file=sys.stderr)
+            return 2
+        bad = 0
+        jobs = [(s, args.max_depth, crate) for s in seed_list]
+        with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as ex:
+            for seed, bucket, detail, _src, _min in ex.map(recheck_seed, jobs):
+                if bucket != "ok":
+                    bad += 1
+                if args.json:
+                    print(json.dumps({"seed": seed, "bucket": bucket,
+                                      "msg": detail.get("msg", "")}),
+                          flush=True)
+                else:
+                    print("%d %s %s" % (seed, bucket, detail.get("msg", "")))
+        return 1 if bad else 0
 
     # Single-seed replay: print the source and the verdict, write nothing.
     if args.seed is not None:
@@ -3158,13 +3244,21 @@ def main():
             summary_lines.append("%-15s %d   seeds: %s" %
                                  (b, counts[b],
                                   " ".join(map(str, sorted(buckets[b])[:40]))))
+    if _SHRINKS_SKIPPED:
+        summary_lines.append("")
+        summary_lines.append(
+            "NOTE: %d failure(s) left unshrunk — --max-shrinks %d was reached; "
+            "their input.min.gren is the full module."
+            % (_SHRINKS_SKIPPED, _SHRINK_CAP))
     summary = "\n".join(summary_lines) + "\n"
     with open(os.path.join(run_dir, "SUMMARY.txt"), "w") as f:
         f.write(summary)
     with open(os.path.join(run_dir, "run.json"), "w") as f:
         json.dump({"base_seed": args.base_seed, "count": args.count,
                    "max_depth": args.max_depth, "comment_rate": crate,
-                   "app_build": app_build_id(), "counts": counts}, f, indent=2)
+                   "app_build": app_build_id(), "counts": counts,
+                   "max_shrinks": _SHRINK_CAP,
+                   "unshrunk": _SHRINKS_SKIPPED}, f, indent=2)
     latest = os.path.join(args.out, "latest")
     try:
         if os.path.islink(latest) or os.path.exists(latest):

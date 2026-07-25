@@ -1,2 +1,7 @@
 app
 gen-out/
+
+# fuzzrun.py sweep state and artifacts (fuzzrun.toml IS tracked).
+# The -wal/-shm sidecars come from sqlite's WAL mode.
+fuzzrun.db*
+fuzzrun-out/
