@@ -76,6 +76,7 @@ The larger section explains the [Gren Formatter Rules](#gren-formatter-rules).
   - [A comment right after `exposing` doesn't sort with the first name](#a-comment-right-after-exposing-doesnt-sort-with-the-first-name)
   - [A module `exposing` list's closing paren isn't recorded](#a-module-exposing-lists-closing-paren-isnt-recorded)
     - [A comment past a flat list](#a-comment-past-a-flat-list)
+  - [The `port` in `port module` isn't recorded — under discussion](#the-port-in-port-module-isnt-recorded--under-discussion)
   - [A comment after the last binding in a `let`](#a-comment-after-the-last-binding-in-a-let)
   - [Two fixtures parse a custom-type shape the language no longer allows](#two-fixtures-parse-a-custom-type-shape-the-language-no-longer-allows)
   - [Block comment body indentation](#block-comment-body-indentation)
@@ -2750,6 +2751,73 @@ module Amb exposing            module Amb exposing
 — and both now format to the same thing, with both comments inside the list
 above the `)`. Previously the second comment was pushed out of the brackets and
 became a free-floating comment above the declarations.
+
+### The `port` in `port module` isn't recorded — under discussion
+
+The parser doesn't remember whether you wrote `module` or `port module`. It works
+the keyword out from the body instead: a module is a port module if it declares
+ports. So the formatter writes the keyword the body implies, which is not always
+the one you typed.
+
+Write `port module` and declare no ports, and the `port` is dropped:
+
+```gren
+port module Foo exposing (a, b)
+
+
+a =
+    1
+
+
+b =
+    2
+```
+
+becomes
+
+```gren
+module Foo exposing (a, b)
+
+
+a =
+    1
+
+
+b =
+    2
+```
+
+Write plain `module` and declare a port, and `port` is added:
+
+```gren
+module Foo exposing (a)
+
+
+port a : String -> Cmd msg
+```
+
+becomes
+
+```gren
+port module Foo exposing (a)
+
+
+port a : String -> Cmd msg
+```
+
+Neither rewrite changes what your code does — a module with no ports doesn't
+need the keyword, and one with ports isn't valid without it. But the first is a
+change you didn't ask for, and it will surprise you later: add a port to that
+file and it no longer compiles, on a line you never touched.
+
+This one is different from the other gaps on this page, which are settled
+trade-offs. **It is still to be decided** — the derived keyword may be the
+intended design, in which case the formatter is doing the right thing, or the
+parser may start recording what you wrote, in which case the formatter will
+reproduce it. The discussion is
+[gren-lang/compiler-common#33](https://github.com/gren-lang/compiler-common/issues/33).
+Until it's resolved, keep the keyword and the ports in agreement and nothing
+here can bite you.
 
 ### A comment after the last binding in a `let`
 
