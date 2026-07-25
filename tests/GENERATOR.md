@@ -1,6 +1,6 @@
 # Property-based random AST generator (`gen-random.py`)
 
-Status: **v1.23** — v1's core expression grammar (module header, imports,
+Status: **v1.24** — v1's core expression grammar (module header, imports,
 function declarations, binops, records, record updates, arrays, `let`, `when`,
 `if`, lambda, calls, field access, parens, atoms), plus line/block comment
 injection; v1.1 added top-level type aliases, custom types (unions), and ports;
@@ -20,7 +20,7 @@ patterns, and `exposing (..)`**; v1.8 added **char literal expressions, local
 `let` function bindings (`f a b = ...`) with optional signatures, the bare
 `.field` accessor function, and operator references (`(+)`, `(|>)`)** — see
 [Char/accessor/operator atoms and let functions](#char-accessor-operator-atoms-and-let-functions)
-below. **v1.9 through v1.23 are logged in [Grammar scope](#grammar-scope)**
+below. **v1.9 through v1.24 are logged in [Grammar scope](#grammar-scope)**
 rather than enumerated here — qualified constructor patterns and type
 references, richer type application, extensible record types, type/operator
 exposing, hex and scientific-notation literals, infix declarations, effect
@@ -1270,18 +1270,92 @@ shape was exempted from the invariance oracle. Alongside: 262 effectful tests,
 the idempotency fuzzer, both whitespace-fuzzer modes, and the predicate audit all
 clean.
 
+### Trailing comment chains
+
+**v1.24 (implemented 2026-07-24):** `docs/sorting.md`'s "Trailing a comment
+that trails a name" rule — a comment starting on the row where the *preceding*
+comment ends joins that comment's run, and the whole run travels with whatever
+it trails (`zebra {- one -} -- two`, both riding `zebra` through the sort) —
+was fixture-only (`SortingCommentZoo`) until now: every trailing-comment field
+in the generator held at most one comment, so the chain-vs-single-comment
+distinction was never exercised on the random axis.
+
+Verified directly against the app before wiring in, not assumed from the doc:
+since every comment this generator emits is single-row (the separate,
+still-open "multiline block comments" gap below), "starts on the row the
+previous one ends" collapses to "glued on the same row" — `Mango {- one -}
+-- two` and `Mango {- one -} {- two -}` both round-trip exactly as
+`SortingCommentZoo` describes, in both the vertical (broken) and flat
+exposing-list layouts, for an import's own trailing comment, an import's own
+`exposing`-item trailing comment, the module header's trailing comment, and
+the header's exposing-item trailing comment — the four sortable-list trailing
+positions. The flat-list shape reproduces the pre-existing, already-understood
+"A comment past a flat list" ambiguity (`_reverse_header_exposing`'s existing
+exemption): a chain written after a *flat* list's `)` gets torn apart by the
+gap-width heuristic (`{- one -}` reads as trailing the last name, `-- two` as
+trailing the list) rather than staying one glued run — legal, stable,
+idempotent, just not the shape the chain rule describes, and already excluded
+from the author-order oracle for exactly this reason. An import's own flat
+`exposing` list has no equivalent ambiguity (checked directly: reversing the
+item order under a flat-list trailing chain produces byte-identical output),
+matching why `_reverse_exposing` (unlike `_reverse_header_exposing`) has no
+such exemption.
+
+New `Gen.comment_chain(forced=False, max_len=3)` replaces the single-comment
+roll at exactly those four sites (`Import.trailing`, `Import.item_trailing`'s
+comment payload, `Module.header_trailing`, `Module.exposing_item_trailing`'s
+comment payload — never a `lead`/`anchor`/`item_lead`, which is the separate
+"stacked own-line comments" gap below): a normal single comment most of the
+time, but a 30%-per-step roll keeps appending another `forced_comment()`
+while the last link is `block` (a `line` comment eats the rest of its row, so
+it can only ever be the chain's last link — the loop only extends past a
+`block`), capped at 3 links. The field now always holds `None` or a non-empty
+**list**
+of `(kind, text)` rather than a bare tuple, so a length-1 chain (the common
+case) is representationally identical to before; a new `emit_comment_chain`
+renders the list by gluing each link's text with a space, and every render
+site that used to call `comment_text` on these four fields now calls it
+instead. No change was needed anywhere else: `_reverse_exposing_items`
+already treated the comment payload as opaque (`remap`'s `t[1]` passes
+through unchanged regardless of its shape), and `comment_multiset`'s oracle
+reads comments back from the real lexer's `--pre-context` output, not from
+the generator's own objects, so it needed no changes either.
+
+The shrinker gained one new case per site: alongside the existing "clear the
+whole field" step, `comment_clearers` now also yields a "drop the chain's last
+link" step when a chain has more than one link (`chain_pop` for the plain-list
+shape, `indexed_chain_pop` for the `(index, chain)` shape) — so a repro that
+only needs a 2-link chain shrinks down to one instead of stopping at "chain vs.
+no chain".
+
+Verified: 8000 seeds — 3000 default (9900000..9902999), 3000
+`--comment-rate 0.6 --max-depth 6` (6100000..6102999), 2000 `--max-depth 7
+--comment-rate 0.6` (9200000..9201999) — all clean (0 quarantine, 0 findings).
+A direct frequency check (3000 modules at `--comment-rate 0.6 --max-depth 6`,
+outside the sweep) found 1071 modules (~36%) carrying at least one chain of
+length > 1, spread across all four sites (923 import-trailing, 86
+header-trailing, 50 import-item-trailing, 12 header-item-trailing — the
+skew matches how much more often a bare import/header trailing comment is
+generated than an item-level one), with chains up to the length-3 cap
+observed. No formatter source changed, so no gate-suite rerun was strictly
+needed, but the full effectful suite (269 tests) was run anyway and stayed
+clean.
+
 **Remaining expansion targets:** the 2026-07-21 AST-vs-generator audit's gap
 list (local-function bodies, infix declarations, effect modules, nested `as`)
 is now fully closed. What's left: comments *inside* a multi-line string's
 surrounding expression aside from the trailing-comment shape already fixed;
 list patterns beyond fixed-length arrays (Gren has none — not a gap). On the
 sorting axis specifically, `docs/sorting.md` still has rules this generator
-cannot reach: a comment **chaining onto another comment** is never emitted,
-comments are always single-row (so the whole "Multiline block comments" section,
-including both of that document's open questions, is unreachable), an import
-carries at most one `lead` (never a stack), and a leading block comment is never
-*glued* onto the import line (`{- c -} import Foo`, the `LeadsInline` role).
-The module header's exposing list was on this list until v1.23 closed it.
+cannot reach: comments are always single-row (so the whole "Multiline block
+comments" section, including both of that document's open questions, is
+unreachable — this is a *different* gap from the trailing-comment chain v1.24
+closed: a chain of single-row comments now round-trips, but a single comment
+genuinely spanning several rows still never appears), an import carries at
+most one `lead` (never a stack of own-line comments), and a leading block
+comment is never *glued* onto the import line (`{- c -} import Foo`, the
+`LeadsInline` role). The module header's exposing list was on this list until
+v1.23 closed it; trailing comment chains were on it until v1.24 closed it.
 
 The generator is intentionally started small and correct (0 quarantine on the
 core grammar) and expanded one construct at a time, verifying the quarantine rate

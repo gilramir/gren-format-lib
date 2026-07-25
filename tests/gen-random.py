@@ -275,11 +275,20 @@ class InfixDecl:
 #   trailing rides the import's own last line (module name, `as` alias, `(..)`,
 #            or the exposing list's close paren) and moves with it.
 #
-# `item_lead`/`item_trailing`, each `(index, (kind, text)) | None`, put an
-# own-line-before / same-row-after comment on one item of a list-form
-# `exposing` — verified directly against the app that this is legal and forces
-# the list to break across lines; NEVER on a "(..)" or bare (no-exposing)
-# import, which have no item to attach to.
+# `item_lead` is `(index, (kind, text)) | None`, an own-line-before comment on
+# one item of a list-form `exposing` — verified directly against the app that
+# this is legal and forces the list to break across lines; NEVER on a "(..)"
+# or bare (no-exposing) import, which have no item to attach to.
+#
+# `item_trailing` is `(index, chain) | None`, `chain` a same-row-after CHAIN —
+# see `Gen.comment_chain` — of one or more comments on that item.
+#
+# `trailing` is itself a chain (`Gen.comment_chain`'s return shape, a
+# non-empty list of `(kind, text)`) rather than a single comment: a `block`
+# comment trailing an import/item may be followed by more comments starting
+# on the row it closes on (all single-row here, so glued on the same row) —
+# docs/sorting.md "Trailing a comment that trails a name". A `line` comment
+# eats the rest of its row, so it can only ever be the chain's LAST link.
 class Import:
     def __init__(self, mod, as_name=None, exposing=None, lead=None, blank=False,
                  trailing=None, item_lead=None, item_trailing=None, anchor=None):
@@ -303,8 +312,9 @@ class Module:
         # together), so these fields mirror `Import`'s:
         #   exposing_broken         render one item per row rather than flat
         #   exposing_item_lead      (index, comment) own-line above one item
-        #   exposing_item_trailing  (index, comment) same-row after one item
-        #   header_trailing         comment after the header's LAST line — the
+        #   exposing_item_trailing  (index, chain) same-row-after CHAIN (see
+        #                           `Gen.comment_chain`) on one item
+        #   header_trailing         a CHAIN after the header's LAST line — the
         #                           `(..)` / `)` row. This is Bug A's shape.
         # Item comments are only emitted in the broken form, the same
         # restriction emit_import works under.
@@ -600,6 +610,15 @@ def own_line(n, ind):
 def comment_text(c):
     kind, text = c
     return ("-- " + text) if kind == "line" else ("{- " + text + " -}")
+
+
+def emit_comment_chain(chain):
+    """Render a trailing comment CHAIN (`Gen.comment_chain`'s shape, a
+    non-empty list of `(kind, text)`) — each link is single-row here, and the
+    chain rule ("Trailing a comment that trails a name", docs/sorting.md) has
+    each link start on the row the previous one ends, so gluing them on one
+    row with a space is the correct rendering, not a simplification."""
+    return " ".join(comment_text(c) for c in chain)
 
 
 def comment_lines(c, ind):
@@ -934,14 +953,14 @@ def emit_import(imp):
     if imp.exposing is None or imp.exposing == "(..)":
         line = head if imp.exposing is None else head + " exposing (..)"
         if imp.trailing is not None:
-            line += " " + comment_text(imp.trailing)
+            line += " " + emit_comment_chain(imp.trailing)
         out.append(line)
         return out
     items = imp.exposing
     if imp.item_lead is None and imp.item_trailing is None:
         line = head + " exposing (" + ", ".join(items) + ")"
         if imp.trailing is not None:
-            line += " " + comment_text(imp.trailing)
+            line += " " + emit_comment_chain(imp.trailing)
         out.append(line)
         return out
     lead_idx, lead_c = imp.item_lead if imp.item_lead is not None else (None, None)
@@ -953,11 +972,11 @@ def emit_import(imp):
         prefix = "( " if i == 0 else ", "
         line = pad(INDENT) + prefix + it
         if i == trail_idx:
-            line += " " + comment_text(trail_c)
+            line += " " + emit_comment_chain(trail_c)
         out.append(line)
     close = pad(INDENT) + ")"
     if imp.trailing is not None:
-        close += " " + comment_text(imp.trailing)
+        close += " " + emit_comment_chain(imp.trailing)
     out.append(close)
     return out
 
@@ -983,7 +1002,7 @@ def emit_header_exposing(m, head):
     if isinstance(items, str) or not m.exposing_broken:
         line = head + " exposing " + render_exposing_flat(items)
         if m.header_trailing is not None:
-            line += " " + comment_text(m.header_trailing)
+            line += " " + emit_comment_chain(m.header_trailing)
         return [line]
     lead_idx, lead_c = (m.exposing_item_lead
                         if m.exposing_item_lead is not None else (None, None))
@@ -995,11 +1014,11 @@ def emit_header_exposing(m, head):
             out.append(pad(INDENT) + comment_text(lead_c))
         line = pad(INDENT) + ("( " if i == 0 else ", ") + it
         if i == trail_idx:
-            line += " " + comment_text(trail_c)
+            line += " " + emit_comment_chain(trail_c)
         out.append(line)
     close = pad(INDENT) + ")"
     if m.header_trailing is not None:
-        close += " " + comment_text(m.header_trailing)
+        close += " " + emit_comment_chain(m.header_trailing)
     out.append(close)
     return out
 
@@ -1204,6 +1223,33 @@ class Gen:
             if c is not None:
                 out.append(c)
         return out
+
+    def comment_chain(self, forced=False, max_len=3):
+        """A trailing comment CHAIN: normally one comment, but sometimes 2-3
+        chained together on the same row — docs/sorting.md's "Trailing a
+        comment that trails a name" rule (a comment starting on the row the
+        previous one ends joins its run, and the whole run travels with
+        whatever it trails). Every comment here is single-row (v1's
+        multi-row-block gap is separate, see GENERATOR.md), so "starts on the
+        row the previous ends" collapses to "glued on the same row".
+
+        A `line` comment eats the rest of its row, so it can only ever be the
+        chain's LAST link — the loop below only extends past a `block`.
+        Returns `None` (no trailing comment at all) or a non-empty list of
+        `(kind, text)`, never a bare tuple, so every caller renders through
+        `emit_comment_chain` uniformly regardless of chain length.
+
+        `forced=True` mirrors `forced_comment` — the site has already decided
+        it wants a comment and is only asking what shape; `forced=False`
+        mirrors `comment` — the comment-rate dice decide whether there is one
+        at all."""
+        first = self.forced_comment() if forced else self.comment()
+        if first is None:
+            return None
+        chain = [first]
+        while chain[-1][0] == "block" and len(chain) < max_len and self.chance(0.3):
+            chain.append(self.forced_comment())
+        return chain
 
     # -- expressions -------------------------------------------------------
 
@@ -2034,16 +2080,18 @@ class Gen:
             # without one it would be an ordinary `lead`.
             if self.chance(0.4):
                 anchor = self.forced_comment()
-        trailing = self.comment()
+        trailing = self.comment_chain()
         item_lead = item_trailing = None
         if isinstance(exposing, list) and self.chance(0.3):
             idx = self.rng.randrange(len(exposing))
-            c = self.forced_comment()
-            if c is not None:
-                if self.chance(0.5):
+            if self.chance(0.5):
+                c = self.forced_comment()
+                if c is not None:
                     item_lead = (idx, c)
-                else:
-                    item_trailing = (idx, c)
+            else:
+                chain = self.comment_chain(forced=True)
+                if chain is not None:
+                    item_trailing = (idx, chain)
         return Import(mod, as_name=as_name, exposing=exposing, lead=lead, blank=blank,
                       trailing=trailing, item_lead=item_lead, item_trailing=item_trailing,
                       anchor=anchor)
@@ -2100,12 +2148,14 @@ class Gen:
         item_lead = item_trailing = None
         if broken and self.chance(0.45):
             idx = self.rng.randrange(len(exposing))
-            c = self.forced_comment()
-            if c is not None:
-                if self.chance(0.5):
+            if self.chance(0.5):
+                c = self.forced_comment()
+                if c is not None:
                     item_lead = (idx, c)
-                else:
-                    item_trailing = (idx, c)
+            else:
+                chain = self.comment_chain(forced=True)
+                if chain is not None:
+                    item_trailing = (idx, chain)
         header_trailing = None
         if self.chance(0.2):
             # KNOWN FORMATTER GAP — an `effect module`'s `exposing (..)` is the
@@ -2122,7 +2172,7 @@ class Gen:
             # plain module's `(..)` and on an effect module's EXPLICIT list.
             known_gap = effect is not None and not isinstance(exposing, list)
             if not known_gap:
-                header_trailing = self.forced_comment()
+                header_trailing = self.comment_chain(forced=True)
         return {"exposing_broken": broken,
                 "exposing_item_lead": item_lead,
                 "exposing_item_trailing": item_trailing,
@@ -2546,14 +2596,32 @@ def comment_clearers(m):
     """Yield closures that remove one comment (for the shrinker)."""
     def clear_attr(obj, attr):
         return lambda: setattr(obj, attr, None)
+    def chain_pop(obj, attr):
+        """Shrink a CHAIN-shaped field (`Gen.comment_chain`'s plain-list
+        shape — `imp.trailing` / `m.header_trailing`) by one link, finer
+        grained than `clear_attr`'s drop-the-whole-field. Only meaningful
+        when the chain has >1 link; callers gate on that."""
+        return lambda: setattr(obj, attr, getattr(obj, attr)[:-1])
+    def indexed_chain_pop(obj, attr):
+        """Same, for the `(index, chain)` shape (`item_trailing` /
+        `exposing_item_trailing`) — the index is preserved, only the chain
+        loses its last link."""
+        def pop():
+            idx, chain = getattr(obj, attr)
+            setattr(obj, attr, (idx, chain[:-1]))
+        return pop
     if getattr(m, "doc", None) is not None:
         yield clear_attr(m, "doc")
     if m.header_trailing is not None:
         yield clear_attr(m, "header_trailing")
+        if len(m.header_trailing) > 1:
+            yield chain_pop(m, "header_trailing")
     if m.exposing_item_lead is not None:
         yield clear_attr(m, "exposing_item_lead")
     if m.exposing_item_trailing is not None:
         yield clear_attr(m, "exposing_item_trailing")
+        if len(m.exposing_item_trailing[1]) > 1:
+            yield indexed_chain_pop(m, "exposing_item_trailing")
     if getattr(m, "effect", None):
         for idx, (field, ename, cmt) in enumerate(m.effect):
             if cmt is not None:
@@ -2572,10 +2640,14 @@ def comment_clearers(m):
             yield clear_attr(imp, "anchor")
         if imp.trailing is not None:
             yield clear_attr(imp, "trailing")
+            if len(imp.trailing) > 1:
+                yield chain_pop(imp, "trailing")
         if imp.item_lead is not None:
             yield clear_attr(imp, "item_lead")
         if imp.item_trailing is not None:
             yield clear_attr(imp, "item_trailing")
+            if len(imp.item_trailing[1]) > 1:
+                yield indexed_chain_pop(imp, "item_trailing")
     for d in m.decls:
         if getattr(d, "doc", None) is not None:
             yield clear_attr(d, "doc")
