@@ -1,4 +1,14 @@
-module ModuleExposingTrailingComment exposing ( alpha, beta, delta, epsilon, eta, gamma, theta, zeta ) {- trailing the module exposing list, past its close -}
+module ModuleExposingTrailingComment exposing
+    ( alpha
+    , beta
+    , delta
+    , epsilon
+    , eta
+    , gamma
+    , theta
+    , zeta
+    {- trailing the module exposing list, past its close -}
+    )
 
 
 alpha =

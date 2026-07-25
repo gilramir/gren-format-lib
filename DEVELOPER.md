@@ -450,10 +450,12 @@ the wrong place — `first` should be the declaration's **leading keyword** row.
 ### The cached bounds (why `lpnNode` matters)
 
 Every node caches `firstPos`, `lastPos`, `minRow`, `maxRow`, `lastBracketEnd`,
-and `bracketEndExact`. `Formatter.Logical.Comments` uses these to answer "what's the
+`bracketEndExact`, and `bracketEndElastic`. `Formatter.Logical.Comments` uses these to answer "what's the
 first/last positioned token here?" and "where does the rightmost bracket close?"
 in O(1). `lpnNode` fills them from `selfBoxBounds box` merged with the children;
-`lpnBracketNode` additionally records an *exact* closing-bracket position.
+`lpnBracketNode` additionally records an *exact* closing-bracket position, and
+`lpnElasticBracketNode` records a *derived* one that grows as comments are placed
+inside it (see step 3 below).
 `SynthesizedText` contributes nothing to these caches — that is deliberate, so a
 generated `->` never attracts a comment.
 
@@ -809,6 +811,22 @@ record; reach for the raw box only when you need a non-default flag
 - A closing bracket/delimiter the parser discards (`}`, `]`, `)`, the `)` of an
   `exposing` list) → build the container with **`lpnBracketNode closePos`** so
   the comment logic can tell "inside the brackets" from "past them."
+
+  If `closePos` is not a real parsed position but one you **derived from the
+  items** ("the `)` is one row below the last field"), use
+  **`lpnElasticBracketNode closePos`** instead. A derived close is only correct
+  until the first comment lands inside: the comment pushes the real bracket down
+  by however many rows it occupies, the recorded close doesn't move, and the
+  *next* comment reads as past the container and escapes it — which on reparse
+  detaches to column 1 and is non-idempotent. An elastic close treats anything
+  that reaches the container as inside and grows to stay below it. That also
+  relaxes the descent test itself: when an elastic container is the **last**
+  child of its flow, a comment on any row belongs inside it, not only one whose
+  row the container's items already cover — otherwise a comment written on the
+  row *below* a one-row list stays outside, renders glued back onto the line
+  above, and reparses as inside. The module
+  header's `exposing` list is the one construct that needs this today; every
+  other container has a parsed close (an import records `locImport.end`).
 
 ### 4. Detect author layout intent
 If the new construct is one where the user might write it flat on one line or

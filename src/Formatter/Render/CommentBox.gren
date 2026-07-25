@@ -1,4 +1,4 @@
-module Formatter.Render.CommentBox exposing (blockCommentBodyOffset, commentNodeBox, commentNodeToBox, docCommentString, emptyBracketedCommentLine, glueTrailingComments, leadingSpaceCount, makeCommentLineBox, multiLineBlockCommentBox, peelTrailingCommentNodes, spanLeadingComments, spanTrailingComments)
+module Formatter.Render.CommentBox exposing (blockCommentBodyOffset, commentNodeBox, commentNodeToBox, docCommentString, emptyBracketedCommentLine, glueTrailingComments, leadingSpaceCount, makeCommentLineBox, multiLineBlockCommentBox, peelTrailingCommentNodes, spanLeadingComments, spanTrailingComments, spanTrailingOwnLineComments)
 
 {-| Rendering of comment nodes (line, block, doc) to `Box`.
 -}
@@ -261,6 +261,28 @@ spanTrailingComments nodes =
             when Array.popLast remaining is
                 Just { last, initial } ->
                     if nodeIsComment last then
+                        go initial ([ last ] ++ acc)
+
+                    else
+                        { body = remaining, trailing = acc }
+
+                Nothing ->
+                    { body = [], trailing = acc }
+    in
+    go nodes []
+
+
+-- Split off only the trailing run of comments the author put on their OWN line
+-- (`LeadsOwnLine`). Unlike `spanTrailingComments`, a comment that rides the
+-- previous token's line (`module Foo {- c -} exposing`) stays in the body, where
+-- the caller's flow renders it on that line — peeling it would move it below.
+spanTrailingOwnLineComments : Array LPNode -> { body : Array LPNode, trailing : Array LPNode }
+spanTrailingOwnLineComments nodes =
+    let
+        go remaining acc =
+            when Array.popLast remaining is
+                Just { last, initial } ->
+                    if commentRole (lpnBox last) == Just LeadsOwnLine then
                         go initial ([ last ] ++ acc)
 
                     else

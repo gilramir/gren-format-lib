@@ -1,6 +1,7 @@
 module ModuleNamedLineTrailer exposing
-    ( bar -- trailing line comment after the named exposing
+    ( bar
     , foo
+    -- trailing line comment after the named exposing
     )
 
 

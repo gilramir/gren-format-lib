@@ -1,0 +1,18 @@
+effect module EffectModuleWrappedWhereClose where { command = MyCmd, subscription = MySub } exposing
+    ( MyCmd
+    , MySub
+    , go
+    {- past the list, not about `go` -}
+    )
+
+
+type MyCmd msg
+    = C msg
+
+
+type MySub msg
+    = S msg
+
+
+go =
+    1

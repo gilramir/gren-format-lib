@@ -205,12 +205,47 @@ moves. Which name a comment belongs to is decided by **where the comment starts*
   `ModuleExposingCloseComment` and `ModuleExposingClosePastParen` cannot detect
   the difference, because both were written with the names already sorted.
 
-  A **flat** one-row list is the exception, and unavoidably so: its `)` has no
-  position in the AST, so a comment past it and a comment trailing the last name
-  occupy the same place and only the gap width distinguishes them. A comment
-  close to the `)` is read as trailing that name and travels with it, so a flat
-  list's result *does* depend on the authored order. See the README's "A comment
-  past a flat list".
+  A whole **chain** of such comments — links written one after another on the
+  same row, any of which may itself span rows — is pinned together, in authored
+  order, one per line. `ModuleExposingCloseChainVertical` is the fixture. Before
+  2026-07-24 only the first link was recognised; the rest fell past the derived
+  `)`, escaped the module header's row range, and detached to column 1, which
+  also made the whole header non-idempotent. The fix is the *elastic* close
+  (`LogicalPrintingTree.lpnElasticBracketNode`): a derived `)` row grows as
+  comments are placed inside it, so a later link can no longer land past the
+  list. See `tests/GENERATOR.md`'s "Multi-row block comments" for how v1.25
+  found it.
+
+- **Past the closing `)` of a flat list**: a flat list's `)` has no position and
+  no row of its own, so a comment past it and a comment trailing the last name
+  occupy the *same place*. Rather than guess from the gap width, the formatter
+  reads any comment after the last name as the list's, pins it above the `)`
+  like the vertical case, and lets the list open up to make room.
+  `ModuleExposingCloseChain` and `ModuleLineFloatingComment` are the fixtures.
+
+  "After the last name" includes a comment the author wrote on the row *below*
+  the list, not only one on the list's own row — the derived `)` has no row to
+  be above or below, and nothing else follows the list inside the header, so
+  both go to the same place (`ModuleExposingCommentBelowFlatList`). Reading only
+  the same-row case as the list's made the two shapes format to each other in
+  turn, which is non-idempotent rather than merely inconsistent.
+
+  This makes a flat list order-independent too: `(apple, zebra) {- c -}`,
+  `(zebra, apple) {- c -}`, `(apple, zebra {- c -})` and any spacing in between
+  all produce identical bytes. It was not true before 2026-07-24, when the
+  comment rode whichever name was written last.
+
+  Two consequences worth knowing. A comment cannot be attached to the **last**
+  name of a *flat* list — write the list vertically if you want that, since
+  there the `)` has a row to distinguish them. And the pin is decided on the
+  last name in **authored** order *and* the last in **sorted** order (usually
+  the same name): authored-last is what makes a genuinely-past-the-`)` comment
+  order-independent, and sorted-last is what makes the result a fixed point —
+  without it, `(b {- c -}, a)` renders flat as `(a, b {- c -})`, where `c` is
+  now on the last name and the next format would pin it. A comment on a name
+  that is neither keeps that name (`(apple {- just apple -}, zebra)` is
+  untouched), which is why `(b, a {- c -})` and `(a {- c -}, b)` still differ —
+  the residue of a `)` the parser never recorded.
 
 #### Multiline block comments (current behavior)
 

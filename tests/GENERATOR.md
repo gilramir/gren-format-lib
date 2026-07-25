@@ -1341,7 +1341,7 @@ observed. No formatter source changed, so no gate-suite rerun was strictly
 needed, but the full effectful suite (269 tests) was run anyway and stayed
 clean.
 
-### Multi-row block comments — 2 real bugs fixed, 1 deeper class found and deferred
+### Multi-row block comments — 2 real bugs fixed, plus a deeper class found here and fixed 2026-07-24
 
 **v1.25 (implemented 2026-07-24):** every comment this generator had ever
 emitted was single-row — `docs/sorting.md`'s "Multiline block comments"
@@ -1440,8 +1440,8 @@ unrelated known gap instead — a confusing, invalid repro once traced back
 through the unshrunk `input.gren`, which reproduced the real bug directly.
 Fixed by clearing `header_trailing` in the same step.
 
-**Deferred: a deeper, rarer class in the same family, left generatable and
-documented rather than fixed (matching the v1.21 Bugs A/B precedent).** After
+**A deeper, rarer class in the same family — deferred when v1.25 landed,
+FIXED 2026-07-24** (see the end of this passage for what the fix was). After
 the fix above, three configurations totalling 8000 seeds still found 39
 non-idempotent, 5 sort-order, and 1 crash finding (≈0.5-1%, scaling with
 `--comment-rate`) — all one further class: a comment **chain** trailing a
@@ -1469,8 +1469,22 @@ so effect modules route this case through a less-robust code path than
 flow, since an effect module's exposing position is already known to be
 partly untracked). Not scoped away — per the v1.21 precedent, teaching the
 generator to avoid its own finds would defeat the point of having added this
-coverage; it will keep resurfacing in sweeps until fixed at the
-`MakeLogical`/row-range layer.
+coverage.
+
+**Fixed 2026-07-24, at exactly the layer this tracing predicted.** The module
+header's `exposing ( … )` list is now built with an *elastic* closing-bracket
+position (`LogicalPrintingTree.lpnElasticBracketNode`): the derived `)` row
+grows as each comment is placed inside it, and the header's `OriginalRows`
+range follows, so a later chain link can no longer fall past the list. A
+comment that reaches the list is unconditionally *inside* it and pinned above
+the `)`, one per line, so a chain stays together and stops depending on which
+name was written last. All three symptoms are gone, the crash included — it
+was, as guessed, the generic `exposingLineFallback` flow, reached because the
+detached chain left a comment as the header's last child; with the chain
+pinned, the coupled `gluedExposingBox` path handles it. A **flat** header list
+gained the same treatment, which incidentally removed the gap-width rule that
+was `tbd.md`'s second entry. Fixtures: `ModuleExposingCloseChain`,
+`ModuleExposingCloseChainVertical`.
 
 Verified: 8000 seeds — 3000 default (700000..702999) plus a direct chain-frequency
 check alongside it (1071/3000 modules, ~36%, carrying a chain of length > 1
@@ -1499,7 +1513,7 @@ list was on this list until v1.23 closed it; trailing comment chains until
 v1.24; single-row-vs-multi-row comments (including both of `docs/sorting.md`'s
 open questions) until v1.25 — though v1.25 also *found* rather than closed a
 new, narrower gap of its own: the module-header row-range/reparse-detach class
-documented above, a `MakeLogical.gren` fix for another day.
+documented above, since fixed (2026-07-24).
 
 The generator is intentionally started small and correct (0 quarantine on the
 core grammar) and expanded one construct at a time, verifying the quarantine rate

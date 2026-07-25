@@ -1,0 +1,21 @@
+module ModuleExposingCloseChainVertical exposing
+    ( apple
+    , mango -- trails mango, and travels with it
+    , zebra
+    {- one -}
+    {- two, and it
+       spans rows -}
+    {- three -}
+    )
+
+
+apple =
+    1
+
+
+mango =
+    2
+
+
+zebra =
+    3

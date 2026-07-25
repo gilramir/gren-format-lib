@@ -16,7 +16,7 @@ import Formatter.Logical.LogicalPrintingTree exposing (CommentRole(..), LPBox(..
 import Formatter.Render.BinopLayout exposing (assembleBinopBox, flattenBinopNodes, isChainBreakingOperandBox, opText, splitTrailingOwnLineComments)
 import Formatter.Render.Box as B exposing (Box(..))
 import Formatter.Render.BoxOps exposing (applyIndent, blockIndentSpaces, boxLine, glueCommentSuffix, glueLeadingCommentPrefix, grenIndent, isBlockNode, isSingleLine, joinInline, prefixOperator, spaceJoinLines, stackWithBlanks, traverseResult, wrapParenVerticalPadded)
-import Formatter.Render.CommentBox exposing (commentNodeBox, commentNodeToBox, emptyBracketedCommentLine, glueTrailingComments, makeCommentLineBox, multiLineBlockCommentBox, peelTrailingCommentNodes, spanLeadingComments, spanTrailingComments)
+import Formatter.Render.CommentBox exposing (commentNodeBox, commentNodeToBox, emptyBracketedCommentLine, glueTrailingComments, makeCommentLineBox, multiLineBlockCommentBox, peelTrailingCommentNodes, spanLeadingComments, spanTrailingComments, spanTrailingOwnLineComments)
 import Formatter.Render.ElmStructure as E
 import Formatter.Render.FlowAssembly exposing (FlowItem, SoftGlueAlignment(..), assembleBrokenCall, assembleBrokenWithComments, bracketPunc, gluedExposingBox, pairTypeRecordComments, parenInnerIsAlignCarrying, softBlockChildForcesVerticalBox, softGlueAlignment, trySoftGlueFlow, verticalExposingBox)
 import Formatter.Render.FlowPolicy as FP
@@ -2072,6 +2072,15 @@ makeExposingLineBox stype children =
                 headerHasComment =
                     Array.any nodeIsComment headerNodes
 
+                -- A header comment the author wrote on the header's own row
+                -- (`module M exposing {- c -}`, `module {- c -} M exposing`) is
+                -- rendered by the flow *within* the header line and does not
+                -- stop the coupled layout — only an OWN-LINE one does, since
+                -- that has to sit between the header and the `(` at +4, which
+                -- is the `SortSymbols` hoist's shape (handled below).
+                headerHasOwnLineComment =
+                    Array.any (\n -> commentRole (lpnBox n) == Just LeadsOwnLine) headerNodes
+
                 headerBoxResult =
                     if headerAllLeaves then
                         Ok (B.line (leafLineRow headerNodes))
@@ -2081,33 +2090,56 @@ makeExposingLineBox stype children =
             in
             when exposingForceVertical is
                 Just forceVertical ->
-                    if not (Array.isEmpty headerNodes) && not headerHasComment then
-                        let
-                            listChildren =
-                                lpnChildren lastNode
-                        in
-                        let
-                            -- Only a comment that can't ride the flat line forces
-                            -- the list vertical; a short `{- … -}` beside a name
-                            -- stays on the line the author wrote, which is what
-                            -- elm-format does here too.
-                            commentForcesOpen =
-                                commentForcesBracketOpen forceVertical listChildren
+                    let
+                        listChildren =
+                            lpnChildren lastNode
 
-                            effectiveFV =
-                                forceVertical || commentForcesOpen
+                        -- Only a comment that can't ride the flat line forces
+                        -- the list vertical; a short `{- … -}` beside a name
+                        -- stays on the line the author wrote, which is what
+                        -- elm-format does here too.
+                        commentForcesOpen =
+                            commentForcesBracketOpen forceVertical listChildren
 
-                            -- The `( … )` comment form is structurally the same
-                            -- always-vertical list as a curly/square literal, so
-                            -- reuse `commentBracketListBox` with `ListParen` (its
-                            -- `( `/`, `/`)` prefixes match `listBoxesWithBrackets`).
-                            listBoxResult =
-                                if commentForcesOpen then
-                                    commentBracketListBox ListParen listChildren
+                        -- The list renders vertical either because the author
+                        -- wrote it that way or because a comment forces it open.
+                        -- Both erase the same reparse evidence when the fallback
+                        -- glues the list onto the header row, so both must keep
+                        -- the coupled layout.
+                        effectiveFV =
+                            forceVertical || commentForcesOpen
 
-                                else
-                                    makeExposingListBox forceVertical listChildren
-                        in
+                        -- The `( … )` comment form is structurally the same
+                        -- always-vertical list as a curly/square literal, so
+                        -- reuse `commentBracketListBox` with `ListParen` (its
+                        -- `( `/`, `/`)` prefixes match `listBoxesWithBrackets`).
+                        listBoxResult =
+                            if commentForcesOpen then
+                                commentBracketListBox ListParen listChildren
+
+                            else
+                                makeExposingListBox forceVertical listChildren
+                    in
+                    if not (Array.isEmpty headerNodes) && (not headerHasComment || (not headerHasOwnLineComment && effectiveFV)) then
+                        -- A header comment normally routes the whole line
+                        -- through the generic flow, which glues the list's box
+                        -- onto the header line so the FIRST ITEM lands on the
+                        -- header's own row. For a vertical list that erases the
+                        -- only evidence a reparse has that the author wrote it
+                        -- vertical — decisively so for a ONE-item list, which
+                        -- then has no item below the header and no second item
+                        -- to compare against (see
+                        -- `MakeLogical.exposedStartsBelowHeader`). The derived
+                        -- `)` collapses back onto the header row and a comment
+                        -- pinned above it escapes: non-idempotent, found by
+                        -- `fuzz-idempotency.py` inserting a comment into a
+                        -- header gap. So an inline header comment keeps the
+                        -- coupled layout (header line, list at +4) — the flow
+                        -- still renders the comment inside the header line, and
+                        -- `gluedExposingBox` falls back on its own if that came
+                        -- out multi-line. A FLAT list has no such evidence to
+                        -- lose, so it stays on the old path.
+                        --
                         -- Both `module` and `import` keep `exposing` glued to
                         -- the header (list at +4); gren-format does not drop an
                         -- import's `exposing` to its own line the way elm-format
@@ -2134,36 +2166,55 @@ makeExposingLineBox stype children =
                         -- item comment inside). Render the comment(s) on their
                         -- own line(s) at +4, list below at +4, matching the
                         -- bracket-first-child form the sort produced pre-hoist so
-                        -- the two are byte-identical. A comment buried *among* the
-                        -- leaf tokens (name-wrap, `import {- c -} Foo`) leaves a
-                        -- non-leaf body, so it stays on the generic flow path.
-                        when spanTrailingComments headerNodes is
+                        -- the two are byte-identical.
+                        when spanTrailingOwnLineComments headerNodes is
                             { body = leafHeader, trailing = leadComments } ->
-                                if not (Array.isEmpty leadComments) && not (Array.isEmpty leafHeader) && Array.all (\n -> leafValue n /= Nothing) leafHeader && Array.all (\n -> commentRole (lpnBox n) == Just LeadsOwnLine) leadComments then
+                                if not (Array.isEmpty leadComments) && not (Array.isEmpty leafHeader) then
                                     let
-                                        listChildren =
-                                            lpnChildren lastNode
-
-                                        listBoxResult =
-                                            if commentForcesBracketOpen forceVertical listChildren then
-                                                commentBracketListBox ListParen listChildren
+                                        -- The header body may itself carry an INLINE
+                                        -- comment among its leaf tokens (`module
+                                        -- {- x -} Foo exposing`), which is not a
+                                        -- leaf — flow it, exactly as the coupled
+                                        -- branch above does. This shape needs the
+                                        -- header on ONE row (own-line comments at +4
+                                        -- beneath it, list at +4 below those), so
+                                        -- apply the same single-line test
+                                        -- `gluedExposingBox` applies and fall back to
+                                        -- the generic flow only if it fails.
+                                        hoistHeaderBoxResult =
+                                            if Array.all (\n -> leafValue n /= Nothing) leafHeader then
+                                                Ok (B.line (leafLineRow leafHeader))
 
                                             else
-                                                makeExposingListBox forceVertical listChildren
-                                    in
-                                    listBoxResult
-                                        |> Result.andThen
-                                            (\listBox ->
-                                                traverseResult commentNodeBox leadComments
-                                                    |> Result.map
-                                                        (\commentBoxes ->
-                                                            B.stack1
-                                                                ([ B.line (leafLineRow leafHeader) ]
-                                                                    ++ Array.map B.indent commentBoxes
-                                                                    ++ [ B.indent listBox ]
-                                                                )
+                                                buildFlowBox grenIndent leafHeader
+                                                    |> Result.andThen
+                                                        (\hb ->
+                                                            when B.isLine hb is
+                                                                Ok headerLine ->
+                                                                    Ok (B.line headerLine)
+
+                                                                Err _ ->
+                                                                    Err "box: exposing header rendered multi-line"
                                                         )
-                                            )
+                                    in
+                                    when hoistHeaderBoxResult is
+                                        Err _ ->
+                                            exposingLineFallback children
+
+                                        Ok headerBox ->
+                                            listBoxResult
+                                                |> Result.andThen
+                                                    (\listBox ->
+                                                        traverseResult commentNodeBox leadComments
+                                                            |> Result.map
+                                                                (\commentBoxes ->
+                                                                    B.stack1
+                                                                        ([ headerBox ]
+                                                                            ++ Array.map B.indent commentBoxes
+                                                                            ++ [ B.indent listBox ]
+                                                                        )
+                                                                )
+                                                    )
 
                                 else
                                     exposingLineFallback children

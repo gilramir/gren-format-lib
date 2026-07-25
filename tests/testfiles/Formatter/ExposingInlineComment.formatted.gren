@@ -1,4 +1,9 @@
-module ExposingInlineComment exposing (Kiwi, apple, zebra {- the last one -})
+module ExposingInlineComment exposing
+    ( Kiwi
+    , apple
+    , zebra
+    {- the last one -}
+    )
 
 import Dict exposing (Dict {- the type -}, empty)
 

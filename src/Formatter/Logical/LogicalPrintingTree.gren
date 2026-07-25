@@ -10,10 +10,13 @@ module Formatter.Logical.LogicalPrintingTree exposing
     , gluesTrailingComment
     , lastRowInSubtree
     , lpnBox
+    , lpnBracketEndElastic
     , lpnBracketEndExact
     , lpnBracketNode
     , lpnBracketStart
     , lpnChildren
+    , lpnElasticBracketNode
+    , lpnExtendElasticBracket
     , lpnFirstPos
     , lpnLastBracketEnd
     , lpnLastPos
@@ -523,6 +526,7 @@ type LPNode
         , maxRow : Int
         , lastBracketEnd : Maybe Position
         , bracketEndExact : Bool
+        , bracketEndElastic : Bool
         , bracketStart : Maybe Position
         }
 
@@ -645,6 +649,15 @@ lpnBracketEndExact node =
             r.bracketEndExact
 
 
+{-| True when `lastBracketEnd` is a *derived* close that grows as comments are
+placed inside (set by `lpnElasticBracketNode`). See that function. -}
+lpnBracketEndElastic : LPNode -> Bool
+lpnBracketEndElastic node =
+    when node is
+        LPNode r ->
+            r.bracketEndElastic
+
+
 {-| The exact source position of this container's *opening* bracket, when the
 builder recorded one (`lpnWithBracketStart`), or `Nothing`. Unlike the row/pos
 bounds this is a property of the node itself, not aggregated from children.
@@ -742,6 +755,15 @@ lpnNode box children =
 
                             Nothing ->
                                 acc.bracketEndExact
+                    -- Elasticity travels with the bracket-end it describes, so
+                    -- it propagates on exactly the same rule.
+                    , bracketEndElastic =
+                        when cbe is
+                            Just _ ->
+                                lpnBracketEndElastic child
+
+                            Nothing ->
+                                acc.bracketEndElastic
                     }
                 )
                 { firstPos = self.firstPos
@@ -750,6 +772,7 @@ lpnNode box children =
                 , maxRow = self.maxRow
                 , lastBracketEnd = Nothing
                 , bracketEndExact = False
+                , bracketEndElastic = False
                 }
                 children
 
@@ -776,6 +799,13 @@ lpnNode box children =
 
             else
                 merged.bracketEndExact
+
+        bracketElastic =
+            if self.isBracket then
+                False
+
+            else
+                merged.bracketEndElastic
     in
     LPNode
         { box = box
@@ -786,6 +816,7 @@ lpnNode box children =
         , maxRow = merged.maxRow
         , lastBracketEnd = bracketEnd
         , bracketEndExact = bracketExact
+        , bracketEndElastic = bracketElastic
         , bracketStart = Nothing
         }
 
@@ -807,6 +838,64 @@ lpnBracketNode box closeEnd children =
                     , lastBracketEnd = Just closeEnd
                     , bracketEndExact = True
                 }
+
+
+{-| Like `lpnBracketNode`, but for a container whose closing bracket position is
+*derived* from its items rather than recorded by the parser — today only the
+module header's `exposing ( … )` list (see `MakeLogical.moduleExposingClose`).
+
+A derived close is a guess that "the `)` sits one row below the last item", and
+that guess is wrong the moment a comment is placed inside: the `)` is pushed
+down by however many rows the comment occupies, but the recorded close does not
+move, so the *next* comment falls past it and escapes the container — the
+module-header trailing-chain detach bug.
+
+An elastic close says two things:
+
+  - a comment that reaches this container is always *inside* it (there is
+    nothing after the list for it to belong to, so proximity to the guessed
+    close must not decide);
+  - the close row grows as comments land inside, via `lpnExtendElasticBracket`,
+    keeping the container's row range — and therefore the enclosing
+    declaration's — honest about where the `)` will actually render.
+
+`bracketEndExact` stays False: the recorded position is still not the parser's.
+-}
+lpnElasticBracketNode : LPBox -> Position -> Array LPNode -> LPNode
+lpnElasticBracketNode box closeEnd children =
+    when lpnNode box children is
+        LPNode r ->
+            LPNode
+                { r
+                    | maxRow = max r.maxRow closeEnd.row
+                    , lastBracketEnd = Just closeEnd
+                    , bracketEndExact = False
+                    , bracketEndElastic = True
+                }
+
+
+{-| Push an elastic container's closing bracket to the row below `contentRow`
+(a no-op on any other node, and never shrinks). Called as each comment is
+placed inside, so the recorded close keeps pace with the rows the container's
+contents will actually render on. -}
+lpnExtendElasticBracket : Int -> LPNode -> LPNode
+lpnExtendElasticBracket contentRow node =
+    when node is
+        LPNode r ->
+            when r.lastBracketEnd is
+                Just closeEnd ->
+                    if r.bracketEndElastic && contentRow + 1 > closeEnd.row then
+                        LPNode
+                            { r
+                                | maxRow = max r.maxRow (contentRow + 1)
+                                , lastBracketEnd = Just { closeEnd | row = contentRow + 1 }
+                            }
+
+                    else
+                        node
+
+                Nothing ->
+                    node
 
 
 {-| Rebuild `old` with `newChildren`, preserving an explicit closing-bracket
@@ -846,6 +935,7 @@ lpnReplaceChildren old newChildren =
                             | maxRow = max r.maxRow oldEnd.row
                             , lastBracketEnd = Just oldEnd
                             , bracketEndExact = lpnBracketEndExact old
+                            , bracketEndElastic = lpnBracketEndElastic old
                         }
 
 

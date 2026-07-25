@@ -1,6 +1,7 @@
 effect module EffectModuleNamedLineTrailer where { command = MyCmd } exposing
     ( MyCmd
-    , foo -- trailing line comment after the named exposing
+    , foo
+    -- trailing line comment after the named exposing
     )
 
 

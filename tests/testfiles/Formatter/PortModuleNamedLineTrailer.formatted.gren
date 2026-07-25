@@ -1,6 +1,7 @@
 port module PortModuleNamedLineTrailer exposing
-    ( incoming -- trailing line comment after the named exposing
+    ( incoming
     , outgoing
+    -- trailing line comment after the named exposing
     )
 
 

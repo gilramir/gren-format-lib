@@ -1,0 +1,15 @@
+module ModuleExposingCloseChain exposing
+    ( apple
+    , zebra
+    {- first link, and it
+       spans rows -}
+    {- second link, written on the first link's closing row -}
+    )
+
+
+apple =
+    1
+
+
+zebra =
+    2

@@ -38,16 +38,19 @@ import Char
 import String
 
 import Formatter.Logical.LogicalPrintingTree exposing
-    ( LPBox(..)
+    ( CommentRole(..)
+    , LPBox(..)
     , LPNode(..)
     , ListBrackets(..)
     , SyntaxType(..)
     , commentRole
     , lpnBox
+    , lpnBracketEndElastic
     , lpnChildren
     , lpnFirstPos
     , lpnLastPos
     , lpnReplaceChildren
+    , lpnSetCommentRole
     , lpnWithBox
     )
 
@@ -583,10 +586,27 @@ sortExposingLists node =
     in
     when lpnBox recursed is
         AllAcrossOrAllVertical ListParen ->
-            lpnReplaceChildren recursed (sortExposedChildren (lpnChildren recursed))
+            -- Flat *and* elastic = the module header's own one-row list, the
+            -- only exposing list whose closing `)` is neither recorded by the
+            -- parser nor on a row of its own. See `sortExposedChildren`.
+            lpnReplaceChildren
+                recursed
+                (sortExposedChildren
+                    { pinsClosingComments = lpnBracketEndElastic recursed
+                    , closeSharesLastItemRow = True
+                    }
+                    (lpnChildren recursed)
+                )
 
         AlwaysVertical ListParen ->
-            lpnReplaceChildren recursed (sortExposedChildren (lpnChildren recursed))
+            lpnReplaceChildren
+                recursed
+                (sortExposedChildren
+                    { pinsClosingComments = lpnBracketEndElastic recursed
+                    , closeSharesLastItemRow = False
+                    }
+                    (lpnChildren recursed)
+                )
 
         _ ->
             recursed
@@ -663,8 +683,8 @@ same-row trailing comment on the last authored name, and stays order-dependent.
 That limitation is documented in the README under "Known limitations" ->
 "A module `exposing` list's closing paren isn't recorded" -> "A comment past a
 flat list". -}
-sortExposedChildren : Array LPNode -> Array LPNode
-sortExposedChildren items =
+sortExposedChildren : { pinsClosingComments : Bool, closeSharesLastItemRow : Bool } -> Array LPNode -> Array LPNode
+sortExposedChildren opts items =
     if not (Array.any isExposedItem items) then
         items
 
@@ -677,11 +697,102 @@ sortExposedChildren items =
                 items
 
             Just { clusters, leftover } ->
-                (clusters
-                    |> Array.sortWith (compareClusters compareExposedText)
-                    |> flattenClusters
-                )
-                    ++ leftover
+                let
+                    sorted =
+                        Array.sortWith (compareClusters compareExposedText) clusters
+
+                    { clusters = finalClusters, pinned } =
+                        if opts.pinsClosingComments && opts.closeSharesLastItemRow then
+                            unfoldLastTrailing sorted
+
+                        else
+                            { clusters = sorted, pinned = [] }
+
+                    closing =
+                        pinned ++ leftover
+                in
+                flattenClusters finalClusters
+                    ++ (if opts.pinsClosingComments then
+                            Array.map pinAboveClose closing
+
+                        else
+                            closing
+                       )
+
+
+{-| Strip the trailing comment run off the last cluster — in **authored** order
+or in **sorted** order, whichever applies (often the same cluster) — so it is
+pinned above the `)` instead of riding that name through the sort.
+
+Only correct where the closing `)` shares a row with the last item: a flat
+module-header list. There `(a, b) {- c -}` and `(a, b {- c -})` put `c` in the
+same place and the `)` has no position to separate them, so "past the list" and
+"trails the last name" are the same bytes. A **vertical** list is untouched —
+its `)` has a row of its own, so `clusterRegionHelp` has already told the two
+apart.
+
+Why both orders, and why that is the most a flat list can offer:
+
+  - **Authored-last** is the one that matters. A comment genuinely past the `)`
+    is the last thing in the list *however the names are ordered*, so pinning on
+    authored-last makes `(a, b) {- c -}` and `(b, a) {- c -}` — the same module
+    typed two ways — land on the same bytes. Sorted-last alone does not: in
+    `(b, a) {- c -}` the comment trails `a`, which sorts first, so it would be
+    left riding `a` into the middle of the list.
+  - **Sorted-last** is what keeps the result a fixed point. Without it,
+    `(b {- c -}, a)` — where `c` is unambiguously `b`'s, a name follows it —
+    stays flat as `(a, b {- c -})`, in which `c` now *is* on the last name, so
+    the next format pins it. Adding sorted-last pins on the first format
+    instead, and once pinned the list renders vertical, where the comment sits
+    on its own row above `)` and stays there.
+
+What no rule can recover is the case the two readings disagree on: `c` written
+after a name that is neither authored-last nor sorted-last keeps that name,
+which means `(b, a {- c -})` and `(a {- c -}, b)` still differ. That is not an
+oversight — in a flat list a name-owned comment and a list-owned one occupy the
+same position, so treating the trailing slot as the list's necessarily treats
+some name-owned comments as the list's too. The vertical form has the row to say
+which, and says it. -}
+unfoldLastTrailing : Array Cluster -> { clusters : Array Cluster, pinned : Array LPNode }
+unfoldLastTrailing clusters =
+    let
+        authoredLast =
+            Array.foldl (\c acc -> max acc c.origIndex) -1 clusters
+
+        sortedLast =
+            Array.length clusters - 1
+    in
+    Array.foldl
+        (\c acc ->
+            if acc.index == sortedLast || c.origIndex == authoredLast then
+                { clusters = Array.pushLast { c | trailing = [] } acc.clusters
+                , pinned = acc.pinned ++ c.trailing
+                , index = acc.index + 1
+                }
+
+            else
+                { acc
+                    | clusters = Array.pushLast c acc.clusters
+                    , index = acc.index + 1
+                }
+        )
+        { clusters = [], pinned = [], index = 0 }
+        clusters
+        |> (\r -> { clusters = r.clusters, pinned = r.pinned })
+
+
+{-| A comment pinned above the `)` leads its own line, whatever it was written
+against. A chain authored on one row (`) {- a -} {- b -}`) arrives here still
+carrying `TrailsPrevious` on every link but the first, which would re-glue the
+run onto the last sorted name; own-line is also the shape a reparse of the
+pinned output yields, so the two agree by construction. -}
+pinAboveClose : LPNode -> LPNode
+pinAboveClose node =
+    if isSweepComment node then
+        lpnSetCommentRole LeadsOwnLine node
+
+    else
+        node
 
 
 compareExposedText : LPNode -> LPNode -> Order

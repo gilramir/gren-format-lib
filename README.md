@@ -76,7 +76,6 @@ The larger section explains the [Gren Formatter Rules](#gren-formatter-rules).
   - [A comment right after `exposing` doesn't sort with the first name](#a-comment-right-after-exposing-doesnt-sort-with-the-first-name)
   - [A module `exposing` list's closing paren isn't recorded](#a-module-exposing-lists-closing-paren-isnt-recorded)
     - [A comment past a flat list](#a-comment-past-a-flat-list)
-    - [Two comments stacked before a vertical list's `)`](#two-comments-stacked-before-a-vertical-lists-)
   - [A comment after the last binding in a `let`](#a-comment-after-the-last-binding-in-a-let)
   - [Two fixtures parse a custom-type shape the language no longer allows](#two-fixtures-parse-a-custom-type-shape-the-language-no-longer-allows)
   - [Block comment body indentation](#block-comment-body-indentation)
@@ -549,12 +548,11 @@ same result. That's the point: the output of a sort shouldn't depend on the
 order you happened to type things in. A comment on its own line above the `)`
 is pinned the same way.
 
-A flat list has the same property but for a different reason — a comment you set
-apart at the end of the header stays outside the list entirely, so the sort never
-touches it. The one case that *does* depend on the order you wrote is a comment
-close enough to a flat list's `)` to be read as trailing the last name instead;
-on a single row the formatter can't see the `)` to tell the two apart, and that
-whole trade-off is described under
+A flat list gets the same treatment: a comment at the end of a flat header is
+pinned above the `)` too, and the list opens up to make room for it. That costs
+you the ability to hang a comment off the *last* name of a flat list — on one
+row the formatter can't see the `)`, so it can't tell "about that name" from
+"about the list" — and the trade-off is described under
 [A comment past a flat list](#a-comment-past-a-flat-list).
 
 This applies the same way to an import's own exposing list — see
@@ -2660,97 +2658,85 @@ brackets around them. Mostly that costs nothing: when you wrote the list across
 rows, the `)` is on its own row below the last name, so a comment after that name
 is recognised by its row and stays inside the list (see
 [When the formatter can't tell what you meant](#when-the-formatter-cant-tell-what-you-meant)).
-Two shapes do pay for it.
+One shape does pay for it.
 
-An import's list pays for neither — the parser records where an import ends, `)`
-included, so a comment there stays on whichever side of the `)` you wrote it,
+An import's list doesn't pay at all — the parser records where an import ends,
+`)` included, so a comment there stays on whichever side of the `)` you wrote it,
 however much space you left, and however many comments you stack up.
 
 #### A comment past a flat list
 
 When you wrote the list flat, everything is on one row and the row tells you
 nothing. A comment written *inside* the brackets and one written *past* them look
-alike, so the only thing left to measure is how far past the last name the
-comment starts. Up to two columns — one space and the `)` the formatter can't
-see — it is treated as inside the list; further out, as past it:
+alike. The formatter stops trying to tell them apart: it reads any comment after
+the list's last name as belonging to the list, opens the list up, and pins the
+comment above the `)`. Every way of writing it gives the same result —
 
 ```gren
 module FlatClose exposing (apple, zebra) {- both names -}
-```
-
-keeps the comment inside the list, riding the last name:
-
-```gren
-module FlatClose exposing (apple, zebra {- both names -})
-```
-
-while the same comment written a few spaces further right:
-
-```gren
 module FlatClose exposing (apple, zebra)    {- both names -}
+module FlatClose exposing (apple, zebra {- both names -})
+module FlatClose exposing (zebra, apple) {- both names -}
 ```
 
-is treated as trailing the whole module line, and stays past the close:
+— all four become:
 
 ```gren
-module FlatClose exposing ( apple, zebra ) {- both names -}
-```
-
-Both are stable — reformatting either output leaves it alone — but which one you
-get depends on spacing you probably didn't think about, and that is the only
-place in the formatter where it does. Both readings are needed in practice: a
-comment you wrote after the last name is usually about that name and should ride
-it as the list sorts, while a comment you set apart at the end of the header is
-usually about the module. Telling them apart properly needs the parser to record
-the exposing list's brackets; until then the gap is the only signal there is.
-
-The inside reading has a second cost: because the comment rides the last name
-you *wrote*, the formatted result depends on the order you wrote the names in.
-`(apple, zebra) {- c -}` keeps the comment on `zebra`, while `(zebra, apple)
-{- c -}` — the same module — moves it to `apple`, since `apple` sorts to the
-front and takes the comment with it. A vertical list doesn't have this problem:
-there the `)` is on a row of its own, that row is enough to recognise a comment
-as belonging to the end of the list rather than to a name, and such a comment is
-pinned above the `)` regardless of the order the names were written in (see
-[Exposed names sort automatically](#exposed-names-sort-automatically)).
-
-#### Two comments stacked before a vertical list's `)`
-
-One comment on its own line between the last name and the `)` stays inside the
-list. A second one directly below it does not — it's moved out and below,
-becoming a comment of its own above the declarations:
-
-```gren
-module Stacked exposing
+module FlatClose exposing
     ( apple
     , zebra
-    {- first, above the close paren -}
-    {- second, also above the close paren -}
+    {- both names -}
     )
+```
+
+That is the point. Neither the spacing you left before the comment nor the order
+you typed the names in changes the output, and the same module written any of
+those four ways formats to the same bytes.
+
+What you give up is hanging a comment off the **last** name of a flat list: it
+is read as the list's, not that name's. A comment on any earlier name is
+unaffected, because a name follows it and there is nothing to confuse it with:
+
+```gren
+module Mid exposing (apple {- just apple -}, zebra)
+```
+
+stays exactly as written. And if you do want a comment tied to the last name,
+write the list vertically — there the `)` has a row of its own, which is enough
+to tell the two apart:
+
+```gren
+module Vert exposing
+    ( apple
+    , zebra -- just zebra
+    )
+```
+
+keeps the comment on `zebra`, through the sort and across reformats.
+
+A chain of comments is treated as one unit and pinned together, in order, each on
+its own line — including a link that spans rows:
+
+```gren
+module Chain exposing (zebra, apple) {- first link, and it
+spans rows -} {- second link -}
 ```
 
 becomes:
 
 ```gren
-module Stacked exposing
+module Chain exposing
     ( apple
     , zebra
-    {- first, above the close paren -}
+    {- first link, and it
+       spans rows -}
+    {- second link -}
     )
-
-{- second, also above the close paren -}
 ```
 
-Nothing is lost and the result is stable — reformatting it leaves it alone — but
-the second comment has moved out of the brackets it was written in.
-
-The reason is again the unrecorded `)`. The module line is known to reach one row
-past its last name, which is where a vertical list's `)` sits — that's how the
-first comment is recognised as being inside. Absorbing it pushes the `)` down a
-row, but the formatter can't extend the module line to follow, because the row it
-would extend onto is also where a comment written *below* the `)` lands. These
-two files are handed to the formatter as byte-identical ASTs and byte-identical
-comment positions:
+This also settles what used to be an ambiguity about a vertical list: these two
+files are handed to the formatter as byte-identical ASTs *and* byte-identical
+comment positions, so nothing could ever distinguish them —
 
 ```gren
 module Amb exposing            module Amb exposing
@@ -2761,13 +2747,9 @@ module Amb exposing            module Amb exposing
     )
 ```
 
-so keeping the second comment inside the list on the left would equally pull the
-right-hand one in — and that one was written below the close. The same reasoning
-protects a comment written after a `) -- note` line, which is the common version
-of the right-hand shape. Only the column tells the two apart, and comment
-placement here is deliberately decided by row, never by how deeply a comment is
-indented — see
-[A comment on its own line below a declaration](#a-comment-on-its-own-line-below-a-declaration).
+— and both now format to the same thing, with both comments inside the list
+above the `)`. Previously the second comment was pushed out of the brackets and
+became a free-floating comment above the declarations.
 
 ### A comment after the last binding in a `let`
 

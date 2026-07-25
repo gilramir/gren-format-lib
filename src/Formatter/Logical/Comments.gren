@@ -121,8 +121,10 @@ import Formatter.Logical.LogicalPrintingTree exposing
     , gluesTrailingComment
     , lastRowInSubtree
     , lpnBox
+    , lpnBracketEndElastic
     , lpnBracketEndExact
     , lpnChildren
+    , lpnExtendElasticBracket
     , lpnFirstPos
     , lpnLastBracketEnd
     , lpnLastPos
@@ -201,12 +203,32 @@ lptAddCommentGeneric locComment root =
                 Ctx.Block content ->
                     row + countNewlines content
 
+        -- A comment pinned inside an elastic container (the module header's
+        -- `exposing ( … )`) pushes that container's `)` below itself, and the
+        -- declaration's range has to reach the `)` too — otherwise the next
+        -- comment of a trailing chain lands past the declaration and detaches
+        -- to column 1 instead of joining the chain above the `)`.
+        elasticEnd =
+            if lpnBracketEndElastic updatedOrigRow then
+                when lpnLastBracketEnd updatedOrigRow is
+                    Just closeEnd ->
+                        closeEnd.row
+
+                    Nothing ->
+                        -1
+
+            else
+                -1
+
+        coveredRow =
+            max endRow elasticEnd
+
         correctedOrigRow =
             when lpnBox updatedOrigRow is
                 OriginalRows rowInfo ->
-                    if endRow > rowInfo.last then
+                    if coveredRow > rowInfo.last then
                         lpnNode
-                            (OriginalRows { rowInfo | last = endRow })
+                            (OriginalRows { rowInfo | last = coveredRow })
                             (lpnChildren updatedOrigRow)
 
                     else
@@ -794,13 +816,27 @@ insertCommentIntoSubtree commentNode row col node =
                                     && subtreeEndsBefore child row col
                                     && not (commentInsideTrailingBracket child row col)
 
+                            -- An elastic container with nothing after it (the
+                            -- module header's `exposing ( … )`) owns every comment
+                            -- that got this far, on any row — its derived `)` has
+                            -- no authored row to be before or after, and it grows
+                            -- to sit below whatever is placed inside. Row
+                            -- containment alone would keep a comment the author
+                            -- wrote on the row BELOW a flat list outside it, where
+                            -- it renders glued onto the header line — and reparsing
+                            -- that puts it on the list's row, back inside. Same
+                            -- reasoning as `commentInsideTrailingBracket`'s elastic
+                            -- arm, which is what decides the side once we descend.
+                            elasticTailOwnsComment =
+                                lpnBracketEndElastic child && hasNoFollowingSibling
+
                             -- `child` owns the comment when its subtree covers the
                             -- comment's row, it doesn't start after the comment, no
                             -- later sibling claims it, and it isn't a trailing comment
                             -- that must stay a sibling.
                             childOwnsComment =
                                 childHasBody
-                                    && subtreeContainsRow child row
+                                    && (subtreeContainsRow child row || elasticTailOwnsComment)
                                     && not (subtreeStartsAfter child row col)
                                     && not laterSiblingClaims
                                     && not trailingCommentEscapes
@@ -821,12 +857,22 @@ insertCommentIntoSubtree commentNode row col node =
                 { children = [], done = False, index = 0 }
                 children
     in
+    let
+        -- The comment is landing somewhere in this node's subtree, so an
+        -- elastic closing bracket here has to move below it: the `)` renders
+        -- under whatever the container now holds. Without this the derived
+        -- close stays at the last *item*, and the next comment of a trailing
+        -- chain reads as past the list and escapes the declaration entirely.
+        -- (A no-op on every non-elastic node — see `lpnExtendElasticBracket`.)
+        grown =
+            lpnExtendElasticBracket (lastRowInSubtree commentNode)
+    in
     if result.done then
-        lpnReplaceChildren node result.children
+        grown (lpnReplaceChildren node result.children)
 
     else
         -- No matching child found; insert at this level
-        lpnReplaceChildren node (insertAmongChildren (lpnBox node) commentNode row col children)
+        grown (lpnReplaceChildren node (insertAmongChildren (lpnBox node) commentNode row col children))
 
 
 {-
@@ -1072,7 +1118,18 @@ commentInsideTrailingBracket node row col =
             False
 
         Just bracketEnd ->
-            if lpnBracketEndExact node then
+            if lpnBracketEndElastic node then
+                -- An elastic close (the module header's `exposing ( … )`) has
+                -- no authored `)` to be before or after: nothing follows the
+                -- list inside the declaration, so anything that reached this
+                -- node belongs inside it, above the `)`. Deciding by proximity
+                -- to the derived close instead is what made a flat list's
+                -- result depend on the order the names were written in, and
+                -- what let the second link of a trailing comment chain fall
+                -- past the list and detach. See `lpnElasticBracketNode`.
+                True
+
+            else if lpnBracketEndExact node then
                 -- `bracketEnd` is `loc.end`, one column past the closing
                 -- bracket. A comment strictly before it is genuinely between
                 -- the last item and the bracket (inside); one at or after the
@@ -1669,13 +1726,40 @@ classifyCommentKind containerBox commentNode before after row =
         -- `RidesInline` vs `TrailsPrevious` is observed only by
         -- `literalCommentsRideFlatLine`; every other consumer glues both, so the
         -- distinction need not consider the *next* neighbour.
+        --
+        -- A position-less `SynthesizedText` predecessor yields no glue row, the
+        -- same gap `classifyLine` covers for `--`: an effect module's `exposing`
+        -- is synthesized (its real column depends on the untracked `where { … }`
+        -- contents), so a `{- c -}` the author wrote on the header row got
+        -- `LeadsOwnLine` and rendered on a fresh row below `exposing`. That makes
+        -- a FLAT exposing list start below the header, which reparses as a
+        -- vertical list — non-idempotent. Fall back to the last real content row
+        -- on the line (`refRow`), exactly as the `--` case does.
+        --
+        -- Scoped to a SINGLE-line comment — the only kind that can actually ride
+        -- the header row. A multi-line `{- … -}` breaks the line wherever it
+        -- lands, so the fallback would merely move it from its own row onto the
+        -- keyword's: `KitchenSink`'s fixture-verified `effect module M where` ⏎
+        -- `{- a⏎b⏎c -}` ⏎ `{ command = … }` keeps it own-line.
         classifyBlock p multiline =
             let
                 g =
                     prevBlockGlueRow multiline p
 
+                glueRow =
+                    if g >= 0 || multiline then
+                        g
+
+                    else
+                        when { prev = lpnBox p, container = containerBox } is
+                            { prev = SynthesizedText _, container = OriginalRows _ } ->
+                                refRow
+
+                            _ ->
+                                g
+
                 sameRowPrev =
-                    nodeIsElided p || (g >= 0 && row == g)
+                    nodeIsElided p || (glueRow >= 0 && row == glueRow)
             in
             if not sameRowPrev then
                 LeadsOwnLine

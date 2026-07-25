@@ -25,6 +25,7 @@ import Formatter.Logical.LogicalPrintingTree exposing
     , lpnBox
     , lpnBracketNode
     , lpnChildren
+    , lpnElasticBracketNode
     , lpnLeaf
     , lpnNode
     )
@@ -194,12 +195,47 @@ processModuleLine modAst root =
                         itemNodes =
                             Array.map processExposed exposed
 
+                        -- Either shape of author-written vertical list: names on
+                        -- separate rows, or a single name dropped below the
+                        -- header. Both decide the box AND the derived `)` row,
+                        -- which have to agree or a pinned comment escapes.
+                        --
+                        -- "Below the header" is measured against the header's
+                        -- LAST row, not the module name's. An effect module's
+                        -- `where { … }` block can wrap, putting a list the
+                        -- author wrote flat several rows below the name; calling
+                        -- that vertical loses the flat list's comment pinning
+                        -- and the header goes back to depending on the order the
+                        -- names were written in.
+                        -- `+ 1` for the same untracked row `moduleLineClosesBelow`
+                        -- exists for: a wrapped `where { … }` puts its `}` — and
+                        -- the `exposing` after it — one row below the last field,
+                        -- and neither carries a position.
+                        headerLastRow =
+                            Array.foldl
+                                (\n acc -> max acc (lastRowInSubtree n))
+                                modAst.name.start.row
+                                ([ nameNode ] ++ whereNodes)
+                                + (if moduleLineClosesBelow modAst then
+                                        1
+
+                                   else
+                                        0
+                                  )
+
+                        vertical =
+                            exposedSpansRows exposed
+                                || exposedStartsBelowHeader headerLastRow exposed
+
                         listBox =
-                            exposingListBox (exposedSpansRows exposed)
+                            exposingListBox vertical
                     in
-                    when moduleExposingClose exposed is
+                    when moduleExposingClose vertical exposed is
                         Just closePos ->
-                            lpnBracketNode listBox closePos itemNodes
+                            -- Elastic, not exact: the `)` is derived from the
+                            -- items, so it has to move down as comments are
+                            -- pinned above it. See `lpnElasticBracketNode`.
+                            lpnElasticBracketNode listBox closePos itemNodes
 
                         Nothing ->
                             lpnNode listBox itemNodes
@@ -303,50 +339,58 @@ buildWhereBlock effects =
 
 
 {-| The synthesized closing-bracket position of a module header's
-`exposing ( … )` list, for a list the author wrote across rows; `Nothing` for a
-flat one.
+`exposing ( … )` list; `Nothing` only when there are no exposed names at all.
 
 An import hands `lpnBracketNode` its real closing position (`locImport.end` is
 one column past the `)`), but the module header's `)` has no position anywhere
-in the AST. For a **vertical** list it can still be synthesized: the `)` sits one
-row below the last item, and the module header's row range reaches exactly that
-far, so every comment the header claims past the last item was written *inside*
-the brackets. The column is unknown, hence `maxSafeInteger` — "past anything that
-can appear on this row" — which makes the inside/outside call depend only on the
-row.
+in the AST, so this synthesizes one. The column is always `maxSafeInteger` —
+"past anything that can appear on this row" — which makes the inside/outside
+call depend only on the row. The row is where the `)` would sit given the items:
+one below the last for a **vertical** list, the item row itself for a **flat**
+one.
 
-That is the whole fix for the vertical shape. Without a closing position the call
-fell to the two-column slack
-`Formatter.Logical.Comments.commentInsideTrailingBracket` allows an inexact
-close, so it depended on how much whitespace the author left: `, zebra -- c`
-stayed inside the list, `, zebra   -- c` escaped past it — and an escaped comment
-renders on its own line *below* the `)`, which on reparse lies past the module
-header's rows and detaches to the top level. That was the oscillation
-(`) -- c` ↔ own-line comment) the whitespace fuzzer found in
-`SortingCommentZoo`.
+Both rows are a *starting* guess, and the caller wires them up with
+`lpnElasticBracketNode` rather than `lpnBracketNode` precisely because a guess
+from the items alone cannot survive a comment being placed inside — the comment
+pushes the real `)` down by however many rows it occupies. The elastic close
+grows to follow (see `lpnElasticBracketNode`), which is what lets a whole chain
+of trailing comments stay pinned above the `)` instead of the second link
+falling past the list and detaching to column 1.
 
-A **flat** list gets no synthesized close (`Nothing`), because on its single row
-"inside the brackets" and "past the `)`" are indistinguishable without the `)`'s
-column, and the corpus needs both answers: `ExposingInlineComment` requires
-`exposing (Kiwi, apple, zebra {- the last one -})` to keep its comment inside
-(it rides the last name), while `ModuleLineFloatingComment` requires
-`exposing ( value )    {- c -}` to keep its comment outside. Only the gap width
-tells them apart, which is exactly what the inexact close's slack measures — so a
-flat list keeps using it. Unlike the vertical shape this is at least stable: a
-comment that escapes a flat list still glues to the header's own row.
+The flat list gets a close too, and that is a deliberate reversal of an earlier
+decision. On a single row "inside the brackets" and "past the `)`" are
+indistinguishable — `(a, b {- c -})` and `(a, b) {- c -}` put the comment in the
+same place — so this used to return `Nothing` and let
+`Formatter.Logical.Comments.commentInsideTrailingBracket`'s two-column slack
+guess from the gap width. That made the output depend on whitespace the author
+never thought about *and* on the order the names were typed in (the comment rode
+whichever name was written last, then travelled with it through the sort). Both
+readings are now the same one: the comment belongs to the list and is pinned
+above the `)`. What that costs is the ability to attach a comment to the last
+name of a *flat* list; a vertical list, whose `)` has a row of its own, still
+tells the two apart. See `SortSymbols.unfoldLastTrailing` and the README's
+"A comment past a flat list".
 
 -}
-moduleExposingClose : Array Src.Exposed -> Maybe Position
-moduleExposingClose exposed =
+moduleExposingClose : Bool -> Array Src.Exposed -> Maybe Position
+moduleExposingClose vertical exposed =
     let
         lastItemRow =
             Array.foldl (\item acc -> max acc (exposedRow item)) 1 exposed
     in
-    if exposedSpansRows exposed then
+    if Array.isEmpty exposed then
+        Nothing
+
+    else if vertical then
         Just { row = lastItemRow + 1, col = maxSafeInteger }
 
     else
-        Nothing
+        -- A flat list closes on the row it opened on. `col = maxSafeInteger`
+        -- puts every comment on that row inside the list rather than past it:
+        -- the `)` has no position, so `(a, b {- c -})` and `(a, b) {- c -}`
+        -- are indistinguishable, and treating both as inside is the choice
+        -- that does not depend on the order the names were written in.
+        Just { row = lastItemRow, col = maxSafeInteger }
 
 
 {-| True when the module line's closing bracket sits one row below its last
@@ -410,6 +454,28 @@ exposedRow exposed =
 
         Src.ExposedOperator sp ->
             sp.start.row
+
+
+{-| True when the module header's `exposing ( … )` list opened on a row below
+the header keyword — the author wrote it in the dropped form:
+
+    module Foo exposing
+        ( a
+        )
+
+`exposedSpansRows` cannot see this on a **one-item** list: with a single name
+there is no later item to compare against, so it always answers "flat", the
+derived `)` lands on the item's own row, and a comment pinned above the `)`
+falls past the list and detaches on reparse. Comparing against the header row
+answers for any item count. -}
+exposedStartsBelowHeader : Int -> Array Src.Exposed -> Bool
+exposedStartsBelowHeader headerRow exposed =
+    when Array.first exposed is
+        Just firstExposed ->
+            exposedRow firstExposed > headerRow
+
+        Nothing ->
+            False
 
 
 {-| True when the author wrote an `exposing ( … )` list across multiple rows

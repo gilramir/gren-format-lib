@@ -1,4 +1,8 @@
-module SortSymbolsComments exposing (a, b {- keeps its place -})
+module SortSymbolsComments exposing
+    ( a
+    , b
+    {- past the list, so it pins above the ) -}
+    )
 
 import Apple
 import Zebra -- z comment

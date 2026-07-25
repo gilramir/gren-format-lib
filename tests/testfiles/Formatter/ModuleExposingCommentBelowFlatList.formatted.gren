@@ -1,0 +1,13 @@
+module {- names the module -} Foo exposing
+    ( bar
+    , foo
+    {- written below the flat list -}
+    )
+
+
+bar =
+    1
+
+
+foo =
+    2
