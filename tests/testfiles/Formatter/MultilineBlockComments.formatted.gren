@@ -20,7 +20,7 @@ covers the module-doc position. -}
 import Array exposing {- 3 a
                          3 b
                          3 c -}
-    ( Array )
+    (Array)
 import Dict
 {- 4 a
    4 b

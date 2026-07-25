@@ -18,7 +18,7 @@ module KitchenComments exposing
 -}
 
 -- a line comment before the import block
-import Array exposing {- block comment between Array and exposing -} ( Array )
+import Array exposing {- block comment between Array and exposing -} (Array)
 import Dict
 -- a single-line comment between two imports
 import Math

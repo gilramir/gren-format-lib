@@ -61,16 +61,21 @@ bracketPunc bracket =
 
         ListParen ->
             -- A parenthesized exposing list reached via the general list path
-            -- rather than makeExposingLineBox — i.e. a module/import line whose
-            -- header carries a comment, or whose exposing list is trailed by a
-            -- comment past its close, so makeExposingLineBox fell back to the
-            -- flow. Rendered with inner spaces `( a, b )` (groupBox innerSpaces).
-            -- This diverges from elm-format, which keeps the list tight `(a, b)`
-            -- even with a header comment; the padded form is retained because a
-            -- comment trailing past the close is idempotent only at the padded
-            -- column (tightening it shifts the reparse so the comment is
-            -- absorbed inside the parens). An effect module with no such comment
-            -- takes the coupled makeExposingListBox path and stays tight.
+            -- rather than `makeExposingLineBox` — i.e. a module/import line
+            -- whose header carries a comment, so `makeExposingLineBox` fell back
+            -- to the flow. It renders TIGHT (`(a, b)`), like the coupled path
+            -- and like elm-format: `makeLiteralBox` passes
+            -- `innerSpaces = bracket /= ListParen`, and `ListParen` is
+            -- exclusively an exposing list (`MakeLogical.exposingListBox` is its
+            -- only builder), so no record or array is affected.
+            --
+            -- This was padded (`( a, b )`) until 2026-07-25. Tightening it was
+            -- tried once before and reverted, because a comment trailing past
+            -- the close was then idempotent only at the padded column —
+            -- tightening shifted the reparse so the comment was absorbed inside
+            -- the parens. The elastic close removed that constraint: a comment
+            -- after the last name is now read as the list's and pinned above the
+            -- `)` at any column, so the column no longer decides anything.
             Just { left = "(", right = ")" }
 
 

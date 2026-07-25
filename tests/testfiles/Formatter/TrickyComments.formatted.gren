@@ -19,7 +19,7 @@ import Task
 -- because computed positions can't reflect the columns the earlier
 -- comments push everything to.)
 import Array {- between module and `as` -} as A
-import Dict as D exposing {- between alias and `exposing` -} ( Dict )
+import Dict as D exposing {- between alias and `exposing` -} (Dict)
 
 
 -- Bug A — block comment between two union variants was previously

@@ -2782,7 +2782,7 @@ makeLiteralBox forceMultiline bracket children =
                 (\itemBoxes ->
                     when bracketPunc bracket is
                         Just { left, right } ->
-                            Ok (E.groupBox True left "," right forceMultiline itemBoxes)
+                            Ok (E.groupBox (bracket /= ListParen) left "," right forceMultiline itemBoxes)
 
                         Nothing ->
                             -- unreachable: ListBrackets has exactly 3 constructors

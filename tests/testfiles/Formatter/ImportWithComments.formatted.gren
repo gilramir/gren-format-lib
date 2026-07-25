@@ -4,7 +4,7 @@ module ViewItems exposing (viewItems)
 import Array as A exposing (mapAndKeepJust)
 
 import Basics exposing -- comment after 'exposing'
-    ( max )
+    (max)
 
 import Dict exposing
     ( Dict
