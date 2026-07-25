@@ -453,9 +453,10 @@ the position, not the import) and index 0 of an exposing list (a comment before
 the first name is a header comment, not that name's). If a rule here changes,
 those pins have to change with it or the sweeps start reporting false finds.
 
-Still fixture-only, unreachable by the generator: **stacked** own-line
-comments on one import, and a leading block comment **glued** onto the import
-line. The module-header exposing list joined the generated set on 2026-07-23,
+**Stacked** own-line comments on one import, and a leading block comment
+**glued** onto the import line, joined the generated set 2026-07-25
+(`GENERATOR.md` v1.26/v1.27) — both were fixture-only before that. The
+module-header exposing list joined the generated set on 2026-07-23,
 and the oracle immediately found that a comment past a vertical header list's
 `)` rode whichever name was written last through the sort; it is now pinned
 above the `)` (see below). **Trailing comment chains** (a comment starting on

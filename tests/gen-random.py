@@ -80,7 +80,7 @@ class Str(E):
     def __init__(self, v): self.v = v
 
 class MultilineStr(E):
-    def __init__(self, lines, trailing=None):
+    def __init__(self, lines, trailing=None, pre=None):
         # lines: list of str (a content row's already-escaped source text) or
         # None (a wholly empty row — legal; a row with SOME but too-little
         # indentation is not, see emit_multiline_str).
@@ -92,6 +92,17 @@ class MultilineStr(E):
         # fixed) — verified directly against the app for each position before
         # generating; see GENERATOR.md.
         self.trailing = trailing
+        # An optional block comment glued to the FRONT of the opening `"""`
+        # (`{- c -} """`), mirroring every other atom's `.pre` (`maybe_inline_
+        # comment`) — GENERATOR.md's "surrounding expression" addition. Unlike
+        # a single-line atom, gluing this shifts where `"""` visually starts
+        # on its own row, so `emit_multiline_str` must widen its content/close
+        # column by the glue's width, not just prepend text — verified
+        # directly against the app (a decl body glued this way is even
+        # re-canonicalized, comment hoisted onto the `=` line, same as a plain
+        # `{- c -} "str"` already does; the shape here only needs to PARSE and
+        # round-trip, not match that canonical form byte-for-byte).
+        self.pre = pre
 
 class Var(E):
     def __init__(self, name): self.name = name
@@ -173,7 +184,18 @@ class Array(E):
 # Patterns (single line by construction)
 class PVar:
     def __init__(self, name): self.name = name
-class PWild: pass
+class PWild:
+    # `name`: "" for a bare `_`, else a NAMED wildcard `_foo` — real, legal
+    # Gren (`AST.PAnything`, compiler-common's Pattern.gren) verified directly
+    # against the app in every position `PWild` reaches here (let-binding LHS,
+    # when-branch/array-item/ctor-arg via `pattern_base`, function/lambda
+    # params). The name is purely cosmetic: a `_`-prefixed identifier can
+    # never be referenced in expression position at all (confirmed against
+    # the app: "Wildcard patterns are not allowed in expressions") — this
+    # generator never tries to reference a bound name anyway (a let/lambda
+    # body is generated independently of its own params), so that restriction
+    # never collides with anything here.
+    def __init__(self, name=""): self.name = name
 class PInt:
     def __init__(self, v, hex=False): self.v, self.hex = v, hex
 class PStr:
@@ -292,11 +314,22 @@ class InfixDecl:
 # eats the rest of its row, so it can only ever be the chain's LAST link.
 class Import:
     def __init__(self, mod, as_name=None, exposing=None, lead=None, blank=False,
-                 trailing=None, item_lead=None, item_trailing=None, anchor=None):
+                 trailing=None, item_lead=None, item_trailing=None, anchor=None,
+                 glued_lead=None):
         self.mod, self.as_name, self.exposing = mod, as_name, exposing
+        # `lead`: None, or a non-empty list of own-line comments stacked
+        # directly above the import (docs/sorting.md's "stacked own-line
+        # comments" gap — previously always a single comment). `glued_lead`:
+        # None, or ONE block comment glued to the front of the `import`
+        # keyword on the SAME row (`{- c -} import Foo`, the `LeadsInline`
+        # role — docs/sorting.md's other named gap). Mutually exclusive with
+        # `lead`, same pattern as `doc`/`lead` elsewhere in this generator —
+        # combining an own-line stack with a glued front comment is a further,
+        # untested interaction, not this addition's scope.
         self.lead, self.blank, self.trailing = lead, blank, trailing
         self.item_lead, self.item_trailing = item_lead, item_trailing
         self.anchor = anchor
+        self.glued_lead = glued_lead
 
 
 class Module:
@@ -591,8 +624,19 @@ def emit_multiline_str(n, col):
     lines are not indented equally"); a wholly empty row is the one exception
     and needs no padding at all. Rows may be indented DEEPER than `col`
     (`n.lines[i]` already includes any such extra indent as part of its own
-    text) — only under-indenting is illegal."""
-    out = ['"""']
+    text) — only under-indenting is illegal.
+
+    A `.pre` comment glued onto the opener (`{- c -} \"\"\"`) shifts where
+    `\"\"\"` visually starts on ITS OWN row, and the required column tracks
+    THAT position, not the caller's `col` — verified directly against the
+    app (a content row indented only to `col` fails to parse once a glued
+    prefix pushes the opener past it). So `col` widens by the prefix's width
+    before it's used for anything after line 0."""
+    prefix = ""
+    if getattr(n, "pre", None) is not None:
+        prefix = "{- " + n.pre + " -} "
+    col = col + len(prefix)
+    out = [prefix + '"""']
     for line in n.lines:
         out.append("" if line is None else pad(col) + line)
     close = pad(col) + '"""'
@@ -718,7 +762,7 @@ def emit_leading(d):
 
 def emit_pat(p):
     if isinstance(p, PVar):  return p.name
-    if isinstance(p, PWild): return "_"
+    if isinstance(p, PWild): return "_" + p.name
     if isinstance(p, PInt):  return _int_text(p.v, p.hex)
     if isinstance(p, PStr):  return '"' + p.v + '"'
     if isinstance(p, PChar): return "'" + p.v + "'"
@@ -749,7 +793,11 @@ def emit_pat(p):
         return qname + " " + " ".join(parts)
     if isinstance(p, PAs):
         inner = emit_pat(p.inner)
-        if isinstance(p.inner, (PCtor, PInt)):
+        # A `PAs` inner needs its own parens too, same reason as PCtor/PInt —
+        # `x as a as b` bare fails to parse; `(x as a) as b` is required
+        # (verified directly against the app: `Gen.pattern`'s alias-of-an-
+        # alias addition).
+        if isinstance(p.inner, (PCtor, PInt, PAs)):
             inner = "(" + inner + ")"
         return inner + " as " + p.name
     raise ValueError("emit_pat: " + type(p).__name__)
@@ -1002,15 +1050,24 @@ def emit_import(imp):
     whole point: an own-line comment ABOVE the blank line leads nothing and
     stays put, while one BELOW it (directly above the import) belongs to that
     import and travels with it. The two shapes are a comment on either side of
-    the same blank line, so nothing but this ordering distinguishes them."""
+    the same blank line, so nothing but this ordering distinguishes them.
+    `lead` may be a STACK of own-line comments (docs/sorting.md's "stacked
+    own-line comments" gap); `glued_lead`, mutually exclusive with `lead`, is
+    a single block comment glued to the front of `import` on the same row
+    (`{- c -} import Foo`, `LeadsInline` — the other named gap)."""
     out = []
     if imp.anchor is not None:
         _append_own_line(out, 0, imp.anchor)
     if imp.blank:
         out.append("")
-    if imp.lead is not None:
-        _append_own_line(out, 0, imp.lead)
+    if imp.lead:
+        for c in imp.lead:
+            _append_own_line(out, 0, c)
     head = "import " + imp.mod
+    if imp.glued_lead is not None:
+        rows = comment_rows(imp.glued_lead)
+        out.extend(rows[:-1])
+        head = rows[-1] + " " + head
     if imp.as_name is not None:
         head += " as " + imp.as_name
     if imp.exposing is None or imp.exposing == "(..)":
@@ -1493,8 +1550,14 @@ class Gen:
         return Qual(self.pick(self.mods), self.pick(self.vars))
 
     def maybe_inline_comment(self, n):
-        # inline comments ride single-line atoms only
-        if isinstance(n, (Int, FloatLit, Str, Var, Qual, Ctor, Chr)) and n.pre is None:
+        # inline comments ride single-line atoms, PLUS MultilineStr (whose
+        # `.pre` glues onto the opener rather than the whole atom — see
+        # `emit_multiline_str`; this was the one atom `atom()` produces that
+        # never got a chance at `.pre`, since `value()` also has its own
+        # dedicated MultilineStr branch bypassing `atom()` entirely — see the
+        # call added there, GENERATOR.md's "surrounding expression" addition)
+        if isinstance(n, (Int, FloatLit, Str, Var, Qual, Ctor, Chr, MultilineStr)) \
+           and n.pre is None:
             c = self.comment(kinds=("block",))
             if c:
                 n.pre = c[1]
@@ -1537,7 +1600,16 @@ class Gen:
         if r < 0.71:  return self.mk_when(d)
         if r < 0.79:  return self.mk_let(d)
         if r < 0.85:  return self.mk_lambda(d)
-        if r < 0.91:  return self.mk_multiline_str()
+        if r < 0.91:
+            n = self.mk_multiline_str()
+            # Unlike every other branch above (which fall through to `atom()`
+            # below and get this for free), this branch returns straight from
+            # `mk_multiline_str()` — so it needs its own call, or a MultilineStr
+            # reached via `value()` (decl body / field value / item / branch
+            # body) would never get a `.pre` at all, unlike one reached via
+            # `atom()` (binop operand / call arg).
+            self.maybe_inline_comment(n)
+            return n
         return self.atom(d)
 
     def mk_call(self, d):
@@ -1661,7 +1733,7 @@ class Gen:
         if r < 0.55:
             return PVar(self.pick(self.vars))
         if r < 0.65:
-            return PWild()
+            return self.wild()
         if r < 0.8:
             return PRecord([self.pick(self.fields) for _ in range(self.rng.randint(1, 2))])
         if r < 0.9 and depth > 0:
@@ -1728,10 +1800,20 @@ class Gen:
 
     def pattern(self, depth):
         """Top-level pattern position (currently: a `when`-branch pattern
-        only — see call sites). May wrap the base pattern in an `as` alias;
-        guards against double-wrapping when `pattern_base` already produced
-        one itself (an alias-of-an-alias, `(x as a) as b`, is untested and
-        not generated).
+        only — see call sites). May wrap the base pattern in an `as` alias,
+        and — with a further, smaller chance — wrap THAT in a second alias,
+        an alias-of-an-alias (`(x as a) as b`): verified directly against the
+        app before wiring in (`((Just y) as a) as b`, `({ y } as a) as b`,
+        `(x as a) as b` all parse and round-trip; the bare, unparenthesized
+        `x as a as b` does NOT — confirms the inner `PAs` needs its own
+        parens, same as a `PCtor`/`PInt` alias base already does, so
+        `emit_pat`'s `PAs` case now checks for a `PAs` inner too).
+
+        Scoped to THIS position only — `pattern_base`'s own separate alias
+        wrap (ctor args, array items, params) keeps its original guard against
+        double-wrapping; a nested alias there is a further extension, still
+        untested (`emit_param`'s own extra paren layer around a `PAs` isn't
+        verified to compose correctly with a nested one).
 
         Deliberately NOT generated: a negative int literal pattern (`-3 ->`).
         Verified directly against the app that this parses ONLY as a `when`
@@ -1744,7 +1826,11 @@ class Gen:
         #1", and getting it wrong would put a quarantine-triggering shape
         back in the generator's own output."""
         base = self.pattern_base(depth)
-        if not isinstance(base, PAs) and self.chance(0.08):
+        if isinstance(base, PAs):
+            if self.chance(0.15):
+                return PAs(base, self.pick(self.vars))
+            return base
+        if self.chance(0.08):
             return PAs(base, self.pick(self.vars))
         return base
 
@@ -1770,10 +1856,16 @@ class Gen:
             return PAs(base, self.pick(self.vars))
         return base
 
+    def wild(self):
+        """A wildcard pattern `_`, occasionally NAMED (`_foo`) — see `PWild`."""
+        if self.chance(0.25):
+            return PWild(self.pick(self.vars))
+        return PWild()
+
     def _pattern_base_core(self, depth):
         r = self.rng.random()
         if r < 0.32:  return PVar(self.pick(self.vars))
-        if r < 0.42:  return PWild()
+        if r < 0.42:  return self.wild()
         if r < 0.50:  return self.gen_pint()
         if r < 0.57:  return PStr(self.str_word())
         if r < 0.63:  return PChar(self.char_content())
@@ -2155,9 +2247,16 @@ class Gen:
             exposing = self.import_exposing_items()
         else:
             exposing = "(..)"
-        lead, blank, anchor = None, False, None
-        if self.chance(0.2):
-            lead = self.maybe_multirow(self.forced_comment())
+        lead, blank, anchor, glued_lead = None, False, None, None
+        # `lead` (a stack of 1-2 own-line comments) and `glued_lead` (one
+        # comment glued to the front of `import` on the same row) are mutually
+        # exclusive — see `Import.__init__`.
+        r2 = self.rng.random()
+        if r2 < 0.1:
+            glued_lead = self.maybe_multirow(self.forced_comment(kinds=("block",)))
+        elif r2 < 0.3:
+            n = self.rng.randint(1, 2)
+            lead = [self.maybe_multirow(c) for c in self.forced_comments(n)] or None
         if self.chance(0.2):
             blank = True
             # A section header: own-line comment with the blank UNDER it, so it
@@ -2180,7 +2279,7 @@ class Gen:
                     item_trailing = (idx, chain)
         return Import(mod, as_name=as_name, exposing=exposing, lead=lead, blank=blank,
                       trailing=trailing, item_lead=item_lead, item_trailing=item_trailing,
-                      anchor=anchor)
+                      anchor=anchor, glued_lead=glued_lead)
 
     def module(self):
         name = "Gen%d" % self.rng.randint(0, 999)
@@ -2741,8 +2840,12 @@ def comment_clearers(m):
         if d.trailing is not None:
             yield clear_attr(d, "trailing")
     for imp in m.imports:
-        if imp.lead is not None:
+        if imp.lead:
             yield clear_attr(imp, "lead")
+            if len(imp.lead) > 1:
+                yield chain_pop(imp, "lead")
+        if imp.glued_lead is not None:
+            yield clear_attr(imp, "glued_lead")
         if imp.anchor is not None:
             yield clear_attr(imp, "anchor")
         if imp.trailing is not None:

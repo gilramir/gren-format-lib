@@ -1500,20 +1500,119 @@ all clean; `fuzz-whitespace.py` has one PRE-EXISTING, unrelated failure
 `git stash` to reproduce identically against the formatter *before* this
 addition's source changes, so not a regression from this work.
 
-**Remaining expansion targets:** the 2026-07-21 AST-vs-generator audit's gap
-list (local-function bodies, infix declarations, effect modules, nested `as`)
-is now fully closed. What's left: comments *inside* a multi-line string's
-surrounding expression aside from the trailing-comment shape already fixed;
-list patterns beyond fixed-length arrays (Gren has none — not a gap). On the
-sorting axis specifically, `docs/sorting.md` still has rules this generator
-cannot reach: an import carries at most one `lead` (never a stack of own-line
-comments), and a leading block comment is never *glued* onto the import line
-(`{- c -} import Foo`, the `LeadsInline` role). The module header's exposing
-list was on this list until v1.23 closed it; trailing comment chains until
-v1.24; single-row-vs-multi-row comments (including both of `docs/sorting.md`'s
-open questions) until v1.25 — though v1.25 also *found* rather than closed a
-new, narrower gap of its own: the module-header row-range/reparse-detach class
-documented above, since fixed (2026-07-24).
+**Remaining expansion targets (closed by v1.26-v1.30 below):** the 2026-07-21
+AST-vs-generator audit's gap list (local-function bodies, infix declarations,
+effect modules, nested `as`) is now fully closed. What was left: comments
+*inside* a multi-line string's surrounding expression aside from the
+trailing-comment shape already fixed; list patterns beyond fixed-length arrays
+(Gren has none — not a gap, still true). On the sorting axis specifically,
+`docs/sorting.md` had two rules this generator could not reach: an import
+carried at most one `lead` (never a stack of own-line comments), and a leading
+block comment was never *glued* onto the import line (`{- c -} import Foo`,
+the `LeadsInline` role). The module header's exposing list was on this list
+until v1.23 closed it; trailing comment chains until v1.24; single-row-vs-
+multi-row comments (including both of `docs/sorting.md`'s open questions)
+until v1.25 — though v1.25 also *found* rather than closed a new, narrower gap
+of its own: the module-header row-range/reparse-detach class documented above,
+since fixed (2026-07-24). A separate audit (2026-07-25, reviewing the AST and
+parser directly rather than `docs/sorting.md`) turned up two more: an
+alias-of-an-alias pattern (`(x as a) as b`), and a NAMED wildcard pattern
+(`_foo`, `AST.PAnything` with a non-empty name) — both real, legal Gren that
+this generator had never produced. All five closed 2026-07-25, v1.26-v1.30.
+
+**v1.26 (implemented 2026-07-25): stacked own-line import leads.** `Import.lead`
+was a single optional comment; `import_stmt` now generates a non-empty LIST of
+1-2 own-line comments (`Gen.forced_comments`, each independently
+`maybe_multirow`-able) stacked directly above an import, mutually exclusive
+with the new `glued_lead` (v1.27) the same way `doc`/`lead` are elsewhere in
+this generator. `emit_import` loops `_append_own_line` over the list instead of
+emitting one. No render-side change needed — `_reverse_run` (the author-order
+permutation oracle) moves whole `Import` objects, so a list-valued `lead`
+travels with its import for free, same as before. `comment_clearers` gained a
+`chain_pop`-style finer shrink (drop the last stacked lead) alongside the
+existing whole-list clear. Verified: 1500 seeds at `--comment-rate 0.6` clean;
+manual scan of ~1000 seeds found 328 modules containing a 2-comment stack.
+
+**v1.27 (implemented 2026-07-25): leading glued import comment (`LeadsInline`).**
+The other named `docs/sorting.md` gap: `{- c -} import Foo`, a block comment
+glued to the front of the `import` keyword on the SAME row — the formatter's
+own `LeadsInline` `CommentRole` (fixed 2026-07-23, see
+`project_leading_block_comment_glue_tbd`) had no generator emitter at all.
+New `Import.glued_lead` field (a single `block`-kind comment, optionally
+`maybe_multirow`, restricted to `block` since a `line` comment eats the rest
+of its row and could never precede anything on it); `emit_import` glues its
+last row onto `head` before any of the exposing-list branches run, so the glue
+composes uniformly regardless of which branch fires. Mutually exclusive with
+`lead` (v1.26) — combining an own-line stack with a front-glued comment on the
+same import is a further, untested interaction, not this addition's scope.
+Verified: 1500 seeds at `--comment-rate 0.6` clean, all four oracles passing
+on a hand-picked glued-lead seed replayed through `--seed`, including one where
+the glued comment survives a run-sort still attached to its own import (author-
+order invariance holds because `glued_lead`, like `lead`, is a per-`Import`
+field that travels with the whole object when a run reorders).
+
+**v1.28 (implemented 2026-07-25): MultilineStr leading comment (closes the
+"surrounding expression" gap).** `mk_multiline_str`'s `MultilineStr.trailing`
+(v1.3, extended to "every surrounding-expression position" thereafter) covered
+the comment riding the CLOSING `"""`; the front of the OPENING `"""` had no
+equivalent. Every other atom type gets this via `.pre`
+(`Gen.maybe_inline_comment`, glued by `_inline` onto a single-line atom's own
+text) — MultilineStr was excluded from that isinstance check, and even adding
+it there wouldn't have been enough: `_inline` operates on a single rendered
+string, but `emit_multiline_str` returns a LIST of lines and never went
+through `_inline` at all. Fixed both: `MultilineStr` gained a `.pre` field
+and joined `maybe_inline_comment`'s isinstance tuple, and `emit_multiline_str`
+now glues `n.pre` onto the opener itself and — the part that needed verifying
+directly against the app first — WIDENS its own `col` by the glued prefix's
+width before laying out content/close rows. A content row indented only to
+the original `col` fails to parse once a glued prefix pushes `"""` further
+right on its own row ("Multi-line string lines are not indented equally");
+widening `col` uniformly (a no-op when `.pre` is absent) fixes it. Confirmed
+by hand against the app that a decl-body position re-canonicalizes this shape
+(hoists the comment onto the `=` line, same as it already does for a plain
+`{- c -} "str"`) — expected, and harmless, since this generator's oracles
+check round-trip properties of the ACTUAL formatter output, not a byte-match
+against this script's own (non-canonical-by-construction) emission.
+`value()`'s dedicated MultilineStr branch (the one path that bypasses `atom()`
+entirely, unlike every other atom type reached from a value position) now
+calls `maybe_inline_comment` explicitly so it isn't left out. Verified: 500
+seeds default clean, 1500 at `--comment-rate 0.6` clean; manual scan found 352
+true glued-opener occurrences (`-} import ` false-positives from the v1.26
+own-line-lead scan were caught and excluded first) across ~1000 seeds.
+
+**v1.29 (implemented 2026-07-25): alias-of-an-alias pattern `(x as a) as b`.**
+`Gen.pattern` (the only caller that adds the OUTERMOST `as` — see its own
+docstring) previously refused to wrap an already-`PAs` base at all. Verified
+directly against the app before wiring in: `(x as a) as b`, `((Just y) as a)
+as b`, and `({ y } as a) as b` all parse and round-trip; the bare, unparen-
+thesized `x as a as b` does NOT ("Expected keyword '->'") — confirming the
+INNER `PAs` needs its own parens exactly like a `PCtor`/`PInt` alias base
+already does. `emit_pat`'s `PAs` case now checks for a `PAs` inner too (three
+cases, one tuple). `pattern()` now allows a second, smaller-probability wrap
+when `pattern_base` already produced one. Scoped to THIS position only —
+`pattern_base`'s own separate alias wrap (ctor args, array items, params)
+keeps its original guard; a nested alias there would additionally need
+`emit_param`'s extra paren layer verified to compose with a nested one, not
+done here. Verified: 800 seeds at `--comment-rate 0.5` clean; manual scan
+found 43 alias-of-alias occurrences across 2000 seeds.
+
+**v1.30 (implemented 2026-07-25): named wildcard pattern `_foo`.** Every
+`PWild` this generator ever produced rendered bare `_`; real Gren also allows
+a NAMED wildcard (`AST.PAnything` with a non-empty name, `compiler-common`'s
+`Pattern.gren`) — purely cosmetic, since a `_`-prefixed identifier can never
+be referenced in expression position at all (verified directly against the
+app: `_y` as a function body expression fails with "Wildcard patterns are not
+allowed in expressions"). That restriction never collides with anything this
+generator does, since a let/lambda-bound name is never referenced back in its
+own body anyway (bodies are generated independently of their own params, same
+as every other bound name here). `PWild` gained an optional `name`; a new
+`Gen.wild()` helper names it ~25% of the time, called from both existing
+`PWild()` call sites (`let_pattern`, `_pattern_base_core`). Verified directly
+against the app in every position `PWild` reaches (let-binding LHS, when-
+branch/array-item/ctor-arg via `pattern_base`, function/lambda params) before
+wiring in. Verified: 2000 seeds at `--comment-rate 0.6` + 1000 at `--max-depth
+7 --comment-rate 0.5` clean; manual scan found 363 named-wildcard occurrences
+across 2000 seeds.
 
 The generator is intentionally started small and correct (0 quarantine on the
 core grammar) and expanded one construct at a time, verifying the quarantine rate
