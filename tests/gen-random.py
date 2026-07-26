@@ -336,7 +336,7 @@ class Module:
     def __init__(self, name, imports, decls, infixes=None, doc=None, exposing="(..)",
                  effect=None, imports_tail=None, exposing_broken=False,
                  exposing_item_lead=None, exposing_item_trailing=None,
-                 header_trailing=None):
+                 header_trailing=None, port_mismatch=False):
         self.name, self.imports, self.decls, self.doc = name, imports, decls, doc
         self.infixes = infixes if infixes is not None else []
         # The header export list: the literal string "(..)", or a list of item
@@ -360,6 +360,14 @@ class Module:
         # None, or an effect module's `where { ... }` clause: a list of
         # (field, name, comment|None) in emission order — see `Gen.effect_header`.
         self.effect = effect
+        # Emit a module keyword that DISAGREES with the body: `port module` on a
+        # module with no ports, or plain `module` on one that declares a port.
+        # Both are legal input, and the formatter deliberately rewrites the
+        # keyword to match the body (README, "The `port` in `port module`
+        # follows the ports" — decided 2026-07-26, compiler-common#33), so this
+        # is the only way to exercise that rewrite. Never set on an effect
+        # module, whose keyword is `effect module` either way.
+        self.port_mismatch = port_mismatch
         # Own-line comments emitted after the LAST import, before the blank
         # lines that separate the import block from the declarations. Such a
         # comment leads no import, so it stays at the end of the block while
@@ -1134,10 +1142,16 @@ def emit_header_exposing(m, head):
 def emit_module(m):
     if m.effect is not None:
         kw = "effect module "
-    elif any(isinstance(d, PortDecl) for d in m.decls):
-        kw = "port module "
     else:
-        kw = "module "
+        # The keyword the body implies — which is also the one the formatter
+        # writes. `port_mismatch` flips it, emitting the disagreeing header the
+        # formatter is expected to rewrite (see `Module.port_mismatch`). The
+        # flip stays legal after shrinking: dropping the module's last port
+        # just swaps which side of the disagreement is which.
+        has_ports = any(isinstance(d, PortDecl) for d in m.decls)
+        if m.port_mismatch:
+            has_ports = not has_ports
+        kw = "port module " if has_ports else "module "
     head = kw + m.name
     if m.effect is not None:
         head += " " + emit_where(m.effect)
@@ -2321,7 +2335,9 @@ class Gen:
         hdr = self.header_exposing_comments(exposing, effect)
         return Module(name, imports, decls, infixes=infixes, doc=self.doc_comment(),
                       exposing=exposing, effect=effect,
-                      imports_tail=imports_tail, **hdr)
+                      imports_tail=imports_tail,
+                      port_mismatch=(effect is None and self.chance(0.12)),
+                      **hdr)
 
     def header_exposing_comments(self, exposing, effect):
         """Layout and comments for the module header's export list.

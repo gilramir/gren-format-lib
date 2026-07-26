@@ -39,6 +39,7 @@ The larger section explains the [Gren Formatter Rules](#gren-formatter-rules).
   - [Type aliases](#type-aliases)
   - [Custom types](#custom-types)
   - [Ports](#ports)
+    - [The `port` in `port module` follows the ports](#the-port-in-port-module-follows-the-ports)
   - [Infix operator declarations](#infix-operator-declarations)
   - [Records](#records)
     - [Record values](#record-values)
@@ -76,7 +77,6 @@ The larger section explains the [Gren Formatter Rules](#gren-formatter-rules).
   - [A comment right after `exposing` doesn't sort with the first name](#a-comment-right-after-exposing-doesnt-sort-with-the-first-name)
   - [A module `exposing` list's closing paren isn't recorded](#a-module-exposing-lists-closing-paren-isnt-recorded)
     - [A comment past a flat list](#a-comment-past-a-flat-list)
-  - [The `port` in `port module` isn't recorded — under discussion](#the-port-in-port-module-isnt-recorded--under-discussion)
   - [A comment after the last binding in a `let`](#a-comment-after-the-last-binding-in-a-let)
   - [Two fixtures parse a custom-type shape the language no longer allows](#two-fixtures-parse-a-custom-type-shape-the-language-no-longer-allows)
   - [Block comment body indentation](#block-comment-body-indentation)
@@ -1105,6 +1105,74 @@ port sendThings :
     -> AnotherArgumentType
     -> Cmd msg
 ```
+
+#### The `port` in `port module` follows the ports
+
+The module keyword is written from what the module *contains*, not from what
+you typed on the header line: a module that declares at least one port is
+written `port module`, and one that declares none is written `module`. When the
+two already agree — the usual case — nothing changes. When they disagree, the
+header is rewritten to match the body.
+
+Write `port module` and declare no ports, and the `port` is dropped:
+
+```gren
+port module Foo exposing (a, b)
+
+
+a =
+    1
+
+
+b =
+    2
+```
+
+becomes
+
+```gren
+module Foo exposing (a, b)
+
+
+a =
+    1
+
+
+b =
+    2
+```
+
+Write plain `module` and declare a port, and `port` is added:
+
+```gren
+module Foo exposing (a)
+
+
+port a : String -> Cmd msg
+```
+
+becomes
+
+```gren
+port module Foo exposing (a)
+
+
+port a : String -> Cmd msg
+```
+
+Neither rewrite changes what your code does — a module with no ports doesn't
+need the keyword, and one with ports isn't valid without it.
+
+This is deliberate. The parser doesn't record which keyword you wrote; it works
+the keyword out from the body, and the formatter prints what the parsed module
+says. Deriving it is also the direction the language is heading: the `port`
+keyword on the module line may become optional, or go away entirely, and a
+formatter that derived it all along keeps working when it does. The trade-off
+accepted here is that dropping `port` from a file with no ports is a change you
+didn't ask for, and one you'll meet again when you add a port to that file — so
+until the keyword becomes optional, expect the formatter to keep the header and
+the ports in agreement for you. (Decided 2026-07-26; the discussion was
+[gren-lang/compiler-common#33](https://github.com/gren-lang/compiler-common/issues/33).)
 
 ---
 
@@ -2751,73 +2819,6 @@ module Amb exposing            module Amb exposing
 — and both now format to the same thing, with both comments inside the list
 above the `)`. Previously the second comment was pushed out of the brackets and
 became a free-floating comment above the declarations.
-
-### The `port` in `port module` isn't recorded — under discussion
-
-The parser doesn't remember whether you wrote `module` or `port module`. It works
-the keyword out from the body instead: a module is a port module if it declares
-ports. So the formatter writes the keyword the body implies, which is not always
-the one you typed.
-
-Write `port module` and declare no ports, and the `port` is dropped:
-
-```gren
-port module Foo exposing (a, b)
-
-
-a =
-    1
-
-
-b =
-    2
-```
-
-becomes
-
-```gren
-module Foo exposing (a, b)
-
-
-a =
-    1
-
-
-b =
-    2
-```
-
-Write plain `module` and declare a port, and `port` is added:
-
-```gren
-module Foo exposing (a)
-
-
-port a : String -> Cmd msg
-```
-
-becomes
-
-```gren
-port module Foo exposing (a)
-
-
-port a : String -> Cmd msg
-```
-
-Neither rewrite changes what your code does — a module with no ports doesn't
-need the keyword, and one with ports isn't valid without it. But the first is a
-change you didn't ask for, and it will surprise you later: add a port to that
-file and it no longer compiles, on a line you never touched.
-
-This one is different from the other gaps on this page, which are settled
-trade-offs. **It is still to be decided** — the derived keyword may be the
-intended design, in which case the formatter is doing the right thing, or the
-parser may start recording what you wrote, in which case the formatter will
-reproduce it. The discussion is
-[gren-lang/compiler-common#33](https://github.com/gren-lang/compiler-common/issues/33).
-Until it's resolved, keep the keyword and the ports in agreement and nothing
-here can bite you.
 
 ### A comment after the last binding in a `let`
 

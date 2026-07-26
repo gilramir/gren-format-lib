@@ -1,6 +1,6 @@
 # Property-based random AST generator (`gen-random.py`)
 
-Status: **v1.25** — v1's core expression grammar (module header, imports,
+Status: **v1.31** — v1's core expression grammar (module header, imports,
 function declarations, binops, records, record updates, arrays, `let`, `when`,
 `if`, lambda, calls, field access, parens, atoms), plus line/block comment
 injection; v1.1 added top-level type aliases, custom types (unions), and ports;
@@ -20,13 +20,14 @@ patterns, and `exposing (..)`**; v1.8 added **char literal expressions, local
 `let` function bindings (`f a b = ...`) with optional signatures, the bare
 `.field` accessor function, and operator references (`(+)`, `(|>)`)** — see
 [Char/accessor/operator atoms and let functions](#char-accessor-operator-atoms-and-let-functions)
-below. **v1.9 through v1.25 are logged in [Grammar scope](#grammar-scope)**
+below. **v1.9 through v1.31 are logged in [Grammar scope](#grammar-scope)**
 rather than enumerated here — qualified constructor patterns and type
 references, richer type application, extensible record types, type/operator
 exposing, hex and scientific-notation literals, infix declarations, effect
 modules, nested `as` patterns, import-statement comments, the import-run
-anchoring shapes with the author-order oracle, and the module header's exposing
-list. That section is also where the
+anchoring shapes with the author-order oracle, the module header's exposing
+list, named wildcard patterns, and a module keyword that disagrees with the
+body (`port module` with no ports, and the reverse). That section is also where the
 current expansion targets live. List patterns beyond fixed-length arrays are
 NOT a gap — Gren has none.
 
@@ -292,6 +293,8 @@ RHS, con/var/app RHS; 0-2 type params), custom types / unions (`type Name =
 Ctor1 | Ctor2 T | Ctor3 { .. }`, flat or author-broken variant list, per-variant
 lead/trailing comments), and ports (`port module` header emitted iff the module
 has ≥1 port; both the `Type -> Cmd msg` and `(Type -> msg) -> Sub msg` shapes).
+(Since v1.31 the header keyword also *disagrees* with the body ~12% of the
+time — see [Mismatched `port module` header](#mismatched-port-module-header).)
 
 **Variant payloads are capped at 0 or 1 argument**, matching current real Gren
 — [gren-lang.org/news/161224_gren_24w](https://gren-lang.org/news/161224_gren_24w)
@@ -1613,6 +1616,43 @@ branch/array-item/ctor-arg via `pattern_base`, function/lambda params) before
 wiring in. Verified: 2000 seeds at `--comment-rate 0.6` + 1000 at `--max-depth
 7 --comment-rate 0.5` clean; manual scan found 363 named-wildcard occurrences
 across 2000 seeds.
+
+### Mismatched `port module` header
+
+**v1.31 (implemented 2026-07-26): a module keyword that disagrees with the
+body.** Until now the generator emitted `port module` exactly when the module
+declared a port — which is also exactly what the formatter writes, so the whole
+class of *disagreeing* headers was generated 0% of the time and the formatter's
+rewrite was never exercised by any gate.
+
+The parser doesn't record which keyword was written; it derives port-ness from
+the declarations. On 2026-07-26 that was settled as the intended design
+(compiler-common#33, in preparation for the module-level `port` keyword becoming
+optional or going away): the formatter honours the AST and rewrites the header
+to match the body. README, "The `port` in `port module` follows the ports".
+Both disagreeing shapes are legal input — `port module` with no ports, and
+plain `module` with a port declaration — and both parse; verified directly
+against the app before wiring in (each formats to the agreeing header).
+
+`Module` gained `port_mismatch`, set on ~12% of non-effect modules (an effect
+module's keyword is `effect module` either way, so it's never set there);
+`emit_module` flips the body-derived keyword when it's set. The flip survives
+shrinking without extra care: dropping the module's last port just swaps which
+direction the disagreement runs in, and both directions are legal.
+
+No oracle needed changing. The rewrite touches only the header keyword, which
+the AST doesn't record and the comment multiset doesn't contain, so
+AST-equivalence and comment preservation are blind to it by construction, and
+the formatted output — always the agreeing header — is a fixed point. What the
+sweep actually buys is the *column shift*: adding or dropping `port ` moves
+every token on the header row, so a header-row comment and the `exposing` list
+below it are laid out from a different starting column than the author wrote.
+
+Verified: 5100 seeds clean — 600 at `--comment-rate 0.6` (9800000..9800599),
+3000 default (9810000..9812999), 1500 at `--max-depth 7 --comment-rate 0.6`
+(9820000..9821499); 0 quarantine, 0 findings. Manual scan over 1000 seeds found
+119 disagreeing headers (110 `port module` with no ports, 9 plain `module` with
+a port), against 683 agreeing ones and 198 effect modules.
 
 The generator is intentionally started small and correct (0 quarantine on the
 core grammar) and expanded one construct at a time, verifying the quarantine rate

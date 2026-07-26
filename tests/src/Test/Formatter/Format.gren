@@ -748,5 +748,7 @@ kitchenSinkSuite fsPerm =
             , assertPretty fsPerm "a variety of constructs near, at, and past the 100-column page width" "PageWidth"
             , assertPretty fsPerm "empty literal ([] / {}) as an item inside a bracketed list" "EmptyBracketInList"
             , assertPretty fsPerm "block-bodied record field values all drop whole below `field =` when multi-line (lambda, if, let, when) — matching elm-format; a single-line lambda stays glued on the `= ` line" "RecordFieldBlockValues"
+            , assertPretty fsPerm "`port module` with no ports loses the keyword — the header follows the body" "PortModuleKeywordDropped"
+            , assertPretty fsPerm "plain `module` that declares a port gains the keyword — the header follows the body" "PortModuleKeywordAdded"
             ]
         }

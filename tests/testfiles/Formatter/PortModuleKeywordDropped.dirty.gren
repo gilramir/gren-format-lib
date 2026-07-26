@@ -1,0 +1,12 @@
+port module PortModuleKeywordDropped exposing -- no ports below, so `port` is dropped
+    ( bravo
+    , alpha
+    )
+
+
+alpha =
+    1
+
+
+bravo =
+    { name = "b", size = 2 }

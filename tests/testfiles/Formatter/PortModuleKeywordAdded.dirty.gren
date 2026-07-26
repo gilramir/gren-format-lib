@@ -1,0 +1,8 @@
+module PortModuleKeywordAdded exposing (send, listen)
+
+
+-- a port below, so `port` is added
+port send : String -> Cmd msg
+
+
+port listen : (String -> msg) -> Sub msg
