@@ -93,7 +93,10 @@ summarize order prices =
             { order | total = 0 }
 
         _ ->
-            { order | total = subtotal - discount }
+            { order
+                | total = subtotal - discount
+                , hasCoupon = False
+            }
 ```
 
 A few things worth noticing:
@@ -107,9 +110,10 @@ A few things worth noticing:
 - `discount`'s `if` branches always drop to their own line, whether or not
   they'd fit inline (see
   [If expressions](docs/formatterRules.md#if-expressions)).
-- Both `when` branches return a record update, `{ order | total = ... }` —
-  it stays inline because it's a single field written on one line (see
-  [Record updates](docs/formatterRules.md#record-updates)).
+- Both `when` branches return a record update, `{ order | ... }` — the
+  `Cancelled` branch's single field fits on one line and stays inline, while
+  the other branch's two fields were written across rows and stay that way
+  (see [Record updates](docs/formatterRules.md#record-updates)).
 
 Every one of these decisions follows from how the code was written, not from
 any line-width target — see [Background](#background) below, and the full
