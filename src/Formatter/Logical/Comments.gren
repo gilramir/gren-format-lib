@@ -1357,6 +1357,50 @@ bracketRendersMultiline node =
             range.maxRow > range.minRow || subtreeContainsComment node
 
 
+{-| True when a `ParenBlock`'s content is a block construct (`if` / `when` /
+`let`), which `makeParenBlockBox` ALWAYS renders multi-line — keyword on the
+`(`-line, body below, `)` on its own line — no matter how many source rows the
+author used. Mirrors that builder's dispatch on the paren's first child.
+
+`prevBlockGlueRow`'s `ParenBlock` arm used the source row span alone as its
+"does this paren close on a `)` row a comment can glue onto?" test. A paren the
+author wrote on ONE row but whose content forces a break defeats that proxy: the
+comment classifies `LeadsOwnLine`, and at the tail of a declaration that renders
+it on a fresh row BELOW the declaration's last token — a row the reparse can
+never attribute back to the declaration, so it re-homes as a top-level
+`Standalone` comment at column 1. `0 <| ( if 0 then 1 else 2 ) {- c -}` moved
+indented ⟶ col 1 on the second format.
+
+Only the backward-pipeline path exposed it: `|>` peels and glues its step's
+trailing comments without consulting the role, a binop container classifies by
+row comparison instead of a glue row, and a call flow reaches the paren through
+`AcrossOrVertical`'s `bracketClosingRow` arm. -}
+parenContentAlwaysBreaks : LPNode -> Bool
+parenContentAlwaysBreaks node =
+    when lpnBox node is
+        ParenBlock _ ->
+            when Array.first (lpnChildren node) is
+                Just first ->
+                    when lpnBox first is
+                        WhenFlow _ ->
+                            True
+
+                        IfCondition _ ->
+                            True
+
+                        UnbreakableText loc ->
+                            loc.value == "let"
+
+                        _ ->
+                            False
+
+                Nothing ->
+                    False
+
+        _ ->
+            False
+
+
 -- The source row a following `--` line comment glues onto (or -1 for "no glue,
 -- stay own-line"). A faithful port of `factsFor`'s `startRowLine` per box kind:
 -- a `--` is unambiguously trailing, so it glues onto the previous item's last
@@ -1489,12 +1533,17 @@ prevBlockGlueRow commentIsMultiline node =
         -- (`(bar baz) {- c -}`); after a single-line paren it stays own-line, as
         -- after a plain call. `lastRenderedRow` is -1-safe for the single-line
         -- case only via the span check below.
+        --
+        -- The span is a proxy for "renders multi-line", so it must also cover a
+        -- paren whose content breaks unconditionally regardless of how the
+        -- author laid it out (`parenContentAlwaysBreaks` — see there for the
+        -- oscillation this closes).
         ParenBlock _ ->
             let
                 range =
                     subtreeRowRange node
             in
-            if range.maxRow > range.minRow then
+            if range.maxRow > range.minRow || parenContentAlwaysBreaks node then
                 lastRenderedRow node
 
             else

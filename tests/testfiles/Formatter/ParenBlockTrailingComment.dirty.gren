@@ -1,0 +1,43 @@
+module ParenBlockTrailingComment exposing (..)
+
+
+ifBody =
+    0 <| ( if p then 1 else 2 ) {- trailing -}
+
+
+whenBody =
+    0 <| ( when x is _ -> 1 ) {- trailing -}
+
+
+letBody =
+    0 <| ( let a = 1 in a ) {- trailing -}
+
+
+authorBroken =
+    0 <|
+        (if p then
+            1
+
+         else
+            2
+        ) {- trailing -}
+
+
+lineComment =
+    0 <| ( if p then 1 else 2 ) -- trailing
+
+
+forwardPipe =
+    0 |> ( if p then 1 else 2 ) {- trailing -}
+
+
+binopOperand =
+    0 + ( if p then 1 else 2 ) {- trailing -}
+
+
+callArgument =
+    foo ( if p then 1 else 2 ) {- trailing -}
+
+
+singleLineParen =
+    0 <| ( foo bar ) {- trailing -}
