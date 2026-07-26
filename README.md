@@ -3414,9 +3414,9 @@ decision and why.
             {- note -} |> stepTwo
     ```
 
-16. <a id="divergence-16"></a>**A comment just after a lambda's `->`** gren-format keeps
-    it inline; elm-format drops the `->`, the comment, and the body each onto
-    their own line:
+16. <a id="divergence-16"></a>**A comment just after a lambda's `->`, on a body that
+    stays on one line** gren-format keeps it inline; elm-format drops the `->`,
+    the comment, and the body each onto their own line:
 
     ```gren
     -- gren-format:
@@ -3429,6 +3429,24 @@ decision and why.
             {- note -}
             x + 1
     ```
+
+    Once the body wraps, the comment goes down **with** it and the two
+    formatters agree. This holds whatever made the body wrap — you wrote it
+    across rows, it contains an `if`/`when`/`let`, or a comment inside it forces
+    the break:
+
+    ```gren
+    f =
+        \x ->
+            {- note -}
+            [ 1
+            , 2 -- why two
+            ]
+    ```
+
+    The comment cannot stay on the `->` row here: reparsed, it is no longer on
+    the body's row, so it would move down on the next format and the file would
+    never settle.
 
 17. <a id="divergence-17"></a>**A comment trailing `in`** gren-format keeps it glued to
     `in` on the same line; elm-format moves it to its own line immediately

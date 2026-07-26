@@ -1,4 +1,4 @@
-module Formatter.Render.FlowAssembly exposing (FlowItem, SoftGlueAlignment(..), assembleBrokenCall, assembleBrokenWithComments, bracketPunc, flowItemInlineLine, gluedExposingBox, isCommentItem, isSoftGlueLiteral, pairTypeRecordComments, parenInnerIsAlignCarrying, shouldGlueBox, softBlockChildForcesVerticalBox, softGlueAlignment, trySoftGlueFlow, verticalExposingBox)
+module Formatter.Render.FlowAssembly exposing (FlowItem, SoftGlueAlignment(..), assembleBrokenCall, assembleBrokenWithComments, bracketPunc, flowItemInlineLine, gluedExposingBox, isCommentItem, isSoftGlueLiteral, pairLeadingComments, parenInnerIsAlignCarrying, shouldGlueBox, softBlockChildForcesVerticalBox, softGlueAlignment, trySoftGlueFlow, verticalExposingBox)
 
 {-| Flow-assembly support: the `FlowItem`/`SoftGlueAlignment` types and the pure helpers that lay pre-rendered flow items out into a `Box`.
 -}
@@ -511,15 +511,37 @@ trySoftGlueFlow items =
                 Nothing
 
 
-{-| Pair each single-line block-comment item with an immediately following
-type-record literal item, removing the comment from the item list and attaching
-it to the record's entry. `assembleFlowImpl`'s fold then decides whether the
-pair drops together or replays the plain unpaired steps. Flows containing an
-arrow (a function type's segments) pair too: the drop's reparse fixed point is
-guaranteed by `makeSignatureBox` folding `segmentHasDroppingRecordBox` into the
-signature's own `forceVertical` decision (the idempotency rule). -}
-pairTypeRecordComments : Array FlowItem -> Array { item : FlowItem, leading : Maybe FlowItem }
-pairTypeRecordComments items =
+{-| Pair each single-line block-comment item with an immediately following item
+that will DROP to its own line, removing the comment from the item list and
+attaching it to that item's entry. `assembleFlowImpl`'s fold then either drops
+the pair together (the comment stacked directly above the item, at the drop
+indent) or replays the plain unpaired steps.
+
+Two followers pair:
+
+  - a **type-record literal** — the `DropBlock` rule. Flows containing an arrow
+    (a function type's segments) pair too: the drop's reparse fixed point is
+    guaranteed by `makeSignatureBox` folding `segmentHasDroppingRecordBox` into
+    the signature's own `forceVertical` decision (the idempotency rule).
+
+  - a **`SoftIndentedBlock` that rendered multi-line** — a lambda body the
+    author started on the `->` row that turned out to wrap, so
+    `BlockJoin SoftIndentedRule`'s materializer drops it to its own line at +4.
+    Without the pairing the comment stays glued to the `->` row while its body
+    drops below it (`\item -> {- c -}` / `body`); reparsed, the comment is no
+    longer on the body's row, so `insertLambda` picks `IndentedBlock` and
+    `Comments.gren` redirects the comment INTO it, rendering it on its own line
+    — the file oscillates. Dropping the comment WITH the body from the first
+    format lands on the shape every later reparse settles on. Note the trigger
+    is a *rendered* fact (`isSingleLine`): what forces the wrap can be a comment
+    buried in the body (a trailing `--` on the last operand), which no AST-level
+    predicate in `InsertExpressions` can see.
+
+Only a non-gluing comment pairs with the soft block: a `TrailsPrevious` /
+`RidesInline` comment belongs to the token before it and must stay on that line.
+-}
+pairLeadingComments : Array FlowItem -> Array { item : FlowItem, leading : Maybe FlowItem }
+pairLeadingComments items =
     let
         pairableComment it =
             when it.comment is
@@ -538,40 +560,71 @@ pairTypeRecordComments items =
 
             else
                 Array.get i items
+
+        -- `items[i]` is a comment consumed by `items[i + 1]`. One predicate
+        -- answers both directions, so the "drop this entry" pass and the
+        -- "attach as leading" pass can never disagree and duplicate or lose it.
+        pairsAt i =
+            when at i is
+                Nothing ->
+                    False
+
+                Just it ->
+                    pairableComment it
+                        && (when at (i + 1) is
+                                Nothing ->
+                                    False
+
+                                Just next ->
+                                    FP.isTypeRecordLiteral next.node
+                                        || (commentLeadsOwnLine it && softBlockDropsBox next)
+                           )
     in
     items
         |> Array.indexedMap (\i it -> { i = i, it = it })
         |> Array.mapAndKeepJust
             (\{ i, it } ->
-                if
-                    pairableComment it
-                        && (at (i + 1)
-                                |> Maybe.map (\n -> FP.isTypeRecordLiteral n.node)
-                                |> Maybe.withDefault False
-                           )
-                then
-                    -- Consumed: attached to the record that follows.
+                if pairsAt i then
+                    -- Consumed: attached to the item that follows.
                     Nothing
 
                 else
                     Just
                         { item = it
                         , leading =
-                            if FP.isTypeRecordLiteral it.node then
+                            if pairsAt (i - 1) then
                                 at (i - 1)
-                                    |> Maybe.andThen
-                                        (\prev ->
-                                            if pairableComment prev then
-                                                Just prev
-
-                                            else
-                                                Nothing
-                                        )
 
                             else
                                 Nothing
                         }
             )
+
+
+-- A comment item the flow must not glue onto the preceding line: its stored
+-- `CommentRole` leads its own line (or stands alone) rather than trailing the
+-- token before it.
+commentLeadsOwnLine : FlowItem -> Bool
+commentLeadsOwnLine item =
+    when commentRole (lpnBox item.node) is
+        Just role ->
+            not (FP.roleGlues role)
+
+        Nothing ->
+            False
+
+
+-- A `SoftIndentedBlock` whose box rendered multi-line: `BlockJoin
+-- SoftIndentedRule` drops it to its own line at +4 rather than gluing it onto
+-- the running line.
+softBlockDropsBox : FlowItem -> Bool
+softBlockDropsBox item =
+    when lpnBox item.node is
+        SoftIndentedBlock ->
+            not (isSingleLine item.box)
+
+        _ ->
+            False
 
 
 -- A `SoftIndentedBlock` whose SOLE child is a bracket literal (record, record

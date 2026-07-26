@@ -115,7 +115,8 @@ to be handed to an implementer with no prior conversation context.
   Change-A goal — no `Render/*` comment-placement decision reads source rows —
   is met. Sites that were *already* row-free (kind/structure only) and so needed
   no change: `stepNeedsCommentedLayout` (pipeline), `pairLeadingRecordComments`,
-  `pairTypeRecordComments`, `typeHasCommentBracket` (all classify by comment
+  `pairTypeRecordComments` (since renamed `pairLeadingComments`, and it now
+  reads the stored role too), `typeHasCommentBracket` (all classify by comment
   kind / bracket structure, not rows). The remaining row-reads in `Render/*` are
   Change B's target (shape prediction) plus genuinely-structural uses.
 

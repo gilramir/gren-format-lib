@@ -12,6 +12,7 @@ module Formatter.Render.FlowPolicy exposing
     , isTypeRecordLiteral
     , nodeIsComment
     , pairLeadingRecordComments
+    , roleGlues
     )
 
 {-| The flow fold's decision layer, consumed by the Box renderer.
@@ -39,7 +40,7 @@ surfaced before facts are built.
 @docs NextSeparator, FlowState, initialFlowState, FlowConfig, BlockKind
 @docs ItemFacts, Placement, Decision, decide
 @docs nodeIsComment, isMultiLineCommentValue, isTypeRecordLiteral
-@docs pairLeadingRecordComments
+@docs pairLeadingRecordComments, roleGlues
 
 -}
 
@@ -487,10 +488,11 @@ joinPlacement config sep =
             GlueNoSep
 
 
--- A comment glues onto the previous item's line when the classifier tagged it
--- `TrailsPrevious` (a `--` or `{- -}` that trails the item) or `RidesInline`
--- (an inline `{- -}` riding a flat flow). `LeadsOwnLine` / `Standalone` do not
--- glue here.
+{-| A comment glues onto the previous item's line when the classifier tagged it
+`TrailsPrevious` (a `--` or `{- -}` that trails the item) or `RidesInline`
+(an inline `{- -}` riding a flat flow). `LeadsOwnLine` / `Standalone` do not
+glue here.
+-}
 roleGlues : CommentRole -> Bool
 roleGlues role =
     role == TrailsPrevious || role == RidesInline

@@ -608,6 +608,18 @@ pipelineCommentsSuite fsPerm =
             -- picking IndentedBlock up front for a body that structurally always
             -- breaks, in InsertExpressions.gren.
             , assertPretty fsPerm "a leading comment before a lambda body that is a mixed `|>`/`<|` pipeline (always multi-line) leads its own line even when written on the arrow's row" "LambdaMixedPipelineCommentBody"
+
+            -- The same class as the three fixtures above, but the body wraps
+            -- for a reason NO AST-level predicate can see: a comment inside it
+            -- (a trailing `--` on the last operand / array item), or plain
+            -- author layout (the broken call). `InsertExpressions` runs before
+            -- `Comments`, so `exprAlwaysBreaks` cannot pick `IndentedBlock` up
+            -- front here — the leading comment instead drops WITH the body in
+            -- the renderer, where the body's rendered box answers "did it
+            -- wrap?" (`pairLeadingComments` / `BlockJoin`'s `withLeading`).
+            -- `flatBodyKeepsCommentInline` is the counterweight: a body that
+            -- stays on one line keeps its comment glued to the `->`.
+            , assertPretty fsPerm "a leading comment on a lambda body that wraps drops to its own line WITH the body, whatever forced the wrap (a `--` inside a binop chain or array, an author-broken call) — leaving it glued to the `->` while the body drops below oscillates on reparse" "LambdaLeadingCommentDroppedBody"
             ]
         }
 

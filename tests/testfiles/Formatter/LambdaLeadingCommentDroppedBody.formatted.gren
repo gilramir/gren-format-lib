@@ -1,0 +1,42 @@
+module LambdaLeadingCommentDroppedBody exposing (..)
+
+
+commentBreaksBody _ =
+    \item ->
+        {- lead -}
+        68
+            <| 0 -- trailing
+
+
+commentBreaksBodyBinop _ =
+    \item ->
+        {- lead -}
+        68 * 83 * value / 14
+            <| 0 -- trailing
+
+
+flatBodyKeepsCommentInline _ =
+    \item -> {- lead -} 68 * 83 <| 0
+
+
+multilineCallBody _ =
+    \item ->
+        {- lead -}
+        someFunction
+            firstArgument
+            secondArgument
+
+
+commentTrailsPattern _ =
+    \item ->
+        {- trails -}
+        68
+            <| 0 -- trailing
+
+
+arrayBody _ =
+    \item ->
+        {- lead -}
+        [ 1
+        , 2 -- trailing
+        ]

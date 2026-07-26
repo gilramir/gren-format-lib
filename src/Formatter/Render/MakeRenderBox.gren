@@ -18,7 +18,7 @@ import Formatter.Render.Box as B exposing (Box(..))
 import Formatter.Render.BoxOps exposing (applyIndent, blockIndentSpaces, boxLine, glueCommentSuffix, glueLeadingCommentPrefix, grenIndent, isBlockNode, isSingleLine, joinInline, prefixOperator, spaceJoinLines, stackWithBlanks, traverseResult, wrapParenVerticalPadded)
 import Formatter.Render.CommentBox exposing (commentNodeBox, commentNodeToBox, emptyBracketedCommentLine, glueTrailingComments, makeCommentLineBox, multiLineBlockCommentBox, peelTrailingCommentNodes, spanLeadingComments, spanTrailingComments, spanTrailingOwnLineComments)
 import Formatter.Render.ElmStructure as E
-import Formatter.Render.FlowAssembly exposing (FlowItem, SoftGlueAlignment(..), assembleBrokenCall, assembleBrokenWithComments, bracketPunc, gluedExposingBox, pairTypeRecordComments, parenInnerIsAlignCarrying, softBlockChildForcesVerticalBox, softGlueAlignment, trySoftGlueFlow, verticalExposingBox)
+import Formatter.Render.FlowAssembly exposing (FlowItem, SoftGlueAlignment(..), assembleBrokenCall, assembleBrokenWithComments, bracketPunc, gluedExposingBox, pairLeadingComments, parenInnerIsAlignCarrying, softBlockChildForcesVerticalBox, softGlueAlignment, trySoftGlueFlow, verticalExposingBox)
 import Formatter.Render.FlowPolicy as FP
 import Formatter.Render.NodeClassify exposing (fieldValueDropsToOwnLine, isColonLeaf, isDroppingSignatureRecordNode, isMultilineLambdaParenBlockBox, isOpAndRhsNode, isPipelineStepNode, leafLineRow, leafValue, literalCommentsRideFlatLine, nodeIsComment, parenContentIsLambdaHead, rowsSpanMultiple, signatureForceVertical, splitSignatureSegments, subtreeEndsWithLineComment, subtreeHasComment, subtreeHasMultilineBlockComment, typeHasCommentBracket)
 
@@ -3610,17 +3610,35 @@ assembleFlowImpl inlineStart flowIndent items =
                         }
 
                 FP.BlockJoin { rule } ->
+                    -- A block that drops to its own line takes its paired
+                    -- leading comment (`pairLeadingComments`) down WITH it,
+                    -- stacked directly above at the same indent — leaving the
+                    -- comment glued to the head's row while the body drops
+                    -- below it oscillates on reparse (the comment is then no
+                    -- longer on the body's row, so the reparse routes it into
+                    -- the body's own block and renders it own-line there).
+                    -- Only `SoftIndentedRule`'s *inline* arm never gets a
+                    -- `leading`: `stepUnwrapped` replays those unpaired.
+                    let
+                        withLeading box =
+                            when leading is
+                                Just commentBox ->
+                                    B.stack1 [ commentBox, box ]
+
+                                Nothing ->
+                                    box
+                    in
                     when rule is
                         FP.IndentedRule ->
                             Ok
-                                { rows = Array.pushLast (applyIndent grenIndent item.box) (flushRow acc.curRow acc.rows)
+                                { rows = Array.pushLast (applyIndent grenIndent (withLeading item.box)) (flushRow acc.curRow acc.rows)
                                 , curRow = []
                                 , state = decision.next
                                 }
 
                         FP.BodyRule ->
                             Ok
-                                { rows = Array.pushLast item.box (flushRow acc.curRow acc.rows)
+                                { rows = Array.pushLast (withLeading item.box) (flushRow acc.curRow acc.rows)
                                 , curRow = []
                                 , state = decision.next
                                 }
@@ -3649,7 +3667,7 @@ assembleFlowImpl inlineStart flowIndent items =
                                     -- inline mis-aligns once the lambda is itself
                                     -- nested in a paren/call).
                                     Ok
-                                        { rows = Array.pushLast (applyIndent grenIndent item.box) (flushRow acc.curRow acc.rows)
+                                        { rows = Array.pushLast (applyIndent grenIndent (withLeading item.box)) (flushRow acc.curRow acc.rows)
                                         , curRow = []
                                         , state = decision.next
                                         }
@@ -3741,43 +3759,63 @@ assembleFlowImpl inlineStart flowIndent items =
                             placeNonComment acc decision Nothing item
 
                         Just leadItem ->
-                            -- A single-line block comment paired with a
-                            -- type record (`pairTypeRecordComments`).
-                            -- When the policy drops the record, the
-                            -- comment drops WITH it; otherwise replay
-                            -- the exact unpaired steps (comment first,
-                            -- then re-decide the record against the
-                            -- state the comment left).
-                            when decision.placement is
-                                FP.DropBlock _ ->
-                                    placeNonComment acc
-                                        decision
-                                        (leadItem.comment |> Maybe.map (\lc -> lc.box))
-                                        item
+                            -- A single-line block comment paired with the
+                            -- item that follows it (`pairLeadingComments`):
+                            -- a type record, or a soft block that rendered
+                            -- multi-line. When the placement drops that item
+                            -- to its own line, the comment drops WITH it;
+                            -- otherwise replay the exact unpaired steps
+                            -- (comment first, then re-decide the item against
+                            -- the state the comment left).
+                            let
+                                dropsTogether =
+                                    when decision.placement is
+                                        FP.DropBlock _ ->
+                                            True
 
-                                _ ->
-                                    when leadItem.comment is
-                                        Just lc ->
-                                            let
-                                                leadDecision =
-                                                    FP.decide config acc.state (factsFor leadItem)
-                                            in
-                                            placeCommentItem acc leadDecision lc
-                                                |> Result.andThen
-                                                    (\a ->
-                                                        let
-                                                            recDecision =
-                                                                FP.decide config a.state (factsFor item)
-                                                        in
-                                                        placeNonComment a recDecision Nothing item
-                                                    )
+                                        FP.BlockJoin { rule = rule } ->
+                                            -- Every block rule puts the item on
+                                            -- its own line EXCEPT a soft block
+                                            -- that rendered single-line, which
+                                            -- glues onto the running row — its
+                                            -- comment has to be replayed inline
+                                            -- ahead of it instead.
+                                            rule
+                                                /= FP.SoftIndentedRule
+                                                || not (isSingleLine item.box)
 
-                                        Nothing ->
-                                            placeNonComment acc decision Nothing item
+                                        _ ->
+                                            False
+                            in
+                            if dropsTogether then
+                                placeNonComment acc
+                                    decision
+                                    (leadItem.comment |> Maybe.map (\lc -> lc.box))
+                                    item
+
+                            else
+                                when leadItem.comment is
+                                    Just lc ->
+                                        let
+                                            leadDecision =
+                                                FP.decide config acc.state (factsFor leadItem)
+                                        in
+                                        placeCommentItem acc leadDecision lc
+                                            |> Result.andThen
+                                                (\a ->
+                                                    let
+                                                        recDecision =
+                                                            FP.decide config a.state (factsFor item)
+                                                    in
+                                                    placeNonComment a recDecision Nothing item
+                                                )
+
+                                    Nothing ->
+                                        placeNonComment acc decision Nothing item
     in
     Array.foldl step
         (Ok { rows = [], curRow = [], state = FP.initialFlowState })
-        (pairTypeRecordComments items)
+        (pairLeadingComments items)
         |> Result.andThen
             (\final ->
                 let
