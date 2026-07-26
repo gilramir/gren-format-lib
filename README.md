@@ -111,9 +111,10 @@ A few things worth noticing:
   they'd fit inline (see
   [If expressions](docs/formatterRules.md#if-expressions)).
 - Both `when` branches return a record update, `{ order | ... }` — the
-  `Cancelled` branch's single field fits on one line and stays inline, while
-  the other branch's two fields were written across rows and stay that way
-  (see [Record updates](docs/formatterRules.md#record-updates)).
+  `Cancelled` branch's field was written on one line and stays inline, while
+  the other branch's two fields were written across rows and stay that way.
+  Neither is about length; it's however the author wrote it (see
+  [Record updates](docs/formatterRules.md#record-updates)).
 
 Every one of these decisions follows from how the code was written, not from
 any line-width target — see [Background](#background) below, and the full
