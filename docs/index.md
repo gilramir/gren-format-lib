@@ -1,4 +1,8 @@
 
+* [How the formatter works](howItWorks.md)
+* [Gren Formatter Rules](formatterRules.md)
+* [Comparison with elm-format](elmFormatComparison.md)
+* [Known limitations](knownLimitations.md)
 * [Testing gates](testing.md)
 * [Long fuzz sweeps (`fuzzrun.py`)](fuzzTesting.md)
 * [Required Formatting Shapes](requiredFormatting.md)

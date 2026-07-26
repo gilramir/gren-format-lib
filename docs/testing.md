@@ -217,7 +217,7 @@ flat-only matrix:
    itself authors, and `when X is` → `case X of` is the only Gren/Elm
    difference in that vocabulary) and diffed against `elm-format --stdin`.
    Unlike 1–3, this is *not* a truth by itself — gren-format diverges from
-   elm-format on purpose (see the README's divergence catalogue) — so it is
+   elm-format on purpose (see the [divergence catalogue](elmFormatComparison.md#divergence-catalogue)) — so it is
    gated against a reviewed baseline (`matrix-parity-baseline.json`) rather
    than a bare equality check. A cell that diverges *unregistered*, or a
    registered cell that no longer diverges, fails the matrix. Reviewed
@@ -248,8 +248,9 @@ the other three rather than quietly reporting a thinner green.
   four oracles, the parity baseline gate.
 - **`tests/matrix-parity-baseline.json`** — the reviewed divergence baseline
   for oracle 4.
-- **`README.md`**'s "Divergence catalogue" — the human-readable explanation
-  behind every registered baseline entry.
+- **[`elmFormatComparison.md`](elmFormatComparison.md)**'s "Divergence
+  catalogue" — the human-readable explanation behind every registered
+  baseline entry.
 
 ## Render-invariant check (`check-render-invariant.py`)
 

@@ -452,9 +452,13 @@ node directly under `RootBox`. Comments and blank lines are inserted as sibling
 
 ## Authoritative documentation
 
-- `README.md` (the "Gren Formatter Rules" section) — what every formatting
-  rule does, with worked examples for every construct. Read first when
-  reasoning about formatter behavior.
+- `docs/formatterRules.md` — what every formatting rule does, with worked
+  examples for every construct. Read first when reasoning about formatter
+  behavior. (`README.md` has a shorter version plus one worked example.)
+- `docs/howItWorks.md` — a conceptual, step-by-step tour of the pipeline
+  (parse → Logical Printing Tree → render plan → text).
+- `docs/elmFormatComparison.md` — every place `gren format` deliberately
+  diverges from `elm-format`, and why.
 - `DEVELOPER.md` — orientation guide for extending the formatter
   with new syntax: the full checklist, position rules, comment-attachment
   hazards, and the "things to worry about" section.

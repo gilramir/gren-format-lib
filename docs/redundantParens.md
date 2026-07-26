@@ -10,7 +10,7 @@ meaning requires, at any nesting depth, in any position. gren-format keeps
 whatever you wrote, everywhere, with no exceptions — this is a deliberate,
 settled choice, not an oversight.
 
-This is [divergence #10](../README.md#divergence-catalogue) in the catalogue. It
+This is [divergence #10](elmFormatComparison.md#divergence-catalogue) in the catalogue. It
 is the most common difference between the two formatters on real code.
 
 ## Around a `when`, `if`, or `let`

@@ -6,8 +6,9 @@ expression form. Gren will keep growing, so the formatter has to be easy to
 extend without breaking the invariants that keep formatting correct, stable, and
 comment-faithful.
 
-Read this once for the mental model, then keep `README.md` (the authoritative,
-example-driven description of *what every rule does*) open while you work.
+Read this once for the mental model, then keep `docs/formatterRules.md` (the
+authoritative, example-driven description of *what every rule does*) open
+while you work.
 
 One decision explains most of what follows: **gren-format reuses the
 production Gren compiler's parser, and that parser throws comments away.**
@@ -433,8 +434,8 @@ Layout boxes (have children):
     example, and if you find yourself wanting this exact shape, expect to
     build it out rather than reuse it.
 
-See `README.md` for the rendered example of each rule these boxes implement,
-in user-facing terms rather than internal ones.
+See `docs/formatterRules.md` for the rendered example of each rule these
+boxes implement, in user-facing terms rather than internal ones.
 
 ### `OriginalRows` and `SyntaxType` — the top level only
 
@@ -1113,7 +1114,8 @@ comment-bearing fixture so the fuzzers exercise the reconstruction.
 
 ## Where to read more
 
-- `README.md` — authoritative, example-by-example description of every rule.
+- `docs/formatterRules.md` — authoritative, example-by-example description of
+  every rule (`README.md` has the short version plus a worked example).
 - `Logical/LogicalPrintingTree.gren` — the module doc's categorised box table,
   then every box's own doc comment and the caching invariants.
 - `Logical/Comments.gren` module doc — the comment-attachment algorithm and its

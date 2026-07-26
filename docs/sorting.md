@@ -48,8 +48,8 @@ changes flat-vs-vertical.
 This is independent of the module's doc comment. elm-format instead reorders a
 module's exposing list to follow the `@docs` directives in its doc comment when
 they are present, falling back to alphabetical only when they are absent;
-gren-format deliberately does not couple the two (a divergence — see the
-README's "Comparison with elm-format", point 3).
+gren-format deliberately does not couple the two (a divergence — see
+[Comparison with elm-format](elmFormatComparison.md#divergence-3), point 3).
 
 ### Comment handling
 

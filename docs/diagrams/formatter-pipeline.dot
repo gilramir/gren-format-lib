@@ -32,7 +32,7 @@ digraph FormatterPipeline {
 
     // Explanatory note
     node [shape=note, style=filled, fillcolor="#fffbe6", color="#c9a227", fontcolor="#4a3b06", fontsize=9];
-    errNote [label="Formatter.prettyPrint : Src.Module -> Ctx.Context -> Result String String\lStep 1 and Step 2 failures both surface as one Err from prettyPrint;\lthe gren-format CLI reports either as PrettyPrintFailure.\lBoth are gaps in the formatter's own coverage, not evidence of invalid\lsource — a well-formed program can hit an unhandled construct.\l"];
+    errNote [label="Err from Step 1 and Step 2 indicate gaps in the\lgren formatter logic, not evidence of invalid source.\l"];
 
     // Main flow
     source -> parse;
@@ -49,6 +49,7 @@ digraph FormatterPipeline {
     step1 -> step1Fail [style=dashed, color="#c0392b", fontcolor="#7a1f13", label="error"];
     step2 -> step2Fail [style=dashed, color="#c0392b", fontcolor="#7a1f13", label="error"];
 
+    step1Fail -> errNote [style=dotted, arrowhead=none, color="#c9a227", constraint=false];
     step2Fail -> errNote [style=dotted, arrowhead=none, color="#c9a227", constraint=false];
 
     { rank=same; astCtx; parseFail }
