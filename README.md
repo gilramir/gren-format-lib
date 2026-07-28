@@ -5,7 +5,7 @@ it produces a formatted version of the same file — consistent spacing,
 consistent indentation, comments and blank lines kept where they belong, and
 also honoring the single-line/multi-line formatting the author of the source code chose.
 
-This README covers the essentials — an overview, a worked example, and the
+This README covers the essentials — an overview, a formatted example, and the
 core formatting rules. Four companion documents go deeper:
 
 - **[How the formatter works](docs/howItWorks.md)** — a conceptual,
@@ -23,7 +23,7 @@ core formatting rules. Four companion documents go deeper:
 ## Table of contents
 
 - [Overview](#overview)
-- [A worked example](#a-worked-example)
+- [A formatted example](#a-formatted-example)
 - [Gren Formatter Rules](#gren-formatter-rules)
   - [Background](#background)
 - [Known limitations](#known-limitations)
@@ -60,7 +60,7 @@ stage — see **[How the formatter works](docs/howItWorks.md)**.
 
 ---
 
-## A worked example
+## A formatted example
 
 One function, showing several rules at once: a `let` with multiple bindings,
 a pipeline, a binary-operator chain that breaks at its loosest operators, an
