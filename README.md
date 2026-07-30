@@ -189,9 +189,11 @@ Everything else follows your layout choices.
 compiler/parser bugs (one around field access on a record-update base, one
 around aliasing an unparenthesized constructor pattern with `as`), a `when`
 pattern shape the Haskell-based compiler can reject even though the formatter
-produced it, and several comment-placement choices forced by a token (`=`,
+produced it, several comment-placement choices forced by a token (`=`,
 `:`, `|`, `in`, a bracket's closing paren, an effect module's `where` block)
-that the parser doesn't record a position for.
+that the parser doesn't record a position for, and a stack-depth limit on
+extreme lambda/unary-minus nesting (hundreds of levels deep, well past
+anything real code hits).
 
 Full write-up, with a before/after example for each: **[docs/knownLimitations.md](docs/knownLimitations.md)**.
 

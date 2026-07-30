@@ -21,6 +21,7 @@ nothing is going wrong.
 - [A comment after the last binding in a `let`](#a-comment-after-the-last-binding-in-a-let)
 - [Block comment body indentation](#block-comment-body-indentation)
 - [Two fixtures parse a custom-type shape the language no longer allows](#two-fixtures-parse-a-custom-type-shape-the-language-no-longer-allows)
+- [Very deep lambda or unary-minus nesting can overflow the stack](#very-deep-lambda-or-unary-minus-nesting-can-overflow-the-stack)
 
 ---
 
@@ -386,4 +387,52 @@ intentional exception to the language's current variant-arity rule, not a
 formatter bug of their own. (`gen-random.py`, the property-based random-input
 generator, no longer emits multi-argument variants for this same reason —
 see `tests/GENERATOR.md`.)
+
+## Very deep lambda or unary-minus nesting can overflow the stack
+
+This one isn't a comment-placement or compiler quirk — it's an implementation
+limit in the formatter itself, found by `tests/pathological-nesting.py`
+(geometric-growth-and-bisect stress testing of nesting depth).
+
+A chain of nested lambdas,
+
+```gren
+x =
+    \a -> \a -> \a -> \a -> \a -> {- … repeated hundreds of times … -} a
+```
+
+or a chain of nested unary minus,
+
+```gren
+x =
+    -(-(-(-(-(-( {- … repeated hundreds of times … -} 1))))))
+```
+
+crashes with `RangeError: Maximum call stack size exceeded` once nesting
+passes roughly **400 levels** for lambdas or **300 levels** for unary minus.
+Rendering a nested expression recurses once per level through a fairly long
+call chain (dispatch → flow assembly → per-item classification → the next
+level's dispatch, and so on) — around 10-15 JS stack frames per level of
+*Gren* source nesting — and Node's default stack budget runs out before the
+parser's own does (the parser tolerates roughly 500-700+ levels of the same
+shapes, since its recursive-descent call chain is shorter per level). The
+crash is immediate and clean — no hang, no corrupted output — but a file
+past the threshold cannot be formatted at all.
+
+This is not expected to matter in practice: no real Gren source this project
+has ever swept (published packages, its own sources, hundreds of thousands of
+generated random modules) has come anywhere near this depth, and code with
+hundreds of directly nested lambdas or unary minuses is not something anyone
+writes by hand. Fixing it properly means rewriting the renderer's recursive
+core to use an explicit stack instead of the JS call stack (a trampoline) —
+a large, invasive change judged disproportionate to a depth nothing has ever
+hit. Now would we consider changing Node's own stack size; that's complete
+out of scope as a solution.
+
+Nested **record literals** used to hit a much sharper version of this
+problem — not a stack overflow but an exponential-time hang, becoming
+unusable well before 25 levels of nesting. That one *was* a formatter bug
+(a value was rendered twice per level instead of once) and has been fixed;
+record literals now nest as deep as the parser allows, same as most other
+constructs.
 
