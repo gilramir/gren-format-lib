@@ -115,6 +115,57 @@ corpus), so it is a per-change gate for the co-occurrence axis.
   distribution than hand-written fixtures, and it exercised a three-way
   conjunction (record-literal + bare value + author-broken) that no fixture
   and no flat matrix cell had.
+- **`tests/fuzzrun.py` — long unattended sweeps of `gen-random.py`.** Three lanes
+  (`dense-comments` depth 6 / comments 0.70, `deep-structure` depth 8 / no
+  comments, `default-mix` depth 5 / comments 0.25), run in ~10-minute chunks
+  across many sessions from 2026-07-25 through 2026-07-29. On the current
+  grammar generation (`ae6869c`, unchanged since 2026-07-26) this covered
+  **1,416,241 seeds over 33h26m of CPU-wall** with **zero real bugs found** —
+  the earlier grammar generations before that (also fully clean; their one
+  recorded finding was fixed same-generation, see below) add another ~503,000
+  seeds, for **~1.92 million seeds total** since the harness was built, spanning
+  more than 3 calendar days of intermittent sweeping. One non-idempotency was
+  found and fixed during generation 2 (`d2caabf`); the only other recorded
+  failure is `stale-grammar` (its seed no longer generates the module that
+  failed it once the grammar changed) and was never re-confirmed as live. This
+  is the deepest single soak this codebase has had: the co-occurrence axis
+  (avenue #2) is now sampled at a scale an interactive session can't reach, and
+  it came back clean. Re-run with `./fuzzrun.py run --for <duration>`; check
+  `./fuzzrun.py status` for lane coverage and `./fuzzrun.py failures -v` for
+  anything open. A find here is worth more than a find anywhere else in this
+  list, precisely because everything cheaper has already had its shot.
+- **`tests/pathological-nesting.py` — boundary/pathological inputs (avenue #1,
+  see "Untried avenues" below).** For 8 nesting shapes (parens, list, record,
+  lambda, if-chain, unary-minus, binop-chain, pipeline-chain) it geometrically
+  grows + bisects to find the exact depth where `--show` breaks, then
+  independently bisects `--pre-ast`'s own boundary to tell a parser-level
+  ceiling (out of scope — `compiler-common` is frozen) from a
+  formatter-introduced one (in scope). First run (2026-07-29) found 3 real
+  bugs, all since triaged:
+  - **Record-literal nesting, `O(2^depth)` render hang — FIXED** (`15da4a8`).
+    `renderRecordFieldBox` rendered a field's value once to decide whether it
+    drops onto its own line, then again for real; each nesting level doubled
+    the cost of the level below (depth 22 took ~21s). Restructured to render
+    the value once and thread the box through both the decision and whichever
+    layout it resolves to. Depth 400 now formats in ~0.25s; the shape's
+    ceiling is now the parser's own limit (~480), same as every other shape
+    below. Same failure class as the historical `Box.gren` `renderRowState`
+    hang, a different site.
+  - **Lambda nesting, stack overflow ~depth 400-404 — accepted, not fixed.**
+    Plain single-descent recursion (`assembleFlowImpl → factsFor →
+    softBlockChildForcesVerticalBox`), not a duplication bug — confirmed
+    `softBlockChildForcesVerticalBox` reads the already-rendered box, it does
+    not re-render. The render pipeline's call chain is ~10-15 JS frames per
+    nesting level (vs. the parser's shorter chain, hence its higher ~700+
+    tolerance), so Node's default stack runs out around depth 400. A real fix
+    means trampolining the recursive-descent renderer's mutually-recursive
+    core — large and invasive for a depth no real code has ever approached.
+    Fails safely (a clean crash, not a hang or silent corruption).
+  - **Unary-minus nesting, stack overflow ~depth 306 — accepted, not fixed.**
+    Same root cause and same call: `makePBox → renderFlowItem →
+    makeParenBlockBox → parenGenericFallbackBox → parenLambdaMultiline`.
+  Re-run: `./pathological-nesting.py` (all 8 shapes) or `--shape record` /
+  `--shape lambda` / `--shape unaryminus` for one.
 - **Coverage-gap analysis** — enumerate the reachable arms nothing currently
   tests. Built as the sibling `gren-coverage-node` repo: Gren line/region
   coverage from V8 coverage + sourcemaps, joined against the AST; run via the
@@ -167,12 +218,16 @@ that would have caught specific classes ahead of the sweep:
 
 ## Untried avenues
 
-1. **Boundary/pathological inputs.** Deeply nested parens/records, very long
-   identifiers, files that are all comments, empty modules, CRLF line
-   endings, unicode in strings/identifiers, huge single-line inputs. The one
-   performance bug found historically (an `O(2^depth)` render hang in
-   `Box.gren`'s `renderRowState`) came from exactly this category — nothing
-   else in the toolbox stress-tests structural depth.
+1. ~~**Boundary/pathological inputs.**~~ **Done** for nesting depth — built as
+   `tests/pathological-nesting.py` (see "Already built and run" above): 8
+   shapes, geometric-growth + bisection, parser-ceiling vs. formatter-ceiling
+   split. Found 3 bugs (1 fixed — the record-literal hang was exactly the
+   `O(2^depth)` failure class this avenue was chasing; 2 accepted as
+   documented stack-depth limits, unreachable at realistic depth). Still
+   untried within this avenue: very long identifiers, files that are all
+   comments, empty modules, CRLF line endings, unicode in strings/identifiers,
+   huge single-line inputs — none of those are nesting-depth shaped, so the
+   geometric-bisection harness doesn't cover them.
 
 2. ~~**Random AST generation (property-based).**~~ **Done** — built as
    `tests/gen-random.py` (see "Already built and run" above). Remaining work is
@@ -195,19 +250,32 @@ Re-run it on any fresh batch of published packages: it is the cheapest way to
 find real bugs, because someone else already wrote the tricky code. Scope it to
 `src/`+`tests/` (examples are old-Gren parser gaps).
 
-Two next steps, in order of leverage:
+Updated 2026-07-29: the multi-day `fuzzrun.py` soak (~1.92 million seeds, 3+
+calendar days, see "Already built and run" above) came back clean on the
+current grammar generation. That doesn't mean the well is dry — it means the
+co-occurrence axis at the current grammar's depth/comment-density settings is
+now well-covered, and the *marginal* next seed is unlikely to find anything the
+last million didn't. The leverage has shifted:
 
-1. **Grow `gen-random.py`'s grammar** (avenue #2 is now built and already found
-   two bugs). The productive axis is *feature co-occurrence*, and this is the
-   only gate that samples it independent of which packages exist — so widening
-   the grammar widens the reachable co-occurrences. Priorities in
-   `tests/GENERATOR.md`: type aliases/unions/ports, author-broken types &
-   signatures (the class-B shape), multiline-string literals and literal-content
-   mutation (the class-A shape), doc comments, richer patterns. The three cheap
-   targeted fuzzers under "Why the synthetic gates missed these"
-   (literal-content preservation, matrix arity/repetition, matrix broken
-   types/signatures) remain good down-payments for A/E/B regressions.
-
-2. Keep the corpus sweep in rotation as new packages publish; keep
-   `gen-random.py`, the author-broken matrix, and both fuzzers as the fast
-   per-change gate.
+1. **Grow `gen-random.py`'s grammar** is still the highest-leverage move, but
+   now more than ever — a clean 1.9M-seed soak is a signal to widen the grammar
+   (new constructs = new co-occurrences = a fresh, unswept space), not to keep
+   sweeping the same one. Priorities unchanged, see `tests/GENERATOR.md`: type
+   aliases/unions/ports, author-broken types & signatures (class-B shape),
+   multiline-string literal-content mutation (class-A shape), doc comments,
+   richer patterns. Each grammar change starts a new `fuzzrun` generation
+   (cursors reset), so it also re-opens the soak.
+2. **Avenue #1 (boundary/pathological inputs)** is now done for nesting depth
+   (see "Already built and run" above — 3 bugs found, 1 fixed, 2 accepted) but
+   still open for its non-depth-shaped cases (long identifiers, all-comment
+   files, empty modules, CRLF, unicode, huge single-line input). **Avenue #3
+   (complexity-guided review)** remains fully untried — neither is reachable
+   by randomly sampling *legal* syntax at bounded depth, which is what both
+   the matrix and the generator do. #1 is the only entry in this whole file
+   that has found a *performance* bug (two, now: the historical `Box.gren`
+   `O(2^depth)` hang and the 2026-07-30 record-literal one) rather than a
+   correctness one, which suggests it's probing a different failure mode
+   entirely — worth extending to the non-depth cases above before moving to #3.
+3. Keep the corpus sweep in rotation as new packages publish; keep
+   `gen-random.py` (including `fuzzrun.py` for unattended depth),
+   the author-broken matrix, and both fuzzers as the fast per-change gate.
