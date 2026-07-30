@@ -1394,6 +1394,31 @@ its own line below `name =` (elm-format's `equalsPair` rule — a multi-line val
 never glues to `= `), via `dropFieldValueBox`. A hard-block value already drops
 after `=` through its own block box, and a single-line value stays glued, so
 neither is covered here. A comment child (no meaningful value) returns False. -}
+valueNodeIsHardBlock : LPNode -> Bool
+valueNodeIsHardBlock valueNode =
+    when lpnBox valueNode is
+        BodyBlock ->
+            True
+
+        IndentedBlock ->
+            True
+
+        SoftIndentedBlock ->
+            True
+
+        WhenBranch ->
+            True
+
+        PipelineStep ->
+            True
+
+        EmptyLine ->
+            True
+
+        _ ->
+            False
+
+
 recordFieldValueDrops : LPNode -> Bool
 recordFieldValueDrops field =
     when Array.popLast (lpnChildren field) is
@@ -1409,31 +1434,7 @@ recordFieldValueDrops field =
             -- earlier early `False` here left the comment case on the plain flow
             -- path, where a raw multi-line `Binop` sibling hit an "unreachable"
             -- soft-glue arm and crashed.)
-            let
-                isHardBlock =
-                    when lpnBox valueNode is
-                        BodyBlock ->
-                            True
-
-                        IndentedBlock ->
-                            True
-
-                        SoftIndentedBlock ->
-                            True
-
-                        WhenBranch ->
-                            True
-
-                        PipelineStep ->
-                            True
-
-                        EmptyLine ->
-                            True
-
-                        _ ->
-                            False
-            in
-            if isHardBlock then
+            if valueNodeIsHardBlock valueNode then
                 False
 
             else
@@ -1466,40 +1467,107 @@ dropFieldValueBox : Array LPNode -> Result String Box
 dropFieldValueBox children =
     when Array.popLast children is
         Just { last = valueNode, initial = headNodes } ->
-            let
-                split =
-                    spanTrailingComments headNodes
-            in
-            Result.map3
-                (\headBox commentBoxes valueBox ->
-                    B.stack1
-                        [ headBox
-                        , applyIndent grenIndent
-                            (B.stack1 (Array.pushLast valueBox commentBoxes))
-                        ]
-                )
-                (buildFlowBox 0 split.body)
-                (traverseResult commentNodeBox split.trailing)
-                (makePBox (lpnBox valueNode) (lpnChildren valueNode))
+            makePBox (lpnBox valueNode) (lpnChildren valueNode)
+                |> Result.andThen (dropFieldValueBoxWithBox headNodes)
 
         Nothing ->
             Err "box: empty record-update field"
 
 
+{-| Like `dropFieldValueBox`, but takes an already-rendered value box instead of
+re-rendering it. `renderRecordFieldBox` uses this so a nested record literal's
+value is rendered exactly once per level, not twice — rendering it twice (once
+to decide `recordFieldValueDrops`, again here) made nesting depth `d` cost
+`O(2^d)`, the same failure class as the historical `Box.gren` render hang. -}
+dropFieldValueBoxWithBox : Array LPNode -> Box -> Result String Box
+dropFieldValueBoxWithBox headNodes valueBox =
+    let
+        split =
+            spanTrailingComments headNodes
+    in
+    Result.map2
+        (\headBox commentBoxes ->
+            B.stack1
+                [ headBox
+                , applyIndent grenIndent
+                    (B.stack1 (Array.pushLast valueBox commentBoxes))
+                ]
+        )
+        (buildFlowBox 0 split.body)
+        (traverseResult commentNodeBox split.trailing)
+
+
 {-| Render one record `name = value` field to a box: a soft multi-line value
-drops onto its own line (`dropFieldValueBox`); everything else renders as the
-plain `name = value` node. Shared by record *updates* and record *literals* — a
-literal field has the same `name = value` shape, so both must apply elm-format's
-`equalsPair` drop identically. (Rendering a literal field through bare `makePBox`
-instead sent a multi-line soft value — e.g. a binop chain — into the flow
-assembler, which has no drop rule and hit an "unreachable" arm.) -}
+drops onto its own line (`dropFieldValueBoxWithBox`); everything else renders as
+the plain `name = value` node. Shared by record *updates* and record *literals* —
+a literal field has the same `name = value` shape, so both must apply
+elm-format's `equalsPair` drop identically. (Rendering a literal field through
+bare `makePBox` instead sent a multi-line soft value — e.g. a binop chain — into
+the flow assembler, which has no drop rule and hit an "unreachable" arm.)
+
+The value is rendered once (`valueNodeIsHardBlock` short-circuits before ever
+rendering it) and that same box is reused for the drop decision and, however it
+resolves, the final layout — see `dropFieldValueBoxWithBox` and
+`renderFieldFlowWithValueBox`. Re-deriving the value's box a second time (either
+here, by falling through to plain `makePBox (lpnBox field) …`, or in
+`dropFieldValueBoxWithBox`) doubles the render cost at every nesting level,
+which is exponential in depth — this is what made deeply nested record literals
+(e.g. `{ a = { a = { a = … } } }`) hang. -}
 renderRecordFieldBox : LPNode -> Result String Box
 renderRecordFieldBox field =
-    if recordFieldValueDrops field then
-        dropFieldValueBox (lpnChildren field)
+    when Array.popLast (lpnChildren field) is
+        Nothing ->
+            makePBox (lpnBox field) (lpnChildren field)
 
-    else
-        makePBox (lpnBox field) (lpnChildren field)
+        Just { last = valueNode, initial = headNodes } ->
+            if valueNodeIsHardBlock valueNode then
+                makePBox (lpnBox field) (lpnChildren field)
+
+            else
+                makePBox (lpnBox valueNode) (lpnChildren valueNode)
+                    |> Result.andThen
+                        (\valueBox ->
+                            if isSingleLine valueBox then
+                                renderFieldFlowWithValueBox field valueNode headNodes valueBox
+
+                            else
+                                dropFieldValueBoxWithBox headNodes valueBox
+                        )
+
+
+{-| Render a field's `AcrossOrVertical` flow (`name = value`) reusing an
+already-rendered value box for the last item, instead of `makePBox (lpnBox
+field) (lpnChildren field)` — which would re-render the value from scratch via
+`renderFlowItems`. Mirrors `makePBox`'s own `AcrossOrVertical` arm exactly, just
+with the last flow item supplied instead of derived. -}
+renderFieldFlowWithValueBox : LPNode -> LPNode -> Array LPNode -> Box -> Result String Box
+renderFieldFlowWithValueBox field valueNode headNodes valueBox =
+    when lpnBox field is
+        AcrossOrVertical { forceVertical, checkContentVertical } ->
+            renderFlowItems headNodes
+                |> Result.map
+                    (\headItems ->
+                        Array.pushLast
+                            { node = valueNode
+                            , box = valueBox
+                            , isBlock = isBlockNode valueNode valueBox
+                            , comment = Nothing
+                            }
+                            headItems
+                    )
+                |> Result.andThen
+                    (\items ->
+                        if forceVertical || (checkContentVertical && Array.any .isBlock items) then
+                            assembleBrokenCall grenIndent items
+
+                        else
+                            assembleFlow False grenIndent items
+                    )
+
+        _ ->
+            -- Not a flow field — shouldn't happen for a `name = value` node,
+            -- but fall back to the generic renderer rather than crash.
+            makePBox (lpnBox field) (lpnChildren field)
 
 
 {-| Pick the per-item renderer for a bracketed literal. A record (`ListCurly`)
