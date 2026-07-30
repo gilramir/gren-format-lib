@@ -6,3 +6,7 @@ pathological-out/
 # The -wal/-shm sidecars come from sqlite's WAL mode.
 fuzzrun.db*
 fuzzrun-out/
+
+# coverage
+cov-app
+out/
