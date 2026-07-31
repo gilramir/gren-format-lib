@@ -1,0 +1,91 @@
+module BinopLeadingCommentPairing exposing (binopBeforeMultiline, binopLineComment, binopLineThenBlock, binopMidChain, binopMultiLine, binopOwnRow, binopPairAndTrail, binopRun, binopSameRow, binopTrailingBlock)
+
+
+-- A leading single-line {- -} in a broken binop chain rides the next operator's
+-- line (elm-format match), instead of stacking on its own row.
+binopSameRow =
+    a
+        {- c -} + b
+        + d
+
+
+-- The same comment authored on its own row pairs too: after one format it sits
+-- on the operator's row, so only the paired form is a fixed point.
+binopOwnRow =
+    a
+        {- c -} + b
+        + d
+
+
+-- A run of two leading block comments rides together.
+binopRun =
+    a
+        {- one -} {- two -} + b
+        + d
+
+
+-- Pairing is all-or-nothing over a run: a `--` anywhere in it keeps every
+-- comment of the run on its own row (elm-format match).
+binopLineThenBlock =
+    a
+        -- first
+        {- c -}
+        + b
+        + d
+
+
+-- A `--` leading an operator stands on its own row; nothing can follow it.
+binopLineComment =
+    a
+        -- c
+        + b
+        + d
+
+
+-- A multi-line block comment has no single line to ride.
+binopMultiLine =
+    a
+        {- one
+           two
+        -}
+        + b
+        + d
+
+
+-- A leading comment whose operator line renders multi-line has no single line
+-- to ride either: it stays on its own row.
+binopBeforeMultiline =
+    a
+        {- c -}
+        + (if p then
+            q
+
+           else
+            r
+          )
+        + d
+
+
+-- Pairing is not a first-position special case: a comment leading a LATER
+-- operator rides that operator's line too.
+binopMidChain =
+    a
+        + b
+        {- c -} + d
+        + e
+
+
+-- gren keeps a comment TRAILING the operand the author wrote it on (divergence
+-- #13); elm-format re-homes it to lead the next operator.
+binopTrailingBlock =
+    aaa
+        ++ bbb {- t -}
+        ++ ccc
+
+
+-- Both rules at once on one line: the leading comment pairs forward, the
+-- trailing one stays glued to the operand before it.
+binopPairAndTrail =
+    a
+        {- lead -} + b {- trail -}
+        + d

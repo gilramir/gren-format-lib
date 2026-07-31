@@ -132,8 +132,11 @@ block comment on its argument's / operand's line in a broken call and a broken
 binop alike, and only that pairing is a reparse fixed point once the comment sits
 on the term's row. A `--` or a multi-line `{- -}` never pairs: it stands on its
 own row (nothing can follow a `--` on its line; a multi-line comment has no
-single line to ride). A leading comment whose next term renders multi-line also
-stands alone — there is no single first line to ride there either. -}
+single line to ride), and it poisons the rest of its run so the block comments
+behind it stay own-row too rather than jumping ahead of it — pairing is
+all-or-nothing over a run, as in elm-format. A leading comment whose next term
+renders multi-line also stands alone — there is no single first line to ride
+there either. -}
 assembleBrokenWithComments : Int -> Array FlowItem -> Result String Box
 assembleBrokenWithComments indent items =
     let
@@ -153,9 +156,26 @@ assembleBrokenWithComments indent items =
 
         -- `acc.pending` holds the lines of leading block comments waiting for
         -- the term they ride; flushing drops each on its own row instead (next
-        -- term multi-line, a `--` intervened, or the flow ended).
+        -- term multi-line, or the flow ended).
         flushPending acc =
             { acc | entries = acc.entries ++ Array.map B.line acc.pending, pending = [] }
+
+        -- Pairing is all-or-nothing over a comment RUN: once a comment in the
+        -- current run has gone to its own row (a `--`, a multi-line `{- -}`),
+        -- the run is poisoned and the block comments after it stay own-row too
+        -- rather than jumping ahead of it onto the term. elm-format's rule,
+        -- verified: `-- first` / `{- c -}` / `w` keeps both comments own-row.
+        -- Reset by any real term, which ends the run.
+        ownRow c acc =
+            let
+                flushed =
+                    flushPending acc
+            in
+            { flushed
+                | entries = Array.pushLast c.box flushed.entries
+                , lastRow = -1
+                , poisoned = True
+            }
 
         step item accResult =
             accResult
@@ -180,7 +200,11 @@ assembleBrokenWithComments indent items =
                                         else
                                             when pairableCommentLine c is
                                                 Just cl ->
-                                                    Ok { acc | pending = Array.pushLast cl acc.pending }
+                                                    if acc.poisoned then
+                                                        Ok (ownRow c acc)
+
+                                                    else
+                                                        Ok { acc | pending = Array.pushLast cl acc.pending }
 
                                                 Nothing ->
                                                     -- Own row, with the next item
@@ -189,19 +213,21 @@ assembleBrokenWithComments indent items =
                                                     -- row-glues (the policy is
                                                     -- AlreadyTerminated), so
                                                     -- `lastRow` resets.
-                                                    flushPending acc
-                                                        |> (\a -> Ok { a | entries = Array.pushLast c.box a.entries, lastRow = -1 })
+                                                    Ok (ownRow c acc)
 
                                     Nothing ->
                                         when pairableCommentLine c is
                                             Just cl ->
-                                                Ok { acc | pending = Array.pushLast cl acc.pending }
+                                                if acc.poisoned then
+                                                    Ok (ownRow c acc)
+
+                                                else
+                                                    Ok { acc | pending = Array.pushLast cl acc.pending }
 
                                             Nothing ->
                                                 -- First-position `--` / multi-line
                                                 -- comment: its own first entry.
-                                                flushPending acc
-                                                    |> (\a -> Ok { a | entries = Array.pushLast c.box a.entries, lastRow = -1 })
+                                                Ok (ownRow c acc)
 
                             Nothing ->
                                 if not (Array.isEmpty acc.pending) && isSingleLine item.box then
@@ -220,14 +246,22 @@ assembleBrokenWithComments indent items =
                                             | entries = Array.pushLast (B.prefix prefixRow item.box) acc.entries
                                             , lastRow = lpnMaxRow item.node
                                             , pending = []
+                                            , poisoned = False
                                         }
 
                                 else
                                     flushPending acc
-                                        |> (\a -> Ok { a | entries = Array.pushLast item.box a.entries, lastRow = lpnMaxRow item.node })
+                                        |> (\a ->
+                                                Ok
+                                                    { a
+                                                        | entries = Array.pushLast item.box a.entries
+                                                        , lastRow = lpnMaxRow item.node
+                                                        , poisoned = False
+                                                    }
+                                           )
                     )
     in
-    Array.foldl step (Ok { entries = [], lastRow = -1, pending = [] }) items
+    Array.foldl step (Ok { entries = [], lastRow = -1, pending = [], poisoned = False }) items
         |> Result.map flushPending
         |> Result.andThen
             (\acc ->

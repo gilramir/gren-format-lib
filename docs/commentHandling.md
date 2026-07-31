@@ -151,17 +151,34 @@ over `commentRole (lpnBox node)`:
 | `CommentBox.makeCommentLineBox` | `commentTrailsRole` | top-level comment runs |
 | `NodeClassify.literalCommentsRideFlatLine` | `role == RidesInline` | flat-vs-open gate for literals/unions |
 | `BinopLayout.splitTrailingOwnLineComments` | `role == LeadsOwnLine` | own-line vs inline trailing binop comments |
+| `MakeRenderBox.binopChainIndentedLines` | the `LeadsOwnLine` split above | forced-vertical binop chains (both renderers) |
 
 `renderWhenBranchesBox` guards its glue on `pending` being empty so a same-row
 comment *run* leading a branch stays together instead of the second comment
 gluing back onto the previous branch. `assembleBrokenWithComments` carries the
 same kind of `pending` state for the opposite direction: a leading single-line
 block comment (any position in the stack, not just first) waits and rides the
-next term's line — `{- c -} arg` — matching elm-format's broken-call and
-broken-binop layout, and it is the only reparse fixed point once the comment
-sits on the term's row. A `--`, a multi-line comment, or a comment whose next
-term renders multi-line stands on its own row instead. These are the two places
-the role alone is not enough and a small amount of accumulation state is.
+next term's line — `{- c -} arg` — matching elm-format's broken-call layout, and
+it is the only reparse fixed point once the comment sits on the term's row. A
+`--`, a multi-line comment, or a comment whose next term renders multi-line
+stands on its own row instead. These are the two places the role alone is not
+enough and a small amount of accumulation state is.
+
+`binopChainIndentedLines` applies that same pairing across a forced-vertical
+binop chain's group boundaries: the own-line comment run peeled off a group
+rides the FOLLOWING group's operator line (`{- c -} + b`), which is where
+elm-format puts it. The chain has its own function rather than reusing
+`assembleBrokenWithComments` because its unit is a precedence *group*, not a
+flow item — but the two agree on which comments pair, both via the
+`FlowItem.comment` record, and both chain renderers
+(`verticalBinopChainBoxFromItems` and the legacy `verticalBinopChainBox`
+fallback) route through this one function so they cannot drift.
+
+Pairing is **all-or-nothing over a comment run** in both: a `--` or a multi-line
+`{- -}` anywhere in the run keeps every comment of that run on its own row,
+rather than letting the block comments behind it jump ahead onto the term. That
+is elm-format's rule, verified directly — `-- first` / `{- c -}` / `+ b` leaves
+both comments own-row there.
 
 ## Verticality — observe the box, don't predict it
 

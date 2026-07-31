@@ -284,6 +284,138 @@ splitTrailingOwnLineCommentItems items =
     { content = peeled.content, ownLine = peeled.ownLine }
 
 
+{-| One group of a vertical binop chain past the first: the operator that leads
+it, the box its content rendered to, and the run of own-line comment items
+peeled off its end. -}
+type alias BinopChainSegment =
+    { op : String, operandBox : Box, ownLine : Array FlowItem }
+
+
+{-| The line of a single-line block-comment item — the only comment kind that
+can ride the operator line that follows it. Literally the `pairableCommentLine`
+rule `assembleBrokenWithComments` uses for a broken call, over the same
+`FlowItem.comment` record, so a broken call and a broken binop chain pair the
+same comments. A `--` can have nothing after it on its row and a multi-line
+`{- -}` has no single line to ride, so neither pairs. -}
+pairableCommentItemLine : FlowItem -> Maybe B.Line
+pairableCommentItemLine item =
+    when item.comment is
+        Just c ->
+            if not c.isLineComment && not c.multiLine then
+                when B.isLine c.box is
+                    Ok cl ->
+                        Just cl
+
+                    Err _ ->
+                        Nothing
+
+            else
+                Nothing
+
+        Nothing ->
+            Nothing
+
+
+{-| Decide a group's own-line comment run: either the WHOLE run rides the next
+group's operator line, or none of it does and every comment stands on its own
+row.
+
+All-or-nothing, not a trailing peel — that is elm-format's rule, verified
+directly: `-- first` / `{- c -}` / `+ b` keeps *both* comments on their own rows
+there, and so does a multi-line `{- -}` followed by a single-line one. Splitting
+the run instead (pair the pairable suffix, stack the rest) would leave the two
+halves of one authored run laid out differently. -}
+splitPairingCommentItems : Array FlowItem -> { stacked : Array FlowItem, pairing : Array B.Line }
+splitPairingCommentItems items =
+    let
+        pairable =
+            Array.mapAndKeepJust pairableCommentItemLine items
+    in
+    if not (Array.isEmpty items) && Array.length pairable == Array.length items then
+        { stacked = [], pairing = pairable }
+
+    else
+        { stacked = items, pairing = [] }
+
+
+{-| The indented body of a vertical binop chain: each group's operator line,
+with the own-line comments between groups placed around them.
+
+A trailing run of single-line block comments in a group's own-line split does
+NOT stack on its own row — it rides the next group's operator line
+(`{- c -} + b`), which is what elm-format does with a leading block comment in a
+broken chain, and mirrors `assembleBrokenWithComments`'s `pending` for a broken
+call. Both authorings converge on it: written on its own row the comment pairs
+after one format, and written inline it stays paired, so the paired form is the
+only fixed point (the classifier tags the comment `LeadsOwnLine` either way, so
+the two authorings reparse to the same tree).
+
+The pairing is off in the three cases where there is no line to ride: the
+operator line rendered multi-line (conservative — only its first line would be
+ridden, but start narrow and widen on fuzzer evidence), the run contains a `--`
+or a multi-line `{- -}` (`splitPairingCommentItems` offers nothing then), or the
+run trails the LAST group and no operator line follows. Each of those keeps
+today's own-row layout, which reparses to itself.
+
+Shared by both chain renderers — `verticalBinopChainBoxFromItems` (live) and
+`verticalBinopChainBox` (the legacy fallback), which are documented as identical
+layout. Comment placement lives here once so the two cannot drift. -}
+binopChainIndentedLines : Array FlowItem -> Array BinopChainSegment -> Result String (Array Box)
+binopChainIndentedLines firstOwnLine segments =
+    let
+        -- Own-row comment items to their own boxes (`buildFlowBox 0 [ c ]`
+        -- with the item already rendered).
+        renderOwnRows items =
+            traverseResult (\c -> assembleFlow False 0 [ c ]) items
+
+        step seg accResult =
+            accResult
+                |> Result.andThen
+                    (\acc ->
+                        let
+                            opLine =
+                                prefixOperator seg.op seg.operandBox
+
+                            segSplit =
+                                splitPairingCommentItems seg.ownLine
+
+                            opLines =
+                                if Array.isEmpty acc.pairing then
+                                    [ opLine ]
+
+                                else if isSingleLine opLine then
+                                    [ B.prefix
+                                        (B.row (Array.flatten (Array.map (\cl -> [ cl, B.space ]) acc.pairing)))
+                                        opLine
+                                    ]
+
+                                else
+                                    -- Nothing single-line to ride: the waiting
+                                    -- comments fall back to their own rows,
+                                    -- ahead of the operator line.
+                                    Array.map B.line acc.pairing ++ [ opLine ]
+                        in
+                        renderOwnRows segSplit.stacked
+                            |> Result.map
+                                (\stackedBoxes ->
+                                    { lines = acc.lines ++ opLines ++ stackedBoxes
+                                    , pairing = segSplit.pairing
+                                    }
+                                )
+                    )
+
+        firstSplit =
+            splitPairingCommentItems firstOwnLine
+    in
+    renderOwnRows firstSplit.stacked
+        |> Result.andThen
+            (\stacked0 ->
+                Array.foldl step (Ok { lines = stacked0, pairing = firstSplit.pairing }) segments
+                    -- A run trailing the last group has no operator line to ride.
+                    |> Result.map (\acc -> acc.lines ++ Array.map B.line acc.pairing)
+            )
+
+
 {-| `verticalBinopChainBox` over pre-rendered operand items: identical layout —
 each group is assembled with the same `assembleFlow` calls that
 `buildFlowBoxInline` / `buildFlowBox` wrap, and `renderFlowItems (a ++ b)` is
@@ -294,10 +426,6 @@ up-front render in `makeBinopBox`. Only the operator leaves are rendered here
 verticalBinopChainBoxFromItems : Array LPNode -> Array (Array FlowItem) -> Result String Box
 verticalBinopChainBoxFromItems ops operandItems =
     let
-        -- Render a run of own-line comment items to their own boxes.
-        renderOwnLineComments items =
-            traverseResult (\c -> assembleFlow False 0 [ c ]) items
-
         -- Assemble a group's content: `assembleFlow True 0` (the
         -- `buildFlowBoxInline 0` assembly) keeps a LEADING block comment glued
         -- on-line (`{- c -} 100`) rather than dropping the operand to its own
@@ -327,34 +455,21 @@ verticalBinopChainBoxFromItems ops operandItems =
                         renderOperandContent op0.content
                             |> Result.andThen
                                 (\firstBox ->
-                                    renderOwnLineComments op0.ownLine
-                                        |> Result.andThen
-                                            (\op0Comments ->
-                                                traverseResult
-                                                    (\seg ->
-                                                        renderOperandContent seg.split.content
-                                                            |> Result.andThen
-                                                                (\operandBox ->
-                                                                    renderOwnLineComments seg.split.ownLine
-                                                                        |> Result.map
-                                                                            (\segComments ->
-                                                                                -- own-line comments lead the operator
-                                                                                -- line's own follow-on comments trail it
-                                                                                [ prefixOperator seg.op operandBox ] ++ segComments
-                                                                            )
-                                                                )
+                                    traverseResult
+                                        (\seg ->
+                                            renderOperandContent seg.split.content
+                                                |> Result.map
+                                                    (\operandBox ->
+                                                        { op = seg.op, operandBox = operandBox, ownLine = seg.split.ownLine }
                                                     )
-                                                    segData
-                                                    |> Result.map
-                                                        (\segLineLists ->
-                                                            -- Every operator line + every own-line comment
-                                                            -- sits at +grenIndent; `firstBox` (operand0) at the base.
-                                                            let
-                                                                indentedLines =
-                                                                    op0Comments ++ Array.flatten segLineLists
-                                                            in
-                                                            B.stack1 ([ firstBox ] ++ Array.map B.indent indentedLines)
-                                                        )
+                                        )
+                                        segData
+                                        |> Result.andThen (binopChainIndentedLines op0.ownLine)
+                                        |> Result.map
+                                            (\indentedLines ->
+                                                -- Every operator line + every own-line comment
+                                                -- sits at +grenIndent; `firstBox` (operand0) at the base.
+                                                B.stack1 ([ firstBox ] ++ Array.map B.indent indentedLines)
                                             )
                                 )
                     )
@@ -462,10 +577,6 @@ verticalBinopChainBox children =
         flat =
             flattenBinopNodes children
 
-        -- Render a run of own-line comment nodes to their own boxes.
-        renderOwnLineComments nodes =
-            traverseResult (\c -> buildFlowBox 0 [ c ]) nodes
-
         -- Render a group's content: `buildFlowBoxInline` keeps a LEADING block
         -- comment glued on-line (`{- c -} 100`) rather than dropping the operand to
         -- its own row, matching how the operator segment should read.
@@ -489,32 +600,32 @@ verticalBinopChainBox children =
             renderOperandContent op0.content
                 |> Result.andThen
                     (\firstBox ->
-                        renderOwnLineComments op0.ownLine
+                        -- The own-line comment runs go through `renderFlowItems`
+                        -- so `binopChainIndentedLines` — the SAME function the
+                        -- live item path uses — decides their placement here too.
+                        -- Rendering a comment leaf to an item is what
+                        -- `buildFlowBox 0 [ c ]` did internally anyway.
+                        renderFlowItems op0.ownLine
                             |> Result.andThen
-                                (\op0Comments ->
+                                (\op0Items ->
                                     traverseResult
                                         (\seg ->
                                             renderOperandContent seg.split.content
                                                 |> Result.andThen
                                                     (\operandBox ->
-                                                        renderOwnLineComments seg.split.ownLine
+                                                        renderFlowItems seg.split.ownLine
                                                             |> Result.map
-                                                                (\segComments ->
-                                                                    -- own-line comments lead the operator
-                                                                    -- line's own follow-on comments trail it
-                                                                    [ prefixOperator seg.op operandBox ] ++ segComments
+                                                                (\ownLineItems ->
+                                                                    { op = seg.op, operandBox = operandBox, ownLine = ownLineItems }
                                                                 )
                                                     )
                                         )
                                         segData
+                                        |> Result.andThen (binopChainIndentedLines op0Items)
                                         |> Result.map
-                                            (\segLineLists ->
+                                            (\indentedLines ->
                                                 -- Every operator line + every own-line comment
                                                 -- sits at +grenIndent; `firstBox` (operand0) at the base.
-                                                let
-                                                    indentedLines =
-                                                        op0Comments ++ Array.flatten segLineLists
-                                                in
                                                 B.stack1 ([ firstBox ] ++ Array.map B.indent indentedLines)
                                             )
                                 )
