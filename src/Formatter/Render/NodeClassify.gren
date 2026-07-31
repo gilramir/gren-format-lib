@@ -1,4 +1,4 @@
-module Formatter.Render.NodeClassify exposing (fieldValueDropsToOwnLine, isArrowLeaf, isColonLeaf, isDroppingSignatureRecordNode, isElidedArrow, isEmptyLine, isMultilineLambdaParenBlockBox, isOpAndRhsNode, isPipelineStepNode, leafLineRow, leafValue, literalCommentsRideFlatLine, nodeIsComment, parenContentIsLambdaHead, rowsSpanMultiple, segFirstRow, segLastRow, signatureForceVertical, splitSignatureSegments, subtreeEndsWithLineComment, subtreeHasComment, subtreeHasMultilineBlockComment, typeHasCommentBracket)
+module Formatter.Render.NodeClassify exposing (fieldValueDropsToOwnLine, isArrowLeaf, isColonLeaf, isDroppingSignatureRecordNode, isElidedArrow, isEmptyLine, isMultilineLambdaParenBlockBox, isOpAndRhsNode, isPipelineStepNode, leafLineRow, leafValue, literalCommentsRideFlatLine, nodeIsComment, parenContentIsLambdaHead, rowsSpanMultiple, segFirstRow, segLastRow, signatureForceVertical, splitSignatureSegments, subtreeEndsWithLineComment, subtreeHasComment, typeHasCommentBracket)
 
 {-| Boolean predicates and small structural queries over LPT nodes.
 -}
@@ -111,19 +111,6 @@ literalCommentsRideFlatLine children =
             )
             children
         )
-
-
--- True if the subtree contains a MULTI-LINE block comment — the align-anchored
--- content that makes a nest-carrying first item's box heterogeneous (see the
--- AsFirst fence in `assembleFlowImpl`).
-subtreeHasMultilineBlockComment : LPNode -> Bool
-subtreeHasMultilineBlockComment node =
-    when lpnBox node is
-        BlockComment { loc } ->
-            String.contains "\n" loc.value
-
-        _ ->
-            Array.any subtreeHasMultilineBlockComment (lpnChildren node)
 
 
 -- True when the subtree contains a bracketed literal (record/array/record-update)

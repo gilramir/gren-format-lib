@@ -101,6 +101,53 @@ def shape_pipeline_chain(n):
     return "1 " + ("|> identity " * n)
 
 
+# The four shapes below are FEATURE CONJUNCTIONS, not plain nesting: each one
+# needs a paren AND a lambda (or a paren AND a pipeline step) at every level to
+# reach the code path that used to render the same subtree two or four times per
+# level. The single-feature shapes above are all linear and stay linear, which is
+# exactly why none of them caught this class -- the controls are `list` (no
+# lambda) and `lambda` (no paren), both ~0.06s at depth 25 while these were
+# minutes at depth 22.
+
+def shape_lambda_array(n):
+    """`(\\q -> [ <inner>, 1 ])` nested through the array. Paren + lambda + a
+    bracket body: the `parenGenericFallbackBox` / `parenLambdaMultiline`
+    double-render (2^depth)."""
+    s = "0"
+    for i in range(n):
+        s = "(\\q%d -> [ %s, 1 ])" % (i, s)
+    return s
+
+
+def shape_lambda_record(n):
+    """Same conjunction with a record body -- a different soft-block child."""
+    s = "0"
+    for i in range(n):
+        s = "(\\q%d -> { a = %s, b = 1 })" % (i, s)
+    return s
+
+
+def shape_pipe_paren_arg(n):
+    """`0 |> g (<inner>)` nested: the paren reaches the pipeline-step trigger
+    machinery as a step ARGUMENT."""
+    s = "0"
+    for _ in range(n):
+        s = "0 |> g (%s)" % s
+    return s
+
+
+def shape_pipe_lambda(n):
+    """A pipeline step whose operand is a parenthesized lambda, nested through
+    the lambda's body -- the direct-operand path (`splitStepTrigger`'s guard,
+    `directOperandLambdaSplit`). Written pre-broken, which is what puts each
+    level on the multi-line branch."""
+    s = "v"
+    for i in range(n - 1, -1, -1):
+        indented = "\n".join("        " + line for line in s.split("\n"))
+        s = "v\n    |> (\\a%d ->\n%s\n       )" % (i, indented)
+    return s
+
+
 SHAPES = {
     "parens": shape_parens,
     "list": shape_list,
@@ -110,6 +157,10 @@ SHAPES = {
     "unaryminus": shape_unary_minus,
     "binopchain": shape_binop_chain,
     "pipelinechain": shape_pipeline_chain,
+    "lambdaarray": shape_lambda_array,
+    "lambdarecord": shape_lambda_record,
+    "pipeparenarg": shape_pipe_paren_arg,
+    "pipelambda": shape_pipe_lambda,
 }
 
 

@@ -436,3 +436,24 @@ unusable well before 25 levels of nesting. That one *was* a formatter bug
 record literals now nest as deep as the parser allows, same as most other
 constructs.
 
+The same double-render bug turned out to have four more sites, all needing a
+*conjunction* of features rather than one construct nested deeply — which is
+why the single-construct shapes above never showed it. A paren wrapping a
+lambda whose body is a bracket literal (`(\q -> [ …, 1 ])`), the record
+variant, a paren-wrapped pipeline as a step argument (`0 |> g ( … )`), and a
+parenthesized lambda used as a direct pipeline operand
+(`v |> (\a -> … )`) each rendered the same subtree two or four times per
+level. All four have been fixed by rendering each subtree once and reading the
+layout decisions off the resulting box instead of re-rendering to ask; the
+first three now nest as deep as the parser allows.
+
+The fourth — a **direct-operand pipeline lambda**, nested through the lambda's
+own body — is improved by roughly two orders of magnitude (four renders per
+level down to two: depth 10 went from 22 s to 0.14 s) but is still
+exponential, becoming unusable somewhere around 19 levels. The residual is one
+render: the direct-operand layout needs the lambda's head line and body box
+*separately*, so it renders the body a second time even though the paren's own
+box already contains it. Removing it means threading the paren's already-
+rendered child boxes out through the flow-item record — worth doing, not yet
+done, and not reachable by any nesting depth a person writes.
+

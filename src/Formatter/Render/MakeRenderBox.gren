@@ -20,7 +20,7 @@ import Formatter.Render.CommentBox exposing (commentNodeBox, commentNodeToBox, e
 import Formatter.Render.ElmStructure as E
 import Formatter.Render.FlowAssembly exposing (FlowItem, SoftGlueAlignment(..), assembleBrokenCall, assembleBrokenWithComments, bracketPunc, gluedExposingBox, pairLeadingComments, parenInnerIsAlignCarrying, softBlockChildForcesVerticalBox, softGlueAlignment, trySoftGlueFlow, verticalExposingBox)
 import Formatter.Render.FlowPolicy as FP
-import Formatter.Render.NodeClassify exposing (fieldValueDropsToOwnLine, isColonLeaf, isDroppingSignatureRecordNode, isMultilineLambdaParenBlockBox, isOpAndRhsNode, isPipelineStepNode, leafLineRow, leafValue, literalCommentsRideFlatLine, nodeIsComment, parenContentIsLambdaHead, rowsSpanMultiple, signatureForceVertical, splitSignatureSegments, subtreeEndsWithLineComment, subtreeHasComment, subtreeHasMultilineBlockComment, typeHasCommentBracket)
+import Formatter.Render.NodeClassify exposing (fieldValueDropsToOwnLine, isColonLeaf, isDroppingSignatureRecordNode, isMultilineLambdaParenBlockBox, isOpAndRhsNode, isPipelineStepNode, leafLineRow, leafValue, literalCommentsRideFlatLine, nodeIsComment, parenContentIsLambdaHead, rowsSpanMultiple, signatureForceVertical, splitSignatureSegments, subtreeEndsWithLineComment, subtreeHasComment, typeHasCommentBracket)
 
 
 {-| Entry point: render one top-level root child to a Box, or `Err` if it
@@ -901,6 +901,9 @@ makePipelineBox forceVertical op children =
                             )
                 )
 
+
+-- ═══ pipeline-step trigger classification ═══
+--
 -- One `|> step`. Rendered via `buildFlowBox grenIndent`: the operator + function
 -- stay inline (`|> f`) and a multi-line block argument (a record / array /
 -- `when` / `if` / `let` that forces vertical) relocates to the next line at +4.
@@ -912,97 +915,28 @@ makePipelineBox forceVertical op children =
 -- `makeMultilineParenArgBox`, or stays glued) that `assembleFlow`'s generic block
 -- drop doesn't reproduce — so those take the trigger-split path. A single-line
 -- ParenBlock argument (`|> f (g x)`) is fine (it renders inline).
--- ═══ pipeline-step trigger classification ═══
 
 
-{-| True when `node`'s rendered Box spans multiple rows. -}
-nodeForcesVerticalBox : LPNode -> Bool
-nodeForcesVerticalBox node =
-    when makePBox (lpnBox node) (lpnChildren node) is
-        Ok b ->
-            not (isSingleLine b)
+{-| Split a pipeline step's ALREADY-RENDERED items at the step's *trigger* — the
+first node that breaks onto its own line: a multi-line lambda-argument paren, a
+multi-line content paren, or any other multi-line-forcing node such as a record
+argument. A left-to-right split matching elm-format, including the
+direct-operand-lambda exclusion (`|> (\x -> …)` stays glued to the operator).
+`Nothing` = no trigger.
 
-        Err _ ->
-            False
-
-
--- A non-comment node that renders multi-line forces the surrounding flow
--- vertical.
-flowChildForcesVerticalBox : LPNode -> Bool
-flowChildForcesVerticalBox node =
-    not (nodeIsComment node) && nodeForcesVerticalBox node
-
-
--- True when `node` is a `ParenBlock` that renders multi-line — the ONLY
--- signal `splitStepTrigger`'s direct-operand guard needs. elm-format glues
--- ANY paren immediately after `|>` (nothing else in the step yet) to the
--- operator, whatever is inside it: `if`/`when`/`let`, a lambda, a broken
--- binop, a broken record literal all glue the same way — content shape
--- doesn't matter, only "is this a paren, and is it the very first thing in
--- the step". Used by the direct-operand guard.
---
--- Deliberately does NOT require `parenContentIsLambdaHead`, unlike its
--- namesake: `isDirectOperandLambda` relies on ANY paren-wrapped block
--- reporting True here to keep it OUT of the trigger split. Adding the guard
--- sends one down the relocation path instead, which strands the `|>` on its
--- own line where elm-format glues `|> (if cond then`. Callers that SPLIT the
--- node into `[head, body]` must add the guard themselves — see
--- `directOperandLambdaSplit`.
---
--- Earlier versions of this check tried to structurally recognize each
--- glue-worthy shape one at a time (an `if`/`let`'s body is the ParenBlock's
--- own second child; a `when`'s `WhenFlow` bundles everything into one child
--- instead, needing its own case) and kept missing new ones — a broken binop
--- or record literal is neither shape, so `|> (aaa\n    ++ bbb)` and
--- `|> ({ a = 1\n    , b = 2 })` still stranded the `|>` even after `when` was
--- special-cased. The content shape was never the actual signal; "is this
--- node a multi-line ParenBlock" already is.
-isMultilineLambdaParenBlockAnyBodyBox : LPNode -> Bool
-isMultilineLambdaParenBlockAnyBodyBox node =
-    when lpnBox node is
-        ParenBlock _ ->
-            nodeForcesVerticalBox node
-
-        _ ->
-            False
-
-
--- True when `node` is a bracket container (array / record literal, or record
--- update) that renders multi-line. A container written directly after `|>`
--- glues to the operator the same way a `ParenBlock` does — elm-format keeps
--- `|> [ 1` / `|> { a = 1` on the operator's line — so the direct-operand guard
--- must keep it OUT of the trigger split, or the relocation branch strands `|>`
--- alone on its line and drops the container +4 below it.
-isMultilineBracketContainerBox : LPNode -> Bool
-isMultilineBracketContainerBox node =
-    (when lpnBox node is
-        AllAcrossOrAllVertical _ ->
-            True
-
-        AlwaysVertical _ ->
-            True
-
-        RecordUpdate _ ->
-            True
-
-        _ ->
-            False
-    )
-        && nodeForcesVerticalBox node
-
-
-{-| Split a pipeline step's children at its *trigger* — the first node that
-breaks onto its own line: a multi-line lambda-argument paren, a multi-line
-content paren, or any other multi-line-forcing node such as a record argument.
-A left-to-right split matching elm-format, including the direct-operand-lambda
-exclusion (`|> (\x -> …)` stays glued to the operator). `Nothing` = no trigger. -}
-splitStepTrigger : Array LPNode -> Maybe { preamble : Array LPNode, trigger : LPNode, suffix : Array LPNode }
-splitStepTrigger stepChildren =
+Every verticality question here is answered from `item.box`, the box the caller
+already rendered. Asking the node instead (`makePBox` just to test
+`isSingleLine`) meant the guard rendered a subtree that the preamble/trigger
+render then rendered again — two to four full renders of the same subtree per
+nesting level, which is why a nested `0 |> g ( 0 |> g ( … ))` cost 2^depth and a
+nested direct-operand pipeline lambda ~4^depth. -}
+splitStepTriggerItems : Array FlowItem -> Maybe { preamble : Array FlowItem, trigger : FlowItem, suffix : Array FlowItem }
+splitStepTriggerItems stepItems =
     (Array.foldl
-        (\node acc ->
+        (\item acc ->
             when acc.split is
                 Just s ->
-                    { acc | split = Just { s | suffix = Array.pushLast node s.suffix } }
+                    { acc | split = Just { s | suffix = Array.pushLast item s.suffix } }
 
                 Nothing ->
                     let
@@ -1016,24 +950,65 @@ splitStepTrigger stepChildren =
                         -- line with the operand dropped +4 below.
                         isDirectGluedOperand =
                             Array.length acc.preamble <= 1
-                                && (isMultilineLambdaParenBlockAnyBodyBox node
-                                        || isMultilineBracketContainerBox node
+                                && (itemIsMultilineParenBlock item
+                                        || itemIsMultilineBracketContainer item
                                    )
                     in
                     if
                         not isDirectGluedOperand
-                            && (isMultilineLambdaParenBlockBox node
-                                    || flowChildForcesVerticalBox node
+                            && (isMultilineLambdaParenBlockBox item.node
+                                    || itemForcesFlowVertical item
                                )
                     then
-                        { acc | split = Just { preamble = acc.preamble, trigger = node, suffix = [] } }
+                        { acc | split = Just { preamble = acc.preamble, trigger = item, suffix = [] } }
 
                     else
-                        { acc | preamble = Array.pushLast node acc.preamble }
+                        { acc | preamble = Array.pushLast item acc.preamble }
         )
         { preamble = [], split = Nothing }
-        stepChildren
+        stepItems
     ).split
+
+
+-- The three `splitStepTriggerItems` predicates, each the item-box form of the
+-- node-rendering one it replaced (`isMultilineLambdaParenBlockAnyBodyBox`,
+-- `isMultilineBracketContainerBox`, `flowChildForcesVerticalBox`). The structural
+-- half is unchanged; only the verticality half moved from "render it again" to
+-- "read the box we have". A comment item's `box` is `B.blankLine` (single-line),
+-- so the explicit comment guard below is belt-and-braces, matching the original.
+
+
+itemIsMultilineParenBlock : FlowItem -> Bool
+itemIsMultilineParenBlock item =
+    when lpnBox item.node is
+        ParenBlock _ ->
+            not (isSingleLine item.box)
+
+        _ ->
+            False
+
+
+itemIsMultilineBracketContainer : FlowItem -> Bool
+itemIsMultilineBracketContainer item =
+    (when lpnBox item.node is
+        AllAcrossOrAllVertical _ ->
+            True
+
+        AlwaysVertical _ ->
+            True
+
+        RecordUpdate _ ->
+            True
+
+        _ ->
+            False
+    )
+        && not (isSingleLine item.box)
+
+
+itemForcesFlowVertical : FlowItem -> Bool
+itemForcesFlowVertical item =
+    not (nodeIsComment item.node) && not (isSingleLine item.box)
 
 
 {-| Render a relocated multi-line lambda argument `(\args ->` … `)` — head glued
@@ -1082,15 +1057,32 @@ makeMultilineLambdaArgBox children =
 {-| Split a direct-operand multi-line lambda ParenBlock (`(\x -> body)`) into its
 head line (`\x ->`) and rendered body box, for the soft-glue direct-operand
 render. `Nothing` if it isn't a multi-line lambda paren, has a multi-line head
-(a comment among the params), or fails to render — those fall back. -}
-directOperandLambdaSplit : LPNode -> Maybe { headLine : B.Line, bodyBox : Box }
-directOperandLambdaSplit node =
-    -- `isMultilineLambdaParenBlockAnyBodyBox` only checks the SECOND child is a
-    -- block, which is also true for a paren-`if`/`when` (its first branch is a
-    -- block) — splitting one as `[head, body]` would drop the remaining
-    -- branches. Require the FIRST child to be a lambda head (not an
-    -- `if`/`when`/`let`), matching `makeParenBlockBox`'s content dispatch.
-    if not (isMultilineLambdaParenBlockAnyBodyBox node) || not (parenContentIsLambdaHead node) then
+(a comment among the params), or fails to render — those fall back.
+
+Takes the caller's `FlowItem`, not the bare node: the "is this paren multi-line"
+gate reads `item.box`, which the flow already rendered. Rendering the subtree
+again just to answer it was one of the four renders per level behind the
+~4^depth nested-pipeline-lambda hang. -}
+directOperandLambdaSplit : FlowItem -> Maybe { headLine : B.Line, bodyBox : Box }
+directOperandLambdaSplit item =
+    let
+        node =
+            item.node
+
+        -- "A multi-line ParenBlock" only says the SECOND child is a block, which
+        -- is also true for a paren-`if`/`when` (its first branch is a block) —
+        -- splitting one as `[head, body]` would drop the remaining branches.
+        -- Require the FIRST child to be a lambda head (not an `if`/`when`/`let`),
+        -- matching `makeParenBlockBox`'s content dispatch.
+        isMultilineParen =
+            when lpnBox node is
+                ParenBlock _ ->
+                    not (isSingleLine item.box)
+
+                _ ->
+                    False
+    in
+    if not isMultilineParen || not (parenContentIsLambdaHead node) then
         Nothing
 
     else
@@ -1192,50 +1184,61 @@ renderPipelineStepChildrenWith glueLeading allChildren =
 -- `renderPipelineStepChildren`).
 stepBodyBox : Array LPNode -> Result String Box
 stepBodyBox children =
-    when splitStepTrigger children is
-        Nothing ->
-            -- No relocatable trigger arg: render the step body as a plain flow.
-            -- It can still be multi-line (e.g. a block comment among the tokens
-            -- forces a break, as in `|> {- … -} Array.foldl (+) 0`) — there is
-            -- nothing to relocate, so `buildFlowBox` lays it out directly.
-            buildFlowBox grenIndent children
+    -- Render the children ONCE, up front, and drive everything below off those
+    -- items: the trigger split's verticality tests, the preamble assembly
+    -- (`assembleFlow True 0` IS `buildFlowBoxInline 0`), the suffix, and — for
+    -- every trigger but the relocated lambda — the trigger box itself. Each of
+    -- those used to re-render its own subtree.
+    renderFlowItems children
+        |> Result.andThen
+            (\items ->
+                when splitStepTriggerItems items is
+                    Nothing ->
+                        -- No relocatable trigger arg: render the step body as a
+                        -- plain flow. It can still be multi-line (e.g. a block
+                        -- comment among the tokens forces a break, as in
+                        -- `|> {- … -} Array.foldl (+) 0`) — there is nothing to
+                        -- relocate, so the flow lays it out directly.
+                        assembleFlow False grenIndent items
 
-        Just { preamble, trigger, suffix } ->
-            let
-                triggerBoxResult =
-                    if isMultilineLambdaParenBlockBox trigger then
-                        makeMultilineLambdaArgBox (lpnChildren trigger)
+                    Just { preamble, trigger, suffix } ->
+                        let
+                            triggerBoxResult =
+                                if isMultilineLambdaParenBlockBox trigger.node then
+                                    makeMultilineLambdaArgBox (lpnChildren trigger.node)
 
-                    else
-                        -- A multi-line non-lambda paren (or a bracket container)
-                        -- relocates via its own box: `makeParenBlockBox`'s vertical
-                        -- form is `wrapParenVerticalPadded (buildFlowBoxInline 0 …)`,
-                        -- byte-identical to the former `makeMultilineParenArgBox`
-                        -- special case — so one renderer serves both, no
-                        -- `subtreeHasVerticalBox` shape prediction needed.
-                        makePBox (lpnBox trigger) (lpnChildren trigger)
-            in
-            buildFlowBoxInline 0 preamble
-                |> Result.andThen
-                    (\preambleBox ->
-                        triggerBoxResult
+                                else
+                                    -- A multi-line non-lambda paren (or a bracket
+                                    -- container) relocates via its own box — which
+                                    -- is exactly the box already rendered for it
+                                    -- (`makeParenBlockBox`'s vertical form is
+                                    -- `wrapParenVerticalPadded (buildFlowBoxInline
+                                    -- 0 …)`, byte-identical to the former
+                                    -- `makeMultilineParenArgBox` special case).
+                                    Ok trigger.box
+                        in
+                        assembleFlow True 0 preamble
                             |> Result.andThen
-                                (\triggerBox ->
-                                    if Array.isEmpty suffix then
-                                        Ok (B.stack1 [ preambleBox, applyIndent grenIndent triggerBox ])
+                                (\preambleBox ->
+                                    triggerBoxResult
+                                        |> Result.andThen
+                                            (\triggerBox ->
+                                                if Array.isEmpty suffix then
+                                                    Ok (B.stack1 [ preambleBox, applyIndent grenIndent triggerBox ])
 
-                                    else
-                                        buildFlowBox 0 suffix
-                                            |> Result.map
-                                                (\suffixBox ->
-                                                    B.stack1
-                                                        [ preambleBox
-                                                        , applyIndent grenIndent triggerBox
-                                                        , applyIndent grenIndent suffixBox
-                                                        ]
-                                                )
+                                                else
+                                                    assembleFlow False 0 suffix
+                                                        |> Result.map
+                                                            (\suffixBox ->
+                                                                B.stack1
+                                                                    [ preambleBox
+                                                                    , applyIndent grenIndent triggerBox
+                                                                    , applyIndent grenIndent suffixBox
+                                                                    ]
+                                                            )
+                                            )
                                 )
-                    )
+            )
 
 
 {-| Render a backward (`<|`) pipeline: the `<|` trails the seed (or previous step
@@ -1302,6 +1305,13 @@ makeBackwardPipelineBox forceVertical children =
                                     False
                         )
                         kids
+
+                -- NOTE: `kids` is the step's DIRECT children only, so a `--`
+                -- buried deeper in a composite step body would not be seen and
+                -- would be swallowed by the `" <|"` suffix. Believed unreachable
+                -- today: the parser left-nests `<|`, so every non-last step body
+                -- is a single atom. A hazard if the grammar grows -- make this
+                -- recursive (`subtreeEndsWithLineComment`-style) at that point.
             in
             firstIsComment || hasNonRidingComment
 
@@ -1417,9 +1427,16 @@ assembleBackwardPipeline forceVertical seedBox stepBodies =
             backwardMultiStep forceVertical seedBox stepBodies
 
 
--- A single `seed <| body` step. A trailing `IndentedBlock` marks a lambda body
--- authored across rows (`\head` at +4, its body at +8); otherwise a plain body
--- drops to +4 (or stays inline when the chain isn't forced vertical).
+-- A single `seed <| body` step. A plain body drops to +4 (or stays inline when
+-- the chain isn't forced vertical) via `buildBackwardBodyBox`, which reaches
+-- `assembleBrokenCall` for the layout.
+--
+-- The `IndentedBlock` arm below reads as the across-rows-lambda case (`\head` at
+-- +4, its body at +8), but it is believed UNREACHABLE: `insertBinops` wraps every
+-- multi-node step body in a `BodyBlock`, not an `IndentedBlock` (verified via
+-- `--lpt` for lambdas), so the `_` arm is what actually renders a broken lambda
+-- body. Kept rather than deleted because "believed unreachable" is not proven
+-- unreachable; if you make it fire, the layout it produces is untested.
 backwardSingleStep : Bool -> Box -> Array LPNode -> Result String Box
 backwardSingleStep forceVertical seedBox bodyNodes =
     when Array.popLast bodyNodes is
@@ -2897,161 +2914,94 @@ blockInParenBox children =
 
 {-| The non-block ParenBlock shapes: inline, or a generic vertical `(…\n)`. The
 vertical form triggers on either verticality signal or a multi-line lambda body
-(second child an `IndentedBlock`, or a `SoftIndentedBlock` whose sole bracket
-literal renders vertical — see `parenLambdaMultiline`). -}
+(second child an `IndentedBlock`, or a `SoftIndentedBlock` that renders vertical
+— see `parenLambdaMultilineItems`).
+
+The content is rendered ONCE, as flow items, and everything downstream reads
+those: `innerBox` is `assembleFlow True 0` over them (exactly what
+`buildFlowBoxInline 0 children` produced), and the lambda-body test reads the
+second item's own box instead of re-rendering the subtree. Rendering it twice
+made a nested `(\x -> [ … ])` chain cost 2^depth — depth 22 took over a minute.
+Inline-start (`assembleFlow True`): the content continues the `(`-line, so a
+leading single-line block comment stays inline (`({- c -} expr)`).
+-}
 parenGenericFallbackBox : { forceVertical : Bool, checkContentVertical : Bool } -> Array LPNode -> Result String Box
 parenGenericFallbackBox flags children =
-    -- Inline-start via `buildFlowBoxInline 0 children`: the content continues the
-    -- `(`-line, so a leading single-line block comment stays inline
-    -- (`({- c -} expr)`).
-    buildFlowBoxInline 0 children
+    renderFlowItems children
         |> Result.andThen
-            (\innerBox ->
-                let
-                    contentForcesVertical =
-                        flags.checkContentVertical && not (isSingleLine innerBox)
+            (\items ->
+                assembleFlow True 0 items
+                    |> Result.map
+                        (\innerBox ->
+                            let
+                                contentForcesVertical =
+                                    flags.checkContentVertical && not (isSingleLine innerBox)
 
-                    goVertical =
-                        flags.forceVertical || contentForcesVertical || parenLambdaMultiline children
-                in
-                if goVertical then
-                    if parenContentLeadsWithMultilinePrefixGlue children then
-                        Ok (wrapParenVerticalPadded innerBox)
-
-                    else if Array.any subtreeHasComment children && not (parenLambdaMultiline children) then
-                        -- A comment forced this content multi-line via the
-                        -- comment-aware flow builders' `B.prefix` glue (exact
-                        -- character-width alignment, not a Tab stop), so the
-                        -- paren's own `(` width must ride along on every
-                        -- continuation line too — same reasoning as the
-                        -- bracket-pattern-lambda case above, just reached by a
-                        -- different LPT shape (binop/call, not PrefixGlue).
-                        -- Excludes the lambda-body case (`parenLambdaMultiline`):
-                        -- its body is Tab-indented relative to the ambient
-                        -- block, not the `(` column, even if a comment sits
-                        -- somewhere inside it.
-                        Ok (wrapParenVerticalPadded innerBox)
-
-                    else
-                        Ok (wrapParenVerticalPadded innerBox)
-
-                else
-                    when B.isLine innerBox is
-                        Ok l ->
-                            Ok (B.line (B.row [ B.punc "(", l, B.punc ")" ]))
-
-                        Err _ ->
-                            -- A formatter-synthesized wrap (`checkContentVertical
-                            -- = False`) around content a comment forced
-                            -- multi-line: elm-format's inline form is a plain
-                            -- `( inner )`, `)` glued onto the inner's last line.
-                            -- When the inner is align-carrying (a bracket literal
-                            -- / record — its continuation lines anchor at its own
-                            -- start column), the `(` width must ride along on
-                            -- every continuation line (`B.prefix`) so the inner's
-                            -- `,`/`}` stay under the opening bracket, not the `(`.
-                            -- Otherwise (a nest-carrying inner) the continuation
-                            -- lines belong at the ambient column, so only the
-                            -- first line gets the `(` (`B.mapFirstLine`).
-                            if parenInnerIsAlignCarrying children then
-                                Ok (B.addSuffix (B.punc ")") (B.prefix (B.punc "(") innerBox))
+                                goVertical =
+                                    flags.forceVertical || contentForcesVertical || parenLambdaMultilineItems items
+                            in
+                            if goVertical then
+                                -- One expression, deliberately. This used to be a
+                                -- three-way branch on
+                                -- `parenContentLeadsWithMultilinePrefixGlue` (an
+                                -- align-carrying `(\{ … } …)` parameter) and on
+                                -- "a comment forced the break", whose bodies were
+                                -- all byte-identical `wrapParenVerticalPadded`
+                                -- calls — so the two predicates decided nothing
+                                -- while each rendering a subtree to decide it.
+                                -- The `(`-width padding those arms described is
+                                -- what `wrapParenVerticalPadded` does in every
+                                -- case; there was never an unpadded exclusion.
+                                wrapParenVerticalPadded innerBox
 
                             else
-                                Ok (B.addSuffix (B.punc ")") (B.mapFirstLine (\l -> B.row [ B.punc "(", l ]) identity innerBox))
+                                when B.isLine innerBox is
+                                    Ok l ->
+                                        B.line (B.row [ B.punc "(", l, B.punc ")" ])
+
+                                    Err _ ->
+                                        -- A formatter-synthesized wrap (`checkContentVertical
+                                        -- = False`) around content a comment forced
+                                        -- multi-line: elm-format's inline form is a plain
+                                        -- `( inner )`, `)` glued onto the inner's last line.
+                                        -- When the inner is align-carrying (a bracket literal
+                                        -- / record — its continuation lines anchor at its own
+                                        -- start column), the `(` width must ride along on
+                                        -- every continuation line (`B.prefix`) so the inner's
+                                        -- `,`/`}` stay under the opening bracket, not the `(`.
+                                        -- Otherwise (a nest-carrying inner) the continuation
+                                        -- lines belong at the ambient column, so only the
+                                        -- first line gets the `(` (`B.mapFirstLine`).
+                                        if parenInnerIsAlignCarrying children then
+                                            B.addSuffix (B.punc ")") (B.prefix (B.punc "(") innerBox)
+
+                                        else
+                                            B.addSuffix (B.punc ")") (B.mapFirstLine (\l -> B.row [ B.punc "(", l ]) identity innerBox)
+                        )
             )
 
 
-{-| True when a paren's content is a lambda whose PARAMETER is a multi-line
-bracket pattern (`(\{ … } …)`, `(\[ … ] …)`) — the align-style case where the
-paren must pad continuations (`wrapParenVerticalPadded`) so the pattern's `,`/`}`
-stay under the opening bracket. A `\x -> <multi-line body>` lambda leads with a
-single-line `PrefixGlue`, so it does not match — its body is absolute-nested and
-must NOT be padded. -}
-parenContentLeadsWithMultilinePrefixGlue : Array LPNode -> Bool
-parenContentLeadsWithMultilinePrefixGlue children =
-    when Array.first children is
-        Just first ->
-            when lpnBox first is
-                -- The paren content is usually a single `AcrossOrVertical` flow
-                -- (`\{ … } param -> body`); descend into it to reach the leading
-                -- `PrefixGlue`.
-                AcrossOrVertical _ ->
-                    parenContentLeadsWithMultilinePrefixGlue (lpnChildren first)
+{-| The second direct child is an `IndentedBlock` (a lambda body on a separate
+row — always multi-line), or a `SoftIndentedBlock` whose sole child is a bracket
+literal that renders vertical.
 
-                PrefixGlue _ ->
-                    when makePBox (lpnBox first) (lpnChildren first) is
-                        Ok b ->
-                            not (isSingleLine b)
+Both facts come from the item that was already rendered:
+`softBlockChildForcesVerticalBox` keeps the same structural test as before and
+reads verticality off `item.box` (a soft block is single-line exactly when its
+sole child is), rather than rendering that child a second time. -}
+parenLambdaMultilineItems : Array FlowItem -> Bool
+parenLambdaMultilineItems items =
+    when Array.get 1 items is
+        Just second ->
+            when lpnBox second.node is
+                IndentedBlock ->
+                    True
 
-                        Err _ ->
-                            False
+                SoftIndentedBlock ->
+                    softBlockChildForcesVerticalBox second
 
                 _ ->
                     False
-
-        Nothing ->
-            False
-
-
-{-| The second direct child is an `IndentedBlock` (lambda body on a separate
-row), or a `SoftIndentedBlock` whose sole child is a bracket literal that itself
-renders vertical. -}
-parenLambdaMultiline : Array LPNode -> Bool
-parenLambdaMultiline children =
-    when Array.popFirst children is
-        Just { rest } ->
-            when Array.first rest is
-                Just second ->
-                    when lpnBox second is
-                        IndentedBlock ->
-                            True
-
-                        SoftIndentedBlock ->
-                            softIndentedBlockChildForcesVerticalBox (lpnChildren second)
-
-                        _ ->
-                            False
-
-                Nothing ->
-                    False
-
-        Nothing ->
-            False
-
-
-{-| True when the sole child is a record/array/update literal that renders
-multi-line. -}
-softIndentedBlockChildForcesVerticalBox : Array LPNode -> Bool
-softIndentedBlockChildForcesVerticalBox children =
-    when Array.popFirst children is
-        Just { first = only, rest } ->
-            if not (Array.isEmpty rest) then
-                False
-
-            else
-                let
-                    isBracketLiteral =
-                        when lpnBox only is
-                            AlwaysVertical _ ->
-                                True
-
-                            AllAcrossOrAllVertical _ ->
-                                True
-
-                            RecordUpdate _ ->
-                                True
-
-                            _ ->
-                                False
-                in
-                isBracketLiteral
-                    && (when makePBox (lpnBox only) (lpnChildren only) is
-                            Ok b ->
-                                not (isSingleLine b)
-
-                            Err _ ->
-                                False
-                       )
 
         Nothing ->
             False
@@ -3380,8 +3330,9 @@ buildFlowBoxInline indent nodes =
 column, each remaining item at +`indent` (the `brokenFlow = True` path). Box
 already renders broken function applications via `assembleBrokenCall`, so the one
 caller here is the forced-vertical comment-bearing binop (`operand0` /
-`op … rest` at +4). Top-level comment items aren't handled — those flows fall
-back. -}
+`op … rest` at +4). Top-level comment items ARE handled:
+`assembleBrokenWithComments` places leading, gluing and own-line comments itself
+(verified behaviorally — an earlier version of this doc said they fall back). -}
 buildFlowBoxBroken : Int -> Array LPNode -> Result String Box
 buildFlowBoxBroken indent nodes =
     renderFlowItems nodes
@@ -3708,27 +3659,19 @@ assembleFlowImpl inlineStart flowIndent items =
                             Ok { rows = acc.rows, curRow = [ l ], state = decision.next }
 
                         Err _ ->
-                            if flowIndent > 0 && softGlueAlignment item.node == NestCarrying && subtreeHasMultilineBlockComment item.node then
-                                -- A multi-line nest-carrying first item, in an
-                                -- INDENTED flow, containing a multi-line block
-                                -- comment: the comment's body lines are
-                                -- align-anchored at their printed column
-                                -- (`B.prefix` padding) while content on a fresh
-                                -- line after it is ambient-anchored — the ambient
-                                -- lines take the flow's indent on top of the
-                                -- item's own.
-                                -- The first row escapes the final uniform
-                                -- `applyIndent`, and no single per-box shift
-                                -- satisfies both anchors (the post-mlbc
-                                -- continuation-indent hard class, t42/t43 —
-                                -- MultilineBlockComments `#13`). Without an
-                                -- mlbc the box is homogeneous and the bare
-                                -- push is the proven materialization (broken
-                                -- record-pattern headers, PatternLayoutByAuthor).
-                                Ok { rows = Array.pushLast item.box acc.rows, curRow = [], state = decision.next }
-
-                            else
-                                Ok { rows = Array.pushLast item.box acc.rows, curRow = [], state = decision.next }
+                            -- A multi-line first item pushes as its own block.
+                            -- This used to branch on "indented flow + nest-carrying
+                            -- + contains a multi-line block comment", with a long
+                            -- note about the two conflicting anchors that case has
+                            -- (align-padded comment body lines vs ambient content
+                            -- after it) — but both branches were the same bare
+                            -- push, so the split decided nothing and the
+                            -- `subtreeHasMultilineBlockComment` walk of the whole
+                            -- subtree was pure cost. The bare push is the proven
+                            -- materialization either way (MultilineBlockComments
+                            -- `#13`; broken record-pattern headers,
+                            -- PatternLayoutByAuthor).
+                            Ok { rows = Array.pushLast item.box acc.rows, curRow = [], state = decision.next }
 
                 FP.GlueNoSep ->
                     -- Content begins on the fresh line the previous comment
@@ -3813,7 +3756,7 @@ assembleFlowImpl inlineStart flowIndent items =
                                         -- operator+8 column), and `)` on its own
                                         -- line aligned under the `(` (elm-format),
                                         -- three columns past the operator.
-                                        when directOperandLambdaSplit item.node is
+                                        when directOperandLambdaSplit item is
                                             Just { headLine, bodyBox } ->
                                                 Ok
                                                     { rows =
