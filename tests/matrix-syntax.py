@@ -56,14 +56,44 @@ ELM_PARITY.
 A cell whose *generated source* does not parse is the generator's fault, not a
 formatter bug: it is skipped and counted, never silently dropped.
 
+THE COMMENT AXIS (`--comments`). Until 2026-07-31 comments were excluded here
+and left to fuzz-idempotency.py. That left a hole at the *intersection*: this
+script varies syntax and asks elm-format, the fuzzers vary comments and ask only
+"is it stable?" -- so a comment *placement* divergence from elm-format was
+invisible to every gate in the repo. It is stable, AST-equivalent and idempotent;
+nothing ever asked elm-format what it thought. That hole hid the broken-call and
+broken-binop leading-`{- -}` pairing divergences (7c20e15, cd774f5), and it was
+not slow-acting: 7c20e15 was hand-checked against elm-format and gated the same
+day, and still shipped a second divergence in the shapes its author did not think
+to type. Manual parity checking scales with imagination; an oracle over generated
+input does not.
+
+`--comments` closes it by crossing the two axes: it takes each syntax cell,
+injects ONE comment into an inter-token gap, and runs oracles 2-4 on the result.
+Four placements per gap (`{- -}` / `--`, each trailing the previous token or
+leading the next one), because trailing-vs-leading is precisely what the
+`CommentRole` classifier decides -- sweeping one end would test half of it. See
+COMMENT_AXIS below for the gap scoping and the separate baseline.
+
+It is a DELIBERATE GATE, not part of a default run: 1738 syntax cells become
+~38,600 comment cells, about 11 minutes at -j 12 on a 16-core box (three
+subprocesses per cell, one of them elm-format). Slice it with --construct/--context
+plus --comment-kind / --comment-pos while working on a specific construct, and
+run it whole after touching anything in the comment pipeline. A default run
+prints a line saying it did not run, so the green never looks broader than it is.
+
 NOT COVERED (deliberate, stated rather than hidden):
   - multi-line string literals: `\"\"\"x\"\"\"` does not parse on one line, so it
     cannot be a one-line atom in this scheme.
-  - comments: that is fuzz-idempotency.py's axis, not this one.
   - bare expressions in atom positions (call args, binop operands): a naked
     operator expression there reassociates into a different parse, so bare
     variants run only in value-position contexts; the paren-carrying flat/broken
     variants cover the atom positions.
+  - more than one comment per cell: a comment RUN (`{- a -} {- b -}`, or a `--`
+    followed by a `{- -}`) has its own rules -- all-or-nothing pairing -- and
+    this axis does not generate one. fuzz-idempotency.py's all-gaps-at-once pass
+    does, but without the elm-format oracle. Still a hole; smaller than the one
+    this closed.
 
 Usage:
     ./matrix-syntax.py                 # whole matrix (all variants)
@@ -75,6 +105,11 @@ Usage:
     ./matrix-syntax.py --no-parity     # skip oracle 4 (elm-format not installed)
     ./matrix-syntax.py --update-baseline   # rewrite the parity baseline
 
+    ./matrix-syntax.py --comments -j 12          # the comment axis (slow; see above)
+    ./matrix-syntax.py --comments --construct binop --context top -v
+    ./matrix-syntax.py --comments --comment-kind block --comment-pos lead
+    ./matrix-syntax.py --comments --update-baseline   # rewrite the COMMENT baseline
+
 Requires an up-to-date ../../gren-format/app (cd ../../gren-format && ./build.sh).
 Oracle 4 additionally requires `elm-format` on PATH.
 Exit status is non-zero if any cell fails.
@@ -83,6 +118,7 @@ Exit status is non-zero if any cell fails.
 import argparse
 import collections
 import concurrent.futures
+import importlib.util
 import json
 import pathlib
 import re
@@ -94,6 +130,22 @@ import tempfile
 HERE = pathlib.Path(__file__).resolve().parent
 APP = HERE.parent.parent / "gren-format" / "app"
 BASELINE = HERE / "matrix-parity-baseline.json"
+COMMENT_BASELINE = HERE / "matrix-comment-baseline.json"
+
+
+def _load_sibling(filename, name):
+    """Import a hyphenated sibling script as a module (no package to import from)."""
+    spec = importlib.util.spec_from_file_location(name, HERE / filename)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+# The gap tokenizer is fuzz-idempotency.py's, imported rather than copied: it is
+# literal- and comment-aware (this vocabulary has `'c'` and `"s"` atoms, so a
+# naive scanner would find gaps inside them), and two copies would drift.
+_fuzz = _load_sibling("fuzz-idempotency.py", "fuzz_idempotency")
+gap_indices = _fuzz.gap_indices
 
 # ---------------------------------------------------------------- ELM_PARITY
 #
@@ -135,8 +187,22 @@ REASON_PARENS = "README divergence #10 -- gren-format keeps redundant parens"
 
 
 def to_elm(source):
-    """Translate a generated cell to Elm. Exact for this file's vocabulary only."""
-    return re.sub(r"\bwhen\s+(\S+)\s+is\b", r"case \1 of", source)
+    """Translate a generated cell to Elm. Exact for this file's vocabulary only.
+
+    The two keywords are replaced INDEPENDENTLY rather than matched as one
+    `when <expr> is` pattern. The pattern form broke the moment the comment axis
+    existed: it required `when` and `is` to be separated by a single non-space
+    token, so `when sel {- c -} is` did not match, the `when` survived into the
+    "Elm" source, and elm-format rejected it -- reported (loudly, as designed) as
+    `untranslatable` rather than as a fake divergence.
+
+    Replacing the keywords one at a time is exact for the same reason the pattern
+    was: this file authors the whole vocabulary, `when` and `is` appear in it
+    ONLY as the two keywords of a `when` expression, and the injected comments
+    carry a `¤` marker, so neither keyword can occur inside a comment or a string
+    literal here.
+    """
+    return re.sub(r"\bis\b", "of", re.sub(r"\bwhen\b", "case", source))
 
 
 def parens_only_difference(gren_out, elm_out):
@@ -164,6 +230,174 @@ def parens_only_difference(gren_out, elm_out):
         lines = (ln.rstrip() for ln in re.sub(r"[()]", "", s).split("\n"))
         return "\n".join(ln for ln in lines if ln.strip())
     return canon(gren_out) == canon(elm_out)
+
+# --------------------------------------------------------------- COMMENT_AXIS
+#
+# `--comments` crosses the syntax axis with the comment axis (module docstring).
+# One comment per cell, injected into an inter-token gap of the generated source.
+#
+# PLACEMENTS. Each gap yields four cells: {`{- ¤ -}`, `-- ¤`} x {trail, lead}.
+# `trail` puts the comment immediately after the previous token (keeping the
+# gap's whitespace after it), `lead` immediately before the next token. That
+# distinction is the point: `CommentRole` classification is exactly the
+# trailing-vs-leading decision, and gren diverges from elm-format on purpose in
+# one direction (#13) while a divergence in the other has been a real bug twice.
+# A `-- ¤` needs a newline after it, so the lead/trail forms re-indent the next
+# token to the column it already had -- the offside structure is unchanged, which
+# keeps the cell parseable.
+#
+# GAP SCOPING. Sweeping every gap of every cell is ~4x the cells for little
+# gain: a gap in the CONTEXT template (`when sel is Just w -> {x}`) does not
+# depend on which atom fills `{x}`. So atom-local gaps -- those touching the
+# construct's own span -- run for every cell, and context gaps run once per
+# context, on the first selected construct's flat variant. Both counts are
+# printed; nothing is capped silently.
+#
+# ORACLES. 1 (the flat/break layout truth) does NOT run: a comment may legally
+# force a break, so "written flat, renders flat" is not a truth here. 2 (--show:
+# crash / AST / idempotency / output parses) and 3 (the predicate audit) run
+# unchanged, and are still truths. 4 (parity) runs against its own baseline,
+# matrix-comment-baseline.json, since the cell keys differ. Plus one oracle the
+# syntax axis has no use for: the output must contain the marker EXACTLY once --
+# a formatter can drop or duplicate a comment and still be a stable fixed point,
+# which no diff-against-itself check can see.
+MARKER_CH = "¤"
+COMMENT_KINDS = {"block": "{- ¤ -}", "line": "-- ¤"}
+COMMENT_POSITIONS = ["trail", "lead"]
+
+# Auto-classified comment-parity family, the counterpart of REASON_PARENS.
+# Reasons here are SHORT TAGS, not prose: the syntax baseline has 571 entries and
+# can afford a sentence each, this one has ~25k and the prose would be 2.7MB of
+# repetition nobody can scan. The legend goes in the file's `_comment` block.
+REASON_TRAILING = "#13"
+
+
+def short_tag(reason):
+    """`README divergence #21 -- ...` -> `#21`. Anything without a catalogue
+    number (notably a `BUG: ...` entry) is kept verbatim, so it stays loud."""
+    m = re.search(r"README divergence (#\d+)", reason)
+    return m.group(1) if m else reason
+
+
+def comment_stripped_matches(gren_out, elm_out):
+    """True if the two outputs agree once the marker's comment is deleted --
+    i.e. the ONLY difference is where the comment sits. Blank lines left behind
+    by deleting a comment that was alone on its line are dropped from both sides;
+    no content line is ever merged, so a cell that ALSO breaks differently still
+    differs here."""
+    def canon(s):
+        out = []
+        for ln in s.split("\n"):
+            if MARKER_CH in ln:
+                ln = re.sub(r"\{-\s*" + MARKER_CH + r"\s*-\}|--\s*" + MARKER_CH + r"\s*$", "", ln)
+            ln = ln.rstrip()
+            if ln.strip():
+                out.append(ln)
+        return "\n".join(out)
+    return canon(gren_out) == canon(elm_out)
+
+
+def marker_role(out):
+    """Where the marker sits on its line: alone | leading | trailing | inner."""
+    for ln in out.split("\n"):
+        if MARKER_CH not in ln:
+            continue
+        stripped = ln.strip()
+        body = re.sub(r"\{-\s*" + MARKER_CH + r"\s*-\}|--\s*" + MARKER_CH + r"\s*$", "", stripped).strip()
+        if not body:
+            return "alone"
+        if stripped.startswith(("{-", "--")):
+            return "leading"
+        if stripped.endswith(("-}",)) or re.search(r"--\s*" + MARKER_CH + r"\s*$", stripped):
+            return "trailing"
+        return "inner"
+    return None
+
+
+REASON_INHERITED = "INHERITED"  # prefix: "INHERITED: <the syntax cell's own reason>"
+
+
+def comment_family(gren_out, elm_out, base_reason):
+    """Auto-classify a comment-parity divergence, or None to leave it UNREVIEWED.
+
+    Two things can differ, and they are judged separately:
+
+      * the comment's POSITION -- one family is auto-classified, #13: gren kept
+        it trailing the token it was written after where elm-format re-homed it
+        to lead the next one. Deliberate and long-standing.
+      * everything else -- if the outputs still differ once the comment is
+        deleted from both, the underlying syntax cell diverges on its own, and
+        `base_reason` (its entry in the SYNTAX baseline) says why. Adding a
+        comment to a cell that already keeps a redundant paren must not book a
+        second, separate debt for the same #10; it is registered as INHERITED.
+        A base cell that agrees with elm-format but whose commented form does
+        not is a genuine new finding and stays UNREVIEWED.
+
+    Deliberately NOT auto-classified, whatever else is going on: a divergence
+    where gren stranded the comment ALONE on its own line and elm-format did
+    not. That is the shape of both pairing bugs (7c20e15, cd774f5) -- gren put a
+    leading `{- -}` on its own row where elm-format keeps it on the following
+    term's line -- so a classifier that swept "the comment is somewhere else"
+    into one family would have frozen the very bug this axis was built to find.
+    Reclassifying is not a formality; the same warning applies here as on the
+    parens baseline.
+    """
+    gren_role, elm_role = marker_role(gren_out), marker_role(elm_out)
+    moved = gren_role != elm_role
+    if moved and gren_role == "alone":
+        return None
+    if moved and not (gren_role == "trailing" and elm_role in ("leading", "alone")):
+        # A comment move we have no reviewed family for. Review it.
+        return None
+
+    parts = []
+    if not comment_stripped_matches(gren_out, elm_out):
+        if not base_reason:
+            return None
+        parts.append(f"{REASON_INHERITED}:{short_tag(base_reason)}")
+    if moved:
+        parts.append(REASON_TRAILING)
+    return "+".join(parts) if parts else None
+
+
+def line_col_of(src, idx):
+    """The 0-based column `idx` sits at within its line."""
+    return idx - (src.rfind("\n", 0, idx) + 1)
+
+
+def comment_variant(src, gap, kind, position):
+    """`src` with one comment injected at `gap` (the first char of a whitespace
+    run). Returns the new source, or None if the placement is not expressible.
+
+    trail: `prev {- ¤ -}<original whitespace>next`
+    lead:  `prev<original whitespace up to the last line>{- ¤ -}next`
+
+    For `-- ¤` a newline must follow the comment, and the next token is
+    re-indented to the column it already occupied, so the offside structure --
+    and therefore the parse -- is unchanged.
+    """
+    end = gap
+    while end < len(src) and src[end] in " \t\r\n":
+        end += 1
+    if end >= len(src):
+        return None
+    ws = src[gap:end]
+    text = COMMENT_KINDS[kind]
+    col = line_col_of(src, end)
+
+    if position == "trail":
+        if kind == "line":
+            # `-- ¤` must end its line; anything after it on that row would be
+            # swallowed. Keep the original whitespace only if it already broke
+            # the line, else synthesize the break at the next token's column.
+            tail = ws if "\n" in ws else "\n" + " " * col
+            return src[:gap] + " " + text + tail + src[end:]
+        return src[:gap] + " " + text + ws + src[end:]
+
+    # lead: the comment goes immediately before the next token.
+    if kind == "line":
+        return src[:gap] + ws + text + "\n" + " " * col + src[end:]
+    return src[:gap] + ws + text + " " + src[end:]
 
 # ---------------------------------------------------------------- VOCABULARY
 #
@@ -347,26 +581,39 @@ BUG_TITLES = [
 ]
 
 
+MODULE_LINE = "module M exposing (..)\n\n\n"
+HEADER = MODULE_LINE + "v = "
+
+
 def source_for(construct_atom, context_template):
-    body = substitute(context_template, construct_atom)
-    return f"module M exposing (..)\n\n\nv = {body}\n"
+    body, _span = substitute(context_template, construct_atom)
+    return HEADER + body + "\n"
+
+
+def source_and_atom_span(construct_atom, context_template):
+    """`source_for`, plus the atom's [start, end) offsets in the returned source.
+    The comment axis uses the span to tell atom-local gaps from context ones."""
+    body, (lo, hi) = substitute(context_template, construct_atom)
+    return HEADER + body + "\n", (len(HEADER) + lo, len(HEADER) + hi)
 
 
 def substitute(template, atom):
-    """Put `atom` where `{x}` is. A multi-line atom keeps its continuation lines
-    aligned under the column `{x}` lands in (4 for the `v = ` prefix + the
-    offset of `{x}` in the template), so every continuation is indented past the
-    top-level `v` and the source parses. The atom's own relative indentation is
-    preserved on top of that base -- the formatter re-flows it regardless; all
-    that matters here is that it is valid and spans rows."""
+    """Put `atom` where `{x}` is; return (body, (atom_start, atom_end)) with the
+    offsets measured in the returned body. A multi-line atom keeps its
+    continuation lines aligned under the column `{x}` lands in (4 for the `v = `
+    prefix + the offset of `{x}` in the template), so every continuation is
+    indented past the top-level `v` and the source parses. The atom's own
+    relative indentation is preserved on top of that base -- the formatter
+    re-flows it regardless; all that matters here is that it is valid and spans
+    rows."""
     idx = template.index("{x}")
     before, after = template[:idx], template[idx + 3:]
     if "\n" not in atom:
-        return before + atom + after
+        return before + atom + after, (idx, idx + len(atom))
     col = 4 + idx  # len("v = ") == 4
     lines = atom.split("\n")
     glued = lines[0] + "".join("\n" + " " * col + ln for ln in lines[1:])
-    return before + glued + after
+    return before + glued + after, (idx, idx + len(glued))
 
 
 def body_lines(formatted):
@@ -480,10 +727,309 @@ def check_cell(cell):
         return result(kind="ok", output=formatted, parity=parity)
 
 
+def enumerate_comment_cells(cells, kinds, positions):
+    """Every (syntax cell, gap, comment kind, position) the comment axis runs.
+
+    Atom-local gaps (those touching the construct's own span) run for every
+    cell; context gaps run once per context, on the first selected construct's
+    flat variant, because a gap in the context template does not depend on which
+    atom fills `{x}`. Returns (comment_cells, n_atom_gap_cells, n_ctx_gap_cells).
+    """
+    # The representative that carries the context gaps is fixed to the FIRST
+    # construct of the full vocabulary in its flat variant, NOT to the first
+    # selected cell. It has to be filter-independent: a cell's baseline key must
+    # mean the same thing in a `--construct binop` slice as in a whole run, or
+    # every slice reports the context gaps it happens to inherit as brand-new
+    # divergences. A slice that excludes the representative simply sweeps no
+    # context gaps -- the whole run covers them.
+    rep = (CONSTRUCTS[0].name, "flat")
+    out, n_atom, n_ctx = [], 0, 0
+    for construct, context, variant in cells:
+        atom = variant_atom(construct, variant)
+        source, (lo, hi) = source_and_atom_span(atom, context.template)
+        is_rep = (construct.name, variant) == rep
+        for ordinal, gap in enumerate(gap_indices(source)):
+            if gap < len(MODULE_LINE):
+                # The module header is fixed boilerplate here, identical in every
+                # cell -- it is not one of this matrix's two axes, and header
+                # comments are already the corpus fuzzers' ground. Skipping it
+                # also keeps gap ordinals (and so baseline keys) counting from
+                # the declaration.
+                continue
+            end = gap
+            while end < len(source) and source[end] in " \t\r\n":
+                end += 1
+            atom_local = end >= lo and gap <= hi
+            if not atom_local and not is_rep:
+                continue
+            for kind in kinds:
+                for position in positions:
+                    variant_src = comment_variant(source, gap, kind, position)
+                    if variant_src is None:
+                        continue
+                    out.append(dict(construct=construct.name, context=context.name,
+                                    variant=variant, ordinal=ordinal, kind=kind,
+                                    position=position, source=variant_src,
+                                    atom_local=atom_local))
+                    if atom_local:
+                        n_atom += 1
+                    else:
+                        n_ctx += 1
+    return out, n_atom, n_ctx
+
+
+def comment_key(cell):
+    return (f'{cell["construct"]}/{cell["context"]}@{cell["variant"]}'
+            f'#g{cell["ordinal"]}.{cell["kind"]}.{cell["position"]}')
+
+
+def base_parity_key(cell):
+    """The SYNTAX-baseline key of the cell this comment cell was built from, so
+    a divergence the uncommented cell already has is inherited rather than
+    re-registered as fresh comment debt."""
+    suffix = "" if cell["variant"] == "flat" else "@" + cell["variant"]
+    return f'{cell["construct"]}/{cell["context"]}{suffix}'
+
+
+def check_comment_cell(cell):
+    """Oracles 2, 3 and 4 over one comment cell, plus the marker-count check.
+    Oracle 1 does not apply -- a comment may legally force a break."""
+    source = cell["source"]
+
+    def result(**kw):
+        return dict(cell, **kw)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        path = pathlib.Path(tmp) / "M.gren"
+        path.write_text(source)
+
+        try:
+            shown = run("--show", path)
+        except subprocess.TimeoutExpired:
+            return result(kind_result="timeout", detail="--show timed out")
+
+        if shown.returncode != 0:
+            out = shown.stderr + shown.stdout
+            if GENERATOR_FAULT in out:
+                # A comment the PARSER rejects in that gap (e.g. between two type
+                # variables) -- a known parser limitation, not a formatter bug.
+                return result(kind_result="skipped", detail="commented source does not parse")
+            for title in BUG_TITLES:
+                if title in out:
+                    return result(kind_result=title, detail=out.strip()[:600])
+            return result(kind_result="unknown-error", detail=out.strip()[:600])
+
+        formatted = shown.stdout
+        seen = formatted.count(MARKER_CH)
+        if seen != 1:
+            # A dropped or duplicated comment survives every self-consistency
+            # check in the repo -- the duplicate reformats to itself. Only a
+            # count can see it.
+            return result(kind_result="comment-count", output=formatted,
+                          detail=f"exactly one comment went in, {seen} came out")
+
+        try:
+            audited = run("--audit-predicates", path)
+            findings = json.loads(audited.stdout) if audited.returncode == 0 else []
+        except (subprocess.TimeoutExpired, json.JSONDecodeError):
+            findings = []
+        roots = [f for f in findings if not f["propagated"]]
+        if roots:
+            return result(kind_result="predicate-lie", output=formatted,
+                          detail="; ".join(f'{f["predicate"]} said {f["boxKind"]} breaks, '
+                                           f'rendered: {f["rendered"]}' for f in roots[:3]))
+
+        parity = check_parity(source, formatted) if PARITY else None
+        return result(kind_result="ok", output=formatted, parity=parity)
+
+
 def load_baseline():
     if not BASELINE.exists():
         return {}
     return json.loads(BASELINE.read_text())["cells"]
+
+
+def load_comment_baseline():
+    if not COMMENT_BASELINE.exists():
+        return {}
+    return json.loads(COMMENT_BASELINE.read_text())["cells"]
+
+
+def write_comment_baseline(cells):
+    COMMENT_BASELINE.write_text(json.dumps({
+        "_comment": [
+            "Registered elm-format parity divergences on the COMMENT axis --",
+            "see COMMENT_AXIS in matrix-syntax.py. Key is",
+            "construct/context@variant#g<gap>.<block|line>.<trail|lead>.",
+            "The matrix fails on a cell that diverges and is NOT listed, and on a cell listed",
+            "here that no longer diverges. Regenerate with ./matrix-syntax.py --comments",
+            "--update-baseline.",
+            "",
+            "REASON TAGS (short on purpose -- 25k prose entries would be unscannable):",
+            "  #NN            a README divergence-catalogue entry, about where the COMMENT",
+            "                 sits. #13 is the only one auto-classified: gren keeps a comment",
+            "                 trailing the token it was written after, elm-format re-homes it",
+            "                 to lead the next one.",
+            "  INHERITED:#NN  the UNCOMMENTED cell already diverges for #NN (look it up in",
+            "                 matrix-parity-baseline.json); the comment itself sits where",
+            "                 elm-format puts it. Not fresh comment debt.",
+            "  a+b            both apply.",
+            "  UNREVIEWED     not yet reviewed. May be a real bug frozen as expected output.",
+            "",
+            "A divergence where gren strands the comment ALONE on its own line is NEVER",
+            "auto-classified, whatever else is going on: that is the shape of the two pairing",
+            "bugs this axis was built to find (7c20e15, cd774f5).",
+        ],
+        "cells": dict(sorted(cells.items())),
+    }, indent=2) + "\n")
+
+
+def report_comment_parity(results, baseline, update, verbose=False):
+    """Oracle 4 over the comment axis, gated against COMMENT_BASELINE.
+    Mirrors report_parity; separate because the keys and the auto-classifier
+    differ. Returns (failures, ...)."""
+    checked = [r for r in results if r["kind_result"] == "ok"]
+    diverging = {comment_key(r): r for r in results
+                 if (r.get("parity") or {}).get("kind") == "divergence"}
+    broken = [r for r in results
+              if (r.get("parity") or {}).get("kind") in ("untranslatable", "elm-format-timeout")]
+
+    if update:
+        syntax_baseline = load_baseline()
+        cells = {}
+        for key, r in diverging.items():
+            prior = baseline.get(key)
+            if prior and prior != REASON_UNREVIEWED:
+                cells[key] = prior
+                continue
+            family = comment_family(r["parity"]["gren"], r["parity"]["elm"],
+                                    syntax_baseline.get(base_parity_key(r)))
+            cells[key] = family or REASON_UNREVIEWED
+        write_comment_baseline(cells)
+        print(f"wrote {len(cells)} registered divergences to {COMMENT_BASELINE.name}")
+        return []
+
+    failures = []
+    for r in broken:
+        failures.append((f'[{r["parity"]["kind"]}] {comment_key(r)}',
+                         f'to_elm produced source elm-format rejects: {r["parity"]["elm"]}'))
+
+    ran = {comment_key(r) for r in checked}
+    for key, r in sorted(diverging.items()):
+        if key not in baseline:
+            failures.append((f"[comment-parity-new-divergence] {key}",
+                             "diverges from elm-format and is not registered in "
+                             f"{COMMENT_BASELINE.name}\n"
+                             + "  source:\n"
+                             + "\n".join(f"    |{ln}" for ln in r["source"].strip().split("\n")[3:])
+                             + "\n" + side_by_side(r["parity"])))
+    for key in sorted(baseline):
+        if key in ran and key not in diverging:
+            failures.append((f"[comment-parity-baseline-stale] {key}",
+                             f'registered in {COMMENT_BASELINE.name} as "{baseline[key]}" but it '
+                             "now matches elm-format -- remove the entry"))
+
+    registered = {k: v for k, v in baseline.items() if k in diverging}
+    unreviewed = sorted(k for k, v in registered.items() if v == REASON_UNREVIEWED)
+    # `REASON_BUG + ":"` anywhere, not just as a prefix: an inherited reason
+    # reads "INHERITED: BUG: ...", and a known bug must not go quiet just
+    # because the comment cell inherited it from its syntax cell.
+    bugs = sorted(k for k, v in registered.items() if REASON_BUG + ":" in v)
+    if ran:
+        print(f"comment parity: {len(ran) - len(diverging)}/{len(ran)} cells byte-identical to "
+              f"elm-format, {len(registered)} registered divergences")
+        for reason, count in collections.Counter(registered.values()).most_common():
+            print(f"  {count:5}  {reason if len(reason) <= 110 else reason[:107] + '...'}")
+        if unreviewed:
+            print(f"\n  !! {len(unreviewed)} UNREVIEWED divergence(s) -- each one may be a real bug\n"
+                  f"     frozen as expected output. Establish a reason or fix it:")
+            for key in unreviewed[:40]:
+                print(f"       {key}")
+            if len(unreviewed) > 40:
+                print(f"       ... and {len(unreviewed) - 40} more")
+        if bugs:
+            print(f"\n  !! {len(bugs)} known BUG(s) registered -- reviewed, not deliberate,\n"
+                  f"     still wrong. These are a work-list, not a decision:")
+            for key in bugs:
+                print(f"       {key}: {registered[key][len(REASON_BUG) + 2:]}")
+        if verbose:
+            print("\n  registered divergences in full:\n")
+            for key, r in sorted(diverging.items()):
+                print(f'  --- {key}  [{baseline.get(key, "?")}]')
+                print("  source:")
+                for ln in r["source"].strip().split("\n")[3:]:
+                    print(f"    |{ln}")
+                print(side_by_side(r["parity"]) + "\n")
+        elif unreviewed:
+            print("\n     (-v shows each divergence beside elm-format's output)")
+        print()
+    return failures
+
+
+def run_comment_axis(cells, args):
+    """The `--comments` mode: enumerate comment cells, run oracles 2-4, report."""
+    kinds = [args.comment_kind] if args.comment_kind else list(COMMENT_KINDS)
+    positions = [args.comment_pos] if args.comment_pos else list(COMMENT_POSITIONS)
+
+    comment_cells, n_atom, n_ctx = enumerate_comment_cells(cells, kinds, positions)
+    if not comment_cells:
+        sys.exit("no comment cells selected -- check the filters")
+    print(f"comment axis: {len(comment_cells)} cells over {len(cells)} syntax cells "
+          f"({n_atom} at atom-local gaps, {n_ctx} at context gaps)")
+    print(f"  kinds: {', '.join(kinds)}   positions: {', '.join(positions)}\n")
+
+    results = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
+        for r in pool.map(check_comment_cell, comment_cells):
+            results.append(r)
+
+    by_kind = collections.Counter(r["kind_result"] for r in results)
+    failures = [r for r in results if r["kind_result"] not in ("ok", "skipped")]
+
+    if args.keep and failures:
+        args.keep.mkdir(parents=True, exist_ok=True)
+        for r in failures:
+            (args.keep / f'{comment_key(r).replace("/", "__")}.gren').write_text(r["source"])
+        print(f"wrote {len(failures)} failing cells to {args.keep}\n")
+
+    shown = failures if args.verbose else failures[:10]
+    for r in shown:
+        print(f'FAIL [{r["kind_result"]}] {comment_key(r)}')
+        print(f'  {r["detail"]}')
+        print("  source:")
+        for line in r["source"].strip().split("\n")[3:]:
+            print(f"    |{line}")
+        if args.verbose and r.get("output"):
+            print("  output:")
+            for line in r["output"].rstrip().split("\n"):
+                print(f"    |{line}")
+        print()
+    if len(failures) > len(shown):
+        print(f"... and {len(failures) - len(shown)} more failures (-v to see all)\n")
+
+    print(f'{len(comment_cells)} comment cells: {by_kind["ok"]} ok, {len(failures)} failing, '
+          f'{by_kind["skipped"]} skipped (commented source does not parse)\n')
+    if failures:
+        for kind, count in collections.Counter(r["kind_result"] for r in failures).most_common():
+            print(f"  {kind}: {count}")
+        print()
+
+    parity_failures = []
+    if PARITY:
+        parity_failures = report_comment_parity(results, load_comment_baseline(),
+                                                args.update_baseline, verbose=args.verbose)
+        for title, detail in (parity_failures if args.verbose else parity_failures[:10]):
+            print(f"FAIL {title}")
+            print(f"  {detail}\n")
+        if len(parity_failures) > 10 and not args.verbose:
+            print(f"... and {len(parity_failures) - 10} more parity failures (-v to see all)\n")
+
+    if failures or parity_failures:
+        return 1
+    print("Every comment cell formats, preserves its comment exactly once, is idempotent\n"
+          "and AST-equivalent, tells no predicate lies, and sits where elm-format puts it\n"
+          "except where the comment baseline says otherwise.")
+    return 0
 
 
 def write_baseline(cells):
@@ -601,7 +1147,13 @@ def main():
     ap.add_argument("--no-parity", action="store_true",
                     help="skip oracle 4 (the elm-format parity diff)")
     ap.add_argument("--update-baseline", action="store_true",
-                    help="rewrite matrix-parity-baseline.json from this run")
+                    help="rewrite the parity baseline from this run (--comments: the comment one)")
+    ap.add_argument("--comments", action="store_true",
+                    help="run the COMMENT axis instead of the plain syntax matrix (slow)")
+    ap.add_argument("--comment-kind", choices=sorted(COMMENT_KINDS),
+                    help="comment axis: only this comment kind (default both)")
+    ap.add_argument("--comment-pos", choices=COMMENT_POSITIONS,
+                    help="comment axis: only this placement (default both)")
     args = ap.parse_args()
 
     if not APP.exists():
@@ -625,6 +1177,9 @@ def main():
         sys.exit("no cells selected -- check --construct/--context names")
 
     cells = enumerate_cells(constructs, contexts, variants)
+    if args.comments:
+        return run_comment_axis(cells, args)
+
     per_variant = collections.Counter(v for _, _, v in cells)
     breakdown = ", ".join(f"{per_variant[v]} {v}" for v in variants if per_variant[v])
     print(f"{len(cells)} cells ({breakdown})\n")
@@ -689,6 +1244,12 @@ def main():
               "and diverges from elm-format only where the baseline says it should.")
     else:
         print("Every cell renders as the author-driven rule requires, with no predicate lies.")
+    # Never silent: this run varied SYNTAX only. A comment-placement divergence
+    # from elm-format is invisible to it, which is exactly how two of them
+    # shipped -- so say so on every green run rather than letting the green look
+    # broader than it is.
+    print("\nNote: comments were not varied in this run. `--comments` crosses this matrix\n"
+          "      with the comment axis (the gate that would have caught 7c20e15 / cd774f5).")
     return 0
 
 

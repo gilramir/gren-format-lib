@@ -210,10 +210,60 @@ frozen as expected output, including one already known.
 
 Deliberately not covered, and stated in the script rather than hidden: multi-line
 string literals (`"""x"""` does not parse on one line, so it cannot be a one-line
-atom), comments (that is `fuzz-idempotency.py`'s axis), and author-broken layout
-(flat input is what makes oracle 1 two-directional — though oracle 4 does not
-need flat input, since elm-format answers for any shape, so generating broken
-variants is now possible; not done yet).
+atom) and more than one comment per cell (a comment *run* has its own
+all-or-nothing rules; `fuzz-idempotency.py`'s all-gaps pass generates one, but
+without the elm-format oracle).
+
+#### The comment axis (`--comments`)
+
+Until 2026-07-31 comments were excluded here and left to the fuzzers. That left a
+hole at the **intersection**: this matrix varies syntax and asks elm-format, the
+fuzzers vary comments and ask only "is it stable?" — so a comment *placement*
+divergence from elm-format was invisible to every gate in the repo. It is stable,
+AST-equivalent and idempotent; nothing ever asked elm-format what it thought.
+That hole hid both leading-`{- -}` pairing divergences (`7c20e15` in broken
+calls, `cd774f5` in broken binop chains), and it was not slow-acting — `7c20e15`
+was hand-checked against elm-format and gated the same day, and still shipped a
+second divergence in a shape its author did not think to type. Manual parity
+checking scales with imagination; an oracle over generated input does not.
+
+`--comments` crosses the two axes: each syntax cell gets **one** comment injected
+into an inter-token gap, then runs oracles 2–4. Four placements per gap (`{- -}`
+/ `--`, each trailing the previous token or leading the next), because
+trailing-vs-leading is exactly what the `CommentRole` classifier decides.
+Atom-local gaps run for every cell; context-template gaps run once per context,
+since they don't depend on which atom fills the hole.
+
+```bash
+./matrix-syntax.py --comments -j 12                     # whole axis (~39k cells, ~11 min)
+./matrix-syntax.py --comments --construct binop --context top -v
+./matrix-syntax.py --comments --comment-kind block --comment-pos lead
+./matrix-syntax.py --comments --update-baseline         # rewrite the COMMENT baseline
+```
+
+It is a **deliberate gate, not part of a default run** — run it whole after
+touching anything in the comment pipeline. A default run prints a line saying it
+did not run, so the green never looks broader than it is.
+
+Oracle 1 does not apply (a comment may legally force a break). Oracles 2 and 3
+are unchanged truths, and one more is added that the syntax axis has no use for:
+the output must contain the marker **exactly once** — a formatter can drop or
+duplicate a comment and still be a stable fixed point, which no
+diff-against-itself check can see. Oracle 4 gates against its own
+`matrix-comment-baseline.json`.
+
+Auto-classification composes with the syntax baseline: a comment cell whose
+*uncommented* form already diverges is registered `INHERITED: <that reason>`
+rather than booking fresh debt for the same #10. The only comment-position family
+auto-classified is #13 (gren keeps a comment trailing the token it was written
+after). A divergence where gren stranded the comment **alone on its own line** is
+never auto-classified — that is the exact shape of both pairing bugs, so a
+classifier that swept "the comment moved" into one family would have frozen the
+very bug the axis was built to find.
+
+**First run (2026-07-31) found 424 hard failures** — 398 non-idempotent, 26 where
+the formatter emits **invalid Gren** — plus ~16k unreviewed parity divergences.
+The 424 collapse to ~52 signatures and a handful of root causes; see `tbd.md`.
 
 ### Predicate/renderer agreement audit
 
