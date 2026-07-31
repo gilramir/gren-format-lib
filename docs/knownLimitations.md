@@ -443,8 +443,10 @@ lambda whose body is a bracket literal (`(\q -> [ …, 1 ])`), the record
 variant, a paren-wrapped pipeline as a step argument (`0 |> g ( … )`), and a
 **pipeline step whose lambda argument nests through its own body**, in both the
 direct-operand and the relocated form. Each rendered the same subtree two or
-four times per level. All are fixed, and all now nest as deep as the parser
-allows.
+four times per level. All are fixed. What is left for them is only the ordinary
+stack-depth ceiling described above — they run out of JS stack between 200 and
+240 levels, in two cases at exactly the depth the parser gives out and in the
+others slightly before it, with no exponential term anywhere.
 
 The pipeline-lambda pair is worth spelling out, since it is the one shape here
 that reads like something a person might actually write. "Direct operand" means

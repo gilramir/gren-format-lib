@@ -384,6 +384,7 @@ binopsAndPipelinesSuite fsPerm =
             , assertPretty fsPerm "a binop whose operand is a multi-line bracket with a leading comment (comment re-homed onto the operator) drops the seed below and breaks stably instead of oscillating" "BinopCommentBracketOperand"
             , assertPretty fsPerm "a multi-line block comment inside a binop RHS forces the chain to break at that operator (comment-homing divergence from elm-format, which indents the comment and both operands under the head)" "BinopMultilineCommentRhs"
             , assertPretty fsPerm "pipeline step argument indentation" "PipelineArgIndent"
+            , assertPretty fsPerm "once one argument of a pipeline step breaks, the arguments on both sides of it land one per line -- the plain-call rule, which a step lost by having its call container unwrapped (they used to glue as `) z` / `} z` / `|> f z`)" "PipelineStepSuffixArgs"
             , assertPretty fsPerm "a pipeline step call with two or more multi-line block arguments after the first stacks each on its own line instead of crashing (soft-glue-after-block)" "PipelineCallMultiBlockArgs"
             , assertPretty fsPerm "multi-line lambda arg in pipeline step uses elm-format style" "PipelineLambdaArg"
             , assertPretty fsPerm "pipeline step made multi-line by a block comment (no relocatable trigger)" "PipelineNoTriggerStep"

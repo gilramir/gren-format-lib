@@ -1647,6 +1647,21 @@ passed =
             0
 ```
 
+Arguments written *before* the breaking one land on their own line the same way,
+so once any argument of a step breaks, every argument of that step has a line to
+itself — exactly what a plain call does:
+
+```gren
+merged =
+    rows
+        |> Array.foldl
+            seed
+            { limit = 10
+            , strict = True
+            }
+            extra
+```
+
 When the lambda comes **straight after `|>`** — the whole step is `|> (\... -> ...)`,
 with no function in between — the lambda stays glued to `|>` and its body drops
 below, the same as above. The closing `)` lines up directly under its own `(`,

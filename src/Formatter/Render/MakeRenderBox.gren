@@ -18,7 +18,7 @@ import Formatter.Render.Box as B exposing (Box(..))
 import Formatter.Render.BoxOps exposing (applyIndent, blockIndentSpaces, boxLine, glueCommentSuffix, glueLeadingCommentPrefix, grenIndent, isBlockNode, isSingleLine, joinInline, prefixOperator, spaceJoinLines, stackWithBlanks, traverseResult, wrapParenVerticalPadded)
 import Formatter.Render.CommentBox exposing (commentNodeBox, commentNodeToBox, emptyBracketedCommentLine, glueTrailingComments, makeCommentLineBox, multiLineBlockCommentBox, peelTrailingCommentNodes, spanLeadingComments, spanTrailingComments, spanTrailingOwnLineComments)
 import Formatter.Render.ElmStructure as E
-import Formatter.Render.FlowAssembly exposing (FlowItem, SoftGlueAlignment(..), assembleBrokenCall, assembleBrokenWithComments, bracketPunc, gluedExposingBox, pairLeadingComments, parenInnerIsAlignCarrying, softBlockChildForcesVerticalBox, softGlueAlignment, trySoftGlueFlow, verticalExposingBox)
+import Formatter.Render.FlowAssembly exposing (FlowItem, SoftGlueAlignment(..), assembleBrokenCall, assembleBrokenWithComments, bracketPunc, gluedExposingBox, isCommentItem, pairLeadingComments, parenInnerIsAlignCarrying, softBlockChildForcesVerticalBox, softGlueAlignment, trySoftGlueFlow, verticalExposingBox)
 import Formatter.Render.FlowPolicy as FP
 import Formatter.Render.NodeClassify exposing (fieldValueDropsToOwnLine, isColonLeaf, isDroppingSignatureRecordNode, isMultilineLambdaParenBlockBox, isOpAndRhsNode, isPipelineStepNode, leafLineRow, leafValue, literalCommentsRideFlatLine, nodeIsComment, parenContentIsLambdaHead, rowsSpanMultiple, signatureForceVertical, splitSignatureSegments, subtreeEndsWithLineComment, subtreeHasComment, typeHasCommentBracket)
 
@@ -1215,12 +1215,29 @@ stepBodyBox children =
             (\items ->
                 when splitStepTriggerItems items is
                     Nothing ->
-                        -- No relocatable trigger arg: render the step body as a
-                        -- plain flow. It can still be multi-line (e.g. a block
-                        -- comment among the tokens forces a break, as in
-                        -- `|> {- … -} Array.foldl (+) 0`) — there is nothing to
-                        -- relocate, so the flow lays it out directly.
-                        assembleFlow False grenIndent items
+                        -- No relocatable trigger arg. There can still be a
+                        -- direct-GLUED multi-line operand (`|> (\y -> …)`, kept
+                        -- in the preamble on purpose so it stays on the `|>`
+                        -- line) carrying further arguments after it — those obey
+                        -- the same own-line rule as a relocated trigger's suffix.
+                        -- Otherwise render the step body as a plain flow: it can
+                        -- be multi-line for other reasons (a block comment among
+                        -- the tokens, as in `|> {- … -} Array.foldl (+) 0`) with
+                        -- nothing to relocate or stack.
+                        when splitAfterGluedOperand items is
+                            Just { glued, suffix } ->
+                                assembleFlow False grenIndent glued
+                                    |> Result.andThen
+                                        (\gluedBox ->
+                                            stepSuffixBox suffix
+                                                |> Result.map
+                                                    (\suffixBox ->
+                                                        B.stack1 [ gluedBox, applyIndent grenIndent suffixBox ]
+                                                    )
+                                        )
+
+                            Nothing ->
+                                assembleFlow False grenIndent items
 
                     Just { preamble, trigger, suffix } ->
                         let
@@ -1238,7 +1255,7 @@ stepBodyBox children =
                                     -- `makeMultilineParenArgBox` special case).
                                     Ok trigger.box
                         in
-                        assembleFlow True 0 preamble
+                        stepPreambleBox preamble
                             |> Result.andThen
                                 (\preambleBox ->
                                     triggerBoxResult
@@ -1248,7 +1265,11 @@ stepBodyBox children =
                                                     Ok (B.stack1 [ preambleBox, applyIndent grenIndent triggerBox ])
 
                                                 else
-                                                    assembleFlow False 0 suffix
+                                                    -- Suffix args land one per line
+                                                    -- below the relocated trigger,
+                                                    -- like a broken call's — see
+                                                    -- `stepSuffixBox`.
+                                                    stepSuffixBox suffix
                                                         |> Result.map
                                                             (\suffixBox ->
                                                                 B.stack1
@@ -1260,6 +1281,89 @@ stepBodyBox children =
                                             )
                                 )
             )
+
+
+{-| Split a trigger-less step at its first multi-line item, when that item is not
+the last one: `|> (\y -> …) 5` — the paren is a direct-glued operand, so it never
+becomes a trigger, but `5` still follows something that broke.
+
+`Nothing` when nothing breaks, or when the breaking item is last (the common
+case, and the layout that was always right). -}
+splitAfterGluedOperand : Array FlowItem -> Maybe { glued : Array FlowItem, suffix : Array FlowItem }
+splitAfterGluedOperand items =
+    let
+        breakIndex =
+            (Array.foldl
+                (\item acc ->
+                    if acc.found /= -1 || isSingleLine item.box then
+                        { acc | i = acc.i + 1 }
+
+                    else
+                        { i = acc.i + 1, found = acc.i }
+                )
+                { i = 0, found = -1 }
+                items
+            ).found
+    in
+    if breakIndex < 0 || breakIndex >= Array.length items - 1 then
+        Nothing
+
+    else
+        Just
+            { glued = Array.slice 0 (breakIndex + 1) items
+            , suffix = Array.dropFirst (breakIndex + 1) items
+            }
+
+
+{-| A pipeline step's preamble — everything before its relocated trigger.
+
+`|> fn` stays on the operator's line; any further arguments in front of the
+trigger stack one per line at +4, under the same rule as the trigger's suffix and
+as a plain broken call. `foo |> f z { … }` was rendering `|> f z` glued, while
+the identical `f z { … }` as a plain call put `z` on its own line and elm-format
+puts it on its own line in both.
+
+Two items or fewer is `|> fn` with nothing to stack (or a direct-glued operand,
+`|> (\y -> …)`, which is deliberately kept on the operator's line). A preamble
+carrying a comment keeps the old flow assembly untouched — comment placement in a
+step is its own machinery and has nothing to gain here. -}
+stepPreambleBox : Array FlowItem -> Result String Box
+stepPreambleBox preamble =
+    if Array.length preamble <= 2 || Array.any isCommentItem preamble then
+        assembleFlow True 0 preamble
+
+    else
+        assembleFlow True 0 (Array.slice 0 2 preamble)
+            |> Result.andThen
+                (\headBox ->
+                    stepSuffixBox (Array.dropFirst 2 preamble)
+                        |> Result.map
+                            (\argsBox -> B.stack1 [ headBox, applyIndent grenIndent argsBox ])
+                )
+
+
+{-| The arguments a pipeline step carries AFTER its relocated trigger.
+
+`formatterRules.md` ("Pipelines"): once an argument breaks, every argument after
+it lands on its own line. A plain call gets that from `assembleBrokenCall`, but a
+pipeline step has no call container left to route through —
+`InsertExpressions.gren` unwraps the call's `AcrossOrVertical` into the step's
+children, deliberately, to avoid a second +4 — so the suffix went through the
+generic flow instead, whose soft glue joins a single-line item onto the preceding
+block's last line. `)` ⏎ `z` came out as `) z` and `}` ⏎ `z` as `} z`, while the
+identical arguments in a plain call each got their own line. elm-format puts each
+on its own line (verified via `elm-format --stdin`).
+
+One item is the common case and needs no stacking: the flow renders it exactly as
+before, so the single-suffix layout is untouched. -}
+stepSuffixBox : Array FlowItem -> Result String Box
+stepSuffixBox suffix =
+    if Array.length suffix <= 1 then
+        assembleFlow False 0 suffix
+
+    else
+        traverseResult (\item -> assembleFlow False 0 [ item ]) suffix
+            |> Result.map B.stack1
 
 
 {-| Render a backward (`<|`) pipeline: the `<|` trails the seed (or previous step

@@ -1,0 +1,88 @@
+module PipelineStepSuffixArgs exposing (..)
+
+-- Once one argument of a pipeline step breaks, every argument after it lands on
+-- its own line, exactly as it does in a plain call. These used to glue onto the
+-- broken argument's closing line (`) z`, `} z`, `) 5`).
+
+
+relocatedTriggerThenArg =
+    foo
+        |> f
+            { a = 1
+            , b = 2
+            }
+            (\y ->
+                y + 1
+            )
+            z
+
+
+twoBrokenRecordsThenArg =
+    foo
+        |> f
+            { a = 1
+            , b = 2
+            }
+            { c = 3
+            , d = 4
+            }
+            z
+
+
+-- The direct-GLUED operand form: the paren stays on the `|>` line rather than
+-- relocating below it, so it never becomes a "trigger" -- but the argument after
+-- it still follows something that broke.
+directOperandThenArg =
+    foo
+        |> (\y ->
+                y + 1
+           )
+            5
+
+
+-- The same rule on the other side of the broken argument: arguments written
+-- BEFORE it stack too, instead of gluing onto the `|> f` line.
+argsBeforeAndAfter =
+    foo
+        |> f
+            z
+            w
+            { a = 1
+            , b = 2
+            }
+            q
+
+
+argBeforeOnly =
+    foo
+        |> f
+            z
+            { a = 1
+            , b = 2
+            }
+
+
+-- Controls. A step with nothing broken stays on one line, and a step with a
+-- single argument keeps `|> f` alone on the operator line.
+nothingBreaks =
+    foo |> f { a = 1 } z
+
+
+singleBrokenArg =
+    foo
+        |> f
+            { a = 1
+            , b = 2
+            }
+
+
+-- The plain-call form the rule is borrowed from, for comparison.
+plainCall =
+    f
+        { a = 1
+        , b = 2
+        }
+        (\y ->
+            y + 1
+        )
+        z
