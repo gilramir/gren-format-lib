@@ -1,12 +1,14 @@
 module EmptyBracketLeadingAndInsideComment exposing (..)
 
 
-arrayCase = {- leading the value -}
+arrayCase =
+    {- leading the value -}
     [
         {- inside the empty array
            across two lines -}
     ]
 
 
-recordCase = {- leading the value -}
+recordCase =
+    {- leading the value -}
     { {- inside the empty record -} }

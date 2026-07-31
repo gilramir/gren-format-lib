@@ -474,7 +474,7 @@ Then, site by site:
   detached-vs-leading distinction (works on original columns, pre-render —
   legitimate).
 - The `let` last-binding trailing comment routing below `in`
-  (deliberate divergence, README #21 — memory says do not re-open).
+  (deliberate divergence, README #20 — memory says do not re-open).
 - The where-block `--` escape (parser gives byte-identical AST+Context for
   both layouts — unfixable here, don't try).
 - `Comments.gren`'s descent/boundary logic itself — it is the *right* place

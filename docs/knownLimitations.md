@@ -332,7 +332,7 @@ This is the one placement that stays put every time you reformat *and* never
 misplaces a comment you really did write below `in`. elm-format, whose parser
 records the `in` position, keeps a trailing-binding comment up with the
 bindings instead — a divergence covered in
-[Comparison with elm-format](elmFormatComparison.md#divergence-21) (point 21), with the
+[Comparison with elm-format](elmFormatComparison.md#divergence-20) (point 20), with the
 full reasoning for why gren-format can't follow suit.
 
 ## Block comment body indentation

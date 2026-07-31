@@ -1113,10 +1113,11 @@ insertAmongChildren containerBox commentNode row col children =
             -- comment redirected *into* an `IndentedBlock` / `PipelineStep`
             -- leads that body on its own line (`LeadsOwnLine`); everything else
             -- is classified by `classifyCommentKind`.
+            classifiedRole =
+                classifyCommentKind containerBox commentNode finalBefore finalAfter row
+
             classifiedComment =
-                lpnSetCommentRole
-                    (classifyCommentKind containerBox commentNode finalBefore finalAfter row)
-                    commentNode
+                lpnSetCommentRole classifiedRole commentNode
 
             leadingComment =
                 lpnSetCommentRole LeadsOwnLine commentNode
@@ -1137,6 +1138,30 @@ insertAmongChildren containerBox commentNode row col children =
                         let
                             newNextNode =
                                 lpnNode PipelineStep (Array.pushFirst leadingComment (lpnChildren nextNode))
+                        in
+                        finalBefore ++ [ newNextNode ] ++ afterRest
+
+                    BodyBlock ->
+                        -- A `BodyBlock` wraps a declaration's VALUE. A comment
+                        -- the author wrote on its OWN line between `=` and the
+                        -- value belongs to the value, not to the head — so
+                        -- redirect it inside, exactly as the `IndentedBlock` arm
+                        -- above does for a `let` binding's value (which is why
+                        -- the identical comment under a `let` binding's `=`
+                        -- already rendered own-line while a top-level `x =`
+                        -- glued it onto the head as `x = {- c -}`).
+                        --
+                        -- Unconditional, like those two arms, and for the same
+                        -- reason: a `BodyBlock` joins with a hard newline, so the
+                        -- value ALWAYS starts its own line. There is no flat line
+                        -- here for a comment to ride, and the row the author
+                        -- wrote it on cannot change that — `x = {- c -}` and
+                        -- `x =` ⏎ `{- c -}` are the same layout question, and
+                        -- elm-format answers both with the comment on its own
+                        -- line above the body.
+                        let
+                            newNextNode =
+                                lpnNode BodyBlock (Array.pushFirst leadingComment (lpnChildren nextNode))
                         in
                         finalBefore ++ [ newNextNode ] ++ afterRest
 

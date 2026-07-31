@@ -165,9 +165,9 @@ easiest place in this repo for a known bug to go quiet.
 
 Current state: **1738/1738 pass oracles 1–3**; 1167 are byte-identical to
 elm-format, with 571 registered divergences — 398 redundant parens (#10), 125
-single-item-container collapse (#22, records *and* arrays), 38 precedence-split
-binop chains (#18), 6 backward-`<|` flat layout (#14), 3 pipeline-`|>` alignment
-(#20), 1 record-update `|>`-operand field indent (#23), **0 UNREVIEWED**, and
+single-item-container collapse (#21, records *and* arrays), 38 precedence-split
+binop chains (#17), 6 backward-`<|` flat layout (#14), 3 pipeline-`|>` alignment
+(#19), 1 record-update `|>`-operand field indent (#22), **0 UNREVIEWED**, and
 **0 known BUGs** — every divergence is a documented catalogue entry. The
 author-broken axis found four real bugs, all **fixed**: a lambda body
 over-indenting to +8 in array-item / nested-lambda-body positions

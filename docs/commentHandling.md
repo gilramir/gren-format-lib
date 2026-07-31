@@ -78,6 +78,22 @@ This is the *one* place source-row arithmetic is legitimate — interpreting the
 original source is the whole job of `Comments.gren`, and the rows are still
 pristine here.
 
+### The body redirect
+
+Before classifying, `insertAmongChildren` checks whether the node the comment
+would be spliced *before* is a body wrapper — an `IndentedBlock` (a `let`
+binding's value), a `PipelineStep`, or a `BodyBlock` (a declaration's value).
+If so the comment is pushed inside that node as its **first child**, with the
+role forced to `LeadsOwnLine`.
+
+All three wrappers start their content on a fresh line unconditionally, so a
+comment sitting between the head and the body has no flat line to ride: it leads
+the body wherever the author wrote it, and the row it was written on cannot
+change that. Leaving it outside instead makes the flow's soft separator glue it
+onto the head — `x =` ⏎ `{- c -}` ⏎ `42` rendered as `x = {- c -}` ⏎ `42`, which
+contradicted both the stored role and elm-format. The `BodyBlock` arm is what
+makes a top-level declaration behave like the `let` binding one level down.
+
 ## The rule: coarse generic flow vs permissive list-like contexts
 
 The recurring discovery (see `comment-arch.md`) is that different render paths

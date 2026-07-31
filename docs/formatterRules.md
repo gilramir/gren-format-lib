@@ -1435,8 +1435,8 @@ A comment written after the value of the *last* binding is a special case:
 because the `in` keyword has no recorded position, gren-format can't tell a
 comment trailing that binding from one introducing the result, so it places it
 on its own line just below `in`. This is a deliberate divergence from
-elm-format — see [Comparison with elm-format](elmFormatComparison.md#divergence-21)
-(point 21), and [A comment after the last binding in a `let`](knownLimitations.md#a-comment-after-the-last-binding-in-a-let).
+elm-format — see [Comparison with elm-format](elmFormatComparison.md#divergence-20)
+(point 20), and [A comment after the last binding in a `let`](knownLimitations.md#a-comment-after-the-last-binding-in-a-let).
 
 You can destructure on the left of a binding:
 

@@ -5,7 +5,8 @@ foldOverAttributes reducerFunction initialAccumulatorValue branchAttributesArray
     let
         accumulatorAfterAttributes =
             Array.foldl reducerFunction initialAccumulatorValue branchAttributesArrayValueHere
-    in {- trailing the last binding, before in -}
+    in
+    {- trailing the last binding, before in -}
     accumulatorAfterAttributes
 
 

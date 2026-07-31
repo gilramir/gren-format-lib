@@ -644,7 +644,7 @@ patternCommentsSuite fsPerm =
             , assertPretty fsPerm "a `--` written past a flat single-field record update whose value is a lambda (`{ z | apply = \\x -> x + 1 } -- c`) stays outside the `}` and the update stays flat, like arrays — the pre-fix crash sank the comment before `}` where it swallowed the closing brace and failed to reparse" "RecordUpdateLambdaFieldTrailingComment"
             , assertPretty fsPerm "comment trailing a signature's last token stays glued inline" "SignatureTrailingComment"
             , assertPretty fsPerm "a comment leading a multi-line type record drops onto its own line above the record (elm-format match)" "TypeRecordLeadingComment"
-            , assertPretty fsPerm "comment trailing the last let binding routes after `in` (not own-line, which would oscillate)" "LetInTrailingComment"
+            , assertPretty fsPerm "comment trailing the last let binding routes after `in` (which is where it stays -- keeping it with the bindings oscillates)" "LetInTrailingComment"
             , assertPretty fsPerm "comment trailing a non-last let binding's value sits at the bindings-block indent" "BetweenLetBindingsComment"
             , assertPretty fsPerm "comment trailing a non-last when-branch body (nested in if/let) sits between branches, no blank" "BetweenWhenBranchesComment"
             -- Regression guards for the 2026-05-24 fuzzer-found idempotency fixes.
@@ -711,7 +711,8 @@ bracketCommentsSuite fsPerm =
             , assertPretty fsPerm "long trailing comment in a bracket list glues inline regardless of length" "BracketListOverflowComment"
             , assertPretty fsPerm "comment in an empty-bracket body slot is not absorbed into the brackets" "EmptyBracketTrailingComment"
             , assertPretty fsPerm "an empty bracket holding a multi-line block comment or a line comment can't render inline, so it drops to a vertical layout" "EmptyBracketNonInlineComment"
-            , assertPretty fsPerm "a leading binding comment above an empty bracket that itself holds a comment: the leading comment stays with the binding, the inside comment stays inside" "EmptyBracketLeadingAndInsideComment"
+            , assertPretty fsPerm "a leading binding comment above an empty bracket that itself holds a comment: the leading comment leads the value (own line under `=`), the inside comment stays inside" "EmptyBracketLeadingAndInsideComment"
+            , assertPretty fsPerm "a comment between a declaration's `=` and its body leads the body on its own line -- a `{- -}` exactly like a `--`, a top-level `BodyBlock` exactly like a `let` binding's `IndentedBlock`, and whichever row the author wrote it on (a `BodyBlock` always starts its own line, so there is no flat line to ride)" "DeclBodyLeadingBlockComment"
             -- Regression guard for the Cluster B fix: a *multi-line* block comment
             -- glued same-row onto a preceding construct's last line (previously
             -- crashed; now padded under its start via B.addSuffixBox).

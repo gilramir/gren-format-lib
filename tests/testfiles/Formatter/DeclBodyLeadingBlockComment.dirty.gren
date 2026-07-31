@@ -1,0 +1,54 @@
+module DeclBodyLeadingBlockComment exposing (..)
+
+-- The author's own-line placement under `=` is honoured, for a `{- -}` exactly
+-- as for a `--`, and at every nesting level: a top-level declaration's body (a
+-- `BodyBlock`) behaves like a `let` binding's (an `IndentedBlock`).
+
+
+ownLineBlock =
+    {- leads the body -}
+    42
+
+
+ownLineLine =
+    -- leads the body
+    42
+
+
+-- A comment the author put on the `=` row lands in the same place: a `BodyBlock`
+-- always starts its own line, so there is no flat line for the comment to ride
+-- and the two authorings are the same layout question. A bracket-ending head
+-- (`{ a }`) is the shape that used to answer it differently.
+sameRowBlock = {- trails the head -}
+    42
+
+
+sameRowAfterBracketPattern { field } = {- trails a bracket-ending head -}
+    field
+
+
+multipleOwnLine =
+    {- first -}
+    {- second -}
+    42
+
+
+insideLet =
+    let
+        binding =
+            {- leads the binding value -}
+            42
+    in
+    binding
+
+
+blockBodyIsAContainer =
+    {- leads the array -}
+    [ 1
+    , 2
+    ]
+
+
+blockBodyIsACall =
+    {- leads the call -}
+    identity 42

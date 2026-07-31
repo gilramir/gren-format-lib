@@ -34,13 +34,12 @@ code, and why the places they *don't* look the way they do.
   - [#14 Backward `<|`: flat vs nesting](#divergence-14)
   - [#15 Comment trailing a pipeline step](#divergence-15)
   - [#16 Comment just after a lambda's `->`](#divergence-16)
-  - [#17 Comment trailing `in`](#divergence-17)
-  - [#18 Operator chain splits at loosest ops](#divergence-18)
-  - [#19 One-line `{- … -}` inside a list/record](#divergence-19)
-  - [#20 Broken pipeline aligns every `|>`](#divergence-20)
-  - [#21 Comment trailing the last `let` binding](#divergence-21)
-  - [#22 Single-item container collapse](#divergence-22)
-  - [#23 Record update as a `|>` operand field indent](#divergence-23)
+  - [#17 Operator chain splits at loosest ops](#divergence-17)
+  - [#18 One-line `{- … -}` inside a list/record](#divergence-18)
+  - [#19 Broken pipeline aligns every `|>`](#divergence-19)
+  - [#20 Comment trailing the last `let` binding](#divergence-20)
+  - [#21 Single-item container collapse](#divergence-21)
+  - [#22 Record update as a `|>` operand field indent](#divergence-22)
 - [Out of scope for comparison](#out-of-scope-for-comparison)
 
 ---
@@ -570,31 +569,7 @@ decision and why.
     the body's row, so it would move down on the next format and the file would
     never settle.
 
-17. <a id="divergence-17"></a>**A comment trailing `in`** gren-format keeps it glued to
-    `in` on the same line; elm-format moves it to its own line immediately
-    after `in` (no blank line, still outside the `let` block):
-
-    ```gren
-    -- gren-format:
-    x =
-        let
-            a =
-                1
-        in {- note -}
-        a
-
-    -- elm-format:
-    x =
-        let
-            a =
-                1
-        in
-        {- note -}
-        a
-    ```
-
-
-18. <a id="divergence-18"></a>**A multi-line operator chain splits only at its loosest operators;
+17. <a id="divergence-17"></a>**A multi-line operator chain splits only at its loosest operators;
     elm-format splits at every operator.** gren-format keeps tighter-binding
     parts of a chain on one line and breaks only at the weakest operators (see
     [Binary operators](formatterRules.md#binary-operators)); elm-format puts every operator on its
@@ -652,7 +627,7 @@ decision and why.
     across two lines apiece and buries the `||` structure that's actually the
     point of the expression.
 
-19. <a id="divergence-19"></a>**A one-line `{- … -}` inside a list or record stays on the line the author
+18. <a id="divergence-18"></a>**A one-line `{- … -}` inside a list or record stays on the line the author
     wrote; elm-format breaks the whole thing open.** When a comment sits inside a
     list, record, record update, or record type and the author wrote the whole
     thing on one line, gren-format leaves it alone — the comment fits, so nothing
@@ -744,7 +719,7 @@ decision and why.
         }
     ```
 
-20. <a id="divergence-20"></a>**When a pipeline breaks, every `|>` lines up; elm-format keeps the steps
+19. <a id="divergence-19"></a>**When a pipeline breaks, every `|>` lines up; elm-format keeps the steps
     that still fit up on the seed's line.** This one only shows up under a
     narrow condition, so it helps to see it alongside a lookalike case that
     *doesn't* trigger the divergence.
@@ -822,7 +797,7 @@ decision and why.
                 )
     ```
 
-21. <a id="divergence-21"></a>**A comment trailing the *last* `let` binding drops below `in`; elm-format
+20. <a id="divergence-20"></a>**A comment trailing the *last* `let` binding drops below `in`; elm-format
     keeps it with the bindings.** When you write a comment after the value of the
     *last* binding in a `let`, gren-format moves it onto its own line after `in`,
     at the result-expression column. elm-format keeps it at the bindings' indent,
@@ -876,10 +851,9 @@ decision and why.
     act of formatting: once the comment is moved onto its own line above `in`, a
     reformat no longer sees it as same-row and drops it back below `in`, so the
     column oscillates on every pass. Routing below `in` avoids that entirely. The
-    output is stable when reformatted. (A comment trailing `in` itself is a
-    separate case — point 17.)
+    output is stable when reformatted.
 
-22. <a id="divergence-22"></a>**A single-item container (record, update, or array) whose contents fit
+21. <a id="divergence-21"></a>**A single-item container (record, update, or array) whose contents fit
     collapses to one line; elm-format keeps anything you broke inside the brackets
     expanded.**
 
@@ -942,7 +916,7 @@ decision and why.
     deliberate rule here rather than a record-only tweak. It is stable when
     reformatted either way.
 
-23. <a id="divergence-23"></a>**A record update as a direct multi-line `|>` operand keeps gren's field
+22. <a id="divergence-22"></a>**A record update as a direct multi-line `|>` operand keeps gren's field
     indent; elm-format compresses it.** gren-format renders a record update the
     same everywhere: `{` and the base on the first line, the `|`/`,` field lines
     4 spaces past the `{`, and `}` back at the `{` column (see
