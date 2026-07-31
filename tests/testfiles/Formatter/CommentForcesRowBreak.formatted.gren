@@ -1,0 +1,55 @@
+module CommentForcesRowBreak exposing (..)
+
+
+-- `forceVertical` is computed from the AST's source rows, and the AST has no
+-- comments in it. So a construct the author wrote on one row was flagged
+-- "not vertical" even when a comment inside it forces a break -- the first
+-- format rendered flat, the break happened anyway, and the REPARSE saw the
+-- later item on a later row and rendered broken. These all oscillated.
+callWithBreakingComment =
+    fn a
+        -- c
+        [ 1, 2, 3 ]
+
+
+callCommentBeforeLastArg =
+    fn a
+        -- c
+        [ 1, 2, 3 ]
+        last
+
+
+binopWithBreakingComment =
+    head
+        ++ -- c
+           [ 1, 2, 3 ]
+
+
+multiLineBlockCommentBreaks =
+    fn a
+        {- one
+           two
+        -}
+        b
+
+
+-- NOT affected: a single-line {- -} mid-flow stays inline and breaks nothing,
+-- so the call is still flat.
+singleLineBlockCommentInline =
+    fn a {- c -} b
+
+
+-- NOT affected: a comment at the END of a flow has nothing after it to push
+-- down, so it still trails.
+trailingCommentStillTrails =
+    fn a b -- c
+
+
+-- NOT affected: `AcrossOrVertical` is also a declaration HEAD, where the
+-- trailing `=` must stay glued to the last item however the row breaks. This is
+-- what `checkContentVertical` gates.
+declHead {- one
+            two
+         -}
+    x =
+    x

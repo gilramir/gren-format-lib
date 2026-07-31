@@ -1,0 +1,46 @@
+module RecordFieldLambdaDrop exposing (..)
+
+
+-- A record field keeps a lambda glued on the `= ` line only when the lambda
+-- fits on one line. That expectation was an AST-level guess, blind to both a
+-- comment (the AST has none) and an author-broken body -- either rendered the
+-- lambda multi-line while still glued, and the reparse then flipped to the drop
+-- form. Decided from the body's rendered box now.
+commentInBody =
+    { fld =
+        \q ->
+            { a =
+                -- c
+                q
+            }
+    }
+
+
+authorBrokenBody =
+    { fld =
+        \q ->
+            { a = 1
+            , b = 2
+            }
+    }
+
+
+updateFieldCommentInBody =
+    { rec
+        | fld =
+            \q ->
+                { a =
+                    -- c
+                    q
+                }
+    }
+
+
+-- Still glued: a single-line body needs no drop.
+singleLineBodyStaysGlued =
+    { fld = \q -> q + 1 }
+
+
+-- Still glued, with a comment that rides the line rather than breaking it.
+inlineCommentStaysGlued =
+    { fld = \q -> {- c -} q }

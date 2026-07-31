@@ -261,14 +261,25 @@ never auto-classified — that is the exact shape of both pairing bugs, so a
 classifier that swept "the comment moved" into one family would have frozen the
 very bug the axis was built to find.
 
-**First run (2026-07-31) found 424 hard failures.** 26 emitted **invalid Gren**
-(a `--` inside a container's item let the container collapse to the flat form,
-putting the synthesized `]` inside the comment) — fixed, `8ce035b`. Of the 398
-non-idempotent, 184 were a `--` before a lambda body the author started on the
-`->` row — fixed ("Put a `--` before a lambda body inside the body"). The remaining **214 are open** and are all one
-mechanism: a comment adds a source row, and the reparse then reads a *different*
-layout because `forceVertical` / `fieldValueDropsToOwnLine` are decided from
-source rows. Also ~16k unreviewed parity divergences. See `tbd.md`.
+**First run (2026-07-31) found 424 hard failures — all now fixed**, in three
+commits:
+
+- 26 emitted **invalid Gren** (a `--` inside a container's item let the container
+  collapse to the flat form, putting the synthesized `]` inside the comment) —
+  `8ce035b`.
+- 184 were a `--` before a lambda body the author started on the `->` row —
+  "Put a `--` before a lambda body inside the body".
+- The last 214 were one mechanism: **a comment adds a source row, and the reparse
+  reads a different layout**, because `forceVertical` (calls, binop chains) and
+  the record-field lambda glue are decided from *source rows* — and the AST those
+  rows come from has no comments in it. Fixed by folding the missing signal into
+  the same decision: `NodeClassify.commentBreaksFlowRow` for the flow flags, and
+  `renderGluedLambdaField` observing the body's rendered box for the field glue.
+  That last one also fixed a comment-free instance of the same bug
+  (`{ fld = \q -> { a = 1` / `, b = 2 } }` oscillated with no comment anywhere).
+
+The axis now reports **0 failing cells**. What remains is ~16k unreviewed parity
+divergences — debt, not failures; see `tbd.md`.
 
 ### Predicate/renderer agreement audit
 

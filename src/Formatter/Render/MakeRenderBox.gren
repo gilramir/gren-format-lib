@@ -20,7 +20,7 @@ import Formatter.Render.CommentBox exposing (commentNodeBox, commentNodeToBox, e
 import Formatter.Render.ElmStructure as E
 import Formatter.Render.FlowAssembly exposing (FlowItem, SoftGlueAlignment(..), assembleBrokenCall, assembleBrokenWithComments, bracketPunc, gluedExposingBox, isCommentItem, pairLeadingComments, parenInnerIsAlignCarrying, softBlockChildForcesVerticalBox, softGlueAlignment, trySoftGlueFlow, verticalExposingBox)
 import Formatter.Render.FlowPolicy as FP
-import Formatter.Render.NodeClassify exposing (fieldValueDropsToOwnLine, isColonLeaf, isDroppingSignatureRecordNode, isMultilineLambdaParenBlockBox, isOpAndRhsNode, isPipelineStepNode, leafLineRow, leafValue, literalCommentsRideFlatLine, nodeIsComment, parenContentIsLambdaHead, rowsSpanMultiple, signatureForceVertical, splitSignatureSegments, subtreeEndsWithLineComment, subtreeHasComment, typeHasCommentBracket)
+import Formatter.Render.NodeClassify exposing (commentBreaksFlowRow, fieldValueDropsToOwnLine, isColonLeaf, isDroppingSignatureRecordNode, isMultilineLambdaParenBlockBox, isOpAndRhsNode, isPipelineStepNode, leafLineRow, leafValue, literalCommentsRideFlatLine, nodeIsComment, parenContentIsLambdaHead, rowsSpanMultiple, signatureForceVertical, splitSignatureSegments, subtreeEndsWithLineComment, subtreeHasComment, typeHasCommentBracket)
 
 
 {-| Entry point: render one top-level root child to a Box, or `Err` if it
@@ -162,6 +162,11 @@ makeBinopBox forceVerticalArg children =
                 forceVertical =
                     forceVerticalArg
                         || Array.any operandItemsRenderMultiline operandItems
+                        -- Same reason as the call arm: `forceVerticalArg` is a
+                        -- source-row fact and the AST has no comments in it, so a
+                        -- comment that pushes an operand onto a new row would flip
+                        -- the chain to broken only on reparse.
+                        || Array.any commentBreaksFlowRow flat.operands
             in
             if forceVertical then
                 verticalBinopChainBoxFromItems flat.ops operandItems
@@ -1980,6 +1985,81 @@ dropFieldValueBoxWithBox headNodes valueBox =
         (traverseResult commentNodeBox split.trailing)
 
 
+{-| A record field holding a lambda that `folderInsertRecordField` decided to
+keep GLUED on the `= ` line — the `IndentedBlock` container it builds in that one
+branch (`{ fld = \q -> body }`). Every other field shape is a `plainAcross`
+flow, so this identifies the glued-lambda case exactly.
+
+The glue is chosen when the lambda is expected to render on one line. That
+expectation is an AST-level guess (`lambdaValueNodesAreBroken || exprAlwaysBreaks`)
+and it is under-approximate in both directions that matter: it cannot see a
+comment (the AST has none), and it does not model an author-broken record body.
+Either makes the lambda render multi-line while still glued — and the reparse
+then sees the body on a later row, flips to the drop form, and the file
+oscillates. `renderGluedLambdaField` settles it by observing the rendered box
+instead of predicting it. -}
+isGluedLambdaField : LPNode -> LPNode -> Bool
+isGluedLambdaField field valueNode =
+    when { f = lpnBox field, v = lpnBox valueNode } is
+        { f = IndentedBlock, v = SoftIndentedBlock } ->
+            True
+
+        _ ->
+            False
+
+
+{-| The glued-lambda field, decided from the lambda body's OWN rendered box.
+
+Single-line body → the lambda fits on the `= ` line, so render the field exactly
+as `makePBox IndentedBlock` would (`buildFlowBox 0` is `renderFlowItems` then
+`assembleFlow False 0`, which is what this reproduces with the body item
+supplied). Multi-line body → the lambda drops whole below `field =`, which is
+what this formatter does with a lambda in every other position and what
+elm-format does here.
+
+The body is rendered ONCE and the box reused down both paths. Re-rendering the
+field to test it would double the cost at every nesting level — exponential in
+depth, the hang that `renderRecordFieldBox`'s own doc warns about. -}
+renderGluedLambdaField : Array LPNode -> LPNode -> Result String Box
+renderGluedLambdaField headNodes bodyNode =
+    makePBox (lpnBox bodyNode) (lpnChildren bodyNode)
+        |> Result.andThen
+            (\bodyBox ->
+                let
+                    bodyItem =
+                        { node = bodyNode
+                        , box = bodyBox
+                        , isBlock = isBlockNode bodyNode bodyBox
+                        , comment = Nothing
+                        , lambdaBodyBox = Nothing
+                        }
+                in
+                if isSingleLine bodyBox then
+                    renderFlowItems headNodes
+                        |> Result.andThen
+                            (\headItems -> assembleFlow False 0 (Array.pushLast bodyItem headItems))
+
+                else
+                    -- `headNodes` is `[ name, =, lambdaHead ]`; the lambda drops as
+                    -- a unit, so split the field head off and rebuild the lambda
+                    -- (its own `\q ->` head plus the body) as the dropped value.
+                    when Array.popLast headNodes is
+                        Just { last = lambdaHead, initial = fieldHead } ->
+                            renderFlowItems [ lambdaHead ]
+                                |> Result.andThen
+                                    (\lambdaHeadItems ->
+                                        assembleFlow False 0 (Array.pushLast bodyItem lambdaHeadItems)
+                                    )
+                                |> Result.andThen (dropFieldValueBoxWithBox fieldHead)
+
+                        Nothing ->
+                            -- Unreachable: the container is built as
+                            -- `[ name, =, lambdaHead, body ]`, so popping the body
+                            -- always leaves three nodes.
+                            Err "box: glued lambda field has no head"
+            )
+
+
 {-| Render one record `name = value` field to a box: a soft multi-line value
 drops onto its own line (`dropFieldValueBoxWithBox`); everything else renders as
 the plain `name = value` node. Shared by record *updates* and record *literals* —
@@ -2003,7 +2083,10 @@ renderRecordFieldBox field =
             makePBox (lpnBox field) (lpnChildren field)
 
         Just { last = valueNode, initial = headNodes } ->
-            if valueNodeIsHardBlock valueNode then
+            if isGluedLambdaField field valueNode then
+                renderGluedLambdaField headNodes valueNode
+
+            else if valueNodeIsHardBlock valueNode then
                 makePBox (lpnBox field) (lpnChildren field)
 
             else
@@ -2867,7 +2950,24 @@ makePBox box children =
             renderFlowItems children
                 |> Result.andThen
                     (\items ->
-                        if forceVertical || (checkContentVertical && Array.any .isBlock items) then
+                        if
+                            forceVertical
+                                -- `forceVertical` came from the AST's source rows,
+                                -- which cannot see a comment. A comment that pushes
+                                -- a later item onto a new row makes the reparse
+                                -- read this call as broken, so commit to broken now
+                                -- rather than flip on the second format.
+                                --
+                                -- Behind `checkContentVertical` for the reason that
+                                -- flag exists: `AcrossOrVertical` is also a decl /
+                                -- lambda HEAD (`decl x =`, `\q ->`), where the
+                                -- trailing `=` / `->` must stay glued to the last
+                                -- item and must not be pushed onto its own line
+                                -- just because an earlier item broke the row.
+                                || (checkContentVertical
+                                        && (Array.any .isBlock items || commentBreaksFlowRow children)
+                                   )
+                        then
                             -- A function application that must break: elm-format's
                             -- `ElmStructure.application`.
                             assembleBrokenCall grenIndent items

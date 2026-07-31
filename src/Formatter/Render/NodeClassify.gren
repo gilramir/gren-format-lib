@@ -1,4 +1,4 @@
-module Formatter.Render.NodeClassify exposing (fieldValueDropsToOwnLine, isArrowLeaf, isColonLeaf, isDroppingSignatureRecordNode, isElidedArrow, isEmptyLine, isMultilineLambdaParenBlockBox, isOpAndRhsNode, isPipelineStepNode, leafLineRow, leafValue, literalCommentsRideFlatLine, nodeIsComment, parenContentIsLambdaHead, rowsSpanMultiple, segFirstRow, segLastRow, signatureForceVertical, splitSignatureSegments, subtreeEndsWithLineComment, subtreeHasComment, typeHasCommentBracket)
+module Formatter.Render.NodeClassify exposing (commentBreaksFlowRow, fieldValueDropsToOwnLine, isArrowLeaf, isColonLeaf, isDroppingSignatureRecordNode, isElidedArrow, isEmptyLine, isMultilineLambdaParenBlockBox, isOpAndRhsNode, isPipelineStepNode, leafLineRow, leafValue, literalCommentsRideFlatLine, nodeIsComment, parenContentIsLambdaHead, rowsSpanMultiple, segFirstRow, segLastRow, signatureForceVertical, splitSignatureSegments, subtreeEndsWithLineComment, subtreeHasComment, typeHasCommentBracket)
 
 {-| Boolean predicates and small structural queries over LPT nodes.
 -}
@@ -77,6 +77,63 @@ subtreeEndsWithLineComment node =
 
                 Nothing ->
                     False
+
+
+{-| True when a comment among these flow siblings pushes a LATER sibling onto a
+new row — so the flow cannot render on one line no matter what its
+`forceVertical` flag says.
+
+This exists to keep a row-derived `forceVertical` honest. `insertCall` /
+`insertBinops` set that flag from the AST's source rows, and the AST has no
+comments in it, so a construct the author wrote on one row is flagged
+`forceVertical = False` even when a comment inside it will force a break. The
+first format then renders the flat layout, the break happens anyway, and the
+REPARSE sees the later sibling on a later row — `forceVertical = True` — and
+renders the broken layout instead. The file oscillates. Folding this predicate
+into the same decision makes the first format commit to the shape the reparse
+will agree with.
+
+Which comments break, from `FlowPolicy.decide` (this must track it):
+
+  - a `--` always does: it runs to end of line, so `LineCommentItem` leaves
+    `AlreadyTerminated` and the next item starts a fresh line.
+  - a MULTI-LINE `{- … -}` always does: it leaves `TerminatedByBlockComment`.
+  - a single-line `{- … -}` mid-flow does NOT: it stays inline and leaves
+    `FlowSep`, which is exactly why `fn a {- c -} b` is one line.
+
+…and only when a real item actually follows: a comment at the END of a flow
+(`foo bar -- c`) breaks nothing, which is the long-standing fixed point for that
+shape and must stay one.
+
+Reads LPT box kinds only — no source rows, no rendered text — so it is
+render-invariant safe.
+-}
+commentBreaksFlowRow : Array LPNode -> Bool
+commentBreaksFlowRow children =
+    let
+        endsItsLine node =
+            when lpnBox node is
+                SingleLineComment _ ->
+                    True
+
+                BlockComment { loc } ->
+                    String.contains "\n" loc.value
+
+                DocComment loc ->
+                    String.contains "\n" loc.value
+
+                _ ->
+                    False
+
+        step node acc =
+            if nodeIsComment node then
+                { acc | pending = acc.pending || endsItsLine node }
+
+            else
+                -- A real item after a line-ending comment starts a new row.
+                { broke = acc.broke || acc.pending, pending = False }
+    in
+    (Array.foldl step { broke = False, pending = False } children).broke
 
 
 {-| True when every comment among a bracketed literal's direct children can ride
