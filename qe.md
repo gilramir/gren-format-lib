@@ -31,6 +31,16 @@ coverage-fixture work). Both are now fixed with promoted fixtures. It is now the
 only gate that varies *structure* (not just comments/whitespace over a fixed
 corpus), so it is a per-change gate for the co-occurrence axis.
 
+Updated again 2026-07-30: **avenue #1 (boundary/pathological inputs) is now
+fully done, both halves.** Nesting depth was closed 2026-07-29
+(`tests/pathological-nesting.py`); this session closed the non-depth half
+(`tests/pathological-other.py`) — long identifiers/strings/comments, wide
+lists/records/modules/comment-runs, empty modules, all-comment files, CRLF,
+unicode — finding a real CRLF doc-comment bug and 6 `O(n^2)` performance bugs
+(all fixed; see "Already built and run" below and the README's "Performance"
+section). Avenue #3 (complexity-guided review) is now the only genuinely
+untried avenue left in this file.
+
 ## Already built and run
 
 - **`tests/matrix-syntax.py`** — a construct×context grid, in up to four
@@ -166,6 +176,38 @@ corpus), so it is a per-change gate for the co-occurrence axis.
     makeParenBlockBox → parenGenericFallbackBox → parenLambdaMultiline`.
   Re-run: `./pathological-nesting.py` (all 8 shapes) or `--shape record` /
   `--shape lambda` / `--shape unaryminus` for one.
+- **`tests/pathological-other.py` — the non-depth half of avenue #1** (long
+  identifiers/strings/comments, wide lists/records/modules/comment-runs,
+  empty modules, all-comment files, CRLF, unicode identifiers/strings — the
+  shapes `pathological-nesting.py`'s depth-only bisection can't reach). Two
+  probe kinds: geometric-growth + bisection size sweeps (`long-identifier`,
+  `long-string`, `long-comment`, `wide-list`, `wide-record`, `wide-module`,
+  `wide-comments-only`) and one-shot scenarios (`empty-module`,
+  `all-comment-file`, `crlf-corpus`, `unicode-identifiers`,
+  `unicode-strings`). First run (2026-07-30) found two real bug classes, both
+  fixed:
+  - **CRLF doc-comment leak.** A `{-| … -}` doc comment's body is emitted as
+    one opaque literal (unlike a plain block comment, which reconstructs
+    line-by-line and incidentally strips a stray `\r`), so a CRLF-encoded
+    file's embedded `\r`s survived verbatim into formatted output. Fixed at
+    the source-read boundary (`gren-format/src/Format.gren`'s `readSource`
+    normalizes `\r\n`→`\n` right after UTF-8 decode) plus defense-in-depth in
+    the doc-comment renderer.
+  - **Six `O(n^2)` perf bugs**, found via the `wide-module` /
+    `wide-comments-only` size sweeps timing out well short of any realistic
+    file size. All shared the same shape — rebuilding or rescanning the
+    *entire* array of already-processed declarations/nodes/comments once per
+    new one, instead of accumulating with `Array.Builder` or a monotonic
+    cursor — across `MakeLogical.gren` (`addRootChild`), `VerticalSpace.gren`
+    (6 functions), `SortSymbols.gren` (`walkTop` and its helpers, in two
+    rounds — the accumulator, then a deeper fix so a long chain of
+    non-import comments is bulk-skipped instead of rescanned from every
+    position inside it), and `Comments.gren` (`lptAddComments`, rewritten
+    around a settled/target/rest cursor). All fixed and verified against the
+    full gate suite plus a 3000-seed `gen-random.py` sweep (the comment-
+    placement-specific oracle) for the `Comments.gren` change specifically.
+    Representative before/after numbers are in the README's "Performance"
+    section. No open items remain in this avenue.
 - **Coverage-gap analysis** — enumerate the reachable arms nothing currently
   tests. Built as the sibling `gren-coverage-node` repo: Gren line/region
   coverage from V8 coverage + sourcemaps, joined against the AST; run via the
@@ -218,16 +260,20 @@ that would have caught specific classes ahead of the sweep:
 
 ## Untried avenues
 
-1. ~~**Boundary/pathological inputs.**~~ **Done** for nesting depth — built as
-   `tests/pathological-nesting.py` (see "Already built and run" above): 8
-   shapes, geometric-growth + bisection, parser-ceiling vs. formatter-ceiling
-   split. Found 3 bugs (1 fixed — the record-literal hang was exactly the
-   `O(2^depth)` failure class this avenue was chasing; 2 accepted as
-   documented stack-depth limits, unreachable at realistic depth). Still
-   untried within this avenue: very long identifiers, files that are all
-   comments, empty modules, CRLF line endings, unicode in strings/identifiers,
-   huge single-line inputs — none of those are nesting-depth shaped, so the
-   geometric-bisection harness doesn't cover them.
+1. ~~**Boundary/pathological inputs.**~~ **Done, both halves** — built as
+   `tests/pathological-nesting.py` (nesting depth) and
+   `tests/pathological-other.py` (everything else) (see "Already built and
+   run" above). Nesting depth: 8 shapes, geometric-growth + bisection,
+   parser-ceiling vs. formatter-ceiling split, found 3 bugs (1 fixed — the
+   record-literal `O(2^depth)` hang was exactly the failure class this avenue
+   was chasing; 2 accepted as documented stack-depth limits, unreachable at
+   realistic depth). Non-depth shapes (long identifiers/strings/comments,
+   wide lists/records/modules/comment-runs, empty modules, all-comment
+   files, CRLF, unicode) — done 2026-07-30: found a real CRLF doc-comment bug
+   (fixed) and, via the `wide-module`/`wide-comments-only` size sweeps, 6
+   distinct `O(n^2)` perf bugs (all fixed; see "Already built and run"
+   above and the README's "Performance" section). No open items remain in
+   this avenue.
 
 2. ~~**Random AST generation (property-based).**~~ **Done** — built as
    `tests/gen-random.py` (see "Already built and run" above). Remaining work is
@@ -257,6 +303,12 @@ co-occurrence axis at the current grammar's depth/comment-density settings is
 now well-covered, and the *marginal* next seed is unlikely to find anything the
 last million didn't. The leverage has shifted:
 
+Updated 2026-07-30: avenue #1's non-depth cases are **done** too — see
+"Already built and run" above and "Untried avenues" item 1. Both halves of
+avenue #1 are now closed. That leaves avenue #3 (complexity-guided review) as
+the only genuinely untried avenue in this file; everything else is either
+done or an ongoing-maintenance gate to re-run.
+
 1. ~~**Grow `gen-random.py`'s grammar.**~~ **Stale as of this writing — already
    done.** The priority list this item used to carry (type aliases/unions/ports,
    author-broken types & signatures, multiline-string literal-content mutation,
@@ -268,20 +320,22 @@ last million didn't. The leverage has shifted:
    quarantine. See `tests/GENERATOR.md` for the full version history. There is
    no known open grammar gap right now; the next grammar addition is whatever
    new Gren syntax lands, not a backlog item.
-2. **Avenue #1 (boundary/pathological inputs), non-depth cases — highest
-   leverage now.** Nesting depth is done (see "Already built and run" above —
-   3 bugs found, 1 fixed, 2 accepted; notably the only entry in this file to
-   find a *performance* bug rather than a correctness one, historical
-   `Box.gren` hang + the 2026-07-30 record-literal one — suggesting this avenue
-   probes a different failure mode than the co-occurrence-sampling tools). Its
-   non-depth-shaped cases are still untried and unreachable by randomly
-   sampling *legal* syntax at bounded depth (what both the matrix and the
-   generator do): very long identifiers, all-comment files, empty modules,
-   CRLF line endings, unicode in strings/identifiers, huge single-line input.
-3. **Avenue #3 (complexity-guided review)** remains fully untried: a targeted
-   close-read of `assembleFlowImpl`, `MakeRenderBox.gren`, and the paren-block
-   tab-stop machinery — the densest, most-patched code in the repo — as a
-   human/agent-driven audit rather than a generated-input sweep.
+2. ~~**Avenue #1 (boundary/pathological inputs), non-depth cases.**~~ **Done**
+   as of 2026-07-30 (see "Already built and run" above and "Untried avenues"
+   item 1). Both halves of this avenue found *performance* bugs rather than
+   correctness ones — the historical `Box.gren` hang, the 2026-07-30
+   record-literal `O(2^depth)` hang, and 6 more `O(n^2)` sites from the
+   non-depth sweep — suggesting this avenue probes a different failure mode
+   than the co-occurrence-sampling tools (matrix, both fuzzers, the
+   generator). Worth remembering if a future grammar addition or large
+   refactor reopens this axis; nothing open right now.
+3. **Avenue #3 (complexity-guided review) — the only untried avenue left.**
+   A targeted close-read of `assembleFlowImpl`, `MakeRenderBox.gren`, and the
+   paren-block tab-stop machinery — the densest, most-patched code in the
+   repo — as a human/agent-driven audit rather than a generated-input sweep.
 4. Keep the corpus sweep in rotation as new packages publish; keep
    `gen-random.py` (including `fuzzrun.py` for unattended depth),
-   the author-broken matrix, and both fuzzers as the fast per-change gate.
+   the author-broken matrix, and both fuzzers as the fast per-change gate —
+   re-running `fuzzrun.py` after a change like this session's is exactly this:
+   not chasing a known gap, just re-confirming the co-occurrence axis is
+   still clean.
