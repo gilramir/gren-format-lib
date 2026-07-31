@@ -1,0 +1,58 @@
+module BracketLineCommentClose exposing (..)
+
+
+-- A `--` nested inside an item runs to end of line, so the container must NOT
+-- collapse to the flat form: the synthesized `]` would land inside the comment
+-- and the output would not parse. Before the fix this emitted
+-- `[ lower + margin -- inclusive ]`, which is invalid Gren.
+lastItem =
+    [ lower + margin -- inclusive
+    ]
+
+
+-- Not just the LAST item: a `--` in a middle item would swallow the `, ` and
+-- everything after it.
+middleItem =
+    [ lower + margin -- inclusive
+    , other
+    ]
+
+
+-- Same rule for a record literal's field value...
+recordFieldValue =
+    { fld = lower + margin -- inclusive
+    }
+
+
+-- ...a record update's...
+updateFieldValue =
+    { rec
+        | fld = lower + margin -- inclusive
+    }
+
+
+-- ...and a union body.
+type Choice
+    = First -- pick me
+    | Second
+
+
+-- A lambda body ending in a `--` is the same shape one construct over.
+lambdaValue =
+    [ \q -> q + one -- why
+    ]
+
+
+-- NOT over-triggered: a nested container's own last line is its closing
+-- delimiter, so the outer `]` glues after it safely and the inner list keeps the
+-- layout the author wrote.
+nestedListIsSafe =
+    [ [ one -- inner
+      ]
+    ]
+
+
+-- NOT over-triggered: a single-line `{- -}` self-terminates, so it still rides
+-- the flat line (a deliberate divergence from elm-format, which breaks here).
+blockCommentStillRidesFlat =
+    [ one {- fine -} ]

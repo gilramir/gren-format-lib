@@ -3367,15 +3367,33 @@ makeLiteralBox forceMultiline bracket children =
 
 {-| True when a comment among a bracketed construct's children forces it open.
 
-Two ways that happens: some comment cannot ride a flat line (see
-`literalCommentsRideFlatLine`), or the author already broke the construct across
-rows — in which case the comment-aware vertical path owns comment placement and
-the flat path never runs.
+Three ways that happens. Some *direct* comment child cannot ride a flat line
+(see `literalCommentsRideFlatLine`); or the author already broke the construct
+across rows, in which case the comment-aware vertical path owns comment
+placement and the flat path never runs; or some item's own subtree ENDS in a
+`--`, which is the nested case the first two miss.
+
+That third clause is not a refinement — without it the formatter emitted source
+that does not parse. The first two clauses look only at direct children, so a
+`--` buried inside an item (`[ lower + margin -- inclusive` / `]`: the comment
+is a `TrailsPrevious` child of the item's `OpAndRhs`, not of the list) left the
+list on the flat path, which renders `[ item ]` on one line — putting the
+synthesized `]` after a `--` that runs to end of line, so it was swallowed and
+the output failed to reparse. `subtreeEndsWithLineComment` is the same predicate
+the binop/pipeline assemblers consult before gluing onto an operand's last line,
+and it already stops at bracket/paren containers (whose own last line is a
+closing delimiter, safe to glue after) so it does not over-trigger on a nested
+list that merely contains a `--`.
+
+`Array.any`, not "the last child": a `--` in a MIDDLE item swallows the `, ` and
+everything after it just as surely as one in the last item swallows the close.
 -}
 commentForcesBracketOpen : Bool -> Array LPNode -> Bool
 commentForcesBracketOpen forceVertical children =
-    Array.any nodeIsComment children
+    (Array.any nodeIsComment children
         && (forceVertical || not (literalCommentsRideFlatLine children))
+    )
+        || Array.any subtreeEndsWithLineComment children
 
 
 {-| Render a bracketed construct's children with `renderItem`, gluing each
