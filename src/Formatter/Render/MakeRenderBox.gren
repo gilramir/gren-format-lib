@@ -141,6 +141,48 @@ multi-line operand in a non-vertical chain, still returns Err. -}
 makeBinopBox : Bool -> Array LPNode -> Result String Box
 makeBinopBox forceVerticalArg children =
     let
+        flat =
+            flattenBinopNodes children
+    in
+    -- Render every operand node exactly ONCE, up front: the multiline decision
+    -- reads these boxes, and both layout paths consume the same items, so no
+    -- operand subtree is rendered twice. Deciding via a throwaway render
+    -- (`anyOperandRendersMultiline`) and then re-rendering in the chosen
+    -- layout made nested paren/bracket operands (`1 + (1 + (…))`) cost
+    -- O(2^depth) — the same failure class as the nested record-literal hang.
+    when traverseResult renderFlowItems flat.operands is
+        Err _ ->
+            -- An operand refused to render: replay the legacy dispatch so each
+            -- layout path reaches its own fallback for the failing node (the
+            -- old decision treated an unrenderable operand as not-forcing).
+            makeBinopBoxLegacy forceVerticalArg children
+
+        Ok operandItems ->
+            let
+                forceVertical =
+                    forceVerticalArg
+                        || Array.any operandItemsRenderMultiline operandItems
+            in
+            if forceVertical then
+                verticalBinopChainBoxFromItems flat.ops operandItems
+                    |> Result.onError (\_ -> buildFlowBoxBroken grenIndent children)
+
+            else if Array.any subtreeHasComment children then
+                buildFlowBox grenIndent children
+
+            else
+                precedenceBinopBoxFromItems flat.ops operandItems
+                    |> Result.onError (\_ -> buildFlowBox grenIndent children)
+
+
+{-| The pre-threading dispatch, kept ONLY as `makeBinopBox`'s fallback for the
+case where an operand refuses to render up front: each layout path here
+carries its own per-node fallback, preserving the old error behavior exactly.
+On this path operands can be rendered twice (decision + layout) — acceptable,
+because a failing render aborts or falls back rather than recursing deeper. -}
+makeBinopBoxLegacy : Bool -> Array LPNode -> Result String Box
+makeBinopBoxLegacy forceVerticalArg children =
+    let
         forceVertical =
             forceVerticalArg
                 || anyOperandRendersMultiline children
@@ -186,8 +228,7 @@ anyOperandRendersMultiline children =
 
 operandBoxIsMultiline : Array LPNode -> Bool
 operandBoxIsMultiline operand =
-    -- Skip a comment riding the operator (same reason `operandIsMultilineBracketLiteral`
-    -- does) so the sole operand node is found.
+    -- Skip a comment riding the operator so the sole operand node is found.
     when Array.popFirst (Array.keepIf (\n -> not (nodeIsComment n)) operand) is
         Just { first = node, rest = rest } ->
             Array.isEmpty rest
@@ -202,6 +243,197 @@ operandBoxIsMultiline operand =
 
         Nothing ->
             False
+
+
+{-| Item-level mirror of `operandBoxIsMultiline`: True when the operand is a
+single chain-breaking node (comments skipped) whose ALREADY-rendered box is
+multi-line. Reads the box rendered once by `makeBinopBox` instead of
+re-rendering the subtree. -}
+operandItemsRenderMultiline : Array FlowItem -> Bool
+operandItemsRenderMultiline items =
+    when Array.popFirst (Array.keepIf (\it -> not (nodeIsComment it.node)) items) is
+        Just { first = it, rest = rest } ->
+            Array.isEmpty rest
+                && isChainBreakingOperandBox (lpnBox it.node)
+                && not (isSingleLine it.box)
+
+        Nothing ->
+            False
+
+
+{-| `BinopLayout.splitTrailingOwnLineComments` over pre-rendered items: peel
+the trailing run of `LeadsOwnLine` comment items off an operand group. -}
+splitTrailingOwnLineCommentItems : Array FlowItem -> { content : Array FlowItem, ownLine : Array FlowItem }
+splitTrailingOwnLineCommentItems items =
+    let
+        isOwnLineComment it =
+            commentRole (lpnBox it.node) == Just LeadsOwnLine
+
+        peeled =
+            Array.foldr
+                (\it acc ->
+                    if acc.peeling && isOwnLineComment it then
+                        { peeling = True, content = acc.content, ownLine = [ it ] ++ acc.ownLine }
+
+                    else
+                        { peeling = False, content = [ it ] ++ acc.content, ownLine = acc.ownLine }
+                )
+                { peeling = True, content = [], ownLine = [] }
+                items
+    in
+    { content = peeled.content, ownLine = peeled.ownLine }
+
+
+{-| `verticalBinopChainBox` over pre-rendered operand items: identical layout —
+each group is assembled with the same `assembleFlow` calls that
+`buildFlowBoxInline` / `buildFlowBox` wrap, and `renderFlowItems (a ++ b)` is
+`renderFlowItems a ++ renderFlowItems b`, so concatenating item groups equals
+concatenating node groups — but every operand box comes from the single
+up-front render in `makeBinopBox`. Only the operator leaves are rendered here
+(cheap, childless). -}
+verticalBinopChainBoxFromItems : Array LPNode -> Array (Array FlowItem) -> Result String Box
+verticalBinopChainBoxFromItems ops operandItems =
+    let
+        -- Render a run of own-line comment items to their own boxes.
+        renderOwnLineComments items =
+            traverseResult (\c -> assembleFlow False 0 [ c ]) items
+
+        -- Assemble a group's content: `assembleFlow True 0` (the
+        -- `buildFlowBoxInline 0` assembly) keeps a LEADING block comment glued
+        -- on-line (`{- c -} 100`) rather than dropping the operand to its own
+        -- row, matching how the operator segment should read.
+        renderOperandContent items =
+            assembleFlow True 0 items
+    in
+    when Array.popFirst operandItems is
+        Just _ ->
+            traverseResult renderFlowItem ops
+                |> Result.andThen
+                    (\opItems ->
+                        let
+                            grouped =
+                                groupBinopItemsByPrecedence
+                                    operandItems
+                                    (Array.map2 (\opNode opItem -> { text = opText opNode, item = opItem }) ops opItems)
+
+                            op0 =
+                                splitTrailingOwnLineCommentItems grouped.firstGroup
+
+                            segData =
+                                Array.map
+                                    (\g -> { op = g.op, split = splitTrailingOwnLineCommentItems g.items })
+                                    grouped.rest
+                        in
+                        renderOperandContent op0.content
+                            |> Result.andThen
+                                (\firstBox ->
+                                    renderOwnLineComments op0.ownLine
+                                        |> Result.andThen
+                                            (\op0Comments ->
+                                                traverseResult
+                                                    (\seg ->
+                                                        renderOperandContent seg.split.content
+                                                            |> Result.andThen
+                                                                (\operandBox ->
+                                                                    renderOwnLineComments seg.split.ownLine
+                                                                        |> Result.map
+                                                                            (\segComments ->
+                                                                                -- own-line comments lead the operator
+                                                                                -- line's own follow-on comments trail it
+                                                                                [ prefixOperator seg.op operandBox ] ++ segComments
+                                                                            )
+                                                                )
+                                                    )
+                                                    segData
+                                                    |> Result.map
+                                                        (\segLineLists ->
+                                                            -- Every operator line + every own-line comment
+                                                            -- sits at +grenIndent; `firstBox` (operand0) at the base.
+                                                            let
+                                                                indentedLines =
+                                                                    op0Comments ++ Array.flatten segLineLists
+                                                            in
+                                                            B.stack1 ([ firstBox ] ++ Array.map B.indent indentedLines)
+                                                        )
+                                            )
+                                )
+                    )
+
+        Nothing ->
+            Err "box: empty binop chain"
+
+
+{-| `groupBinopByPrecedence` over pre-rendered items — the same fold, glueing a
+tighter operator's item + operand items inline into the current group. -}
+groupBinopItemsByPrecedence :
+    Array (Array FlowItem)
+    -> Array { text : String, item : FlowItem }
+    -> { firstGroup : Array FlowItem, rest : Array { op : String, items : Array FlowItem } }
+groupBinopItemsByPrecedence operands ops =
+    when Array.popFirst operands is
+        Nothing ->
+            { firstGroup = [], rest = [] }
+
+        Just { first = operand0, rest = restOperands } ->
+            let
+                minPrec =
+                    binopMinPrecedence (Array.map .text ops)
+
+                paired =
+                    Array.map2 (\op operandItems -> { op = op, operand = operandItems }) ops restOperands
+
+                final =
+                    Array.foldl
+                        (\pair acc ->
+                            if binopPrecedence pair.op.text == minPrec then
+                                -- A lowest-precedence operator: close the current group
+                                -- and start a new one led by this operator.
+                                { groups = Array.pushLast { op = acc.curOp, items = acc.curItems } acc.groups
+                                , curOp = pair.op.text
+                                , curItems = pair.operand
+                                }
+
+                            else
+                                -- A tighter operator: glue its leaf + operand inline
+                                -- into the current group.
+                                { acc | curItems = acc.curItems ++ [ pair.op.item ] ++ pair.operand }
+                        )
+                        { groups = [], curOp = "", curItems = operand0 }
+                        paired
+
+                allGroups =
+                    Array.pushLast { op = final.curOp, items = final.curItems } final.groups
+            in
+            when Array.popFirst allGroups is
+                Just { first = fg, rest = rg } ->
+                    { firstGroup = fg.items, rest = rg }
+
+                Nothing ->
+                    { firstGroup = operand0, rest = [] }
+
+
+{-| `precedenceBinopBox` over pre-rendered operand items: same assembly, but
+each operand box is `assembleFlow` over the items rendered once up front
+(exactly what `buildFlowBox 0` produced after its own render). -}
+precedenceBinopBoxFromItems : Array LPNode -> Array (Array FlowItem) -> Result String Box
+precedenceBinopBoxFromItems ops operandItems =
+    when Array.popFirst operandItems is
+        Nothing ->
+            Err "box: empty binop"
+
+        Just { first = operand0, rest = _ } ->
+            if Array.isEmpty ops then
+                assembleFlow False 0 operand0
+
+            else
+                traverseResult (assembleFlow False 0) operandItems
+                    |> Result.andThen
+                        (\operandBoxes ->
+                            assembleBinopBox
+                                (binopMinPrecedence (Array.map opText ops))
+                                operandBoxes
+                                (Array.map opText ops)
+                        )
 
 
 -- The comment-aware flow: `buildFlowBox grenIndent` when inline,
@@ -1388,12 +1620,10 @@ makeIfConditionBox forceVertical children =
 -- ═══ RECORD UPDATE ═══
 
 
-{-| True when a record-update field's value is a *soft* node (not a hard block —
-`if`/`when`/`let`/lambda) that renders multi-line. Such a value is dropped onto
-its own line below `name =` (elm-format's `equalsPair` rule — a multi-line value
-never glues to `= `), via `dropFieldValueBox`. A hard-block value already drops
-after `=` through its own block box, and a single-line value stays glued, so
-neither is covered here. A comment child (no meaningful value) returns False. -}
+{-| True when a record field's value node is a hard block (`if`/`when`/`let`/
+lambda body, …). A hard-block value already drops after `=` through its own
+block box, so the soft-value drop rule (`dropFieldValueBoxWithBox`) never
+applies to it — callers short-circuit on this before rendering the value. -}
 valueNodeIsHardBlock : LPNode -> Bool
 valueNodeIsHardBlock valueNode =
     when lpnBox valueNode is
@@ -1419,37 +1649,16 @@ valueNodeIsHardBlock valueNode =
             False
 
 
-recordFieldValueDrops : LPNode -> Bool
-recordFieldValueDrops field =
-    when Array.popLast (lpnChildren field) is
-        Nothing ->
-            False
-
-        Just { last = valueNode } ->
-            -- A comment before the value (`f = {- c -} 31 >> 0`) does not change
-            -- the drop decision: the value is still the last child, and a soft
-            -- multi-line value must drop below `name =` whether or not a comment
-            -- precedes it (elm-format's `equalsPair` rule). `dropFieldValueBox`
-            -- peels the leading comment onto its own line above the value. (An
-            -- earlier early `False` here left the comment case on the plain flow
-            -- path, where a raw multi-line `Binop` sibling hit an "unreachable"
-            -- soft-glue arm and crashed.)
-            if valueNodeIsHardBlock valueNode then
-                False
-
-            else
-                when makePBox (lpnBox valueNode) (lpnChildren valueNode) is
-                    Ok b ->
-                        not (isSingleLine b)
-
-                    Err _ ->
-                        False
-
-
 {-| elm-format's `equalsPair` drop for a record field whose value is a soft
 multi-line node: render `name =` on its own line and stack the value at
 +grenIndent below it. The value's own box supplies its internal layout, so a
 broken call `Array.map (\…) xs` becomes `name =` / `Array.map` / args.
+
+Takes the value's *already-rendered* box: the caller renders the value exactly
+once per level, using the same box for the drop decision (`isSingleLine`) and
+for this layout. Re-rendering it here (as a deleted `dropFieldValueBox`
+wrapper once did) made nesting depth `d` cost `O(2^d)`, the same failure class
+as the historical `Box.gren` render hang.
 
 A comment authored between `=` and the value (`name = {- c -} 31 >> 0`) is
 peeled off the head (`spanTrailingComments`) and stacked on its own line
@@ -1463,22 +1672,6 @@ peeled off the head (`spanTrailingComments`) and stacked on its own line
 Keeping it on the head line (`name = {- c -}`) would leave the multi-line value
 to glue after it in the flow assembler, which has no rule for a raw `Binop`
 sibling and crashed ("unreachable soft-glue item"). -}
-dropFieldValueBox : Array LPNode -> Result String Box
-dropFieldValueBox children =
-    when Array.popLast children is
-        Just { last = valueNode, initial = headNodes } ->
-            makePBox (lpnBox valueNode) (lpnChildren valueNode)
-                |> Result.andThen (dropFieldValueBoxWithBox headNodes)
-
-        Nothing ->
-            Err "box: empty record-update field"
-
-
-{-| Like `dropFieldValueBox`, but takes an already-rendered value box instead of
-re-rendering it. `renderRecordFieldBox` uses this so a nested record literal's
-value is rendered exactly once per level, not twice — rendering it twice (once
-to decide `recordFieldValueDrops`, again here) made nesting depth `d` cost
-`O(2^d)`, the same failure class as the historical `Box.gren` render hang. -}
 dropFieldValueBoxWithBox : Array LPNode -> Box -> Result String Box
 dropFieldValueBoxWithBox headNodes valueBox =
     let
@@ -1665,15 +1858,28 @@ makeRecordUpdateVerticalBox baseName children =
                         else
                             -- Build the field's `name = value` box exactly as the
                             -- non-comment path does (`renderRecordFieldBox`: a soft
-                            -- broken-call/binop value drops via `dropFieldValueBox`,
+                            -- broken-call/binop value drops via
+                            -- `dropFieldValueBoxWithBox` — peeling a leading comment
+                            -- onto its own line above the value, since the flow
+                            -- assembler has no rule for a raw multi-line `Binop`
+                            -- sibling and crashed ("unreachable soft-glue item") —
                             -- everything else — single-line, `if`/`let`/`when`, or a
                             -- lambda whose `\arg ->` head drops — renders via
                             -- `makePBox`). The one exception is a comment WITHIN the
-                            -- field (`gamma = {- c -} 3`): `makePBox` can't place it,
-                            -- so that value flows through `buildFlowBox`, which drops
-                            -- it below `= `. Either way the resulting box has the
+                            -- field (`gamma = {- c -} 3`) whose value renders
+                            -- single-line: `makePBox` can't place it, so that value
+                            -- flows through `buildFlowBox`, which drops it below
+                            -- `= `. Either way the resulting box has the
                             -- `name =`-headed shape that the `| `/`, ` prefix pads
                             -- correctly, so no field value is unrenderable here.
+                            --
+                            -- The branching mirrors `renderRecordFieldBox`'s
+                            -- single-render rule: the value is rendered ONCE and that
+                            -- box serves both the drop decision (`isSingleLine`) and
+                            -- the drop layout. Deciding via a separate render (the
+                            -- old `recordFieldValueDrops` call) and then re-rendering
+                            -- made nesting depth `d` cost O(2^d) — the same failure
+                            -- class as the nested record-literal hang.
                             let
                                 fieldFlowIndent =
                                     when lpnBox node is
@@ -1684,23 +1890,31 @@ makeRecordUpdateVerticalBox baseName children =
                                             grenIndent
 
                                 fieldBoxResult =
-                                    if fieldValueDropsToOwnLine node && not (recordFieldValueDrops node) then
-                                        -- A comment within the field forces its value
-                                        -- onto its own line. For a *single-line* value
-                                        -- (`gamma = {- c -} 3`) `buildFlowBox` drops it
-                                        -- below `= `. But a *multi-line* value (a binop
-                                        -- chain, a broken call) that `recordFieldValueDrops`
-                                        -- already handles must go through
-                                        -- `renderRecordFieldBox` instead: `dropFieldValueBox`
-                                        -- peels the leading comment onto its own line above
-                                        -- the value, whereas `buildFlowBox` would feed the
-                                        -- raw multi-line `Binop` into the flow assembler,
-                                        -- which has no rule for it and crashed
-                                        -- ("unreachable soft-glue item").
-                                        buildFlowBox fieldFlowIndent (lpnChildren node)
+                                    when Array.popLast (lpnChildren node) is
+                                        Nothing ->
+                                            makePBox (lpnBox node) (lpnChildren node)
 
-                                    else
-                                        renderRecordFieldBox node
+                                        Just { last = valueNode, initial = headNodes } ->
+                                            if valueNodeIsHardBlock valueNode then
+                                                if fieldValueDropsToOwnLine node then
+                                                    buildFlowBox fieldFlowIndent (lpnChildren node)
+
+                                                else
+                                                    makePBox (lpnBox node) (lpnChildren node)
+
+                                            else
+                                                makePBox (lpnBox valueNode) (lpnChildren valueNode)
+                                                    |> Result.andThen
+                                                        (\valueBox ->
+                                                            if not (isSingleLine valueBox) then
+                                                                dropFieldValueBoxWithBox headNodes valueBox
+
+                                                            else if fieldValueDropsToOwnLine node then
+                                                                buildFlowBox fieldFlowIndent (lpnChildren node)
+
+                                                            else
+                                                                renderFieldFlowWithValueBox node valueNode headNodes valueBox
+                                                        )
                             in
                             fieldBoxResult
                                 |> Result.map
