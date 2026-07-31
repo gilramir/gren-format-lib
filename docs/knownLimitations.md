@@ -436,24 +436,57 @@ unusable well before 25 levels of nesting. That one *was* a formatter bug
 record literals now nest as deep as the parser allows, same as most other
 constructs.
 
-The same double-render bug turned out to have four more sites, all needing a
+The same double-render bug turned out to have five more sites, all needing a
 *conjunction* of features rather than one construct nested deeply — which is
 why the single-construct shapes above never showed it. A paren wrapping a
 lambda whose body is a bracket literal (`(\q -> [ …, 1 ])`), the record
 variant, a paren-wrapped pipeline as a step argument (`0 |> g ( … )`), and a
-parenthesized lambda used as a direct pipeline operand
-(`v |> (\a -> … )`) each rendered the same subtree two or four times per
-level. All four have been fixed by rendering each subtree once and reading the
-layout decisions off the resulting box instead of re-rendering to ask; the
-first three now nest as deep as the parser allows.
+**pipeline step whose lambda argument nests through its own body**, in both the
+direct-operand and the relocated form. Each rendered the same subtree two or
+four times per level. All are fixed, and all now nest as deep as the parser
+allows.
 
-The fourth — a **direct-operand pipeline lambda**, nested through the lambda's
-own body — is improved by roughly two orders of magnitude (four renders per
-level down to two: depth 10 went from 22 s to 0.14 s) but is still
-exponential, becoming unusable somewhere around 19 levels. The residual is one
-render: the direct-operand layout needs the lambda's head line and body box
-*separately*, so it renders the body a second time even though the paren's own
-box already contains it. Removing it means threading the paren's already-
-rendered child boxes out through the flow-item record — worth doing, not yet
-done, and not reachable by any nesting depth a person writes.
+The pipeline-lambda pair is worth spelling out, since it is the one shape here
+that reads like something a person might actually write. "Direct operand" means
+the parenthesized lambda is the *first* thing after the `|>`, with no function
+in between, so it stays glued to the operator rather than relocating to its own
+line:
+
+```gren
+x =
+    v
+        |> (\a0 ->
+                v
+                    |> (\a1 ->
+                            v
+                                |> (\a2 ->
+                                        v
+                                   )
+                       )
+           )
+```
+
+Written with a function in front of the lambda it takes the *relocation* path
+instead — a different renderer, but it had the same duplicated render:
+
+```gren
+y =
+    v
+        |> f
+            (\a0 ->
+                v
+                    |> f
+                        (\a1 ->
+                            v
+                        )
+            )
+```
+
+What multiplies is the nesting *through the lambda's body*: every level is a
+pipeline step whose operand is a paren whose body is another step of the same
+shape. Both forms used to render that body twice per level (the layout needs
+the lambda's head line and body box separately, so it re-derived the body even
+though the paren's own box already contained it). The body box now rides along
+on the flow item that produced it. Depth 10 of the first form went from 21.7 s
+to 0.07 s; depth 30 of either now formats in under 0.2 s.
 

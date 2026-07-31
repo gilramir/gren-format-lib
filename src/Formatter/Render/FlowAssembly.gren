@@ -79,11 +79,24 @@ bracketPunc bracket =
             Just { left = "(", right = ")" }
 
 
+{-| One rendered flow child.
+
+`lambdaBodyBox` is set only for a `ParenBlock` whose second child is an
+`IndentedBlock` — a lambda whose body the author wrote on a later row. It is
+that block's own box, taken from the very render that produced `box`, and it is
+exactly `buildFlowBox 0 (lpnChildren bodyNode)` (`makePBox IndentedBlock` *is*
+that call). Two consumers need the body separately from the head to build the
+`… (\x ->` / body / `)` layouts — `makeMultilineLambdaArgBox` and
+`directOperandLambdaSplit` — and both used to render it a second time, which
+made a lambda nested through its own body cost 2^depth. Carrying it here is what
+makes them free.
+-}
 type alias FlowItem =
     { node : LPNode
     , box : Box
     , isBlock : Bool
     , comment : Maybe { box : Box, isLineComment : Bool, multiLine : Bool }
+    , lambdaBodyBox : Maybe Box
     }
 
 

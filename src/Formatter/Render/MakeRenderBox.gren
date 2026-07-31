@@ -1022,9 +1022,15 @@ head box's continuation rows must stay at the box origin, not be padded by
 the `(` width (`B.prefix` put them one column deep — KitchenComments'
 destructuring-lambda-head comment). Align-carrying content INSIDE the head
 (a multi-line pattern literal) already carries its own prefix-padding from
-the head's inner fold, which survives the first-line glue untouched. -}
-makeMultilineLambdaArgBox : Array LPNode -> Result String Box
-makeMultilineLambdaArgBox children =
+the head's inner fold, which survives the first-line glue untouched.
+
+`bodyBoxFromItem` is the paren's `FlowItem.lambdaBodyBox` — the body box the
+caller's own render already produced. Rendering it here instead cost a second
+full render of the body per nesting level, which is 2^depth for a lambda nested
+through its own body. `Nothing` (the paren was not rendered through a
+`renderFlowItem`) falls back to rendering it. -}
+makeMultilineLambdaArgBox : Maybe Box -> Array LPNode -> Result String Box
+makeMultilineLambdaArgBox bodyBoxFromItem children =
     let
         glueParen headBox =
             B.mapFirstLine (\l -> B.row [ B.punc "(", l ]) identity headBox
@@ -1042,7 +1048,13 @@ makeMultilineLambdaArgBox children =
                                 Ok (B.addSuffix (B.punc ")") (glueParen headBox))
 
                             Just bodyNode ->
-                                buildFlowBox 0 (lpnChildren bodyNode)
+                                (when bodyBoxFromItem is
+                                    Just b ->
+                                        Ok b
+
+                                    Nothing ->
+                                        buildFlowBox 0 (lpnChildren bodyNode)
+                                )
                                     |> Result.map
                                         (\bodyBox ->
                                             B.stack1
@@ -1060,9 +1072,12 @@ render. `Nothing` if it isn't a multi-line lambda paren, has a multi-line head
 (a comment among the params), or fails to render — those fall back.
 
 Takes the caller's `FlowItem`, not the bare node: the "is this paren multi-line"
-gate reads `item.box`, which the flow already rendered. Rendering the subtree
-again just to answer it was one of the four renders per level behind the
-~4^depth nested-pipeline-lambda hang. -}
+gate reads `item.box` and the body comes from `item.lambdaBodyBox` — both
+already rendered by the flow. Re-deriving them here was two of the four renders
+per level behind the ~4^depth nested-pipeline-lambda hang. The head IS still
+rendered here: it must go through `buildFlowBoxInline` (a leading block comment
+among the parameters stays on-line), which is not how an item is rendered, and
+a parameter list cannot contain the nesting. -}
 directOperandLambdaSplit : FlowItem -> Maybe { headLine : B.Line, bodyBox : Box }
 directOperandLambdaSplit item =
     let
@@ -1092,7 +1107,13 @@ directOperandLambdaSplit item =
                     Just bodyNode ->
                         when
                             { h = buildFlowBoxInline 0 (lpnChildren headNode)
-                            , b = buildFlowBox 0 (lpnChildren bodyNode)
+                            , b =
+                                when item.lambdaBodyBox is
+                                    Just b ->
+                                        Ok b
+
+                                    Nothing ->
+                                        buildFlowBox 0 (lpnChildren bodyNode)
                             }
                         is
                             { h = Ok headBox, b = Ok bodyBox } ->
@@ -1205,7 +1226,7 @@ stepBodyBox children =
                         let
                             triggerBoxResult =
                                 if isMultilineLambdaParenBlockBox trigger.node then
-                                    makeMultilineLambdaArgBox (lpnChildren trigger.node)
+                                    makeMultilineLambdaArgBox trigger.lambdaBodyBox (lpnChildren trigger.node)
 
                                 else
                                     -- A multi-line non-lambda paren (or a bracket
@@ -1778,6 +1799,7 @@ renderFieldFlowWithValueBox field valueNode headNodes valueBox =
                             , box = valueBox
                             , isBlock = isBlockNode valueNode valueBox
                             , comment = Nothing
+                            , lambdaBodyBox = Nothing
                             }
                             headItems
                     )
@@ -2858,9 +2880,27 @@ all relative to its own origin, which becomes the `(` column once the enclosing
 flow indents it. -}
 makeParenBlockBox : { forceVertical : Bool, checkContentVertical : Bool } -> Array LPNode -> Result String Box
 makeParenBlockBox flags children =
+    makeParenBlockBoxWithParts flags children
+        |> Result.map .box
+
+
+{-| `makeParenBlockBox`, plus the paren's lambda-body box when it has one (see
+`FlowItem.lambdaBodyBox`). Only the generic-fallback arm can produce one; the
+block arms (`when` / `if` / `let` in parens) are not lambdas. Every paren is
+rendered through here — `makePBox` keeps `.box`, `renderFlowItem` keeps both —
+so there is one paren renderer, not a renderer and a look-alike. -}
+makeParenBlockBoxWithParts :
+    { forceVertical : Bool, checkContentVertical : Bool }
+    -> Array LPNode
+    -> Result String { box : Box, lambdaBodyBox : Maybe Box }
+makeParenBlockBoxWithParts flags children =
+    let
+        noParts =
+            Result.map (\box -> { box = box, lambdaBodyBox = Nothing })
+    in
     when Array.first children is
         Nothing ->
-            Ok (B.line (B.punc "()"))
+            Ok { box = B.line (B.punc "()"), lambdaBodyBox = Nothing }
 
         Just first ->
             when lpnBox first is
@@ -2869,13 +2909,14 @@ makeParenBlockBox flags children =
                     -- paren cannot change its internal shape.
                     makePBox (lpnBox first) (lpnChildren first)
                         |> Result.map wrapParenVerticalPadded
+                        |> noParts
 
                 IfCondition _ ->
-                    blockInParenBox children
+                    noParts (blockInParenBox children)
 
                 UnbreakableText loc ->
                     if loc.value == "let" then
-                        blockInParenBox children
+                        noParts (blockInParenBox children)
 
                     else
                         parenGenericFallbackBox flags children
@@ -2925,11 +2966,37 @@ made a nested `(\x -> [ … ])` chain cost 2^depth — depth 22 took over a minu
 Inline-start (`assembleFlow True`): the content continues the `(`-line, so a
 leading single-line block comment stays inline (`({- c -} expr)`).
 -}
-parenGenericFallbackBox : { forceVertical : Bool, checkContentVertical : Bool } -> Array LPNode -> Result String Box
+parenGenericFallbackBox :
+    { forceVertical : Bool, checkContentVertical : Bool }
+    -> Array LPNode
+    -> Result String { box : Box, lambdaBodyBox : Maybe Box }
 parenGenericFallbackBox flags children =
     renderFlowItems children
         |> Result.andThen
             (\items ->
+                let
+                    -- The lambda body, if this paren has one: the second child's
+                    -- own box, straight out of the render above. `makePBox
+                    -- IndentedBlock children` IS `buildFlowBox 0 children`, so
+                    -- this is byte-for-byte what the two consumers used to
+                    -- compute for themselves. The HEAD is deliberately not
+                    -- carried: they render it with `inlineStart = True` while an
+                    -- item is rendered without, and the head is a parameter list
+                    -- -- it cannot contain the nesting, so re-rendering it is
+                    -- O(1) per level.
+                    lambdaBodyBox =
+                        when Array.get 1 items is
+                            Just second ->
+                                when lpnBox second.node is
+                                    IndentedBlock ->
+                                        Just second.box
+
+                                    _ ->
+                                        Nothing
+
+                            Nothing ->
+                                Nothing
+                in
                 assembleFlow True 0 items
                     |> Result.map
                         (\innerBox ->
@@ -2939,44 +3006,47 @@ parenGenericFallbackBox flags children =
 
                                 goVertical =
                                     flags.forceVertical || contentForcesVertical || parenLambdaMultilineItems items
+
+                                parenBox =
+                                    if goVertical then
+                                        -- One expression, deliberately. This used to be a
+                                        -- three-way branch on
+                                        -- `parenContentLeadsWithMultilinePrefixGlue` (an
+                                        -- align-carrying `(\{ … } …)` parameter) and on
+                                        -- "a comment forced the break", whose bodies were
+                                        -- all byte-identical `wrapParenVerticalPadded`
+                                        -- calls — so the two predicates decided nothing
+                                        -- while each rendering a subtree to decide it.
+                                        -- The `(`-width padding those arms described is
+                                        -- what `wrapParenVerticalPadded` does in every
+                                        -- case; there was never an unpadded exclusion.
+                                        wrapParenVerticalPadded innerBox
+
+                                    else
+                                        when B.isLine innerBox is
+                                            Ok l ->
+                                                B.line (B.row [ B.punc "(", l, B.punc ")" ])
+
+                                            Err _ ->
+                                                -- A formatter-synthesized wrap (`checkContentVertical
+                                                -- = False`) around content a comment forced
+                                                -- multi-line: elm-format's inline form is a plain
+                                                -- `( inner )`, `)` glued onto the inner's last line.
+                                                -- When the inner is align-carrying (a bracket literal
+                                                -- / record — its continuation lines anchor at its own
+                                                -- start column), the `(` width must ride along on
+                                                -- every continuation line (`B.prefix`) so the inner's
+                                                -- `,`/`}` stay under the opening bracket, not the `(`.
+                                                -- Otherwise (a nest-carrying inner) the continuation
+                                                -- lines belong at the ambient column, so only the
+                                                -- first line gets the `(` (`B.mapFirstLine`).
+                                                if parenInnerIsAlignCarrying children then
+                                                    B.addSuffix (B.punc ")") (B.prefix (B.punc "(") innerBox)
+
+                                                else
+                                                    B.addSuffix (B.punc ")") (B.mapFirstLine (\l -> B.row [ B.punc "(", l ]) identity innerBox)
                             in
-                            if goVertical then
-                                -- One expression, deliberately. This used to be a
-                                -- three-way branch on
-                                -- `parenContentLeadsWithMultilinePrefixGlue` (an
-                                -- align-carrying `(\{ … } …)` parameter) and on
-                                -- "a comment forced the break", whose bodies were
-                                -- all byte-identical `wrapParenVerticalPadded`
-                                -- calls — so the two predicates decided nothing
-                                -- while each rendering a subtree to decide it.
-                                -- The `(`-width padding those arms described is
-                                -- what `wrapParenVerticalPadded` does in every
-                                -- case; there was never an unpadded exclusion.
-                                wrapParenVerticalPadded innerBox
-
-                            else
-                                when B.isLine innerBox is
-                                    Ok l ->
-                                        B.line (B.row [ B.punc "(", l, B.punc ")" ])
-
-                                    Err _ ->
-                                        -- A formatter-synthesized wrap (`checkContentVertical
-                                        -- = False`) around content a comment forced
-                                        -- multi-line: elm-format's inline form is a plain
-                                        -- `( inner )`, `)` glued onto the inner's last line.
-                                        -- When the inner is align-carrying (a bracket literal
-                                        -- / record — its continuation lines anchor at its own
-                                        -- start column), the `(` width must ride along on
-                                        -- every continuation line (`B.prefix`) so the inner's
-                                        -- `,`/`}` stay under the opening bracket, not the `(`.
-                                        -- Otherwise (a nest-carrying inner) the continuation
-                                        -- lines belong at the ambient column, so only the
-                                        -- first line gets the `(` (`B.mapFirstLine`).
-                                        if parenInnerIsAlignCarrying children then
-                                            B.addSuffix (B.punc ")") (B.prefix (B.punc "(") innerBox)
-
-                                        else
-                                            B.addSuffix (B.punc ")") (B.mapFirstLine (\l -> B.row [ B.punc "(", l ]) identity innerBox)
+                            { box = parenBox, lambdaBodyBox = lambdaBodyBox }
                         )
             )
 
@@ -3272,6 +3342,7 @@ renderFlowItem node =
                 , box = B.blankLine
                 , isBlock = False
                 , comment = Just { box = B.line (B.literal ("--" ++ loc.value)), isLineComment = True, multiLine = False }
+                , lambdaBodyBox = Nothing
                 }
 
         BlockComment { loc } ->
@@ -3283,6 +3354,7 @@ renderFlowItem node =
                             , box = B.blankLine
                             , isBlock = False
                             , comment = Just { box = cbox, isLineComment = False, multiLine = True }
+                            , lambdaBodyBox = Nothing
                             }
                         )
 
@@ -3292,7 +3364,27 @@ renderFlowItem node =
                     , box = B.blankLine
                     , isBlock = False
                     , comment = Just { box = B.line (B.literal ("{-" ++ loc.value ++ "-}")), isLineComment = False, multiLine = False }
+                    , lambdaBodyBox = Nothing
                     }
+
+        ParenBlock { forceVertical, checkContentVertical } ->
+            -- The one node kind rendered through a with-parts entry point, so
+            -- the paren's own lambda-body box can ride along on the item instead
+            -- of being re-derived by a second render downstream. `makePBox`'s
+            -- ParenBlock arm calls the same function and keeps only `.box`, so
+            -- the two can never disagree.
+            makeParenBlockBoxWithParts
+                { forceVertical = forceVertical, checkContentVertical = checkContentVertical }
+                (lpnChildren node)
+                |> Result.map
+                    (\parts ->
+                        { node = node
+                        , box = parts.box
+                        , isBlock = isBlockNode node parts.box
+                        , comment = Nothing
+                        , lambdaBodyBox = parts.lambdaBodyBox
+                        }
+                    )
 
         _ ->
             makePBox (lpnBox node) (lpnChildren node)
@@ -3302,6 +3394,7 @@ renderFlowItem node =
                         , box = box
                         , isBlock = isBlockNode node box
                         , comment = Nothing
+                        , lambdaBodyBox = Nothing
                         }
                     )
 

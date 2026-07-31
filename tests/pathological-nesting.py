@@ -148,6 +148,18 @@ def shape_pipe_lambda(n):
     return s
 
 
+def shape_pipe_lambda_arg(n):
+    """The same nesting one step off the operator: `v |> f (\\a -> …)`. Not a
+    direct operand, so it takes the RELOCATION path (`makeMultilineLambdaArgBox`)
+    rather than the direct-glue one -- a separate site that had the same
+    double-render."""
+    s = "v"
+    for i in range(n - 1, -1, -1):
+        indented = "\n".join("        " + line for line in s.split("\n"))
+        s = "v\n    |> f (\\a%d ->\n%s\n       )" % (i, indented)
+    return s
+
+
 SHAPES = {
     "parens": shape_parens,
     "list": shape_list,
@@ -161,6 +173,7 @@ SHAPES = {
     "lambdarecord": shape_lambda_record,
     "pipeparenarg": shape_pipe_paren_arg,
     "pipelambda": shape_pipe_lambda,
+    "pipelambdaarg": shape_pipe_lambda_arg,
 }
 
 
