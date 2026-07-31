@@ -1169,6 +1169,39 @@ insertAmongChildren containerBox commentNode row col children =
                         in
                         finalBefore ++ [ newNextNode ] ++ afterRest
 
+                    SoftIndentedBlock ->
+                        -- Unlike the three wrappers above, a `SoftIndentedBlock`
+                        -- CAN share the head's row — it is a lambda body the
+                        -- author started on the `->` row — so a `{- c -}` before
+                        -- it legitimately rides that row, and the render side's
+                        -- `pairLeadingComments` carries the comment down with the
+                        -- body if the body turns out to wrap. That is a fixed
+                        -- point, and this arm must not disturb it.
+                        --
+                        -- A `--` is different, and only in one way that decides
+                        -- everything: it ends its line. The body is therefore
+                        -- forced onto the next row no matter what, and a reparse
+                        -- reads a body starting on a later row as an
+                        -- `IndentedBlock` — whose arm above puts the comment
+                        -- INSIDE it. So leaving a `--` outside emits a shape that
+                        -- reparses into the other structure and moves:
+                        -- `\q -> -- c` / `{ … }` became `\q ->` / `-- c` /
+                        -- `{ … }` on the second format. Redirecting it here makes
+                        -- the first format land on the shape every later one
+                        -- settles on, and matches what the `IndentedBlock` arm
+                        -- already does for the identical comment written one row
+                        -- lower.
+                        when lpnBox commentNode is
+                            SingleLineComment _ ->
+                                let
+                                    newNextNode =
+                                        lpnNode SoftIndentedBlock (Array.pushFirst leadingComment (lpnChildren nextNode))
+                                in
+                                finalBefore ++ [ newNextNode ] ++ afterRest
+
+                            _ ->
+                                finalBefore ++ [ classifiedComment ] ++ finalAfter
+
                     _ ->
                         finalBefore ++ [ classifiedComment ] ++ finalAfter
 

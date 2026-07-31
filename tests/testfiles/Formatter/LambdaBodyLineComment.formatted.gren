@@ -1,0 +1,38 @@
+module LambdaBodyLineComment exposing (..)
+
+
+-- A `--` between a lambda's `->` and a body the author started on the `->` row
+-- belongs INSIDE the body. It ends its line, so the body is forced down anyway,
+-- and a reparse then reads the body as starting on a later row -- which is an
+-- `IndentedBlock`, whose comment sits inside it. Leaving the `--` outside
+-- emitted `\q -> -- c` / `{ … }`, which moved on the second format.
+lambdaRecordBody =
+    \q ->
+        -- c
+        { a = 1 }
+
+
+-- Same with an array body.
+lambdaArrayBody =
+    \q ->
+        -- c
+        [ 1, 2, 3 ]
+
+
+-- The identical comment written one row lower already went inside (the
+-- `IndentedBlock` arm); both authorings now agree.
+lambdaBodyOnNextRow =
+    \q ->
+        -- c
+        { a = 1 }
+
+
+-- A `{- -}` is NOT redirected: it can share the `->` row, so it rides it, and
+-- the render side carries it down with the body only if the body wraps.
+lambdaBlockCommentRides =
+    \q -> {- c -} { a = 1 }
+
+
+-- A `--` trailing the whole lambda body still trails it (nothing follows).
+lambdaTrailingLineComment =
+    \q -> { a = 1 } -- c
