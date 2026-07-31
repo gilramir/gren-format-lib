@@ -63,7 +63,7 @@ backwardPipe x =
     String.append "!"
         -- comment between two backward-pipe steps
         <| String.append x -- another comment between steps
-        <| "?"
+            <| "?"
 
 
 -- Bug J — a line comment between a function's type signature and its

@@ -1707,20 +1707,19 @@ sr.results
 
 Formats to the canonical multi-line form shown above.
 
-**`<|` pipelines** use a trailing-operator style, each step body indented 4
-spaces from the seed:
+**`<|` pipelines** use a trailing-operator style, with each step body indented 4
+spaces further than the one before it:
 
 ```gren
 result =
     String.toUpper <|
         String.append "Greetings, " <|
-        String.append name "!"
+            String.append name "!"
 ```
 
-Every step lands at the *same* indent — a flat pipeline, same as `|>`. This is
-a deliberate divergence from `elm-format`, which nests each successive `<|`
-step one level deeper. See
-[Comparison with elm-format](elmFormatComparison.md#divergence-14) (point 14).
+A `<|` chain is right-associative — each step is an argument to the one above
+it — so the staircase is what the nesting actually is, and it is what
+`elm-format` produces. This is the layout however flat you wrote the chain.
 
 When a `<|` step body is a lambda, the `<|` trails the preceding step and the
 lambda sits on the next line, indented +4 from the pipeline seed. The lambda

@@ -31,7 +31,7 @@ code, and why the places they *don't* look the way they do.
   - [#11 Doc-comment body contents](#divergence-11)
   - [#12 Comment after code stays on the line](#divergence-12)
   - [#13 Comment between two binop operands](#divergence-13)
-  - [#14 Backward `<|`: flat vs nesting](#divergence-14)
+  - [#14 Backward `<|` with a multi-line seed](#divergence-14)
   - [#15 Comment trailing a pipeline step](#divergence-15)
   - [#16 Comment just after a lambda's `->`](#divergence-16)
   - [#17 Operator chain splits at loosest ops](#divergence-17)
@@ -459,36 +459,27 @@ decision and why.
     both formatters — on its own line at the operator indent, or glued in front of
     the operand.)
 
-14. <a id="divergence-14"></a>**Backward `<|` pipelines: flat pipeline layout vs. right-associative
-    operator nesting** gren-format treats a run of `<|` steps
-    the same way it treats `|>`: one pipeline, every step indented the same
-    fixed +4 from the seed (see [Pipelines](formatterRules.md#pipelines)). elm-format instead
-    renders `<|` through the same recursive machinery it uses for any other
-    right-associative binary-operator chain, so each step nests one indent
-    level *deeper* than the step before it — a staircase, regardless of how
-    flat the author wrote it:
+14. <a id="divergence-14"></a>**A multi-line seed keeps `<|` on its last line;
+    elm-format drops the operator below it** For the *nesting* of a `<|` chain
+    the two agree: both treat a run of `<|` as right-associative and step each
+    body one indent deeper than the one above it (see
+    [Pipelines](formatterRules.md#pipelines)).
 
     ```gren
-    -- elm-format:
+    -- both formatters:
     result =
         String.toUpper <|
             String.append "Greetings, " <|
                 String.append name "!"
-
-    -- gren-format (unchanged from how it was written):
-    result =
-        String.toUpper <|
-            String.append "Greetings, " <|
-            String.append name "!"
     ```
 
-    The same operator-chain treatment decides where `<|` lands when the seed
-    itself spans multiple rows (a parenthesized expression, a multi-line
-    record or array literal): elm-format always drops the operator to its own
-    line directly below the seed's closing bracket, because at that point the
-    seed's box is no longer single-line and elm-format's layout function
-    stacks instead of appending. gren-format keeps `<|` glued to the seed's
-    last line:
+    They part company when the SEED itself spans rows — a parenthesized
+    expression, a multi-line record or array literal. elm-format runs `<|`
+    through the same recursive machinery it uses for any other
+    right-associative operator chain, and that machinery stacks rather than
+    appends once the left side is no longer single-line, so the operator always
+    drops to its own line below the seed's closing bracket. gren-format keeps
+    `<|` glued to the seed's last line:
 
     ```gren
     -- elm-format:
@@ -507,14 +498,20 @@ decision and why.
             value
     ```
 
-    gren-format's choice keeps `<|` visually consistent with `|>` — a
-    pipeline reads as a pipeline regardless of direction — rather than
-    letting its layout depend on the operator-precedence machinery shared
-    with unrelated binary operators like `++` or `::`. Verified against the
-    `elm-format` binary and its `ElmFormat.Render.Box`/`ElmStructure` source
-    (`forceableSpaceSepOrIndented`/`forceableSpaceSepOrStack`, which stack
-    rather than append once the left side isn't single-line). Covered by the
+    gren-format's choice keeps `<|` visually consistent with `|>` — a pipeline
+    reads as a pipeline regardless of direction — rather than letting the
+    operator's position depend on the precedence machinery shared with unrelated
+    binary operators like `++` or `::`. Verified against the `elm-format` binary
+    and its `ElmFormat.Render.Box`/`ElmStructure` source
+    (`forceableSpaceSepOrIndented`/`forceableSpaceSepOrStack`, which stack rather
+    than append once the left side isn't single-line). Covered by the
     `BackwardPipeMultilineSeed` fixture.
+
+    (This entry used to claim gren-format laid a `<|` chain out FLAT, every step
+    at the same indent, as a deliberate divergence. That stopped being true at
+    `6f06b66` (2026-07-15), which made the plain path cumulative after checking
+    the elm-format binary; the doc was not updated with it, so its example
+    output was false under the shipped formatter until 2026-07-31.)
 
 15. <a id="divergence-15"></a>**A comment trailing a pipeline step** gren-format keeps it
     on that step; elm-format moves it to lead the next step (the same

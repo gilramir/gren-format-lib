@@ -1505,9 +1505,17 @@ makeBackwardPipelineBox forceVertical children =
 
 
 {-| Render a comment-bearing backward (`<|`) pipeline in operator-LEADING layout:
-the seed on its own line, then each step at +grenIndent. A step renders as its
-leading comments (own line) stacked above `<| body`, with trailing comments glued
-onto the body's last line. -}
+the seed on its own line, then each step nested one tab stop deeper than the one
+before it. A step renders as its leading comments (own line) stacked above
+`<| body`, with trailing comments glued onto the body's last line.
+
+The operator-leading style is forced by the comment — a `--` cannot have the next
+step's `<|` glued after it — but the NESTING must be the same cumulative
+staircase `backwardMultiStep` produces, or adding a comment anywhere in a chain
+silently reflows every step below it. (It did: this path applied a uniform
+`grenIndent` to every step and was not updated when `6f06b66` made the plain path
+cumulative, so `a <| b <| c <| d` was a staircase until you wrote a comment in
+it, then went flat.) -}
 makeBackwardCommentedPipeline : Array LPNode -> Array LPNode -> Result String Box
 makeBackwardCommentedPipeline seedNodes stepNodes =
     buildFlowBox 0 seedNodes
@@ -1516,7 +1524,16 @@ makeBackwardCommentedPipeline seedNodes stepNodes =
                 traverseResult renderCommentedBackwardStep stepNodes
                     |> Result.map
                         (\stepBoxLists ->
-                            B.stack1 ([ seedBox ] ++ Array.map (applyIndent grenIndent) (Array.flatten stepBoxLists))
+                            B.stack1
+                                ([ seedBox ]
+                                    ++ Array.flatten
+                                        (Array.indexedMap
+                                            (\i boxes ->
+                                                Array.map (applyIndent ((i + 1) * grenIndent)) boxes
+                                            )
+                                            stepBoxLists
+                                        )
+                                )
                         )
             )
 
