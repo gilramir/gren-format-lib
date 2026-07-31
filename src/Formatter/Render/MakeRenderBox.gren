@@ -3108,8 +3108,27 @@ parenGenericFallbackBox flags children =
                                 contentForcesVertical =
                                     flags.checkContentVertical && not (isSingleLine innerBox)
 
+                                -- Nothing can follow a `--` on its line, so a
+                                -- paren whose content ENDS in one cannot use the
+                                -- inline form -- its `)` would be glued after the
+                                -- comment and swallowed (`(Int -> Int -- c)`,
+                                -- which does not reparse). The rendered box does
+                                -- not say so on its own: a trailing line comment
+                                -- glues onto the running row and leaves a
+                                -- one-row box, so `isSingleLine` is True.
+                                contentEndsWithLineComment =
+                                    when Array.last children is
+                                        Just lastChild ->
+                                            subtreeEndsWithLineComment lastChild
+
+                                        Nothing ->
+                                            False
+
                                 goVertical =
-                                    flags.forceVertical || contentForcesVertical || parenLambdaMultilineItems items
+                                    flags.forceVertical
+                                        || contentForcesVertical
+                                        || contentEndsWithLineComment
+                                        || parenLambdaMultilineItems items
 
                                 parenBox =
                                     if goVertical then

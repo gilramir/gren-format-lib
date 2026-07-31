@@ -1,0 +1,39 @@
+module SignatureParenComment exposing (..)
+
+-- A comment written INSIDE a parenthesized type, between the last token and the
+-- `)`. The paren's closing position is recorded, so the comment stays inside it
+-- and the layout is a fixed point. Before that it was emitted past the `)`, and
+-- on reparse it landed on the other side of the `->`'s zero-width anchor -- two
+-- different outputs, the only hard `--show` failure in the tbd list.
+
+
+lineComment : (Int -> Int -- inside, before the close paren
+              ) -> Int
+lineComment q =
+    q 1
+
+
+blockComment : (Int -> Int {- inside, before the close paren -}) -> Int
+blockComment q =
+    q 1
+
+
+nestedInApplication : Array (Int -> Int -- inside a paren under a type application
+                            ) -> Int
+nestedInApplication q =
+    0
+
+
+-- Controls: written OUTSIDE the paren, and inside a record type (a bracket that
+-- already recorded its close). Both were always stable.
+pastTheCloseParen : (Int -> Int) -> -- outside, past the close paren
+    Int
+pastTheCloseParen q =
+    q 1
+
+
+insideRecordType :
+    { a : Int -- inside a record type
+    } -> Int
+insideRecordType r =
+    r.a

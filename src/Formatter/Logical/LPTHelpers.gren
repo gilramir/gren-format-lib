@@ -1,6 +1,7 @@
 module Formatter.Logical.LPTHelpers exposing
     ( authoredBracketList
     , fixupParensChildrenNodes
+    , fixupParensChildrenNodesAt
     , itemsSpanRows
     , mkText
     , mkTextFromLocString
@@ -209,3 +210,32 @@ fixupParensChildrenNodes nodes =
 
         Just _ ->
             Ok [ syntheticParens nodes ]
+
+
+{-| `fixupParensChildrenNodes` for parens the AUTHOR wrote, whose closing `)`
+sits at `closeEnd`.
+
+The `)` has no leaf of its own, so without recording it the node's row range
+stops at its last inner token and a comment written between that token and the
+`)` reads as being *past* the parens. In a signature that comment then landed on
+one side or the other of the `->`'s zero-width anchor depending on where the `)`
+happened to be, which flipped on reparse -- a genuine non-idempotency, not just a
+placement quirk (`h : (Int -> Int -- c⏎    ) -> Int`). `lpnBracketNode` extends
+the range over the `)` and records it as the node's `lastBracketEnd`, which is
+what keeps the comment inside the parens where it was written.
+
+The empty case cannot arise for authored parens (`()` is a different type), so it
+shares the synthesized fallback. -}
+fixupParensChildrenNodesAt : Position -> Array LPNode -> Result String (Array LPNode)
+fixupParensChildrenNodesAt closeEnd nodes =
+    when Array.popFirst nodes is
+        Nothing ->
+            Ok [ lpnLeaf (SynthesizedText "()") ]
+
+        Just _ ->
+            Ok
+                [ lpnBracketNode
+                    (ParenBlock { forceVertical = False, checkContentVertical = True })
+                    closeEnd
+                    nodes
+                ]

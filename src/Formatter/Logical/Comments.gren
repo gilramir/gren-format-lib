@@ -91,19 +91,23 @@ get right so it stays idempotent:
 
 1. If the construct has a closing bracket / delimiter the parser discards, build
    its box with `lpnBracketNode <closePos>` so `commentInsideTrailingBracket`
-   can tell "inside the brackets" from "past them".
+   can tell "inside the brackets" from "past them". This applies to a plain
+   `( … )` as much as to a record or an array: an author-written PAREN around a
+   TYPE went years without it, and a comment before its `)` escaped the parens
+   and then landed on the other side of the `->`'s zero-width anchor on reparse
+   -- a genuine non-idempotency. See `fixupParensChildrenNodesAt`.
 2. Run `effectful-tests/fuzz-idempotency.py` (it is *not* part of `run-tests.sh`).
    If it flags a trailing-comment gap, the fix belongs in one of the two places
    above — not in a new construct-specific branch.
 
 # Indent redirection
 
-When the insertion lands immediately before an `IndentedBlock` or a
-`PipelineStep`, the comment is pushed *inside* that wrapper as its first
-child rather than placed as a preceding sibling. Both wrappers add a
-newline and indent when rendered, so this nesting makes a comment at the
-start of an indented body render at the body's indentation level rather
-than the parent's.
+When the insertion lands immediately before an `IndentedBlock`, a
+`PipelineStep`, or a `BodyBlock`, the comment is pushed *inside* that wrapper as
+its first child rather than placed as a preceding sibling. All three start their
+content on a fresh line when rendered, so this nesting makes a comment at the
+start of a body render at the body's own column rather than gluing onto the head
+that precedes it (`x =` ⏎ `{- c -}` ⏎ `42`, not `x = {- c -}`).
 -}
 
 import Array.Builder as Builder
