@@ -1,0 +1,43 @@
+module TypeAliasDroppingRecord exposing (..)
+
+
+type alias PlainRecord =
+    { a : Int
+    , b : Int
+    }
+
+
+type alias InlineRecord =
+    { a : Int }
+
+
+type alias RecordArgHandler =
+    { a : Int
+    , b : Int
+    }
+    -> Int
+
+
+type alias RecordResultHandler =
+    Int
+    ->
+        { a : Int
+        , b : Int
+        }
+
+
+type alias NestedRecordArg =
+    Array
+        { a : Int
+        , b : Int
+        }
+    -> Int
+
+
+handler :
+    { a : Int
+    , b : Int
+    }
+    -> Int
+handler r =
+    r.a

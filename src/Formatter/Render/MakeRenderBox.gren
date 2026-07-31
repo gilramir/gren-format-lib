@@ -690,8 +690,24 @@ makeTypeAliasBody nodes =
     let
         segments =
             splitSignatureSegments nodes
+
+        -- Same second trigger `makeSignatureBox` uses: a segment carrying a
+        -- record type that renders multi-line must commit the whole type to the
+        -- broken layout up front, because a multi-line record type in a flow
+        -- DROPS (FlowPolicy's `DropBlock`) rather than gluing -- so leaving the
+        -- decision to the flow would keep `} -> Int` on the record's closing
+        -- line. Gated on `not hasComment` for the same reason as there: a
+        -- comment-bearing type has its own handling in the flow.
+        hasComment =
+            Array.any subtreeHasComment nodes
+
+        forceVertical =
+            signatureForceVertical segments
+                || (not hasComment
+                        && Array.any (segmentHasDroppingRecordBox True) segments
+                   )
     in
-    if signatureForceVertical segments then
+    if forceVertical then
         traverseResult (buildFlowBox 0) segments
             |> Result.map B.stack1
 

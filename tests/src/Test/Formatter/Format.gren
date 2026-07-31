@@ -500,6 +500,7 @@ declarationSuite fsPerm =
         , tearDown = U.noTearDown
         , tests = [ assertPretty fsPerm "type aliases" "TypeAlias"
             , assertPretty fsPerm "a type alias whose body is a bare function type renders one `->` segment per row when the author broke it that way (even at only one boundary), with every segment -- including the first -- at the same column, since there's no \"name :\" header to glue it to" "TypeAliasFunctionType"
+            , assertPretty fsPerm "a type alias body whose function type carries a multi-line record type commits to the broken layout, so `-> Int` drops below the record's `}` instead of staying glued to it (the same trigger `makeSignatureBox` already had)" "TypeAliasDroppingRecord"
             , assertPretty fsPerm "union types" "TypeUnion"
             , assertPretty fsPerm "type signatures" "TypeSignature"
             , assertPretty fsPerm "type constructor applied to 2+ argument types" "TypeCtorMultiArg"
