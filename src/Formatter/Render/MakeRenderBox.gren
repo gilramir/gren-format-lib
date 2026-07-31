@@ -1354,6 +1354,11 @@ block's last line. `)` ⏎ `z` came out as `) z` and `}` ⏎ `z` as `} z`, while
 identical arguments in a plain call each got their own line. elm-format puts each
 on its own line (verified via `elm-format --stdin`).
 
+The stacking is `assembleBrokenWithComments 0` — the same broken-flow assembler a
+plain call's arguments go through — so the two lay comments out identically too:
+a leading `{- c -}` rides its argument's line, a trailing one glues onto the
+argument before it, and a `--` stands on its own row.
+
 One item is the common case and needs no stacking: the flow renders it exactly as
 before, so the single-suffix layout is untouched. -}
 stepSuffixBox : Array FlowItem -> Result String Box
@@ -1362,8 +1367,7 @@ stepSuffixBox suffix =
         assembleFlow False 0 suffix
 
     else
-        traverseResult (\item -> assembleFlow False 0 [ item ]) suffix
-            |> Result.map B.stack1
+        assembleBrokenWithComments 0 suffix
 
 
 {-| Render a backward (`<|`) pipeline: the `<|` trails the seed (or previous step

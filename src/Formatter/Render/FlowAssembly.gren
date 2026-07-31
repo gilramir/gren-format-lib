@@ -125,12 +125,38 @@ commentGlues item =
 may carry comments. A comment trailing the preceding item on the same source row
 glues onto that item's last line — for a single-line item, its line plus a space
 is prepended onto the comment box (`B.prefix`), so a multi-line comment's body
-reindents under it (`f {- multi… -}`, `+ b {- multi… -}`). A comment on its own
-row, or one trailing a multi-line item (no single last line to glue onto), isn't
-modelled and falls back. -}
+reindents under it (`f {- multi… -}`, `+ b {- multi… -}`). A single-line block
+comment that LEADS (does not glue backward) rides the next term's line
+(`{- c -} nextTerm`), at any position in the flow — elm-format keeps a leading
+block comment on its argument's / operand's line in a broken call and a broken
+binop alike, and only that pairing is a reparse fixed point once the comment sits
+on the term's row. A `--` or a multi-line `{- -}` never pairs: it stands on its
+own row (nothing can follow a `--` on its line; a multi-line comment has no
+single line to ride). A leading comment whose next term renders multi-line also
+stands alone — there is no single first line to ride there either. -}
 assembleBrokenWithComments : Int -> Array FlowItem -> Result String Box
 assembleBrokenWithComments indent items =
     let
+        -- The line of a single-line block comment that leads its neighbour —
+        -- the only comment kind that can ride the next term's line.
+        pairableCommentLine c =
+            if not c.isLineComment && not c.multiLine then
+                when B.isLine c.box is
+                    Ok cl ->
+                        Just cl
+
+                    Err _ ->
+                        Nothing
+
+            else
+                Nothing
+
+        -- `acc.pending` holds the lines of leading block comments waiting for
+        -- the term they ride; flushing drops each on its own row instead (next
+        -- term multi-line, a `--` intervened, or the flow ended).
+        flushPending acc =
+            { acc | entries = acc.entries ++ Array.map B.line acc.pending, pending = [] }
+
         step item accResult =
             accResult
                 |> Result.andThen
@@ -139,87 +165,70 @@ assembleBrokenWithComments indent items =
                             Just c ->
                                 when Array.popLast acc.entries is
                                     Just { last = lastBox, initial } ->
-                                        if commentGlues item && acc.lastRow >= 0 then
+                                        if commentGlues item && acc.lastRow >= 0 && Array.isEmpty acc.pending then
                                             -- Glue the comment onto the item's last
                                             -- line; the item may itself be multi-line
                                             -- (`glueCommentSuffix` joins its last line).
                                             -- `acc.lastRow >= 0` still guards "the
                                             -- previous entry is real content" (it
                                             -- resets to -1 after a comment).
+                                            -- `pending` must be empty or the glue
+                                            -- would reorder this comment before the
+                                            -- ones already waiting.
                                             Ok { acc | entries = Array.pushLast (glueCommentSuffix c.box lastBox) initial }
 
                                         else
-                                            -- Own row: the comment stands as its
-                                            -- own entry at the flow's +indent,
-                                            -- with the next item starting on a
-                                            -- fresh line (= its own entry here).
-                                            -- After a comment nothing row-glues
-                                            -- (the policy is AlreadyTerminated),
-                                            -- so `lastRow` resets.
-                                            Ok
-                                                { acc
-                                                    | entries = Array.pushLast c.box (Array.pushLast lastBox initial)
-                                                    , lastRow = -1
-                                                }
+                                            when pairableCommentLine c is
+                                                Just cl ->
+                                                    Ok { acc | pending = Array.pushLast cl acc.pending }
+
+                                                Nothing ->
+                                                    -- Own row, with the next item
+                                                    -- starting on a fresh line.
+                                                    -- After a comment nothing
+                                                    -- row-glues (the policy is
+                                                    -- AlreadyTerminated), so
+                                                    -- `lastRow` resets.
+                                                    flushPending acc
+                                                        |> (\a -> Ok { a | entries = Array.pushLast c.box a.entries, lastRow = -1 })
 
                                     Nothing ->
-                                        -- Leading comment with no preceding
-                                        -- entry to glue onto: it stands as the
-                                        -- flow's first own-line entry. The
-                                        -- mergedFirstStep block-comment glue
-                                        -- (`{- c -} nextTerm`) is handled before
-                                        -- the fold; this arm renders a
-                                        -- first-position `--`/own-line comment on
-                                        -- its own line. After a comment nothing
-                                        -- row-glues, so `lastRow = -1`.
-                                        Ok { acc | entries = [ c.box ], lastRow = -1 }
+                                        when pairableCommentLine c is
+                                            Just cl ->
+                                                Ok { acc | pending = Array.pushLast cl acc.pending }
+
+                                            Nothing ->
+                                                -- First-position `--` / multi-line
+                                                -- comment: its own first entry.
+                                                flushPending acc
+                                                    |> (\a -> Ok { a | entries = Array.pushLast c.box a.entries, lastRow = -1 })
 
                             Nothing ->
-                                Ok { acc | entries = Array.pushLast item.box acc.entries, lastRow = lpnMaxRow item.node }
+                                if not (Array.isEmpty acc.pending) && isSingleLine item.box then
+                                    -- The waiting comments ride this term's line:
+                                    -- `{- c -} term`. `lastRow` advances like a
+                                    -- plain term's — a comment trailing the term
+                                    -- must still glue on, or its own-row form
+                                    -- would re-pair FORWARD on reparse and
+                                    -- oscillate.
+                                    let
+                                        prefixRow =
+                                            B.row (Array.flatten (Array.map (\cl -> [ cl, B.space ]) acc.pending))
+                                    in
+                                    Ok
+                                        { acc
+                                            | entries = Array.pushLast (B.prefix prefixRow item.box) acc.entries
+                                            , lastRow = lpnMaxRow item.node
+                                            , pending = []
+                                        }
+
+                                else
+                                    flushPending acc
+                                        |> (\a -> Ok { a | entries = Array.pushLast item.box a.entries, lastRow = lpnMaxRow item.node })
                     )
-
-        -- A leading single-line block comment in a broken flow glues onto the
-        -- very next term (`{- c -} nextTerm`) when that term is a non-comment,
-        -- single-line (non-force-vertical) node.
-        mergedFirst =
-            when { first = Array.first items, next = Array.get 1 items } is
-                { first = Just firstItem, next = Just nextItem } ->
-                    when firstItem.comment is
-                        Just c ->
-                            if
-                                not c.isLineComment
-                                    && not c.multiLine
-                                    && not (isCommentItem nextItem)
-                                    && isSingleLine nextItem.box
-                            then
-                                when B.isLine c.box is
-                                    Ok cl ->
-                                        Just
-                                            { box = B.prefix (B.row [ cl, B.space ]) nextItem.box
-                                            , remaining = Array.dropFirst 2 items
-                                            }
-
-                                    Err _ ->
-                                        Nothing
-
-                            else
-                                Nothing
-
-                        Nothing ->
-                            Nothing
-
-                _ ->
-                    Nothing
-
-        foldSetup =
-            when mergedFirst is
-                Just m ->
-                    { seed = { entries = [ m.box ], lastRow = -1 }, foldItems = m.remaining }
-
-                Nothing ->
-                    { seed = { entries = [], lastRow = -1 }, foldItems = items }
     in
-    Array.foldl step (Ok foldSetup.seed) foldSetup.foldItems
+    Array.foldl step (Ok { entries = [], lastRow = -1, pending = [] }) items
+        |> Result.map flushPending
         |> Result.andThen
             (\acc ->
                 when Array.popFirst acc.entries is

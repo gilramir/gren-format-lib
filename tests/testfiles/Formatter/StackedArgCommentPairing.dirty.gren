@@ -1,0 +1,92 @@
+module StackedArgCommentPairing exposing (callMid, callOwnRow, callRun, callBeforeMultiline, stepLead, stepLeadOwnRow, stepTrailBlock, stepTrailLine)
+
+
+-- A leading single-line {- -} in a broken call's argument stack rides the next
+-- argument's line (elm-format match), wherever it sits in the stack.
+callMid =
+    f z
+        { a = 1
+        , b = 2
+        }
+        {- c -} w
+        q
+
+
+-- The same comment authored on its own row pairs too: after one format the
+-- comment sits on the argument's row, so only the paired form is a fixed point.
+callOwnRow =
+    f z
+        { a = 1
+        , b = 2
+        }
+        {- c -}
+        w
+        q
+
+
+-- A run of two leading block comments rides together.
+callRun =
+    f z
+        { a = 1
+        , b = 2
+        }
+        {- one -} {- two -} w
+        q
+
+
+-- A leading comment whose next argument renders multi-line has no single line
+-- to ride: it stays on its own row.
+callBeforeMultiline =
+    f z
+        {- c -}
+        { a = 1
+        , b = 2
+        }
+        q
+
+
+-- The same pairing in a broken pipeline step's suffix arguments: the step's
+-- stack goes through the same broken-flow assembler as a plain call's.
+stepLead =
+    foo
+        |> f
+            { a = 1
+            , b = 2
+            }
+            {- c -} z
+            q
+
+
+stepLeadOwnRow =
+    foo
+        |> f
+            { a = 1
+            , b = 2
+            }
+            {- c -}
+            z
+            q
+
+
+-- A trailing single-line {- -} glues onto the argument it follows (catalogue
+-- #13: gren keeps a trailing comment trailing; elm-format re-homes it forward).
+stepTrailBlock =
+    foo
+        |> f
+            { a = 1
+            , b = 2
+            }
+            z {- c -}
+            q
+
+
+-- A trailing -- glues onto its argument's line the same way (#13 family); it
+-- can never pair forward, since nothing can follow it on its row.
+stepTrailLine =
+    foo
+        |> f
+            { a = 1
+            , b = 2
+            }
+            z -- c
+            q

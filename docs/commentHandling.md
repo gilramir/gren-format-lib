@@ -144,7 +144,7 @@ over `commentRole (lpnBox node)`:
 | Render site | Reads role via | For |
 |---|---|---|
 | `FlowPolicy.decide` / `commentPlacement` | `roleGlues` | generic flow (call args, let, when bodies) |
-| `FlowAssembly.assembleBrokenWithComments` | `commentGlues` | forced-vertical binop / broken call |
+| `FlowAssembly.assembleBrokenWithComments` | `commentGlues` (+ `pending` pairing) | forced-vertical binop / broken call / pipeline-step suffix |
 | `MakeRenderBox.commentBracketListBox` | `commentTrailsRole` | comment-bearing bracket lists |
 | `MakeRenderBox.makeUnionBodyVerticalBox` | `commentTrailsRole` | broken union bodies |
 | `MakeRenderBox.renderWhenBranchesBox` | `commentTrailsRole` (+ `pending` guard) | `when` branches |
@@ -154,8 +154,14 @@ over `commentRole (lpnBox node)`:
 
 `renderWhenBranchesBox` guards its glue on `pending` being empty so a same-row
 comment *run* leading a branch stays together instead of the second comment
-gluing back onto the previous branch — the one place the role alone is not enough
-and a small amount of accumulation state is.
+gluing back onto the previous branch. `assembleBrokenWithComments` carries the
+same kind of `pending` state for the opposite direction: a leading single-line
+block comment (any position in the stack, not just first) waits and rides the
+next term's line — `{- c -} arg` — matching elm-format's broken-call and
+broken-binop layout, and it is the only reparse fixed point once the comment
+sits on the term's row. A `--`, a multi-line comment, or a comment whose next
+term renders multi-line stands on its own row instead. These are the two places
+the role alone is not enough and a small amount of accumulation state is.
 
 ## Verticality — observe the box, don't predict it
 
