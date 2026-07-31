@@ -257,25 +257,31 @@ co-occurrence axis at the current grammar's depth/comment-density settings is
 now well-covered, and the *marginal* next seed is unlikely to find anything the
 last million didn't. The leverage has shifted:
 
-1. **Grow `gen-random.py`'s grammar** is still the highest-leverage move, but
-   now more than ever — a clean 1.9M-seed soak is a signal to widen the grammar
-   (new constructs = new co-occurrences = a fresh, unswept space), not to keep
-   sweeping the same one. Priorities unchanged, see `tests/GENERATOR.md`: type
-   aliases/unions/ports, author-broken types & signatures (class-B shape),
-   multiline-string literal-content mutation (class-A shape), doc comments,
-   richer patterns. Each grammar change starts a new `fuzzrun` generation
-   (cursors reset), so it also re-opens the soak.
-2. **Avenue #1 (boundary/pathological inputs)** is now done for nesting depth
-   (see "Already built and run" above — 3 bugs found, 1 fixed, 2 accepted) but
-   still open for its non-depth-shaped cases (long identifiers, all-comment
-   files, empty modules, CRLF, unicode, huge single-line input). **Avenue #3
-   (complexity-guided review)** remains fully untried — neither is reachable
-   by randomly sampling *legal* syntax at bounded depth, which is what both
-   the matrix and the generator do. #1 is the only entry in this whole file
-   that has found a *performance* bug (two, now: the historical `Box.gren`
-   `O(2^depth)` hang and the 2026-07-30 record-literal one) rather than a
-   correctness one, which suggests it's probing a different failure mode
-   entirely — worth extending to the non-depth cases above before moving to #3.
-3. Keep the corpus sweep in rotation as new packages publish; keep
+1. ~~**Grow `gen-random.py`'s grammar.**~~ **Stale as of this writing — already
+   done.** The priority list this item used to carry (type aliases/unions/ports,
+   author-broken types & signatures, multiline-string literal-content mutation,
+   doc comments, richer patterns) was closed by v1.1–v1.5 (2026-07-19), and the
+   grammar kept growing well past it — qualified refs, extensible records,
+   infix decls, effect modules, as-patterns, hex/scientific literals, import/
+   exposing comment edge cases, named wildcards, mismatched `port module`
+   headers — through **v1.31** (2026-07-26), each addition verified at 0
+   quarantine. See `tests/GENERATOR.md` for the full version history. There is
+   no known open grammar gap right now; the next grammar addition is whatever
+   new Gren syntax lands, not a backlog item.
+2. **Avenue #1 (boundary/pathological inputs), non-depth cases — highest
+   leverage now.** Nesting depth is done (see "Already built and run" above —
+   3 bugs found, 1 fixed, 2 accepted; notably the only entry in this file to
+   find a *performance* bug rather than a correctness one, historical
+   `Box.gren` hang + the 2026-07-30 record-literal one — suggesting this avenue
+   probes a different failure mode than the co-occurrence-sampling tools). Its
+   non-depth-shaped cases are still untried and unreachable by randomly
+   sampling *legal* syntax at bounded depth (what both the matrix and the
+   generator do): very long identifiers, all-comment files, empty modules,
+   CRLF line endings, unicode in strings/identifiers, huge single-line input.
+3. **Avenue #3 (complexity-guided review)** remains fully untried: a targeted
+   close-read of `assembleFlowImpl`, `MakeRenderBox.gren`, and the paren-block
+   tab-stop machinery — the densest, most-patched code in the repo — as a
+   human/agent-driven audit rather than a generated-input sweep.
+4. Keep the corpus sweep in rotation as new packages publish; keep
    `gen-random.py` (including `fuzzrun.py` for unattended depth),
    the author-broken matrix, and both fuzzers as the fast per-change gate.

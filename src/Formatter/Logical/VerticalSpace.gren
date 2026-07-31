@@ -9,6 +9,7 @@ before a comment sitting between two `when` cases.
 @docs insertEmptyLines, insertFlowBlankLines
 -}
 
+import Array.Builder as Builder
 import Formatter.Logical.LogicalPrintingTree exposing
     ( LPBox(..)
     , LPNode(..)
@@ -143,7 +144,7 @@ classifyChildren nodes =
                                             False
                             in
                             { out =
-                                Array.pushLast
+                                Builder.pushLast
                                     { node = node
                                     , first = r.first
                                     , last = r.last
@@ -178,16 +179,16 @@ classifyChildren nodes =
 
                         _ ->
                             { out =
-                                Array.pushLast
+                                Builder.pushLast
                                     { node = node, first = -1, last = -1, stype = Nothing, isComment = False, core = False, commentCol = 1 }
                                     acc.out
                             , lastNonComment = acc.lastNonComment
                             }
                 )
-                { out = [], lastNonComment = Nothing }
+                { out = Builder.empty (Array.length nodes), lastNonComment = Nothing }
                 nodes
     in
-    out
+    Builder.toArray out
 
 
 {-| Mark each child as a *group start* — a core declaration node, or a comment
@@ -201,6 +202,19 @@ computeGroupStarts infos =
             Array.foldl
                 (\info acc ->
                     let
+                        -- `Array.pushFirst`/`Array.pushLast` are both O(n)
+                        -- per call (`Array.toSpliced`, a full-array copy)
+                        -- regardless of which end or which direction the
+                        -- fold walks — an earlier version of this comment
+                        -- claimed appending during a right-to-left fold
+                        -- avoided that cost, which was wrong: `pushLast`
+                        -- copies the whole array every call no matter what
+                        -- logical order the elements arrive in. Only
+                        -- `Array.Builder` (mutates in place, amortized O(1))
+                        -- actually fixes it — the fold still runs
+                        -- right-to-left over a reversed `infos`, so `flags`
+                        -- comes out in reverse order, fixed by the single
+                        -- `Array.reverse` below.
                         isStart =
                             if info.core then
                                 True
@@ -227,7 +241,7 @@ computeGroupStarts infos =
                             else
                                 False
                     in
-                    { flags = Array.pushFirst isStart acc.flags
+                    { flags = Builder.pushLast isStart acc.flags
                     , nextStartFirst =
                         if isStart then
                             Just info.first
@@ -248,10 +262,10 @@ computeGroupStarts infos =
                             Nothing
                     }
                 )
-                { flags = [], nextStartFirst = Nothing }
+                { flags = Builder.empty (Array.length infos), nextStartFirst = Nothing }
                 (Array.reverse infos)
     in
-    flags
+    Array.reverse (Builder.toArray flags)
 
 
 {-| For each root child, whether it is detached from the node that *follows*
@@ -279,14 +293,16 @@ computeDetachedBelow infos =
                                 Nothing ->
                                     True
                     in
-                    { flags = Array.pushFirst detached acc.flags
+                    { flags = Builder.pushLast detached acc.flags
                     , nextFirst = Just info.first
                     }
                 )
-                { flags = [], nextFirst = Nothing }
+                { flags = Builder.empty (Array.length infos), nextFirst = Nothing }
                 (Array.reverse infos)
     in
-    flags
+    -- See the matching note in `computeGroupStarts`: `Array.Builder` (amortized
+    -- O(1) push) + one final reverse, instead of O(n) `Array.pushLast` per element.
+    Array.reverse (Builder.toArray flags)
 
 
 {-| Insert blank-line `EmptyLine` siblings into the root of the Logical
@@ -334,6 +350,16 @@ insertEmptyLines root =
             Array.foldl
                 (\{ info, isGroupStart, detachedBelow = infoDetachedBelow } acc ->
                     let
+                        -- Builds `newChildren` via `Array.Builder` rather than
+                        -- `Array.pushLast` directly: `pushLast` is O(n) per
+                        -- call (`Array.toSpliced`, a full-array copy), so
+                        -- appending once per root child here — up to several
+                        -- per child, once per EmptyLine inserted — would be
+                        -- O(n^2) on a file with many top-level declarations.
+                        -- `Array.Builder` is the stdlib's amortized-O(1)
+                        -- alternative for exactly this accumulate-then-freeze
+                        -- shape.
+                        --
                         -- A group start is the *unit* start unless the node
                         -- directly above it is a leading comment of the same
                         -- unit (itself a comment group start). That keeps a run
@@ -361,7 +387,7 @@ insertEmptyLines root =
                     when acc.prev is
                         Nothing ->
                             -- First child (the module line): no leading blanks.
-                            { newChildren = Array.pushLast info.node acc.newChildren
+                            { newChildren = Builder.pushLast info.node acc.newChildren
                             , prev = Just prevRec
                             }
 
@@ -369,9 +395,9 @@ insertEmptyLines root =
                             if unitStart then
                                 { newChildren =
                                     acc.newChildren
-                                        |> Array.pushLast (lpnLeaf EmptyLine)
-                                        |> Array.pushLast (lpnLeaf EmptyLine)
-                                        |> Array.pushLast info.node
+                                        |> Builder.pushLast (lpnLeaf EmptyLine)
+                                        |> Builder.pushLast (lpnLeaf EmptyLine)
+                                        |> Builder.pushLast info.node
                                 , prev = Just prevRec
                                 }
 
@@ -418,29 +444,29 @@ insertEmptyLines root =
                                 if floating then
                                     { newChildren =
                                         acc.newChildren
-                                            |> Array.pushLast (lpnLeaf EmptyLine)
-                                            |> Array.pushLast (lpnLeaf EmptyLine)
-                                            |> Array.pushLast info.node
+                                            |> Builder.pushLast (lpnLeaf EmptyLine)
+                                            |> Builder.pushLast (lpnLeaf EmptyLine)
+                                            |> Builder.pushLast info.node
                                     , prev = Just prevRec
                                     }
 
                                 else if (gap || afterModule) && not sigThenDef then
                                     { newChildren =
                                         acc.newChildren
-                                            |> Array.pushLast (lpnLeaf EmptyLine)
-                                            |> Array.pushLast info.node
+                                            |> Builder.pushLast (lpnLeaf EmptyLine)
+                                            |> Builder.pushLast info.node
                                     , prev = Just prevRec
                                     }
 
                                 else
-                                    { newChildren = Array.pushLast info.node acc.newChildren
+                                    { newChildren = Builder.pushLast info.node acc.newChildren
                                     , prev = Just prevRec
                                     }
                 )
-                { newChildren = [], prev = Nothing }
+                { newChildren = Builder.empty (Array.length zipped), prev = Nothing }
                 zipped
     in
-    lpnNode (lpnBox root) newChildren
+    lpnNode (lpnBox root) (Builder.toArray newChildren)
 
 
 -- True if a node is the `let` keyword leaf that opens a let-expression
@@ -537,13 +563,13 @@ insertBlanksInLetFlow children =
             Array.foldl
                 (\child acc ->
                     if isLetKeyword child then
-                        { out = Array.pushLast child acc.out
+                        { out = Builder.pushLast child acc.out
                         , inLet = True
                         , prevSticky = True
                         }
 
                     else if isInKeyword child then
-                        { out = Array.pushLast child acc.out
+                        { out = Builder.pushLast child acc.out
                         , inLet = False
                         , prevSticky = True
                         }
@@ -552,12 +578,12 @@ insertBlanksInLetFlow children =
                         let
                             out2 =
                                 if acc.prevSticky then
-                                    Array.pushLast child acc.out
+                                    Builder.pushLast child acc.out
 
                                 else
                                     acc.out
-                                        |> Array.pushLast (lpnLeaf EmptyLine)
-                                        |> Array.pushLast child
+                                        |> Builder.pushLast (lpnLeaf EmptyLine)
+                                        |> Builder.pushLast child
                         in
                         { out = out2
                         , inLet = True
@@ -568,12 +594,12 @@ insertBlanksInLetFlow children =
                         }
 
                     else
-                        { acc | out = Array.pushLast child acc.out }
+                        { acc | out = Builder.pushLast child acc.out }
                 )
-                { out = [], inLet = False, prevSticky = True }
+                { out = Builder.empty (Array.length children), inLet = False, prevSticky = True }
                 children
     in
-    result.out
+    Builder.toArray result.out
 
 
 -- Recurse over the whole tree, applying a blank-line `transform` to every
@@ -631,16 +657,21 @@ insertBlanksInIfFlow : Array LPNode -> Array LPNode
 insertBlanksInIfFlow children =
     Array.foldl
         (\child acc ->
-            if (isElseIfCondition child || isElseKeyword child) && not (Array.isEmpty acc) then
-                acc
-                    |> Array.pushLast (lpnLeaf EmptyLine)
-                    |> Array.pushLast child
+            if (isElseIfCondition child || isElseKeyword child) && acc.any then
+                { out =
+                    acc.out
+                        |> Builder.pushLast (lpnLeaf EmptyLine)
+                        |> Builder.pushLast child
+                , any = True
+                }
 
             else
-                Array.pushLast child acc
+                { out = Builder.pushLast child acc.out, any = True }
         )
-        []
+        { out = Builder.empty (Array.length children), any = False }
         children
+        |> .out
+        |> Builder.toArray
 
 
 -- True if a node is a `when … is` branch.
@@ -687,18 +718,18 @@ insertBlanksInWhenFlow children =
                         out2 =
                             if acc.prevWasBranch && isLineComment child then
                                 acc.out
-                                    |> Array.pushLast (lpnLeaf EmptyLine)
-                                    |> Array.pushLast child
+                                    |> Builder.pushLast (lpnLeaf EmptyLine)
+                                    |> Builder.pushLast child
 
                             else
-                                Array.pushLast child acc.out
+                                Builder.pushLast child acc.out
                     in
                     { out = out2, prevWasBranch = isWhenBranchNode child }
                 )
-                { out = [], prevWasBranch = False }
+                { out = Builder.empty (Array.length children), prevWasBranch = False }
                 children
     in
-    result.out
+    Builder.toArray result.out
 
 
 -- Compose the three per-flow blank-line rules into one transform, applied to

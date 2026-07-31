@@ -23,21 +23,41 @@ countNewlines string =
 
 
 {-
-   The fold accumulates an Ok (Array String) as long as everything
-   succeeds. If any item is Err, it short-circuits and passes the error
-   through. At the end, Result.map joins the collected strings with the
-   separator.
+   Finds the first Err (matching the left-to-right short-circuit order a
+   sequential Result.andThen fold would give), if any; otherwise joins every
+   Ok string with the separator.
+
+   This used to fold with `Array.pushLast str strings` to build up the
+   collected-so-far array. `Array.pushLast` is O(n) per call (it's
+   `Array.toSpliced` under the hood, a full-array copy), so accumulating one
+   element at a time made this O(n^2) on a file with many top-level
+   declarations — this runs once per RootBox child, joining the whole
+   formatted output back together. `Array.map`/`Array.findFirst` are each a
+   single native O(n) pass.
 -}
 joinResultStrings : String -> Array (Result String String) -> Result String String
 joinResultStrings sep array =
-    Array.foldl
-        (\item acc ->
-            acc
-                |> Result.andThen
-                    (\strings ->
-                        item |> Result.map (\str -> Array.pushLast str strings)
-                    )
-        )
-        (Ok [])
-        array
-        |> Result.map (String.join sep)
+    let
+        isErr item =
+            when item is
+                Err _ ->
+                    True
+
+                Ok _ ->
+                    False
+    in
+    when Array.findFirst isErr array is
+        Just { value = Err e } ->
+            Err e
+
+        _ ->
+            array
+                |> Array.map (\item -> when item is
+                    Ok s ->
+                        s
+
+                    Err _ ->
+                        ""
+                )
+                |> String.join sep
+                |> Ok

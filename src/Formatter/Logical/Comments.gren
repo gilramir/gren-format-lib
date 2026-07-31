@@ -137,49 +137,91 @@ import Formatter.Logical.LogicalPrintingTree exposing
 import Formatter.Strings exposing (countNewlines)
 
 
+{-| Threaded across the whole per-comment fold in `lptAddComments`. Comments
+arrive in source (row) order, and the root's top-level children are already
+in sorted, non-overlapping row order (`MakeLogical.sortOriginalRows`), so once
+a comment's row moves past a child's range, no *later* comment can ever match
+that child again — it can be permanently retired into `settled`. `target` is
+the one child that might still be receiving comments (kept out of `settled`
+so a re-hit doesn't require re-finding it); `rest` is everything strictly
+after `target`, untouched.
+
+This exists because the naive per-comment approach — re-scan ALL of the
+root's children from the start, every single comment, then rebuild the whole
+children array — is O(n) per call (`findOrCreateOrigRow`'s scan, and the
+`before ++ [x] ++ after` rebuild) driven by an O(n) outer loop (one call per
+comment): O(n^2) on a file with many top-level comments (`wide-comments-only`
+in `pathological-other.py`). Settling `before` into `settled` (an
+`Array.Builder`, amortized O(1) per element) the moment it's known to be
+unreachable, and leaving `target`/`rest` untouched on a re-hit (the common
+case — several comments on the same declaration), makes the total work
+across the whole comment sequence O(n + m) amortized: each child is scanned
+past / settled at most once, and `rest` is only ever resliced when the
+search actually needs to move past `target`. -}
+type alias CommentState =
+    { settled : Builder.Builder LPNode
+    , target : Maybe LPNode
+    , rest : Array LPNode
+    }
+
+
 lptAddComments : Ctx.Context -> LPNode -> LPNode
 lptAddComments ctx root =
-    Array.foldl
-        (\comment currentRoot -> lptAddComment comment currentRoot)
-        root
-        (Builder.toArray ctx.comments)
-
-
-lptAddComment : Located Ctx.Comment -> LPNode -> LPNode
-lptAddComment locComment root =
-    when tryLeadingGluedAttach locComment root is
-        Just gluedRoot ->
-            gluedRoot
-
-        Nothing ->
-            lptAddCommentGeneric locComment root
-
-
-lptAddCommentGeneric : Located Ctx.Comment -> LPNode -> LPNode
-lptAddCommentGeneric locComment root =
     let
-        baseCommentNode =
-            lpnLeaf (mkCommentLpBox locComment)
+        initial =
+            { settled = Builder.empty (Array.length (lpnChildren root))
+            , target = Nothing
+            , rest = lpnChildren root
+            }
 
+        final =
+            Array.foldl addOneComment initial (Builder.toArray ctx.comments)
+
+        finalChildren =
+            (when final.target is
+                Just t ->
+                    Builder.pushLast t final.settled
+
+                Nothing ->
+                    final.settled
+            )
+                |> Builder.append final.rest
+                |> Builder.toArray
+    in
+    lpnReplaceChildren root finalChildren
+
+
+addOneComment : Located Ctx.Comment -> CommentState -> CommentState
+addOneComment locComment state =
+    when locComment.value is
+        Ctx.Line _ ->
+            -- `tryLeadingGluedAttach` only ever matches a block comment (see
+            -- its own `Ctx.Line _ -> Nothing` case) — skip straight to the
+            -- generic path rather than paying for the check.
+            addCommentGeneric locComment state
+
+        Ctx.Block _ ->
+            when tryLeadingGluedAttach locComment state is
+                Just gluedState ->
+                    gluedState
+
+                Nothing ->
+                    addCommentGeneric locComment state
+
+
+{-| The shared tail of comment placement, used both when a comment re-hits
+the current `target` (no search needed) and when `advanceAndSearch` has just
+found or created the target via `findOrCreateOrigRow`. Exactly the former
+body of `lptAddCommentGeneric` from `commentNode` onward, factored out so
+both call sites share it verbatim. -}
+applyCommentToOrigRow : Located Ctx.Comment -> LPNode -> Bool -> LPNode -> LPNode
+applyCommentToOrigRow locComment baseCommentNode created origRowNode =
+    let
         row =
             locComment.start.row
 
         col =
             locComment.start.col
-
-        stype =
-            when locComment.value is
-                Ctx.Line _ ->
-                    StSingleLineComment
-
-                Ctx.Block _ ->
-                    StBlockComment
-
-        rootChildren =
-            lpnChildren root
-
-        { origRowNode, before, after, created } =
-            findOrCreateOrigRow row stype rootChildren
 
         -- A comment that detaches to a fresh column-1 `OriginalRows` (see
         -- `findOrCreateOrigRow`) is `Standalone` — the empty-container branch of
@@ -222,22 +264,74 @@ lptAddCommentGeneric locComment root =
 
         coveredRow =
             max endRow elasticEnd
+    in
+    when lpnBox updatedOrigRow is
+        OriginalRows rowInfo ->
+            if coveredRow > rowInfo.last then
+                lpnNode
+                    (OriginalRows { rowInfo | last = coveredRow })
+                    (lpnChildren updatedOrigRow)
 
-        correctedOrigRow =
-            when lpnBox updatedOrigRow is
-                OriginalRows rowInfo ->
-                    if coveredRow > rowInfo.last then
-                        lpnNode
-                            (OriginalRows { rowInfo | last = coveredRow })
-                            (lpnChildren updatedOrigRow)
+            else
+                updatedOrigRow
+
+        _ ->
+            updatedOrigRow
+
+
+addCommentGeneric : Located Ctx.Comment -> CommentState -> CommentState
+addCommentGeneric locComment state =
+    let
+        baseCommentNode =
+            lpnLeaf (mkCommentLpBox locComment)
+
+        row =
+            locComment.start.row
+
+        stype =
+            when locComment.value is
+                Ctx.Line _ ->
+                    StSingleLineComment
+
+                Ctx.Block _ ->
+                    StBlockComment
+    in
+    when state.target is
+        Just t ->
+            when lpnBox t is
+                OriginalRows { first, last } ->
+                    if first <= row && row <= last then
+                        -- Re-hit: the comment still belongs to `target`.
+                        -- `rest` is untouched — no search, no rebuild.
+                        { state | target = Just (applyCommentToOrigRow locComment baseCommentNode False t) }
 
                     else
-                        updatedOrigRow
+                        advanceAndSearch locComment baseCommentNode row stype { state | settled = Builder.pushLast t state.settled, target = Nothing }
 
                 _ ->
-                    updatedOrigRow
+                    advanceAndSearch locComment baseCommentNode row stype { state | settled = Builder.pushLast t state.settled, target = Nothing }
+
+        Nothing ->
+            advanceAndSearch locComment baseCommentNode row stype state
+
+
+{-| `state.target` doesn't own this comment (or there is none yet): scan
+`state.rest` — unchanged from `findOrCreateOrigRow`'s existing search+create
+logic — to find or create the new target, permanently settling everything
+found strictly before it. -}
+advanceAndSearch : Located Ctx.Comment -> LPNode -> Int -> SyntaxType -> CommentState -> CommentState
+advanceAndSearch locComment baseCommentNode row stype state =
+    let
+        { origRowNode, before, after, created } =
+            findOrCreateOrigRow row stype state.rest
+
+        newTarget =
+            applyCommentToOrigRow locComment baseCommentNode created origRowNode
     in
-    lpnNode (lpnBox root) (before ++ [ correctedOrigRow ] ++ after)
+    { settled = Builder.append before state.settled
+    , target = Just newTarget
+    , rest = after
+    }
 
 
 mkCommentLpBox : Located Ctx.Comment -> LPBox
@@ -274,11 +368,19 @@ mkCommentLpBox locComment =
 
 
 {-| If `locComment` is a block comment glued to the front of a top-level
-declaration, attach it there and return the updated root; otherwise `Nothing`
-(the generic placement runs).
--}
-tryLeadingGluedAttach : Located Ctx.Comment -> LPNode -> Maybe LPNode
-tryLeadingGluedAttach locComment root =
+declaration, attach it there and return the updated `CommentState`; otherwise
+`Nothing` (the generic placement runs).
+
+Searches only `state.target` (if any) plus `state.rest` — never
+`state.settled` — because a comment can only glue to a declaration whose
+range has not yet been passed: `state.settled` holds only children strictly
+before every remaining (and hence this) comment's row (see `CommentState`'s
+doc comment), and `coveredByOtherDecl`'s `first <= row && row <= last` check
+can never hold for one of them. Searching the smaller active window instead
+of the whole tree is what keeps this from being an O(n) rescan on every block
+comment. -}
+tryLeadingGluedAttach : Located Ctx.Comment -> CommentState -> Maybe CommentState
+tryLeadingGluedAttach locComment state =
     when locComment.value is
         Ctx.Line _ ->
             Nothing
@@ -291,8 +393,13 @@ tryLeadingGluedAttach locComment root =
                 endPos =
                     locComment.end
 
-                rootChildren =
-                    lpnChildren root
+                activeChildren =
+                    when state.target is
+                        Just t ->
+                            [ t ] ++ state.rest
+
+                        Nothing ->
+                            state.rest
 
                 -- The declaration this comment is glued to: a declaration
                 -- `OriginalRows` whose first row is the comment's end row, where
@@ -320,12 +427,12 @@ tryLeadingGluedAttach locComment root =
                                                     False
                                            )
                                         && commentLeadsDecl stype child startPos
-                                        && not (coveredByOtherDecl i startPos.row rootChildren)
+                                        && not (coveredByOtherDecl i startPos.row activeChildren)
 
                                 _ ->
                                     False
                         )
-                        rootChildren
+                        activeChildren
             in
             when target is
                 Nothing ->
@@ -345,9 +452,27 @@ tryLeadingGluedAttach locComment root =
                                     else
                                         child
                                 )
-                                rootChildren
+                                activeChildren
                     in
-                    Just (lpnNode (lpnBox root) updatedChildren)
+                    Just (restoreState state updatedChildren)
+
+
+{-| Rebuild `state` from `activeChildren` — the same `[target?] ++ rest`
+sequence `tryLeadingGluedAttach` searched, with exactly one element possibly
+replaced — splitting it back into `target`/`rest` at the same boundary. -}
+restoreState : CommentState -> Array LPNode -> CommentState
+restoreState state activeChildren =
+    when state.target is
+        Just _ ->
+            when Array.popFirst activeChildren is
+                Just { first = newTarget, rest = newRest } ->
+                    { state | target = Just newTarget, rest = newRest }
+
+                Nothing ->
+                    state
+
+        Nothing ->
+            { state | rest = activeChildren }
 
 
 {-| Insert `commentNode` among a declaration's children at the position dictated
@@ -591,13 +716,26 @@ findOrCreateOrigRow :
         }
 findOrCreateOrigRow row stype nodes =
     let
+        -- This runs once per top-level comment (called from
+        -- `lptAddCommentGeneric`'s per-comment loop), each time scanning the
+        -- WHOLE root-children array built so far — already O(n) per call. Both
+        -- folds below used to additionally build `before`/`after` with
+        -- `Array.pushLast`, which is itself O(n) per call (`Array.toSpliced`,
+        -- a full-array copy) — one O(n) rebuild PER NODE VISITED inside an
+        -- already O(n)-per-call scan, i.e. O(n^2) work inside a routine that's
+        -- itself called O(n) times: cubic on a file that's mostly top-level
+        -- comments. `Array.Builder` makes each fold's own accumulation O(n),
+        -- leaving the overall cost at O(n) per call / O(n^2) total — matching
+        -- every other per-comment or per-declaration site in this pipeline,
+        -- not worse.
+        --
         -- First: try to find an existing OriginalRows containing 'row'
         searchResult =
             Array.foldl
                 (\node acc ->
                     when acc.found is
                         Just _ ->
-                            { acc | after = Array.pushLast node acc.after }
+                            { acc | after = Builder.pushLast node acc.after }
 
                         Nothing ->
                             when lpnBox node is
@@ -606,19 +744,19 @@ findOrCreateOrigRow row stype nodes =
                                         { acc | found = Just node }
 
                                     else
-                                        { acc | before = Array.pushLast node acc.before }
+                                        { acc | before = Builder.pushLast node acc.before }
 
                                 _ ->
-                                    { acc | before = Array.pushLast node acc.before }
+                                    { acc | before = Builder.pushLast node acc.before }
                 )
-                { before = [], after = [], found = Nothing }
+                { before = Builder.empty (Array.length nodes), after = Builder.empty 0, found = Nothing }
                 nodes
     in
     when searchResult.found is
         Just existing ->
             { origRowNode = existing
-            , before = searchResult.before
-            , after = searchResult.after
+            , before = Builder.toArray searchResult.before
+            , after = Builder.toArray searchResult.after
             , created = False
             }
 
@@ -639,26 +777,26 @@ findOrCreateOrigRow row stype nodes =
                     Array.foldl
                         (\node acc ->
                             if acc.done then
-                                { acc | after = Array.pushLast node acc.after }
+                                { acc | after = Builder.pushLast node acc.after }
 
                             else
                                 when lpnBox node is
                                     OriginalRows { first = first } ->
                                         if row < first then
-                                            { acc | after = Array.pushLast node acc.after, done = True }
+                                            { acc | after = Builder.pushLast node acc.after, done = True }
 
                                         else
-                                            { acc | before = Array.pushLast node acc.before }
+                                            { acc | before = Builder.pushLast node acc.before }
 
                                     _ ->
-                                        { acc | before = Array.pushLast node acc.before }
+                                        { acc | before = Builder.pushLast node acc.before }
                         )
-                        { before = [], after = [], done = False }
+                        { before = Builder.empty (Array.length nodes), after = Builder.empty 0, done = False }
                         nodes
             in
             { origRowNode = newNode
-            , before = insertResult.before
-            , after = insertResult.after
+            , before = Builder.toArray insertResult.before
+            , after = Builder.toArray insertResult.after
             , created = True
             }
 

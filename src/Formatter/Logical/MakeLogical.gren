@@ -8,6 +8,7 @@ stage's entry point.
 @docs lptFromAst
 -}
 
+import Array.Builder as Builder
 import Compiler.Ast.Source as Src
 import Compiler.SourcePosition exposing (Located, Position)
 import Math exposing (maxSafeInteger)
@@ -34,25 +35,33 @@ import Formatter.Logical.LogicalPrintingTree exposing
 {-| Walk the AST and produce a root `LPNode` whose children are one
 `OriginalRows` per top-level declaration.
 
-Each `process*` step appends to the running root. Declarations are added
-in declaration-kind order (values, aliases, unions, ports, infix) rather
-than source order; the final `sortOriginalRows` pass restores source
-order using the row ranges recorded on each `OriginalRows` box.
+Each `process*` step appends to a running `Array.Builder` (amortized O(1)
+per append) rather than an `LPNode` rebuilt from scratch on every call —
+threading the root itself as the accumulator meant every single-child
+append re-copied the full children array *and* re-folded the whole array
+to refresh the cached subtree bounds, making an N-declaration module
+O(N^2). The builder is only converted to a real `LPNode` (one `lpnNode`
+call, O(N)) once, after every declaration has been appended. Declarations
+are added in declaration-kind order (values, aliases, unions, ports,
+infix) rather than source order; the final `sortOriginalRows` pass
+restores source order using the row ranges recorded on each
+`OriginalRows` box.
 -}
 lptFromAst : Src.Module -> Result String LPNode
 lptFromAst modAst =
     let
-        root =
-            lpnLeaf RootBox
+        builder =
+            Builder.empty 0
     in
-    processModuleLine modAst root
+    processModuleLine modAst builder
         |> Result.map (processFunctionDoc modAst.docs)
         |> Result.andThen (processImports modAst)
-        |> Result.andThen (\r -> resultFoldl processModDecl r modAst.values)
-        |> Result.andThen (\r -> resultFoldl processAliasDecl r modAst.aliases)
-        |> Result.andThen (\r -> resultFoldl processUnionDecl r modAst.unions)
+        |> Result.andThen (\b -> resultFoldl processModDecl b modAst.values)
+        |> Result.andThen (\b -> resultFoldl processAliasDecl b modAst.aliases)
+        |> Result.andThen (\b -> resultFoldl processUnionDecl b modAst.unions)
         |> Result.andThen (processPorts modAst)
         |> Result.andThen (processInfixDecls modAst)
+        |> Result.map (\b -> lpnNode RootBox (Builder.toArray b))
         |> Result.map sortOriginalRows
 
 
@@ -90,11 +99,12 @@ makeOrigRows firstRow stype children =
     lpnNode (OriginalRows { first = firstRow, last = last, stype = stype }) children
 
 
-{-| Append `child` to `root`'s children, returning the updated root.
+{-| Append `child` to the running root-children builder, returning the
+updated builder. Amortized O(1) — see `lptFromAst`.
 -}
-addRootChild : LPNode -> LPNode -> LPNode
-addRootChild child root =
-    lpnNode (lpnBox root) (Array.pushLast child (lpnChildren root))
+addRootChild : LPNode -> Builder.Builder LPNode -> Builder.Builder LPNode
+addRootChild child builder =
+    Builder.pushLast child builder
 
 
 {-| Emit the `module ... exposing (...)` line as a single `StModule`
@@ -104,7 +114,7 @@ addRootChild child root =
     port module Foo exposing (..)
     effect module Foo where { command = MyCmd, subscription = MySub } exposing (..)
 -}
-processModuleLine : Src.Module -> LPNode -> Result String LPNode
+processModuleLine : Src.Module -> Builder.Builder LPNode -> Result String (Builder.Builder LPNode)
 processModuleLine modAst root =
     let
         keyword =
@@ -513,7 +523,7 @@ exposingListBox spansRows =
         AllAcrossOrAllVertical ListParen
 
 
-processImports : Src.Module -> LPNode -> Result String LPNode
+processImports : Src.Module -> Builder.Builder LPNode -> Result String (Builder.Builder LPNode)
 processImports modAst root =
     Ok <| Array.foldl processImport root modAst.imports
 
@@ -525,7 +535,7 @@ processImports modAst root =
     import Foo exposing (a, b)
     import Foo as F exposing (..)
 -}
-processImport : Located Src.Import -> LPNode -> LPNode
+processImport : Located Src.Import -> Builder.Builder LPNode -> Builder.Builder LPNode
 processImport locImport root =
     let
         keywordNode =
@@ -612,7 +622,7 @@ processImport locImport root =
     addRootChild origRow root
 
 
-processPorts : Src.Module -> LPNode -> Result String LPNode
+processPorts : Src.Module -> Builder.Builder LPNode -> Result String (Builder.Builder LPNode)
 processPorts modAst root =
     when modAst.effects is
         Src.NoEffects ->
@@ -630,7 +640,7 @@ processPorts modAst root =
 
     port someCmd : (String -> msg) -> Sub msg
 -}
-processPortDecl : Src.ModuleDeclaration Src.Port -> LPNode -> Result String LPNode
+processPortDecl : Src.ModuleDeclaration Src.Port -> Builder.Builder LPNode -> Result String (Builder.Builder LPNode)
 processPortDecl modDecl root =
     let
         port_ =
@@ -669,7 +679,7 @@ processPortDecl modDecl root =
         = Nothing
         | Just a
 -}
-processUnionDecl : Src.ModuleDeclaration Src.Union -> LPNode -> Result String LPNode
+processUnionDecl : Src.ModuleDeclaration Src.Union -> Builder.Builder LPNode -> Result String (Builder.Builder LPNode)
 processUnionDecl modDecl root =
     let
         union_ =
@@ -755,7 +765,7 @@ processVariantNode locVariant accNodes =
     type alias Point =
         { x : Int, y : Int }
 -}
-processAliasDecl : Src.ModuleDeclaration Src.Alias -> LPNode -> Result String LPNode
+processAliasDecl : Src.ModuleDeclaration Src.Alias -> Builder.Builder LPNode -> Result String (Builder.Builder LPNode)
 processAliasDecl modDecl root =
     let
         alias_ =
@@ -803,7 +813,7 @@ processAliasDecl modDecl root =
     foo x =
         x + 1
 -}
-processModDecl : Src.ModuleDeclaration Src.Value -> LPNode -> Result String LPNode
+processModDecl : Src.ModuleDeclaration Src.Value -> Builder.Builder LPNode -> Result String (Builder.Builder LPNode)
 processModDecl modDecl root =
     let
         rootWithDoc =
@@ -825,7 +835,7 @@ simple the body is.
     answer =
         42
 -}
-processFunctionBody : Src.Value -> LPNode -> Result String LPNode
+processFunctionBody : Src.Value -> Builder.Builder LPNode -> Result String (Builder.Builder LPNode)
 processFunctionBody modVal root =
     let
         nameNode =
@@ -857,7 +867,7 @@ processFunctionBody modVal root =
 
 {-| Maybe or maybe not insert a DocComment for this function
 -}
-processFunctionDoc : Maybe (Located String) -> LPNode -> LPNode
+processFunctionDoc : Maybe (Located String) -> Builder.Builder LPNode -> Builder.Builder LPNode
 processFunctionDoc maybeLocString root =
     when maybeLocString is
         Just locString ->
@@ -876,7 +886,7 @@ processFunctionDoc maybeLocString root =
 
 {-| Maybe or maybe not insert a FunctionSignature for this function
 -}
-processFunctionSignature : Located String -> Maybe { start : Position, type_ : Located Src.Type_ } -> LPNode -> Result String LPNode
+processFunctionSignature : Located String -> Maybe { start : Position, type_ : Located Src.Type_ } -> Builder.Builder LPNode -> Result String (Builder.Builder LPNode)
 processFunctionSignature locName maybeType root =
     when maybeType is
         Nothing ->
@@ -942,7 +952,7 @@ processFunctionSignature locName maybeType root =
                     )
 
 
-processInfixDecls : Src.Module -> LPNode -> Result String LPNode
+processInfixDecls : Src.Module -> Builder.Builder LPNode -> Result String (Builder.Builder LPNode)
 processInfixDecls modAst root =
     Ok <| Array.foldl processInfixDecl root modAst.binops
 
@@ -951,7 +961,7 @@ processInfixDecls modAst root =
 
     infix left 6 (+) = add
 -}
-processInfixDecl : Located Src.Infix -> LPNode -> LPNode
+processInfixDecl : Located Src.Infix -> Builder.Builder LPNode -> Builder.Builder LPNode
 processInfixDecl locInfix root =
     let
         infix_ =

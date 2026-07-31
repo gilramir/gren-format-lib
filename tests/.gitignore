@@ -1,6 +1,7 @@
 app
 gen-out/
 pathological-out/
+pathological-other-out/
 
 # fuzzrun.py sweep state and artifacts (fuzzrun.toml IS tracked).
 # The -wal/-shm sidecars come from sqlite's WAL mode.

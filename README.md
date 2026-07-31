@@ -27,6 +27,7 @@ core formatting rules. Four companion documents go deeper:
 - [Gren Formatter Rules](#gren-formatter-rules)
   - [Background](#background)
 - [Known limitations](#known-limitations)
+- [Performance](#performance)
 - [Comparison with elm-format](#comparison-with-elm-format)
 
 ---
@@ -196,6 +197,35 @@ extreme lambda/unary-minus nesting (hundreds of levels deep, well past
 anything real code hits).
 
 Full write-up, with a before/after example for each: **[docs/knownLimitations.md](docs/knownLimitations.md)**.
+
+---
+
+## Performance
+
+Real Gren files are small enough that formatting speed is a non-issue, but
+the formatter is also checked against synthetic files pushed far past
+anything realistic — thousands of top-level declarations, thousands of
+stacked comments, deeply nested expressions — to catch algorithmic hot spots
+before they'd ever surface on real code. That stress suite is
+`tests/pathological-other.py` (size/shape probes) and
+`tests/pathological-nesting.py` (depth probes).
+
+A few representative numbers:
+
+| Shape | Size | Time |
+|---|---|---|
+| Top-level function declarations | 15,131 | ~4s |
+| Top-level function declarations | 40,000 | ~20s |
+| Stacked top-level comments (no code — a stress case, not realistic) | 4,005 | ~0.5s |
+| Stacked top-level comments (no code — a stress case, not realistic) | 32,000 | ~21s |
+
+Those numbers reflect several `O(n²)` fixes: earlier versions of the
+formatter rebuilt or rescanned the *entire* array of already-processed
+declarations or comments once per new one — 15,131 declarations used to take
+~15s (now ~4s), and 32,000 stacked comments used to time out entirely (now
+~21s). The fix in each case was the same shape: accumulate with
+`Array.Builder` (amortized O(1) per append) instead of `Array.pushLast`/`++`
+in a loop, and never rescan work already known to be settled.
 
 ---
 

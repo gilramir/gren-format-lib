@@ -34,6 +34,7 @@ already-correct flat sibling list; it never has to re-decide attachment.
 -}
 
 import Array
+import Array.Builder as Builder
 import Char
 import String
 
@@ -353,62 +354,105 @@ isCommentOrigRows node =
             False
 
 
-{-| Take the next import unit off the front of `nodes`: the own-line comments
-glued above the import (each row-adjacent to what follows it), the import
-itself, and the comments trailing it on its own row. `Nothing` when `nodes`
-does not start one -- including when a comment chain leads to something that
-is not an import, in which case nothing is consumed and the caller emits the
-nodes as they are. -}
-takeUnit : Array LPNode -> Maybe { unit : ImportUnit, after : Array LPNode }
-takeUnit nodes =
+{-| Take the next import unit starting at index `i` of `nodes`: the own-line
+comments glued above the import (each row-adjacent to what follows it), the
+import itself, and the comments trailing it on its own row. `unit = Nothing`
+when `nodes` does not start one at `i` -- including when a comment chain
+leads to something that is not an import, in which case nothing is consumed
+and the caller emits the nodes as they are.
+
+Takes an index into the shared `nodes` array rather than a shrinking `Array
+LPNode` "remaining" slice: `Array.popFirst`/`Array.dropFirst` are `slice`
+under the hood (`Array.gren`), an O(n) copy per call. `nextIndex` is always
+set, even on failure (to just past the whole glued-leading chain this call
+scanned, not just past one node) -- `walkTop`'s fallback uses it to skip the
+entire failed chain in one bulk step. Without that, retrying `takeUnit` one
+node at a time would rescan the same glued-comment chain from every position
+inside it: an O(chain length) scan repeated once per position in the chain is
+O(n^2) on a file that's mostly stacked top-level comments with no imports
+(`wide-comments-only`). -}
+takeUnit : Array LPNode -> Int -> { unit : Maybe ImportUnit, nextIndex : Int }
+takeUnit nodes i =
     let
-        { leading, afterLeading } =
-            takeGluedLeading nodes
+        { leading, afterLeadingIndex } =
+            takeGluedLeadingIdx nodes i
     in
-    when Array.popFirst afterLeading is
-        Just { first = node, rest } ->
+    when Array.get afterLeadingIndex nodes is
+        Just node ->
             if isImportNode node then
                 let
-                    { trailing, afterTrailing } =
-                        takeSameRowTrailing node rest
+                    { trailing, afterTrailingIndex } =
+                        takeSameRowTrailingIdx node nodes (afterLeadingIndex + 1)
                 in
-                Just
-                    { unit = { leading = leading, item = node, trailing = trailing }
-                    , after = afterTrailing
-                    }
+                { unit = Just { leading = leading, item = node, trailing = trailing }
+                , nextIndex = afterTrailingIndex
+                }
 
             else
-                Nothing
+                -- Not an import: the whole glued-leading chain (and this
+                -- node) is dead weight for import-sorting purposes. Skip
+                -- past all of it at once.
+                { unit = Nothing, nextIndex = afterLeadingIndex + 1 }
 
         Nothing ->
-            Nothing
+            { unit = Nothing, nextIndex = afterLeadingIndex }
 
 
-{-| Pop comments off the front of `nodes` for as long as each one is followed
-immediately -- next row, no blank line -- by another node. The chain stops at a
-comment with a gap under it, which is nobody's leading comment and stays put. -}
-takeGluedLeading : Array LPNode -> { leading : Array LPNode, afterLeading : Array LPNode }
-takeGluedLeading nodes =
-    when Array.popFirst nodes is
-        Just { first = node, rest } ->
-            if isCommentOrigRows node && startsOnRow (origRowsLast node + 1) rest then
-                let
-                    inner =
-                        takeGluedLeading rest
-                in
-                { leading = Array.pushFirst node inner.leading, afterLeading = inner.afterLeading }
+{-| Take comments starting at index `i` of `nodes` for as long as each one is
+followed immediately -- next row, no blank line -- by another node. The chain
+stops at a comment with a gap under it, which is nobody's leading comment and
+stays put. Threads an `Array.Builder` accumulator, same reasoning as
+`takeUnit`'s index-based rewrite. -}
+takeGluedLeadingIdx : Array LPNode -> Int -> { leading : Array LPNode, afterLeadingIndex : Int }
+takeGluedLeadingIdx nodes i =
+    takeGluedLeadingIdxHelp nodes i (Builder.empty 0)
+
+
+takeGluedLeadingIdxHelp : Array LPNode -> Int -> Builder.Builder LPNode -> { leading : Array LPNode, afterLeadingIndex : Int }
+takeGluedLeadingIdxHelp nodes i leadingAcc =
+    when Array.get i nodes is
+        Just node ->
+            if isCommentOrigRows node && startsOnRowIdx (origRowsLast node + 1) nodes (i + 1) then
+                takeGluedLeadingIdxHelp nodes (i + 1) (Builder.pushLast node leadingAcc)
 
             else
-                { leading = [], afterLeading = nodes }
+                { leading = Builder.toArray leadingAcc, afterLeadingIndex = i }
 
         Nothing ->
-            { leading = [], afterLeading = nodes }
+            { leading = Builder.toArray leadingAcc, afterLeadingIndex = i }
 
 
--- True when the first node of `nodes` starts on `row`.
-startsOnRow : Int -> Array LPNode -> Bool
-startsOnRow row nodes =
-    when Array.first nodes is
+{-| Take sweep-eligible comments starting at index `i` of `nodes` for as long
+as each one starts on the last row of what precedes it -- see
+`takeSameRowTrailing`'s doc comment for why a chain, not just one comment.
+Index-based twin of `takeSameRowTrailing`, used on the import path where
+`nodes` is the shared, never-resliced root-children array (see `takeUnit`);
+`takeSameRowTrailing` itself stays array-based for `clusterRegionHelp`'s
+exposing-list clustering, where the input is already a small, freshly-scoped
+region and reslicing it is not the hot path. -}
+takeSameRowTrailingIdx : LPNode -> Array LPNode -> Int -> { trailing : Array LPNode, afterTrailingIndex : Int }
+takeSameRowTrailingIdx item nodes i =
+    takeSameRowTrailingIdxHelp (rowSpan item |> .last) nodes i (Builder.empty 0)
+
+
+takeSameRowTrailingIdxHelp : Int -> Array LPNode -> Int -> Builder.Builder LPNode -> { trailing : Array LPNode, afterTrailingIndex : Int }
+takeSameRowTrailingIdxHelp prevLastRow nodes i acc =
+    when Array.get i nodes is
+        Just node ->
+            if isSweepComment node && (rowSpan node |> .first) == prevLastRow then
+                takeSameRowTrailingIdxHelp (rowSpan node |> .last) nodes (i + 1) (Builder.pushLast node acc)
+
+            else
+                { trailing = Builder.toArray acc, afterTrailingIndex = i }
+
+        Nothing ->
+            { trailing = Builder.toArray acc, afterTrailingIndex = i }
+
+
+-- True when the node at index `i` of `nodes` starts on `row`.
+startsOnRowIdx : Int -> Array LPNode -> Int -> Bool
+startsOnRowIdx row nodes i =
+    when Array.get i nodes is
         Just n ->
             origRowsFirst n == row
 
@@ -423,30 +467,49 @@ boundary; comments travel with their import). Walks the root's children once,
 left to right. -}
 sortImportGroups : LPNode -> LPNode
 sortImportGroups root =
-    lpnReplaceChildren root (walkTop (lpnChildren root) [])
+    let
+        nodes =
+            lpnChildren root
+    in
+    lpnReplaceChildren root (walkTop nodes 0 (Builder.empty (Array.length nodes)))
 
 
-walkTop : Array LPNode -> Array LPNode -> Array LPNode
-walkTop remaining acc =
-    when takeUnit remaining is
-        Just { unit = firstUnit, after } ->
+{-| Walks `nodes` (the root's children, fixed -- never resliced) via an index
+`i` and an `Array.Builder` accumulator, both O(1)-amortized per step, instead
+of an `Array LPNode` "remaining" tail shrunk one `Array.popFirst`/`++` at a
+time: either alone is O(n) per call, and this loop calls one of them once per
+node, so an O(n) outer loop times an O(n) per-call cost was O(n^2) on a wide
+file (thousands of top-level declarations, or of comments with few/no
+imports). -}
+walkTop : Array LPNode -> Int -> Builder.Builder LPNode -> Array LPNode
+walkTop nodes i acc =
+    let
+        attempt =
+            takeUnit nodes i
+    in
+    when attempt.unit is
+        Just firstUnit ->
             let
-                { units, afterRun } =
-                    collectRun firstUnit after
+                { units, afterIndex } =
+                    collectRun nodes firstUnit attempt.nextIndex
             in
             if Array.length units >= 2 then
-                walkTop afterRun (acc ++ renderSortedRun (unitFirstRow firstUnit) units)
+                walkTop nodes afterIndex (Builder.append (renderSortedRun (unitFirstRow firstUnit) units) acc)
 
             else
-                walkTop afterRun (acc ++ flattenUnits units)
+                walkTop nodes afterIndex (Builder.append (flattenUnits units) acc)
 
         Nothing ->
-            when Array.popFirst remaining is
-                Nothing ->
-                    acc
+            if attempt.nextIndex > i then
+                -- Bulk-emit the whole failed chain `takeUnit` just scanned
+                -- (`Array.slice` is O(k) for the k nodes actually being
+                -- emitted -- unavoidable, not wasted work) instead of
+                -- retrying one node at a time, which would rescan it.
+                walkTop nodes attempt.nextIndex (Builder.append (Array.slice i attempt.nextIndex nodes) acc)
 
-                Just { first = node, rest } ->
-                    walkTop rest (Array.pushLast node acc)
+            else
+                -- No progress: `i` is already past the end of `nodes`.
+                Builder.toArray acc
 
 
 renderSortedRun : Int -> Array ImportUnit -> Array LPNode
@@ -457,31 +520,35 @@ renderSortedRun runFirstRow units =
         |> flattenUnits
 
 
-{-| Collect one run starting at `firstUnit`: keep taking import units for as
-long as the next one starts on the row right after the previous one ends. A
-blank line leaves a gap, which ends the run; so does anything that is not an
-import unit (a declaration, or a comment chain that leads to one). -}
-collectRun : ImportUnit -> Array LPNode -> { units : Array ImportUnit, afterRun : Array LPNode }
-collectRun firstUnit remaining =
-    collectRunHelp firstUnit remaining []
+{-| Collect one run starting at `firstUnit` (whose next index into `nodes` is
+`i`): keep taking import units for as long as the next one starts on the row
+right after the previous one ends. A blank line leaves a gap, which ends the
+run; so does anything that is not an import unit (a declaration, or a comment
+chain that leads to one). -}
+collectRun : Array LPNode -> ImportUnit -> Int -> { units : Array ImportUnit, afterIndex : Int }
+collectRun nodes firstUnit i =
+    collectRunHelp nodes firstUnit i (Builder.empty 0)
 
 
-collectRunHelp : ImportUnit -> Array LPNode -> Array ImportUnit -> { units : Array ImportUnit, afterRun : Array LPNode }
-collectRunHelp unit remaining acc =
+collectRunHelp : Array LPNode -> ImportUnit -> Int -> Builder.Builder ImportUnit -> { units : Array ImportUnit, afterIndex : Int }
+collectRunHelp nodes unit i acc =
     let
         newAcc =
-            Array.pushLast unit acc
+            Builder.pushLast unit acc
+
+        attempt =
+            takeUnit nodes i
     in
-    when takeUnit remaining is
-        Just { unit = nextUnit, after } ->
+    when attempt.unit is
+        Just nextUnit ->
             if unitFirstRow nextUnit == unitLastRow unit + 1 then
-                collectRunHelp nextUnit after newAcc
+                collectRunHelp nodes nextUnit attempt.nextIndex newAcc
 
             else
-                { units = newAcc, afterRun = remaining }
+                { units = Builder.toArray newAcc, afterIndex = i }
 
         Nothing ->
-            { units = newAcc, afterRun = remaining }
+            { units = Builder.toArray newAcc, afterIndex = i }
 
 
 sortUnitsStable : Array ImportUnit -> Array ImportUnit
@@ -544,11 +611,12 @@ reflowUnits runFirstRow units =
                 shifted =
                     shiftUnit delta unit
             in
-            { out = Array.pushLast shifted acc.out, cursor = unitLastRow shifted }
+            { out = Builder.pushLast shifted acc.out, cursor = unitLastRow shifted }
         )
-        { out = [], cursor = runFirstRow - 1 }
+        { out = Builder.empty (Array.length units), cursor = runFirstRow - 1 }
         units
         |> .out
+        |> Builder.toArray
 
 
 shiftUnit : Int -> ImportUnit -> ImportUnit
@@ -566,7 +634,16 @@ shiftUnit delta unit =
 
 flattenUnits : Array ImportUnit -> Array LPNode
 flattenUnits units =
-    Array.foldl (\u acc -> acc ++ u.leading ++ [ u.item ] ++ u.trailing) [] units
+    Array.foldl
+        (\u acc ->
+            acc
+                |> Builder.append u.leading
+                |> Builder.pushLast u.item
+                |> Builder.append u.trailing
+        )
+        (Builder.empty (Array.length units))
+        units
+        |> Builder.toArray
 
 
 -- EXPOSING LISTS
@@ -623,23 +700,29 @@ outside it -- the same is true for record/array literals). Emitting it inside
 therefore guarantees non-idempotency (the bracket-first-child form renders the
 comment above `(`, which reparses back out). Hoisting it here makes the sorted
 tree byte-identical to what a reparse yields, so the two agree by construction.
-`ListParen` is exclusively exposing lists, so this only ever fires on them. -}
+`ListParen` is exclusively exposing lists, so this only ever fires on them.
+
+Threads an `Array.Builder` accumulator rather than `Array.pushLast`/`++`: this
+runs on every node's children in the whole tree (`sortExposingLists`'s walk),
+including the root's — up to thousands of top-level declarations — so an
+O(n)-per-call accumulation here is O(n^2) over the whole file. -}
 hoistBracketLeadingComments : Array LPNode -> Array LPNode
 hoistBracketLeadingComments children =
     Array.foldl
         (\child acc ->
             when lpnBox child is
                 AllAcrossOrAllVertical ListParen ->
-                    acc ++ hoistOne child
+                    Builder.append (hoistOne child) acc
 
                 AlwaysVertical ListParen ->
-                    acc ++ hoistOne child
+                    Builder.append (hoistOne child) acc
 
                 _ ->
-                    Array.pushLast child acc
+                    Builder.pushLast child acc
         )
-        []
+        (Builder.empty (Array.length children))
         children
+        |> Builder.toArray
 
 
 {-| Split a sorted exposing-list bracket into its leading comment sibling(s)

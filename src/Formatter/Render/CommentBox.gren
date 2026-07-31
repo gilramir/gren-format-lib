@@ -130,8 +130,21 @@ emptyBracketedCommentLine node =
 -- collapses to `{-| -}`; a body that both starts and ends with a single `\n`
 -- (a multi-line doc comment whose content begins on the next line) gains a
 -- trailing blank line before `-}` (elm-format's convention).
+--
+-- Unlike `multiLineBlockCommentBox`, this emits the body as one opaque
+-- literal rather than reconstructing it line by line, so it never goes
+-- through the render pipeline's per-line right-trim. On a CRLF-encoded
+-- source file the parser hands back a `value` with a bare `\r` still glued
+-- to every embedded `\n`, and nothing here would otherwise strip it — every
+-- other construct is emitted fresh with plain `\n` (never copied verbatim
+-- from source), so this is the one path a source-level `\r` can leak through
+-- to the formatted output. Normalizing CRLF pairs first closes that gap.
 docCommentString : String -> String
-docCommentString value =
+docCommentString rawValue =
+    let
+        value =
+            String.replace "\r\n" "\n" rawValue
+    in
     if String.isEmpty (String.trim value) then
         "{-| -}"
 
