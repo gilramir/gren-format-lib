@@ -1,0 +1,52 @@
+module BrokenCallCommentGlue exposing (..)
+
+
+-- When a call breaks across rows, its FIRST argument stays glued to the
+-- function name. A comment written between the two rides that line with them:
+-- it moves neither token's source row, so the layout question it is gated on
+-- (`nodesShareStartRow fn arg0`) has not changed. elm-format agrees -- it
+-- attaches such a comment to the argument, so its arg0 is still an argument.
+
+
+plain =
+    String.join " "
+        parts
+        rest
+
+
+betweenFnAndArg0 =
+    String.join {- sep -} " "
+        parts
+        rest
+
+
+twoComments =
+    String.join {- a -} {- b -} " "
+        parts
+        rest
+
+
+-- After arg0 the glue already survived, and still does.
+afterArg0 =
+    String.join " " {- sep -}
+        parts
+        rest
+
+
+-- A `--` cannot share the line -- it would swallow the argument -- so the
+-- function still stands alone.
+lineComment =
+    String.join -- sep
+        " "
+        parts
+        rest
+
+
+-- Nor can a multi-line block comment.
+multiLineComment =
+    String.join {- one
+                   two
+                -}
+        " "
+        parts
+        rest

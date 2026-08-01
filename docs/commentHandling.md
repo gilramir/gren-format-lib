@@ -165,6 +165,20 @@ over `commentRole (lpnBox node)`:
 | `MakeRenderBox.binopChainIndentedLines` | the `LeadsOwnLine` split above | forced-vertical binop chains (both renderers) |
 | `MakeRenderBox.operatorPrefixedOperandBox` | `runStartsOnOperatorRow` (`role /= LeadsOwnLine`) | the comment run between a `\|>`/`<\|` and its operand |
 
+### A comment between a function and its first argument
+
+`assembleBrokenCall` keeps a broken call's first argument on the function's line
+(`String.join " "` / args below). A comment written between the two rides that
+line with them, provided it *can* share a line — a single-line `{- -}` the
+classifier tagged as gluing. `spanRidingComments` peels that run; a `--` or a
+multi-line `{- … -}` still stands the function up alone.
+
+The run used to block the glue outright, justified as matching elm-format's
+`ElmStructure.application` gates. It does not: elm attaches such a comment to the
+argument, so its arg0 is still an argument and still glues. It also contradicted
+gren's own rule — the glue is gated on `nodesShareStartRow fn arg0`, and writing a
+comment between them moves neither token's row.
+
 ### An operator is a prefix, not a flow item
 
 `makeOpAndRhsBox` (binops), `stepBodyBox` (`|>`) and `backwardStepBodyBox`

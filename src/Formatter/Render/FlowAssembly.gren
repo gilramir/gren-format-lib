@@ -284,13 +284,33 @@ assembleBrokenCall indent items =
     let
         -- The fn+arg0 glue survives comments AFTER arg0 (`String.join " "
         -- -- c` keeps `" "` on the opening line, comments drop below with the
-        -- args) — only a comment IN the fn/arg0 positions blocks it, matching
-        -- elm-format's `ElmStructure.application` glue gates.
+        -- args) and comments BETWEEN the two, which ride the opening line with
+        -- them (`String.join {- sep -} " "` / args below).
+        --
+        -- The in-between run used to block the glue, on the stated grounds that
+        -- it matched elm-format's `ElmStructure.application` gates. It does not:
+        -- elm attaches such a comment to the ARGUMENT, so its arg0 is still an
+        -- argument and still glues. Refusing here also contradicted gren's own
+        -- rule — the glue is gated on `nodesShareStartRow fn arg0`, and writing a
+        -- comment between them moves neither token's row, so nothing about the
+        -- author's layout changed and nothing about ours should have.
+        --
+        -- Only comments that can share the line ride it: a single-line `{- -}`
+        -- the classifier tagged as gluing. A `--` runs to end of line and a
+        -- multi-line `{- … -}` brings its own newlines, so either one still
+        -- stands the function up alone, as before.
+        { leading, rest = afterLeading } =
+            spanRidingComments (Array.dropFirst 1 items)
+
         glueHead =
-            when { fn = Array.get 0 items, arg0 = Array.get 1 items } is
+            when { fn = Array.first items, arg0 = Array.first afterLeading } is
                 { fn = Just fnItem, arg0 = Just arg0Item } ->
                     if not (isCommentItem fnItem) && not (isCommentItem arg0Item) && shouldGlueBox fnItem arg0Item then
-                        joinInline [ fnItem.box, arg0Item.box ]
+                        joinInline
+                            ([ fnItem.box ]
+                                ++ Array.mapAndKeepJust (\c -> Maybe.map .box c.comment) leading
+                                ++ [ arg0Item.box ]
+                            )
 
                     else
                         Nothing
@@ -302,7 +322,7 @@ assembleBrokenCall indent items =
         Just glueLine ->
             let
                 rest =
-                    Array.dropFirst 2 items
+                    Array.dropFirst (Array.length leading + 2) items
             in
             if Array.isEmpty rest then
                 -- Just `fn arg0` — nothing forces a break after all.
@@ -319,6 +339,37 @@ assembleBrokenCall indent items =
             -- No glue: head at the base column, every later item (and any
             -- same-row/own-line comment) per the broken-flow fold.
             assembleBrokenWithComments indent items
+
+
+-- The leading run of comment items that can share the line they are on: a
+-- single-line `{- -}` the classifier tagged as gluing. Stops at the first item
+-- that is not one, so the caller gets `{ leading = comments, rest = the item
+-- they precede }`.
+spanRidingComments : Array FlowItem -> { leading : Array FlowItem, rest : Array FlowItem }
+spanRidingComments items =
+    let
+        rides item =
+            when item.comment is
+                Just c ->
+                    not c.isLineComment && not c.multiLine && commentGlues item
+
+                Nothing ->
+                    False
+
+        n =
+            (Array.foldl
+                (\item acc ->
+                    if acc.stopped || not (rides item) then
+                        { acc | stopped = True }
+
+                    else
+                        { acc | i = acc.i + 1 }
+                )
+                { i = 0, stopped = False }
+                items
+            ).i
+    in
+    { leading = Array.slice 0 n items, rest = Array.dropFirst n items }
 
 
 -- Both single-line and on the same source row → keep glued on the opening line.

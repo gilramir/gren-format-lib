@@ -305,21 +305,22 @@ The axis reports **0 failing cells**.
 
 **Reviewed 2026-07-31** (`comment-parity-triage.md` has the per-family evidence
 and the verdicts): the 16,141 UNREVIEWED divergences were sorted into 13
-families and read. **Five were real bugs, now fixed** — a comment past a
+families and read. **Six were real bugs, now fixed** — a comment past a
 container's `{`/`[` hoisted out of it (including a record update's, whose base
 name's recorded position separates the opener slot from the ambiguous `|` one),
 one past a `}`/`]` pulled inside it, a pipeline operator rendered as a flow item
-(flat +4) instead of a `B.prefix` at the operator's own width, and a `{- c -}`
-between a seed and its `<|` forcing the chain vertical. 3,877 baseline entries
+(flat +4) instead of a `B.prefix` at the operator's own width, a `{- c -}`
+between a seed and its `<|` forcing the chain vertical, and a comment between a
+function and its first argument defeating the broken call's fn/arg0 glue. 3,877 baseline entries
 became byte-identical to elm-format; 2,882 registered as #22 and 2,911 as #23,
-leaving **5,633 UNREVIEWED** — still debt, not failures; see `tbd.md` for what
+leaving **5,485 UNREVIEWED** — still debt, not failures; see `tbd.md` for what
 they are and the next step for each.
 
 To read them, use `tests/triage-comment-parity.py --review`, which buckets on
 the *disagreement* rather than on the cell: names and literals flattened, the
 surrounding context dropped, so the same question asked of `1` / `'c'` inside a
 call argument / a record field / a pipeline step is one entry with a count.
-5,633 cells are 811 entries, and the top 30 cover ~61% of them.
+5,485 cells are ~800 entries, and the top 30 cover ~60% of them.
 
 ### Predicate/renderer agreement audit
 
