@@ -42,6 +42,7 @@ code, and why the places they *don't* look the way they do.
   - [#22 Comment beside unrecorded punctuation snaps to one side](#divergence-22)
   - [#23 A comment doesn't open the construct around it](#divergence-23)
   - [#24 Record update's own-line comment indent](#divergence-24)
+  - [#25 A comment keeps the rows you gave it](#divergence-25)
 - [Out of scope for comparison](#out-of-scope-for-comparison)
 
 ---
@@ -1135,6 +1136,46 @@ decision and why.
 
     elm-format's column lines up with nothing: not the `{`, not the fields, not
     the closing `}`. gren-format keeps the update's inner columns uniform.
+
+25. <a id="divergence-25"></a>**A comment sits on the rows you gave it; elm-format re-spaces around
+    it, in both directions.** [#23](#divergence-23) is about elm-format breaking
+    the *code* open to make room for a comment. This is the other half: what
+    elm-format does to the comment's own rows. It will add a row gren-format
+    doesn't, and it will take one away — which direction depends on where the
+    comment is, and neither is something gren-format does at all.
+
+    **It adds a blank line above an own-row comment inside a container:**
+
+    ```gren
+    -- you wrote (and gren-format keeps):    -- elm-format:
+    v =                                      v =
+        { a = 1                                  { a = 1
+        -- note
+        , b = 2                                  -- note
+        }                                        , b = 2
+                                                 }
+    ```
+
+    **It removes the row break below one that leads an operator:**
+
+    ```gren
+    -- you wrote (and gren-format keeps):    -- elm-format:
+    w =                                      w =
+        fn                                       fn {- note -} <|
+            {- note -}                               one
+            <| one
+    ```
+
+    (In the second example elm-format also pulls the operand below the operator;
+    that half is [#14](#divergence-14). What this entry is about is the
+    `{- note -}` joining the `fn` row, which the author had put on a row of its
+    own. The same happens to a `|>`.)
+
+    gren-format's rule is the one in [Your line breaks are your
+    layout](howItWorks.md#why-this-design), applied to comments as well as code:
+    a comment occupies the rows you wrote it on. Nothing is floated to give it
+    air ([C5](commentHandling.md#c5--gren-format-adds-nothing-around-a-comment)),
+    and nothing is pulled up to close a gap you left.
 
 ## Out of scope for comparison
 

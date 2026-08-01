@@ -70,6 +70,18 @@ riding along unnoticed is the failure this baseline exists to avoid.
     ./triage-comment-parity.py --interview --limit 10 # a sitting of ten
     ./triage-comment-parity.py --interview --family B2
     ./triage-comment-parity.py --decisions            # read the verdicts back
+
+A verdict is not a registration. The baseline still reads UNREVIEWED until the
+group is given a `reason` -- a divergence-catalogue number, which is the
+documentation decision that makes registering more than a keystroke -- and
+`--register` writes it in. It keys on the group as it is NOW, never on the cell
+keys the verdict recorded: those drift as fixes reshape groups, and at the time
+this was written they covered 103 cells whose current group had no verdict at
+all. It only ever overwrites `UNREVIEWED`, and it reports any reviewed group
+still missing a reason rather than guessing one.
+
+    ./triage-comment-parity.py --register             # dry run: what would move
+    ./triage-comment-parity.py --register --write     # apply it
 """
 import argparse
 import collections
@@ -555,6 +567,84 @@ def interview(groups, redo=False, limit=None):
     return 0
 
 
+COMMENT_BASELINE = HERE / "matrix-comment-baseline.json"
+REASON_UNREVIEWED = "UNREVIEWED"   # matrix-syntax.py's constant, not worth importing for
+
+
+def register(groups, write=False):
+    """Write each reviewed group's `reason` into the comment baseline.
+
+    A verdict says the divergence is intended; the baseline needs a REASON, and
+    `--update-baseline` leaves any non-UNREVIEWED entry alone, so writing one
+    here makes it stick. Only cells currently reading UNREVIEWED are touched: an
+    auto-classified entry already has a reason, and a reviewed group must never
+    silently overwrite one.
+
+    **Keyed on the group as it is NOW, not on the `keys` the verdict recorded.**
+    Groups reshape when a fix lands, so a verdict's stored key list drifts: at
+    the time of writing, registering from those lists would have given a reason
+    to 103 cells whose current group has no verdict at all. That is the stale
+    approval this file's sig mechanism exists to prevent, and it would have
+    arrived wearing a reviewed label. `group_sig` is the same function
+    `interview` skips on, so a group is registered exactly when it would not be
+    re-asked.
+
+    A group with a verdict but no `reason` is REPORTED, never guessed at --
+    naming the divergence-catalogue entry is the documentation decision that
+    makes registration more than a keystroke.
+    """
+    prior = load_decisions()
+    live = {d["sig"]: d for d in prior}
+    doc = json.loads(COMMENT_BASELINE.read_text())
+    cells = doc["cells"]
+
+    writes, reasonless, occupied, absent = {}, [], [], 0
+    for rs in groups:
+        d = live.get(group_sig(rs))
+        if not d:
+            continue
+        reason = d.get("reason")
+        if not reason:
+            reasonless.append((len(rs), d))
+            continue
+        for r in rs:
+            cur = cells.get(r["key"])
+            if cur is None:
+                absent += 1
+            elif cur == REASON_UNREVIEWED:
+                writes[r["key"]] = reason
+            else:
+                occupied.append((r["key"], cur, reason))
+
+    by_reason = collections.Counter(writes.values())
+    print(f"{len(writes)} cell(s) would move UNREVIEWED -> a reviewed reason")
+    for reason, n in by_reason.most_common():
+        print(f"  {n:5d}  {reason}")
+    if occupied:
+        print(f"\n{len(occupied)} cell(s) already carry a reason -- left alone:")
+        for key, cur, reason in occupied[:5]:
+            print(f"  {key}\n         is {cur!r}, review says {reason!r}")
+        if len(occupied) > 5:
+            print(f"  ... and {len(occupied) - 5} more")
+    if absent:
+        print(f"\n{absent} reviewed cell(s) are no longer in the baseline "
+              "(they match elm-format now)")
+    if reasonless:
+        print(f"\n{len(reasonless)} reviewed group(s) have NO `reason` and were skipped "
+              f"({sum(n for n, _ in reasonless)} cells):")
+        for n, d in sorted(reasonless, key=lambda t: -t[0]):
+            print(f"  {n:5d}  {d['verdict']:6s} {d['example']}")
+
+    if not write:
+        print("\n(dry run -- pass --write to apply)")
+        return 0
+    cells.update(writes)
+    doc["cells"] = dict(sorted(cells.items()))
+    COMMENT_BASELINE.write_text(json.dumps(doc, indent=2) + "\n")
+    print(f"\nwrote {len(writes)} reason(s) to {COMMENT_BASELINE.name}")
+    return 0
+
+
 def print_decisions():
     """The CURRENT verdict per group, not the append log.
 
@@ -647,6 +737,11 @@ def main():
                     help="print the verdicts recorded so far")
     ap.add_argument("--key", metavar="KEY",
                     help="print one cell by its baseline key, with its review group")
+    ap.add_argument("--register", action="store_true",
+                    help="write reviewed groups' reasons into the comment baseline "
+                         "(dry run unless --write)")
+    ap.add_argument("--write", action="store_true",
+                    help="--register: actually write matrix-comment-baseline.json")
     args = ap.parse_args()
 
     if args.collect:
@@ -673,6 +768,9 @@ def main():
 
     if args.decisions:
         return print_decisions()
+
+    if args.register:
+        return register(review_groups(ok), write=args.write)
 
     if args.interview:
         rows = ok if not args.family else by_family.get(args.family, [])

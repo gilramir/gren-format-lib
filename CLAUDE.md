@@ -396,11 +396,30 @@ To read them, use `tests/triage-comment-parity.py --review`, which buckets on
 the *disagreement* rather than on the cell: names and literals flattened, the
 surrounding context dropped, so the same question asked of `1` / `'c'` inside a
 call argument / a record field / a pipeline step is one entry with a count.
-The remaining 3,534 cells are a few hundred entries, front-loaded.
 `--interview` walks the same entries asking for a verdict and appends each to
 `comment-review.jsonl`; `--decisions` reads them back. Verdicts are keyed on a
 hash of the disagreement, so one recorded before a fix reshaped the group is
 re-asked rather than silently carried.
+
+**A verdict is not a registration** — that gap sat open for three rounds. The
+baseline read `UNREVIEWED` for every reviewed cell, so 40 decided groups covering
+**2,631 cells, 74% of the debt**, were not showing up anywhere. Registering means
+giving the group a **`reason`**: a divergence-catalogue number, which is the
+documentation decision the tool docstring asks for rather than a keystroke.
+`--register` then writes it in, overwriting only `UNREVIEWED` and reporting any
+reviewed group still missing a reason. **UNREVIEWED 3,534 → 903.** Round 3's 40
+groups needed one new catalogue entry, [#25](docs/elmFormatComparison.md#divergence-25)
+(a comment keeps the rows you gave it — elm-format both adds a blank line above
+an own-row comment in a container and closes the row break below one leading an
+operator); the rest are #22 / #23 / #17 / #14 / #12 / #21 / #24 combinations.
+
+`--register` keys on the group **as it is now**, never on the cell keys the
+verdict recorded. Those drift: a fix reshapes groups, and at the time this was
+built the recorded key lists covered **103 cells whose current group had no
+verdict at all** — a stale approval arriving with a reviewed label, which is the
+one thing this baseline exists to stop. `group_sig` is the same function
+`--interview` skips on, so a group registers exactly when it would not be
+re-asked.
 
 ### Predicate/renderer agreement audit
 
