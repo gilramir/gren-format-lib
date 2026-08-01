@@ -2157,9 +2157,9 @@ comparison with elm-format, it is catalogued as
 [divergence #22](elmFormatComparison.md#divergence-22).
 
 The canonical side is the **later** one — the comment leads what follows the
-token. The worked cases below are all instances of that one rule, and the two
-exceptions to it (a `--` between list items, and an `exposing` list) say so
-where they appear.
+token. The worked cases below are all instances of that one rule, and the
+exceptions to it (a `--` at a `,` or a `|`, a union variant's `|`, and an
+`exposing` list) say so where they appear.
 
 Where the token **is** recorded, the formatter keeps the side you wrote it on.
 The brackets are the useful case: a comment just inside an opening bracket
@@ -2214,8 +2214,8 @@ A record field's `=` follows the same rule as a definition's — the comment lan
 { field = {- why -} compute 1 }
 ```
 
-A comment around a union `|` always lands **after the variant before it** — the
-other exception to the "later side" rule, kept because elm-format breaks the
+A comment around a union `|` always lands **after the variant before it** — one
+of the exceptions to the "later side" rule, kept because elm-format breaks the
 union open around such a comment on either side, so no side would match it
 anyway:
 
@@ -2230,8 +2230,8 @@ type T
     | B
 ```
 
-A comment around a **record update's** `|` (and an extensible record type's)
-always lands **after the `|`, leading the first field**. (This is only about the
+A `{- -}` comment around a **record update's** `|` (and an extensible record
+type's) lands **after the `|`, leading the first field**. (This is only about the
 gap *after* the base name. One written before it — right after the `{` — is in
 the opener slot and stays exactly where you put it.)
 
@@ -2244,25 +2244,8 @@ the opener slot and stays exactly where you put it.)
 { rec | {- c -} a = 1 }
 ```
 
-With a `--`, which can't share the row, the field drops below it — landing in the
-column it would have occupied on the `|` line:
-
-```gren
--- both of these:
-{ rec -- c
-    | a = 1 }
-{ rec
-    | -- c
-      a = 1 }
-
--- format to:
-{ rec
-    | -- c
-      a = 1
-}
-```
-
-A `{- -}` comment around a `,` always lands **leading the item after it**:
+A `{- -}` comment around a `,` lands **leading the item after it**, for the same
+reason:
 
 ```gren
 -- both of these:
@@ -2273,10 +2256,12 @@ A `{- -}` comment around a `,` always lands **leading the item after it**:
 [ 1, {- c -} 2 ]
 ```
 
-A `--` in that same gap is the **one exception** to the "later side" rule: it
-stays with the item above it. A `--` ends its row, so it reads as a note about
-that row, and in a list that row is a complete item — which is how people
-actually write it:
+**A `--` at a `,` or a `|` is the exception** — it keeps the row you wrote it on,
+and the two spellings do *not* collapse onto each other. A `--` ends its row, so
+it reads as a note about that row, and it is genuinely tellable apart: it is
+either on the previous item's row or on a row of its own. Both `,` and `|` lead
+their line, so a comment above one strands nothing — it sits at the separator's
+own column:
 
 ```gren
 -- you wrote, and the formatter keeps:
@@ -2284,15 +2269,23 @@ actually write it:
 , banana
 ]
 
--- the other spelling collapses onto it:
-[ apple, -- the red one
-  banana ]
-
--- formats to:
-[ apple -- the red one
+[ apple
+  -- about banana
 , banana
 ]
+
+{ rec -- about the base
+    | alpha = 1
+}
+
+{ rec
+    -- about alpha
+    | alpha = 1
+}
 ```
+
+A multi-line `{- … -}` follows the `--`: it opened on a row, and that row is what
+decides it. A union `|` behaves the same way, and is covered above.
 
 A comment around one of the keywords `then`, `else`, `is`, `in`, or a lambda's /
 branch's `->` always lands **after** the keyword, leading what follows it:

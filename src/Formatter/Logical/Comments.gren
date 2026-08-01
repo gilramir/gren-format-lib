@@ -2186,6 +2186,25 @@ classifyCommentKind containerBox commentNode before after row =
                 && (row == bracketPrevRow || row == bracketNextItemRow)
                 && not nextItemBlocksFrontGlue
 
+        -- The same question inside a record update, whose separator is the
+        -- unrecorded `|` and whose "previous item" is the base name — not a
+        -- child, so `bracketPrevRow` cannot see it. `RecordUpdate.name.start` is
+        -- a real recorded position, and the base is a single token, so its start
+        -- row is also its last row.
+        updateBaseRow =
+            when containerBox is
+                RecordUpdate { name } ->
+                    name.start.row
+
+                _ ->
+                    -1
+
+        leadsAcrossUpdateSeparator =
+            commentIsSingleLineBlock commentNode
+                && bracketNextItemRow >= 0
+                && (row == updateBaseRow || row == bracketNextItemRow)
+                && not nextItemBlocksFrontGlue
+
         -- The real (non-comment) siblings after the comment; only the first of
         -- them is the one a front-glued comment lands on.
         nextItems =
@@ -2237,16 +2256,29 @@ classifyCommentKind containerBox commentNode before after row =
         --   before the base → the OPENER slot, `{ {- c -} rec | a = 1 }`, known
         --       to be inside the braces because the `{` is recorded too. Glues to
         --       the `{` exactly as an item list's first comment does.
-        --   after the base  → the ambiguous around-the-`|` slot. Rule **C2**: the
-        --       `|` carries no position, so both authorings arrive identically and
-        --       one must lose; the comment leads what FOLLOWS the separator, i.e.
-        --       the first field (`LeadsNext` → `| {- c -} a = 1`).
+        --   after the base  → the ambiguous around-the-`|` slot, decided exactly
+        --       as a bracket list's `,` gap is, with the base standing in for the
+        --       item above. Rule **C2** for a single-line `{- -}` (`LeadsNext` →
+        --       `| {- c -} a = 1`, both authorings alike, since the `|` carries no
+        --       position); for a `--` or a multi-line `{- … -}`, the row it was
+        --       written on, because a `|` LEADS its line and a comment above it
+        --       therefore strands nothing:
         --
-        -- Everywhere the renderer needs to tell the two apart it can: `LeadsNext`
-        -- is assigned in the `|` slot and nowhere else in an update, so
-        -- "leading run of comment children whose role is neither `LeadsNext` nor
-        -- `LeadsOwnLine`" means exactly "opener". A comment TRAILING a field is
-        -- not in that leading run and keeps the ordinary same-row rules.
+        --           { rec -- c            the base's row  → `TrailsHead`
+        --               | a = 1 }
+        --
+        --           { rec                 its own row     → `LeadsOwnLine`,
+        --               -- c                                which the renderer
+        --               | a = 1 }                           puts at the `|` column
+        --
+        --       This is what `,` and a union's `|` already do; the record update
+        --       used to send both spellings to the field after the separator, the
+        --       one line-leading separator that did.
+        --
+        -- Everywhere the renderer needs to tell the two apart it can: the opener
+        -- slot is the leading run of comment children whose role is none of
+        -- `LeadsNext` / `LeadsOwnLine` / `TrailsHead`. A comment TRAILING a field
+        -- is not in that leading run and keeps the ordinary same-row rules.
         if isRecordUpdateBox containerBox && Array.all isCommentNode before then
             -- Somewhere in the base … first-field region. `before` being all
             -- comments (rather than empty) is what keeps a SECOND comment here
@@ -2255,8 +2287,14 @@ classifyCommentKind containerBox commentNode before after row =
             if commentPrecedesUpdateBase containerBox commentNode then
                 bracketKindRole
 
-            else
+            else if leadsAcrossUpdateSeparator then
                 LeadsNext
+
+            else if updateBaseRow >= 0 && row /= updateBaseRow then
+                LeadsOwnLine
+
+            else
+                TrailsHead
         -- Nothing before it inside an ITEM LIST → it trails the OPENING bracket
         -- (`[ {- c -} 1, 2 ]`). The descent only lets a comment land here when it
         -- was written past the recorded `{`/`[`, so "first child" IS "written

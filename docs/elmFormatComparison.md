@@ -968,22 +968,71 @@ decision and why.
     the two matches it and the other diverges. There is no version of this that
     matches both.
 
-    **A `--` between two list items is the exception** and keeps the earlier
-    side, staying with the item above it. A `--` ends its row, so it reads as a
-    note about that row — and there the row is a complete item. It is also the
-    only one of these spellings that real code actually uses:
+    **A `--` (or a multi-line `{- … -}`) at a `,` or a `|` is the exception** and
+    keeps the row it was written on. Those separators *lead* their line, so a
+    comment above one strands nothing — it sits at the separator's own column —
+    and a comment that ends its row is genuinely tellable apart: it is on the
+    previous item's row, or on a row of its own. Two spellings, two outputs, both
+    fixed points:
 
     ```gren
-    -- you wrote, and gren-format keeps (matching elm-format):
-    [ apple -- the red one
-    , banana
-    ]
+    -- you wrote, and gren-format keeps:
+    [ apple -- the red one        { rec -- about the base       = A -- about A
+    , banana                          | alpha = 1              | B
+    ]                             }
 
-    -- the other spelling is the one that diverges:
-    [ apple, -- the red one       ->      [ apple -- the red one
-      banana ]                            , banana
-                                          ]
+    [ apple                       { rec                         = A
+      -- about banana                 -- about alpha            -- about B
+    , banana                          | alpha = 1              | B
+    ]                             }
     ```
+
+    The third spelling — the comment written *after* the separator, still on the
+    previous item's row — is positionally identical to the first (the separator
+    has no position, so all gren-format sees is "item ends, comment, next item on
+    the following row"), and collapses onto it:
+
+    ```gren
+    -- you wrote:                 -- gren-format:
+    [ apple, -- the red one       [ apple -- the red one
+      banana ]                    , banana
+                                  ]
+
+    { rec | -- about the base     { rec -- about the base
+        alpha = 1 }                   | alpha = 1
+                                  }
+    ```
+
+    **This is where the record update costs parity, and it is worth stating
+    plainly.** elm-format has its own parser, does not have to collapse anything,
+    and renders all three spellings differently. For a list and a union,
+    gren-format's answer matches elm-format on the first spelling and diverges on
+    the third. For a record update it matches on *neither*: elm-format renders the
+    first spelling in a third way again, floating the comment onto its own line
+    at an indent that varies with how deeply the update is nested (the column
+    [#24](#divergence-24) is about).
+
+    ```gren
+    -- you wrote:            -- gren-format:        -- elm-format:
+    { rec -- c               { rec -- c             { rec
+        | alpha = 1 }            | alpha = 1          -- c
+                             }                          | alpha = 1
+                                                    }
+
+    { rec | -- c             { rec -- c             { rec
+        alpha = 1 }              | alpha = 1            | -- c
+                             }                            alpha = 1
+                                                    }
+    ```
+
+    An earlier gren-format sent both record-update spellings past the `|` instead,
+    which matched elm-format on the second one. That was given up deliberately on
+    2026-08-02: it made the record update the one line-leading separator that
+    moves a `--` off the row it was written on, and a rule that holds at `,`, at a
+    union's `|` and at a record update's `|` was judged worth more than parity on
+    one spelling of one construct. It costs 600 cells of the comment axis, and
+    nothing in `core/`, `compiler-common/`, `compiler-node/` or this repo — the
+    spelling does not occur in real code, in any of its three forms.
 
     Two constructs do not follow C2 yet, both because the flip has a cost
     elsewhere that has not been paid: an `exposing ( … )` list, whose items are
@@ -1003,8 +1052,9 @@ decision and why.
     ```
 
     A record update is where the two halves meet: its `{` and its base name are
-    both recorded, so a comment before the base is placed exactly and only the
-    gap after it — where nothing but the `|` remains — is canonicalized.
+    both recorded, so a comment before the base is placed exactly, and only a
+    single-line `{- -}` after it — where nothing but the `|` remains, and the two
+    spellings really are identical — is canonicalized.
 
 23. <a id="divergence-23"></a>**A comment never breaks the construct around it further open than you
     wrote it; elm-format opens the construct to give the comment room.**
@@ -1043,10 +1093,10 @@ decision and why.
     to place, not as a reason to re-lay-out working code.
 
 24. <a id="divergence-24"></a>**A record update's own-line comment sits at the field indent;
-    elm-format hangs it two columns past the `{`.** When the comment from
-    [#22](#divergence-22)'s record-update case lands on its own line, gren-format
-    puts it where the `|`/`,` field lines are — 4 past the `{`, the same indent
-    every other part of the update uses (see
+    elm-format hangs it two columns past the `{`.** A comment the author wrote on
+    a row of its own in the `|` gap stays on a row of its own
+    ([#22](#divergence-22)), and gren-format puts it where the `|`/`,` field lines
+    are — 4 past the `{`, the same indent every other part of the update uses (see
     [Record updates](formatterRules.md#record-updates)):
 
     ```gren

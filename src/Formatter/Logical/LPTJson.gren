@@ -30,6 +30,9 @@ roleString role =
         LeadsNext ->
             "LeadsNext"
 
+        TrailsHead ->
+            "TrailsHead"
+
         RidesInline ->
             "RidesInline"
 

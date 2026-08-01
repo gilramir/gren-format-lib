@@ -758,13 +758,20 @@ makeOpAndRhsBox children =
                     -- The FOLD can, though: render the operator as the flow's own
                     -- first item — the glued comment commits as its own
                     -- prefix-padded row (align preserved) and the nested group
-                    -- lands on a fresh row at the flow's ambient column, matching
-                    -- elm-format's `op ` + inline rhs.
+                    -- lands on a fresh row.
+                    --
+                    -- That row is indented `grenIndent`, the same continuation
+                    -- indent every other broken chain uses (`one` ⏎ `····+ two`).
+                    -- The break here is one a comment forced — the chain's own
+                    -- precedence split would have kept the tighter operator inline
+                    -- — but a forced break is still a break, and it was landing at
+                    -- the flow's ambient column, flush under the seed:
+                    -- `one + two -- c` ⏎ `* three`.
                     buildFlowBoxInline 0 rhsNodes
                         |> Result.andThen
                             (\rhsBox ->
                                 if not (isSingleLine rhsBox) && Array.any isOpAndRhsNode rhsNodes then
-                                    buildFlowBoxInline 0 ([ opNode ] ++ rhsNodes)
+                                    buildFlowBoxInline grenIndent ([ opNode ] ++ rhsNodes)
 
                                 else
                                     Ok (prefixOperator op rhsBox)
@@ -2345,18 +2352,29 @@ across rows or any field renders multi-line — matching elm-format for
 makeRecordUpdateBox : String -> Bool -> Array LPNode -> Result String Box
 makeRecordUpdateBox baseName forceVertical children =
     let
-        { opener, rest } =
+        { opener, baseTrail, rest } =
             splitOpenerComments children
     in
-    updateBaseBox baseName opener
+    updateBaseBox baseName opener baseTrail
         |> Result.andThen
             (\baseBox ->
-                if commentForcesBracketOpen forceVertical rest || not (isSingleLine baseBox) then
+                if
+                    commentForcesBracketOpen forceVertical rest
+                        || not (Array.isEmpty baseTrail)
+                        || not (isSingleLine baseBox)
+                then
                     -- A comment that can't ride the flat line forces the update
                     -- vertical: comment children render own-line at +4 (no
                     -- `| `/`, ` prefix), the actual fields keep their prefixes.
                     -- A multi-line BASE (a `--` glued to the `{`) forces it the
                     -- same way — the fields can no longer share that row.
+                    --
+                    -- So does a `TrailsHead` comment, which is only ever a `--` or
+                    -- a multi-line `{- … -}` (a single-line one in that slot is
+                    -- `LeadsNext`, rule C2). It is already glued onto `baseBox`'s
+                    -- line, so no comment child is left to trip
+                    -- `commentForcesBracketOpen` — and a `--` there would swallow
+                    -- the whole flat form's `| a = 1 }`.
                     makeRecordUpdateVerticalBox baseBox rest
 
                 else
@@ -2387,15 +2405,22 @@ makeRecordUpdateBox baseName forceVertical children =
             )
 
 
-{-| Split a record update's children into the comments written between its `{`
-and its base name — the opener slot — and everything else.
+{-| Split a record update's children into the comments that belong to its base
+name and everything else.
 
-They are exactly the leading comment children whose role is neither `LeadsNext`
-nor `LeadsOwnLine`: `Comments.gren` gives every comment that landed *past* the
-base name `LeadsNext` (rule C2 — past the base only the unrecorded `|` remains,
-so the comment goes to the field after it), and an own-row one between fields
-`LeadsOwnLine`. So the role alone separates the two, with no row-reading here. -}
-splitOpenerComments : Array LPNode -> { opener : Array LPNode, rest : Array LPNode }
+Two slots sit around the base, and the stored role tells them apart with no
+row-reading here:
+
+  - **`opener`** — written between the `{` and the base name
+    (`{ {- c -} rec | a = 1 }`). Everything in the leading comment run whose role
+    is none of the three below; glued in FRONT of the base.
+  - **`baseTrail`** — `TrailsHead`, written after the base on its row
+    (`{ rec -- c` ⏎ `| a = 1 }`). Glued onto the END of the base's line.
+
+The rest of the leading run is not the base's: `LeadsNext` is a comment rule C2
+hands to the field after the unrecorded `|`, and `LeadsOwnLine` one the author
+put on a row of its own. Both render among the fields. -}
+splitOpenerComments : Array LPNode -> { opener : Array LPNode, baseTrail : Array LPNode, rest : Array LPNode }
 splitOpenerComments children =
     let
         n =
@@ -2413,8 +2438,19 @@ splitOpenerComments children =
                 { i = 0, stopped = False }
                 children
             ).i
+
+        run =
+            Array.slice 0 n children
     in
-    { opener = Array.slice 0 n children, rest = Array.dropFirst n children }
+    { opener = Array.keepIf (\node -> not (commentTrailsHead node)) run
+    , baseTrail = Array.keepIf commentTrailsHead run
+    , rest = Array.dropFirst n children
+    }
+
+
+commentTrailsHead : LPNode -> Bool
+commentTrailsHead node =
+    commentRole (lpnBox node) == Just TrailsHead
 
 
 commentLeadsOwnLine : LPNode -> Bool
@@ -2429,16 +2465,32 @@ commentLeadsNext node =
 
 -- `{ base`, with any opener comments glued in front of the base name the way
 -- `[ {- c -} 1` glues them in front of a list's first item — same helper, same
--- all-or-nothing run rule. The `{ ` itself is supplied by the caller.
-updateBaseBox : String -> Array LPNode -> Result String Box
-updateBaseBox baseName opener =
-    if Array.isEmpty opener then
-        Ok (B.line (B.literal baseName))
+-- all-or-nothing run rule — and any `TrailsHead` comment glued onto the end of
+-- its line, the way one glues onto the item it trails. The `{ ` itself is
+-- supplied by the caller.
+updateBaseBox : String -> Array LPNode -> Array LPNode -> Result String Box
+updateBaseBox baseName opener baseTrail =
+    let
+        headBox =
+            if Array.isEmpty opener then
+                Ok (B.line (B.literal baseName))
 
-    else
-        leadCommentRunBoxes opener
-            |> Result.map
-                (\lead -> glueLeadingCommentRun True lead (B.line (B.literal baseName)))
+            else
+                leadCommentRunBoxes opener
+                    |> Result.map
+                        (\lead -> glueLeadingCommentRun True lead (B.line (B.literal baseName)))
+    in
+    Array.foldl
+        (\node acc ->
+            acc
+                |> Result.andThen
+                    (\box ->
+                        commentNodeBox node
+                            |> Result.map (\cbox -> glueCommentSuffix cbox box)
+                    )
+        )
+        headBox
+        baseTrail
 
 
 {-| Render a run of comments that leads the box after it, as the

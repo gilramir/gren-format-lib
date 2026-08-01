@@ -1,0 +1,72 @@
+module RecordUpdatePipeComment exposing (..)
+
+
+-- A `--` written on the base's row stays there: the `|` LEADS its line, so a
+-- comment above it strands nothing, and the row the author wrote it on is the
+-- base's. Same as `[ apple -- red` / `, banana ]` and `= A -- c` / `| B`.
+lineOnBaseRow r =
+    { r -- about the base
+        | alpha = 1
+    }
+
+
+-- The other spelling: written on a row of its own, it stays on a row of its
+-- own, at the `|`'s column.
+lineOnOwnRow r =
+    { r
+        -- about the first field
+        | alpha = 1
+    }
+
+
+-- Both spellings of a single-line `{- -}` go to the field AFTER the `|`
+-- (rule C2) and keep the update on one line (rule C3).
+blockBeforePipe r =
+    { r {- c -} | alpha = 1 }
+
+
+blockAfterPipe r =
+    { r | {- c -} alpha = 1 }
+
+
+-- A multi-line `{- … -}` follows the `--`: it opened on the base's row.
+multilineBlockOnBaseRow r =
+    { r {- one
+      two -}
+        | alpha = 1
+    }
+
+
+-- The opener slot is separate — the base name's recorded position is what
+-- separates it from the `|` slot.
+openerBlock r =
+    { {- opener -} r | alpha = 1 }
+
+
+openerAndBaseTrail r =
+    { {- opener -} r -- about the base
+        | alpha = 1
+    }
+
+
+-- With more than one field, and nested.
+multiField r =
+    { r -- about the base
+        | alpha = 1
+        , beta = 2
+    }
+
+
+nested rec =
+    [ { rec
+        -- about the first field
+        | alpha = 1
+      }
+    ]
+
+
+-- The extensible record TYPE shares the construct, and the rule with it.
+type alias Extensible a =
+    { a -- about the base
+        | x : Int
+    }

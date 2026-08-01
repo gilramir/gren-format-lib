@@ -175,6 +175,13 @@ never re-derives it from source rows.
     `|` or `,` the author wrote it on. Whether it rides the sibling's first row or
     stands above it is the comment's own shape, not its position, so the renderer
     asks `commentTextCanRide`; everything else is settled here.
+  - `TrailsHead` — glues onto the end of a container's **head**: the part of the
+    container that is not one of its children, so `TrailsPrevious` has nothing to
+    attach to. Today that is exactly a record update's base name
+    (`{ rec -- c` ⏎ `| a = 1 }`), whose fields are the children and whose base is
+    carried on the `RecordUpdate` box itself. A `--` before a *line-leading*
+    separator keeps the row it was written on (see `Comments.gren`'s record-update
+    arm), and on the base's row that row belongs to the head.
   - `RidesInline` — an inline `{- -}` that rides in the middle of a flat flow
     without forcing a break (`f {- k -} x`). Only ever a single-line block
     comment. Distinguished from `TrailsPrevious` only by
@@ -200,6 +207,7 @@ type CommentRole
     = TrailsPrevious
     | LeadsOwnLine
     | LeadsNext
+    | TrailsHead
     | RidesInline
     | LeadsInline
     | Standalone

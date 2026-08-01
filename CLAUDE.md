@@ -324,8 +324,9 @@ verdicts were consistent under one of them (**C2**: at a separator the parser do
 not record, the comment goes to the *later* side), which `=` `:` `in` `is` `then`
 `->` already did and `,` `|` did not. Both were changed to match, via a new
 `CommentRole`, `LeadsNext`. A single-line `{- -}` in a list's comma gap now leads
-the item below it; a `--` there is C2's one documented exception and still trails
-the item above, because that is the only spelling real code uses. Exposing lists
+the item below it; a `--` there is a documented exception and still trails the
+item above, because that is the only spelling real code uses (round 2 below
+generalises that exception from lists to every line-leading separator). Exposing lists
 (whose items sort, and whose comment ownership `SortSymbols` models the other way
 round) and union variants are deliberately unchanged. **1,522 more cells are now
 byte-identical to elm-format; UNREVIEWED fell 5,485 → 3,561, with 0 hard failures
@@ -335,11 +336,39 @@ neither matrix can see — a comment glued to the front of an item holding a
 change and 19 pre-existing, all fixed. See the "Interview round 1" section of
 `comment-parity-triage.md`.
 
+**Interview round 2, 2026-08-02.** Ten more groups. Two fixes, and one of them
+revises round 1's reading of C2. The exception ("a `--` between two list items
+stays with the item above") turned out to be a fact about **line-leading**
+separators, not about lists: `,`, a union's `|` and a record update's `|` all lead
+their line, so a comment above one strands nothing — and only the record update
+was not obeying it, sending *both* same-row spellings past the `|`. It now keeps
+the row the author wrote on, via a new `CommentRole`, `TrailsHead` (the base is
+not one of the update's children, so `TrailsPrevious` has nothing to reach). A
+single-line `{- -}` there is unchanged and still leads the first field. The other
+fix: a comment forcing a binop chain to break at an operator the precedence split
+would have kept inline now indents the continuation `grenIndent` rather than
+landing flush under the seed.
+
+**The first of those cost elm-format parity and was taken anyway.** 600 comment
+cells that were byte-identical now diverge and none gained — elm-format renders
+each of the record update's three spellings differently, so gren's one collapsed
+answer used to match it on `{ rec | -- c` and now matches on neither. The trade
+was made for one rule holding at all three separators, and because that spelling
+occurs nowhere in `core/`, `compiler-common/`, `compiler-node/` or this repo.
+Of the 600, **150 auto-classified** (#22, INHERITED:#21+#22) and **450 became
+fresh UNREVIEWED** — real new debt, to be given a `keep` verdict as it comes up in
+`--interview`. UNREVIEWED nets 3,561 → 3,534 only because a separate 475 cells
+left it the same day (the *old* record-update family, now auto-classifiable as
+#13); the two flows crossing is not the 600 being absorbed. Still 0 hard failures
+across all 38,560 cells. The reasoning and the revert path are in
+[`docs/commentHandling.md`](docs/commentHandling.md) and
+[divergence #22](docs/elmFormatComparison.md#divergence-22).
+
 To read them, use `tests/triage-comment-parity.py --review`, which buckets on
 the *disagreement* rather than on the cell: names and literals flattened, the
 surrounding context dropped, so the same question asked of `1` / `'c'` inside a
 call argument / a record field / a pipeline step is one entry with a count.
-The remaining 3,561 cells are a few hundred entries, front-loaded.
+The remaining 3,534 cells are a few hundred entries, front-loaded.
 `--interview` walks the same entries asking for a verdict and appends each to
 `comment-review.jsonl`; `--decisions` reads them back. Verdicts are keyed on a
 hash of the disagreement, so one recorded before a fix reshaped the group is

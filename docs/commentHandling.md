@@ -56,8 +56,29 @@ when sel {- c -} is …                   when sel is ⏎ {- c -} ⏎ …
 let a = 1 {- c -} in b                  let … in ⏎ {- c -} ⏎ b
 ```
 
-Picking the later side is what makes a `--` spelling readable, which is the
-clearest way to see why the side matters at all — the choice forces a layout:
+**The exception is a `--`, or a multi-line `{- … -}`, at a *line-leading*
+separator** — a `,` or a `|`. Those keep the row the author wrote them on:
+
+```gren
+[ apple -- the red one     { rec -- about the base    = A -- about A
+, banana                       | alpha = 1           | B
+]                          }
+
+[ apple                    { rec                      = A
+  -- about banana              -- about alpha         -- about B
+, banana                       | alpha = 1            | B
+]                          }
+```
+
+Two spellings, two outputs — and both are fixed points, because a comment that
+ends its row is on the previous item's row or on a row of its own, and re-parsing
+the output puts it back where it was. A third spelling, written *after* the
+separator but still on the item's row (`[ 1, -- c` ⏎ `2 ]`, `{ rec | -- c` ⏎
+`a = 1 }`), is positionally identical to the first and collapses onto it — C2's
+ambiguity is real here too, it just has one fewer side than it looks like.
+
+That is the whole difference from `=` `:` `->`: those *trail* their line, so the
+earlier side strands them —
 
 ```gren
 -- gren-format, for both spellings:     -- the earlier side would give:
@@ -67,22 +88,22 @@ clearest way to see why the side matters at all — the choice forces a layout:
                                             compute 1 }
 ```
 
-**The one exception is a `--` between two items of a list**, which stays with the
-item above it:
+— whereas `,` and `|` *lead* their line, so a comment above one strands nothing;
+it simply sits at the separator's own column. Sending it to the later side
+instead would move the note onto `banana`, which is a C1 violation dressed as a
+layout choice. The idiom is unanimous in real code for a list (every instance
+across `core/` and `compiler-common/` is spelled that way, none the other); the
+record update's `|` has no instances at all either way, and follows because it is
+the same shape.
 
-```gren
-[ apple -- the red one
-, banana
-]
-```
+A single-line `{- -}` has no such pull — it does not end its row, so both
+spellings really are indistinguishable — and follows C2 at every separator
+(`[ 1, {- c -} 2 ]`, `{ rec | {- c -} a = 1 }`, both flat by C3). Neither
+appears in real code, in either spelling.
 
-A `--` ends its row, so it reads as a note about the row it is on — and there
-that row is a complete list item. Sending it to the later side would move the
-note onto `banana`. The idiom is unanimous in real code (every instance across
-`core/` and `compiler-common/` is spelled this way, none the other), and it is
-also what elm-format produces for that spelling. A single-line `{- -}` in the
-same gap has no such pull and follows C2 (`[ 1, {- c -} 2 ]` — which does not
-appear in real code at all, in either spelling).
+A record update's base is not one of its children — the fields are — so a comment
+trailing it needs its own role, `TrailsHead`; everywhere else the item above is a
+sibling and `TrailsPrevious` reaches it.
 
 **Two places C2 is not yet applied**, both deliberate and both out of the scope
 that was reviewed:
@@ -139,7 +160,7 @@ to match rather than the rules weakened to fit:
   own line between the base and the fields, on the argument that both sides were
   claims the formatter could not support. That was a third answer to a two-sided
   question, and it cost C3 as well — a record update carrying such a comment
-  could never stay on one line. It now leads the first field.
+  could never stay on one line. A single-line `{- -}` now leads the first field.
 - **C2 at a list's `,`, for a single-line `{- -}`.** It used to trail the item
   above it, like a `--`.
 
@@ -163,6 +184,40 @@ indented equally — the output stops parsing. Such a comment stays own-line
 (`[ {- c -} """…"""`), which had the bug already and was crashing on it; 19 of
 `gen-random.py`'s first 1,500 seeds hit it, all of them that shape.
 
+### What changed (2026-08-02)
+
+The `--` half of the same gap. C2's exception was written as a fact about lists;
+reading the next round of verdicts it is a fact about **line-leading separators**,
+and the record update's `|` was the only one not obeying it — it sent *both*
+spellings to the field after the `|`, where `,` and a union's `|` had always kept
+each spelling where it was written. It now keeps them too: a `--` or multi-line
+`{- … -}` on the base's row trails the base (the new `TrailsHead` role), one on
+its own row stays on its own row, rendered at the `|`'s column by the
+`LeadsOwnLine` path that already served the fields.
+
+This is not a return to the pre-2026-08-01 behaviour, which canonicalized *both*
+spellings onto their own line. Two authorings, two outputs, each a fixed point.
+
+**It was chosen knowing what it costs.** The old answer sent both same-row
+spellings past the `|`, which happened to match elm-format on `{ rec | -- c` ⏎
+`a = 1 }`; the new one matches elm-format on neither same-row spelling, because
+elm-format renders `{ rec -- c` in a third way again (its own hanging column,
+[#24](elmFormatComparison.md#divergence-24)). That is **600 comment-axis cells of
+parity given up for zero gained** — measured, not estimated. 450 of them land as
+new `UNREVIEWED` baseline debt (150 auto-classify); the net UNREVIEWED count barely
+moved only because 475 unrelated cells left the bucket the same day. The trade was made
+because one rule holding at `,`, at a union's `|` and at a record update's `|` is
+worth more than parity on one spelling of one construct, and because the spelling
+in question occurs nowhere in `core/`, `compiler-common/`, `compiler-node/` or
+this repo, in any of its forms. If that judgement is ever revisited, the revert is
+the record-update arm of `classifyCommentKind` plus the `TrailsHead` plumbing —
+nothing else depends on it.
+
+Also that day, unrelated to attachment: a comment that forces a binop chain to
+break at an operator its precedence split would have kept inline now indents the
+continuation `grenIndent`, like every other broken chain, instead of landing
+flush under the seed (`one + two -- c` ⏎ `····* three`).
+
 ## The one-line pipeline
 
 ```
@@ -184,13 +239,15 @@ The invariant that keeps comments stable:
 ## `CommentRole` — decide once, store it
 
 A comment leaf carries a `CommentRole`, decided **once** in `Comments.gren` from
-the pristine parse rows and read verbatim by the renderer. There are four:
+the pristine parse rows and read verbatim by the renderer. The ones that decide
+placement inside a construct:
 
 | Role | Meaning | Renders as |
 |---|---|---|
 | `TrailsPrevious` | glues onto the end of the previous sibling's last line | `<prev last line> <comment>` |
 | `LeadsOwnLine` | stands on its own line at the flow/body indent, before the next sibling | own line |
 | `LeadsNext` | belongs to the sibling that *follows*, across a separator with no position — rule **C2** | glued to the front of that sibling's box, inside the `,`/`\|` prefix |
+| `TrailsHead` | glues onto the container's **head**, which is not one of its children — today only a record update's base (`{ rec -- c`) | `<head's line> <comment>` |
 | `RidesInline` | a single-line `{- -}` riding mid-flow without breaking (`f {- k -} x`) | mid-line, inline |
 | `Standalone` | a top-level detached comment at column 1 | its own `OriginalRows` |
 

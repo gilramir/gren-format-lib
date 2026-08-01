@@ -86,6 +86,46 @@ until this is resolved.
 As described in [When the formatter can't tell what you meant](formatterRules.md#when-the-formatter-cant-tell-what-you-meant), a comment beside `=`, `:`, `|`, or an import's `as` always snaps to one
 canonical side. Two different intents produce the same output.
 
+The clearest case is a `--` at a `,` or a `|`, because the two spellings that
+collapse are the two you are most likely to have meant differently. These:
+
+```gren
+v =                              v =
+    { rec -- c                       { rec | -- c
+        | alpha = 1                      alpha = 1
+    }                                }
+```
+
+reach the formatter as the same three facts — where `rec` ends, where the comment
+is, where `alpha` starts — because the `|` between them has no recorded position.
+Both therefore format to the first one:
+
+```gren
+v =
+    { rec -- c
+        | alpha = 1
+    }
+```
+
+The same is true of `[ 1 -- c` ⏎ `, 2 ]` and `[ 1, -- c` ⏎ `2 ]`, and of a union
+variant's `|`. A comment you wrote on a row of its own is a *third*, genuinely
+distinguishable spelling and is left alone:
+
+```gren
+v =
+    { rec
+        -- c
+        | alpha = 1
+    }
+```
+
+**The rule is "a `--` keeps the row you wrote it on"**, and the row above a
+line-leading separator belongs to the item (or the record update's base) above
+it. That is uniform across all three separators, which is why it was chosen — but
+it costs elm-format parity on the record update, because elm-format has its own
+parser, does not have to collapse anything, and renders each of the two spellings
+differently. See [divergence #22](elmFormatComparison.md#divergence-22).
+
 ## A line break inside a declaration's head
 
 A line break *inside* a declaration's keyword (e.g. `import` on one line,
