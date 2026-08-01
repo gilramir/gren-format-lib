@@ -58,11 +58,24 @@ it.
     ./triage-comment-parity.py --review --family B2   # within one family
     ./triage-comment-parity.py --group 7           # entry 7 in full, every cell key
     ./triage-comment-parity.py --key intLit/updateField@flat#g9.line.trail
+
+`--interview` walks the same entries and ASKS, appending each verdict to
+`comment-review.jsonl`, so a sitting can be a handful of entries and the next
+one resumes. A verdict is stored against the disagreement's hash as well as its
+cell keys, so a later run can tell "already decided" from "decided when it
+looked different" -- a fix elsewhere reshapes groups, and a stale approval
+riding along unnoticed is the failure this baseline exists to avoid.
+
+    ./triage-comment-parity.py --interview            # until you quit
+    ./triage-comment-parity.py --interview --limit 10 # a sitting of ten
+    ./triage-comment-parity.py --interview --family B2
+    ./triage-comment-parity.py --decisions            # read the verdicts back
 """
 import argparse
 import collections
 import concurrent.futures as cf
 import difflib
+import hashlib
 import importlib.util
 import json
 import pathlib
@@ -74,6 +87,7 @@ import tempfile
 HERE = pathlib.Path(__file__).resolve().parent
 PAIRS = HERE / "comment-parity-pairs.jsonl"       # gitignored working data
 BASES = HERE / "comment-parity-bases.jsonl"
+DECISIONS = HERE / "comment-review.jsonl"          # the reviewer's verdicts (tracked)
 
 MARK = "¤"
 COMMENT_RE = re.compile(r"\{-\s*" + MARK + r"\s*-\}|--\s*" + MARK + r"[ \t]*")
@@ -438,6 +452,132 @@ def print_group(i, rs, verbose=False):
         print()
 
 
+
+# ---------------------------------------------------------------- INTERVIEW
+#
+# `--review` prints; `--interview` asks. One review group at a time, biggest
+# first, with the verdict appended to `comment-review.jsonl` so a session can be
+# a handful of groups and the next one picks up where it stopped.
+#
+# A verdict is recorded against the group's DISAGREEMENT (a hash of the two
+# flattened outputs) as well as its cell keys. That is what lets a later run
+# tell "you already decided this" from "you decided something that used to look
+# like this and no longer does" -- a fix elsewhere can reshape a group, and a
+# stale approval riding along unnoticed is exactly the failure this whole
+# baseline is trying not to have.
+
+VERDICTS = {
+    "k": ("keep", "gren is right -- register it as a documented divergence"),
+    "b": ("bug", "gren is wrong -- fix it"),
+    "s": ("split", "this is several different things; separate them first"),
+    "?": ("unsure", "come back to this one"),
+}
+
+
+def group_sig(rs):
+    """A stable hash of what the group disagrees about."""
+    r = rs[0]
+    return hashlib.sha1(
+        ("\x00".join([shape(r["gren"]), shape(r["elm"])])).encode()).hexdigest()[:12]
+
+
+def load_decisions():
+    if not DECISIONS.exists():
+        return []
+    return [json.loads(l) for l in DECISIONS.read_text().splitlines() if l.strip()]
+
+
+def record_decision(rec):
+    with DECISIONS.open("a") as fh:
+        fh.write(json.dumps(rec) + "\n")
+
+
+def interview(groups, redo=False, limit=None):
+    prior = load_decisions()
+    by_sig = {d["sig"]: d for d in prior}
+    seen_keys = {k: d for d in prior for k in d["keys"]}
+
+    pending = []
+    for i, rs in enumerate(groups):
+        sig = group_sig(rs)
+        if sig in by_sig and not redo:
+            continue
+        stale = next((seen_keys[x["key"]] for x in rs if x["key"] in seen_keys), None)
+        pending.append((i, rs, sig, stale))
+
+    if not pending:
+        print("nothing left to review -- every group has a verdict.  "
+              "`--decisions` to read them back, `--interview --redo` to go again.")
+        return 0
+
+    done_cells = sum(len(rs) for rs in groups) - sum(len(rs) for _, rs, _, _ in pending)
+    total_cells = sum(len(rs) for rs in groups)
+    print(f"{len(pending)} of {len(groups)} groups still need a verdict "
+          f"({total_cells - done_cells} of {total_cells} cells).\n")
+
+    n = 0
+    for i, rs, sig, stale in pending:
+        if limit is not None and n >= limit:
+            print(f"stopping after {limit} (--limit).  "
+                  f"{len(pending) - n} groups left; run again to continue.")
+            break
+        print("=" * 72)
+        print_group(i, rs)
+        if stale:
+            print(f'  !! you reviewed cells of this group before, as "{stale["verdict"]}"'
+                  f'{": " + stale["note"] if stale.get("note") else ""}, but its output has'
+                  " CHANGED since. Deciding again.\n")
+        print("  " + "   ".join(f"[{k}] {name}" for k, (name, _) in VERDICTS.items())
+              + "   [enter] skip   [q] quit")
+        print("  (add a note after the letter, e.g. `b two should stay on the fn line`)")
+        try:
+            answer = input("  > ").strip()
+        except EOFError:
+            print("\n(stdin closed)")
+            break
+        if not answer:
+            print("  skipped\n")
+            continue
+        letter, _, note = answer.partition(" ")
+        if letter == "q":
+            break
+        if letter not in VERDICTS:
+            print(f"  ? {letter!r} is not a verdict -- skipped\n")
+            continue
+        verdict = VERDICTS[letter][0]
+        record_decision(dict(sig=sig, verdict=verdict, note=note.strip(),
+                             family=rs[0]["family"], cells=len(rs),
+                             example=rs[0]["key"], keys=[x["key"] for x in rs]))
+        print(f"  recorded: {verdict}" + (f" -- {note.strip()}" if note.strip() else "") + "\n")
+        n += 1
+
+    print(f"\n{n} verdict(s) recorded in {DECISIONS.name}.")
+    return 0
+
+
+def print_decisions():
+    prior = load_decisions()
+    if not prior:
+        print(f"no verdicts yet -- run `--interview` (they land in {DECISIONS.name})")
+        return 0
+    by_verdict = collections.defaultdict(list)
+    for d in prior:
+        by_verdict[d["verdict"]].append(d)
+    cells = sum(d["cells"] for d in prior)
+    print(f"{len(prior)} verdict(s) covering {cells} cells\n")
+    for verdict in ("bug", "split", "keep", "unsure"):
+        ds = by_verdict.get(verdict, [])
+        if not ds:
+            continue
+        print(f"{verdict.upper()} -- {sum(d['cells'] for d in ds)} cells over {len(ds)} groups")
+        for d in sorted(ds, key=lambda d: -d["cells"]):
+            print(f"  {d['cells']:5d}  {d['example']}")
+            if d.get("note"):
+                print(f"         {d['note']}")
+        print()
+    return 0
+
+
 # ------------------------------------------------------------------- REPORT
 
 def load():
@@ -485,6 +625,14 @@ def main():
                     help="print review group N in full (with every cell key)")
     ap.add_argument("--from", dest="start", type=int, default=0,
                     help="--review: skip the first N groups")
+    ap.add_argument("--interview", action="store_true",
+                    help="review groups one at a time, recording each verdict")
+    ap.add_argument("--limit", type=int, metavar="N",
+                    help="--interview: stop after N verdicts")
+    ap.add_argument("--redo", action="store_true",
+                    help="--interview: re-ask groups that already have a verdict")
+    ap.add_argument("--decisions", action="store_true",
+                    help="print the verdicts recorded so far")
     ap.add_argument("--key", metavar="KEY",
                     help="print one cell by its baseline key, with its review group")
     args = ap.parse_args()
@@ -510,6 +658,13 @@ def main():
         for (c, x), n in spread.most_common():
             print(f"  {n:5d}  {c}/{x}")
         return 0
+
+    if args.decisions:
+        return print_decisions()
+
+    if args.interview:
+        rows = ok if not args.family else by_family.get(args.family, [])
+        return interview(review_groups(rows), redo=args.redo, limit=args.limit)
 
     if args.key:
         hit = [r for r in ok if r["key"] == args.key]

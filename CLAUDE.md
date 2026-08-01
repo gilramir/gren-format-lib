@@ -321,6 +321,10 @@ the *disagreement* rather than on the cell: names and literals flattened, the
 surrounding context dropped, so the same question asked of `1` / `'c'` inside a
 call argument / a record field / a pipeline step is one entry with a count.
 5,485 cells are ~800 entries, and the top 30 cover ~60% of them.
+`--interview` walks the same entries asking for a verdict and appends each to
+`comment-review.jsonl`; `--decisions` reads them back. Verdicts are keyed on a
+hash of the disagreement, so one recorded before a fix reshaped the group is
+re-asked rather than silently carried.
 
 ### Predicate/renderer agreement audit
 
