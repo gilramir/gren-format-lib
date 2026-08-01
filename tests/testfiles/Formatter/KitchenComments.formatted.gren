@@ -34,12 +34,12 @@ import String exposing
 
 {-| Doc comment on a type alias. -}
 type alias Cart =
-    -- comment before the first field of a record-type alias
-    { identifier : String
+    { -- comment before the first field of a record-type alias
+      identifier : String
     -- comment before a non-first field
     , items : Array
-        -- comment before a nested record-type field
-        { sku : String
+        { -- comment before a nested record-type field
+          sku : String
         , quantity : Int -- trailing comment on a record-type field
         , unitPriceCents : Int
         }
@@ -135,8 +135,8 @@ processOrder ({ identifier, items, appliedDiscounts, flags } as inboundCart) =
             -- another comment between binop operands
             - 0 -- trailing comment on a binop operand
     , notes =
-        -- comment inside an array literal
-        [ identifier
+        [ -- comment inside an array literal
+          identifier
         -- comment between two array items
         , "items=" ++ String.fromInt (Array.length items)
         {- block comment between two array items -}
@@ -158,8 +158,8 @@ summariseCart ({ identifier, items, flags } as inboundCart) =
                 -- comment inside a lambda body
                 String.join " "
                     -- inline comment after the function being called
-                    -- comment before the first argument-item of join
-                    [ sku
+                    [ -- comment before the first argument-item of join
+                      sku
                     -- comment between arguments
                     , "x" ++ String.fromInt quantity
                     {- block comment between arguments -}
@@ -280,8 +280,8 @@ torturedComments primaryIntValue secondaryStringValue tertiaryBoolValue =
 {-| EXTREME case: one function that uses let, when, if, record destructuring,
     record updating, and pipelines — with a multi-line `{- -}` comment crammed
     into every whitespace position between tokens. -}
-extremelyCommented : {-c1-} {-c2-} {-c3-} { score : {-c4-} {-c5-} Int {-c6-} {-c7-}, label : {-c8-} {-c9-} String {-c10-} } -> {-c11-} {-c12-} {-c13-} { score : {-c14-} {-c15-} Int {-c16-} {-c17-}, label : {-c18-} {-c19-} String {-c20-} } {-c21-}
-extremelyCommented {-c22-} {-c23-} {-c24-} ({ score {-c25-} {-c26-}, label {-c27-} } {-c28-} {-c29-} as wholeRecord) =
+extremelyCommented : {-c1-} {-c2-} { {-c3-} score : {-c4-} {-c5-} Int {-c6-} {-c7-}, label : {-c8-} {-c9-} String {-c10-} } -> {-c11-} {-c12-} { {-c13-} score : {-c14-} {-c15-} Int {-c16-} {-c17-}, label : {-c18-} {-c19-} String {-c20-} } {-c21-}
+extremelyCommented {-c22-} {-c23-} ({ {-c24-} score {-c25-} {-c26-}, label {-c27-} } {-c28-} {-c29-} as wholeRecord) =
     {-c30-}
     {-c31-}
     {-c32-}
@@ -303,11 +303,10 @@ extremelyCommented {-c22-} {-c23-} {-c24-} ({ score {-c25-} {-c26-}, label {-c27
     {-c45-}
     {-c46-}
     {-c47-}
-    wholeRecord
-        {-c48-}
+    wholeRecord {-c48-}
         {-c49-}
         |> {-c50-} {-c51-}
-            (\{-c52-} r ->
+           (\{-c52-} r ->
                 {-c53-}
                 {-c54-}
                 {-c55-}
@@ -348,7 +347,7 @@ extremelyCommented {-c22-} {-c23-} {-c24-} ({ score {-c25-} {-c26-}, label {-c27
                             {-c90-}
                             {-c91-}
                             r {-c92-}
-            ) {-c93-}
+           ) {-c93-}
         {-c94-}
         |> {-c95-} (\finalRecord -> {-c96-} {-c97-} finalRecord {-c98-}) {-c99-}
 

@@ -5,6 +5,11 @@ gren_packages/
 tests/cov-app
 tests/__pycache__/
 
+# triage-comment-parity.py working data (the tool regenerates it with --collect)
+tests/comment-parity-pairs.jsonl
+tests/comment-parity-bases.jsonl
+
 # scratch notes, not meant to be committed
 tbd.md
 bug.md
+comment-parity-triage.md

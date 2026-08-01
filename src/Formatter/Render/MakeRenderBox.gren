@@ -1064,8 +1064,11 @@ splitStepTriggerItems stepItems =
                         -- in the preamble, where `buildFlowBoxInline` glues it;
                         -- otherwise the relocation branch strands `|>` on its own
                         -- line with the operand dropped +4 below.
+                        -- (`acc.preamble` holds the step's OPERANDS only — the
+                        -- operator is a prefix applied by `stepBodyBox`, not an
+                        -- item — so "nothing before it" is an empty preamble.)
                         isDirectGluedOperand =
-                            Array.length acc.preamble <= 1
+                            Array.isEmpty acc.preamble
                                 && (itemIsMultilineParenBlock item
                                         || itemIsMultilineBracketContainer item
                                    )
@@ -1321,6 +1324,155 @@ renderPipelineStepChildrenWith glueLeading allChildren =
 -- `renderPipelineStepChildren`).
 stepBodyBox : Array LPNode -> Result String Box
 stepBodyBox children =
+    -- The operator is a PREFIX, not a flow item — exactly as `makeOpAndRhsBox`
+    -- treats a binop's operator. `B.prefix` pads the operand's continuation rows
+    -- by the operator's own width, so anything that drops below the operator
+    -- lands in the column it would have occupied on the operator's line:
+    --
+    --     seed              a                  a
+    --         |> -- c           + -- c             ++ -- c
+    --            step             b                   b
+    --
+    -- Treating `|>` as the flow's first item instead indented the continuation a
+    -- flat +4, one column past the operand column for `|>`/`<|` (and level with
+    -- the operator itself for the `<|` step body, so an argument stopped looking
+    -- like an argument). `+` and `++` were already right, via the binop path —
+    -- this is the same rule, applied by the same helper.
+    --
+    -- A `Tab` inside the operand box still snaps to an absolute multiple of 4
+    -- after the padding (`B.prefix` does not freeze tabs), so a broken call's
+    -- arguments keep the +4 they had before.
+    when Array.popFirst children is
+        Just { first = opNode, rest = operandNodes } ->
+            when stepOperatorText opNode is
+                Just op ->
+                    operatorPrefixedOperandBox stepOperandBox op operandNodes
+
+                Nothing ->
+                    stepOperandBox children
+
+        Nothing ->
+            stepOperandBox children
+
+
+{-| `op ` glued in front of the operand that follows it, with any comment run
+written between the two glued onto the operand's front — the same treatment
+`makeOpAndRhsBox` gives a binop's right-hand side, and the same run rule
+`glueLeadingCommentRun` applies inside a bracket. Shared by the forward
+(`stepBodyBox`) and backward (`renderCommentedBackwardStep`) pipeline renderers
+so the two cannot drift.
+
+The comment run is peeled here rather than left to the flow because a flow's
+`flowIndent` is a single nest over every continuation row: it has to be +4 so a
+broken call's ARGUMENTS land under the operand, which would also push an operand
+that merely dropped below a `--` out to +4. The operand belongs at the operator's
+own width, and only the argument wrap belongs at +4:
+
+    seed
+        |> -- c
+           fn arg1
+               arg2
+-}
+operatorPrefixedOperandBox : (Array LPNode -> Result String Box) -> String -> Array LPNode -> Result String Box
+operatorPrefixedOperandBox renderOperand op operandNodes =
+    let
+        { leading, rest } =
+            spanLeadingComments operandNodes
+    in
+    if Array.isEmpty leading || Array.isEmpty rest then
+        renderOperand operandNodes
+            |> Result.map (prefixOperator op)
+
+    else
+        traverseResult
+            (\node ->
+                commentNodeBox node
+                    |> Result.map (\box -> { box = box, inline = commentFitsOnOneLine node })
+            )
+            leading
+            |> Result.andThen
+                (\lead ->
+                    renderOperand rest
+                        |> Result.map
+                            (\body ->
+                                let
+                                    -- The operand can only share the run's last
+                                    -- row when it fits on one line; a multi-line
+                                    -- operand starts a row of its own and leaves
+                                    -- the comments above it.
+                                    withComments =
+                                        glueLeadingCommentRun (isSingleLine body) lead body
+                                in
+                                if runStartsOnOperatorRow leading then
+                                    prefixOperator op withComments
+
+                                else
+                                    -- The author put the run on a row of its own
+                                    -- BELOW the operator. Hoisting its first row
+                                    -- up onto the operator is not a fixed point:
+                                    -- reparsed, the comment now shares the
+                                    -- operator's row, is classified `RidesInline`
+                                    -- there, and pulls the operand up with it —
+                                    -- so the next format joins what this one
+                                    -- split. Leave the operator alone on its row,
+                                    -- with the run below it at the operator's own
+                                    -- column — indenting it instead would push the
+                                    -- operand level with the NEXT step of a `<|`
+                                    -- chain and flatten the staircase
+                                    -- (`BackwardPipeCommentNesting`).
+                                    B.stack1 [ B.line (B.literal op), withComments ]
+                            )
+                )
+
+
+-- True when the comment run between an operator and its operand was written on
+-- the OPERATOR's row (`|> -- c`) rather than on a row below it. Only the first
+-- comment of the run decides: the ones after it follow wherever it went.
+runStartsOnOperatorRow : Array LPNode -> Bool
+runStartsOnOperatorRow leading =
+    when Array.first leading is
+        Just node ->
+            commentRole (lpnBox node) /= Just LeadsOwnLine
+
+        Nothing ->
+            True
+
+
+-- True when this comment can share a row with code that follows it: a
+-- single-line `{- … -}`. A `--` runs to end of line and a multi-line `{- … -}`
+-- brings its own newlines. Unlike `commentRidesInline` this asks about the
+-- comment's SHAPE, not the role it was given, so it also holds for one the
+-- author put on its own row — that comment still takes the operand onto its row
+-- (`<|` ⏎ `{- c -} "?"`, which is elm-format's layout too).
+commentFitsOnOneLine : LPNode -> Bool
+commentFitsOnOneLine node =
+    when lpnBox node is
+        BlockComment { loc } ->
+            not (String.contains "\n" loc.value)
+
+        _ ->
+            False
+
+
+-- The `|>` / `<|` leaf a pipeline step starts with. Anything else (a step whose
+-- children were rewritten, a leading comment left in place) is not an operator
+-- and keeps the whole child array on the flow path.
+stepOperatorText : LPNode -> Maybe String
+stepOperatorText node =
+    when leafValue node is
+        Just v ->
+            if v == "|>" || v == "<|" then
+                Just v
+
+            else
+                Nothing
+
+        Nothing ->
+            Nothing
+
+
+stepOperandBox : Array LPNode -> Result String Box
+stepOperandBox children =
     -- Render the children ONCE, up front, and drive everything below off those
     -- items: the trigger split's verticality tests, the preamble assembly
     -- (`assembleFlow True 0` IS `buildFlowBoxInline 0`), the suffix, and — for
@@ -1439,20 +1591,33 @@ as a plain broken call. `foo |> f z { … }` was rendering `|> f z` glued, while
 the identical `f z { … }` as a plain call put `z` on its own line and elm-format
 puts it on its own line in both.
 
-Two items or fewer is `|> fn` with nothing to stack (or a direct-glued operand,
+One item or fewer is `|> fn` with nothing to stack (or a direct-glued operand,
 `|> (\y -> …)`, which is deliberately kept on the operator's line). A preamble
 carrying a comment keeps the old flow assembly untouched — comment placement in a
-step is its own machinery and has nothing to gain here. -}
+step is its own machinery and has nothing to gain here.
+
+The counts are OPERANDS: the operator itself is a prefix applied by
+`stepBodyBox`, not a preamble item. -}
 stepPreambleBox : Array FlowItem -> Result String Box
 stepPreambleBox preamble =
-    if Array.length preamble <= 2 || Array.any isCommentItem preamble then
+    if Array.isEmpty preamble then
+        -- The trigger IS the first operand, so nothing shares the operator's
+        -- row: `|> ` prefixes a blank line (rendered as a bare `|>`, since
+        -- `render` right-trims) and the trigger drops below it at one tab stop —
+        -- the same dangling-operator shape this produced when the operator was
+        -- itself the preamble's only item. Reached by a bare multi-line lambda
+        -- operand (`|> \d -> …`); a paren or bracket operand is excluded from
+        -- the split by `isDirectGluedOperand` and stays glued instead.
+        Ok B.blankLine
+
+    else if Array.length preamble <= 1 || Array.any isCommentItem preamble then
         assembleFlow True 0 preamble
 
     else
-        assembleFlow True 0 (Array.slice 0 2 preamble)
+        assembleFlow True 0 (Array.slice 0 1 preamble)
             |> Result.andThen
                 (\headBox ->
-                    stepSuffixBox (Array.dropFirst 2 preamble)
+                    stepSuffixBox (Array.dropFirst 1 preamble)
                         |> Result.map
                             (\argsBox -> B.stack1 [ headBox, applyIndent grenIndent argsBox ])
                 )
@@ -1670,13 +1835,32 @@ renderCommentedBackwardStep stepNode =
     traverseResult commentNodeBox leading
         |> Result.andThen
             (\leadingBoxes ->
-                buildFlowBox 0 body
+                backwardStepBodyBox body
                     |> Result.andThen
                         (\bodyBox ->
                             glueTrailingComments bodyBox trailing
                                 |> Result.map (\bodyWithTrailing -> leadingBoxes ++ [ bodyWithTrailing ])
                         )
             )
+
+
+-- One `<| operand` line of the commented backward layout. The `<|` is a PREFIX
+-- over the operand, exactly as it is for a `|>` step (`stepBodyBox`) and for a
+-- binop's operator (`makeOpAndRhsBox`), so anything that drops below it lands at
+-- the operand's own column rather than back at the `<|`.
+backwardStepBodyBox : Array LPNode -> Result String Box
+backwardStepBodyBox body =
+    when Array.popFirst body is
+        Just { first = opNode, rest = operandNodes } ->
+            when stepOperatorText opNode is
+                Just op ->
+                    operatorPrefixedOperandBox (buildFlowBox grenIndent) op operandNodes
+
+                Nothing ->
+                    buildFlowBox 0 body
+
+        Nothing ->
+            buildFlowBox 0 body
 
 
 assembleBackwardPipeline : Bool -> Box -> Array (Array LPNode) -> Result String Box
@@ -3517,24 +3701,42 @@ pairInlineComments renderItem children =
                             commentNodeBox node
                                 |> Result.andThen
                                     (\cbox ->
-                                        when Array.popLast acc is
+                                        when Array.popLast acc.boxes is
                                             Just { last, initial } ->
-                                                Ok (Array.pushLast (glueCommentSuffix cbox last) initial)
+                                                Ok { acc | boxes = Array.pushLast (glueCommentSuffix cbox last) initial }
 
                                             Nothing ->
-                                                -- unreachable: `literalCommentsRideFlatLine`
-                                                -- admits a comment only when it shares a row
-                                                -- with an item already folded in.
-                                                Err "box: inline comment has no item to trail"
+                                                -- No item yet: the comment was written
+                                                -- just after the opening bracket
+                                                -- (`[ {- c -} 1, 2 ]`), so it leads the
+                                                -- FIRST item instead of trailing a
+                                                -- previous one. Held until that item
+                                                -- renders — see `lead`.
+                                                Ok { acc | lead = Array.pushLast cbox acc.lead }
                                     )
 
                         else
                             renderItem node
-                                |> Result.map (\box -> Array.pushLast box acc)
+                                |> Result.map
+                                    (\box ->
+                                        { boxes = Array.pushLast (glueLeadBoxes acc.lead box) acc.boxes
+                                        , lead = []
+                                        }
+                                    )
                     )
         )
-        (Ok [])
+        (Ok { boxes = [], lead = [] })
         children
+        |> Result.map .boxes
+
+
+{-| Glue held leading comment boxes onto the front of the first item's box, in
+source order (`{- a -} {- b -} 1`). Each is a single-line `{- … -}` — the only
+kind that reaches here, since anything else fails `literalCommentsRideFlatLine`
+and routes to `commentBracketListBox` instead. -}
+glueLeadBoxes : Array Box -> Box -> Box
+glueLeadBoxes lead box =
+    Array.foldr glueLeadingCommentPrefix box lead
 
 
 {-| Render a bracketed literal that contains a comment child, as an always-
@@ -3560,6 +3762,92 @@ commentTrailsRole node =
             False
 
 
+-- True when this comment can share a line with the code after it: a
+-- single-line `{- … -}`, which the classifier tags `RidesInline`. A `--` runs
+-- to end of line and a multi-line `{- … -}` brings its own newlines, so both
+-- are `TrailsPrevious` and must break instead.
+commentRidesInline : LPNode -> Bool
+commentRidesInline node =
+    commentRole (lpnBox node) == Just RidesInline
+
+
+{-| Glue a run of comments onto the front of the box that follows them, in
+source order — the mirror of `glueCommentSuffix`, which glues a trailing comment
+onto the box before it. Two callers, one rule: the comments written just after an
+opening bracket (`[ {- a -} {- b -} 1`, with the caller's `[ ` prefix supplying
+the bracket) and those written between a pipeline step's operator and its
+operand (`|> {- c -} step`, with `prefixOperator` supplying the `|> `).
+
+**Once the run breaks, it stays broken.** If any comment in it cannot share a
+line — a `--`, a multi-line `{- … -}`, or one the author put on its own row —
+then every comment of the run stands on its own row, and so does the body:
+
+    [ {- 1 a          NOT   [ {- 1 a
+         1 b                     1 b
+         1 c -}                  1 c -} {- x -}
+      {- x -}                  1
+      1
+
+Letting the later ones jump ahead onto the item's line is not a fixed point: on
+reparse `{- x -}` sits on the item's row rather than the run's, so the next
+format drops it back to its own row and the file never settles. This is the same
+all-or-nothing rule `assembleBrokenWithComments` and `renderWhenBranchesBox`
+apply to a comment run, and the one elm-format applies here.
+
+`bodyMayRide` is the caller's separate question of whether the *body* can share
+the run's last row at all. A bracket item can (it is the row's whole content); a
+pipeline operand can only when it renders on one line, since a multi-line operand
+starts a row of its own and leaves the comments above it. -}
+glueLeadingCommentRun : Bool -> Array { box : Box, inline : Bool } -> Box -> Box
+glueLeadingCommentRun bodyMayRide lead box =
+    let
+        -- Index of the first comment that cannot share a line; the length of the
+        -- run when every comment can.
+        firstBreak =
+            (Array.foldl
+                (\c acc ->
+                    if acc.found >= 0 || c.inline then
+                        { acc | i = acc.i + 1 }
+
+                    else
+                        { i = acc.i + 1, found = acc.i }
+                )
+                { i = 0, found = -1 }
+                lead
+            )
+                |> (\acc ->
+                        if acc.found < 0 then
+                            acc.i
+
+                        else
+                            acc.found
+                   )
+
+        riding =
+            Array.map .box (Array.slice 0 firstBreak lead)
+
+        broken =
+            Array.map .box (Array.dropFirst firstBreak lead)
+
+        -- The riding comments joined onto the front of one row.
+        joinOnto base =
+            Array.foldr glueLeadingCommentPrefix base riding
+    in
+    if not (Array.isEmpty broken) then
+        B.stack1 (riding ++ broken ++ [ box ])
+
+    else if bodyMayRide then
+        joinOnto box
+
+    else
+        when Array.popLast riding is
+            Just { last = lastRiding, initial } ->
+                B.stack1 [ Array.foldr glueLeadingCommentPrefix lastRiding initial, box ]
+
+            Nothing ->
+                box
+
+
 commentBracketListBox : ListBrackets -> Array LPNode -> Result String Box
 commentBracketListBox bracket nodes =
     when bracketPunc bracket is
@@ -3571,11 +3859,27 @@ commentBracketListBox bracket nodes =
 
         Just { left, right } ->
             let
+                -- Nothing has been emitted yet, so a comment here was written
+                -- just after the opening bracket and leads the FIRST item
+                -- (`[ {- c -} 1` / `, 2`) rather than trailing anything. Held in
+                -- `lead` until that item renders.
+                atOpener acc =
+                    Array.isEmpty acc.entries && acc.pending == Nothing
+
                 placeComment node acc =
                     commentNodeBox node
                         |> Result.andThen
                             (\cbox ->
-                                if commentTrailsRole node then
+                                if atOpener acc then
+                                    Ok
+                                        { acc
+                                            | lead =
+                                                Array.pushLast
+                                                    { box = cbox, inline = commentRidesInline node }
+                                                    acc.lead
+                                        }
+
+                                else if commentTrailsRole node then
                                     -- Trailing the preceding item: attach with a
                                     -- single space (layout is author-driven, not
                                     -- width-driven). A multi-line trailing comment
@@ -3623,8 +3927,9 @@ commentBracketListBox bracket nodes =
                                                     Array.pushLast e acc.entries
                                     in
                                     Ok
-                                        { entries = Array.pushLast { box = cbox, isComment = True } flushed
-                                        , pending = Nothing
+                                        { acc
+                                            | entries = Array.pushLast { box = cbox, isComment = True } flushed
+                                            , pending = Nothing
                                         }
                             )
 
@@ -3656,11 +3961,12 @@ commentBracketListBox bracket nodes =
                                                 in
                                                 Ok
                                                     { entries = flushed
-                                                    , pending = Just { box = box, isComment = False }
+                                                    , pending = Just { box = glueLeadingCommentRun True acc.lead box, isComment = False }
+                                                    , lead = []
                                                     }
                                             )
             in
-            Array.foldl step (Ok { entries = [], pending = Nothing }) nodes
+            Array.foldl step (Ok { entries = [], pending = Nothing, lead = [] }) nodes
                 |> Result.map
                     (\state ->
                         let

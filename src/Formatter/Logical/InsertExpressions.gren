@@ -396,7 +396,7 @@ insertExpression locExpr =
             resultFoldl folderInsertExprAsItem [] exprArray
                 |> Result.map
                     (\itemNodes ->
-                        [ authoredBracketList ListSquare (itemsSpanRows exprArray) locExpr.end (lpnBracketNode (EmptyBracketed { start = locExpr.start, end = locExpr.end, value = ListSquare }) locExpr.end []) itemNodes ]
+                        [ authoredBracketList ListSquare (itemsSpanRows exprArray) locExpr.start locExpr.end (lpnBracketNode (EmptyBracketed { start = locExpr.start, end = locExpr.end, value = ListSquare }) locExpr.end []) itemNodes ]
                     )
 
         Src.Record fieldArray ->
@@ -404,7 +404,7 @@ insertExpression locExpr =
             resultFoldl folderInsertRecordField [] fieldArray
                 |> Result.map
                     (\fieldNodes ->
-                        [ authoredBracketList ListCurly (recordFieldsSpanRows fieldArray) locExpr.end (lpnBracketNode (EmptyBracketed { start = locExpr.start, end = locExpr.end, value = ListCurly }) locExpr.end []) fieldNodes ]
+                        [ authoredBracketList ListCurly (recordFieldsSpanRows fieldArray) locExpr.start locExpr.end (lpnBracketNode (EmptyBracketed { start = locExpr.start, end = locExpr.end, value = ListCurly }) locExpr.end []) fieldNodes ]
                     )
 
         Src.Update payload ->

@@ -8,15 +8,19 @@ module LambdaBodyLineComment exposing (..)
 -- emitted `\q -> -- c` / `{ … }`, which moved on the second format.
 lambdaRecordBody =
     \q ->
-        -- c
-        { a = 1 }
+        { -- c
+          a = 1
+        }
 
 
 -- Same with an array body.
 lambdaArrayBody =
     \q ->
-        -- c
-        [ 1, 2, 3 ]
+        [ -- c
+          1
+        , 2
+        , 3
+        ]
 
 
 -- The identical comment written one row lower already went inside (the

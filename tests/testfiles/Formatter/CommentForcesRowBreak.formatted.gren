@@ -8,21 +8,30 @@ module CommentForcesRowBreak exposing (..)
 -- later item on a later row and rendered broken. These all oscillated.
 callWithBreakingComment =
     fn a
-        -- c
-        [ 1, 2, 3 ]
+        [ -- c
+          1
+        , 2
+        , 3
+        ]
 
 
 callCommentBeforeLastArg =
     fn a
-        -- c
-        [ 1, 2, 3 ]
+        [ -- c
+          1
+        , 2
+        , 3
+        ]
         last
 
 
 binopWithBreakingComment =
     head
-        ++ -- c
-           [ 1, 2, 3 ]
+        ++ [ -- c
+             1
+           , 2
+           , 3
+           ]
 
 
 multiLineBlockCommentBreaks =

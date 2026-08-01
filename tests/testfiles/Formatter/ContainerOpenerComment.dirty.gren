@@ -1,0 +1,69 @@
+module ContainerOpenerComment exposing (..)
+
+
+-- The `{`/`[` of a container is one of the two things the parser DOES record a
+-- position for (the other is a binary operator), so a comment written just past
+-- it is known to be inside the container -- it stays there, on the first item's
+-- line, rather than being hoisted onto its own line above the whole thing.
+
+
+flatArray =
+    [ {- primary -} 1, 2 ]
+
+
+flatRecord =
+    { {- the state -} a = 1, b = 2 }
+
+
+-- A `--` ends its line, so the first item drops below it -- still inside the
+-- brackets, at the item column.
+lineComment =
+    [ -- primary
+      1
+    , 2
+    ]
+
+
+-- Written on its own row after the `{`, it still belongs to the container.
+ownRow =
+    {
+      -- timeout ms
+      timeout = 500
+    , retries = 3
+    }
+
+
+-- Innermost wins: the comment sits past BOTH openers, so it lands in the
+-- record, not the array.
+nested =
+    [ { {- inner -} a = 1 }, { a = 2 } ]
+
+
+-- A run: once one comment cannot share the line, every comment of the run
+-- stands on its own row and the item follows below.
+runRides =
+    [ {- a -} {- b -} 1, 2 ]
+
+
+runBreaks =
+    [ {- a -} -- b
+      1
+    , 2
+    ]
+
+
+-- The record TYPE builder records its `{` too.
+type alias Rec =
+    { {- the id -} identifier : String
+    , label : String
+    }
+
+
+-- The mirror: the `}` is recorded as well, so a comment written PAST it stays
+-- outside the record instead of reading as a note on the last field.
+pastCloser =
+    fn a { rec | a = 1 } {- about the record -} last
+
+
+pastArrayCloser =
+    fn a [ 1, 2 ] {- about the array -} last

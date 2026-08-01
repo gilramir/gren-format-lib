@@ -31,6 +31,7 @@ import Formatter.Logical.LogicalPrintingTree exposing
     , lpnChildren
     , lpnLeaf
     , lpnNode
+    , lpnWithBracketStart
     )
 
 
@@ -119,15 +120,17 @@ choice in one place.
     author wrote the items across rows (`spans`, from `itemsSpanRows`), else
     `AllAcrossOrAllVertical` (inline unless it carries a comment). `closeEnd` is
     the closing bracket's source position, registered so an own-line comment
-    before the close stays inside the container.
+    before the close stays inside the container; `openStart` is the *opening*
+    bracket's position, registered so a comment written just after it stays
+    inside too (`[ {- c -} 1, 2 ]`), rather than being hoisted above the whole
+    container.
 
 This is the single home of the one-line-vs-multi-row box choice the bracketed
-containers share. (Record *updates* use the `RecordUpdate` box and record
-*types* additionally record an opening-bracket position, so they build their
-nodes directly rather than through here.)
+containers share. (Record *updates* use the `RecordUpdate` box, so they build
+their nodes directly rather than through here.)
 -}
-authoredBracketList : ListBrackets -> Bool -> Position -> LPNode -> Array LPNode -> LPNode
-authoredBracketList brackets spans closeEnd empty itemNodes =
+authoredBracketList : ListBrackets -> Bool -> Position -> Position -> LPNode -> Array LPNode -> LPNode
+authoredBracketList brackets spans openStart closeEnd empty itemNodes =
     when Array.popFirst itemNodes is
         Nothing ->
             empty
@@ -142,6 +145,7 @@ authoredBracketList brackets spans closeEnd empty itemNodes =
                 )
                 closeEnd
                 itemNodes
+                |> lpnWithBracketStart openStart
 
 
 -- Left-fold that threads a Result through the accumulator, short-circuiting

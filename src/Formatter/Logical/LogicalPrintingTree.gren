@@ -675,12 +675,38 @@ lpnBracketStart node =
             r.bracketStart
 
 
-{-| Record `openStart` as the node's opening-bracket position. -}
+{-| Record `openStart` as the node's opening-bracket position, and extend the
+cached start bounds to cover it.
+
+The bracket is part of the node's source extent even though it has no leaf, so
+`firstPos` / `minRow` must include it — otherwise a comment written between the
+`[` and the first item (`[ {- c -} 1 ]`) reads as starting *before* the whole
+container, and every ancestor inherits that lie because the bounds aggregate
+from the children's cached values. That is what hoisted such a comment onto its
+own line above the container (parity family A1).
+
+Called at construction, before the node is handed to a parent's `lpnNode`, so
+the corrected bounds propagate upward for free. -}
 lpnWithBracketStart : Position -> LPNode -> LPNode
 lpnWithBracketStart openStart node =
     when node is
         LPNode r ->
-            LPNode { r | bracketStart = Just openStart }
+            LPNode
+                { r
+                    | bracketStart = Just openStart
+                    , firstPos =
+                        when r.firstPos is
+                            Just p ->
+                                if openStart.row < p.row || (openStart.row == p.row && openStart.col < p.col) then
+                                    Just openStart
+
+                                else
+                                    Just p
+
+                            Nothing ->
+                                Just openStart
+                    , minRow = min openStart.row r.minRow
+                }
 
 
 {-| Replace a node's box, keeping its children and cached bounds as-is. Used

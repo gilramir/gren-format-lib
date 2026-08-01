@@ -127,6 +127,7 @@ import Formatter.Logical.LogicalPrintingTree exposing
     , lpnBox
     , lpnBracketEndElastic
     , lpnBracketEndExact
+    , lpnBracketStart
     , lpnChildren
     , lpnExtendElasticBracket
     , lpnFirstPos
@@ -915,25 +916,6 @@ insertCommentIntoSubtree commentNode row col node =
                             childHasBody =
                                 not (Array.isEmpty childChildren) || commentInsideEmptyBracket child row col
 
-                            -- A record-update EXPRESSION at the end of its flow (no
-                            -- following sibling) whose trailing comment sits *past* the
-                            -- `}` keeps that comment OUTSIDE, flat — like arrays and
-                            -- record literals. This is scoped to the last-sibling case
-                            -- on purpose: the `RecordUpdate` box is *also* the
-                            -- extensible-record TYPE (`{ r | x : Int } -> …`), where a
-                            -- `->` continuation follows; there the comment must descend
-                            -- to the last field, so keeping it outside would strand it
-                            -- between `}` and `->` and oscillate on reparse. (A comment
-                            -- *before* the `}` is handled by `commentInsideTrailingBracket`
-                            -- below, keeping the author's chosen side either way.)
-                            childIsRecordUpdate =
-                                when lpnBox child is
-                                    RecordUpdate _ ->
-                                        True
-
-                                    _ ->
-                                        False
-
                             hasNoFollowingSibling =
                                 when Array.get (acc.index + 1) children is
                                     Nothing ->
@@ -941,9 +923,6 @@ insertCommentIntoSubtree commentNode row col node =
 
                                     Just _ ->
                                         False
-
-                            recordUpdateEndOfFlow =
-                                childIsRecordUpdate && hasNoFollowingSibling
 
                             -- The comment merely *trails* `child`'s last token and
                             -- must stay OUTSIDE it: `child` is a boundary-/bracket-
@@ -953,7 +932,6 @@ insertCommentIntoSubtree commentNode row col node =
                             trailingCommentEscapes =
                                 (boxKeepsTrailingCommentOutside child
                                     || nextSiblingIsBoundary
-                                    || recordUpdateEndOfFlow
                                 )
                                     && subtreeEndsBefore child row col
                                     && not (commentInsideTrailingBracket child row col)
@@ -972,14 +950,41 @@ insertCommentIntoSubtree commentNode row col node =
                             elasticTailOwnsComment =
                                 lpnBracketEndElastic child && hasNoFollowingSibling
 
+                            -- The comment sits between `child`'s OPENING bracket
+                            -- and its first item: `[ {- c -} 1, 2 ]`. The bracket
+                            -- has no leaf of its own, so the subtree looks like it
+                            -- starts at the first item and the comment looks like
+                            -- it comes *before* the container — which is why the
+                            -- row/`subtreeStartsAfter` tests below both reject it.
+                            -- The recorded opening position (`lpnBracketStart`,
+                            -- set by `authoredBracketList`) is what says otherwise.
+                            --
+                            -- Unlike the position-less delimiters (`,` `=` `|`, the
+                            -- keywords), the bracket's own position IS in the AST,
+                            -- so "inside or outside the container" is a fact we
+                            -- have rather than a choice we make. Without this the
+                            -- comment was hoisted onto its own line above the whole
+                            -- container (parity family A1).
+                            commentAfterBracketOpen =
+                                when lpnBracketStart child is
+                                    Nothing ->
+                                        False
+
+                                    Just open ->
+                                        positionBefore open row col
+                                            && commentInsideTrailingBracket child row col
+
                             -- `child` owns the comment when its subtree covers the
                             -- comment's row, it doesn't start after the comment, no
                             -- later sibling claims it, and it isn't a trailing comment
                             -- that must stay a sibling.
                             childOwnsComment =
                                 childHasBody
-                                    && (subtreeContainsRow child row || elasticTailOwnsComment)
-                                    && not (subtreeStartsAfter child row col)
+                                    && (((subtreeContainsRow child row || elasticTailOwnsComment)
+                                            && not (subtreeStartsAfter child row col)
+                                        )
+                                            || commentAfterBracketOpen
+                                       )
                                     && not laterSiblingClaims
                                     && not trailingCommentEscapes
                         in
@@ -1138,12 +1143,32 @@ insertAmongChildren containerBox commentNode row col children =
                         finalBefore ++ [ newNextNode ] ++ afterRest
 
                     PipelineStep ->
-                        -- Redirect into the PipelineStep as its first child
-                        let
-                            newNextNode =
-                                lpnNode PipelineStep (Array.pushFirst leadingComment (lpnChildren nextNode))
-                        in
-                        finalBefore ++ [ newNextNode ] ++ afterRest
+                        -- Redirect into the PipelineStep as its first child —
+                        -- UNLESS the comment can ride the row it was written on.
+                        --
+                        -- A pipeline step is not like the three unconditional
+                        -- wrappers: `seed |> f |> g` stays on one row, so a
+                        -- single-line `{- c -}` the author wrote between the seed
+                        -- and the operator has a flat line to ride and belongs on
+                        -- it (`seed {- c -} |> f`, which is where elm-format puts
+                        -- it and where a reparse re-derives it from). Redirecting
+                        -- it inside made it the step's first child, where nothing
+                        -- precedes it, so it classified `LeadsOwnLine` and forced
+                        -- the whole chain vertical — a comment creating line
+                        -- breaks the code never needed. Same reasoning as the
+                        -- `SoftIndentedBlock` arm below, and the same test: only
+                        -- a `RidesInline` comment stays outside; a `--` (which
+                        -- ends its line) or a multi-line `{- … -}` breaks the row
+                        -- regardless, so it leads the step body as before.
+                        if classifiedRole == RidesInline then
+                            finalBefore ++ [ classifiedComment ] ++ finalAfter
+
+                        else
+                            let
+                                newNextNode =
+                                    lpnNode PipelineStep (Array.pushFirst leadingComment (lpnChildren nextNode))
+                            in
+                            finalBefore ++ [ newNextNode ] ++ afterRest
 
                     BodyBlock ->
                         -- A `BodyBlock` wraps a declaration's VALUE. A comment
@@ -1239,16 +1264,24 @@ insertAmongChildren containerBox commentNode row col children =
 --   ParenBlock                             — parenthesised expression
 --   AllAcrossOrAllVertical / AlwaysVertical — bracketed item list (`{ a, b }`,
 --       `[ x, y ]`, exposing lists): a comment past the closing bracket is a
---       sibling, not an item. `RecordUpdate` is intentionally excluded — it has
---       base `|` fields structure that a comment between the base and `|`
---       legitimately enters, and the bracket-end-proximity check doesn't
---       generalise to it.
+--       sibling, not an item.
+--   RecordUpdate                           — `{ base | f = v }` and the
+--       extensible record TYPE `{ r | x : Int }`: same rule as the bracket
+--       lists. Its close is EXACT (`lpnBracketNode locExpr.end`), so
+--       `commentInsideTrailingBracket` still lets a comment written *before*
+--       the `}` descend to the last field; only one written past the `}`
+--       stays outside. Excluding it used to let `fn a { r | a = 1 } {- c -} b`
+--       render as `{ r | a = 1 {- c -} }`, i.e. as a comment on the last
+--       field rather than on the record (parity family A5).
 -- For every *other* box kind the sibling check in the descent expresses the same
 -- intent whenever a sibling follows, so most constructs need no entry here.
 boxKeepsTrailingCommentOutside : LPNode -> Bool
 boxKeepsTrailingCommentOutside node =
     when lpnBox node is
         AcrossOrVertical _ ->
+            True
+
+        RecordUpdate _ ->
             True
 
         IfCondition _ ->
@@ -1450,6 +1483,20 @@ isBracketContainerBox box =
         EmptyBracketed _ ->
             True
 
+        RecordUpdate _ ->
+            True
+
+        _ ->
+            False
+
+
+-- True for the `{ base | field … }` box (record update expression, and the
+-- extensible record TYPE, which shares it). Its children are the FIELDS, so
+-- "first child" does not mean "written just after the `{`" the way it does for
+-- an item list — see the bracket branch of `classifyCommentKind`.
+isRecordUpdateBox : LPBox -> Bool
+isRecordUpdateBox box =
+    when box is
         RecordUpdate _ ->
             True
 
@@ -2020,12 +2067,26 @@ classifyCommentKind containerBox commentNode before after row =
                 RidesInline
     in
     if isBracketBranch then
-        -- Own-row → leads its own line at the bracket column. Same-row as the
-        -- previous item → glues: a single-line `{- -}` rides the flat line
+        -- Nothing before it inside an ITEM LIST → it trails the OPENING bracket
+        -- (`[ {- c -} 1, 2 ]`). The descent only lets a comment land here when it
+        -- was written past the recorded `{`/`[`, so "first child" IS "written
+        -- just after the opener"; it glues to the opener exactly as a same-row
+        -- comment glues to the item before it, and for the same reason a
+        -- single-line `{- -}` may still ride the flat line.
+        --
+        -- A `RecordUpdate` is excluded: its first child is the first FIELD, and
+        -- what precedes that is the base name and the position-less `|`, not the
+        -- `{`. A comment there is the ambiguous around-the-`|` case, which stays
+        -- own-line on purpose (see the forced-choice divergence for `|`).
+        --
+        -- Otherwise: own-row → leads its own line at the bracket column. Same-row
+        -- as the previous item → glues: a single-line `{- -}` rides the flat line
         -- (`RidesInline`, the only kind `literalCommentsRideFlatLine` keeps
         -- flat); a `--` or a multi-line `{- … -}` glues but breaks the line
         -- (`TrailsPrevious`).
-        if bracketPrevRow < 0 || row /= bracketPrevRow then
+        if (not (Array.isEmpty before) || isRecordUpdateBox containerBox)
+            && (bracketPrevRow < 0 || row /= bracketPrevRow)
+        then
             LeadsOwnLine
 
         else

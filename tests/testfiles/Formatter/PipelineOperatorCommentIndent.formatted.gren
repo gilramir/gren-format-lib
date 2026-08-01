@@ -1,0 +1,68 @@
+module PipelineOperatorCommentIndent exposing (..)
+
+-- A pipeline operator is rendered as a Box PREFIX, exactly like a binop's
+-- operator, so an operand pushed below it by a comment lands in the column it
+-- would have occupied on the operator's line -- `|> ` and `<| ` are 3 wide, `+ `
+-- is 2, `++ ` is 3. All five of these agree with elm-format.
+
+
+forwardPipe =
+    seed
+        |> -- c
+           step
+
+
+backwardPipe =
+    fn
+        <| -- c
+           step
+
+
+plus =
+    a
+        + -- c
+          b
+
+
+append =
+    a
+        ++ -- c
+           b
+
+
+chain =
+    seed
+        |> fn
+        |> -- c
+           gn
+
+
+-- A single-line block comment still rides the operator's line when the operand
+-- fits beside it.
+blockRides =
+    seed
+        |> {- c -} step
+
+
+-- ... and stacks above the operand when it does not.
+blockAboveMultiline =
+    seed
+        |> {- c -}
+           (\r ->
+                r
+           )
+
+
+-- A run the author wrote on a row BELOW the operator stays below it: hoisting
+-- it up would make the reparse read it as riding the operator's row, which pulls
+-- the operand up too, and the file would never settle.
+ownRowBelowOperator =
+    fn <|
+        {- c -} "?"
+
+
+-- A `<|` step body's own arguments still indent past the operand.
+backwardPipeArgs =
+    fn
+        <| gn one -- c
+            two

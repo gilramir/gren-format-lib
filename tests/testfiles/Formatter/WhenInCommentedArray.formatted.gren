@@ -2,8 +2,8 @@ module WhenInCommentedArray exposing (foo)
 
 
 foo x y =
-    -- first item is a when expression
-    [ when x is
+    [ -- first item is a when expression
+      when x is
         True ->
             1
 

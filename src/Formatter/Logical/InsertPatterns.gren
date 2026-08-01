@@ -55,7 +55,7 @@ insertPattern locPat =
                 -- (matching record literals); the empty form is a `{}` text leaf.
                 |> Result.map
                     (\fieldNodes ->
-                        [ authoredBracketList ListCurly spans locPat.end (lpnLeaf (mkText locPat.start "{}")) fieldNodes ]
+                        [ authoredBracketList ListCurly spans locPat.start locPat.end (lpnLeaf (mkText locPat.start "{}")) fieldNodes ]
                     )
 
         Src.PAlias { pattern = pat, name = name } ->
@@ -126,7 +126,7 @@ insertPattern locPat =
             resultFoldl folderInsertPatternAsItem [] patterns
                 |> Result.map
                     (\itemNodes ->
-                        [ authoredBracketList ListSquare (itemsSpanRows patterns) locPat.end (lpnLeaf (mkText locPat.start "[]")) itemNodes ]
+                        [ authoredBracketList ListSquare (itemsSpanRows patterns) locPat.start locPat.end (lpnLeaf (mkText locPat.start "[]")) itemNodes ]
                     )
 
         Src.PChr c ->

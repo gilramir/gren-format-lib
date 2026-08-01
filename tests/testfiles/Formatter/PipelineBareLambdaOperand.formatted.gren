@@ -1,0 +1,36 @@
+module PipelineBareLambdaOperand exposing (..)
+
+-- A pipeline step whose operand is a BARE (unparenthesized) multi-line lambda.
+-- It is the step's first operand and it forces a break, so the step's preamble
+-- is empty: `|>` dangles on its own row and the lambda drops one tab stop
+-- below it. The operator is a Box prefix over the operand, so "empty preamble"
+-- means "nothing shares the operator's row" -- rendering that as a flow of zero
+-- items is what crashed with `box: empty flow`.
+--
+-- A parenthesized or bracketed operand does NOT take this path: it is excluded
+-- from the trigger split (`isDirectGluedOperand`) and stays glued to the `|>`.
+
+
+bareLambda =
+    a
+        |> b
+        |>
+            \decoder ->
+                f decoder
+                    |> c
+
+
+parenLambdaStaysGlued =
+    a
+        |> (\decoder ->
+                f decoder
+           )
+        |> c
+
+
+recordOperandStaysGlued =
+    a
+        |> { rec
+            | x = 1
+            , y = 2
+           }

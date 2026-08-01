@@ -279,18 +279,29 @@ def short_tag(reason):
     return m.group(1) if m else reason
 
 
-def comment_stripped_matches(gren_out, elm_out):
+def comment_stripped_matches(gren_out, elm_out, collapse_interior=False):
     """True if the two outputs agree once the marker's comment is deleted --
     i.e. the ONLY difference is where the comment sits. Blank lines left behind
     by deleting a comment that was alone on its line are dropped from both sides;
     no content line is ever merged, so a cell that ALSO breaks differently still
-    differs here."""
+    differs here.
+
+    `collapse_interior` additionally squeezes runs of spaces *within* a line,
+    leaving its indentation untouched. Needed only when the two formatters put
+    the comment at different points of the SAME line (`{ f = {- c -} 1 }` vs
+    `{ f {- c -} = 1 }`): deleting it leaves the gap it occupied in different
+    places, which is the comment's position showing through, not a code
+    difference. Indentation is still compared exactly, so a cell whose code
+    lands at a different column still differs.
+    """
     def canon(s):
         out = []
         for ln in s.split("\n"):
             if MARKER_CH in ln:
                 ln = re.sub(r"\{-\s*" + MARKER_CH + r"\s*-\}|--\s*" + MARKER_CH + r"\s*$", "", ln)
             ln = ln.rstrip()
+            if collapse_interior and ln.strip():
+                ln = " " * (len(ln) - len(ln.lstrip())) + re.sub(r" +", " ", ln.strip())
             if ln.strip():
                 out.append(ln)
         return "\n".join(out)
@@ -315,6 +326,63 @@ def marker_role(out):
 
 
 REASON_INHERITED = "INHERITED"  # prefix: "INHERITED: <the syntax cell's own reason>"
+REASON_UNRECORDED = "#22"  # comment snapped to a canonical side of an unrecorded token
+
+# Tokenizer for the "which tokens did the comment cross" test below. `@C` stands
+# in for the marker's comment so it takes a slot in the stream.
+_TOKEN_RE = re.compile(
+    r"@C|[A-Za-z_][A-Za-z0-9_.]*|\d+\.?\d*|'[^']*'|\"[^\"]*\"|[()\[\]{},]|[|<>+*/\\=:.-]+")
+
+# The punctuation the Gren parser records a source position for. A comment that
+# crossed one of these moved across a boundary the formatter can SEE, so the move
+# is a finding, not the forced canonicalization of #22. Everything else that can
+# separate two operands -- `=` `:` `|` `,` `->` and the keywords -- is discarded
+# by the parser (see docs/elmFormatComparison.md #22).
+_RECORDED = {"(", ")", "[", "]", "{", "}"}
+_OPERATOR_RE = re.compile(r"^[|<>+*/\\=:.-]+$")
+_UNRECORDED_OPS = {"=", ":", "|", "->"}
+_UNRECORDED_WORDS = {"if", "then", "else", "when", "case", "of", "is", "let", "in", "as"}
+
+
+def _marker_slot(out):
+    """The marker's index in the output's paren-free code-token stream, plus that
+    stream. Both formatters emit the same code tokens, so the marker is the only
+    thing that can occupy a different slot."""
+    body = "\n".join(out.split("\n")[3:])
+    body = re.sub(r"\{-\s*" + MARKER_CH + r"\s*-\}|--\s*" + MARKER_CH + r"[ \t]*", " @C ", body)
+    toks = [t for t in _TOKEN_RE.findall(body) if t not in ("(", ")")]
+    return (toks.index("@C") if "@C" in toks else None), [t for t in toks if t != "@C"]
+
+
+def crossed_only_unrecorded_tokens(gren_out, elm_out):
+    """True when the two formatters put the marker on opposite sides of tokens
+    the parser does not record a position for, and nothing else moved.
+
+    This is divergence #22, and it is the one comment-position family that is
+    FORCED rather than chosen: `x {- c -} = y` and `x = {- c -} y` reach the
+    formatter as the same three positions, so gren-format canonicalizes to one
+    side and exactly one of the two authorings then differs from elm-format.
+
+    Soundness rests on the crossed span: if it contains a bracket or a binary
+    operator -- the only separators the parser DOES position -- gren had the fact
+    it needed and a move across it is a real finding, so this returns False and
+    the cell stays UNREVIEWED.
+    """
+    gi, gcode = _marker_slot(gren_out)
+    ei, ecode = _marker_slot(elm_out)
+    if gi is None or ei is None or gi == ei or gcode != ecode:
+        return False
+    span = gcode[min(gi, ei):max(gi, ei)]
+    if not span:
+        return False
+    for t in span:
+        if t in _RECORDED:
+            return False
+        if _OPERATOR_RE.match(t) and t not in _UNRECORDED_OPS:
+            return False
+        if t.isidentifier() and t not in _UNRECORDED_WORDS:
+            return False
+    return True
 
 
 def comment_family(gren_out, elm_out, base_reason):
@@ -322,9 +390,13 @@ def comment_family(gren_out, elm_out, base_reason):
 
     Two things can differ, and they are judged separately:
 
-      * the comment's POSITION -- one family is auto-classified, #13: gren kept
-        it trailing the token it was written after where elm-format re-homed it
-        to lead the next one. Deliberate and long-standing.
+      * the comment's POSITION -- two families are auto-classified. #13: gren
+        kept it trailing the token it was written after where elm-format re-homed
+        it to lead the next one; deliberate and long-standing. #22: the two put
+        it on opposite sides of a token the parser records no position for
+        (`crossed_only_unrecorded_tokens`), which is forced rather than chosen --
+        both authorings reach gren-format as the same three positions, so one of
+        them must differ from elm-format whatever side is picked.
       * everything else -- if the outputs still differ once the comment is
         deleted from both, the underlying syntax cell diverges on its own, and
         `base_reason` (its entry in the SYNTAX baseline) says why. Adding a
@@ -342,20 +414,26 @@ def comment_family(gren_out, elm_out, base_reason):
     Reclassifying is not a formality; the same warning applies here as on the
     parens baseline.
     """
+    unrecorded = crossed_only_unrecorded_tokens(gren_out, elm_out)
+
     gren_role, elm_role = marker_role(gren_out), marker_role(elm_out)
     moved = gren_role != elm_role
-    if moved and gren_role == "alone":
+    if moved and gren_role == "alone" and not unrecorded:
         return None
-    if moved and not (gren_role == "trailing" and elm_role in ("leading", "alone")):
+    if moved and not unrecorded and not (
+        gren_role == "trailing" and elm_role in ("leading", "alone")
+    ):
         # A comment move we have no reviewed family for. Review it.
         return None
 
     parts = []
-    if not comment_stripped_matches(gren_out, elm_out):
+    if not comment_stripped_matches(gren_out, elm_out, collapse_interior=unrecorded):
         if not base_reason:
             return None
         parts.append(f"{REASON_INHERITED}:{short_tag(base_reason)}")
-    if moved:
+    if unrecorded:
+        parts.append(REASON_UNRECORDED)
+    elif moved:
         parts.append(REASON_TRAILING)
     return "+".join(parts) if parts else None
 
@@ -454,8 +532,8 @@ CONSTRUCTS = [
     Construct("updateNested",  "{ rec | a = { b = 1 } }",      True,  "{ rec\n| a = { b = 1 } }", False),
     Construct("arrayEmpty",    "[]",                           True,  None,                 False),
     # A single-item array. Its `broken` form has no gap BETWEEN items, so gren
-    # collapses it back to one line (the #22 rule) exactly as it does a
-    # single-field record -- this is the array witness that #22 is one
+    # collapses it back to one line (the #21 rule) exactly as it does a
+    # single-field record -- this is the array witness that #21 is one
     # container-wide rule, not record-specific.
     Construct("arrayOne",      "[ 1 ]",                        True,  "[ 1\n]",             False),
     Construct("arrayNums",     "[ 1, 2, 3 ]",                  True,  "[ 1\n, 2\n, 3 ]",    False),

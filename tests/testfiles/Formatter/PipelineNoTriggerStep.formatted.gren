@@ -6,7 +6,7 @@ total xs =
         |> Array.map identity
         |> {- fold the values
               into a single sum -}
-            Array.foldl (+) 0
+           Array.foldl (+) 0
 
 
 chained xs =
