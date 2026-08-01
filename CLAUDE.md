@@ -315,6 +315,12 @@ became byte-identical to elm-format; 2,882 registered as #22 and 2,911 as #23,
 leaving **5,633 UNREVIEWED** — still debt, not failures; see `tbd.md` for what
 they are and the next step for each.
 
+To read them, use `tests/triage-comment-parity.py --review`, which buckets on
+the *disagreement* rather than on the cell: names and literals flattened, the
+surrounding context dropped, so the same question asked of `1` / `'c'` inside a
+call argument / a record field / a pipeline step is one entry with a count.
+5,633 cells are 811 entries, and the top 30 cover ~61% of them.
+
 ### Predicate/renderer agreement audit
 
 Every other check in this repo is a **self-consistency** check — fixture diff,

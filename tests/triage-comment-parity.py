@@ -37,16 +37,31 @@ so a family is a unit of REVIEW, not a verdict. Each family is stated so that a
 reviewer can accept or reject it as a whole and then hand-write the rule into
 `comment_family` in matrix-syntax.py with the evidence attached.
 
-    ./triage-comment-parity.py --collect -j 12     # regenerate the pairs (~10 min)
+    ./triage-comment-parity.py --collect -j 12     # regenerate the pairs
     ./triage-comment-parity.py                     # the family table
     ./triage-comment-parity.py --show A1           # examples from one family
     ./triage-comment-parity.py --show A1 -n 6      # more of them
     ./triage-comment-parity.py --keys A1           # its baseline keys, one per line
     ./triage-comment-parity.py --spread A1         # its construct x context coverage
+
+REVIEWING, rather than understanding, wants a different cut -- `--review`. It
+buckets on the DISAGREEMENT: the lines the two outputs differ on, with names and
+literals flattened and the surrounding context dropped, so the same question
+asked of `1` / `1.5` / `'c'` and asked inside a call argument / a record field /
+a pipeline step collapses to one entry with a count. That turns the pile into a
+few hundred decisions, front-loaded -- the top 30 entries typically cover ~60% of
+it.
+
+    ./triage-comment-parity.py --review            # entries, biggest first
+    ./triage-comment-parity.py --review -n 25      # more per page
+    ./triage-comment-parity.py --review --from 25  # the next page
+    ./triage-comment-parity.py --review --family B2   # within one family
+    ./triage-comment-parity.py --group 7           # entry 7 in full, every cell key
 """
 import argparse
 import collections
 import concurrent.futures as cf
+import difflib
 import importlib.util
 import json
 import pathlib
@@ -334,6 +349,94 @@ def classify(r, base):
     return "B6", f"{len(gs)}L both; re-flowed by {who}", info
 
 
+
+# ------------------------------------------------------------------- REVIEW
+#
+# The families above are a way to UNDERSTAND the pile. Reviewing it needs a
+# different cut: the same layout question asked of `1`, `1.5`, `'c'` and `"s"`
+# is four cells and one decision, and reading it four times is how a reviewer
+# runs out of patience before running out of pile.
+#
+# So group by SHAPE: normalize every identifier to `x` and every literal to `0`
+# in the source and in both outputs, then bucket on the resulting triple. What
+# survives is one entry per distinct layout disagreement, with a count.
+
+IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_.]*")
+LIT_RE = re.compile(r"\d+\.?\d*|'[^']*'|\"[^\"]*\"")
+KEEP = {"if", "then", "else", "when", "is", "case", "of", "let", "in", "as",
+        "module", "exposing", "type", "alias", "port"}
+
+
+def shape(text):
+    """`decl(text)` with every name and literal flattened to `x`, indentation
+    kept exactly. Two cells with the same shape pose the same layout question:
+    whether the operand is `1`, `1.5`, `'c'` or `one` never changes the answer,
+    but where it lands does."""
+    out = []
+    for ln in decl(text).split("\n"):
+        indent = len(ln) - len(ln.lstrip())
+        body = ln.strip()
+        if MARK not in body:
+            body = LIT_RE.sub("x", body)
+            body = IDENT_RE.sub(lambda m: m.group(0) if m.group(0) in KEEP else "x", body)
+        else:
+            # Keep the marker intact; flatten around it.
+            head, sep, tail = body.partition(MARK)
+            def flat(t):
+                return IDENT_RE.sub(lambda m: m.group(0) if m.group(0) in KEEP else "x",
+                                    LIT_RE.sub("x", t))
+            body = flat(head) + sep + flat(tail)
+        out.append(" " * indent + body)
+    return "\n".join(out)
+
+
+def disagreement(r):
+    """Just the lines the two outputs differ on, flattened and re-based to
+    column 0. The surrounding CONTEXT is dropped on purpose: the same question
+    asked inside a call argument, a record field and a pipeline step is one
+    question, and it is the atom-local gaps that generate all 25 of them."""
+    g = shape(r["gren"]).split("\n")
+    e = shape(r["elm"]).split("\n")
+    parts = []
+    for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, g, e).get_opcodes():
+        if tag != "equal":
+            parts.append((tag, tuple(g[i1:i2]), tuple(e[j1:j2])))
+    lines = [ln for _, a, b in parts for ln in a + b if ln.strip()]
+    base = min((len(ln) - len(ln.lstrip()) for ln in lines), default=0)
+
+    def rebase(block):
+        return tuple(ln[base:] if len(ln) - len(ln.lstrip()) >= base else ln.lstrip()
+                     for ln in block)
+
+    return tuple((tag, rebase(a), rebase(b)) for tag, a, b in parts)
+
+
+def review_groups(rows):
+    """Rows bucketed by (family, disagreement), biggest first. Each bucket is
+    one decision to make."""
+    buckets = collections.defaultdict(list)
+    for r in rows:
+        buckets[(r["family"], disagreement(r))].append(r)
+    return sorted(buckets.values(), key=lambda rs: -len(rs))
+
+
+def print_group(i, rs, verbose=False):
+    r = rs[0]
+    fam = r["family"]
+    title = FAMILIES.get(fam, ("?", ""))[0]
+    keys = collections.Counter((x["construct"], x["context"]) for x in rs)
+    print(f"[{i}]  {len(rs)} cells  ({fam}: {title})")
+    print(f"     {len(keys)} construct x context pairs, "
+          f"kinds: {'/'.join(sorted({x['ckind'] for x in rs}))}, "
+          f"positions: {'/'.join(sorted({x['cpos'] for x in rs}))}")
+    print(f"     e.g. {r['key']}")
+    show_example(r, indent="     ")
+    if verbose:
+        for x in rs[1:]:
+            print(f"     also {x['key']}")
+        print()
+
+
 # ------------------------------------------------------------------- REPORT
 
 def load():
@@ -374,6 +477,13 @@ def main():
     ap.add_argument("--keys", metavar="FAMILY", help="print that family's baseline keys")
     ap.add_argument("--spread", metavar="FAMILY", help="its construct x context coverage")
     ap.add_argument("-n", type=int, default=3, help="examples to print (default 3)")
+    ap.add_argument("--review", action="store_true",
+                    help="one entry per distinct layout disagreement, biggest first")
+    ap.add_argument("--family", metavar="FAMILY", help="restrict --review to one family")
+    ap.add_argument("--group", type=int, metavar="N",
+                    help="print review group N in full (with every cell key)")
+    ap.add_argument("--from", dest="start", type=int, default=0,
+                    help="--review: skip the first N groups")
     args = ap.parse_args()
 
     if args.collect:
@@ -396,6 +506,31 @@ def main():
         print(f"{args.spread}: {len(rs)} cells over {len(spread)} construct x context pairs")
         for (c, x), n in spread.most_common():
             print(f"  {n:5d}  {c}/{x}")
+        return 0
+
+    if args.review or args.group is not None:
+        rows = ok if not args.family else by_family.get(args.family, [])
+        groups = review_groups(rows)
+        if args.group is not None:
+            if not 0 <= args.group < len(groups):
+                sys.exit(f"no group {args.group} (there are {len(groups)})")
+            print_group(args.group, groups[args.group], verbose=True)
+            return 0
+        covered = sum(len(g) for g in groups)
+        print(f"{len(groups)} distinct layout disagreements over {covered} cells"
+              + (f" in {args.family}" if args.family else ""))
+        for n in (10, 25, 50, 100):
+            if n < len(groups):
+                run = sum(len(g) for g in groups[:n])
+                print(f"    top {n:4d} groups cover {run:5d} cells ({100 * run / covered:.0f}%)")
+        print()
+        end = min(len(groups), args.start + args.n)
+        for i in range(args.start, end):
+            print_group(i, groups[i])
+        shown = sum(len(groups[i]) for i in range(args.start, end))
+        print(f"groups {args.start}..{end - 1} of {len(groups)} "
+              f"({shown} of {covered} cells).  `--group N` for one in full; "
+              f"`--from {end} -n {args.n}` for the next page.")
         return 0
 
     if args.show:
