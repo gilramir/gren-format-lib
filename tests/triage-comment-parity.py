@@ -57,6 +57,7 @@ it.
     ./triage-comment-parity.py --review --from 25  # the next page
     ./triage-comment-parity.py --review --family B2   # within one family
     ./triage-comment-parity.py --group 7           # entry 7 in full, every cell key
+    ./triage-comment-parity.py --key intLit/updateField@flat#g9.line.trail
 """
 import argparse
 import collections
@@ -484,6 +485,8 @@ def main():
                     help="print review group N in full (with every cell key)")
     ap.add_argument("--from", dest="start", type=int, default=0,
                     help="--review: skip the first N groups")
+    ap.add_argument("--key", metavar="KEY",
+                    help="print one cell by its baseline key, with its review group")
     args = ap.parse_args()
 
     if args.collect:
@@ -506,6 +509,19 @@ def main():
         print(f"{args.spread}: {len(rs)} cells over {len(spread)} construct x context pairs")
         for (c, x), n in spread.most_common():
             print(f"  {n:5d}  {c}/{x}")
+        return 0
+
+    if args.key:
+        hit = [r for r in ok if r["key"] == args.key]
+        if not hit:
+            sys.exit(f"no UNREVIEWED cell with key {args.key!r} "
+                     "(it may be registered, or fixed -- try --collect)")
+        r = hit[0]
+        groups = review_groups(ok)
+        idx = next(i for i, g in enumerate(groups) if any(x["key"] == args.key for x in g))
+        print(f'{args.key}  [{r["family"]}: {r["detail"]}]')
+        print(f"  review group [{idx}], {len(groups[idx])} cells\n")
+        show_example(r)
         return 0
 
     if args.review or args.group is not None:
