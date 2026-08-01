@@ -1,4 +1,4 @@
-module Formatter.Render.BinopLayout exposing (assembleBinopBox, flattenBinopNodes, inlineBinopBox, isChainBreakingOperandBox, opText, renderBinopGroup, splitTrailingOwnLineComments)
+module Formatter.Render.BinopLayout exposing (assembleBinopBox, commentBreaksBinopChain, flattenBinopNodes, inlineBinopBox, isChainBreakingOperandBox, opText, renderBinopGroup, splitTrailingOwnLineComments)
 
 {-| Pure layout assembly for binary-operator chains (operand boxes + operator texts -> Box).
 -}
@@ -7,7 +7,7 @@ import Formatter.Logical.BinopPrecedence exposing (binopPrecedence)
 import Formatter.Logical.LogicalPrintingTree exposing (CommentRole(..), LPBox(..), LPNode, commentRole, lpnBox, lpnChildren)
 import Formatter.Render.Box as B exposing (Box(..))
 import Formatter.Render.BoxOps exposing (traverseResult)
-import Formatter.Render.NodeClassify exposing (leafValue)
+import Formatter.Render.NodeClassify exposing (commentBreaksFlowRow, leafValue)
 
 
 {-| Flatten the nested `Binop`/`OpAndRhs` tree into a flat operand + operator
@@ -36,6 +36,32 @@ flattenBinopNodes children =
 
                 _ ->
                     { operands = [ children ], ops = [] }
+
+
+{-| True when a comment inside the chain ends its line and more of the CHAIN
+follows it, so the chain cannot stay on one row.
+
+`commentBreaksFlowRow` asks that of one flow, and this asks it of the chain by
+interleaving the operators back between the operands. Asking it of each operand
+separately — which is what `makeBinopBox` used to do — misses the comment
+written at the END of a non-last operand (`one + two -- c` / `* three`): nothing
+follows it *within that operand*, but the next operator does follow it in the
+chain. That chain then stayed off the vertical path and rendered as a generic
+flow, which breaks wherever the comment sits — at `*` here, gluing across the
+LOOSER `+` so the line reads as `(one + two) * three`. Precedence decides the
+break point for a chain with a comment in it exactly as it does for one without.
+-}
+commentBreaksBinopChain : { operands : Array (Array LPNode), ops : Array LPNode } -> Bool
+commentBreaksBinopChain flat =
+    when Array.popFirst flat.operands is
+        Nothing ->
+            False
+
+        Just { first = operand0, rest = restOperands } ->
+            Array.map2 (\op operandNodes -> [ op ] ++ operandNodes) flat.ops restOperands
+                |> Array.flatten
+                |> (\tailNodes -> operand0 ++ tailNodes)
+                |> commentBreaksFlowRow
 
 
 opText : LPNode -> String

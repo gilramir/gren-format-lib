@@ -218,6 +218,36 @@ break at an operator its precedence split would have kept inline now indents the
 continuation `grenIndent`, like every other broken chain, instead of landing
 flush under the seed (`one + two -- c` ⏎ `····* three`).
 
+### What changed next: C4 in a binop chain
+
+That indent fix left the *break point* wrong, which is the C4 half of the same
+shape. A `--` mid-chain has to break the chain — but it was breaking it wherever
+the comment sat, including at an operator **tighter** than one it then glued
+across:
+
+```gren
+-- was:                        -- is:
+one + two -- c                 one
+    * three                        + two -- c
+                                     * three
+```
+
+Delete the comment from the left-hand form and you get `one + two` ⏎ `* three`,
+which is not gren-format's comment-free layout for that expression (`one + two *
+three`, or a break at the `+` if one is forced) — a plain C4 violation, and one
+that misreads as `(one + two) * three` besides.
+
+`makeBinopBox` asked `NodeClassify.commentBreaksFlowRow` of **each operand on its
+own**. That function's rule — a line-ending comment breaks the row only when a
+real item actually follows — is right, and is why `foo bar -- c` breaks nothing.
+But a comment at the end of a non-last operand has nothing after it *within that
+operand*, so the chain looked unbroken, skipped the forced-vertical
+(precedence-aware) renderer and fell through to a generic flow, which breaks at
+the comment. `BinopLayout.commentBreaksBinopChain` asks the same question of the
+whole chain, interleaving the operator leaves back between the operands. It is a
+strict superset of the per-operand test, and reparse-stable: the comment is still
+mid-chain in the output, so the second format decides the same way.
+
 ## The one-line pipeline
 
 ```

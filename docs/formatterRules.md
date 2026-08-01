@@ -1822,6 +1822,23 @@ total =
         ++ trailingValue
 ```
 
+A `--` does end its line, so a chain carrying one can't stay on a single row —
+but it still breaks at the loosest operators, not at the one the comment happens
+to precede:
+
+```gren
+-- you wrote:                  -- gren-format:
+result =                       result =
+    one + two -- the sum           one
+              * three                  + two -- the sum
+                                         * three
+```
+
+The chain splits at the `+`, and `two * three` stays the one group it always is;
+the comment only decides which row inside that group the `*` lands on. Breaking
+at the `*` instead would put `one + two` on a row together and read as
+`(one + two) * three`.
+
 The same precedence-aware layout applies to a stacked `if` condition (see
 [If expressions](#if-expressions)).
 

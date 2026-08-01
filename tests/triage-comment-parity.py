@@ -556,15 +556,27 @@ def interview(groups, redo=False, limit=None):
 
 
 def print_decisions():
+    """The CURRENT verdict per group, not the append log.
+
+    The file is append-only, so re-answering a group leaves both records in it,
+    and `interview` reads the later one (`{d["sig"]: d}` keeps the last). Printing
+    every line instead showed a superseded `bug` next to the `keep` that replaced
+    it, with nothing to say which was live -- the exact confusion this record was
+    built to prevent. Same last-wins rule here, with the count of what it hid.
+    """
     prior = load_decisions()
     if not prior:
         print(f"no verdicts yet -- run `--interview` (they land in {DECISIONS.name})")
         return 0
+    current = {d["sig"]: d for d in prior}
+    live = list(current.values())
+    superseded = len(prior) - len(live)
     by_verdict = collections.defaultdict(list)
-    for d in prior:
+    for d in live:
         by_verdict[d["verdict"]].append(d)
-    cells = sum(d["cells"] for d in prior)
-    print(f"{len(prior)} verdict(s) covering {cells} cells\n")
+    cells = sum(d["cells"] for d in live)
+    note = f" ({superseded} earlier verdict(s) superseded)" if superseded else ""
+    print(f"{len(live)} verdict(s) covering {cells} cells{note}\n")
     for verdict in ("bug", "split", "keep", "unsure"):
         ds = by_verdict.get(verdict, [])
         if not ds:

@@ -13,7 +13,7 @@ signatures, and comments — each laid out to match elm-format.
 
 import Formatter.Logical.BinopPrecedence exposing (binopMinPrecedence, binopPrecedence)
 import Formatter.Logical.LogicalPrintingTree exposing (CommentRole(..), LPBox(..), LPNode, ListBrackets(..), SyntaxType(..), commentRole, firstRowInSubtree, lpnBox, lpnChildren, lpnLastBracketEnd, lpnLastPos, lpnMaxRow, prefixGlyph)
-import Formatter.Render.BinopLayout exposing (assembleBinopBox, flattenBinopNodes, isChainBreakingOperandBox, opText, splitTrailingOwnLineComments)
+import Formatter.Render.BinopLayout exposing (assembleBinopBox, commentBreaksBinopChain, flattenBinopNodes, isChainBreakingOperandBox, opText, splitTrailingOwnLineComments)
 import Formatter.Render.Box as B exposing (Box(..))
 import Formatter.Render.BoxOps exposing (applyIndent, blockIndentSpaces, boxLine, glueCommentSuffix, glueLeadingCommentPrefix, grenIndent, isBlockNode, isSingleLine, joinInline, prefixOperator, spaceJoinLines, stackWithBlanks, traverseResult, wrapParenVerticalPadded)
 import Formatter.Render.CommentBox exposing (commentNodeBox, commentNodeToBox, emptyBracketedCommentLine, glueTrailingComments, makeCommentLineBox, multiLineBlockCommentBox, peelTrailingCommentNodes, spanLeadingComments, spanTrailingComments, spanTrailingOwnLineComments)
@@ -165,8 +165,10 @@ makeBinopBox forceVerticalArg children =
                         -- Same reason as the call arm: `forceVerticalArg` is a
                         -- source-row fact and the AST has no comments in it, so a
                         -- comment that pushes an operand onto a new row would flip
-                        -- the chain to broken only on reparse.
-                        || Array.any commentBreaksFlowRow flat.operands
+                        -- the chain to broken only on reparse. Asked of the whole
+                        -- chain, not of each operand alone, so the break lands
+                        -- where precedence puts it — see `commentBreaksBinopChain`.
+                        || commentBreaksBinopChain flat
             in
             if forceVertical then
                 verticalBinopChainBoxFromItems flat.ops operandItems

@@ -364,6 +364,34 @@ across all 38,560 cells. The reasoning and the revert path are in
 [`docs/commentHandling.md`](docs/commentHandling.md) and
 [divergence #22](docs/elmFormatComparison.md#divergence-22).
 
+**Interview round 3, 2026-08-01.** Eighteen more groups; one fix, and one thing
+worth knowing before the next sitting. Four `bug` verdicts (388 cells) asked for
+the comment to stay **right** of a record update's `|` — round 2's question with
+the opposite answer. `{ rec -- c` ⏎ `| f = 1`, `{ rec | -- c` ⏎ `f = 1` and the
+same with the gap stretched all format to a byte-identical string, so only one of
+the two can be had, and round 2 chose. **A superseded decision comes back looking
+like a new one**: the fix reshapes the disagreement, the other spelling of the
+same gap resurfaces as its own group, and nothing in the review cut says it is the
+far side of a question already settled. These four plus one more were the "450
+fresh UNREVIEWED" round 2 predicted, and were superseded to `keep`.
+
+The fix came out of a group given `keep`, and out of that verdict's own stated
+reason: a `--` mid-chain was breaking the chain at whatever operator it sat before
+(`one + two -- c` ⏎ `* three`), gluing across a looser operator so the row reads
+as `(one + two) * three` — a grouping gren-format never produces without a comment.
+`makeBinopBox` asked `commentBreaksFlowRow` of each operand alone, and a comment at
+the end of a *non-last* operand has nothing following it within that operand, so
+the chain missed the precedence-aware renderer. `BinopLayout.commentBreaksBinopChain`
+asks it of the whole chain with the operators interleaved back in. Round 2 had
+fixed the *indent* of this same forced break; this fixes *where it breaks*, and
+together they make good the claim
+[#17](docs/elmFormatComparison.md#divergence-17) was already making — a comment
+changes where the rows fall, never how the operators group. Fixture
+`BinopCommentPrecedenceBreak`; the eleven remaining groups were all answered by
+decisions already on record (C2 at a record field's `=`; the single-field
+container being unconditionally flat, comment or not). Write-up in the
+"Interview round 3" section of `comment-parity-triage.md`.
+
 To read them, use `tests/triage-comment-parity.py --review`, which buckets on
 the *disagreement* rather than on the cell: names and literals flattened, the
 surrounding context dropped, so the same question asked of `1` / `'c'` inside a

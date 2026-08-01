@@ -591,6 +591,31 @@ decision and why.
     layout is stable when reformatted and a comment anywhere in the chain never
     changes which operators break.
 
+    That last clause is load-bearing, and it took two fixes to make true. A `--`
+    ends its line, so a chain carrying one *has* to break — but it breaks where
+    precedence says, not where the comment sits:
+
+    ```gren
+    -- what the author wrote:
+    one + two -- c
+              * three
+
+    -- gren-format:                    -- and NOT:
+    one                                one + two -- c
+        + two -- c                         * three
+          * three
+    ```
+
+    The right-hand form breaks at the tighter `*` while gluing across the looser
+    `+`, so the first row reads as `(one + two) * three` — a grouping the code
+    does not have, and one gren-format never produces without a comment in the
+    way. It came from asking "does a comment end a row here?" of each operand on
+    its own: the comment is last *within its operand*, so nothing appeared to
+    follow it, and the chain missed the precedence-aware renderer entirely.
+    `BinopLayout.commentBreaksBinopChain` asks it of the whole chain instead, with
+    the operators interleaved back between the operands. Fixture:
+    `BinopCommentPrecedenceBreak`.
+
     A real example from this codebase makes the case well —
     `gren-format/src/Main.gren`'s `anyFlagSet` check ORs together a run of
     `/=` comparisons (abridged here to four; the real check has more):

@@ -1,0 +1,17 @@
+module BinopCommentPrecedenceBreak exposing (a, b, c, d)
+
+
+a = one + two -- tighter operator follows
+              * three
+
+
+b = one * two -- looser operator follows
+              + three
+
+
+c = one + two + three -- last group breaks internally
+                      * four
+
+
+d = one -- nothing follows in this operand's own row
+        + two * three
