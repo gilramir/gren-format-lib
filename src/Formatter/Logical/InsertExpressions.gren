@@ -40,6 +40,7 @@ import Formatter.Logical.LogicalPrintingTree exposing
     , lpnLastPos
     , lpnLeaf
     , lpnNode
+    , lpnWithBracketStart
     )
 
 
@@ -547,7 +548,13 @@ insertUpdate locExpr { record = record, newValues = newValues } =
                         -- elm-format (previously it stayed `{ b | f = <block> }`).
                         -- Close position (`locExpr.end`) so the descent guards
                         -- classify a comment before/after the `}` correctly (inside
-                        -- stays; past it escapes).
+                        -- stays; past it escapes); OPEN position (`locExpr.start`)
+                        -- so one written just past the `{` is known to be inside
+                        -- and stays there (`{ {- c -} rec | a = 1 }`) instead of
+                        -- being hoisted above the whole update. Which side of the
+                        -- base name it landed on is decided in `Comments.gren`
+                        -- against `recLoc.start` -- before the base is the opener
+                        -- slot, after it is the ambiguous `|` slot.
                         [ lpnBracketNode
                             (RecordUpdate
                                 { name = recLoc
@@ -556,6 +563,7 @@ insertUpdate locExpr { record = record, newValues = newValues } =
                             )
                             locExpr.end
                             fieldNodes
+                            |> lpnWithBracketStart locExpr.start
                         ]
                 )
 

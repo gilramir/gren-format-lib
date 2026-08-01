@@ -271,6 +271,13 @@ are auto-classified:
   picked. The rule fires only when *every* token the comment crossed is
   position-less — a move across a bracket or an operator is a boundary gren can
   see, so it still books debt.
+- **#23** — gren emitted *exactly* its comment-free rendering of the cell and
+  elm-format did not (`only_elm_reflowed`), so the extra structure is elm's
+  alone. This one needs the uncommented cell's own two outputs, which
+  `--update-baseline` now computes for all 1,738 syntax cells up front. It is
+  asymmetric on purpose: "both re-flowed, elm has more lines" is NOT this rule —
+  a `{- c -}` in a broken call defeats gren's own fn/arg0 glue, and that second,
+  unreviewed difference would ride in behind an elm-re-flowed label.
 
 A divergence where gren stranded the comment **alone on its own line** is
 never auto-classified (unless it is #22) — that is the exact shape of both
@@ -298,14 +305,15 @@ The axis reports **0 failing cells**.
 
 **Reviewed 2026-07-31** (`comment-parity-triage.md` has the per-family evidence
 and the verdicts): the 16,141 UNREVIEWED divergences were sorted into 13
-families and read. Three were real bugs, now fixed — a comment past a
-container's `{`/`[` hoisted out of it, one past a `}`/`]` pulled inside it, and
-a pipeline operator rendered as a flow item (flat +4) instead of a `B.prefix` at
-the operator's own width, which also mis-indented the operand of every
-comment-bearing `|>`/`<|` and forced a `<|` chain vertical. 2,777 baseline
-entries became byte-identical to elm-format and 2,709 more registered as #22, so
-the debt is now **10,267 UNREVIEWED** — still debt, not failures; see `tbd.md`
-for what they are and the next step for each.
+families and read. **Five were real bugs, now fixed** — a comment past a
+container's `{`/`[` hoisted out of it (including a record update's, whose base
+name's recorded position separates the opener slot from the ambiguous `|` one),
+one past a `}`/`]` pulled inside it, a pipeline operator rendered as a flow item
+(flat +4) instead of a `B.prefix` at the operator's own width, and a `{- c -}`
+between a seed and its `<|` forcing the chain vertical. 3,877 baseline entries
+became byte-identical to elm-format; 2,882 registered as #22 and 2,911 as #23,
+leaving **5,633 UNREVIEWED** — still debt, not failures; see `tbd.md` for what
+they are and the next step for each.
 
 ### Predicate/renderer agreement audit
 

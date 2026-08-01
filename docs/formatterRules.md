@@ -2162,7 +2162,24 @@ stays inside, and one just past a closing bracket stays outside.
 
 ```gren
 [ {- primary -} 1, 2 ]              -- stays inside the array
+{ {- the state -} rec | a = 1 }     -- stays inside the update, before the base
 fn a { rec | a = 1 } {- c -} last   -- stays outside the record
+```
+
+A record update shows both halves at once. Its `{` is recorded and so is its
+base name, so a comment before the base is placed exactly; past the base only
+the unrecorded `|` is left, and from there the rule below takes over — which
+also means the update can no longer stay on one line:
+
+```gren
+-- you wrote:
+{ {- kept -} rec {- canonicalized -} | a = 1 }
+
+-- formats to:
+{ {- kept -} rec
+    {- canonicalized -}
+    | a = 1
+}
 ```
 
 A comment around a signature's `:` always lands **after** it:
@@ -2213,7 +2230,9 @@ A comment around a **record update's** `|` (and an extensible record type's)
 always lands on **its own line between the base and the fields** — the one place
 the canonical side is "neither", because both of the sides are wrong: glued to
 the base it reads as a note about the base name, glued to the `|` it reads as a
-note about the first field, and the formatter can't tell which you meant:
+note about the first field, and the formatter can't tell which you meant. (This
+is only about the gap *after* the base name. One written before it — right after
+the `{` — is in the opener slot and stays exactly where you put it.)
 
 ```gren
 -- all four of these:

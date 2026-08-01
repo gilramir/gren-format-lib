@@ -275,6 +275,12 @@ Do not try to recover the side from how wide the whitespace gaps are —
 
 Where the position **is** recorded, use it. Two guards depend on it:
 
+- `RecordUpdate.name.start` — a record update's base name has a real position,
+  which is what separates its *opener* slot (`{ {- c -} rec | a = 1 }`, placed
+  exactly) from the gap after the base, where only the unrecorded `|` remains
+  and the comment is canonicalized to its own line. `Comments.gren` makes that
+  call once, so `role /= LeadsOwnLine` means exactly "opener" for a record
+  update's comment children and `splitOpenerComments` needs no rows.
 - `lpnBracketStart` (set by `authoredBracketList` / the record-type builders) —
   a comment written past the `{`/`[` belongs *inside* the container
   (`[ {- c -} 1, 2 ]`), even though the container's first *leaf* is the first

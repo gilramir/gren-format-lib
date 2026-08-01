@@ -989,8 +989,13 @@ decision and why.
     ```gren
     -- both formatters:
     [ {- primary -} 1, 2 ]
+    { {- the state -} rec | a = 1 }
     fn a { rec | a = 1 } {- c -} last
     ```
+
+    A record update is where the two halves meet: its `{` and its base name are
+    both recorded, so a comment before the base is placed exactly and only the
+    gap after it — where nothing but the `|` remains — is canonicalized.
 
 23. <a id="divergence-23"></a>**A comment never breaks the construct around it further open than you
     wrote it; elm-format opens the construct to give the comment room.**

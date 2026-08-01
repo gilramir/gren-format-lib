@@ -2344,39 +2344,104 @@ across rows or any field renders multi-line — matching elm-format for
 `\arg ->` head like elm-format. -}
 makeRecordUpdateBox : String -> Bool -> Array LPNode -> Result String Box
 makeRecordUpdateBox baseName forceVertical children =
-    if commentForcesBracketOpen forceVertical children then
-        -- A comment that can't ride the flat line forces the update vertical:
-        -- comment children render own-line at +4 (no `| `/`, ` prefix), the
-        -- actual fields keep their prefixes.
-        makeRecordUpdateVerticalBox baseName children
+    let
+        { opener, rest } =
+            splitOpenerComments children
+    in
+    updateBaseBox baseName opener
+        |> Result.andThen
+            (\baseBox ->
+                if commentForcesBracketOpen forceVertical rest || not (isSingleLine baseBox) then
+                    -- A comment that can't ride the flat line forces the update
+                    -- vertical: comment children render own-line at +4 (no
+                    -- `| `/`, ` prefix), the actual fields keep their prefixes.
+                    -- A multi-line BASE (a `--` glued to the `{`) forces it the
+                    -- same way — the fields can no longer share that row.
+                    makeRecordUpdateVerticalBox baseBox rest
+
+                else
+                    -- No comment, or only comments that ride the flat line the
+                    -- author wrote; `pairInlineComments` glues those onto the
+                    -- field each trails.
+                    pairInlineComments renderRecordFieldBox rest
+                        |> Result.andThen
+                            (\fieldBoxes ->
+                                when Array.popFirst fieldBoxes is
+                                    Nothing ->
+                                        Ok (B.line (B.literal ("{ " ++ baseName ++ " }")))
+
+                                    Just { first = firstField, rest = restFields } ->
+                                        let
+                                            contentVertical =
+                                                Array.any (\b -> not (isSingleLine b)) fieldBoxes
+                                        in
+                                        Ok
+                                            (E.extensionGroup
+                                                (forceVertical || contentVertical)
+                                                baseBox
+                                                firstField
+                                                restFields
+                                            )
+                            )
+            )
+
+
+{-| Split a record update's children into the comments written between its `{`
+and its base name — the opener slot — and everything else.
+
+They are exactly the comment children whose role is not `LeadsOwnLine`:
+`Comments.gren` gives every comment that landed *past* the base name
+`LeadsOwnLine` unconditionally, because past the base only the unrecorded `|`
+remains and no side can be claimed. So the role alone separates the two, with no
+row-reading here. -}
+splitOpenerComments : Array LPNode -> { opener : Array LPNode, rest : Array LPNode }
+splitOpenerComments children =
+    let
+        n =
+            (Array.foldl
+                (\node acc ->
+                    if acc.stopped then
+                        acc
+
+                    else if nodeIsComment node && not (commentLeadsOwnLine node) then
+                        { acc | i = acc.i + 1 }
+
+                    else
+                        { acc | stopped = True }
+                )
+                { i = 0, stopped = False }
+                children
+            ).i
+    in
+    { opener = Array.slice 0 n children, rest = Array.dropFirst n children }
+
+
+commentLeadsOwnLine : LPNode -> Bool
+commentLeadsOwnLine node =
+    commentRole (lpnBox node) == Just LeadsOwnLine
+
+
+-- `{ base`, with any opener comments glued in front of the base name the way
+-- `[ {- c -} 1` glues them in front of a list's first item — same helper, same
+-- all-or-nothing run rule. The `{ ` itself is supplied by the caller.
+updateBaseBox : String -> Array LPNode -> Result String Box
+updateBaseBox baseName opener =
+    if Array.isEmpty opener then
+        Ok (B.line (B.literal baseName))
 
     else
-        -- No comment, or only comments that ride the flat line the author
-        -- wrote; `pairInlineComments` glues those onto the field each trails.
-        pairInlineComments renderRecordFieldBox children
-            |> Result.andThen
-                (\fieldBoxes ->
-                    when Array.popFirst fieldBoxes is
-                        Nothing ->
-                            Ok (B.line (B.literal ("{ " ++ baseName ++ " }")))
-
-                        Just { first = firstField, rest = restFields } ->
-                            let
-                                contentVertical =
-                                    Array.any (\b -> not (isSingleLine b)) fieldBoxes
-                            in
-                            Ok
-                                (E.extensionGroup
-                                    (forceVertical || contentVertical)
-                                    (B.line (B.literal baseName))
-                                    firstField
-                                    restFields
-                                )
-                )
+        traverseResult
+            (\node ->
+                commentNodeBox node
+                    |> Result.map (\box -> { box = box, inline = commentRidesInline node })
+            )
+            opener
+            |> Result.map
+                (\lead -> glueLeadingCommentRun True lead (B.line (B.literal baseName)))
 
 
-makeRecordUpdateVerticalBox : String -> Array LPNode -> Result String Box
-makeRecordUpdateVerticalBox baseName children =
+makeRecordUpdateVerticalBox : Box -> Array LPNode -> Result String Box
+makeRecordUpdateVerticalBox baseBox children =
     let
         step node accResult =
             accResult
@@ -2496,7 +2561,7 @@ makeRecordUpdateVerticalBox baseName children =
         |> Result.map
             (\acc ->
                 B.stack1
-                    [ B.prefix (B.row [ B.punc "{", B.space ]) (B.line (B.literal baseName))
+                    [ B.prefix (B.row [ B.punc "{", B.space ]) baseBox
                     , B.indent (B.stack1 acc.lines)
                     , B.line (B.punc "}")
                     ]

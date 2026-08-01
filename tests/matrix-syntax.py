@@ -327,6 +327,7 @@ def marker_role(out):
 
 REASON_INHERITED = "INHERITED"  # prefix: "INHERITED: <the syntax cell's own reason>"
 REASON_UNRECORDED = "#22"  # comment snapped to a canonical side of an unrecorded token
+REASON_ELM_REFLOWS = "#23"  # gren kept its comment-free layout; elm-format re-flowed
 
 # Tokenizer for the "which tokens did the comment cross" test below. `@C` stands
 # in for the marker's comment so it takes a slot in the stream.
@@ -385,7 +386,51 @@ def crossed_only_unrecorded_tokens(gren_out, elm_out):
     return True
 
 
-def comment_family(gren_out, elm_out, base_reason):
+def _canon_lines(text, drop_marker=False):
+    """Right-trimmed non-blank lines with interior runs of spaces squeezed,
+    optionally with the marker's comment deleted.
+
+    Both normalizations are needed to compare a commented output against its
+    uncommented one: deleting a comment from mid-line leaves the gap it
+    occupied, and an own-line comment leaves a blank line. Indentation is kept
+    exact -- a cell whose code lands at a different column must still differ."""
+    out = []
+    for ln in text.split("\n"):
+        if drop_marker and MARKER_CH in ln:
+            ln = re.sub(r"\{-\s*" + MARKER_CH + r"\s*-\}|--\s*" + MARKER_CH + r"\s*$", "", ln)
+        ln = ln.rstrip()
+        if ln.strip():
+            out.append(" " * (len(ln) - len(ln.lstrip())) + re.sub(r" +", " ", ln.strip()))
+    return out
+
+
+def only_elm_reflowed(gren_out, elm_out, base_pair):
+    """True when gren-format emitted **exactly the layout it emits for this cell
+    with no comment in it at all**, and elm-format did not.
+
+    This is the machine-checkable form of catalogue #23 (and of #12 / #16 / #18,
+    its instances): a comment is something to place, not a reason to re-lay-out
+    working code. When it holds, whatever extra structure the outputs differ by
+    was introduced by elm-format alone -- gren cannot be the one that moved the
+    code, because its code is byte-identical to the comment-free rendering.
+
+    It is deliberately asymmetric. "Both sides re-flowed and elm ended up with
+    more lines" is NOT this rule: a `{- c -}` in a broken call defeats gren's own
+    fn/arg0 glue, so gren re-flows too, and that second difference has never been
+    reviewed. Requiring gren's side to be untouched is what keeps such a cell out.
+
+    A `--` cell where the comment legitimately forces gren to break also fails
+    this -- gren's layout did change -- and stays UNREVIEWED. That is the honest
+    outcome: there the claim "gren is right" rests on which re-flow is correct,
+    not on gren having done nothing."""
+    if not base_pair:
+        return False
+    base_gren, base_elm = base_pair
+    return (_canon_lines(gren_out, drop_marker=True) == _canon_lines(base_gren)
+            and _canon_lines(elm_out, drop_marker=True) != _canon_lines(base_elm))
+
+
+def comment_family(gren_out, elm_out, base_reason, base_pair=None):
     """Auto-classify a comment-parity divergence, or None to leave it UNREVIEWED.
 
     Two things can differ, and they are judged separately:
@@ -397,6 +442,10 @@ def comment_family(gren_out, elm_out, base_reason):
         (`crossed_only_unrecorded_tokens`), which is forced rather than chosen --
         both authorings reach gren-format as the same three positions, so one of
         them must differ from elm-format whatever side is picked.
+      * the LAYOUT around it -- #23, when gren-format emitted exactly its
+        comment-free rendering of the cell and elm-format did not
+        (`only_elm_reflowed`, which needs `base_pair`). Then the structural
+        difference is elm's alone, which is provable rather than argued.
       * everything else -- if the outputs still differ once the comment is
         deleted from both, the underlying syntax cell diverges on its own, and
         `base_reason` (its entry in the SYNTAX baseline) says why. Adding a
@@ -415,12 +464,15 @@ def comment_family(gren_out, elm_out, base_reason):
     parens baseline.
     """
     unrecorded = crossed_only_unrecorded_tokens(gren_out, elm_out)
+    elm_only = only_elm_reflowed(gren_out, elm_out, base_pair)
 
     gren_role, elm_role = marker_role(gren_out), marker_role(elm_out)
     moved = gren_role != elm_role
     if moved and gren_role == "alone" and not unrecorded:
+        # gren alone / elm beside code is the pairing-bug shape. Never swept,
+        # not even when the base explains the code around it.
         return None
-    if moved and not unrecorded and not (
+    if moved and not unrecorded and not elm_only and not (
         gren_role == "trailing" and elm_role in ("leading", "alone")
     ):
         # A comment move we have no reviewed family for. Review it.
@@ -428,11 +480,18 @@ def comment_family(gren_out, elm_out, base_reason):
 
     parts = []
     if not comment_stripped_matches(gren_out, elm_out, collapse_interior=unrecorded):
-        if not base_reason:
+        # The outputs differ by more than where the comment sits. Either the
+        # underlying cell already diverges (INHERITED), or gren emitted its
+        # comment-free layout and the extra structure is elm's alone (#23). With
+        # neither, something unexplained happened -- review it.
+        if base_reason:
+            parts.append(f"{REASON_INHERITED}:{short_tag(base_reason)}")
+        elif not elm_only:
             return None
-        parts.append(f"{REASON_INHERITED}:{short_tag(base_reason)}")
     if unrecorded:
         parts.append(REASON_UNRECORDED)
+    elif elm_only:
+        parts.append(REASON_ELM_REFLOWS)
     elif moved:
         parts.append(REASON_TRAILING)
     return "+".join(parts) if parts else None
@@ -736,6 +795,33 @@ def check_parity(source, gren_out):
     return dict(kind="divergence", gren=gren_elm, elm=elm_out)
 
 
+def base_output_pair(cell):
+    """The uncommented cell's own two outputs, in Elm token space -- the same
+    pair `check_parity` compares. Keyed by `base_parity_key` so a comment cell
+    can ask "did the comment change anything the uncommented cell did not
+    already do?" (see `explained_by_base`)."""
+    construct, context, variant = cell
+    source = source_for(variant_atom(construct, variant), context.template)
+    key = f"{construct.name}/{context.name}" + ("" if variant == "flat" else "@" + variant)
+    with tempfile.TemporaryDirectory() as tmp:
+        path = pathlib.Path(tmp) / "M.gren"
+        path.write_text(source)
+        try:
+            shown = run("--show", path)
+        except subprocess.TimeoutExpired:
+            return key, None
+        if shown.returncode != 0:
+            return key, None
+    try:
+        elm = subprocess.run([ELM_FORMAT, "--stdin"], input=to_elm(source),
+                             capture_output=True, text=True, timeout=120)
+    except subprocess.TimeoutExpired:
+        return key, None
+    if elm.returncode != 0:
+        return key, None
+    return key, (to_elm(shown.stdout).strip(), elm.stdout.strip())
+
+
 def check_cell(cell):
     construct, context, variant = cell
     cname, xname = construct.name, context.name
@@ -962,7 +1048,7 @@ def write_comment_baseline(cells):
     }, indent=2) + "\n")
 
 
-def report_comment_parity(results, baseline, update, verbose=False):
+def report_comment_parity(results, baseline, update, verbose=False, base_pairs=None):
     """Oracle 4 over the comment axis, gated against COMMENT_BASELINE.
     Mirrors report_parity; separate because the keys and the auto-classifier
     differ. Returns (failures, ...)."""
@@ -981,7 +1067,8 @@ def report_comment_parity(results, baseline, update, verbose=False):
                 cells[key] = prior
                 continue
             family = comment_family(r["parity"]["gren"], r["parity"]["elm"],
-                                    syntax_baseline.get(base_parity_key(r)))
+                                    syntax_baseline.get(base_parity_key(r)),
+                                    (base_pairs or {}).get(base_parity_key(r)))
             cells[key] = family or REASON_UNREVIEWED
         write_comment_baseline(cells)
         print(f"wrote {len(cells)} registered divergences to {COMMENT_BASELINE.name}")
@@ -1056,6 +1143,18 @@ def run_comment_axis(cells, args):
           f"({n_atom} at atom-local gaps, {n_ctx} at context gaps)")
     print(f"  kinds: {', '.join(kinds)}   positions: {', '.join(positions)}\n")
 
+    # The UNCOMMENTED cells' own output pairs. Only needed when writing the
+    # baseline, where `explained_by_base` asks whether a comment changed
+    # anything its cell did not already do -- ~4% more work on top of 38k
+    # comment cells, and the difference between an INHERITED reason that is the
+    # whole story and one that only covers part of it.
+    base_pairs = {}
+    if args.update_baseline and PARITY:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
+            for key, pair in pool.map(base_output_pair, cells):
+                if pair:
+                    base_pairs[key] = pair
+
     results = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
         for r in pool.map(check_comment_cell, comment_cells):
@@ -1095,7 +1194,8 @@ def run_comment_axis(cells, args):
     parity_failures = []
     if PARITY:
         parity_failures = report_comment_parity(results, load_comment_baseline(),
-                                                args.update_baseline, verbose=args.verbose)
+                                                args.update_baseline, verbose=args.verbose,
+                                                base_pairs=base_pairs)
         for title, detail in (parity_failures if args.verbose else parity_failures[:10]):
             print(f"FAIL {title}")
             print(f"  {detail}\n")

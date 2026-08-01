@@ -1504,6 +1504,28 @@ isRecordUpdateBox box =
             False
 
 
+{-| True when this comment was written BEFORE a record update's base name — the
+opener slot, `{ {- c -} rec | a = 1 }` — rather than in the ambiguous gap around
+the `|`. The base's start is a real recorded position (`RecordUpdate.name.start`,
+the base expression's own start), which is what makes the two tellable apart;
+the `|` between them is not recorded, so once past the base nothing more can be
+resolved.
+
+Anything that is not a positioned comment leaf, or not a record update, is not
+an opener. -}
+commentPrecedesUpdateBase : LPBox -> LPNode -> Bool
+commentPrecedesUpdateBase containerBox commentNode =
+    when { container = containerBox, comment = lpnBox commentNode } is
+        { container = RecordUpdate { name }, comment = SingleLineComment { loc } } ->
+            positionBefore loc.start name.start.row name.start.col
+
+        { container = RecordUpdate { name }, comment = BlockComment { loc } } ->
+            positionBefore loc.start name.start.row name.start.col
+
+        _ ->
+            False
+
+
 -- True when an `AcrossOrVertical` is a union variant (`= Ctor` / `| Ctor`)
 -- rather than a call: its first child is the synthesized `=` or `|` head.
 isUnionVariantFlow : LPNode -> Bool
@@ -2065,31 +2087,12 @@ classifyCommentKind containerBox commentNode before after row =
 
             else
                 RidesInline
-    in
-    if isBracketBranch then
-        -- Nothing before it inside an ITEM LIST → it trails the OPENING bracket
-        -- (`[ {- c -} 1, 2 ]`). The descent only lets a comment land here when it
-        -- was written past the recorded `{`/`[`, so "first child" IS "written
-        -- just after the opener"; it glues to the opener exactly as a same-row
-        -- comment glues to the item before it, and for the same reason a
-        -- single-line `{- -}` may still ride the flat line.
-        --
-        -- A `RecordUpdate` is excluded: its first child is the first FIELD, and
-        -- what precedes that is the base name and the position-less `|`, not the
-        -- `{`. A comment there is the ambiguous around-the-`|` case, which stays
-        -- own-line on purpose (see the forced-choice divergence for `|`).
-        --
-        -- Otherwise: own-row → leads its own line at the bracket column. Same-row
-        -- as the previous item → glues: a single-line `{- -}` rides the flat line
-        -- (`RidesInline`, the only kind `literalCommentsRideFlatLine` keeps
-        -- flat); a `--` or a multi-line `{- … -}` glues but breaks the line
-        -- (`TrailsPrevious`).
-        if (not (Array.isEmpty before) || isRecordUpdateBox containerBox)
-            && (bracketPrevRow < 0 || row /= bracketPrevRow)
-        then
-            LeadsOwnLine
 
-        else
+        -- A comment that glues to whatever precedes it inside a bracket, by its
+        -- own shape: a single-line `{- -}` rides the line (`RidesInline`, the
+        -- only kind `literalCommentsRideFlatLine` keeps flat); a `--` or a
+        -- multi-line `{- … -}` glues but breaks it.
+        bracketKindRole =
             when lpnBox commentNode is
                 BlockComment { loc } ->
                     if String.contains "\n" loc.value then
@@ -2100,6 +2103,53 @@ classifyCommentKind containerBox commentNode before after row =
 
                 _ ->
                     TrailsPrevious
+    in
+    if isBracketBranch then
+        -- A `RecordUpdate`'s children are its FIELDS, so where a comment sits
+        -- relative to them says nothing. What decides it is the base name, whose
+        -- start position IS recorded (`RecordUpdate.name.start`):
+        --
+        --   before the base → the OPENER slot, `{ {- c -} rec | a = 1 }`, known
+        --       to be inside the braces because the `{` is recorded too. Glues to
+        --       the `{` exactly as an item list's first comment does.
+        --   after the base  → the ambiguous around-the-`|` slot. Always own-line;
+        --       both sides of the `|` are unrecoverable and both readings would
+        --       be a claim we cannot support (see the #22 write-up).
+        --
+        -- Everywhere the renderer needs to tell the two apart it can: a comment
+        -- in the `|` slot is the update's FIRST child, so it falls into the
+        -- own-line branch below (nothing precedes it, `bracketPrevRow` is -1),
+        -- which makes "leading run of comment children whose role is not
+        -- `LeadsOwnLine`" mean exactly "opener". A comment TRAILING a field is
+        -- not in that leading run and keeps the ordinary same-row rules.
+        if isRecordUpdateBox containerBox && Array.all isCommentNode before then
+            -- Somewhere in the base … first-field region. `before` being all
+            -- comments (rather than empty) is what keeps a SECOND comment here
+            -- in the same region as the first — `{ {- a -} rec {- b -} | x = 1 }`
+            -- must not let `{- b -}` inherit the opener's same-row glue.
+            if commentPrecedesUpdateBase containerBox commentNode then
+                bracketKindRole
+
+            else
+                LeadsOwnLine
+        -- Nothing before it inside an ITEM LIST → it trails the OPENING bracket
+        -- (`[ {- c -} 1, 2 ]`). The descent only lets a comment land here when it
+        -- was written past the recorded `{`/`[`, so "first child" IS "written
+        -- just after the opener"; it glues to the opener exactly as a same-row
+        -- comment glues to the item before it, and for the same reason a
+        -- single-line `{- -}` may still ride the flat line.
+        --
+        -- Otherwise: own-row → leads its own line at the bracket column. Same-row
+        -- as the previous item → glues: a single-line `{- -}` rides the flat line
+        -- (`RidesInline`, the only kind `literalCommentsRideFlatLine` keeps
+        -- flat); a `--` or a multi-line `{- … -}` glues but breaks the line
+        -- (`TrailsPrevious`).
+
+        else if not (Array.isEmpty before) && (bracketPrevRow < 0 || row /= bracketPrevRow) then
+            LeadsOwnLine
+
+        else
+            bracketKindRole
 
     else if isBinopContainer then
         -- Same-row-as-operand trails inline; a later-row comment leads its own

@@ -66,3 +66,38 @@ pastCloser =
 
 pastArrayCloser =
     fn a [ 1, 2 ] {- about the array -} last
+
+
+-- A record update's `{` is recorded too, but its children are the FIELDS, so
+-- which side of the base name the comment landed on is what separates the
+-- opener slot from the ambiguous `|` slot -- and the base name's start IS a
+-- recorded position.
+updateOpener =
+    { {- the state -} rec | a = 1 }
+
+
+updateOpenerLine =
+    { -- the state
+      rec
+        | a = 1
+    }
+
+
+updateTwoOpeners =
+    { {- a -} {- b -} rec | x = 1 }
+
+
+-- Past the base name there is only the unrecorded `|` left, so this one stays
+-- on its own line however it was written -- and it takes the update open with
+-- it. The opener beside it is unaffected.
+updateOpenerAndBar =
+    { {- a -} rec
+        {- b -}
+        | x = 1
+    }
+
+
+-- A comment trailing a FIELD is not in the opener run and keeps the ordinary
+-- same-row rule: it rides the line.
+updateFieldTrailing =
+    { rec | a = 1 {- after the field -} }
