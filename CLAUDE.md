@@ -421,6 +421,36 @@ one thing this baseline exists to stop. `group_sig` is the same function
 `--interview` skips on, so a group registers exactly when it would not be
 re-asked.
 
+**Interview round 4, 2026-08-01.** Ten groups; six registered, one real bug found.
+Five of the six `unsure` notes were one question — *"do we track the `=` / the `|`
+in the AST?"* — which is [#22](docs/elmFormatComparison.md#divergence-22) met for
+the third round running without being recognised. **Neither is tracked**: only a
+binary operator and a bracket carry a position, so both authorings arrive
+identically and one must differ from elm-format whichever side is picked. Groups
+42–44 (a `--` in a field's `=` gap) are straight C2; groups 45–47 (a `--` at a
+record update's `|`) are C2's line-leading exception, i.e. the debt `fab9370` said
+to answer with `keep`. All six registered `#22` (48 cells).
+
+The sixth `unsure` was not that question, and its note is the one that found the
+bug: *"what does this look like without a comment?"* — it didn't. A record field
+holding a lambda dropped its body **2** past the `{` instead of 4, where every
+other commented field value, elm-format, and gren's own comment-free rendering of
+the same field all agree on 4. `renderGluedLambdaField` assembled the field flow
+with `assembleFlow False 0`, copied from `makePBox`'s `IndentedBlock` arm, where
+the 0 is right because there the *parent* applies the indent; a field is a
+bracket-list **item** and must carry its own +4, as `renderFieldFlowWithValueBox`
+already did. The two only disagree when the field's flow breaks, and a comment in
+the head is the only thing that breaks it — invisible to every gate that does not
+cross syntax with comments. Fixture `RecordLambdaFieldCommentIndent`; **UNREVIEWED
+855 → 831** as its 24 cells became byte-identical to elm-format, with 0 hard
+failures across all 38,560 comment cells. Write-up in the "Interview round 4"
+section of `comment-parity-triage.md`.
+
+**Revising a verdict is an append with the same `sig`** — `--register` builds
+`{sig: decision}` over the log in order, so the last row wins. `--redo` re-asks
+interactively; there is no in-place edit, and the superseded rows are the record
+of what was thought before.
+
 ### Predicate/renderer agreement audit
 
 Every other check in this repo is a **self-consistency** check — fixture diff,

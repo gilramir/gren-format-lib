@@ -1,0 +1,48 @@
+module RecordLambdaFieldCommentIndent exposing (..)
+
+
+-- A `--` in the head of a glued-lambda record field breaks the field's flow.
+-- The dropped lambda must land 4 past the `{`, like every other field value,
+-- not 2 (aligned under the field name).
+
+
+literalOne =
+    { fld =
+        -- why
+        \q -> q + one
+    }
+
+
+literalTwo =
+    { fld =
+        -- why
+        \q -> q + one
+    , snd = 2
+    }
+
+
+updateField =
+    { rec
+        | fld =
+            -- why
+            \q -> q + one
+    }
+
+
+-- The comparison cases: a non-lambda value with the same comment, and the
+-- comment-free glued lambda, which must stay on the `= ` line.
+
+
+nonLambdaValue =
+    { fld =
+        -- why
+        f arg1 arg2
+    }
+
+
+gluedNoComment =
+    { fld = \q -> q + one }
+
+
+blockCommentStaysFlat =
+    { fld = {- why -} \q -> q + one }

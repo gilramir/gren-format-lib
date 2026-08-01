@@ -2203,12 +2203,21 @@ isGluedLambdaField field valueNode =
 
 {-| The glued-lambda field, decided from the lambda body's OWN rendered box.
 
-Single-line body → the lambda fits on the `= ` line, so render the field exactly
-as `makePBox IndentedBlock` would (`buildFlowBox 0` is `renderFlowItems` then
-`assembleFlow False 0`, which is what this reproduces with the body item
-supplied). Multi-line body → the lambda drops whole below `field =`, which is
+Single-line body → the lambda fits on the `= ` line, so render the field as one
+flow (what `makePBox IndentedBlock` does, with the body item supplied instead of
+re-derived). Multi-line body → the lambda drops whole below `field =`, which is
 what this formatter does with a lambda in every other position and what
 elm-format does here.
+
+The flow's continuation indent is `grenIndent`, matching
+`renderFieldFlowWithValueBox` — the field is rendered as a bracket-list ITEM, so
+its own box has to carry the +4; nothing indents it from outside. (It read
+`assembleFlow False 0` until 2026-08-01, copied from `makePBox`'s `IndentedBlock`
+arm, where the 0 is right because there the *parent* applies the indent. A
+single-line body never uses the continuation indent, so the two agreed on every
+comment-free input — a comment in the head is the only thing that breaks this
+flow, and it landed the lambda 2 columns left of where every other field value
+goes.)
 
 The body is rendered ONCE and the box reused down both paths. Re-rendering the
 field to test it would double the cost at every nesting level — exponential in
@@ -2230,7 +2239,7 @@ renderGluedLambdaField headNodes bodyNode =
                 if isSingleLine bodyBox then
                     renderFlowItems headNodes
                         |> Result.andThen
-                            (\headItems -> assembleFlow False 0 (Array.pushLast bodyItem headItems))
+                            (\headItems -> assembleFlow False grenIndent (Array.pushLast bodyItem headItems))
 
                 else
                     -- `headNodes` is `[ name, =, lambdaHead ]`; the lambda drops as
