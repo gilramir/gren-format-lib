@@ -163,12 +163,17 @@ genuine bug gets a `BUG:` reason, which is **also** printed every run — being
 understood is not the same as being acceptable, and a baseline entry is the
 easiest place in this repo for a known bug to go quiet.
 
-Current state: **1738/1738 pass oracles 1–3**; 1167 are byte-identical to
-elm-format, with 571 registered divergences — 398 redundant parens (#10), 125
+Current state: **1738/1738 pass oracles 1–3**; 1168 are byte-identical to
+elm-format, with 570 registered divergences — 398 redundant parens (#10), 125
 single-item-container collapse (#21, records *and* arrays), 38 precedence-split
 binop chains (#17), 6 backward-`<|` flat layout (#14), 3 pipeline-`|>` alignment
-(#19), 1 record-update `|>`-operand field indent (#22), **0 UNREVIEWED**, and
-**0 known BUGs** — every divergence is a documented catalogue entry. The
+(#19), **0 UNREVIEWED**, and
+**0 known BUGs** — every divergence is a documented catalogue entry. (A former
+divergence, a record update as a direct multi-line `|>` operand keeping its
+fields 4 past the `{`, was eliminated 2026-07-31 by rendering the pipeline
+operator as a Box *prefix* instead of a flow item — the fields now hang off the
+`{` byte-identically to elm-format. Old catalogue #22 was removed and the three
+comment-placement entries added the same day took #22–#24.) The
 author-broken axis found four real bugs, all **fixed**: a lambda body
 over-indenting to +8 in array-item / nested-lambda-body positions
 (`LambdaBodyIndentInBrackets`); a `let` as a `<|` body over-indenting its
@@ -254,12 +259,23 @@ diff-against-itself check can see. Oracle 4 gates against its own
 
 Auto-classification composes with the syntax baseline: a comment cell whose
 *uncommented* form already diverges is registered `INHERITED: <that reason>`
-rather than booking fresh debt for the same #10. The only comment-position family
-auto-classified is #13 (gren keeps a comment trailing the token it was written
-after). A divergence where gren stranded the comment **alone on its own line** is
-never auto-classified — that is the exact shape of both pairing bugs, so a
-classifier that swept "the comment moved" into one family would have frozen the
-very bug the axis was built to find.
+rather than booking fresh debt for the same #10. Two comment-position families
+are auto-classified:
+
+- **#13** — gren keeps a comment trailing the token it was written after.
+- **#22** — the two formatters put it on opposite sides of a token the parser
+  records **no position for** (`crossed_only_unrecorded_tokens`). Only a binary
+  operator and a bracket carry a position in the Gren AST; `=` `:` `|` `,` `->`
+  and the keywords are discarded, so both authorings around one of them arrive
+  identically and one of them must differ from elm-format whichever side is
+  picked. The rule fires only when *every* token the comment crossed is
+  position-less — a move across a bracket or an operator is a boundary gren can
+  see, so it still books debt.
+
+A divergence where gren stranded the comment **alone on its own line** is
+never auto-classified (unless it is #22) — that is the exact shape of both
+pairing bugs, so a classifier that swept "the comment moved" into one family
+would have frozen the very bug the axis was built to find.
 
 **First run (2026-07-31) found 424 hard failures — all now fixed**, in three
 commits:
@@ -278,8 +294,18 @@ commits:
   That last one also fixed a comment-free instance of the same bug
   (`{ fld = \q -> { a = 1` / `, b = 2 } }` oscillated with no comment anywhere).
 
-The axis now reports **0 failing cells**. What remains is ~16k unreviewed parity
-divergences — debt, not failures; see `tbd.md`.
+The axis reports **0 failing cells**.
+
+**Reviewed 2026-07-31** (`comment-parity-triage.md` has the per-family evidence
+and the verdicts): the 16,141 UNREVIEWED divergences were sorted into 13
+families and read. Three were real bugs, now fixed — a comment past a
+container's `{`/`[` hoisted out of it, one past a `}`/`]` pulled inside it, and
+a pipeline operator rendered as a flow item (flat +4) instead of a `B.prefix` at
+the operator's own width, which also mis-indented the operand of every
+comment-bearing `|>`/`<|` and forced a `<|` chain vertical. 2,777 baseline
+entries became byte-identical to elm-format and 2,709 more registered as #22, so
+the debt is now **10,267 UNREVIEWED** — still debt, not failures; see `tbd.md`
+for what they are and the next step for each.
 
 ### Predicate/renderer agreement audit
 

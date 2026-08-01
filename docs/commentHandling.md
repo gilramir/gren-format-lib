@@ -86,13 +86,24 @@ binding's value), a `PipelineStep`, or a `BodyBlock` (a declaration's value).
 If so the comment is pushed inside that node as its **first child**, with the
 role forced to `LeadsOwnLine`.
 
-All three wrappers start their content on a fresh line unconditionally, so a
-comment sitting between the head and the body has no flat line to ride: it leads
-the body wherever the author wrote it, and the row it was written on cannot
-change that. Leaving it outside instead makes the flow's soft separator glue it
-onto the head — `x =` ⏎ `{- c -}` ⏎ `42` rendered as `x = {- c -}` ⏎ `42`, which
-contradicted both the stored role and elm-format. The `BodyBlock` arm is what
-makes a top-level declaration behave like the `let` binding one level down.
+`IndentedBlock` and `BodyBlock` start their content on a fresh line
+unconditionally, so a comment sitting between the head and the body has no flat
+line to ride: it leads the body wherever the author wrote it, and the row it was
+written on cannot change that. Leaving it outside instead makes the flow's soft
+separator glue it onto the head — `x =` ⏎ `{- c -}` ⏎ `42` rendered as
+`x = {- c -}` ⏎ `42`, which contradicted both the stored role and elm-format. The
+`BodyBlock` arm is what makes a top-level declaration behave like the `let`
+binding one level down.
+
+A `PipelineStep` is the exception among the three, and its arm is conditional: a
+pipeline can stay on one row (`seed |> f |> g`), so a `RidesInline` comment
+written between the seed and the operator *does* have a line to ride and stays
+outside, classified normally (`seed {- c -} |> f`). Redirecting it made it the
+step's first child, where nothing precedes it — so it classified `LeadsOwnLine`
+and forced the whole chain vertical, a comment creating breaks the code never
+needed. A `--` or a multi-line `{- … -}` breaks the row regardless and still
+leads the step body. `SoftIndentedBlock` (a lambda body the author started on the
+`->` row) has its own arm applying the same "can it ride?" test.
 
 ## The rule: coarse generic flow vs permissive list-like contexts
 
@@ -152,6 +163,31 @@ over `commentRole (lpnBox node)`:
 | `NodeClassify.literalCommentsRideFlatLine` | `role == RidesInline` | flat-vs-open gate for literals/unions |
 | `BinopLayout.splitTrailingOwnLineComments` | `role == LeadsOwnLine` | own-line vs inline trailing binop comments |
 | `MakeRenderBox.binopChainIndentedLines` | the `LeadsOwnLine` split above | forced-vertical binop chains (both renderers) |
+| `MakeRenderBox.operatorPrefixedOperandBox` | `runStartsOnOperatorRow` (`role /= LeadsOwnLine`) | the comment run between a `\|>`/`<\|` and its operand |
+
+### An operator is a prefix, not a flow item
+
+`makeOpAndRhsBox` (binops), `stepBodyBox` (`|>`) and `backwardStepBodyBox`
+(`<|`) all render the operator with `prefixOperator`, i.e. `B.prefix`. That pads
+the operand's continuation rows by the operator's own width, so whatever drops
+below the operator lands in the column it *would* have occupied on the
+operator's line — `+ ` → 2, `++ ` → 3, `|> ` → 3 — which is elm-format's rule
+and the only one that stays put under a comment. A `Tab` inside the operand box
+still snaps to an absolute multiple of 4 after that padding (`B.prefix` does not
+freeze tabs), so a broken call's arguments keep their +4.
+
+Treating the operator as the flow's first item instead gave every continuation a
+flat `flowIndent` of 4: one column past the operand column for `|>`, and level
+with the operator itself for a `<|` step body, where an argument stopped looking
+like an argument.
+
+The comment run between the operator and its operand is peeled out and handled by
+`glueLeadingCommentRun` rather than left to the flow, because a flow's
+`flowIndent` is a single nest over every continuation row — it must be +4 for a
+broken call's arguments, which would also push an operand that merely dropped
+below a `--`. One exception, which `runStartsOnOperatorRow` tests: a run the
+author wrote on a row *below* the operator must not be hoisted onto it, or the
+reparse reads it as `RidesInline` there and pulls the operand up with it.
 
 `renderWhenBranchesBox` guards its glue on `pending` being empty so a same-row
 comment *run* leading a branch stays together instead of the second comment
@@ -217,12 +253,48 @@ the union flat-vs-vertical author-layout check). Add a row-read in a decision an
 the build fails; if a use is truly structural, allowlist its function there with
 a reason.
 
+## What the parser records, and what it doesn't
+
+Placement can only be as good as the positions the parser hands over. Of
+everything that separates two pieces of an expression, exactly two things carry
+a source position:
+
+- a **binary operator** — `Binops.operator : Located String`
+- a **bracket** — an expression's own `start` / `end` span the `(`/`[`/`{` and
+  its closer
+
+Everything else — `=` `:` `|` `,` `->`, the keywords `if`/`then`/`else`/
+`when`/`is`/`let`/`in`, an import's `as` — is discarded. For those, `x {- c -} TOK y`
+and `x TOK {- c -} y` arrive as the *same* three facts (where `x` ends, where the
+comment is, where `y` starts), so the side the author chose is unrecoverable. The
+formatter picks one canonical side per token and documents it
+([divergence #22](elmFormatComparison.md#divergence-22), with the full list in
+[formatterRules.md](formatterRules.md#when-the-formatter-cant-tell-what-you-meant)).
+Do not try to recover the side from how wide the whitespace gaps are —
+`fuzz-whitespace.py` exists to keep that unobservable.
+
+Where the position **is** recorded, use it. Two guards depend on it:
+
+- `lpnBracketStart` (set by `authoredBracketList` / the record-type builders) —
+  a comment written past the `{`/`[` belongs *inside* the container
+  (`[ {- c -} 1, 2 ]`), even though the container's first *leaf* is the first
+  item and makes the comment look like it precedes the whole thing. The
+  opening position is folded into the node's cached `firstPos`/`minRow` so
+  every ancestor's bounds agree.
+- `boxKeepsTrailingCommentOutside` + `commentInsideTrailingBracket` — a comment
+  written past the `}`/`]` belongs *outside*.
+
 ## Deliberate divergences and dead ends (don't "fix" these)
 
 - **`let … in` trailing comment routes *below* `in`.** `in` has no source
   position, so before-`in` and after-`in` are indistinguishable; routing below
   `in` is the only stable-and-correct choice. Both alternatives oscillate.
   (`LetInTrailingComment`.)
+- **A record update's `|` comment stands on its own line.** Same missing
+  position, but here *both* sides are wrong rather than one being arbitrary:
+  glued to the base it reads as a note about the base name, glued to the `|` as
+  a note about the first field. The own-line placement claims neither. It is
+  also why a record update carrying such a comment cannot stay on one line.
 - **A `where`-block `--` escape is unfixable.** The parser hands byte-identical
   AST + Context for both layouts, so there is nothing to distinguish.
 - **Own-line comment below a top-level decl detaches to column 1.** Not attached

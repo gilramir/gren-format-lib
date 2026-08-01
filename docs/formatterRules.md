@@ -2133,10 +2133,37 @@ describe x =
 
 ### When the formatter can't tell what you meant
 
-Some tokens — `=`, `:`, `|`, an import's `as` and alias name — are parsed and
-then discarded, leaving no position in the AST. A comment beside one of these
-is always placed on **one canonical side**, so two programs that differ only in
-which side of such a token a comment sits on format to the *same* output.
+Most punctuation is parsed and then **discarded**, leaving no position in the
+AST. Of everything that separates two pieces of an expression, only a binary
+operator (`+`, `|>`, `++`, …) and the brackets `(`, `)`, `[`, `]`, `{`, `}`
+survive into the tree with a recorded position. Everything else —
+
+    =    :    |    ,    ->    if / then / else    when / is    let / in
+    an import's `as` and alias name
+
+— is invisible by the time the formatter runs. A comment written next to one of
+these could have been on either side of it and the two are *positionally
+identical*: all the formatter can see is the previous token's end, the comment's
+own span, and the next token's start, and both spellings produce exactly the
+same three. The only thing that would separate them is how wide the whitespace
+gaps are, and that is deliberately not information the formatter reads —
+`format` must be insensitive to the spacing you used.
+
+So a comment beside one of these tokens is always placed on **one canonical
+side**, and two programs that differ only in which side a comment sits on format
+to the *same* output. This isn't a preference; it's the only thing a formatter
+without that fact can do and still be stable. Where the choice is visible in the
+comparison with elm-format, it is catalogued as
+[divergence #22](elmFormatComparison.md#divergence-22).
+
+Where the token **is** recorded, the formatter keeps the side you wrote it on.
+The brackets are the useful case: a comment just inside an opening bracket
+stays inside, and one just past a closing bracket stays outside.
+
+```gren
+[ {- primary -} 1, 2 ]              -- stays inside the array
+fn a { rec | a = 1 } {- c -} last   -- stays outside the record
+```
 
 A comment around a signature's `:` always lands **after** it:
 
@@ -2157,6 +2184,18 @@ foo = {- c -}
     42
 ```
 
+A record field's `=` follows the same rule as a definition's — the comment lands
+**after** it, at the head of the value:
+
+```gren
+-- both of these:
+{ field {- why -} = compute 1 }
+{ field = {- why -} compute 1 }
+
+-- format to:
+{ field = {- why -} compute 1 }
+```
+
 A comment around a union `|` always lands **after the variant before it**:
 
 ```gren
@@ -2169,6 +2208,59 @@ type T
     = A {- c -}
     | B
 ```
+
+A comment around a **record update's** `|` (and an extensible record type's)
+always lands on **its own line between the base and the fields** — the one place
+the canonical side is "neither", because both of the sides are wrong: glued to
+the base it reads as a note about the base name, glued to the `|` it reads as a
+note about the first field, and the formatter can't tell which you meant:
+
+```gren
+-- all four of these:
+{ rec {- c -} | a = 1 }
+{ rec | {- c -} a = 1 }
+{ rec -- c
+    | a = 1 }
+{ rec
+    | -- c
+      a = 1 }
+
+-- format to:
+{ rec
+    {- c -}
+    | a = 1
+}
+```
+
+A comment around a `,` always lands **trailing the item before it**:
+
+```gren
+-- both of these:
+[ 1, {- c -} 2 ]
+[ 1 {- c -}, 2 ]
+
+-- format to:
+[ 1 {- c -}, 2 ]
+```
+
+A comment around one of the keywords `then`, `else`, `is`, `in`, or a lambda's /
+branch's `->` always lands **after** the keyword, leading what follows it:
+
+```gren
+-- both of these:
+when sel {- c -} is
+when sel is {- c -}
+
+-- format to:
+when sel is
+    {- c -}
+    Just w ->
+        1
+```
+
+`in` is the most visible of these, because it decides whether a comment written
+after the last `let` binding renders above or below the `in` — see
+[divergence #20](elmFormatComparison.md#divergence-20) for the worked example.
 
 A comment around an import's `as` always lands **before** it:
 

@@ -39,7 +39,9 @@ code, and why the places they *don't* look the way they do.
   - [#19 Broken pipeline aligns every `|>`](#divergence-19)
   - [#20 Comment trailing the last `let` binding](#divergence-20)
   - [#21 Single-item container collapse](#divergence-21)
-  - [#22 Record update as a `|>` operand field indent](#divergence-22)
+  - [#22 Comment beside unrecorded punctuation snaps to one side](#divergence-22)
+  - [#23 A comment doesn't open the construct around it](#divergence-23)
+  - [#24 Record update's own-line comment indent](#divergence-24)
 - [Out of scope for comparison](#out-of-scope-for-comparison)
 
 ---
@@ -913,37 +915,137 @@ decision and why.
     deliberate rule here rather than a record-only tweak. It is stable when
     reformatted either way.
 
-22. <a id="divergence-22"></a>**A record update as a direct multi-line `|>` operand keeps gren's field
-    indent; elm-format compresses it.** gren-format renders a record update the
-    same everywhere: `{` and the base on the first line, the `|`/`,` field lines
-    4 spaces past the `{`, and `}` back at the `{` column (see
-    [Record updates](formatterRules.md#record-updates)). That holds when a `|> ` prefix has pushed
-    the `{` to the right, too — the whole update hangs off its own `{`:
+22. <a id="divergence-22"></a>**A comment beside punctuation the parser throws away snaps to one
+    canonical side; elm-format keeps the side you wrote it on.** This is the
+    single largest family of comment-placement differences between the two
+    formatters, and unlike the rest of this catalogue it is **not a preference** —
+    it is forced, for the same reason as [#20](#divergence-20), which is one
+    instance of it.
+
+    elm-format has its own parser and keeps every comment pinned to the exact
+    spot it was written. gren-format is built on the real Gren compiler's parser,
+    which records a source position for a binary operator (`+`, `|>`, `++`, …)
+    and for the brackets `(`, `)`, `[`, `]`, `{`, `}` — and for nothing else that
+    separates two pieces of an expression:
+
+    | punctuation | position in the AST? |
+    |---|---|
+    | `+` `++` `\|>` `<\|` … | **yes** — `Binops.operator : Located String` |
+    | `(` `)` `[` `]` `{` `}` | **yes** — the expression's own `start` / `end` |
+    | `=` `:` `\|` `,` `->` | no |
+    | `if` `then` `else` `when` `is` `let` `in` | no |
+    | an import's `as` and alias name | no |
+
+    For anything in the bottom half of that table, `x {- c -} TOKEN y` and
+    `x TOKEN {- c -} y` reach the formatter as *the same three facts* — where `x`
+    ends, where the comment is, where `y` starts. The only thing that would tell
+    them apart is how wide the whitespace gaps are, and reading that would break
+    the property that formatting is insensitive to the spacing you used
+    (`x  =  1` and `x = 1` must format alike). So gren-format picks one side for
+    all of them and documents it; every case is listed with a worked example in
+    [When the formatter can't tell what you meant](formatterRules.md#when-the-formatter-cant-tell-what-you-meant).
 
     ```gren
-    -- gren-format:
-    v =
-        seed
-            |> { r
-                   | a = 1
-                   , b = 2
-               }
+    -- both of these:                     -- gren-format:
+    { field {- why -} = compute 1 }       { field = {- why -} compute 1 }
+    { field = {- why -} compute 1 }
 
-    -- elm-format:
-    v =
-        seed
-            |> { r
-                | a = 1
-                , b = 2
-               }
+    [ 1, {- c -} 2 ]                      [ 1 {- c -}, 2 ]
+    [ 1 {- c -}, 2 ]
+
+    when sel {- c -} is                   when sel is
+    when sel is {- c -}                       {- c -}
+                                              Just w ->
     ```
 
-    elm-format re-indents the fields from the pipeline's nesting instead, landing
-    them nearer the `{`. gren-format's form keeps a record update reading the same
-    however it is reached, rather than shifting its inner columns based on what sits
-    to its left. (An array or record *literal* operand, `|> [ 1` / `|> { a = 1`,
-    glues and aligns identically in both formatters — this is specific to the
-    update's `|`/`,` field indent.)
+    elm-format renders each of those two spellings differently, so exactly one of
+    the two matches it and the other diverges. There is no version of this that
+    matches both.
+
+    The record update's `|` is the one case where the canonical side is
+    *neither*. Glued to the base the comment reads as a note about the base name;
+    glued to the `|` it reads as a note about the first field; and both are
+    claims gren-format has no evidence for. It goes on its own line between them
+    instead — which is also why a record update carrying such a comment can't
+    stay on one line:
+
+    ```gren
+    -- all four of these:                 -- gren-format:
+    { rec {- c -} | a = 1 }               { rec
+    { rec | {- c -} a = 1 }                   {- c -}
+    { rec -- c                                | a = 1
+        | a = 1 }                         }
+    { rec
+        | -- c
+          a = 1 }
+
+    -- elm-format renders the first two as written, on one line.
+    ```
+
+    Where the token **is** recorded, gren-format keeps the side you wrote it on
+    and agrees with elm-format. A comment just inside an opening bracket stays
+    inside it, and one just past a closing bracket stays outside:
+
+    ```gren
+    -- both formatters:
+    [ {- primary -} 1, 2 ]
+    fn a { rec | a = 1 } {- c -} last
+    ```
+
+23. <a id="divergence-23"></a>**A comment never breaks the construct around it further open than you
+    wrote it; elm-format opens the construct to give the comment room.**
+    [#18](#divergence-18) is this rule for lists and records and
+    [#16](#divergence-16) is it for a lambda's `->`; it holds everywhere else
+    too. gren-format adds no line breaks the code didn't already need — it just
+    puts the comment where it goes and leaves the rest alone:
+
+    ```gren
+    -- you wrote (and gren-format keeps):    -- elm-format:
+    v =                                      v =
+        fn                                       fn
+            -- note                              -- note
+            <| 1                                 <|
+                                                     1
+
+    -- (elm also pulls the comment and the `<|` back to the seed's own column;
+    --  that half is point 14. What this entry is about is the `1`, which
+    --  elm-format gives a row of its own and gren-format leaves on the `<|`.)
+    ```
+
+    ```gren
+    -- you wrote (and gren-format keeps):    -- elm-format:
+    v =                                      v =
+        when sel is                              case sel of
+            Just -- note                             Just
+                w ->                                     -- note
+                1                                        w
+                                                         ->
+                                                             1
+    ```
+
+    elm-format's rule is that a comment inside a construct forces every part of
+    that construct onto its own line — so a `<|` loses its operand, and a `when`
+    pattern is split from its own `->`. gren-format treats a comment as something
+    to place, not as a reason to re-lay-out working code.
+
+24. <a id="divergence-24"></a>**A record update's own-line comment sits at the field indent;
+    elm-format hangs it two columns past the `{`.** When the comment from
+    [#22](#divergence-22)'s record-update case lands on its own line, gren-format
+    puts it where the `|`/`,` field lines are — 4 past the `{`, the same indent
+    every other part of the update uses (see
+    [Record updates](formatterRules.md#record-updates)):
+
+    ```gren
+    -- gren-format:            -- elm-format:
+    v =                        v =
+        { rec                      { rec
+            -- note              -- note
+            | a = 1                  | a = 1
+        }                          }
+    ```
+
+    elm-format's column lines up with nothing: not the `{`, not the fields, not
+    the closing `}`. gren-format keeps the update's inner columns uniform.
 
 ## Out of scope for comparison
 

@@ -235,10 +235,13 @@ Gren is a spiritual descendant of Elm, so `gren format` and `elm-format`
 should agree on shared syntax unless there's a deliberate reason not to. Both
 formatters share the same "your line breaks are your layout decisions"
 philosophy — neither reflows code to fit a page width — so they agree almost
-everywhere. Where they don't, it's a deliberate, catalogued choice: 23
-divergences, covering things like blank-line placement around comments,
-redundant parens (the most common difference on real code), and how a
-multi-line operator chain breaks.
+everywhere. Where they don't, it's a catalogued choice: 24 divergences,
+covering things like blank-line placement around comments, redundant parens
+(the most common difference on real code), and how a multi-line operator chain
+breaks. One of them isn't a choice at all — Gren's parser throws away the
+position of `=`, `,`, `|`, `->` and the keywords, so a comment written beside
+one of those has to snap to a canonical side
+([#22](docs/elmFormatComparison.md#divergence-22)).
 
 The full catalogue, with a real before/after example for every entry, is in
 **[docs/elmFormatComparison.md](docs/elmFormatComparison.md)**.
