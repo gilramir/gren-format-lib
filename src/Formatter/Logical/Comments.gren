@@ -1504,6 +1504,54 @@ isRecordUpdateBox box =
             False
 
 
+{-| True when a node or any descendant is a `"""…"""` literal. Such a node's box
+cannot take a comment glued to the front of it: the glue shifts the box's first
+row by the comment's width, and Gren requires every row of a multi-line string to
+be indented equally, so the result stops parsing. -}
+subtreeHasMultilineString : LPNode -> Bool
+subtreeHasMultilineString node =
+    when lpnBox node is
+        MultilineString _ ->
+            True
+
+        _ ->
+            Array.any subtreeHasMultilineString (lpnChildren node)
+
+
+{-| True when a bracket container is an `exposing ( … )` list. `ListParen` is
+used for nothing else (`SortSymbols.gren`: "ListParen is exclusively exposing
+lists"), so the box alone says it. -}
+isExposingListBox : LPBox -> Bool
+isExposingListBox box =
+    when box is
+        AllAcrossOrAllVertical ListParen ->
+            True
+
+        AlwaysVertical ListParen ->
+            True
+
+        _ ->
+            False
+
+
+{-| True when a comment is a `{- … -}` the author wrote on one source row — the
+only kind that can share a line with code beside it. A `--` runs to end of line
+and a multi-line `{- … -}` brings its own newlines.
+
+`NodeClassify.commentTextCanRide` is the same question asked render-side (Gren
+forbids the import that would share one definition). Both read the comment's TEXT
+only, never its position, which is why the render-side copy does not breach the
+render invariant — keep them in step. -}
+commentIsSingleLineBlock : LPNode -> Bool
+commentIsSingleLineBlock node =
+    when lpnBox node is
+        BlockComment { loc } ->
+            not (String.contains "\n" loc.value)
+
+        _ ->
+            False
+
+
 {-| True when this comment was written BEFORE a record update's base name — the
 opener slot, `{ {- c -} rec | a = 1 }` — rather than in the ambiguous gap around
 the `|`. The base's start is a real recorded position (`RecordUpdate.name.start`,
@@ -2088,6 +2136,83 @@ classifyCommentKind containerBox commentNode before after row =
             else
                 RidesInline
 
+        -- Rule **C2** at a bracket list's `,`: the comma carries no source
+        -- position, so `1 {- c -} , 2` and `1 , {- c -} 2` arrive as the same
+        -- three facts and one of the two must differ from elm-format. A
+        -- single-line `{- -}` goes to the item AFTER the separator (`LeadsNext`).
+        --
+        -- A `--` is C2's one documented exception and stays with the item above
+        -- it. A `--` ends its row, so it reads as a note about that row, and here
+        -- the row is a complete list item — `[ apple -- the red one` ⏎ `, banana`
+        -- is the idiom real code uses (unanimously: every instance in `core/` and
+        -- `compiler-common/` is spelled that way, none the other), and it is also
+        -- what elm-format produces for that authoring.
+        --
+        -- Keyed on EITHER adjacent item's row, which is what makes the role a
+        -- reparse fixed point. The comment renders on the *next* item's row
+        -- (`, {- c -} 2`), so a rule that only recognised "same row as the
+        -- previous item" would read its own output as an own-row comment and
+        -- drop it to its own line — `[ 1 {- c -}` ⏎ `, 2 ]` oscillated exactly
+        -- that way. Both adjacent rows mean the same thing here: the comment is
+        -- in the gap, on one side of an invisible comma. Only a comment on
+        -- NEITHER row was genuinely written on a line of its own.
+        --
+        -- Needs a following ITEM, not merely a following sibling: a comment past
+        -- the last item has no separator to cross and simply trails it
+        -- (`[ 1, 2 {- c -} ]`). The opener slot is excluded by the caller — with
+        -- `before` empty the comment already leads the first item.
+        --
+        -- **Not applied to an exposing list.** `ListParen` is exclusively an
+        -- `exposing ( … )` list (see `SortSymbols.gren`), and those are the one
+        -- bracket list whose items get REORDERED. `SortSymbols` owns comment
+        -- ownership there, on the opposite model — a comment after a name is that
+        -- name's and travels with it through the sort, which is what makes
+        -- `(a {- c -}, b)` and `(b, a {- c -})` land on the same bytes
+        -- (`unfoldLastTrailing`). Flipping the side would have to reshape
+        -- clustering and the closing-`)` pinning with it; until that is designed
+        -- and put under the `sort-order` oracle, an exposing list keeps the
+        -- earlier side.
+        -- Also NOT when the item it would lead holds a `"""…"""`. Gluing a
+        -- comment onto the front of that item's box shifts its first row by the
+        -- comment's width while the string's own content rows move by a
+        -- different amount, and Gren requires a multi-line string's rows to be
+        -- indented equally — the output stops parsing. The comment stays
+        -- own-line there, which is the placement the item's shape forces anyway.
+        leadsAcrossItemSeparator =
+            not (Array.isEmpty before)
+                && not (isExposingListBox containerBox)
+                && commentIsSingleLineBlock commentNode
+                && bracketNextItemRow >= 0
+                && (row == bracketPrevRow || row == bracketNextItemRow)
+                && not nextItemBlocksFrontGlue
+
+        -- The real (non-comment) siblings after the comment; only the first of
+        -- them is the one a front-glued comment lands on.
+        nextItems =
+            Array.keepIf (\n -> not (isCommentNode n)) after
+
+        nextItemBlocksFrontGlue =
+            Array.any subtreeHasMultilineString (Array.slice 0 1 nextItems)
+
+        -- First row of the next real ITEM after the comment (-1 when only
+        -- comments follow, or nothing does).
+        bracketNextItemRow =
+            Array.foldl
+                (\n acc ->
+                    if acc >= 0 then
+                        acc
+
+                    else
+                        when lpnBox n is
+                            UnbreakableText l ->
+                                l.start.row
+
+                            _ ->
+                                (subtreeRowRange n).minRow
+                )
+                -1
+                nextItems
+
         -- A comment that glues to whatever precedes it inside a bracket, by its
         -- own shape: a single-line `{- -}` rides the line (`RidesInline`, the
         -- only kind `literalCommentsRideFlatLine` keeps flat); a `--` or a
@@ -2112,15 +2237,15 @@ classifyCommentKind containerBox commentNode before after row =
         --   before the base → the OPENER slot, `{ {- c -} rec | a = 1 }`, known
         --       to be inside the braces because the `{` is recorded too. Glues to
         --       the `{` exactly as an item list's first comment does.
-        --   after the base  → the ambiguous around-the-`|` slot. Always own-line;
-        --       both sides of the `|` are unrecoverable and both readings would
-        --       be a claim we cannot support (see the #22 write-up).
+        --   after the base  → the ambiguous around-the-`|` slot. Rule **C2**: the
+        --       `|` carries no position, so both authorings arrive identically and
+        --       one must lose; the comment leads what FOLLOWS the separator, i.e.
+        --       the first field (`LeadsNext` → `| {- c -} a = 1`).
         --
-        -- Everywhere the renderer needs to tell the two apart it can: a comment
-        -- in the `|` slot is the update's FIRST child, so it falls into the
-        -- own-line branch below (nothing precedes it, `bracketPrevRow` is -1),
-        -- which makes "leading run of comment children whose role is not
-        -- `LeadsOwnLine`" mean exactly "opener". A comment TRAILING a field is
+        -- Everywhere the renderer needs to tell the two apart it can: `LeadsNext`
+        -- is assigned in the `|` slot and nowhere else in an update, so
+        -- "leading run of comment children whose role is neither `LeadsNext` nor
+        -- `LeadsOwnLine`" means exactly "opener". A comment TRAILING a field is
         -- not in that leading run and keeps the ordinary same-row rules.
         if isRecordUpdateBox containerBox && Array.all isCommentNode before then
             -- Somewhere in the base … first-field region. `before` being all
@@ -2131,7 +2256,7 @@ classifyCommentKind containerBox commentNode before after row =
                 bracketKindRole
 
             else
-                LeadsOwnLine
+                LeadsNext
         -- Nothing before it inside an ITEM LIST → it trails the OPENING bracket
         -- (`[ {- c -} 1, 2 ]`). The descent only lets a comment land here when it
         -- was written past the recorded `{`/`[`, so "first child" IS "written
@@ -2145,7 +2270,20 @@ classifyCommentKind containerBox commentNode before after row =
         -- flat); a `--` or a multi-line `{- … -}` glues but breaks the line
         -- (`TrailsPrevious`).
 
+        else if leadsAcrossItemSeparator then
+            LeadsNext
+
         else if not (Array.isEmpty before) && (bracketPrevRow < 0 || row /= bracketPrevRow) then
+            LeadsOwnLine
+
+        else if Array.isEmpty before && nextItemBlocksFrontGlue then
+            -- The opener slot (`[ {- c -} item`), where the first item holds a
+            -- `"""…"""`. Same reason a `LeadsNext` comment gives way there: the
+            -- front glue shifts the item's first row by the comment's width
+            -- while the string's own rows move by a different amount, and Gren
+            -- requires them indented equally, so the output stops parsing. (A
+            -- comment gluing onto the item BEFORE it is a suffix, landing after
+            -- the closing `"""`, and is fine — this is only about the front.)
             LeadsOwnLine
 
         else

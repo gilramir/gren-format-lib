@@ -78,10 +78,10 @@ sig :
              11 c -}
     String
     -> { a
-           {- 12 a
-              12 b
-              12 c -}
-           | x : Int
+           | {- 12 a
+                12 b
+                12 c -}
+             x : Int
        }
     -> Int
 sig a b c =
@@ -187,10 +187,10 @@ recordLit =
 
 recordUpd r =
     { r
-        {- 29 a
-           29 b
-           29 c -}
-        | gamma =
+        | {- 29 a
+             29 b
+             29 c -}
+          gamma =
             {- 30 a
                30 b
                30 c -}

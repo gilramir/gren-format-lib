@@ -1,4 +1,4 @@
-module Formatter.Render.NodeClassify exposing (commentBreaksFlowRow, fieldValueDropsToOwnLine, isArrowLeaf, isColonLeaf, isDroppingSignatureRecordNode, isElidedArrow, isEmptyLine, isMultilineLambdaParenBlockBox, isOpAndRhsNode, isPipelineStepNode, leafLineRow, leafValue, literalCommentsRideFlatLine, nodeIsComment, parenContentIsLambdaHead, rowsSpanMultiple, segFirstRow, segLastRow, signatureForceVertical, splitSignatureSegments, subtreeEndsWithLineComment, subtreeHasComment, typeHasCommentBracket)
+module Formatter.Render.NodeClassify exposing (commentBreaksFlowRow, commentTextCanRide, fieldValueDropsToOwnLine, isArrowLeaf, isColonLeaf, isDroppingSignatureRecordNode, isElidedArrow, isEmptyLine, isMultilineLambdaParenBlockBox, isOpAndRhsNode, isPipelineStepNode, leafLineRow, leafValue, literalCommentsRideFlatLine, nodeIsComment, parenContentIsLambdaHead, rowsSpanMultiple, segFirstRow, segLastRow, signatureForceVertical, splitSignatureSegments, subtreeEndsWithLineComment, subtreeHasComment, typeHasCommentBracket)
 
 {-| Boolean predicates and small structural queries over LPT nodes.
 -}
@@ -149,10 +149,12 @@ A `{-| … -}` is top-level only — the parser rejects one inside a literal, an
 exposing list, or a union body — so it never reaches here. Excluding it anyway
 costs nothing and keeps the rule right if that ever changes.
 
-Every comment that can ride the flat line is exactly a `RidesInline`
-comment — the classifier's bracket branch tags a single-line `{- -}` trailing
-an item on its row that way, and a `--` / multi-line / own-row comment anything
-else. So this is now "every comment child is `RidesInline`".
+A comment that can ride the flat line is either a `RidesInline` one — the
+classifier's bracket branch tags a single-line `{- -}` trailing an item on its
+row that way — or a `LeadsNext` one whose text fits on a row. `LeadsNext` is the
+comment the author wrote across an unrecorded `,`/`|`, which rule C2 hands to
+the item *after* the separator (`[ 1, {- c -} 2 ]`); by rule C3 that must not be
+a reason to break the literal open, so it rides too when its own text can.
 -}
 literalCommentsRideFlatLine : Array LPNode -> Bool
 literalCommentsRideFlatLine children =
@@ -160,14 +162,39 @@ literalCommentsRideFlatLine children =
         (Array.any
             (\node ->
                 when commentRole (lpnBox node) is
-                    Just role ->
-                        role /= RidesInline
+                    Just RidesInline ->
+                        False
+
+                    Just LeadsNext ->
+                        not (commentTextCanRide node)
+
+                    Just _ ->
+                        True
 
                     Nothing ->
                         False
             )
             children
         )
+
+
+{-| True when a comment's own TEXT can share a line with code beside it: a
+`{- … -}` the author wrote on one row. A `--` runs to end of line and a
+multi-line `{- … -}` brings its own newlines, so neither can.
+
+This asks about the comment's shape, never its position — the position question
+is settled by the stored `CommentRole` before the renderer sees the node.
+`RidesInline` bundles both answers (single-line block AND written on the previous
+item's row); a `LeadsNext` comment has its side already decided by the role and
+only this half left to ask. -}
+commentTextCanRide : LPNode -> Bool
+commentTextCanRide node =
+    when lpnBox node is
+        BlockComment { loc } ->
+            not (String.contains "\n" loc.value)
+
+        _ ->
+            False
 
 
 -- True when the subtree contains a bracketed literal (record/array/record-update)

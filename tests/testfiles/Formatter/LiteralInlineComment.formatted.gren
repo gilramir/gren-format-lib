@@ -1,24 +1,25 @@
 module LiteralInlineComment exposing (..)
 
 
--- A single-line block comment trailing an item on that item's own row rides
--- the flat line the author wrote
+-- A single-line block comment written in the gap between two items rides the
+-- flat line the author wrote. Which side of the invisible `,` it was written on
+-- is unrecoverable, so rule C2 gives it to the item AFTER the comma.
 arrayFlat =
-    [ 1 {- one -}, 2, 3 ]
+    [ 1, {- one -} 2, 3 ]
 
 
 recordFlat =
-    { a = 1 {- note -}, b = 2 }
+    { a = 1, {- note -} b = 2 }
 
 
-typeRecordFlat : { a : Int {- c -}, b : Int }
+typeRecordFlat : { a : Int, {- c -} b : Int }
 typeRecordFlat =
     { a = 1, b = 2 }
 
 
 -- Several comments on the one row all ride it
 manyOnOneRow =
-    [ 1 {- a -} {- b -}, 2 {- c -} ]
+    [ 1, {- a -} {- b -} 2 {- c -} ]
 
 
 -- A `--` comment ends its line, so it forces the literal open
@@ -46,14 +47,14 @@ ownRowComment =
 
 -- The author's own vertical layout still wins; the comment stays inline in it
 authorVertical =
-    [ 1 {- one -}
-    , 2
+    [ 1
+    , {- one -} 2
     ]
 
 
 -- A flat literal operand no longer breaks the binop chain around it
 binopOperand =
-    [ a {- note -}, b ] ++ rest
+    [ a, {- note -} b ] ++ rest
 
 
 -- Nor does a comment nested inside one of its items, which the literal's own
@@ -93,7 +94,7 @@ type UnionOwnRow
 
 -- Record updates follow the same rule
 updateFlat r =
-    { r | a = 1 {- u -}, b = 2 }
+    { r | a = 1, {- u -} b = 2 }
 
 
 updateOwnRow r =

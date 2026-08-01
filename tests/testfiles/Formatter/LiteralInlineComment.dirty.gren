@@ -1,7 +1,8 @@
 module LiteralInlineComment exposing (..)
 
--- A single-line block comment trailing an item on that item's own row rides
--- the flat line the author wrote
+-- A single-line block comment written in the gap between two items rides the
+-- flat line the author wrote. Which side of the invisible `,` it was written on
+-- is unrecoverable, so rule C2 gives it to the item AFTER the comma.
 arrayFlat = [ 1 {- one -}, 2, 3 ]
 
 recordFlat = { a = 1 {- note -}, b = 2 }

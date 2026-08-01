@@ -167,6 +167,14 @@ never re-derives it from source rows.
     assigned where the block-glue rules allow.
   - `LeadsOwnLine` — renders on its own line at the current flow/body indent,
     before the next sibling. The default for own-row comments.
+  - `LeadsNext` — the comment belongs to the sibling that FOLLOWS it, across a
+    separator the parser did not record, and renders glued to the front of that
+    sibling's box (`| {- c -} a = 1`, `, {- c -} 2`). This is rule **C2** — "where
+    the separator has no source position, the comment leads what follows it" —
+    made a stored fact, so no renderer has to re-derive which side of an invisible
+    `|` or `,` the author wrote it on. Whether it rides the sibling's first row or
+    stands above it is the comment's own shape, not its position, so the renderer
+    asks `commentTextCanRide`; everything else is settled here.
   - `RidesInline` — an inline `{- -}` that rides in the middle of a flat flow
     without forcing a break (`f {- k -} x`). Only ever a single-line block
     comment. Distinguished from `TrailsPrevious` only by
@@ -191,6 +199,7 @@ classifier's bracket branch tags it `TrailsPrevious` / `RidesInline` /
 type CommentRole
     = TrailsPrevious
     | LeadsOwnLine
+    | LeadsNext
     | RidesInline
     | LeadsInline
     | Standalone

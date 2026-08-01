@@ -20,7 +20,7 @@ import Formatter.Render.CommentBox exposing (commentNodeBox, commentNodeToBox, e
 import Formatter.Render.ElmStructure as E
 import Formatter.Render.FlowAssembly exposing (FlowItem, SoftGlueAlignment(..), assembleBrokenCall, assembleBrokenWithComments, bracketPunc, gluedExposingBox, isCommentItem, pairLeadingComments, parenInnerIsAlignCarrying, softBlockChildForcesVerticalBox, softGlueAlignment, trySoftGlueFlow, verticalExposingBox)
 import Formatter.Render.FlowPolicy as FP
-import Formatter.Render.NodeClassify exposing (commentBreaksFlowRow, fieldValueDropsToOwnLine, isColonLeaf, isDroppingSignatureRecordNode, isMultilineLambdaParenBlockBox, isOpAndRhsNode, isPipelineStepNode, leafLineRow, leafValue, literalCommentsRideFlatLine, nodeIsComment, parenContentIsLambdaHead, rowsSpanMultiple, signatureForceVertical, splitSignatureSegments, subtreeEndsWithLineComment, subtreeHasComment, typeHasCommentBracket)
+import Formatter.Render.NodeClassify exposing (commentBreaksFlowRow, commentTextCanRide, fieldValueDropsToOwnLine, isColonLeaf, isDroppingSignatureRecordNode, isMultilineLambdaParenBlockBox, isOpAndRhsNode, isPipelineStepNode, leafLineRow, leafValue, literalCommentsRideFlatLine, nodeIsComment, parenContentIsLambdaHead, rowsSpanMultiple, signatureForceVertical, splitSignatureSegments, subtreeEndsWithLineComment, subtreeHasComment, typeHasCommentBracket)
 
 
 {-| Entry point: render one top-level root child to a Box, or `Err` if it
@@ -2361,8 +2361,9 @@ makeRecordUpdateBox baseName forceVertical children =
 
                 else
                     -- No comment, or only comments that ride the flat line the
-                    -- author wrote; `pairInlineComments` glues those onto the
-                    -- field each trails.
+                    -- author wrote; `pairInlineComments` glues each onto the
+                    -- field it trails, or (rule C2, `LeadsNext`) onto the one
+                    -- after it.
                     pairInlineComments renderRecordFieldBox rest
                         |> Result.andThen
                             (\fieldBoxes ->
@@ -2389,11 +2390,11 @@ makeRecordUpdateBox baseName forceVertical children =
 {-| Split a record update's children into the comments written between its `{`
 and its base name — the opener slot — and everything else.
 
-They are exactly the comment children whose role is not `LeadsOwnLine`:
-`Comments.gren` gives every comment that landed *past* the base name
-`LeadsOwnLine` unconditionally, because past the base only the unrecorded `|`
-remains and no side can be claimed. So the role alone separates the two, with no
-row-reading here. -}
+They are exactly the leading comment children whose role is neither `LeadsNext`
+nor `LeadsOwnLine`: `Comments.gren` gives every comment that landed *past* the
+base name `LeadsNext` (rule C2 — past the base only the unrecorded `|` remains,
+so the comment goes to the field after it), and an own-row one between fields
+`LeadsOwnLine`. So the role alone separates the two, with no row-reading here. -}
 splitOpenerComments : Array LPNode -> { opener : Array LPNode, rest : Array LPNode }
 splitOpenerComments children =
     let
@@ -2403,7 +2404,7 @@ splitOpenerComments children =
                     if acc.stopped then
                         acc
 
-                    else if nodeIsComment node && not (commentLeadsOwnLine node) then
+                    else if nodeIsComment node && not (commentLeadsOwnLine node) && not (commentLeadsNext node) then
                         { acc | i = acc.i + 1 }
 
                     else
@@ -2421,6 +2422,11 @@ commentLeadsOwnLine node =
     commentRole (lpnBox node) == Just LeadsOwnLine
 
 
+commentLeadsNext : LPNode -> Bool
+commentLeadsNext node =
+    commentRole (lpnBox node) == Just LeadsNext
+
+
 -- `{ base`, with any opener comments glued in front of the base name the way
 -- `[ {- c -} 1` glues them in front of a list's first item — same helper, same
 -- all-or-nothing run rule. The `{ ` itself is supplied by the caller.
@@ -2430,14 +2436,24 @@ updateBaseBox baseName opener =
         Ok (B.line (B.literal baseName))
 
     else
-        traverseResult
-            (\node ->
-                commentNodeBox node
-                    |> Result.map (\box -> { box = box, inline = commentRidesInline node })
-            )
-            opener
+        leadCommentRunBoxes opener
             |> Result.map
                 (\lead -> glueLeadingCommentRun True lead (B.line (B.literal baseName)))
+
+
+{-| Render a run of comments that leads the box after it, as the
+`{ box, inline }` pairs `glueLeadingCommentRun` consumes. `inline` is the
+comment's own shape (`commentTextCanRide`) — whether it belongs in front of what
+follows is already settled by its `CommentRole`, so all that is left to ask here
+is whether it fits on a row. -}
+leadCommentRunBoxes : Array LPNode -> Result String (Array { box : Box, inline : Bool })
+leadCommentRunBoxes nodes =
+    traverseResult
+        (\node ->
+            commentNodeBox node
+                |> Result.map (\box -> { box = box, inline = commentTextCanRide node })
+        )
+        nodes
 
 
 makeRecordUpdateVerticalBox : Box -> Array LPNode -> Result String Box
@@ -2466,7 +2482,21 @@ makeRecordUpdateVerticalBox baseBox children =
                             commentNodeBox node
                                 |> Result.map
                                     (\cbox ->
-                                        if commentTrailsRole node && acc.lastWasField then
+                                        if commentLeadsNext node then
+                                            -- Rule C2: written across the unrecorded
+                                            -- `|` (or a `,` between fields), so it
+                                            -- belongs to the field AFTER it. Held in
+                                            -- `lead` until that field renders, where
+                                            -- gluing it on before the `| `/`, `
+                                            -- prefix puts it after the separator and
+                                            -- pads whatever drops below by the
+                                            -- prefix's width — `| -- c` ⏎ `  a = 1`.
+                                            { acc
+                                                | lead = Array.pushLast { box = cbox, inline = commentTextCanRide node } acc.lead
+                                                , lastWasField = False
+                                            }
+
+                                        else if commentTrailsRole node && acc.lastWasField then
                                             when Array.popLast acc.lines is
                                                 Just { last = lastBox, initial } ->
                                                     { acc | lines = Array.pushLast (glueCommentSuffix cbox lastBox) initial, lastWasField = False }
@@ -2550,19 +2580,24 @@ makeRecordUpdateVerticalBox baseBox children =
                                                 else
                                                     B.row [ B.punc "|", B.space ]
                                         in
-                                        { lines = Array.pushLast (B.prefix pref fieldBox) acc.lines
+                                        { lines = Array.pushLast (B.prefix pref (glueLeadingCommentRun True acc.lead fieldBox)) acc.lines
                                         , seenField = True
                                         , lastWasField = True
+                                        , lead = []
                                         }
                                     )
                     )
     in
-    Array.foldl step (Ok { lines = [], seenField = False, lastWasField = False }) children
+    Array.foldl step (Ok { lines = [], seenField = False, lastWasField = False, lead = [] }) children
         |> Result.map
             (\acc ->
                 B.stack1
                     [ B.prefix (B.row [ B.punc "{", B.space ]) baseBox
-                    , B.indent (B.stack1 acc.lines)
+                    -- A `lead` run with no field left to lead cannot arise from
+                    -- the classifier (it only assigns `LeadsNext` when an item
+                    -- follows), but dropping it would silently delete a comment,
+                    -- so it falls back to its own line.
+                    , B.indent (B.stack1 (acc.lines ++ Array.map .box acc.lead))
                     , B.line (B.punc "}")
                     ]
             )
@@ -3766,18 +3801,26 @@ pairInlineComments renderItem children =
                             commentNodeBox node
                                 |> Result.andThen
                                     (\cbox ->
-                                        when Array.popLast acc.boxes is
-                                            Just { last, initial } ->
-                                                Ok { acc | boxes = Array.pushLast (glueCommentSuffix cbox last) initial }
+                                        if commentLeadsNext node then
+                                            -- Rule C2: written across the unrecorded
+                                            -- `,` between two items, so it belongs to
+                                            -- the item AFTER it (`[ 1, {- c -} 2 ]`).
+                                            -- Held with the opener run in `lead`.
+                                            Ok { acc | lead = Array.pushLast cbox acc.lead }
 
-                                            Nothing ->
-                                                -- No item yet: the comment was written
-                                                -- just after the opening bracket
-                                                -- (`[ {- c -} 1, 2 ]`), so it leads the
-                                                -- FIRST item instead of trailing a
-                                                -- previous one. Held until that item
-                                                -- renders — see `lead`.
-                                                Ok { acc | lead = Array.pushLast cbox acc.lead }
+                                        else
+                                            when Array.popLast acc.boxes is
+                                                Just { last, initial } ->
+                                                    Ok { acc | boxes = Array.pushLast (glueCommentSuffix cbox last) initial }
+
+                                                Nothing ->
+                                                    -- No item yet: the comment was written
+                                                    -- just after the opening bracket
+                                                    -- (`[ {- c -} 1, 2 ]`), so it leads the
+                                                    -- FIRST item instead of trailing a
+                                                    -- previous one. Held until that item
+                                                    -- renders — see `lead`.
+                                                    Ok { acc | lead = Array.pushLast cbox acc.lead }
                                     )
 
                         else
@@ -3792,7 +3835,11 @@ pairInlineComments renderItem children =
         )
         (Ok { boxes = [], lead = [] })
         children
-        |> Result.map .boxes
+        -- A `lead` run with no item left to lead cannot arise from the
+        -- classifier (an opener always has a first item, and `LeadsNext` is only
+        -- assigned when an item follows), but dropping it would silently delete a
+        -- comment, so it falls back to a box of its own.
+        |> Result.map (\acc -> acc.boxes ++ acc.lead)
 
 
 {-| Glue held leading comment boxes onto the front of the first item's box, in
@@ -3944,6 +3991,28 @@ commentBracketListBox bracket nodes =
                                                     acc.lead
                                         }
 
+                                else if commentLeadsNext node then
+                                    -- Rule C2: written across the unrecorded `,`
+                                    -- between two items, so it leads the item AFTER
+                                    -- it (`, {- c -} 2`). Flush the item it followed,
+                                    -- then hold it in `lead` exactly as an opener
+                                    -- comment is held for the first item.
+                                    Ok
+                                        { acc
+                                            | entries =
+                                                when acc.pending is
+                                                    Nothing ->
+                                                        acc.entries
+
+                                                    Just e ->
+                                                        Array.pushLast e acc.entries
+                                            , pending = Nothing
+                                            , lead =
+                                                Array.pushLast
+                                                    { box = cbox, inline = commentTextCanRide node }
+                                                    acc.lead
+                                        }
+
                                 else if commentTrailsRole node then
                                     -- Trailing the preceding item: attach with a
                                     -- single space (layout is author-driven, not
@@ -4035,13 +4104,22 @@ commentBracketListBox bracket nodes =
                 |> Result.map
                     (\state ->
                         let
-                            allEntries =
+                            flushedPending =
                                 when state.pending is
                                     Nothing ->
                                         state.entries
 
                                     Just e ->
                                         Array.pushLast e state.entries
+
+                            -- A held `lead` run with no item left to lead cannot
+                            -- arise from the classifier (`LeadsNext` is only
+                            -- assigned when an item follows), but dropping it would
+                            -- silently delete a comment, so it falls back to its
+                            -- own line.
+                            allEntries =
+                                flushedPending
+                                    ++ Array.map (\c -> { box = c.box, isComment = True }) state.lead
 
                             assembled =
                                 Array.foldl

@@ -102,7 +102,7 @@ processOrder ({ identifier, items, appliedDiscounts, flags } as inboundCart) =
                             1.0
 
         -- comment before a Destruct (let-pattern) binding
-        { isShippable {- comment in the middle of a destructuring -}, isGift, isPriority } =
+        { isShippable, {- comment in the middle of a destructuring -} isGift, isPriority } =
             flags
 
         -- comment introducing a nested if/then/else
@@ -139,8 +139,7 @@ processOrder ({ identifier, items, appliedDiscounts, flags } as inboundCart) =
           identifier
         -- comment between two array items
         , "items=" ++ String.fromInt (Array.length items)
-        {- block comment between two array items -}
-        , "discounts=" ++ String.fromInt (Array.length appliedDiscounts)
+        , {- block comment between two array items -} "discounts=" ++ String.fromInt (Array.length appliedDiscounts)
         ]
     }
 
@@ -162,8 +161,7 @@ summariseCart ({ identifier, items, flags } as inboundCart) =
                       sku
                     -- comment between arguments
                     , "x" ++ String.fromInt quantity
-                    {- block comment between arguments -}
-                    , "@"
+                    , {- block comment between arguments -} "@"
                     -- comment before the last argument-item
                     , String.fromInt unitPriceCents ++ "¢"
                     ]
@@ -201,15 +199,15 @@ reprice rawMultiplier ({ items, flags } as inboundCart) =
     in
     -- the actual record update happens here
     { inboundCart
-        -- comment before the first updated field
-        | items =
+        | -- comment before the first updated field
+          items =
             items
                 |> Array.map
                     (\itemRecord ->
                         -- comment leading into a nested record update inside a pipeline step
                         { itemRecord
-                            -- comment before the first updated field of a NESTED record update
-                            | unitPriceCents = round (toFloat itemRecord.unitPriceCents * clampedMultiplier)
+                            | -- comment before the first updated field of a NESTED record update
+                              unitPriceCents = round (toFloat itemRecord.unitPriceCents * clampedMultiplier)
                             -- comment between two updated fields of a nested update
                             , quantity = itemRecord.quantity
                         }
@@ -218,10 +216,9 @@ reprice rawMultiplier ({ items, flags } as inboundCart) =
         , flags =
             -- comment before another nested record update
             { flags
-                -- comment before an updated boolean
-                | isPriority = flags.isPriority || clampedMultiplier > 1.5
-                {- block comment inside a record update -}
-                , isGift = flags.isGift
+                | -- comment before an updated boolean
+                  isPriority = flags.isPriority || clampedMultiplier > 1.5
+                , {- block comment inside a record update -} isGift = flags.isGift
             }
     }
 
@@ -280,8 +277,8 @@ torturedComments primaryIntValue secondaryStringValue tertiaryBoolValue =
 {-| EXTREME case: one function that uses let, when, if, record destructuring,
     record updating, and pipelines — with a multi-line `{- -}` comment crammed
     into every whitespace position between tokens. -}
-extremelyCommented : {-c1-} {-c2-} { {-c3-} score : {-c4-} {-c5-} Int {-c6-} {-c7-}, label : {-c8-} {-c9-} String {-c10-} } -> {-c11-} {-c12-} { {-c13-} score : {-c14-} {-c15-} Int {-c16-} {-c17-}, label : {-c18-} {-c19-} String {-c20-} } {-c21-}
-extremelyCommented {-c22-} {-c23-} ({ {-c24-} score {-c25-} {-c26-}, label {-c27-} } {-c28-} {-c29-} as wholeRecord) =
+extremelyCommented : {-c1-} {-c2-} { {-c3-} score : {-c4-} {-c5-} Int, {-c6-} {-c7-} label : {-c8-} {-c9-} String {-c10-} } -> {-c11-} {-c12-} { {-c13-} score : {-c14-} {-c15-} Int, {-c16-} {-c17-} label : {-c18-} {-c19-} String {-c20-} } {-c21-}
+extremelyCommented {-c22-} {-c23-} ({ {-c24-} score, {-c25-} {-c26-} label {-c27-} } {-c28-} {-c29-} as wholeRecord) =
     {-c30-}
     {-c31-}
     {-c32-}
@@ -314,13 +311,7 @@ extremelyCommented {-c22-} {-c23-} ({ {-c24-} score {-c25-} {-c26-}, label {-c27
                     {-c59-}
                     {-c60-}
                     {-c61-}
-                    { {-c62-} r
-                        {-c63-}
-                        {-c64-}
-                        | score = {-c65-} {-c66-} bumpedScore {-c67-}
-                        {-c68-}
-                        , label = {-c69-} {-c70-} expandedLabel {-c71-}
-                    }
+                    { {-c62-} r | {-c63-} {-c64-} score = {-c65-} {-c66-} bumpedScore, {-c67-} {-c68-} label = {-c69-} {-c70-} expandedLabel {-c71-} }
 
                 else
                     {-c72-}
@@ -334,11 +325,7 @@ extremelyCommented {-c22-} {-c23-} ({ {-c24-} score {-c25-} {-c26-}, label {-c27
                             {-c79-}
                             {-c80-}
                             {-c81-}
-                            { {-c82-} r
-                                {-c83-}
-                                {-c84-}
-                                | label = {-c85-} {-c86-} "zero" {-c87-}
-                            } {-c88-}
+                            { {-c82-} r | {-c83-} {-c84-} label = {-c85-} {-c86-} "zero" {-c87-} } {-c88-}
 
                         {-c89-}
                         _ ->

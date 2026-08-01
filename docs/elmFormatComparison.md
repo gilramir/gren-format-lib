@@ -945,13 +945,19 @@ decision and why.
     all of them and documents it; every case is listed with a worked example in
     [When the formatter can't tell what you meant](formatterRules.md#when-the-formatter-cant-tell-what-you-meant).
 
+    The side it picks is the **later** one — the comment leads what follows the
+    separator ([rule C2](commentHandling.md#c2--where-the-separator-has-no-source-position-the-comment-leads-what-follows-it)):
+
     ```gren
     -- both of these:                     -- gren-format:
     { field {- why -} = compute 1 }       { field = {- why -} compute 1 }
     { field = {- why -} compute 1 }
 
-    [ 1, {- c -} 2 ]                      [ 1 {- c -}, 2 ]
-    [ 1 {- c -}, 2 ]
+    [ 1 {- c -}, 2 ]                      [ 1, {- c -} 2 ]
+    [ 1, {- c -} 2 ]
+
+    { rec {- c -} | a = 1 }               { rec | {- c -} a = 1 }
+    { rec | {- c -} a = 1 }
 
     when sel {- c -} is                   when sel is
     when sel is {- c -}                       {- c -}
@@ -962,25 +968,28 @@ decision and why.
     the two matches it and the other diverges. There is no version of this that
     matches both.
 
-    The record update's `|` is the one case where the canonical side is
-    *neither*. Glued to the base the comment reads as a note about the base name;
-    glued to the `|` it reads as a note about the first field; and both are
-    claims gren-format has no evidence for. It goes on its own line between them
-    instead — which is also why a record update carrying such a comment can't
-    stay on one line:
+    **A `--` between two list items is the exception** and keeps the earlier
+    side, staying with the item above it. A `--` ends its row, so it reads as a
+    note about that row — and there the row is a complete item. It is also the
+    only one of these spellings that real code actually uses:
 
     ```gren
-    -- all four of these:                 -- gren-format:
-    { rec {- c -} | a = 1 }               { rec
-    { rec | {- c -} a = 1 }                   {- c -}
-    { rec -- c                                | a = 1
-        | a = 1 }                         }
-    { rec
-        | -- c
-          a = 1 }
+    -- you wrote, and gren-format keeps (matching elm-format):
+    [ apple -- the red one
+    , banana
+    ]
 
-    -- elm-format renders the first two as written, on one line.
+    -- the other spelling is the one that diverges:
+    [ apple, -- the red one       ->      [ apple -- the red one
+      banana ]                            , banana
+                                          ]
     ```
+
+    Two constructs do not follow C2 yet, both because the flip has a cost
+    elsewhere that has not been paid: an `exposing ( … )` list, whose items are
+    *sorted* and whose comment ownership `SortSymbols` models the other way
+    round; and a union variant's `|`, where elm-format breaks the union open
+    around the comment on either side, so no side gains parity.
 
     Where the token **is** recorded, gren-format keeps the side you wrote it on
     and agrees with elm-format. A comment just inside an opening bracket stays

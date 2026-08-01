@@ -1,0 +1,42 @@
+module MultilineStringItemComment exposing (..)
+
+-- A comment can't glue onto the FRONT of an item holding a `"""..."""`: the glue
+-- shifts the item's first row by the comment's width while the string's own
+-- content rows move by a different amount, and Gren requires them indented
+-- equally. Such a comment stays own-line instead. Both the opener slot and the
+-- rule-C2 "leads the next item" slot give way.
+
+
+opener =
+    [ {- leads the first item -}
+      """
+      alpha
+      """
+    ]
+
+
+afterComma =
+    [ "first"
+    {- leads the second item -}
+    , """
+      bravo
+      """
+    ]
+
+
+beforeComma =
+    [ "first" {- written before the comma -}
+    , """
+      charlie
+      """
+    ]
+
+
+-- A comment gluing onto the item BEFORE it is a suffix, landing after the
+-- closing `"""`, so it is unaffected.
+trailingSuffix =
+    [ """
+      delta
+      """
+    , {- trails the string -} "last"
+    ]

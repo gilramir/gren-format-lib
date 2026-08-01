@@ -2156,6 +2156,11 @@ without that fact can do and still be stable. Where the choice is visible in the
 comparison with elm-format, it is catalogued as
 [divergence #22](elmFormatComparison.md#divergence-22).
 
+The canonical side is the **later** one — the comment leads what follows the
+token. The worked cases below are all instances of that one rule, and the two
+exceptions to it (a `--` between list items, and an `exposing` list) say so
+where they appear.
+
 Where the token **is** recorded, the formatter keeps the side you wrote it on.
 The brackets are the useful case: a comment just inside an opening bracket
 stays inside, and one just past a closing bracket stays outside.
@@ -2168,18 +2173,14 @@ fn a { rec | a = 1 } {- c -} last   -- stays outside the record
 
 A record update shows both halves at once. Its `{` is recorded and so is its
 base name, so a comment before the base is placed exactly; past the base only
-the unrecorded `|` is left, and from there the rule below takes over — which
-also means the update can no longer stay on one line:
+the unrecorded `|` is left, and from there the rule below takes over:
 
 ```gren
 -- you wrote:
 { {- kept -} rec {- canonicalized -} | a = 1 }
 
 -- formats to:
-{ {- kept -} rec
-    {- canonicalized -}
-    | a = 1
-}
+{ {- kept -} rec | {- canonicalized -} a = 1 }
 ```
 
 A comment around a signature's `:` always lands **after** it:
@@ -2213,7 +2214,10 @@ A record field's `=` follows the same rule as a definition's — the comment lan
 { field = {- why -} compute 1 }
 ```
 
-A comment around a union `|` always lands **after the variant before it**:
+A comment around a union `|` always lands **after the variant before it** — the
+other exception to the "later side" rule, kept because elm-format breaks the
+union open around such a comment on either side, so no side would match it
+anyway:
 
 ```gren
 -- both of these:
@@ -2227,17 +2231,24 @@ type T
 ```
 
 A comment around a **record update's** `|` (and an extensible record type's)
-always lands on **its own line between the base and the fields** — the one place
-the canonical side is "neither", because both of the sides are wrong: glued to
-the base it reads as a note about the base name, glued to the `|` it reads as a
-note about the first field, and the formatter can't tell which you meant. (This
-is only about the gap *after* the base name. One written before it — right after
-the `{` — is in the opener slot and stays exactly where you put it.)
+always lands **after the `|`, leading the first field**. (This is only about the
+gap *after* the base name. One written before it — right after the `{` — is in
+the opener slot and stays exactly where you put it.)
 
 ```gren
--- all four of these:
+-- both of these:
 { rec {- c -} | a = 1 }
 { rec | {- c -} a = 1 }
+
+-- format to:
+{ rec | {- c -} a = 1 }
+```
+
+With a `--`, which can't share the row, the field drops below it — landing in the
+column it would have occupied on the `|` line:
+
+```gren
+-- both of these:
 { rec -- c
     | a = 1 }
 { rec
@@ -2246,12 +2257,12 @@ the `{` — is in the opener slot and stays exactly where you put it.)
 
 -- format to:
 { rec
-    {- c -}
-    | a = 1
+    | -- c
+      a = 1
 }
 ```
 
-A comment around a `,` always lands **trailing the item before it**:
+A `{- -}` comment around a `,` always lands **leading the item after it**:
 
 ```gren
 -- both of these:
@@ -2259,7 +2270,28 @@ A comment around a `,` always lands **trailing the item before it**:
 [ 1 {- c -}, 2 ]
 
 -- format to:
-[ 1 {- c -}, 2 ]
+[ 1, {- c -} 2 ]
+```
+
+A `--` in that same gap is the **one exception** to the "later side" rule: it
+stays with the item above it. A `--` ends its row, so it reads as a note about
+that row, and in a list that row is a complete item — which is how people
+actually write it:
+
+```gren
+-- you wrote, and the formatter keeps:
+[ apple -- the red one
+, banana
+]
+
+-- the other spelling collapses onto it:
+[ apple, -- the red one
+  banana ]
+
+-- formats to:
+[ apple -- the red one
+, banana
+]
 ```
 
 A comment around one of the keywords `then`, `else`, `is`, `in`, or a lambda's /

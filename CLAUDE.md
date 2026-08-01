@@ -316,11 +316,30 @@ became byte-identical to elm-format; 2,882 registered as #22 and 2,911 as #23,
 leaving **5,485 UNREVIEWED** — still debt, not failures; see `tbd.md` for what
 they are and the next step for each.
 
+**Interview round 1, 2026-08-01.** 30 of those groups (2,948 cells) were given a
+verdict with `--interview`, and read together they are **six English rules** —
+now the normative statement of comment behaviour in
+[`docs/commentHandling.md`](docs/commentHandling.md#the-rules-in-english). The
+verdicts were consistent under one of them (**C2**: at a separator the parser does
+not record, the comment goes to the *later* side), which `=` `:` `in` `is` `then`
+`->` already did and `,` `|` did not. Both were changed to match, via a new
+`CommentRole`, `LeadsNext`. A single-line `{- -}` in a list's comma gap now leads
+the item below it; a `--` there is C2's one documented exception and still trails
+the item above, because that is the only spelling real code uses. Exposing lists
+(whose items sort, and whose comment ownership `SortSymbols` models the other way
+round) and union variants are deliberately unchanged. **1,522 more cells are now
+byte-identical to elm-format; UNREVIEWED fell 5,485 → 3,561, with 0 hard failures
+across all 38,560 comment cells.** `gen-random.py` also turned up a crash class
+neither matrix can see — a comment glued to the front of an item holding a
+`"""…"""` breaks the string's equal indentation — 17 instances widened by this
+change and 19 pre-existing, all fixed. See the "Interview round 1" section of
+`comment-parity-triage.md`.
+
 To read them, use `tests/triage-comment-parity.py --review`, which buckets on
 the *disagreement* rather than on the cell: names and literals flattened, the
 surrounding context dropped, so the same question asked of `1` / `'c'` inside a
 call argument / a record field / a pipeline step is one entry with a count.
-5,485 cells are ~800 entries, and the top 30 cover ~60% of them.
+The remaining 3,561 cells are a few hundred entries, front-loaded.
 `--interview` walks the same entries asking for a verdict and appends each to
 `comment-review.jsonl`; `--decisions` reads them back. Verdicts are keyed on a
 hash of the disagreement, so one recorded before a fix reshaped the group is

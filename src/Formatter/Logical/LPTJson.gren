@@ -27,6 +27,9 @@ roleString role =
         LeadsOwnLine ->
             "LeadsOwnLine"
 
+        LeadsNext ->
+            "LeadsNext"
+
         RidesInline ->
             "RidesInline"
 

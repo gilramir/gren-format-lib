@@ -1,4 +1,4 @@
-effect module EffectModuleOpenLineTrailer where { command = TrickyCmd {- c2 -}, subscription = TrickySub {- c3 -} } exposing (..) -- trailing line comment after the open exposing
+effect module EffectModuleOpenLineTrailer where { command = TrickyCmd, {- c2 -} subscription = TrickySub {- c3 -} } exposing (..) -- trailing line comment after the open exposing
 
 import Task
 

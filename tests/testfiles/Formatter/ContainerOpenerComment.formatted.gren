@@ -91,10 +91,7 @@ updateTwoOpeners =
 -- on its own line however it was written -- and it takes the update open with
 -- it. The opener beside it is unaffected.
 updateOpenerAndBar =
-    { {- a -} rec
-        {- b -}
-        | x = 1
-    }
+    { {- a -} rec | {- b -} x = 1 }
 
 
 -- A comment trailing a FIELD is not in the opener run and keeps the ordinary
