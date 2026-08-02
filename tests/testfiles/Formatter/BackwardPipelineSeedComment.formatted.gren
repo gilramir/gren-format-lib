@@ -1,7 +1,11 @@
 module BackwardPipelineSeedComment exposing (a)
 
+-- A single-line `{- -}` before a `<|` rides the operator's row. It used to float
+-- onto a row of its own -- registered as an intentional divergence in `b934a74`,
+-- and wrong under rule C5, which says gren-format adds nothing around a comment.
+-- `++` and `|>` already gave the answer below for the identical authoring.
+
 
 a =
-    seed
-        {- c -}
-        <| step
+    seed {- c -} <|
+        step

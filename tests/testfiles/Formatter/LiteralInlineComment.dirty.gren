@@ -45,7 +45,9 @@ binopUpdateOperand = { r | a = 1 {- u -} } ++ rest
 -- A comment trailing a backward pipeline step rides the step's line
 backwardTrailing = x <| f {- c -}
 
--- One on its own row still forces the operator-leading layout
+-- One on its own row collapses to the same thing: a single-line `{- -}`
+-- rides the operator's row wherever the author wrote it, exactly as it does
+-- at a `++` or a `|>`. The two spellings are not distinguishable here.
 backwardOwnRow = x
     {- own row -}
     <| f

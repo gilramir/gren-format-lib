@@ -1,11 +1,15 @@
 module BackwardPipeCommentNesting exposing (..)
 
 -- A `<|` chain is right-associative, so each step nests one indent deeper than
--- the one above it. A comment at the FRONT of a step forces the operator-LEADING
--- style, but it must not change the NESTING: the commented chains below step at
--- the same depths as the plain one. The commented path used to apply a flat +4
--- to every step, so writing a comment anywhere in a chain silently reflowed
--- every step under it.
+-- the one above it. A comment at the FRONT of a step that CANNOT ride the
+-- operator's row forces the operator-LEADING style, but it must not change the
+-- NESTING: the commented chains below step at the same depths as the plain one.
+-- The commented path used to apply a flat +4 to every step, so writing a comment
+-- anywhere in a chain silently reflowed every step under it.
+--
+-- One that CAN ride does not force it at all: `blockCommentBetween` keeps the
+-- plain chain and puts the comment on the operator's row, which is where the
+-- author wrote it and what `++` and `|>` do with the same authoring.
 --
 -- A comment ending a step's BODY does not force that style. It stops just the
 -- next `<|` from gluing onto its row, and that `<|` drops to a row of its own at
@@ -40,10 +44,9 @@ trailingComments =
 
 
 blockCommentBetween =
-    alpha
-        {- between the seed and the second step -}
-        <| beta
-            <| gamma
+    alpha {- between the seed and the second step -} <|
+        beta <|
+            gamma
 
 
 midChainTrailingComment =

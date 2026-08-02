@@ -34,7 +34,8 @@ history in order, most recent last —
 [rounds 4 and 5](#what-changed-interview-rounds-4-and-5),
 [the `<|` a comment moved](#what-changed-the--a-comment-moved-off-its-seed),
 [the same `<|`, one step further in](#what-changed-next-the--a-comment-moved-off-a-later-seed),
-[the `{- -}` that opened a container](#what-changed-next-the----that-opened-a-container-for-a-lambda).
+[the `{- -}` that opened a container](#what-changed-next-the----that-opened-a-container-for-a-lambda),
+[the `{- -}` that floated off an operator](#what-changed-next-the----that-floated-off-an-operators-row).
 
 **C1 / C2 are about attachment; C3–C6 are about layout.** The two never trade
 against each other: attachment is settled first, in `Comments.gren`, and the
@@ -732,6 +733,50 @@ both the same mistake — narrowing a rule past the case it was about:
   one.
 
 Fixture `LambdaLeadingBlockCommentRides`, each shape beside its comment-free twin.
+
+### What changed next: the `{- -}` that floated off an operator's row
+
+A single-line `{- -}` written in front of an operator rides that operator's row.
+At a `++` it always had. At a `|>` and a `<|` it floated onto a row of its own —
+rule C5, which says gren-format adds nothing around a comment and never gives one
+a row to itself for air:
+
+```gren
+-- you wrote          -- `++` gave, and now all three do    -- `|>` and `<|` gave
+head                  head                                  head
+{- c -} ++ rest           {- c -} ++ rest                       {- c -}
+                                                                ++ rest
+```
+
+The C4 test settles it without consulting elm-format: `head` ⏎ `{- c -} ++ rest`
+and `items` ⏎ `{- c -} |> fn` are the same authoring of the same thing, and gren
+already answered the first by gluing. (Both spellings — the comment on the
+operator's row and on a row above it — collapse to the glued form, at all three
+operators. They are not distinguishable in the output, exactly as at a
+[line-leading separator](#c2--where-the-separator-has-no-source-position-the-comment-leads-what-follows-it).)
+
+Three sites, one rule each:
+
+- `|>` — `renderPipelineStepChildren` stacked leading comments and only the
+  one-line pipeline form gilded them. It now uses the same test in both.
+- `<|` — a leading comment used to route the whole chain to the operator-leading
+  layout. A ridable one no longer does: `stepLeadBoxes` glues it onto the end of
+  the line the operator trails, so `fn` ⏎ `{- c -} <| one` renders `fn {- c -} <|`
+  ⏎ `one` — the comment-free layout with the comment on the row it was written on,
+  and byte-identical to elm-format. A `--` or a multi-line `{- … -}` still routes
+  as before, because neither can share the row.
+- The all-or-nothing ride test is `commentTextCanRide`, not `joinInline`.
+  **`joinInline` cannot decide it**: a `--`'s box is an ordinary single `Line`
+  here, so `B.allSingles` accepts it and the join emits `-- c |> fn`, with the
+  operator swallowed inside the comment — output that no longer parses to the
+  same AST.
+
+**This reverses a divergence that had been registered as intentional.**
+`BackwardPipelineSeedComment` (`b934a74`, 2026-07-17) froze the floating layout
+and its fixture title called it author-driven. It predates C1–C6; under C5 it is
+the bug this entry fixes, and `++` had been contradicting it in the same repo the
+whole time. Two other fixtures asserted the same shape in their own prose and
+were corrected with it.
 
 ## The one-line pipeline
 

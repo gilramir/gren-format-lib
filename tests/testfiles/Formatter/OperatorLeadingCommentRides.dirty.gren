@@ -1,0 +1,99 @@
+module OperatorLeadingCommentRides exposing (..)
+
+-- A single-line `{- -}` written in front of an operator rides that operator's
+-- row. One rule at all three operators -- `++` always did, `|>` and `<|` used to
+-- float the comment onto a row of its own, which rule C5 forbids: gren-format
+-- adds nothing around a comment and never gives one a row for air.
+--
+-- Both spellings collapse to the glued form: the comment on the operator's row
+-- and the comment on a row above it are not distinguishable in the output, the
+-- same way they are not at a line-leading `,`.
+--
+-- Each shape is followed by its comment-free twin. The comment changes where the
+-- rows fall and nothing else (rule C4).
+
+
+binopSameRow =
+    head
+        {- c -} ++ rest
+
+
+binopOwnRow =
+    head
+        {- c -}
+        ++ rest
+
+
+binopNoComment =
+    head
+        ++ rest
+
+
+pipeSameRow =
+    items
+        {- c -} |> fn
+
+
+pipeOwnRow =
+    items
+        {- c -}
+        |> fn
+
+
+pipeNoComment =
+    items
+        |> fn
+
+
+backPipeSameRow =
+    fn
+        {- c -} <| one
+
+
+backPipeOwnRow =
+    fn
+        {- c -}
+        <| one
+
+
+backPipeNoComment =
+    fn
+        <| one
+
+
+-- The `<|` chain keeps its staircase: the comment rides the row its operator
+-- trails, and every step below stays where it was.
+
+
+backPipeChain =
+    fn <| gn
+        {- c -} <| one
+
+
+backPipeChainNoComment =
+    fn <| gn
+        <| one
+
+
+-- Nothing else rides. A `--` runs to the end of its row and a multi-line
+-- `{- ... -}` brings its own newlines, so both keep a row of their own and the
+-- `<|` chain still goes operator-leading for them.
+
+
+pipeLineComment =
+    items
+        -- c
+        |> fn
+
+
+backPipeLineComment =
+    fn
+        -- c
+        <| one
+
+
+backPipeMultilineComment =
+    fn
+        {- c
+           d -}
+        <| one
