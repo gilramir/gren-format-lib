@@ -1,0 +1,21 @@
+module D19PipelineAlignment exposing (..)
+
+-- Divergence #19. When a pipeline breaks, the seed takes its own row and every
+-- `|>` lines up under it. elm-format fills the first row with as many steps as
+-- it can and starts breaking only at the step that forced the issue, so `seed`
+-- and `fn` share a row and the two `|>` misalign. Filed as elm-format#842.
+
+
+-- Case A: the whole expression on one physical source row; the `when` in the
+-- last step is what makes it multi-line.
+caseA sel =
+    seed |> fn |> gn (when sel is Just w -> w)
+
+
+-- Case B: the same pipeline with the block already broken across its own rows.
+-- Here the two formatters agree, byte for byte.
+caseB sel =
+    seed |> fn |> gn (when sel is
+        Just w ->
+            w
+    )

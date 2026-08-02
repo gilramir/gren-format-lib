@@ -1,0 +1,21 @@
+module D05SignatureArrowComment exposing (..)
+
+-- Divergence #5. A single-line comment right after a `->` in a wrapped
+-- signature is glued to that `->`, so a short note does not push the type it
+-- annotates onto a third row. elm-format drops the comment to its own indented
+-- row above that type.
+
+
+bestDiscount :
+    Array { code : String, basisPoints : Int }
+    -> -- comment about the result
+    Maybe { code : String, basisPoints : Int }
+bestDiscount codes =
+    Nothing
+
+
+blockForm :
+    Int
+    -> {- and the same for a block comment that fits -} Int
+blockForm n =
+    n

@@ -1,0 +1,20 @@
+module D23CommentDoesNotOpen exposing (..)
+
+-- Divergence #23. A comment never breaks the construct around it further open
+-- than the author wrote it. elm-format's rule is that a comment inside a
+-- construct forces every part of that construct onto its own row — a `<|` loses
+-- its operand, a `when` pattern is split from its own `->`. gren-format treats
+-- a comment as something to place, not as a reason to re-lay-out working code.
+
+
+v =
+    fn
+        -- note
+        <| 1
+
+
+w sel =
+    when sel is
+        Just -- note
+            w ->
+            1

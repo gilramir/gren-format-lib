@@ -1,0 +1,21 @@
+module D26BackPipeLineComment exposing (..)
+
+-- Divergence #26. A `--` cannot ride the flat `<|` layout (`fn <|` / body), so
+-- the operator moves to a row of its own and keeps the comment it trails.
+-- elm-format keeps `<|` on the seed's row and re-homes the comment onto the
+-- body's row instead. The trade is which of the two moves; what makes this the
+-- more consistent answer is `|>`, where both formatters already agree the
+-- comment stays on the operator.
+
+
+backward =
+    [ fn <| -- c
+        one
+    ]
+
+
+forward =
+    [ fn
+        |> -- c
+           one
+    ]

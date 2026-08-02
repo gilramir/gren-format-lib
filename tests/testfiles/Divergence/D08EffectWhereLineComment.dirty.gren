@@ -1,0 +1,16 @@
+effect module D08EffectWhereLineComment where { command = MyCmd
+                             -- line note
+                             } exposing (..)
+
+-- Divergence #8. A `--` written inside an effect module's `where { ... }`
+-- escapes the block and lands under the header. This one is NOT a preference:
+-- the two files gren-format would have to tell apart are byte-identical as far
+-- as the parser reports them, so the comment cannot be put back inside.
+-- elm-format, whose parser keeps the block's extent, breaks the whole header
+-- apart to give the comment a row inside the braces.
+
+import Task
+
+
+type MyCmd msg
+    = MyCmd (Task.Task Never msg)

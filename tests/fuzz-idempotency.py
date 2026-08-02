@@ -45,6 +45,8 @@ import sys
 import tempfile
 import threading
 
+from corpus import corpus_files
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 GREN_FORMAT = os.path.join(HERE, "..", "..", "gren-format", "gren-format.sh")
 MARKER = "{- ¤ -}"  # ¤ — unlikely to collide with real comment text
@@ -399,10 +401,7 @@ def main(argv):
 
     files = args.files
     if not files:
-        d = os.path.join(HERE, "testfiles", "Formatter")
-        files = sorted(
-            os.path.join(d, f) for f in os.listdir(d) if f.endswith(".formatted.gren")
-        )
+        files = corpus_files(".formatted.gren")
 
     # Precompute gaps (pure Python, no subprocesses).
     file_data = [(path, open(path).read()) for path in files]

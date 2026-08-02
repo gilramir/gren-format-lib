@@ -1,0 +1,27 @@
+module D20LetLastBindingComment exposing (..)
+
+-- Divergence #20. A comment after the value of the LAST `let` binding drops
+-- below `in`, at the result column; elm-format keeps it at the bindings' indent
+-- above `in`. Forced, not a preference: `in` has no recorded source position,
+-- so a comment in that gap is positionally identical to one the author wrote
+-- below `in` to lead the result, and only routing both below `in` is stable
+-- when reformatted.
+
+
+x =
+    let
+        y =
+            1 -- a note about y
+    in
+    y
+
+
+-- A comment the author really did write below `in` must not be dragged up into
+-- the bindings, which is the other half of why the gap resolves this way.
+z =
+    let
+        y =
+            1
+    in
+    -- leads the result
+    y

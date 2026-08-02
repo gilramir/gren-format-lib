@@ -1,0 +1,21 @@
+module D13BinopOperandTrailingComment exposing (..)
+
+-- Divergence #13. A comment between an operand and the next operator stays on
+-- the operand it trails; elm-format re-homes it to lead the following operator.
+-- This is the same "a comment sticks to what it trails" rule as #12, not a
+-- binop-specific choice.
+
+
+total =
+    alpha
+        ++ beta {- note -}
+        ++ gamma
+
+
+-- A comment the author put on its OWN row, or one leading an operand, already
+-- lands the same in both formatters.
+ownRow =
+    alpha
+        ++ beta
+        -- on its own row
+        ++ gamma

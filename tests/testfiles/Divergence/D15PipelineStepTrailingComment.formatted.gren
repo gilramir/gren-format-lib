@@ -1,0 +1,11 @@
+module D15PipelineStepTrailingComment exposing (..)
+
+-- Divergence #15. A comment trailing a pipeline step stays on that step;
+-- elm-format moves it to lead the next one. Same trailing-vs-leading choice as
+-- #13, here for `|>`/`<|` instead of a binop operator.
+
+
+x =
+    value
+        |> stepOne {- note -}
+        |> stepTwo

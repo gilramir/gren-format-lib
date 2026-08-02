@@ -39,9 +39,10 @@ import pathlib
 import subprocess
 import sys
 
+from corpus import corpus_files
+
 HERE = pathlib.Path(__file__).resolve().parent
 APP = HERE.parent.parent / "gren-format" / "app"
-CORPUS = HERE / "testfiles" / "Formatter"
 
 
 def audit(path):
@@ -78,7 +79,7 @@ def main():
     if not APP.exists():
         sys.exit(f"{APP} not found -- run (cd ../../gren-format && ./build.sh) first")
 
-    files = args.files or sorted(CORPUS.glob("*.formatted.gren"))
+    files = args.files or corpus_files(".formatted.gren")
     if not files:
         sys.exit("no input files")
 

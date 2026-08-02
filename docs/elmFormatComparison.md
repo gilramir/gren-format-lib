@@ -82,6 +82,35 @@ The rest of this section catalogues the places where, given all of the above, we
 made a deliberately different choice from elm-format. Each finding records the
 decision and why.
 
+**Every entry has a fixture**, in `tests/testfiles/Divergence/`, built from that
+entry's own worked example: the `.dirty.gren` is what the entry says you wrote
+and the `.formatted.gren` is what it says gren-format produces. The mapping is
+1:1 in both directions and `tests/check-divergence-index.py` fails the test run
+if it stops being — an entry with no fixture, or a fixture with no entry.
+
+| # | fixture | # | fixture |
+|---|---|---|---|
+| 1 | `D01BlankLinesAroundComment` | 14 | `D14BackPipeMultilineSeed` |
+| 2 | `D02BlockCommentCloser` | 15 | `D15PipelineStepTrailingComment` |
+| 3 | `D03ExposingAndImportOrder` | 16 | `D16LambdaArrowComment` |
+| 4 | `D04ImportExposingWrap` | 17 | `D17PrecedenceSplit` |
+| 5 | `D05SignatureArrowComment` | 18 | `D18InlineCommentInContainer` |
+| 6 | `D06UnionOnOneLine` | 19 | `D19PipelineAlignment` |
+| 7 | `D07RecordPatternAuthorDriven` | 20 | `D20LetLastBindingComment` |
+| 8 | `D08EffectWhereLineComment` | 21 | `D21SingleItemCollapse` |
+| 9 | `D09VerbatimLiterals` | 22 | `D22UnrecordedPunctuation` |
+| 10 | `D10RedundantParens` | 23 | `D23CommentDoesNotOpen` |
+| 11 | `D11DocCommentBody` | 24 | `D24RecordUpdateOwnLineComment` |
+| 12 | `D12TrailingCommentStays` | 25 | `D25CommentKeepsItsRows` |
+| 13 | `D13BinopOperandTrailingComment` | 26 | `D26BackPipeLineComment` |
+
+This is not decoration. Writing those 26 fixtures found **six entries whose
+worked example no longer matched the shipped formatter** — #8, #9, #18, #22, #25
+and #26 — three of them stale by one day, and one (#9) making a claim about
+literal preservation that had never been true for integers or string escapes.
+An entry here is now a test, and a decision that changes breaks its own
+documentation instead of quietly outliving it.
+
 1. <a id="divergence-1"></a>**Blank lines: comment-attached vs. declaration-attached**
    elm-format always puts its 2-blank-line separator immediately above the
    declaration itself, splitting a leading comment away from the code it
@@ -274,10 +303,14 @@ decision and why.
        exposing
        (..)
 
-   -- gren-format (the comment leaves the block):
+   -- gren-format (the comment leaves the block, and lands under the header at
+   -- column 1 — it is a top-level comment now, not part of the header):
    effect module MyModule where { command = MyCmd } exposing (..)
-       -- line note
+
+   -- line note
    ```
+
+   Fixture: `Divergence/D08EffectWhereLineComment`.
 
    This one is not a preference. gren-format cannot reproduce either shape,
    because the two files it would have to tell apart are byte-identical as far
@@ -287,14 +320,27 @@ decision and why.
    keeps something about the block's extent that Gren's does not. Fixing this is
    a matter of recording that information, not of choosing a layout.
 
-9. <a id="divergence-9"></a>**Verbatim literal preservation vs. normalization**
-   elm-format normalizes scientific-notation floats (`1e5` → `1.0e5`,
-   `1.5E3` → `1.5e3`, `1.5e+3` → `1.5e3`), uppercases `\u{...}` hex escapes,
-   expands named escapes like `\r` to `\u{000D}`, and drops unnecessary `\"`
-   escaping inside triple-quoted strings. gren-format deliberately preserves
-   the author's exact original literal spelling (see
-   [String literals](formatterRules.md#string-literals)) — this was already a considered
-   design choice, not an oversight.
+9. <a id="divergence-9"></a>**Float literals keep the spelling you gave them; elm-format
+   normalizes them.** elm-format rewrites scientific notation (`1e5` → `1.0e5`,
+   `1.5E3` → `1.5e3`, `1.5e+3` → `1.5e3`); gren-format prints a float exactly as
+   written (see [String literals](formatterRules.md#string-literals)). This was a
+   considered design choice, not an oversight.
+
+   **This does not extend to every literal, and the entry used to say it did.**
+   Two kinds are canonicalized before the formatter ever sees them, because the
+   parser hands it a decoded value rather than the source text:
+
+   - **Integers.** `0xff` and `0x00Ff` both print as `0xFF`. elm-format does the
+     same, so this is not a divergence at all — just not preservation.
+   - **String and character escapes.** These are re-emitted in their shortest
+     form: `"\u{000d}"` prints as `"\r"`, `'\u{0041}'` as `'A'`, and
+     `"\u{1F600}"` as a literal `"😀"`. This *is* a divergence, and it runs the
+     **opposite** way from the rest of this entry — elm-format expands named
+     escapes (`\r` → `\u{000D}`) where gren-format contracts them, so on escapes
+     it is elm-format that is closer to what a `\u{…}`-writing author typed.
+
+   Fixture: `Divergence/D09VerbatimLiterals`, which pins all three. Both sides
+   re-verified against the `elm-format` binary 2026-08-02.
 
 10. <a id="divergence-10"></a>**Redundant parens: gren-format keeps the ones you wrote, elm-format
     strips them.** If you put parens somewhere they aren't needed, gren-format
@@ -662,8 +708,13 @@ decision and why.
     ```gren
     -- gren-format:
     arr =
-        [ 1 {- one -}, 2, 3 ]
+        [ 1, {- one -} 2, 3 ]
     ```
+
+    (The comment is past the comma because the comma has no source position and
+    [C2](commentHandling.md#c2--where-the-separator-has-no-source-position-the-comment-leads-what-follows-it)
+    sends it to the later side — that half is [#22](#divergence-22). What *this*
+    entry is about is the row: one row in, one row out.)
 
     elm-format splits the list one item per line, and lifts the comment onto a
     line of its own with a blank line above it:
@@ -1009,10 +1060,15 @@ decision and why.
     ]                             }
 
     [ apple                       { rec                         = A
-      -- about banana                 -- about alpha            -- about B
+    -- about banana                   -- about alpha            -- about B
     , banana                          | alpha = 1              | B
     ]                             }
     ```
+
+    An own-row comment sits at the **separator's** column in all three — the
+    `,`, the update's `|`, the union's `|` — not indented under the item above
+    it. That is the same column rule [#24](#divergence-24) states for a record
+    update, holding at every line-leading separator.
 
     The third spelling — the comment written *after* the separator, still on the
     previous item's row — is positionally identical to the first (the separator
@@ -1157,20 +1213,23 @@ decision and why.
                                                  }
     ```
 
-    **It removes the row break below one that leads an operator:**
+    **Removing the row break below a comment that leads an operator used to be
+    the other half of this entry. It no longer is** — `b1beb72` (2026-08-02) made
+    a single-line `{- -}` in front of an operator ride that operator's row, the
+    same answer `++` already gave, and the two formatters now agree here byte for
+    byte:
 
     ```gren
-    -- you wrote (and gren-format keeps):    -- elm-format:
-    w =                                      w =
-        fn                                       fn {- note -} <|
-            {- note -}                               one
+    -- you wrote:            -- gren-format AND elm-format:
+    w =                      w =
+        fn                       fn {- note -} <|
+            {- note -}               one
             <| one
     ```
 
-    (In the second example elm-format also pulls the operand below the operator;
-    that half is [#14](#divergence-14). What this entry is about is the
-    `{- note -}` joining the `fn` row, which the author had put on a row of its
-    own. The same happens to a `|>`.)
+    A comment that *cannot* ride — a `--`, or a `{- … -}` spread over rows —
+    still keeps the row the author gave it, and what elm-format then does to the
+    operand is [#23](#divergence-23), not this entry.
 
     gren-format's rule is the one in [Your line breaks are your
     layout](howItWorks.md#why-this-design), applied to comments as well as code:
@@ -1178,27 +1237,33 @@ decision and why.
     air ([C5](commentHandling.md#c5--gren-format-adds-nothing-around-a-comment)),
     and nothing is pulled up to close a gap you left.
 
-26. <a id="divergence-26"></a>**A `--` trailing a `<|` moves the operator onto its own
-    row; elm-format keeps `<|` on the seed's line and drops the comment below it.**
-    gren-format's flat `<|` layout keeps the operator on the seed's line with the
-    body after it (`fn <|` / `····body`). A `--` runs to end of line, so it cannot
-    ride that layout — nor can a multi-line `{- … -}`, which brings its own
-    newlines. gren-format switches to an operator-leading form, which keeps the
-    comment on the `<|` it trails (the same "a comment sticks to what it trails"
-    rule as [#13](#divergence-13) / [#15](#divergence-15)); elm-format keeps the
-    operator where it was and re-homes the comment onto the body's row instead:
+26. <a id="divergence-26"></a>**A `--` trailing a `<|` rides that operator's row;
+    elm-format drops it below onto the body's rows.** gren-format's flat `<|`
+    layout keeps the operator on the seed's line with the body after it
+    (`fn <|` / `····body`). A `--` runs to end of line, so the body cannot follow
+    it on that row — but the operator can keep its place and take the comment
+    with it, which is the same "a comment sticks to what it trails" rule as
+    [#13](#divergence-13) / [#15](#divergence-15). elm-format keeps the operator's
+    row too and re-homes the comment onto the body's row instead:
 
     ```gren
     -- you wrote:                -- gren-format:        -- elm-format:
-    [ fn <| -- c                 [ fn                   [ fn <|
-            one ]                    <| -- c                -- c
-                                        one                 one
-                                 ]                      ]
+    [ fn <| -- c                 [ fn <| -- c           [ fn <|
+            one ]                    one                    -- c
+                                 ]                          one
+                                                        ]
     ```
 
     The trade is which of the two things moves: gren-format preserves the
-    comment's attachment and pays for it with the operator's row, elm-format
-    preserves the operator's row and pays for it with the attachment.
+    comment's attachment and pays for it with the body's row, elm-format
+    preserves the body's row and pays for it with the attachment.
+
+    (This entry used to say gren-format moved the **operator** onto a row of its
+    own — `[ fn` / `····<| -- c` / `········one`. That stopped being true at
+    `f330757` and `67e1b0a` (2026-08-02), which stopped a comment dragging a `<|`
+    off the row its seed put it on. The divergence survived the change; only its
+    mechanism did not, and this text was corrected 2026-08-02 when
+    `Divergence/D26BackPipeLineComment` was written from it and disagreed.)
 
     What makes gren-format's the more consistent of the two is `|>`. Both
     formatters agree, byte for byte, that a `--` trailing a **forward** pipe stays

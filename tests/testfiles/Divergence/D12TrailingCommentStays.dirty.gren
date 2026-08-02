@@ -1,0 +1,19 @@
+module D12TrailingCommentStays exposing (..)
+
+-- Divergence #12. A comment written after the last code on a row stays beside
+-- that code. elm-format moves every such comment down below the whole
+-- definition and sets it off with blank lines.
+
+
+afterValue =
+    1 {- note -}
+
+
+afterCloser =
+    [ 1
+    , 2
+    ] {- the list -}
+
+
+afterVariant =
+    [ 1 ] {- one -} {- two comments in a row stay together -}

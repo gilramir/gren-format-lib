@@ -1,0 +1,22 @@
+module D24RecordUpdateOwnLineComment exposing (..)
+
+-- Divergence #24. A comment on a row of its own in a record update's `|` gap
+-- stays on a row of its own (#22) and sits at the field indent — 4 past the
+-- `{`, the same column every other part of the update uses. elm-format hangs it
+-- two columns past the `{`, lining up with nothing: not the `{`, not the
+-- fields, not the closing `}`.
+
+
+v rec =
+    { rec
+        -- note
+        | a = 1
+    }
+
+
+nested rec =
+    [ { rec
+        -- note
+        | a = 1
+      }
+    ]

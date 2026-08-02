@@ -20,6 +20,11 @@ fi
 # source row/position to make a layout or comment-placement decision.
 python3 "$(dirname "$(realpath "$0")")/check-render-invariant.py" || exit 1
 
+# The divergence catalogue and its fixture suite must stay 1:1 (see
+# check-divergence-index.py). Checked here so drift is named, rather than
+# surfacing as a missing-file error inside the suite.
+python3 "$(dirname "$(realpath "$0")")/check-divergence-index.py" || exit 1
+
 pushd ..
 devbox run build_test
 

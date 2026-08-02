@@ -1,0 +1,22 @@
+module D21SingleItemCollapse exposing (..)
+
+-- Divergence #21. The signal that opens a bracketed container is a gap BETWEEN
+-- its items, so a single-item container whose one item fits collapses. A break
+-- inside one item is that item's business, not the container's. elm-format uses
+-- a simpler signal — any newline between the brackets — and keeps it expanded.
+
+
+oneField =
+    { x = 1 }
+
+
+oneItem =
+    [ 1 ]
+
+
+-- Both formatters agree once there is real structure to keep: a second item on
+-- its own row is a between-item gap.
+twoFields =
+    { x = 1
+    , y = 2
+    }

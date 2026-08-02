@@ -1,0 +1,20 @@
+module D25CommentKeepsItsRows exposing (..)
+
+-- Divergence #25. A comment occupies the rows the author gave it. elm-format
+-- re-spaces around it in both directions: it ADDS a blank row above an own-row
+-- comment inside a container, and it REMOVES the row break below one that leads
+-- an operator, pulling the comment up onto the previous row. gren-format does
+-- neither. (#23 is the other half — elm-format breaking the CODE open.)
+
+
+v =
+    { a = 1
+    -- note
+    , b = 2
+    }
+
+
+w =
+    fn
+        {- note -}
+        <| one

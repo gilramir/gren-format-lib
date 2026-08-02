@@ -1,0 +1,35 @@
+module D03ExposingAndImportOrder exposing (zeta, Alpha, beta, Beta)
+
+{-| Divergence #3. The exposing list sorts alphabetically — types before
+values — and stays independent of the `@docs` order below, which is what
+elm-format reorders a module's exposing list to match.
+
+@docs zeta, beta
+@docs Alpha, Beta
+
+-}
+
+import Set
+-- about Dict, and it travels with Dict when the run sorts
+import Dict exposing (Dict, empty)
+
+
+import Array
+
+
+type Alpha
+    = Alpha
+
+
+type Beta
+    = Beta
+
+
+beta : Int
+beta =
+    1
+
+
+zeta : Int
+zeta =
+    2

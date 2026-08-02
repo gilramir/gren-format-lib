@@ -1,0 +1,16 @@
+module D04ImportExposingWrap exposing (..)
+
+-- Divergence #4. A wrapped import keeps `exposing` on the `import` line as its
+-- last word and indents the list +4 below it, so a wrapped `import` line looks
+-- exactly like a wrapped `module` line. elm-format drops `exposing` onto a row
+-- of its own at +4 and the list at +8.
+
+import Dict exposing
+    ( Dict
+    , empty
+    )
+
+
+usesDict : Dict String Int
+usesDict =
+    empty

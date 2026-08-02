@@ -36,8 +36,8 @@ one rather than replacing it.
 Each fixture runs through `assertPretty fsPerm "description" "FileBaseName"`,
 which performs three independent checks on one dirty/formatted pair:
 
-1. **Formatting** — format `testfiles/Formatter/<FileBaseName>.dirty.gren` and
-   diff the bytes against `testfiles/Formatter/<FileBaseName>.formatted.gren`.
+1. **Formatting** — format `testfiles/<dir>/<FileBaseName>.dirty.gren` and
+   diff the bytes against `testfiles/<dir>/<FileBaseName>.formatted.gren`.
    This is the suite's one genuine oracle check: the `.formatted.gren` file is
    a hand-verified expected output, not something derived from the formatter.
 2. **AST equivalence** (self-consistency) — re-parse the formatted output and
@@ -62,10 +62,35 @@ the `tests/` app depends on the package locally — so editing formatter source
 and re-running `run-tests.sh` is enough; there's no separate library build
 step.
 
+### Where the fixtures live
+
+One directory per suite under `tests/testfiles/`:
+
+- **`Formatter/`** — the general corpus, and what `assertPretty` reads.
+- **`Divergence/`** — one fixture per entry in the
+  [divergence catalogue](elmFormatComparison.md#divergence-catalogue), named for
+  its entry (`D17PrecedenceSplit` is #17) and built from that entry's own worked
+  example. This suite tests the **documentation**: the `.dirty.gren` is what the
+  entry says you wrote, the `.formatted.gren` is what it says gren-format
+  produces, so a divergence that gets fixed — or reshaped by an unrelated fix —
+  breaks its own catalogue entry instead of leaving a false claim behind.
+  Writing it found six such claims, three of them one day old. Nothing else goes
+  in this directory; `check-divergence-index.py` (run by `run-tests.sh`) fails if
+  the mapping stops being 1:1 in either direction.
+
+A fixture in `Formatter/` is asserted with `assertPretty`; one in any other
+directory with `assertPrettyIn fsPerm "<dir>"`, which is the same function with
+the directory left open. Every check is identical either way.
+
+Note that a `.dirty.gren` byte-identical to its `.formatted.gren` is normal and
+sometimes the whole point — "gren-format keeps what you wrote" is a claim about
+a fixed point. `find-identical-fixtures.py` lists them; it is an inventory, not
+a gate.
+
 ### Adding a fixture
 
 Add both `<FileBaseName>.dirty.gren` and `<FileBaseName>.formatted.gren` under
-`tests/testfiles/Formatter/`, then add an `assertPretty` line in
+the suite's directory, then add an `assertPretty` / `assertPrettyIn` line in
 `tests/src/Test/Formatter/Format.gren`. Generate the candidate `.formatted.gren`
 with:
 
@@ -75,15 +100,19 @@ node ../../gren-format/app --show <FileBaseName>.dirty.gren > testfiles/Formatte
 
 then read it before trusting it — nothing checks that the generated output is
 actually canonical except your own review, since from that point on it *is*
-the oracle for check 1.
+the oracle for check 1. For a `Divergence/` fixture, "read it" means read it
+against the catalogue entry it belongs to: if the two disagree, one of them is
+wrong and it is not always the fixture.
 
 ### Where the code lives
 
 - **`tests/src/Test/Formatter/Format.gren`** — the fixture list, one
   `assertPretty` call per case.
-- **`tests/testfiles/Formatter/*.dirty.gren` / `*.formatted.gren`** — the
-  fixture pairs; the `.formatted.gren` half also doubles as the corpus every
-  other gate (matrix, both fuzzers, the audit) walks.
+- **`tests/testfiles/*/*.dirty.gren` / `*.formatted.gren`** — the fixture pairs;
+  the `.formatted.gren` half also doubles as the corpus every other gate
+  (matrix, both fuzzers, the audit) walks. `tests/corpus.py` is where those
+  gates ask which directories exist, so a new suite directory is swept the day
+  it is added rather than the day somebody remembers to widen four globs.
 - **`tests/run-tests.sh`** — builds and runs the harness.
 
 ## Idempotency fuzzer (`fuzz-idempotency.py`)

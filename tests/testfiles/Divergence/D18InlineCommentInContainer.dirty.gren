@@ -1,0 +1,29 @@
+module D18InlineCommentInContainer exposing (..)
+
+-- Divergence #18. A one-line `{- … -}` inside a list, record, record update or
+-- record type stays on the row the author wrote — the comment fits, so nothing
+-- has to move. elm-format splits the container one item per row and lifts the
+-- comment onto a row of its own with a blank line above it. This is the one
+-- place gren-format is LESS aggressive about moving comments than elm-format.
+
+
+arr =
+    [ 1 {- one -}, 2, 3 ]
+
+
+returnRecordComment : Int -> { x : Int, y : Int {- note -} }
+returnRecordComment n =
+    { x = n, y = n }
+
+
+-- A comment that genuinely cannot share the row does break these open — and
+-- when it does, a blank line written above it inside the brackets is dropped: a
+-- blank line separates statements, never the parts of one expression.
+foo :
+    { aa : Int
+
+    -- note
+    , bb : Int
+    }
+foo =
+    { aa = 1, bb = 2 }

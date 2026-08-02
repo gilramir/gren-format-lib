@@ -1,0 +1,28 @@
+module D17PrecedenceSplit exposing (..)
+
+-- Divergence #17. A multi-row operator chain splits only at its loosest
+-- operators; elm-format splits at every operator regardless of precedence.
+-- Grouping by precedence keeps `bonusPoints * multiplier` and each
+-- `flag /= Nothing` check reading as the single term it is.
+
+
+score =
+    baseScore
+        + bonusPoints * multiplier
+        - penaltyAmount
+
+
+anyFlagSet flags =
+    flags.show /= Nothing
+        || flags.preAst /= Nothing
+        || flags.postAst /= Nothing
+        || flags.lpt /= Nothing
+
+
+-- A `--` forces the chain open, but it still breaks where precedence says, not
+-- where the comment sits: breaking at the tighter `*` while gluing across the
+-- looser `+` would make the first row read as `(one + two) * three`.
+commented =
+    one
+        + two -- c
+          * three

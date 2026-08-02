@@ -33,7 +33,68 @@ suites fsPerm =
     , patternCommentsSuite fsPerm
     , bracketCommentsSuite fsPerm
     , kitchenSinkSuite fsPerm
+    , divergenceCatalogueSuite fsPerm
     ]
+
+
+{-| One fixture per entry in `docs/elmFormatComparison.md`'s divergence
+catalogue, built from that entry's own worked example.
+
+Every other suite here tests the formatter. This one tests the **documentation**:
+each `.dirty.gren` is the entry's "you wrote" input and each `.formatted.gren` is
+the output the entry prints as gren-format's. A divergence that gets fixed, or
+whose shape changes under an unrelated fix, breaks its own catalogue entry here
+instead of leaving a false claim in the docs — which has happened: #14 described
+a flat `<|` chain that had not been the shipped behaviour for two weeks, and
+writing this suite found five more (#8, #9, #18, #25, #26), three of them stale
+by one day.
+
+The fixtures live in `testfiles/Divergence/` and are named for their entry, so
+`#17` is `D17PrecedenceSplit`. Nothing else may be added to that directory: the
+suite is a 1:1 index of the catalogue, and its value is that the mapping is
+exhaustive in both directions.
+-}
+divergenceCatalogueSuite : FileSystem.Permission -> U.Suite
+divergenceCatalogueSuite fsPerm =
+    let
+        entry =
+            assertPrettyIn fsPerm "Divergence"
+    in
+    U.suite
+        { name = "Divergence catalogue"
+        , setUpSuite = U.noSuiteFixture
+        , tearDownSuite = U.noTearDown
+        , setUp = U.noFixture
+        , tearDown = U.noTearDown
+        , tests =
+            [ entry "#1 the 2 blank lines separating declarations go above a leading comment, not between it and the code it documents" "D01BlankLinesAroundComment"
+            , entry "#2 a block comment's `-}` keeps the row the author gave it, glued or detached" "D02BlockCommentCloser"
+            , entry "#3 the exposing list sorts alphabetically, independent of `@docs`; an import run's sort stops at a blank line and a comment travels with its import" "D03ExposingAndImportOrder"
+            , entry "#4 a wrapped import keeps `exposing` as the header's last word with the list at +4" "D04ImportExposingWrap"
+            , entry "#5 a single-line comment after a `->` in a wrapped signature is glued to that `->`" "D05SignatureArrowComment"
+            , entry "#6 a union written on one row stays on one row" "D06UnionOnOneLine"
+            , entry "#7 a record pattern broken across rows stays broken" "D07RecordPatternAuthorDriven"
+            , entry "#8 a `--` inside an effect module's `where { }` escapes the block (forced: the two files are byte-identical to the parser)" "D08EffectWhereLineComment"
+            , entry "#9 a float literal keeps the author's exact spelling; an int and a string escape are canonicalized by the parser before the formatter sees them" "D09VerbatimLiterals"
+            , entry "#10 a redundant paren is kept in every position" "D10RedundantParens"
+            , entry "#11 a comment's text is never rewritten, only its placement" "D11DocCommentBody"
+            , entry "#12 a comment written after the last code on a row stays beside it" "D12TrailingCommentStays"
+            , entry "#13 a comment between an operand and the next operator stays on the operand it trails" "D13BinopOperandTrailingComment"
+            , entry "#14 a multi-row seed keeps `<|` glued to its last line" "D14BackPipeMultilineSeed"
+            , entry "#15 a comment trailing a pipeline step stays on that step" "D15PipelineStepTrailingComment"
+            , entry "#16 a comment after a lambda's `->` stays inline on a one-row body, and goes down with a body that wraps" "D16LambdaArrowComment"
+            , entry "#17 an operator chain splits only at its loosest operators, comment or no comment" "D17PrecedenceSplit"
+            , entry "#18 a one-line block comment inside a container does not break the container open" "D18InlineCommentInContainer"
+            , entry "#19 a broken pipeline puts the seed on its own row and aligns every `|>`" "D19PipelineAlignment"
+            , entry "#20 a comment trailing the last `let` binding drops below `in` (forced: `in` has no recorded position)" "D20LetLastBindingComment"
+            , entry "#21 a single-item container whose one item fits collapses" "D21SingleItemCollapse"
+            , entry "#22 a comment beside punctuation the parser throws away snaps to the later side, except at a line-leading `,`/`|`" "D22UnrecordedPunctuation"
+            , entry "#23 a comment never breaks the construct around it further open than the author wrote it" "D23CommentDoesNotOpen"
+            , entry "#24 a record update's own-row comment sits at the field indent" "D24RecordUpdateOwnLineComment"
+            , entry "#25 a comment occupies the rows the author gave it — nothing is floated to give it air" "D25CommentKeepsItsRows"
+            , entry "#26 a `--` trailing a `<|` keeps the operator on the seed's row and rides it" "D26BackPipeLineComment"
+            ]
+        }
 
 
 {-| Pure unit tests for `LiteralFormat.intToHex` (no fixture, no I/O). The large
@@ -80,9 +141,9 @@ hexCase name input expected =
 Parse and format failures ride the success channel as `Err message` and become
 `Expect.fail` in `assertPretty` → test Failed, with the message printed verbatim.
 -}
-runPrettyPrinter : FileSystem.Permission -> String -> Task String (Result String { ast : Src.Module, context : Context.Context, rendered : String })
-runPrettyPrinter fsPerm filename =
-    readTestFile fsPerm filename
+runPrettyPrinter : FileSystem.Permission -> String -> String -> Task String (Result String { ast : Src.Module, context : Context.Context, rendered : String })
+runPrettyPrinter fsPerm dir filename =
+    readTestFile fsPerm dir filename
         |> Task.map
             (\fileContent ->
                 let
@@ -105,9 +166,9 @@ runPrettyPrinter fsPerm filename =
             )
 
 
-readTestFile : FileSystem.Permission -> String -> Task String String
-readTestFile fsPerm filename =
-    (Path.join <| Array.map Path.fromPosixString [ "testfiles", "Formatter", filename ])
+readTestFile : FileSystem.Permission -> String -> String -> Task String String
+readTestFile fsPerm dir filename =
+    (Path.join <| Array.map Path.fromPosixString [ "testfiles", dir, filename ])
         |> FileSystem.readFile fsPerm
         |> Task.mapError (\fsErr -> FileSystem.errorToString fsErr)
         |> Task.map Bytes.toString
@@ -122,11 +183,21 @@ readTestFile fsPerm filename =
             )
 
 
+{-| A fixture pair in `testfiles/Formatter/`. -}
 assertPretty : FileSystem.Permission -> String -> String -> U.Test {}
-assertPretty fsPerm testDescription filenameBase =
+assertPretty fsPerm =
+    assertPrettyIn fsPerm "Formatter"
+
+
+{-| The same, for a fixture pair in some other `testfiles/<dir>/`. The corpus
+lives in one directory per suite so a suite can be read on its own; `dir` is the
+only thing that varies, and every check below is identical.
+-}
+assertPrettyIn : FileSystem.Permission -> String -> String -> String -> U.Test {}
+assertPrettyIn fsPerm dir testDescription filenameBase =
     U.test testDescription <|
         \_ ->
-            runPrettyPrinter fsPerm (filenameBase ++ ".dirty.gren")
+            runPrettyPrinter fsPerm dir (filenameBase ++ ".dirty.gren")
                 |> Task.andThen
                     (\formatResult ->
                         when formatResult is
@@ -134,7 +205,7 @@ assertPretty fsPerm testDescription filenameBase =
                                 Task.succeed (Expect.fail message)
 
                             Ok { ast = ast1, context = context1, rendered = rendered } ->
-                                readTestFile fsPerm (filenameBase ++ ".formatted.gren")
+                                readTestFile fsPerm dir (filenameBase ++ ".formatted.gren")
                                     |> Task.map
                                         (\expectedFormatting ->
                                             Expect.all

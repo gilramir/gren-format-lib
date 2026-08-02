@@ -1,0 +1,14 @@
+module D06UnionOnOneLine exposing (..)
+
+-- Divergence #6. A union written on one line stays on one line; written one
+-- variant per row, it stays that way. elm-format always stacks one `| Variant`
+-- per row, even for a union the author wrote flat.
+
+
+type Color
+    = Red | Green | Blue
+
+
+type Shape
+    = Circle Int
+    | Square Int

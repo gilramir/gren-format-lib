@@ -56,15 +56,26 @@ assertPretty fsPerm "description" "FileBaseName"
 ```
 
 which performs three checks:
-1. **Formatting** — `format(testfiles/Formatter/<FileBaseName>.dirty.gren)` is
-   byte-equal to `testfiles/Formatter/<FileBaseName>.formatted.gren`
+1. **Formatting** — `format(testfiles/<dir>/<FileBaseName>.dirty.gren)` is
+   byte-equal to `testfiles/<dir>/<FileBaseName>.formatted.gren`
 2. **AST equivalence** — re-parsing the formatted output yields a semantically
    equal AST (catches formatting that changes meaning)
 3. **Idempotency** — re-formatting the `.formatted` file changes neither the
    `Module` nor the comment/blank-line `Context`
 
+Fixtures are grouped **one directory per suite** under `tests/testfiles/`:
+`Formatter/` is the general corpus (what `assertPretty` reads) and
+`Divergence/` holds one fixture per entry of the divergence catalogue in
+`docs/elmFormatComparison.md`, named for its entry and built from that entry's
+own worked example — that suite tests the *documentation*, and writing it found
+six entries whose example no longer matched the shipped formatter (#8, #9, #18,
+#22, #25, #26). `check-divergence-index.py`, run by `run-tests.sh`, fails if the
+entry↔fixture mapping stops being 1:1. Use `assertPrettyIn fsPerm "<dir>"` for a
+fixture outside `Formatter/`; `tests/corpus.py` is where the python gates ask
+which fixture directories exist, so they all sweep a new one automatically.
+
 **To add a test:** write both `<Name>.dirty.gren` and `<Name>.formatted.gren` in
-`tests/testfiles/Formatter/`, then add an `assertPretty` line in `Format.gren`.
+the suite's directory, then add an `assertPretty` line in `Format.gren`.
 Generate the `.formatted` with:
 ```bash
 node ../../gren-format/app --show <Name>.dirty.gren > testfiles/Formatter/<Name>.formatted.gren

@@ -1,0 +1,22 @@
+module D14BackPipeMultilineSeed exposing (..)
+
+-- Divergence #14. When the SEED of a `<|` spans rows, the operator stays glued
+-- to the seed's last line. elm-format runs `<|` through the same
+-- right-associative machinery as any other operator, which stacks once the left
+-- side is no longer single-line, so the operator drops below the seed's closing
+-- bracket. Keeping it glued makes `<|` read like `|>`.
+
+
+parenSeed =
+    (x
+        + y
+    ) <|
+        value
+
+
+-- The nesting of a plain chain is the part both formatters agree on: each body
+-- steps one indent deeper than the one above it.
+plainChain name =
+    String.toUpper <|
+        String.append "Greetings, " <|
+            String.append name "!"

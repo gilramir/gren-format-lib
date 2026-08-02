@@ -1,0 +1,32 @@
+module D10RedundantParens exposing (..)
+
+-- Divergence #10. A redundant paren is kept, in every position, with no
+-- exceptions — elm-format works out that it carries no meaning and strips it.
+-- The indent is not the difference: once the `(` is there the block hangs off
+-- it, so you cannot keep the paren and get elm-format's columns.
+
+
+aroundIf =
+    (if cond then
+        one
+
+     else
+        two
+    )
+
+
+aroundWhenInField =
+    { fld =
+        (when sel is
+            Just w ->
+                w
+        )
+    }
+
+
+aroundOperand base number =
+    (Gren.Kernel.Math.log number) / (Gren.Kernel.Math.log base)
+
+
+aroundCallArgument =
+    node "div" ({ foo = 1, bar = 2 }) []

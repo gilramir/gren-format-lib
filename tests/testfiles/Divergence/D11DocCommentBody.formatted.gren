@@ -1,0 +1,27 @@
+module D11DocCommentBody exposing (..)
+
+{-| Divergence #11. A comment's TEXT is never rewritten, only its placement.
+elm-format reaches inside a doc comment and reformats the body: it re-spaces
+`@docs` lines into groups, rewrites Markdown bullets (`*` -> `-`) and emphasis
+(`*italic*` -> `_italic_`, `__bold__` -> `**bold**`), and re-indents fenced
+example code.
+
+  * a bullet written with a star
+  * and another
+
+Some *italic* text and some __bold__ text.
+
+@docs first
+@docs second
+
+-}
+
+
+first : Int
+first =
+    1
+
+
+second : Int
+second =
+    2

@@ -1,0 +1,17 @@
+module D01BlankLinesAroundComment exposing (..)
+
+-- Divergence #1. The two blank lines that separate top-level declarations go
+-- ABOVE a declaration's leading comment, not between the comment and the code
+-- it documents. elm-format puts them immediately above `bar`, splitting the
+-- comment away from the declaration it explains.
+
+
+foo : Int
+foo =
+    1
+
+
+-- explains bar
+bar : Int
+bar =
+    2

@@ -1,0 +1,21 @@
+module D16LambdaArrowComment exposing (..)
+
+-- Divergence #16. A comment just after a lambda's `->`, on a body that stays on
+-- one row, is kept inline; elm-format drops the `->`, the comment and the body
+-- each onto a row of its own.
+
+
+f =
+    \x -> {- note -} x + 1
+
+
+-- Once the body wraps, the comment goes down WITH it and the two formatters
+-- agree. The comment cannot stay on the `->` row here: reparsed, it would no
+-- longer be on the body's row, so it would move again on the next format and
+-- the file would never settle.
+g =
+    \x ->
+        {- note -}
+        [ 1
+        , 2 -- why two
+        ]

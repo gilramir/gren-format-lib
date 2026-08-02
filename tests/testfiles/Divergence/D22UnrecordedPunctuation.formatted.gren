@@ -1,0 +1,68 @@
+module D22UnrecordedPunctuation exposing (..)
+
+-- Divergence #22. The parser records a position for a binary operator and for
+-- the brackets, and for nothing else that separates two pieces of an
+-- expression. So `x {- c -} TOKEN y` and `x TOKEN {- c -} y` arrive as the same
+-- three facts, and gren-format picks one side for all of them: the LATER one,
+-- the comment leads what follows the separator (rule C2). elm-format keeps the
+-- side you wrote it on, so exactly one of the two spellings matches it.
+
+
+-- Both of these format alike, with the comment past the `=`.
+fieldBefore =
+    { field = {- why -} compute 1 }
+
+
+fieldAfter =
+    { field = {- why -} compute 1 }
+
+
+itemBefore =
+    [ 1, {- c -} 2 ]
+
+
+itemAfter =
+    [ 1, {- c -} 2 ]
+
+
+updateBefore rec =
+    { rec | {- c -} a = 1 }
+
+
+updateAfter rec =
+    { rec | {- c -} a = 1 }
+
+
+-- A `--` (or a multi-line block comment) at a `,` or a `|` is the exception and
+-- keeps the row it was written on: those separators LEAD their row, so a
+-- comment above one strands nothing, and the two spellings really are tellable
+-- apart.
+sameRow =
+    [ apple -- the red one
+    , banana
+    ]
+
+
+ownRow =
+    [ apple
+    -- about banana
+    , banana
+    ]
+
+
+-- The third spelling — after the separator, still on the previous item's row —
+-- is positionally identical to the first and collapses onto it.
+thirdSpelling =
+    [ apple -- the red one
+    , banana
+    ]
+
+
+-- Where the token IS recorded, the side you wrote it on is kept, and both
+-- formatters agree.
+insideBracket =
+    [ {- primary -} 1, 2 ]
+
+
+pastCloser rec last =
+    fn a { rec | a = 1 } {- c -} last

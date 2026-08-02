@@ -1,0 +1,16 @@
+module D07RecordPatternAuthorDriven exposing (..)
+
+-- Divergence #7. A record or array PATTERN broken across rows stays broken —
+-- pattern layout is author-driven like every other construct. elm-format
+-- collapses a comment-free multi-row pattern back onto one line if it fits,
+-- which is the one place its own "your newlines are your layout" rule lapses.
+
+
+view { name
+     , age
+     } =
+    name
+
+
+flat { name, age } =
+    age

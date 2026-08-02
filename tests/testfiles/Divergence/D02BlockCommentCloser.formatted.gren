@@ -1,0 +1,21 @@
+module D02BlockCommentCloser exposing (..)
+
+-- Divergence #2. Whatever line shape the author gave a block comment is
+-- reproduced: a `-}` glued to the last content line stays glued, and one on a
+-- row of its own stays there. elm-format detaches `-}` onto its own row as soon
+-- as the comment spans more than one source line.
+
+
+{- short
+   body -}
+foo : Int
+foo =
+    1
+
+
+{- detached
+   already
+-}
+bar : Int
+bar =
+    2
