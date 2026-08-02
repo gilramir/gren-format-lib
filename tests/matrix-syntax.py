@@ -178,11 +178,21 @@ gap_indices = _fuzz.gap_indices
 # found to be a genuine BUG is registered with a REASON_BUG prefix, which is
 # ALSO reported loudly -- being understood is not the same as being acceptable,
 # and a known bug must not go quiet just because someone wrote down what it is.
+# A fourth, REASON_PENDING, is the same idea for a divergence whose cause is
+# upstream in the parser: reported every run, but its work-list is not ours.
 ELM_FORMAT = "elm-format"
 PARITY = True  # set from --no-parity / elm-format availability in main()
 
 REASON_UNREVIEWED = "UNREVIEWED"
 REASON_BUG = "BUG"  # prefix: "BUG: <what is wrong>"
+# A divergence we have diagnosed and cannot fix here: the cause is upstream, in
+# the parser gren-format is built on. Format: "PENDING-UPSTREAM:<issue>: <what>".
+# Reported loudly on every run for the same reason REASON_BUG is -- it is parked,
+# not accepted -- but listed apart from BUG because the work-list is somebody
+# else's. The come-back trigger needs no bookkeeping: when the upstream fix lands
+# and the compiler-common dependency is bumped, these cells stop diverging and the
+# existing `parity-baseline-stale` check fails until the entry is removed.
+REASON_PENDING = "PENDING-UPSTREAM"
 REASON_PARENS = "README divergence #10 -- gren-format keeps redundant parens"
 
 
@@ -1039,6 +1049,10 @@ def write_comment_baseline(cells):
             "                 elm-format puts it. Not fresh comment debt.",
             "  a+b            both apply.",
             "  UNREVIEWED     not yet reviewed. May be a real bug frozen as expected output.",
+            "  PENDING-UPSTREAM:<issue>: <what>",
+            "                 diagnosed, and the cause is upstream in the parser rather than in",
+            "                 this formatter. Reported on every run. Clears by itself: when the",
+            "                 fix ships the cell stops diverging and the stale-entry check fires.",
             "",
             "A divergence where gren strands the comment ALONE on its own line is NEVER",
             "auto-classified, whatever else is going on: that is the shape of the two pairing",
@@ -1100,6 +1114,7 @@ def report_comment_parity(results, baseline, update, verbose=False, base_pairs=N
     # reads "INHERITED: BUG: ...", and a known bug must not go quiet just
     # because the comment cell inherited it from its syntax cell.
     bugs = sorted(k for k, v in registered.items() if REASON_BUG + ":" in v)
+    pending = sorted(k for k, v in registered.items() if REASON_PENDING + ":" in v)
     if ran:
         print(f"comment parity: {len(ran) - len(diverging)}/{len(ran)} cells byte-identical to "
               f"elm-format, {len(registered)} registered divergences")
@@ -1117,6 +1132,12 @@ def report_comment_parity(results, baseline, update, verbose=False, base_pairs=N
                   f"     still wrong. These are a work-list, not a decision:")
             for key in bugs:
                 print(f"       {key}: {registered[key][len(REASON_BUG) + 2:]}")
+        if pending:
+            print(f"\n  !! {len(pending)} divergence(s) PENDING-UPSTREAM -- diagnosed, not fixable\n"
+                  f"     here. They clear when the upstream fix ships and this baseline\n"
+                  f"     reports them stale:")
+            for key in pending:
+                print(f"       {key}: {registered[key][len(REASON_PENDING) + 1:]}")
         if verbose:
             print("\n  registered divergences in full:\n")
             for key, r in sorted(diverging.items()):
@@ -1276,6 +1297,7 @@ def report_parity(results, baseline, update, verbose=False):
     registered = {k: v for k, v in baseline.items() if k in diverging}
     unreviewed = [k for k, v in registered.items() if v == REASON_UNREVIEWED]
     bugs = sorted(k for k, v in registered.items() if v.startswith(REASON_BUG))
+    pending = sorted(k for k, v in registered.items() if v.startswith(REASON_PENDING))
     if registered:
         print(f'parity: {len(ran) - len(diverging)}/{len(ran)} cells byte-identical to elm-format, '
               f"{len(registered)} registered divergences")
@@ -1294,6 +1316,12 @@ def report_parity(results, baseline, update, verbose=False):
                   f"     still wrong. These are a work-list, not a decision:")
             for key in bugs:
                 print(f"       {key}: {registered[key][len(REASON_BUG) + 2:]}")
+        if pending:
+            print(f"\n  !! {len(pending)} divergence(s) PENDING-UPSTREAM -- diagnosed, not fixable\n"
+                  f"     here. They clear when the upstream fix ships and this baseline\n"
+                  f"     reports them stale:")
+            for key in pending:
+                print(f"       {key}: {registered[key][len(REASON_PENDING) + 1:]}")
         if verbose:
             print("\n  registered divergences in full:\n")
             for key, r in sorted(diverging.items()):

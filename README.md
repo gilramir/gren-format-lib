@@ -186,9 +186,11 @@ Everything else follows your layout choices.
 
 ## Known limitations
 
-`gren-format` has a handful of known gaps: a couple of inherited
+`gren-format` has a handful of known gaps: a few inherited
 compiler/parser bugs (one around field access on a record-update base, one
-around aliasing an unparenthesized constructor pattern with `as`), a `when`
+around aliasing an unparenthesized constructor pattern with `as`, and one where
+a continuation line at the same column as the body above it ends that body
+early), a `when`
 pattern shape the Haskell-based compiler can reject even though the formatter
 produced it, several comment-placement choices forced by a token (`=`,
 `:`, `|`, `in`, a bracket's closing paren, an effect module's `where` block)

@@ -43,6 +43,7 @@ code, and why the places they *don't* look the way they do.
   - [#23 A comment doesn't open the construct around it](#divergence-23)
   - [#24 Record update's own-line comment indent](#divergence-24)
   - [#25 A comment keeps the rows you gave it](#divergence-25)
+  - [#26 A `--` trailing a `<|` moves the operator](#divergence-26)
 - [Out of scope for comparison](#out-of-scope-for-comparison)
 
 ---
@@ -1176,6 +1177,37 @@ decision and why.
     a comment occupies the rows you wrote it on. Nothing is floated to give it
     air ([C5](commentHandling.md#c5--gren-format-adds-nothing-around-a-comment)),
     and nothing is pulled up to close a gap you left.
+
+26. <a id="divergence-26"></a>**A `--` trailing a `<|` moves the operator onto its own
+    row; elm-format keeps `<|` on the seed's line and drops the comment below it.**
+    gren-format's flat `<|` layout keeps the operator on the seed's line with the
+    body after it (`fn <|` / `····body`). A `--` runs to end of line, so it cannot
+    ride that layout — nor can a multi-line `{- … -}`, which brings its own
+    newlines. gren-format switches to an operator-leading form, which keeps the
+    comment on the `<|` it trails (the same "a comment sticks to what it trails"
+    rule as [#13](#divergence-13) / [#15](#divergence-15)); elm-format keeps the
+    operator where it was and re-homes the comment onto the body's row instead:
+
+    ```gren
+    -- you wrote:                -- gren-format:        -- elm-format:
+    [ fn <| -- c                 [ fn                   [ fn <|
+            one ]                    <| -- c                -- c
+                                        one                 one
+                                 ]                      ]
+    ```
+
+    The trade is which of the two things moves: gren-format preserves the
+    comment's attachment and pays for it with the operator's row, elm-format
+    preserves the operator's row and pays for it with the attachment.
+
+    What makes gren-format's the more consistent of the two is `|>`. Both
+    formatters agree, byte for byte, that a `--` trailing a **forward** pipe stays
+    on it (`|> -- c` / `····step`) — so elm-format is treating the two pipeline
+    operators differently and gren-format is treating them the same. Every other
+    cell in this family agrees: a single-line `{- c -}` after either operator, and
+    either operator with no comment at all. This entry is exactly the `<|`-plus-`--`
+    corner.
+
 
 ## Out of scope for comparison
 

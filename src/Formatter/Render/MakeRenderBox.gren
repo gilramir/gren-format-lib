@@ -1957,10 +1957,71 @@ buildBackwardBodyBox : Array LPNode -> Result String { box : Box, isBrokenCall :
 buildBackwardBodyBox bodyNodes =
     renderFlowItems bodyNodes
         |> Result.andThen
-            (\items ->
-                if Array.any .isBlock items then
+            (\allItems ->
+                let
+                    -- A comment LEADING the body is not the head of a call, and
+                    -- `assembleBrokenCall` would treat it as one: item 0 on the
+                    -- opening row, everything after it at +4. That is right for
+                    -- `fn` + its arguments and wrong here — the comment's own
+                    -- operand is not its argument — so the body landed one level
+                    -- deeper than the identical body with no comment:
+                    --
+                    --     gn <|              gn <|
+                    --         { a = 1            {- c -}
+                    --         }                      { a = 1
+                    --                                }
+                    --
+                    -- Peel those comments off, lay the real body out on its own,
+                    -- and stack them above it at the body's own column. Note this
+                    -- changes only the INDENT: the comment already occupied a row
+                    -- of its own here, and still does, so the reparse sees the
+                    -- same row structure and the `inlineStart` / operator-leading
+                    -- oscillations guarded against below are untouched.
+                    --
+                    -- Only a single-line block comment can reach this point with a
+                    -- leading position — `stepNeedsCommentedLayout` routes a `--`,
+                    -- a multi-line `{- … -}`, and a comment before the `<|` itself
+                    -- to the operator-leading path instead.
+                    nLeading =
+                        Array.foldl
+                            (\item acc ->
+                                if acc.done then
+                                    acc
+
+                                else if isCommentItem item then
+                                    { acc | n = acc.n + 1 }
+
+                                else
+                                    { acc | done = True }
+                            )
+                            { n = 0, done = False }
+                            allItems
+                            |> .n
+
+                    leading =
+                        Array.takeFirst nLeading allItems
+
+                    items =
+                        Array.dropFirst nLeading allItems
+
+                    stackLeading box =
+                        if Array.isEmpty leading then
+                            box
+
+                        else
+                            B.stack1
+                                (Array.mapAndKeepJust (\c -> Maybe.map .box c.comment) leading
+                                    ++ [ box ]
+                                )
+                in
+                if Array.isEmpty items then
+                    -- Comments and nothing else: there is no body to align to.
+                    assembleFlow True 0 allItems
+                        |> Result.map (\box -> { box = box, isBrokenCall = False })
+
+                else if Array.any .isBlock items then
                     assembleBrokenCall grenIndent items
-                        |> Result.map (\box -> { box = box, isBrokenCall = True })
+                        |> Result.map (\box -> { box = stackLeading box, isBrokenCall = True })
 
                 else
                     -- `inlineStart = True`: the body is glued right after `<| `,
@@ -1972,7 +2033,11 @@ buildBackwardBodyBox bodyNodes =
                     -- own row) into the operator-leading commented layout and
                     -- oscillates. This is the same "continues a line the caller
                     -- emitted" case `buildFlowBoxInline` names.
-                    assembleFlow True 0 items
+                    --
+                    -- The leading comments are put back here rather than peeled:
+                    -- a single-line body is exactly the case they are meant to
+                    -- ride, and `assembleFlow True` is what keeps them on its row.
+                    assembleFlow True 0 allItems
                         |> Result.map (\box -> { box = box, isBrokenCall = False })
             )
 
@@ -4734,7 +4799,40 @@ assembleFlowImpl inlineStart flowIndent items =
                                         -- operator+8 column), and `)` on its own
                                         -- line aligned under the `(` (elm-format),
                                         -- three columns past the operator.
-                                        when directOperandLambdaSplit item is
+                                        --
+                                        -- Both offsets are measured FROM the
+                                        -- operator, so they are only right when the
+                                        -- prefix is the operator and nothing else —
+                                        -- `|> ` / `<| `, three columns. Anything
+                                        -- more on the running line (in practice a
+                                        -- single-line `{- c -}` sitting between the
+                                        -- operator and its operand) moved the `(`
+                                        -- without moving the body or the `)`, so the
+                                        -- paren stopped lining up with its own
+                                        -- close:
+                                        --
+                                        --     ++ {- c -} (\q ->
+                                        --             q + one
+                                        --           )
+                                        --
+                                        -- Shifting this box uniformly does not fix
+                                        -- it: the `)` would still land three past
+                                        -- the prefix instead of under the `(`. So a
+                                        -- wider prefix falls through to the generic
+                                        -- paren arm below, which anchors every row
+                                        -- at the paren's own `(` column and so
+                                        -- relocates correctly — already what a
+                                        -- paren-wrapped `if` / `when` / binop does
+                                        -- here, so this makes the lambda agree with
+                                        -- them rather than adding a rule.
+                                        when
+                                            (if B.lineLength 0 prefLine == 3 then
+                                                directOperandLambdaSplit item
+
+                                             else
+                                                Nothing
+                                            )
+                                        is
                                             Just { headLine, bodyBox } ->
                                                 Ok
                                                     { rows =

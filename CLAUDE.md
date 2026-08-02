@@ -413,6 +413,25 @@ groups needed one new catalogue entry, [#25](docs/elmFormatComparison.md#diverge
 an own-row comment in a container and closes the row break below one leading an
 operator); the rest are #22 / #23 / #17 / #14 / #12 / #21 / #24 combinations.
 
+**`PENDING-UPSTREAM:<issue>: <what>`** is a fourth reason class, added 2026-08-01
+for a divergence that has been diagnosed and whose cause is **not in this
+formatter** — so far, the parser it is built on. It is printed on every run like
+`BUG:`, because it is parked rather than accepted, but listed separately since its
+work-list belongs to somebody else. It needs no follow-up bookkeeping: when the
+upstream fix ships and the compiler-common dependency is bumped, the cells stop
+diverging and the existing `parity-baseline-stale` check fails until the entry is
+removed. First use: 12 cells on
+[compiler-common#14](https://github.com/gren-lang/compiler-common/issues/14).
+
+**Do not invent a reason string to close out a group.** Registering a fixed
+group's cells as `FIXED` looked reasonable for about a minute and was wrong twice
+over: a fully fixed group's cells leave the baseline on `--update-baseline` and
+need no reason at all, and a group that is only *partly* fixed still diverges and
+needs the real catalogue number. That mistake wrote a meaningless reason over six
+cells that turned out to be plain [#25](docs/elmFormatComparison.md#divergence-25)
+— exactly the "a baseline entry is the easiest place for a known bug to go quiet"
+failure this file warns about, arriving under a reassuring label.
+
 `--register` keys on the group **as it is now**, never on the cell keys the
 verdict recorded. Those drift: a fix reshapes groups, and at the time this was
 built the recorded key lists covered **103 cells whose current group had no

@@ -11,6 +11,7 @@ nothing is going wrong.
 
 - [A compiler bug with field access on a record-update base](#a-compiler-bug-with-field-access-on-a-record-update-base)
 - [An unparenthesized constructor pattern can't be aliased with `as`](#an-unparenthesized-constructor-pattern-cant-be-aliased-with-as)
+- [A continuation line at the same column as the body above it](#a-continuation-line-at-the-same-column-as-the-body-above-it)
 - [Wide `when` branch patterns](#wide-when-branch-patterns)
 - [Comment placement near invisible tokens](#comment-placement-near-invisible-tokens)
 - [A line break inside a declaration's head](#a-line-break-inside-a-declarations-head)
@@ -62,6 +63,64 @@ just this pattern — real fallout: `core/src/String/Parser/Advanced.gren` has
 this exact shape and can't be formatted until it's fixed. Tracked at
 [compiler-common#31](https://github.com/gren-lang/compiler-common/issues/31).
 Workaround: add the parens yourself, `(Just y) as whole`.
+
+## A continuation line at the same column as the body above it
+
+When the body of a block construct starts on the row *after* its keyword, the
+parser scopes the body's indent to that first token's column and then requires a
+strictly greater column to continue. A continuation line at exactly the **same**
+column therefore ends the body early. The real Gren compiler accepts every shape
+below, and elm-format agrees with the real compiler on all of them. Tracked at
+[compiler-common#14](https://github.com/gren-lang/compiler-common/issues/14),
+which also carries a proposed fix; the `when` half was reported separately as
+[compiler-common#11](https://github.com/gren-lang/compiler-common/issues/11).
+
+It fails two different ways. In a `let` binding or a `when` branch nothing can
+absorb the stranded token, so the **file is rejected** and gren-format refuses to
+format it at all:
+
+```gren
+v =
+    let
+        b =
+            add 1
+            2          -- same column as `add` -> "Expected character '='"
+    in
+    b
+```
+
+In a lambda body or an `if`/`else` branch an enclosing scope *can* absorb it, so
+the parse **succeeds with a different AST**:
+
+```gren
+v = \q ->
+        fn one
+        two            -- same column as `fn`
+```
+
+is parsed as `(\q -> fn one) two` rather than `\q -> fn one two`, so `two` is not
+an argument of `fn` and gets no continuation indent:
+
+```gren
+-- gren-format            -- elm-format
+v =                       v =
+    \q ->                     \q ->
+        fn one                    fn one
+        two                           two
+```
+
+The output still means the same thing to the real compiler as the input did, so
+nothing is corrupted — the damage is layout, plus the outright refusal in the
+`let` / `when` cases.
+
+Not seen in practice: a sweep of the 288-file `gren-format-preview/pkgs` corpus
+finds no instance of any of these shapes, because real code indents the
+continuation. Workaround: indent it past the first line of the body.
+
+The full write-up, with both `--pre-ast` dumps and the `gren make` type error
+that pins down the real compiler's reading, is in
+`gren-format/parser-same-column-continuation-bug.md`; it was added to
+compiler-common#14 on 2026-08-01.
 
 ## Wide `when` branch patterns
 

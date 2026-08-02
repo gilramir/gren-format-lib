@@ -1,0 +1,71 @@
+module PipeCommentOperandIndent exposing (..)
+
+
+-- A single-line block comment between an operator and its operand must not
+-- displace that operand. Both shapes below rendered a level deeper (or out of
+-- alignment) than the same code with no comment at all.
+
+
+-- `<|`: the body sat 4 past its own comment; comment-free it sits at `<|`+4.
+
+
+backPipeRecord =
+    gn
+        <| {- c -} { x = 1
+                   , y = 2
+                   }
+
+
+backPipeRecordNoComment =
+    gn
+        <| { x = 1
+           , y = 2
+           }
+
+
+-- A paren-wrapped lambda after a comment: the `(` moved with the comment but
+-- the body and the closing `)` did not, so `)` stopped lining up with `(`.
+
+
+parenLambda =
+    head
+        ++ {- c -} (\q ->
+                q + one
+           )
+
+
+parenLambdaNoComment =
+    head
+        ++ (\q ->
+                q + one
+           )
+
+
+-- The operator-only prefix keeps the direct-operand layout it always had.
+
+
+directOperandLambda =
+    seed
+        |> (\q ->
+                q + one
+           )
+
+
+-- Unchanged neighbours: every other paren content already relocated correctly.
+
+
+parenIf =
+    head
+        ++ {- c -} (if c then
+                a
+
+            else
+                b
+           )
+
+
+bracketLiteral =
+    head
+        ++ {- c -} { x = 1
+                   , y = 2
+                   }
