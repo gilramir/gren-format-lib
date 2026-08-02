@@ -22,7 +22,7 @@ unconditional breaks, and a node can still break for reasons they deliberately
 do not model (most often the author's own row layout).
 
 Usage:
-    ./audit-predicates.py                       # all testfiles/Formatter/*.formatted.gren
+    ./audit-predicates.py                       # all testfiles/*/*.formatted.gren
     ./audit-predicates.py path/to/File.gren ... # specific files
     ./audit-predicates.py -j 12                 # 12 audits at a time
     ./audit-predicates.py -v                    # list every finding, not just the summary

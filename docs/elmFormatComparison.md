@@ -2,7 +2,7 @@
 
 Gren is a spiritual descendant of Elm, so `gren format` and `elm-format` should agree on
 shared syntax unless there's a deliberate reason not to. We ran an audit on the
-formatter's own test fixtures (`gren-format-lib/tests/testfiles/Formatter/`),
+formatter's own test fixtures (`gren-format-lib/tests/testfiles/`),
 converting the Gren code to Elm, ran them through
 `elm-format` and catalogued every divergence. This is the full catalogue; the
 main [README](../README.md) links to specific entries here as they come up in

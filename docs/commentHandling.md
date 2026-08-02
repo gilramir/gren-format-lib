@@ -1128,6 +1128,6 @@ Where the position **is** recorded, use it. Two guards depend on it:
   `commentTrailsRole` across `src/Formatter/Render/`.
 - Debug: `node ../gren-format/app --lpt File.gren` prints each comment's role.
 - Rationale + bug history: `comment-arch.md`.
-- Fixtures: `tests/testfiles/Formatter/` (`BinopChainMixedComments`,
-  `LiteralInlineComment`, `BetweenWhenBranchesComment`, `LetInTrailingComment`,
-  `MultilineBlockComments`, `AdjacentTopLevelComments`, …).
+- Fixtures: spread across `tests/testfiles/` (one directory per suite) —
+  `BinopChainMixedComments`, `LiteralInlineComment`, `BetweenWhenBranchesComment`,
+  `LetInTrailingComment`, `MultilineBlockComments`, `AdjacentTopLevelComments`, …).

@@ -12,7 +12,7 @@ artifact management). Rebuild the app first: `cd ../../gren-format && ./build.sh
 
     ./gen-random.py -n 2000 -j 12          # sweep
     ./gen-random.py --seed 12345           # replay one master seed, verbose
-    ./gen-random.py --promote 12345 --name Foo   # promote a fixed find to a fixture
+    ./gen-random.py --promote 12345 --name Foo --dir BracketComments  # promote to a fixture
 """
 
 import argparse
@@ -33,7 +33,7 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 APP = os.path.join(HERE, "..", "..", "gren-format", "app")
 OUT_DEFAULT = os.path.join(HERE, "gen-out")
-TESTFILES = os.path.join(HERE, "testfiles", "Formatter")
+TESTFILES = os.path.join(HERE, "testfiles")
 
 BINOPS = ["||", "&&", "==", "/=", "<", ">", "<=", ">=", "++", "+", "-", "*",
           "/", "//", "^", "<<", ">>"]
@@ -3202,20 +3202,22 @@ def recheck_seed(args_tuple):
 
 # ───────────────────────────── promote ────────────────────────────────────
 
-def promote(out_root, seed, name):
+def promote(out_root, seed, name, suite_dir):
     # find the failure dir for this seed in the latest run(s)
     for run in sorted(os.listdir(out_root), reverse=True):
         fdir = os.path.join(out_root, run, "failures", str(seed))
         minf = os.path.join(fdir, "input.min.gren")
         if os.path.exists(minf):
-            dirty = os.path.join(TESTFILES, name + ".dirty.gren")
+            dest = os.path.join(TESTFILES, suite_dir)
+            os.makedirs(dest, exist_ok=True)
+            dirty = os.path.join(dest, name + ".dirty.gren")
             shutil.copy(minf, dirty)
             r = subprocess.run(["node", APP, "--show", dirty],
                                capture_output=True, text=True)
             if r.returncode != 0:
                 print("WARNING: --show still fails on the promoted case:")
                 print(r.stdout + r.stderr)
-            formatted = os.path.join(TESTFILES, name + ".formatted.gren")
+            formatted = os.path.join(dest, name + ".formatted.gren")
             with open(formatted, "w") as f:
                 f.write(r.stdout)
             print("Wrote:")
@@ -3223,8 +3225,8 @@ def promote(out_root, seed, name):
             print("  " + formatted + ("  (from a STILL-FAILING case — review!)"
                                        if r.returncode != 0 else ""))
             print("\nAdd to tests/src/Test/Formatter/Format.gren:")
-            print('    |> assertPretty fsPerm "%s" "%s"'
-                  % (name.lower(), name))
+            print('    , assertPrettyIn fsPerm "%s" "<description>" "%s"'
+                  % (suite_dir, name))
             return 0
     print("no failure dir found for seed %d under %s" % (seed, out_root))
     return 1
@@ -3258,6 +3260,10 @@ def main():
                     help="with --seeds: one JSON verdict per line on stdout")
     ap.add_argument("--promote", type=int, metavar="SEED")
     ap.add_argument("--name", help="fixture name for --promote")
+    ap.add_argument("--dir", help="suite directory under testfiles/ for --promote "
+                                  "(e.g. BracketComments) — the fixture is added to "
+                                  "whichever suite you plan to add its assertPrettyIn "
+                                  "line to")
     args = ap.parse_args()
 
     global _SHRINK_CAP
@@ -3268,7 +3274,11 @@ def main():
         if not args.name:
             print("--promote requires --name", file=sys.stderr)
             return 2
-        return promote(args.out, args.promote, args.name)
+        if not args.dir:
+            print("--promote requires --dir (which suite directory under testfiles/ "
+                  "the fixture belongs to)", file=sys.stderr)
+            return 2
+        return promote(args.out, args.promote, args.name, args.dir)
 
     if not os.path.exists(APP):
         print("app not found: %s\n(cd ../../gren-format && ./build.sh)" % APP,

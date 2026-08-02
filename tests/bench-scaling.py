@@ -49,7 +49,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 GREN_FORMAT = os.path.join(HERE, "..", "..", "gren-format", "gren-format.sh")
 MARKER = "{- ¤ -}"
 
-DEFAULT_FILE = os.path.join(HERE, "testfiles", "Formatter", "KitchenSink.formatted.gren")
+DEFAULT_FILE = os.path.join(HERE, "testfiles", "KitchenSink", "KitchenSink.formatted.gren")
 
 STAGES = ("lpt", "pex", "show")
 

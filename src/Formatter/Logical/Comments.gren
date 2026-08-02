@@ -1994,7 +1994,7 @@ The container decides which glue rule applies — the generic flow is the
 *coarse* one (a block comment stays own-line after a call / single-line bracket),
 and the "list-like" contexts (binop, bracket lists, union variants, when
 branches) are *permissive* (a same-row comment trails any item). Each branch is
-pinned by a fixture in `tests/testfiles/Formatter/`:
+pinned by a fixture under `tests/testfiles/` (one directory per suite):
 
   - binop (`OpAndRhs`/`Binop`) — `BinopChainMixedComments`,
     `MultilineBlockComments` (a comment after a multi-line block comment).

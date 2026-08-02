@@ -52,33 +52,35 @@ re-running `run-tests.sh` is enough — no separate library build step.
 Test cases are in `tests/src/Test/Formatter/Format.gren`. Each calls:
 
 ```gren
-assertPretty fsPerm "description" "FileBaseName"
+assertPrettyIn fsPerm "<SuiteDir>" "description" "FileBaseName"
 ```
 
 which performs three checks:
-1. **Formatting** — `format(testfiles/<dir>/<FileBaseName>.dirty.gren)` is
-   byte-equal to `testfiles/<dir>/<FileBaseName>.formatted.gren`
+1. **Formatting** — `format(testfiles/<SuiteDir>/<FileBaseName>.dirty.gren)` is
+   byte-equal to `testfiles/<SuiteDir>/<FileBaseName>.formatted.gren`
 2. **AST equivalence** — re-parsing the formatted output yields a semantically
    equal AST (catches formatting that changes meaning)
 3. **Idempotency** — re-formatting the `.formatted` file changes neither the
    `Module` nor the comment/blank-line `Context`
 
-Fixtures are grouped **one directory per suite** under `tests/testfiles/`:
-`Formatter/` is the general corpus (what `assertPretty` reads) and
-`Divergence/` holds one fixture per entry of the divergence catalogue in
-`docs/elmFormatComparison.md`, named for its entry and built from that entry's
-own worked example — that suite tests the *documentation*, and writing it found
-six entries whose example no longer matched the shipped formatter (#8, #9, #18,
-#22, #25, #26). `check-divergence-index.py`, run by `run-tests.sh`, fails if the
-entry↔fixture mapping stops being 1:1. Use `assertPrettyIn fsPerm "<dir>"` for a
-fixture outside `Formatter/`; `tests/corpus.py` is where the python gates ask
-which fixture directories exist, so they all sweep a new one automatically.
+Fixtures are grouped **one directory per suite** under `tests/testfiles/` —
+e.g. `BracketComments/`, `KitchenSink/`, `ImportStatements/` — each named for
+the `Format.gren` suite function that reads it. `Divergence/` is the one
+suite with no source-tree twin: it holds one fixture per entry of the
+divergence catalogue in `docs/elmFormatComparison.md`, named for its entry and
+built from that entry's own worked example — that suite tests the
+*documentation*, and writing it found six entries whose example no longer
+matched the shipped formatter (#8, #9, #18, #22, #25, #26).
+`check-divergence-index.py`, run by `run-tests.sh`, fails if the
+entry↔fixture mapping stops being 1:1. `tests/corpus.py` is where the python
+gates ask which fixture directories exist, so a new suite directory is swept
+automatically.
 
 **To add a test:** write both `<Name>.dirty.gren` and `<Name>.formatted.gren` in
-the suite's directory, then add an `assertPretty` line in `Format.gren`.
-Generate the `.formatted` with:
+the suite's directory, then add an `assertPrettyIn fsPerm "<SuiteDir>"` line in
+`Format.gren`. Generate the `.formatted` with:
 ```bash
-node ../../gren-format/app --show <Name>.dirty.gren > testfiles/Formatter/<Name>.formatted.gren
+node ../../gren-format/app --show <Name>.dirty.gren > testfiles/<SuiteDir>/<Name>.formatted.gren
 ```
 Read it before trusting it — confirm the output is actually canonical.
 
@@ -90,7 +92,7 @@ and requires byte-identical output. The safety net for comment-shift bugs.
 ```bash
 cd gren-format-lib/tests
 python3 fuzz-idempotency.py -j 12                                      # whole corpus
-python3 fuzz-idempotency.py -v testfiles/Formatter/Foo.formatted.gren  # one file
+python3 fuzz-idempotency.py -v testfiles/<SuiteDir>/Foo.formatted.gren  # one file
 ```
 
 **Rebuild the `gren-format` app first** (`cd ../../gren-format && ./build.sh`) —
@@ -498,7 +500,7 @@ The audit checks, per LPT node:
 ```bash
 cd gren-format-lib/tests
 ./audit-predicates.py -j 12                              # whole corpus
-./audit-predicates.py -v testfiles/Formatter/Foo.formatted.gren
+./audit-predicates.py -v testfiles/<SuiteDir>/Foo.formatted.gren
 ```
 
 **Rebuild the `gren-format` app first** — it shells out to `--audit-predicates`.
@@ -592,7 +594,8 @@ re-emit) minimizes every failure to `input.min.gren`. Artifacts land in gitignor
 `non-idempotent` / `comment-loss` / `sort-order`), each with a self-contained
 `report.txt` carrying the repro command and the pre-computed diff (for
 `sort-order`, both author orders and both outputs). `--promote` copies the
-minimized repro into `testfiles/Formatter/` and prints the `assertPretty` line.
+minimized repro into `testfiles/<SuiteDir>/` (passed via `--dir`) and prints
+the `assertPrettyIn` line.
 
 **Rebuild the `gren-format` app first** — it shells out to `../../gren-format/app`.
 When adding a construct to the grammar, verify the quarantine rate stays ~0 after

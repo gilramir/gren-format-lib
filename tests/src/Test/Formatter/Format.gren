@@ -139,7 +139,7 @@ hexCase name input expected =
 
 `Task.fail` propagates genuine I/O failures (missing file) → test Errored.
 Parse and format failures ride the success channel as `Err message` and become
-`Expect.fail` in `assertPretty` → test Failed, with the message printed verbatim.
+`Expect.fail` in `assertPrettyIn` → test Failed, with the message printed verbatim.
 -}
 runPrettyPrinter : FileSystem.Permission -> String -> String -> Task String (Result String { ast : Src.Module, context : Context.Context, rendered : String })
 runPrettyPrinter fsPerm dir filename =
@@ -183,15 +183,9 @@ readTestFile fsPerm dir filename =
             )
 
 
-{-| A fixture pair in `testfiles/Formatter/`. -}
-assertPretty : FileSystem.Permission -> String -> String -> U.Test {}
-assertPretty fsPerm =
-    assertPrettyIn fsPerm "Formatter"
-
-
-{-| The same, for a fixture pair in some other `testfiles/<dir>/`. The corpus
-lives in one directory per suite so a suite can be read on its own; `dir` is the
-only thing that varies, and every check below is identical.
+{-| Runs a fixture pair from `testfiles/<dir>/`. The corpus lives in one
+directory per suite so a suite can be read on its own; `dir` is the only thing
+that varies, and every check below is identical.
 -}
 assertPrettyIn : FileSystem.Permission -> String -> String -> String -> U.Test {}
 assertPrettyIn fsPerm dir testDescription filenameBase =
@@ -372,28 +366,28 @@ importSuite fsPerm =
         , tearDownSuite = U.noTearDown
         , setUp = U.noFixture
         , tearDown = U.noTearDown
-        , tests = [ assertPretty fsPerm "import with comments" "ImportWithComments"
-            , assertPretty fsPerm "exposed operators wrapped in parens" "ExposedOperator"
-            , assertPretty fsPerm "module line wraps exposing list to one indented line" "ModuleLineWrap"
-            , assertPretty fsPerm "module line wraps exposing list to one item per line" "ModuleLineVertical"
-            , assertPretty fsPerm "import forms: plain, alias, exposing, combined" "Imports"
-            , assertPretty fsPerm "exposing lists: flat stays flat, vertical stays vertical" "ExposingListLayoutByAuthor"
-            , assertPretty fsPerm "a module's exposing list sorts operators, then types, then values, alphabetically within each group" "ExposingListSort"
-            , assertPretty fsPerm "an import's exposing list sorts the same way as a module's" "ImportExposingListSort"
-            , assertPretty fsPerm "a blank-line-separated leading comment in an exposing list still travels with its name, not treated as a section barrier" "ExposingListSortCommentBarrier"
-            , assertPretty fsPerm "import statements sort alphabetically within a run; only a blank line is a boundary, and an own-line comment travels with the import below it" "ImportGroupSort"
-            , assertPretty fsPerm "a comment trailing an import on its own source row travels with it, as does an own-line comment written above one" "ImportGroupSortTrailingComment"
-            , assertPretty fsPerm "the two comments that do not travel with an import: one with a blank line under it (leads nothing) and one below the run's last import" "ImportRunCommentAnchors"
-            , assertPretty fsPerm "a block comment the author glued to the front of a top-level declaration (single- and multi-line, one or more) stays glued on that line (LeadsInline); a glued import travels with its module name when the run sorts and never breaks the run" "LeadingGluedComment"
-            , assertPretty fsPerm "imports of the same module keep their original relative order (stable sort tie-break)" "ImportSameModuleStableSort"
-            , assertPretty fsPerm "a comment past a flat module exposing list pins above the ), and an out-of-order import carrying a same-row trailing comment still sorts correctly" "SortSymbolsComments"
-            , assertPretty fsPerm "every comment shape a sorting exposing list or import run can carry, in one module: leading, trailing, own-line, multiline, sort-to-first, run boundaries (see docs/sorting.md)" "SortingCommentZoo"
-            , assertPretty fsPerm "<| lambda body indents +4 per level, not +8" "BackwardPipelineLambda"
-            , assertPretty fsPerm "a let as a <| body keeps its in and result aligned with let (regression guard: the pipeline-step builder spread the let's nodes into the step's +4 flow, shifting in/result down to the bindings column)" "LetAsBackwardPipeBody"
-            , assertPretty fsPerm "a multi-line container (array/record/update) directly after |> glues to the operator instead of dropping below a dangling |>, byte-identical to elm-format (the update's field indent used to differ -- the `|>` operator is now a Box prefix, so the fields hang off the `{` the same way in both)" "PipelineContainerOperand"
-            , assertPretty fsPerm "when/if/let as a binop operand forces the operator onto its own line, matching elm-format" "ParenBlock"
-            , assertPretty fsPerm "when/if/let inside parens as a call argument: paren-block layout at ( + 4, matching elm-format" "ParenBlockCallArg"
-            , assertPretty fsPerm "a block comment trailing a (if/when/let) paren glues onto the closing ) whether or not the author broke the paren across rows (regression guard: the classifier read the source row span, so a one-row paren whose content always breaks sent the comment own-line past the declaration's last token, where the reparse re-homed it to column 1)" "ParenBlockTrailingComment"
+        , tests = [ assertPrettyIn fsPerm "ImportStatements" "import with comments" "ImportWithComments"
+            , assertPrettyIn fsPerm "ImportStatements" "exposed operators wrapped in parens" "ExposedOperator"
+            , assertPrettyIn fsPerm "ImportStatements" "module line wraps exposing list to one indented line" "ModuleLineWrap"
+            , assertPrettyIn fsPerm "ImportStatements" "module line wraps exposing list to one item per line" "ModuleLineVertical"
+            , assertPrettyIn fsPerm "ImportStatements" "import forms: plain, alias, exposing, combined" "Imports"
+            , assertPrettyIn fsPerm "ImportStatements" "exposing lists: flat stays flat, vertical stays vertical" "ExposingListLayoutByAuthor"
+            , assertPrettyIn fsPerm "ImportStatements" "a module's exposing list sorts operators, then types, then values, alphabetically within each group" "ExposingListSort"
+            , assertPrettyIn fsPerm "ImportStatements" "an import's exposing list sorts the same way as a module's" "ImportExposingListSort"
+            , assertPrettyIn fsPerm "ImportStatements" "a blank-line-separated leading comment in an exposing list still travels with its name, not treated as a section barrier" "ExposingListSortCommentBarrier"
+            , assertPrettyIn fsPerm "ImportStatements" "import statements sort alphabetically within a run; only a blank line is a boundary, and an own-line comment travels with the import below it" "ImportGroupSort"
+            , assertPrettyIn fsPerm "ImportStatements" "a comment trailing an import on its own source row travels with it, as does an own-line comment written above one" "ImportGroupSortTrailingComment"
+            , assertPrettyIn fsPerm "ImportStatements" "the two comments that do not travel with an import: one with a blank line under it (leads nothing) and one below the run's last import" "ImportRunCommentAnchors"
+            , assertPrettyIn fsPerm "ImportStatements" "a block comment the author glued to the front of a top-level declaration (single- and multi-line, one or more) stays glued on that line (LeadsInline); a glued import travels with its module name when the run sorts and never breaks the run" "LeadingGluedComment"
+            , assertPrettyIn fsPerm "ImportStatements" "imports of the same module keep their original relative order (stable sort tie-break)" "ImportSameModuleStableSort"
+            , assertPrettyIn fsPerm "ImportStatements" "a comment past a flat module exposing list pins above the ), and an out-of-order import carrying a same-row trailing comment still sorts correctly" "SortSymbolsComments"
+            , assertPrettyIn fsPerm "ImportStatements" "every comment shape a sorting exposing list or import run can carry, in one module: leading, trailing, own-line, multiline, sort-to-first, run boundaries (see docs/sorting.md)" "SortingCommentZoo"
+            , assertPrettyIn fsPerm "ImportStatements" "<| lambda body indents +4 per level, not +8" "BackwardPipelineLambda"
+            , assertPrettyIn fsPerm "ImportStatements" "a let as a <| body keeps its in and result aligned with let (regression guard: the pipeline-step builder spread the let's nodes into the step's +4 flow, shifting in/result down to the bindings column)" "LetAsBackwardPipeBody"
+            , assertPrettyIn fsPerm "ImportStatements" "a multi-line container (array/record/update) directly after |> glues to the operator instead of dropping below a dangling |>, byte-identical to elm-format (the update's field indent used to differ -- the `|>` operator is now a Box prefix, so the fields hang off the `{` the same way in both)" "PipelineContainerOperand"
+            , assertPrettyIn fsPerm "ImportStatements" "when/if/let as a binop operand forces the operator onto its own line, matching elm-format" "ParenBlock"
+            , assertPrettyIn fsPerm "ImportStatements" "when/if/let inside parens as a call argument: paren-block layout at ( + 4, matching elm-format" "ParenBlockCallArg"
+            , assertPrettyIn fsPerm "ImportStatements" "a block comment trailing a (if/when/let) paren glues onto the closing ) whether or not the author broke the paren across rows (regression guard: the classifier read the source row span, so a one-row paren whose content always breaks sent the comment own-line past the declaration's last token, where the reparse re-homed it to column 1)" "ParenBlockTrailingComment"
             ]
         }
 
@@ -406,37 +400,37 @@ coreExpressionsSuite fsPerm =
         , tearDownSuite = U.noTearDown
         , setUp = U.noFixture
         , tearDown = U.noTearDown
-        , tests = [ assertPretty fsPerm "simple arithmetic" "SimpleArithmetic"
-            , assertPretty fsPerm "when expression" "WhenExpression"
-            , assertPretty fsPerm "if expression" "IfExpression"
-            , assertPretty fsPerm "stacked if predicate wraps precedence-aware" "IfPredicate"
-            , assertPretty fsPerm "an else-if written flat stays flat when the previous branch body ends in a pipe to a multi-line record arg followed by a later step (the closing } is not the body's last row) instead of stacking the condition" "ElseIfAfterRecordPipe"
-            , assertPretty fsPerm "let expression" "LetExpression"
-            , assertPretty fsPerm "records" "Records"
-            , assertPretty fsPerm "lambdas and calls" "LambdasAndCalls"
-            , assertPretty fsPerm "a lambda body indents +4 in an array item and when nested directly under another lambda's -> (regression guard: the extra AcrossOrVertical item-wrapper used to stack its +4 on the body block's +4, giving +8 — the 'never 8' rule, matches elm-format)" "LambdaBodyIndentInBrackets"
-            , assertPretty fsPerm "a lambda whose body is a forced-vertical record/update/array drops its bracket to its own line, matching elm-format" "LambdaBracketBody"
-            , assertPretty fsPerm "a lambda's comment-forced-vertical record-update body still drops its bracket when the lambda is itself a call argument (regression guard for a nest/reparse oscillation)" "LambdaBracketBodyNestedInCall"
-            , assertPretty fsPerm "a lambda whose body is if/when/let drops the body to its own line under -> (elm-format), and as a call argument the whole (...) relocates onto its own line; a bare paren-lambda pipeline operand stays glued to |>" "CallArgBlockRelocation"
-            , assertPretty fsPerm "function calls including wrapping" "FunctionCalls"
-            , assertPretty fsPerm "parenthesized expressions" "ParenWrapped"
-            , assertPretty fsPerm "closing paren on its own line when parens span multiple rows, incl. content-forced verticality" "ParenClosingLine"
-            , assertPretty fsPerm "a multiline record call argument drops to its own line instead of gluing to the function/constructor name" "RecordArgOwnLine"
-            , assertPretty fsPerm "redundant parens around a call argument are kept, same as everywhere else (gren-format never strips parens)" "RedundantArgParens"
-            , assertPretty fsPerm "nested containers in list" "NestedContainersInList"
-            , assertPretty fsPerm "array items that are too long to fit inline" "ArrayLongRecordItems"
-            , assertPretty fsPerm "uniform item layout: records in an array all break together or not at all" "UniformRecordArray"
-            , assertPretty fsPerm "uniform item layout: record updates couple like record literals" "UniformUpdateArray"
-            , assertPretty fsPerm "list layout follows author: one line stays inline, multi-line stays one-per-line" "ListLayoutByAuthor"
-            , assertPretty fsPerm "record + record-update layout follows author: one line inline, multi-line one-per-line" "RecordLayoutByAuthor"
-            , assertPretty fsPerm "record type (alias, extensible, annotation) layout follows author" "RecordTypeLayoutByAuthor"
-            , assertPretty fsPerm "record/array pattern layout follows author" "PatternLayoutByAuthor"
-            , assertPretty fsPerm "union variant layout follows author: one line inline, multi-line one-per-line" "UnionLayoutByAuthor"
-            , assertPretty fsPerm "pipeline layout follows author: one line inline, multi-line one-per-line" "PipelineLayoutByAuthor"
-            , assertPretty fsPerm "a union variant payload that's inherently multi-line even though every | sits on one row falls back to one-variant-per-line" "UnionInlineMultilinePayload"
-            , assertPretty fsPerm "a pipeline step argument that's inherently multi-line (a triple-quoted string opened mid-line) even though seed and step share a row" "PipelineInlineMultilineArg"
-            , assertPretty fsPerm "an if-condition that's inherently multi-line (a record literal) even though it starts on the same row as if" "IfConditionMultilineSameRow"
-            , assertPretty fsPerm "a when-in-parens whose header (scrutinee) is inherently multi-line" "WhenInParenMultilineHeader"
+        , tests = [ assertPrettyIn fsPerm "CoreExpressions" "simple arithmetic" "SimpleArithmetic"
+            , assertPrettyIn fsPerm "CoreExpressions" "when expression" "WhenExpression"
+            , assertPrettyIn fsPerm "CoreExpressions" "if expression" "IfExpression"
+            , assertPrettyIn fsPerm "CoreExpressions" "stacked if predicate wraps precedence-aware" "IfPredicate"
+            , assertPrettyIn fsPerm "CoreExpressions" "an else-if written flat stays flat when the previous branch body ends in a pipe to a multi-line record arg followed by a later step (the closing } is not the body's last row) instead of stacking the condition" "ElseIfAfterRecordPipe"
+            , assertPrettyIn fsPerm "CoreExpressions" "let expression" "LetExpression"
+            , assertPrettyIn fsPerm "CoreExpressions" "records" "Records"
+            , assertPrettyIn fsPerm "CoreExpressions" "lambdas and calls" "LambdasAndCalls"
+            , assertPrettyIn fsPerm "CoreExpressions" "a lambda body indents +4 in an array item and when nested directly under another lambda's -> (regression guard: the extra AcrossOrVertical item-wrapper used to stack its +4 on the body block's +4, giving +8 — the 'never 8' rule, matches elm-format)" "LambdaBodyIndentInBrackets"
+            , assertPrettyIn fsPerm "CoreExpressions" "a lambda whose body is a forced-vertical record/update/array drops its bracket to its own line, matching elm-format" "LambdaBracketBody"
+            , assertPrettyIn fsPerm "CoreExpressions" "a lambda's comment-forced-vertical record-update body still drops its bracket when the lambda is itself a call argument (regression guard for a nest/reparse oscillation)" "LambdaBracketBodyNestedInCall"
+            , assertPrettyIn fsPerm "CoreExpressions" "a lambda whose body is if/when/let drops the body to its own line under -> (elm-format), and as a call argument the whole (...) relocates onto its own line; a bare paren-lambda pipeline operand stays glued to |>" "CallArgBlockRelocation"
+            , assertPrettyIn fsPerm "CoreExpressions" "function calls including wrapping" "FunctionCalls"
+            , assertPrettyIn fsPerm "CoreExpressions" "parenthesized expressions" "ParenWrapped"
+            , assertPrettyIn fsPerm "CoreExpressions" "closing paren on its own line when parens span multiple rows, incl. content-forced verticality" "ParenClosingLine"
+            , assertPrettyIn fsPerm "CoreExpressions" "a multiline record call argument drops to its own line instead of gluing to the function/constructor name" "RecordArgOwnLine"
+            , assertPrettyIn fsPerm "CoreExpressions" "redundant parens around a call argument are kept, same as everywhere else (gren-format never strips parens)" "RedundantArgParens"
+            , assertPrettyIn fsPerm "CoreExpressions" "nested containers in list" "NestedContainersInList"
+            , assertPrettyIn fsPerm "CoreExpressions" "array items that are too long to fit inline" "ArrayLongRecordItems"
+            , assertPrettyIn fsPerm "CoreExpressions" "uniform item layout: records in an array all break together or not at all" "UniformRecordArray"
+            , assertPrettyIn fsPerm "CoreExpressions" "uniform item layout: record updates couple like record literals" "UniformUpdateArray"
+            , assertPrettyIn fsPerm "CoreExpressions" "list layout follows author: one line stays inline, multi-line stays one-per-line" "ListLayoutByAuthor"
+            , assertPrettyIn fsPerm "CoreExpressions" "record + record-update layout follows author: one line inline, multi-line one-per-line" "RecordLayoutByAuthor"
+            , assertPrettyIn fsPerm "CoreExpressions" "record type (alias, extensible, annotation) layout follows author" "RecordTypeLayoutByAuthor"
+            , assertPrettyIn fsPerm "CoreExpressions" "record/array pattern layout follows author" "PatternLayoutByAuthor"
+            , assertPrettyIn fsPerm "CoreExpressions" "union variant layout follows author: one line inline, multi-line one-per-line" "UnionLayoutByAuthor"
+            , assertPrettyIn fsPerm "CoreExpressions" "pipeline layout follows author: one line inline, multi-line one-per-line" "PipelineLayoutByAuthor"
+            , assertPrettyIn fsPerm "CoreExpressions" "a union variant payload that's inherently multi-line even though every | sits on one row falls back to one-variant-per-line" "UnionInlineMultilinePayload"
+            , assertPrettyIn fsPerm "CoreExpressions" "a pipeline step argument that's inherently multi-line (a triple-quoted string opened mid-line) even though seed and step share a row" "PipelineInlineMultilineArg"
+            , assertPrettyIn fsPerm "CoreExpressions" "an if-condition that's inherently multi-line (a record literal) even though it starts on the same row as if" "IfConditionMultilineSameRow"
+            , assertPrettyIn fsPerm "CoreExpressions" "a when-in-parens whose header (scrutinee) is inherently multi-line" "WhenInParenMultilineHeader"
             ]
         }
 
@@ -449,42 +443,42 @@ binopsAndPipelinesSuite fsPerm =
         , tearDownSuite = U.noTearDown
         , setUp = U.noFixture
         , tearDown = U.noTearDown
-        , tests = [ assertPretty fsPerm "binop layout follows the author: a one-line chain stays inline no matter how long; an author-broken chain stays split" "BinopLayoutByAuthor"
-            , assertPretty fsPerm "an author-broken mixed-precedence binop chain breaks only at its lowest-precedence operators; tighter operators stay glued inline" "BinopMixedPrecedenceBroken"
-            , assertPretty fsPerm "a pipeline seeded by a binop, and a binop chain with a pipeline operand, flatten correctly (mixed |>/<| and +)" "BinopPipelineMix"
-            , assertPretty fsPerm "a binop whose operand is a multi-line bracket with a leading comment (comment re-homed onto the operator) drops the seed below and breaks stably instead of oscillating" "BinopCommentBracketOperand"
-            , assertPretty fsPerm "an operator that leads its row renders as a Box prefix, so an operand a comment pushes below it lands in the column it would have had on the operator's line (`|> ` 3, `+ ` 2, `++ ` 3) rather than at a flat +4 — while `<|`, which stays glued to the seed's last line (#14), keeps its comment on that line and drops the body +4" "PipelineOperatorCommentIndent"
-            , assertPretty fsPerm "a bare (unparenthesized) multi-line lambda as a pipeline step's only operand leaves the step's preamble empty -- `|>` dangles and the lambda drops one tab stop below it (rendering the empty preamble as a flow crashed with `box: empty flow`); a paren or bracket operand stays glued to the operator instead" "PipelineBareLambdaOperand"
-            , assertPretty fsPerm "a broken call keeps its first argument glued to the function name THROUGH a comment written between them (`String.join {- sep -} \" \"`) -- the comment moves neither token's source row, which is what the glue is gated on, and elm-format glues too; a `--` or a multi-line `{- -}` still stands the function up alone" "BrokenCallCommentGlue"
-            , assertPretty fsPerm "a `--` that ends a row mid-chain breaks the chain where PRECEDENCE says, not where the comment sits: `one + two -- c` / `* three` breaks at the loose `+` and keeps `two * three` as one group, rather than gluing `one + two` and breaking at the tight `*` (which reads as `(one + two) * three`). The chain-level question -- is any more of the CHAIN after the comment -- is what per-operand `commentBreaksFlowRow` could not see" "BinopCommentPrecedenceBreak"
-            , assertPretty fsPerm "a multi-line block comment inside a binop RHS breaks the chain at its LOWEST-precedence operator (`x` / `+ b {- … -}` / `* 2`), not at whichever operator the comment happens to sit before -- a comment changes where the rows fall, never how the operators group (comment-homing divergence from elm-format, which indents the comment and both operands under the head)" "BinopMultilineCommentRhs"
-            , assertPretty fsPerm "pipeline step argument indentation" "PipelineArgIndent"
-            , assertPretty fsPerm "once one argument of a pipeline step breaks, the arguments on both sides of it land one per line -- the plain-call rule, which a step lost by having its call container unwrapped (they used to glue as `) z` / `} z` / `|> f z`)" "PipelineStepSuffixArgs"
-            , assertPretty fsPerm "a leading single-line {- -} in a broken argument stack rides the next argument's line (elm-format match), in a plain call and a pipeline-step suffix alike; a trailing comment glues onto its argument (catalogue #13), and a comment before a multi-line argument stays on its own row" "StackedArgCommentPairing"
-            , assertPretty fsPerm "a comment that pushes a later flow item onto a new row makes the call/binop commit to the broken layout on the FIRST format -- `forceVertical` comes from AST source rows, which cannot see a comment, so the flat render broke anyway and the reparse flipped. A single-line {- -} mid-flow, a comment at the end of a flow, and a declaration head (where `=` stays glued) are unaffected" "CommentForcesRowBreak"
-            , assertPretty fsPerm "a record/update field drops its lambda below `field =` whenever the lambda's BODY renders multi-line -- decided from the rendered box, not from the AST guess that was blind to a comment in the body and to an author-broken body alike; a single-line body still keeps the lambda glued on the `= ` line" "RecordFieldLambdaDrop"
-            , assertPretty fsPerm "a `--` between a lambda's `->` and a body the author started on the `->` row is redirected INSIDE the body -- it ends its line, so the body drops anyway and a reparse reads the body as an IndentedBlock whose comment sits inside it; leaving it outside oscillated. A {- -} there still rides the `->` row, and a `--` trailing the whole body still trails it" "LambdaBodyLineComment"
-            , assertPretty fsPerm "a `--` nested inside a container's item keeps the container OPEN -- collapsing to the flat form would put the synthesized `]`/`}` after a comment that runs to end of line, emitting source that does not parse; a nested container (whose last line is its own closing delimiter) and a self-terminating single-line {- -} are not affected" "BracketLineCommentClose"
-            , assertPretty fsPerm "the same pairing in a broken BINOP chain: a leading single-line {- -} rides the next operator's line at any position (elm-format match), both authorings converging on it; pairing is all-or-nothing over a run, so a `--` or a multi-line {- -} anywhere in the run keeps every comment of it own-row, as does an operator line that renders multi-line; a trailing comment stays glued to its operand (catalogue #13)" "BinopLeadingCommentPairing"
-            , assertPretty fsPerm "a pipeline step call with two or more multi-line block arguments after the first stacks each on its own line instead of crashing (soft-glue-after-block)" "PipelineCallMultiBlockArgs"
-            , assertPretty fsPerm "multi-line lambda arg in pipeline step uses elm-format style" "PipelineLambdaArg"
-            , assertPretty fsPerm "pipeline step made multi-line by a block comment (no relocatable trigger)" "PipelineNoTriggerStep"
-            , assertPretty fsPerm "backward pipeline (<|) treated like forward pipeline (|>)" "BackwardPipeline"
-            , assertPretty fsPerm "a comment in a `<|` chain forces the operator-leading style but must not change the nesting -- every step still steps one indent deeper, exactly as the comment-free chain does (the commented path applied a flat +4 to every step, so adding a comment silently reflowed the whole chain below it)" "BackwardPipeCommentNesting"
-            , assertPretty fsPerm "a single-line block comment before a backward-pipeline `<|` rides the operator's row, whichever row the author wrote it on -- the same answer `++` and `|>` give for the identical authoring" "BackwardPipelineSeedComment"
-            , assertPretty fsPerm "a leading comment on a lambda body that is a mixed |>/<| pipeline BURIED under a tighter operator (node |> 0 <| 0 / y) drops to its own line from the first format — the body is force-vertical up front (IndentedBlock), not left as a SoftIndentedBlock that oscillates the comment" "LambdaCommentBuriedMixedPipeline"
-            , assertPretty fsPerm "a leading comment on a lambda body that is a `<|`-rooted mixed pipeline whose forward `|>` is buried inside a binop operand (a |> b <| c + d <| e parses as (((a|>b)<|c)+d)<|e) drops to its own line from the first format — exprAlwaysBreaks descends both operands to find the buried pipeline, where mixedPipelineBreaksVertical's flattenPipeline treated the `+` as an opaque seed and reported all-backward, oscillating the comment" "LambdaCommentPipelineBinopSeed"
-            , assertPretty fsPerm "a lambda whose body is a record, used as a record field value, drops the WHOLE lambda (head included) below `field =` from the first format when the record's own field is a mixed |>/<| pipeline — exprAlwaysBreaks recognizes the buried pipeline, so the head does not glue on the `= ` line and oscillate" "LambdaRecordFieldValueMixedPipeline"
-            , assertPretty fsPerm "a pipeline step that is a call whose last argument is a parenthesized multi-line record: the redundant paren is kept as a relocated trigger, its ) on its own line at the ( column (divergence #10; elm-format strips the paren)" "PipelineParenRecordOperand"
-            , assertPretty fsPerm "mixed |>/<| pipeline chain renders operator-leading" "PipelineMixedOps"
-            , assertPretty fsPerm "a multi-line record operand breaks the chain at its lowest-precedence operator; the tighter `*` stays glued after the record's closing brace" "BinopTrailingMultilineOperand"
-            , assertPretty fsPerm "a multi-line record in a tighter-precedence group keeps that group inline (`a * { … }`); the chain breaks only at the looser operator" "BinopLeadingMultilineOperand"
-            , assertPretty fsPerm "a multi-line record as the first operand breaks the chain at its lowest-precedence operators; the tighter `b * c` stays glued" "BinopMultilineFirstGroup"
-            , assertPretty fsPerm "a multi-line record in a same-precedence binop chain breaks every operator onto its own line" "BinopMultilineMiddleOperand"
-            , assertPretty fsPerm "in a broken chain: an own-line comment sits at the operator indent, an inline comment stays on its operand, a leading comment glues before its operand" "BinopChainMixedComments"
-            , assertPretty fsPerm "a binop chain with several multi-line bracket operands breaks fully vertical" "BinopMultipleBracketOperands"
-            , assertPretty fsPerm "a bracket operand whose comment rides its flat line keeps the binop chain inline, stably across reformats" "BinopCommentFlatBracketOperand"
-            , assertPretty fsPerm "a parenthesized multi-line operand breaks the binop chain vertically (matches elm-format)" "BinopMultilineParenOperand"
+        , tests = [ assertPrettyIn fsPerm "BinopsAndPipelines" "binop layout follows the author: a one-line chain stays inline no matter how long; an author-broken chain stays split" "BinopLayoutByAuthor"
+            , assertPrettyIn fsPerm "BinopsAndPipelines" "an author-broken mixed-precedence binop chain breaks only at its lowest-precedence operators; tighter operators stay glued inline" "BinopMixedPrecedenceBroken"
+            , assertPrettyIn fsPerm "BinopsAndPipelines" "a pipeline seeded by a binop, and a binop chain with a pipeline operand, flatten correctly (mixed |>/<| and +)" "BinopPipelineMix"
+            , assertPrettyIn fsPerm "BinopsAndPipelines" "a binop whose operand is a multi-line bracket with a leading comment (comment re-homed onto the operator) drops the seed below and breaks stably instead of oscillating" "BinopCommentBracketOperand"
+            , assertPrettyIn fsPerm "BinopsAndPipelines" "an operator that leads its row renders as a Box prefix, so an operand a comment pushes below it lands in the column it would have had on the operator's line (`|> ` 3, `+ ` 2, `++ ` 3) rather than at a flat +4 — while `<|`, which stays glued to the seed's last line (#14), keeps its comment on that line and drops the body +4" "PipelineOperatorCommentIndent"
+            , assertPrettyIn fsPerm "BinopsAndPipelines" "a bare (unparenthesized) multi-line lambda as a pipeline step's only operand leaves the step's preamble empty -- `|>` dangles and the lambda drops one tab stop below it (rendering the empty preamble as a flow crashed with `box: empty flow`); a paren or bracket operand stays glued to the operator instead" "PipelineBareLambdaOperand"
+            , assertPrettyIn fsPerm "BinopsAndPipelines" "a broken call keeps its first argument glued to the function name THROUGH a comment written between them (`String.join {- sep -} \" \"`) -- the comment moves neither token's source row, which is what the glue is gated on, and elm-format glues too; a `--` or a multi-line `{- -}` still stands the function up alone" "BrokenCallCommentGlue"
+            , assertPrettyIn fsPerm "BinopsAndPipelines" "a `--` that ends a row mid-chain breaks the chain where PRECEDENCE says, not where the comment sits: `one + two -- c` / `* three` breaks at the loose `+` and keeps `two * three` as one group, rather than gluing `one + two` and breaking at the tight `*` (which reads as `(one + two) * three`). The chain-level question -- is any more of the CHAIN after the comment -- is what per-operand `commentBreaksFlowRow` could not see" "BinopCommentPrecedenceBreak"
+            , assertPrettyIn fsPerm "BinopsAndPipelines" "a multi-line block comment inside a binop RHS breaks the chain at its LOWEST-precedence operator (`x` / `+ b {- … -}` / `* 2`), not at whichever operator the comment happens to sit before -- a comment changes where the rows fall, never how the operators group (comment-homing divergence from elm-format, which indents the comment and both operands under the head)" "BinopMultilineCommentRhs"
+            , assertPrettyIn fsPerm "BinopsAndPipelines" "pipeline step argument indentation" "PipelineArgIndent"
+            , assertPrettyIn fsPerm "BinopsAndPipelines" "once one argument of a pipeline step breaks, the arguments on both sides of it land one per line -- the plain-call rule, which a step lost by having its call container unwrapped (they used to glue as `) z` / `} z` / `|> f z`)" "PipelineStepSuffixArgs"
+            , assertPrettyIn fsPerm "BinopsAndPipelines" "a leading single-line {- -} in a broken argument stack rides the next argument's line (elm-format match), in a plain call and a pipeline-step suffix alike; a trailing comment glues onto its argument (catalogue #13), and a comment before a multi-line argument stays on its own row" "StackedArgCommentPairing"
+            , assertPrettyIn fsPerm "BinopsAndPipelines" "a comment that pushes a later flow item onto a new row makes the call/binop commit to the broken layout on the FIRST format -- `forceVertical` comes from AST source rows, which cannot see a comment, so the flat render broke anyway and the reparse flipped. A single-line {- -} mid-flow, a comment at the end of a flow, and a declaration head (where `=` stays glued) are unaffected" "CommentForcesRowBreak"
+            , assertPrettyIn fsPerm "BinopsAndPipelines" "a record/update field drops its lambda below `field =` whenever the lambda's BODY renders multi-line -- decided from the rendered box, not from the AST guess that was blind to a comment in the body and to an author-broken body alike; a single-line body still keeps the lambda glued on the `= ` line" "RecordFieldLambdaDrop"
+            , assertPrettyIn fsPerm "BinopsAndPipelines" "a `--` between a lambda's `->` and a body the author started on the `->` row is redirected INSIDE the body -- it ends its line, so the body drops anyway and a reparse reads the body as an IndentedBlock whose comment sits inside it; leaving it outside oscillated. A {- -} there still rides the `->` row, and a `--` trailing the whole body still trails it" "LambdaBodyLineComment"
+            , assertPrettyIn fsPerm "BinopsAndPipelines" "a `--` nested inside a container's item keeps the container OPEN -- collapsing to the flat form would put the synthesized `]`/`}` after a comment that runs to end of line, emitting source that does not parse; a nested container (whose last line is its own closing delimiter) and a self-terminating single-line {- -} are not affected" "BracketLineCommentClose"
+            , assertPrettyIn fsPerm "BinopsAndPipelines" "the same pairing in a broken BINOP chain: a leading single-line {- -} rides the next operator's line at any position (elm-format match), both authorings converging on it; pairing is all-or-nothing over a run, so a `--` or a multi-line {- -} anywhere in the run keeps every comment of it own-row, as does an operator line that renders multi-line; a trailing comment stays glued to its operand (catalogue #13)" "BinopLeadingCommentPairing"
+            , assertPrettyIn fsPerm "BinopsAndPipelines" "a pipeline step call with two or more multi-line block arguments after the first stacks each on its own line instead of crashing (soft-glue-after-block)" "PipelineCallMultiBlockArgs"
+            , assertPrettyIn fsPerm "BinopsAndPipelines" "multi-line lambda arg in pipeline step uses elm-format style" "PipelineLambdaArg"
+            , assertPrettyIn fsPerm "BinopsAndPipelines" "pipeline step made multi-line by a block comment (no relocatable trigger)" "PipelineNoTriggerStep"
+            , assertPrettyIn fsPerm "BinopsAndPipelines" "backward pipeline (<|) treated like forward pipeline (|>)" "BackwardPipeline"
+            , assertPrettyIn fsPerm "BinopsAndPipelines" "a comment in a `<|` chain forces the operator-leading style but must not change the nesting -- every step still steps one indent deeper, exactly as the comment-free chain does (the commented path applied a flat +4 to every step, so adding a comment silently reflowed the whole chain below it)" "BackwardPipeCommentNesting"
+            , assertPrettyIn fsPerm "BinopsAndPipelines" "a single-line block comment before a backward-pipeline `<|` rides the operator's row, whichever row the author wrote it on -- the same answer `++` and `|>` give for the identical authoring" "BackwardPipelineSeedComment"
+            , assertPrettyIn fsPerm "BinopsAndPipelines" "a leading comment on a lambda body that is a mixed |>/<| pipeline BURIED under a tighter operator (node |> 0 <| 0 / y) drops to its own line from the first format — the body is force-vertical up front (IndentedBlock), not left as a SoftIndentedBlock that oscillates the comment" "LambdaCommentBuriedMixedPipeline"
+            , assertPrettyIn fsPerm "BinopsAndPipelines" "a leading comment on a lambda body that is a `<|`-rooted mixed pipeline whose forward `|>` is buried inside a binop operand (a |> b <| c + d <| e parses as (((a|>b)<|c)+d)<|e) drops to its own line from the first format — exprAlwaysBreaks descends both operands to find the buried pipeline, where mixedPipelineBreaksVertical's flattenPipeline treated the `+` as an opaque seed and reported all-backward, oscillating the comment" "LambdaCommentPipelineBinopSeed"
+            , assertPrettyIn fsPerm "BinopsAndPipelines" "a lambda whose body is a record, used as a record field value, drops the WHOLE lambda (head included) below `field =` from the first format when the record's own field is a mixed |>/<| pipeline — exprAlwaysBreaks recognizes the buried pipeline, so the head does not glue on the `= ` line and oscillate" "LambdaRecordFieldValueMixedPipeline"
+            , assertPrettyIn fsPerm "BinopsAndPipelines" "a pipeline step that is a call whose last argument is a parenthesized multi-line record: the redundant paren is kept as a relocated trigger, its ) on its own line at the ( column (divergence #10; elm-format strips the paren)" "PipelineParenRecordOperand"
+            , assertPrettyIn fsPerm "BinopsAndPipelines" "mixed |>/<| pipeline chain renders operator-leading" "PipelineMixedOps"
+            , assertPrettyIn fsPerm "BinopsAndPipelines" "a multi-line record operand breaks the chain at its lowest-precedence operator; the tighter `*` stays glued after the record's closing brace" "BinopTrailingMultilineOperand"
+            , assertPrettyIn fsPerm "BinopsAndPipelines" "a multi-line record in a tighter-precedence group keeps that group inline (`a * { … }`); the chain breaks only at the looser operator" "BinopLeadingMultilineOperand"
+            , assertPrettyIn fsPerm "BinopsAndPipelines" "a multi-line record as the first operand breaks the chain at its lowest-precedence operators; the tighter `b * c` stays glued" "BinopMultilineFirstGroup"
+            , assertPrettyIn fsPerm "BinopsAndPipelines" "a multi-line record in a same-precedence binop chain breaks every operator onto its own line" "BinopMultilineMiddleOperand"
+            , assertPrettyIn fsPerm "BinopsAndPipelines" "in a broken chain: an own-line comment sits at the operator indent, an inline comment stays on its operand, a leading comment glues before its operand" "BinopChainMixedComments"
+            , assertPrettyIn fsPerm "BinopsAndPipelines" "a binop chain with several multi-line bracket operands breaks fully vertical" "BinopMultipleBracketOperands"
+            , assertPrettyIn fsPerm "BinopsAndPipelines" "a bracket operand whose comment rides its flat line keeps the binop chain inline, stably across reformats" "BinopCommentFlatBracketOperand"
+            , assertPrettyIn fsPerm "BinopsAndPipelines" "a parenthesized multi-line operand breaks the binop chain vertically (matches elm-format)" "BinopMultilineParenOperand"
             ]
         }
 
@@ -497,42 +491,42 @@ patternsAndLiteralsSuite fsPerm =
         , tearDownSuite = U.noTearDown
         , setUp = U.noFixture
         , tearDown = U.noTearDown
-        , tests = [ assertPretty fsPerm "when branch body indentation" "WhenBranchBody"
-            , assertPretty fsPerm "when branch patterns" "WhenPatterns"
-            , assertPretty fsPerm "when-branch record-destructuring pattern written flat stays flat" "WhenRecordPatternFlat"
-            , assertPretty fsPerm "when-branch record-destructuring pattern written across rows aligns fields under the opening brace (regression guard for the nest/column mismatch fix)" "WhenRecordPatternVertical"
-            , assertPretty fsPerm "named wildcard (anything) patterns keep their name" "AnythingPatterns"
-            , assertPretty fsPerm "constructor-with-payload argument keeps its parens" "CtorArgPattern"
-            , assertPretty fsPerm "constructor application as a record-field value / array element needs no parens (blocked on compiler-common pattern-parser fix, see error0617.md)" "CtorAppNestedPattern"
-            , assertPretty fsPerm "record field value indentation" "RecordFieldValue"
-            , assertPretty fsPerm "let def body indentation" "LetDefBody"
-            , assertPretty fsPerm "let destructure pattern too long to fit on one line" "LetDestructLong"
-            , assertPretty fsPerm "let destructure of a ctor-with-payload or as-alias keeps its parens" "LetDestructParens"
-            , assertPretty fsPerm "string escape sequences preserved" "StringEscapes"
-            , assertPretty fsPerm "non-printable ASCII in strings escaped as \\u{XXXX}" "NonPrintableEscapes"
-            , assertPretty fsPerm "string and char escape sequences in when patterns" "StringAndCharPatterns"
-            , assertPretty fsPerm "multiline (triple-quoted) strings preserved" "MultilineString"
-            , assertPretty fsPerm "lambda with record and array destructure patterns" "LambdaPatterns"
-            , assertPretty fsPerm "binary operators, negation, hex literals" "BinaryOps"
-            , assertPretty fsPerm "hex literals are reformatted to uppercase across the whole digit table, in expressions and in patterns; a wrong digit trips the AST-equivalence check" "HexLiteralDigits"
-            , assertPretty fsPerm "hex literals above 2^35 (up to 2^53 - 1) round-trip in expressions and patterns; before the intToHex `//` 32-bit-truncation fix the formatter corrupted them and refused to format valid input" "HexLiteralLarge"
-            , assertPretty fsPerm "extensible record types in signatures and aliases" "ExtensibleRecords"
-            , assertPretty fsPerm "an extensible record TYPE carries its closing `}` as `lastBracketEnd` (built via `lpnBracketNode`, like a record-update expression and a plain record type), so a trailing `--` after `}` stays at the declaration column and an own-line comment before `}` stays inside — previously the type path used plain `lpnNode` with no close position and both oscillated" "ExtensibleRecordTypeTrailingComment"
-            , assertPretty fsPerm "constructor argument that is an as-alias keeps its parens" "CtorAsPattern"
-            , assertPretty fsPerm "multi-line string opened mid-line aligns content to opening column" "MultilineStringInline"
-            , assertPretty fsPerm "let-binding type signature is preserved; every binding drops its body to the next line" "LetBindingSignature"
-            , assertPretty fsPerm "a comment before a let-binding signature does not insert a blank between the signature and its definition" "LetCommentedSignature"
-            , assertPretty fsPerm "block comment or multiple single-line comments before a let-binding signature do not insert a blank between signature and definition" "LetCommentedSignatureVariants"
-            , assertPretty fsPerm "one blank line is forced between let bindings regardless of authored blanks; a comment or signature sticks to the binding below it" "LetBlankLines"
-            , assertPretty fsPerm "a wrapped infix declaration leaves no phantom row gap below it" "InfixWrapped"
-            , assertPretty fsPerm "only a break between -> parts makes a signature multi-line; breaks inside a record type or parens do not; a comment-forced return record explodes every -> part" "SignatureSegmentBreaks"
-            , assertPretty fsPerm "a comment-bearing record type in a signature drops below the `:` head at +4; the author's blank line before an inner comment is dropped (gren keeps no blank lines inside brackets; elm-format keeps one before a comment)" "SignatureRecordTypeComment"
-            , assertPretty fsPerm "a single-segment (no ->) signature whose sole type is a multi-line record, plain or extensible, no longer crashes and drops the record below the header" "SignatureSoleRecordType"
-            , assertPretty fsPerm "a multi-line record at a segment head with the -> kept on its closing } line forces the whole signature vertical (record stays broken, -> drops to its own line) instead of crashing" "SignatureBrokenRecordArg"
-            , assertPretty fsPerm "a multi-line block comment below a declaration detaches to column 1, leaving no trailing-whitespace line" "ClaimedMultilineComment"
-            , assertPretty fsPerm "two blank lines are forced before every top-level declaration unit (function/alias/union/port), regardless of authored blanks; the unit begins at its doc comment, else signature, else declaration" "ForcedDeclBlankLines"
-            , assertPretty fsPerm "float literals round-trip (decimal stays decimal, scientific stays scientific)" "FloatLiterals"
-            , assertPretty fsPerm "only a comment that cannot ride a literal's flat line forces it open: -- , multi-line, and own-row comments break it; an inline block comment does not" "LiteralInlineComment"
+        , tests = [ assertPrettyIn fsPerm "PatternsAndLiterals" "when branch body indentation" "WhenBranchBody"
+            , assertPrettyIn fsPerm "PatternsAndLiterals" "when branch patterns" "WhenPatterns"
+            , assertPrettyIn fsPerm "PatternsAndLiterals" "when-branch record-destructuring pattern written flat stays flat" "WhenRecordPatternFlat"
+            , assertPrettyIn fsPerm "PatternsAndLiterals" "when-branch record-destructuring pattern written across rows aligns fields under the opening brace (regression guard for the nest/column mismatch fix)" "WhenRecordPatternVertical"
+            , assertPrettyIn fsPerm "PatternsAndLiterals" "named wildcard (anything) patterns keep their name" "AnythingPatterns"
+            , assertPrettyIn fsPerm "PatternsAndLiterals" "constructor-with-payload argument keeps its parens" "CtorArgPattern"
+            , assertPrettyIn fsPerm "PatternsAndLiterals" "constructor application as a record-field value / array element needs no parens (blocked on compiler-common pattern-parser fix, see error0617.md)" "CtorAppNestedPattern"
+            , assertPrettyIn fsPerm "PatternsAndLiterals" "record field value indentation" "RecordFieldValue"
+            , assertPrettyIn fsPerm "PatternsAndLiterals" "let def body indentation" "LetDefBody"
+            , assertPrettyIn fsPerm "PatternsAndLiterals" "let destructure pattern too long to fit on one line" "LetDestructLong"
+            , assertPrettyIn fsPerm "PatternsAndLiterals" "let destructure of a ctor-with-payload or as-alias keeps its parens" "LetDestructParens"
+            , assertPrettyIn fsPerm "PatternsAndLiterals" "string escape sequences preserved" "StringEscapes"
+            , assertPrettyIn fsPerm "PatternsAndLiterals" "non-printable ASCII in strings escaped as \\u{XXXX}" "NonPrintableEscapes"
+            , assertPrettyIn fsPerm "PatternsAndLiterals" "string and char escape sequences in when patterns" "StringAndCharPatterns"
+            , assertPrettyIn fsPerm "PatternsAndLiterals" "multiline (triple-quoted) strings preserved" "MultilineString"
+            , assertPrettyIn fsPerm "PatternsAndLiterals" "lambda with record and array destructure patterns" "LambdaPatterns"
+            , assertPrettyIn fsPerm "PatternsAndLiterals" "binary operators, negation, hex literals" "BinaryOps"
+            , assertPrettyIn fsPerm "PatternsAndLiterals" "hex literals are reformatted to uppercase across the whole digit table, in expressions and in patterns; a wrong digit trips the AST-equivalence check" "HexLiteralDigits"
+            , assertPrettyIn fsPerm "PatternsAndLiterals" "hex literals above 2^35 (up to 2^53 - 1) round-trip in expressions and patterns; before the intToHex `//` 32-bit-truncation fix the formatter corrupted them and refused to format valid input" "HexLiteralLarge"
+            , assertPrettyIn fsPerm "PatternsAndLiterals" "extensible record types in signatures and aliases" "ExtensibleRecords"
+            , assertPrettyIn fsPerm "PatternsAndLiterals" "an extensible record TYPE carries its closing `}` as `lastBracketEnd` (built via `lpnBracketNode`, like a record-update expression and a plain record type), so a trailing `--` after `}` stays at the declaration column and an own-line comment before `}` stays inside — previously the type path used plain `lpnNode` with no close position and both oscillated" "ExtensibleRecordTypeTrailingComment"
+            , assertPrettyIn fsPerm "PatternsAndLiterals" "constructor argument that is an as-alias keeps its parens" "CtorAsPattern"
+            , assertPrettyIn fsPerm "PatternsAndLiterals" "multi-line string opened mid-line aligns content to opening column" "MultilineStringInline"
+            , assertPrettyIn fsPerm "PatternsAndLiterals" "let-binding type signature is preserved; every binding drops its body to the next line" "LetBindingSignature"
+            , assertPrettyIn fsPerm "PatternsAndLiterals" "a comment before a let-binding signature does not insert a blank between the signature and its definition" "LetCommentedSignature"
+            , assertPrettyIn fsPerm "PatternsAndLiterals" "block comment or multiple single-line comments before a let-binding signature do not insert a blank between signature and definition" "LetCommentedSignatureVariants"
+            , assertPrettyIn fsPerm "PatternsAndLiterals" "one blank line is forced between let bindings regardless of authored blanks; a comment or signature sticks to the binding below it" "LetBlankLines"
+            , assertPrettyIn fsPerm "PatternsAndLiterals" "a wrapped infix declaration leaves no phantom row gap below it" "InfixWrapped"
+            , assertPrettyIn fsPerm "PatternsAndLiterals" "only a break between -> parts makes a signature multi-line; breaks inside a record type or parens do not; a comment-forced return record explodes every -> part" "SignatureSegmentBreaks"
+            , assertPrettyIn fsPerm "PatternsAndLiterals" "a comment-bearing record type in a signature drops below the `:` head at +4; the author's blank line before an inner comment is dropped (gren keeps no blank lines inside brackets; elm-format keeps one before a comment)" "SignatureRecordTypeComment"
+            , assertPrettyIn fsPerm "PatternsAndLiterals" "a single-segment (no ->) signature whose sole type is a multi-line record, plain or extensible, no longer crashes and drops the record below the header" "SignatureSoleRecordType"
+            , assertPrettyIn fsPerm "PatternsAndLiterals" "a multi-line record at a segment head with the -> kept on its closing } line forces the whole signature vertical (record stays broken, -> drops to its own line) instead of crashing" "SignatureBrokenRecordArg"
+            , assertPrettyIn fsPerm "PatternsAndLiterals" "a multi-line block comment below a declaration detaches to column 1, leaving no trailing-whitespace line" "ClaimedMultilineComment"
+            , assertPrettyIn fsPerm "PatternsAndLiterals" "two blank lines are forced before every top-level declaration unit (function/alias/union/port), regardless of authored blanks; the unit begins at its doc comment, else signature, else declaration" "ForcedDeclBlankLines"
+            , assertPrettyIn fsPerm "PatternsAndLiterals" "float literals round-trip (decimal stays decimal, scientific stays scientific)" "FloatLiterals"
+            , assertPrettyIn fsPerm "PatternsAndLiterals" "only a comment that cannot ride a literal's flat line forces it open: -- , multi-line, and own-row comments break it; an inline block comment does not" "LiteralInlineComment"
             ]
         }
 
@@ -545,31 +539,31 @@ recordUpdatesSuite fsPerm =
         , tearDownSuite = U.noTearDown
         , setUp = U.noFixture
         , tearDown = U.noTearDown
-        , tests = [ assertPretty fsPerm "a record literal field whose value is a multi-line binop chain drops below `name =` like a record update (regression guard: literal path previously hit an unreachable flow-assembler arm)" "RecordLiteralBinopField"
-            , assertPretty fsPerm "as-pattern inside record-field destructure keeps its parens" "RecordFieldAsPattern"
-            , assertPretty fsPerm "doc comment body with non-BMP code points round-trips" "DocCommentWithEmoji"
-            , assertPretty fsPerm "record update base can be a parenthesized call" "RecordUpdateComplexBase"
-            , assertPretty fsPerm "record update base can be a binop, negate, nested update, accessor, record literal, or a call with an array arg — previously silently dropped to an empty (unparseable) base" "RecordUpdateExoticBase"
-            , assertPretty fsPerm "record update base can be a qualified value reference (VarQual), e.g. a record exported by another module" "RecordUpdateQualifiedBase"
-            , assertPretty fsPerm "a comment in a record update's `|` gap keeps the row the author wrote it on, the way `,` and a union's `|` already do — a `--`/multi-line `{- -}` on the base's row trails the base (role `TrailsHead`), one on its own row stays own-row at the `|` column; a single-line `{- -}` still leads the first field on both spellings (rule C2) and keeps the update flat (C3). The opener slot, separated by the base name's recorded position, is unchanged. Extensible record types share the construct and the rule" "RecordUpdatePipeComment"
-            , assertPretty fsPerm "record update expands uniformly for single- and multi-field block values (matches elm-format's extensionGroup); a single-field block value no longer stays compact, and the field value anchors at `| ` + 4 not field-content + 4; a multi-line lambda value now drops whole below `field =` like every other value (matches elm-format)" "RecordUpdateExtension"
-            , assertPretty fsPerm "an `if`/`when`/`let` record-field value always breaks however the author wrote it, so it drops below `fld =` — written FLAT here on purpose, which used to leave a `when` (and any paren-wrapped block) as a plain flow item whose multi-line box the soft-glue arm could not place, failing the format outright. Paren-free layouts verified byte-identical to elm-format; inline and lambda values are untouched" "BlockRecordFieldValue"
-            , assertPretty fsPerm "a paren-wrapped `if`/`when`/`let` as a call argument in a pipeline step: its first branch is an indented block just like a lambda body, so the lambda-paren classifier used to claim it, render it as `[head, body]`, and DROP every later branch (`else` included) — emitting unparseable Gren. Verified byte-identical to elm-format; the lambda it was mistaken for still renders as a lambda" "ParenBlockInPipelineStep"
-            , assertPretty fsPerm "a flat record update renders on one line, so nothing around it pre-breaks: each update here formats identically to its record-literal twin. Guards `subtreeHasVerticalBox`, which used to call EVERY update vertical and stranded a `)` in the pipeline-step relocation. The last two cases pin the gate's other half — an author-broken update, and one whose field breaks on its own, both still open" "RecordUpdateFlatInParen"
-            , assertPretty fsPerm "a paren-wrapped block (`if`/`let`/`when`/lambda) as a pipeline's DIRECT operand stays glued to the operator and soft-glues: `(` after `|> `, body at the next tab stop from the keyword, `else`/`in` and `)` under the `(` — byte-identical to elm-format" "ParenBlockDirectOperand"
-            , assertPretty fsPerm "a paren-wrapped block/broken-binop/broken-record indents its body to the next TAB STOP after whatever precedes `(`, so the offset is emergent, not chosen: `(`+2 after `+ `, `(`+3 after `-`, `(`+4 when `(` starts its line, `(`+5 after `&& `/`++ `/`|> `. Covers a DOUBLED paren (`((if/when/let ...) |> gn)`/`+ rest`, a call argument that's itself a paren-wrapped binop/pipeline operand): `else`/`in` and the inner `)` must anchor to the INNER `(`, not the outer one. Also covers an author-broken binop/record literal glued after a 2-char operator or as a pipeline's direct operand (`|> (aaa\n    ++ bbb)`, `|> ({ a = 1, b = 2 })`): the paren must pad every continuation line, or a 3-char prefix (`&& `/`++ `/`|> `) falls one Tab stop short instead of crossing it. All cases are byte-identical to elm-format (checked with the elm-format binary; the broken-record case differs only by the settled #10 divergence — gren keeps the parens elm-format strips). Formerly PrefixAnchorDivergence: gren deliberately used a uniform indent rather than elm's tab stops, which is why the `&&`/`-(` cases diverged; 2026-07-14 the user chose to match elm-format exactly instead" "ParenBlockTabStops"
-            , assertPretty fsPerm "a bare `if` as a direct list item indents its branches +4 with `else` under `if`, matching elm-format (was over-indented +8 until the item-wrapper double-indent fix)" "BareIfListItem"
-            , assertPretty fsPerm "a bare `let` as a direct list item indents its bindings +4 with `in`/result under `let`, matching elm-format (same item-wrapper double-indent fix)" "BareLetListItem"
-            , assertPretty fsPerm "multi-line string content escapes backslashes and embedded triple quotes but leaves isolated quotes verbatim" "MultilineStringContent"
-            , assertPretty fsPerm "trailing whitespace on triple-quoted string content lines is significant and preserved verbatim" "MultilineStringTrailingWhitespace"
-            , assertPretty fsPerm "in a triple-quoted string a horizontal tab is preserved verbatim while a non-printable control character is written as a \\u{...} escape" "MultilineStringControlChars"
-            , assertPretty fsPerm "a `--` trailing a multi-line string's closing delimiter glues onto that row and stays put (was non-idempotent: prevLineGlueRow/prevBlockGlueRow had no MultilineString case, so it defaulted to -1 and always classified LeadsOwnLine)" "MultilineStringTrailingLineComment"
-            , assertPretty fsPerm "a `{- -}` written PAST a record update's `}` stays outside it (glued onto the `}` row), like arrays and record literals — the update's `}` is a real tracked bracket, so a same-row comment past it is not pulled inside onto the last field" "RecordUpdateFieldTrailingComment"
-            , assertPretty fsPerm "a `--` written past a single-field record update's `}` stays outside and the update stays flat, like `[ 1 ] -- c` — the comment is not absorbed into the (empty-`[]`) field" "EmptyBracketFieldTrailingLineComment"
-            , assertPretty fsPerm "an Int literal as an `as`-alias base keeps its parens (was a real bug: gren-format stripped a semantically required paren, producing `8 as z` which does not parse — not the redundant-parens case, which gren-format never strips)" "AliasPatternIntNeedsParens"
-            , assertPretty fsPerm "a 0-argument constructor as an `as`-alias base keeps its parens (same class as AliasPatternIntNeedsParens: `Nothing as whole` does not parse bare, only `(Nothing) as whole` does)" "AliasPatternZeroArgCtorNeedsParens"
-            , assertPretty fsPerm "negation of parenthesized expression keeps `-` outside the parens" "NegateParens"
-            , assertPretty fsPerm "field access glues directly to a paren/record/qualified-name base with no space (compiler-common#27)" "PostfixAccess"
+        , tests = [ assertPrettyIn fsPerm "RecordUpdates" "a record literal field whose value is a multi-line binop chain drops below `name =` like a record update (regression guard: literal path previously hit an unreachable flow-assembler arm)" "RecordLiteralBinopField"
+            , assertPrettyIn fsPerm "RecordUpdates" "as-pattern inside record-field destructure keeps its parens" "RecordFieldAsPattern"
+            , assertPrettyIn fsPerm "RecordUpdates" "doc comment body with non-BMP code points round-trips" "DocCommentWithEmoji"
+            , assertPrettyIn fsPerm "RecordUpdates" "record update base can be a parenthesized call" "RecordUpdateComplexBase"
+            , assertPrettyIn fsPerm "RecordUpdates" "record update base can be a binop, negate, nested update, accessor, record literal, or a call with an array arg — previously silently dropped to an empty (unparseable) base" "RecordUpdateExoticBase"
+            , assertPrettyIn fsPerm "RecordUpdates" "record update base can be a qualified value reference (VarQual), e.g. a record exported by another module" "RecordUpdateQualifiedBase"
+            , assertPrettyIn fsPerm "RecordUpdates" "a comment in a record update's `|` gap keeps the row the author wrote it on, the way `,` and a union's `|` already do — a `--`/multi-line `{- -}` on the base's row trails the base (role `TrailsHead`), one on its own row stays own-row at the `|` column; a single-line `{- -}` still leads the first field on both spellings (rule C2) and keeps the update flat (C3). The opener slot, separated by the base name's recorded position, is unchanged. Extensible record types share the construct and the rule" "RecordUpdatePipeComment"
+            , assertPrettyIn fsPerm "RecordUpdates" "record update expands uniformly for single- and multi-field block values (matches elm-format's extensionGroup); a single-field block value no longer stays compact, and the field value anchors at `| ` + 4 not field-content + 4; a multi-line lambda value now drops whole below `field =` like every other value (matches elm-format)" "RecordUpdateExtension"
+            , assertPrettyIn fsPerm "RecordUpdates" "an `if`/`when`/`let` record-field value always breaks however the author wrote it, so it drops below `fld =` — written FLAT here on purpose, which used to leave a `when` (and any paren-wrapped block) as a plain flow item whose multi-line box the soft-glue arm could not place, failing the format outright. Paren-free layouts verified byte-identical to elm-format; inline and lambda values are untouched" "BlockRecordFieldValue"
+            , assertPrettyIn fsPerm "RecordUpdates" "a paren-wrapped `if`/`when`/`let` as a call argument in a pipeline step: its first branch is an indented block just like a lambda body, so the lambda-paren classifier used to claim it, render it as `[head, body]`, and DROP every later branch (`else` included) — emitting unparseable Gren. Verified byte-identical to elm-format; the lambda it was mistaken for still renders as a lambda" "ParenBlockInPipelineStep"
+            , assertPrettyIn fsPerm "RecordUpdates" "a flat record update renders on one line, so nothing around it pre-breaks: each update here formats identically to its record-literal twin. Guards `subtreeHasVerticalBox`, which used to call EVERY update vertical and stranded a `)` in the pipeline-step relocation. The last two cases pin the gate's other half — an author-broken update, and one whose field breaks on its own, both still open" "RecordUpdateFlatInParen"
+            , assertPrettyIn fsPerm "RecordUpdates" "a paren-wrapped block (`if`/`let`/`when`/lambda) as a pipeline's DIRECT operand stays glued to the operator and soft-glues: `(` after `|> `, body at the next tab stop from the keyword, `else`/`in` and `)` under the `(` — byte-identical to elm-format" "ParenBlockDirectOperand"
+            , assertPrettyIn fsPerm "RecordUpdates" "a paren-wrapped block/broken-binop/broken-record indents its body to the next TAB STOP after whatever precedes `(`, so the offset is emergent, not chosen: `(`+2 after `+ `, `(`+3 after `-`, `(`+4 when `(` starts its line, `(`+5 after `&& `/`++ `/`|> `. Covers a DOUBLED paren (`((if/when/let ...) |> gn)`/`+ rest`, a call argument that's itself a paren-wrapped binop/pipeline operand): `else`/`in` and the inner `)` must anchor to the INNER `(`, not the outer one. Also covers an author-broken binop/record literal glued after a 2-char operator or as a pipeline's direct operand (`|> (aaa\n    ++ bbb)`, `|> ({ a = 1, b = 2 })`): the paren must pad every continuation line, or a 3-char prefix (`&& `/`++ `/`|> `) falls one Tab stop short instead of crossing it. All cases are byte-identical to elm-format (checked with the elm-format binary; the broken-record case differs only by the settled #10 divergence — gren keeps the parens elm-format strips). Formerly PrefixAnchorDivergence: gren deliberately used a uniform indent rather than elm's tab stops, which is why the `&&`/`-(` cases diverged; 2026-07-14 the user chose to match elm-format exactly instead" "ParenBlockTabStops"
+            , assertPrettyIn fsPerm "RecordUpdates" "a bare `if` as a direct list item indents its branches +4 with `else` under `if`, matching elm-format (was over-indented +8 until the item-wrapper double-indent fix)" "BareIfListItem"
+            , assertPrettyIn fsPerm "RecordUpdates" "a bare `let` as a direct list item indents its bindings +4 with `in`/result under `let`, matching elm-format (same item-wrapper double-indent fix)" "BareLetListItem"
+            , assertPrettyIn fsPerm "RecordUpdates" "multi-line string content escapes backslashes and embedded triple quotes but leaves isolated quotes verbatim" "MultilineStringContent"
+            , assertPrettyIn fsPerm "RecordUpdates" "trailing whitespace on triple-quoted string content lines is significant and preserved verbatim" "MultilineStringTrailingWhitespace"
+            , assertPrettyIn fsPerm "RecordUpdates" "in a triple-quoted string a horizontal tab is preserved verbatim while a non-printable control character is written as a \\u{...} escape" "MultilineStringControlChars"
+            , assertPrettyIn fsPerm "RecordUpdates" "a `--` trailing a multi-line string's closing delimiter glues onto that row and stays put (was non-idempotent: prevLineGlueRow/prevBlockGlueRow had no MultilineString case, so it defaulted to -1 and always classified LeadsOwnLine)" "MultilineStringTrailingLineComment"
+            , assertPrettyIn fsPerm "RecordUpdates" "a `{- -}` written PAST a record update's `}` stays outside it (glued onto the `}` row), like arrays and record literals — the update's `}` is a real tracked bracket, so a same-row comment past it is not pulled inside onto the last field" "RecordUpdateFieldTrailingComment"
+            , assertPrettyIn fsPerm "RecordUpdates" "a `--` written past a single-field record update's `}` stays outside and the update stays flat, like `[ 1 ] -- c` — the comment is not absorbed into the (empty-`[]`) field" "EmptyBracketFieldTrailingLineComment"
+            , assertPrettyIn fsPerm "RecordUpdates" "an Int literal as an `as`-alias base keeps its parens (was a real bug: gren-format stripped a semantically required paren, producing `8 as z` which does not parse — not the redundant-parens case, which gren-format never strips)" "AliasPatternIntNeedsParens"
+            , assertPrettyIn fsPerm "RecordUpdates" "a 0-argument constructor as an `as`-alias base keeps its parens (same class as AliasPatternIntNeedsParens: `Nothing as whole` does not parse bare, only `(Nothing) as whole` does)" "AliasPatternZeroArgCtorNeedsParens"
+            , assertPrettyIn fsPerm "RecordUpdates" "negation of parenthesized expression keeps `-` outside the parens" "NegateParens"
+            , assertPrettyIn fsPerm "RecordUpdates" "field access glues directly to a paren/record/qualified-name base with no space (compiler-common#27)" "PostfixAccess"
             ]
         }
 
@@ -582,20 +576,20 @@ declarationSuite fsPerm =
         , tearDownSuite = U.noTearDown
         , setUp = U.noFixture
         , tearDown = U.noTearDown
-        , tests = [ assertPretty fsPerm "type aliases" "TypeAlias"
-            , assertPretty fsPerm "a type alias whose body is a bare function type renders one `->` segment per row when the author broke it that way (even at only one boundary), with every segment -- including the first -- at the same column, since there's no \"name :\" header to glue it to" "TypeAliasFunctionType"
-            , assertPretty fsPerm "a type alias body whose function type carries a multi-line record type commits to the broken layout, so `-> Int` drops below the record's `}` instead of staying glued to it (the same trigger `makeSignatureBox` already had)" "TypeAliasDroppingRecord"
-            , assertPretty fsPerm "union types" "TypeUnion"
-            , assertPretty fsPerm "type signatures" "TypeSignature"
-            , assertPretty fsPerm "a comment written inside a parenthesized type, between the last token and the `)`, stays inside the parens and is a fixed point -- the paren records its closing position, so the comment no longer escapes past `)` and then flips sides of the `->` on reparse" "SignatureParenComment"
-            , assertPretty fsPerm "type constructor applied to 2+ argument types" "TypeCtorMultiArg"
-            , assertPretty fsPerm "ports" "Ports"
-            , assertPretty fsPerm "effect module where { command = ... } renders each binding as one field" "EffectModuleWhere"
-            , assertPretty fsPerm "effect module with a named (non-wildcard) exposing list renders it tight" "EffectModuleNamedExposing"
-            , assertPretty fsPerm "effect module with an author-broken named exposing list drops it to +4" "EffectModuleNamedExposingVertical"
-            , assertPretty fsPerm "subscription-only effect module (the Src.Sub where-block case)" "EffectModuleSubscriptionOnly"
-            , assertPretty fsPerm "empty record type `{}` in a type alias and a signature" "EmptyRecordType"
-            , assertPretty fsPerm "empty-bodied doc comment `{-| -}`" "EmptyDocComment"
+        , tests = [ assertPrettyIn fsPerm "Declarations" "type aliases" "TypeAlias"
+            , assertPrettyIn fsPerm "Declarations" "a type alias whose body is a bare function type renders one `->` segment per row when the author broke it that way (even at only one boundary), with every segment -- including the first -- at the same column, since there's no \"name :\" header to glue it to" "TypeAliasFunctionType"
+            , assertPrettyIn fsPerm "Declarations" "a type alias body whose function type carries a multi-line record type commits to the broken layout, so `-> Int` drops below the record's `}` instead of staying glued to it (the same trigger `makeSignatureBox` already had)" "TypeAliasDroppingRecord"
+            , assertPrettyIn fsPerm "Declarations" "union types" "TypeUnion"
+            , assertPrettyIn fsPerm "Declarations" "type signatures" "TypeSignature"
+            , assertPrettyIn fsPerm "Declarations" "a comment written inside a parenthesized type, between the last token and the `)`, stays inside the parens and is a fixed point -- the paren records its closing position, so the comment no longer escapes past `)` and then flips sides of the `->` on reparse" "SignatureParenComment"
+            , assertPrettyIn fsPerm "Declarations" "type constructor applied to 2+ argument types" "TypeCtorMultiArg"
+            , assertPrettyIn fsPerm "Declarations" "ports" "Ports"
+            , assertPrettyIn fsPerm "Declarations" "effect module where { command = ... } renders each binding as one field" "EffectModuleWhere"
+            , assertPrettyIn fsPerm "Declarations" "effect module with a named (non-wildcard) exposing list renders it tight" "EffectModuleNamedExposing"
+            , assertPrettyIn fsPerm "Declarations" "effect module with an author-broken named exposing list drops it to +4" "EffectModuleNamedExposingVertical"
+            , assertPrettyIn fsPerm "Declarations" "subscription-only effect module (the Src.Sub where-block case)" "EffectModuleSubscriptionOnly"
+            , assertPrettyIn fsPerm "Declarations" "empty record type `{}` in a type alias and a signature" "EmptyRecordType"
+            , assertPrettyIn fsPerm "Declarations" "empty-bodied doc comment `{-| -}`" "EmptyDocComment"
             ]
         }
 
@@ -608,40 +602,40 @@ headerCommentsSuite fsPerm =
         , tearDownSuite = U.noTearDown
         , setUp = U.noFixture
         , tearDown = U.noTearDown
-        , tests = [ assertPretty fsPerm "port declarations with comments in every header position" "PortComments"
-            , assertPretty fsPerm "effect module with comments around top-level decls" "EffectModuleComments"
-            , assertPretty fsPerm "module/import header keyword-gap comments" "ModuleHeaderComments"
-            , assertPretty fsPerm "block comment past a flat module exposing list is pinned above the ) instead of riding the last-written name" "ModuleExposingTrailingComment"
-            , assertPretty fsPerm "block comment past a single-name flat module exposing list is pinned above the )" "ModuleLineFloatingComment"
-            , assertPretty fsPerm "comments past a name in a vertical module exposing list stay inside the list however far right they start, and travel with their name through the sort" "ModuleExposingCloseComment"
-            , assertPretty fsPerm "a comment written past a vertical module exposing list's closing paren moves inside the list (the `)` has no AST position, and rendering it below oscillated)" "ModuleExposingClosePastParen"
-            , assertPretty fsPerm "a comment past a vertical module exposing list's `)` is pinned above the `)` rather than riding the last-written name, so the output does not depend on the order the names were authored in" "ModuleExposingClosePinned"
-            , assertPretty fsPerm "a whole CHAIN of comments past a flat module exposing list pins above the `)`, one per line, including a link that spans rows" "ModuleExposingCloseChain"
-            , assertPretty fsPerm "a whole CHAIN of comments past a vertical module exposing list's `)` pins above it in order, while a name's own trailing comment still travels with that name" "ModuleExposingCloseChainVertical"
-            , assertPretty fsPerm "a comment the author wrote INLINE in the module header keeps the coupled header/list layout, so a hoisted sort-to-first comment still renders on its own line at +4" "ModuleExposingInlineAndHoistedComment"
-            , assertPretty fsPerm "a comment written on the row BELOW a flat module exposing list is pinned above the `)` like a same-row one, instead of gluing back onto the header line" "ModuleExposingCommentBelowFlatList"
-            , assertPretty fsPerm "a single-line block comment on an effect module's header row rides that row, even though the `exposing` before it is position-less (dropping it below made the flat list read as vertical on reparse)" "EffectModuleHeaderInlineComment"
-            , assertPretty fsPerm "comment after the exposing list of a vertical effect-module where block" "EffectModuleFxWhereComment"
-            , assertPretty fsPerm "a wrapped effect-module `where` block does not make a one-row exposing list look vertical: a comment past it still pins above the `)`, order-independently" "EffectModuleWrappedWhereClose"
-            , assertPretty fsPerm "trailing -- line comment after an effect module's open exposing glues onto the header row (internal where comments stay put)" "EffectModuleOpenLineTrailer"
-            , assertPretty fsPerm "trailing -- line comment after a port module's open exposing glues onto the header row" "PortModuleOpenLineTrailer"
-            , assertPretty fsPerm "trailing block comment after a port module's open exposing glues onto the header row" "PortModuleOpenBlockTrailer"
-            , assertPretty fsPerm "trailing block comment after a plain module's open exposing glues onto the header row" "ModuleOpenBlockTrailer"
-            , assertPretty fsPerm "trailing -- line comment past a plain module's flat named exposing is pinned above the )" "ModuleNamedLineTrailer"
-            , assertPretty fsPerm "trailing -- line comment past a port module's flat named exposing is pinned above the )" "PortModuleNamedLineTrailer"
-            , assertPretty fsPerm "trailing -- line comment past an effect module's flat named exposing is pinned above the )" "EffectModuleNamedLineTrailer"
-            , assertPretty fsPerm "comment spaced too far from the handler name falls out of an effect-module where block" "EffectModuleWideSpacingComment"
-            , assertPretty fsPerm "comment on an item in a multi-line import exposing list" "ImportExposingMultilineComment"
-            , assertPretty fsPerm "a comment trailing an import's `exposing (..)` glues onto the import line (line and block; with and without an alias)" "ImportExposingOpenTrailingComment"
-            , assertPretty fsPerm "a comment trailing the module header's own `exposing (..)` glues onto the header line" "ModuleExposingOpenTrailingComment"
-            , assertPretty fsPerm "an exposing-list comment whose name sorts to first place is hoisted onto its own line above `(` (import site)" "ExposingSortCommentToFront"
-            , assertPretty fsPerm "an exposing-list comment whose name sorts to first place is hoisted onto its own line above `(` (module-header site)" "ModuleExposingSortCommentToFront"
-            , assertPretty fsPerm "an inline block comment on the last name of a flat module exposing list pins above the ); on an import's list it still travels with its name" "ExposingInlineComment"
-            , assertPretty fsPerm "multi-line module-header comment that wraps the module name to a continuation row" "HeaderCommentNameWrap"
-            , assertPretty fsPerm "comment between a vertical module exposing list and the first declaration" "ModuleVerticalExposingComment"
-            , assertPretty fsPerm "canonical rendering of comments at elided-token positions" "Ambiguous"
-            , assertPretty fsPerm "canonical rendering of a comment in an effect-module where block" "AmbiguousEffectModule"
-            , assertPretty fsPerm "trailing comment below a wrapped import stays at the continuation indent" "ImportTrailingComment"
+        , tests = [ assertPrettyIn fsPerm "HeaderComments" "port declarations with comments in every header position" "PortComments"
+            , assertPrettyIn fsPerm "HeaderComments" "effect module with comments around top-level decls" "EffectModuleComments"
+            , assertPrettyIn fsPerm "HeaderComments" "module/import header keyword-gap comments" "ModuleHeaderComments"
+            , assertPrettyIn fsPerm "HeaderComments" "block comment past a flat module exposing list is pinned above the ) instead of riding the last-written name" "ModuleExposingTrailingComment"
+            , assertPrettyIn fsPerm "HeaderComments" "block comment past a single-name flat module exposing list is pinned above the )" "ModuleLineFloatingComment"
+            , assertPrettyIn fsPerm "HeaderComments" "comments past a name in a vertical module exposing list stay inside the list however far right they start, and travel with their name through the sort" "ModuleExposingCloseComment"
+            , assertPrettyIn fsPerm "HeaderComments" "a comment written past a vertical module exposing list's closing paren moves inside the list (the `)` has no AST position, and rendering it below oscillated)" "ModuleExposingClosePastParen"
+            , assertPrettyIn fsPerm "HeaderComments" "a comment past a vertical module exposing list's `)` is pinned above the `)` rather than riding the last-written name, so the output does not depend on the order the names were authored in" "ModuleExposingClosePinned"
+            , assertPrettyIn fsPerm "HeaderComments" "a whole CHAIN of comments past a flat module exposing list pins above the `)`, one per line, including a link that spans rows" "ModuleExposingCloseChain"
+            , assertPrettyIn fsPerm "HeaderComments" "a whole CHAIN of comments past a vertical module exposing list's `)` pins above it in order, while a name's own trailing comment still travels with that name" "ModuleExposingCloseChainVertical"
+            , assertPrettyIn fsPerm "HeaderComments" "a comment the author wrote INLINE in the module header keeps the coupled header/list layout, so a hoisted sort-to-first comment still renders on its own line at +4" "ModuleExposingInlineAndHoistedComment"
+            , assertPrettyIn fsPerm "HeaderComments" "a comment written on the row BELOW a flat module exposing list is pinned above the `)` like a same-row one, instead of gluing back onto the header line" "ModuleExposingCommentBelowFlatList"
+            , assertPrettyIn fsPerm "HeaderComments" "a single-line block comment on an effect module's header row rides that row, even though the `exposing` before it is position-less (dropping it below made the flat list read as vertical on reparse)" "EffectModuleHeaderInlineComment"
+            , assertPrettyIn fsPerm "HeaderComments" "comment after the exposing list of a vertical effect-module where block" "EffectModuleFxWhereComment"
+            , assertPrettyIn fsPerm "HeaderComments" "a wrapped effect-module `where` block does not make a one-row exposing list look vertical: a comment past it still pins above the `)`, order-independently" "EffectModuleWrappedWhereClose"
+            , assertPrettyIn fsPerm "HeaderComments" "trailing -- line comment after an effect module's open exposing glues onto the header row (internal where comments stay put)" "EffectModuleOpenLineTrailer"
+            , assertPrettyIn fsPerm "HeaderComments" "trailing -- line comment after a port module's open exposing glues onto the header row" "PortModuleOpenLineTrailer"
+            , assertPrettyIn fsPerm "HeaderComments" "trailing block comment after a port module's open exposing glues onto the header row" "PortModuleOpenBlockTrailer"
+            , assertPrettyIn fsPerm "HeaderComments" "trailing block comment after a plain module's open exposing glues onto the header row" "ModuleOpenBlockTrailer"
+            , assertPrettyIn fsPerm "HeaderComments" "trailing -- line comment past a plain module's flat named exposing is pinned above the )" "ModuleNamedLineTrailer"
+            , assertPrettyIn fsPerm "HeaderComments" "trailing -- line comment past a port module's flat named exposing is pinned above the )" "PortModuleNamedLineTrailer"
+            , assertPrettyIn fsPerm "HeaderComments" "trailing -- line comment past an effect module's flat named exposing is pinned above the )" "EffectModuleNamedLineTrailer"
+            , assertPrettyIn fsPerm "HeaderComments" "comment spaced too far from the handler name falls out of an effect-module where block" "EffectModuleWideSpacingComment"
+            , assertPrettyIn fsPerm "HeaderComments" "comment on an item in a multi-line import exposing list" "ImportExposingMultilineComment"
+            , assertPrettyIn fsPerm "HeaderComments" "a comment trailing an import's `exposing (..)` glues onto the import line (line and block; with and without an alias)" "ImportExposingOpenTrailingComment"
+            , assertPrettyIn fsPerm "HeaderComments" "a comment trailing the module header's own `exposing (..)` glues onto the header line" "ModuleExposingOpenTrailingComment"
+            , assertPrettyIn fsPerm "HeaderComments" "an exposing-list comment whose name sorts to first place is hoisted onto its own line above `(` (import site)" "ExposingSortCommentToFront"
+            , assertPrettyIn fsPerm "HeaderComments" "an exposing-list comment whose name sorts to first place is hoisted onto its own line above `(` (module-header site)" "ModuleExposingSortCommentToFront"
+            , assertPrettyIn fsPerm "HeaderComments" "an inline block comment on the last name of a flat module exposing list pins above the ); on an import's list it still travels with its name" "ExposingInlineComment"
+            , assertPrettyIn fsPerm "HeaderComments" "multi-line module-header comment that wraps the module name to a continuation row" "HeaderCommentNameWrap"
+            , assertPrettyIn fsPerm "HeaderComments" "comment between a vertical module exposing list and the first declaration" "ModuleVerticalExposingComment"
+            , assertPrettyIn fsPerm "HeaderComments" "canonical rendering of comments at elided-token positions" "Ambiguous"
+            , assertPrettyIn fsPerm "HeaderComments" "canonical rendering of a comment in an effect-module where block" "AmbiguousEffectModule"
+            , assertPrettyIn fsPerm "HeaderComments" "trailing comment below a wrapped import stays at the continuation indent" "ImportTrailingComment"
             ]
         }
 
@@ -654,22 +648,22 @@ pipelineCommentsSuite fsPerm =
         , tearDownSuite = U.noTearDown
         , setUp = U.noFixture
         , tearDown = U.noTearDown
-        , tests = [ assertPretty fsPerm "comments in pipeliens" "CommentsPipeline"
-            , assertPretty fsPerm "backward pipeline and operator-rhs gap comments" "PipelineAndGlueComments"
-            , assertPretty fsPerm "an inline block comment rides a flat `|>` pipeline instead of reflowing it (as it already did in `++`/`&&`/`<|` chains); a `--` line comment, a multi-line block comment, an author-broken chain and a `when` step all still break" "PipelineInlineComment"
-            , assertPretty fsPerm "a `--` line comment trailing the last operand of a broken binop chain (`// acc -- c`) rides that operand's line instead of detaching at the operator indent and oscillating +N ↔ col-0" "TrailingLineCommentBinopOperand"
-            , assertPretty fsPerm "a backward `<|` body with inline block comments (`z <| {- a -} 73 {- b -}`) stays flat inline instead of oscillating flat ↔ operator-leading" "BackwardPipeInlineBlockComments"
-            , assertPretty fsPerm "a broken backward `<|` whose body carries inline block comments keeps `<|` on the seed line with the comment-bearing body dropped +4, a fixed point (not flipping to operator-leading)" "BackwardPipeBrokenInlineBlockComments"
-            , assertPretty fsPerm "a trailing `--` after a parenthesized empty container at a binop chain's end (`0 >> x <= ( {} ) -- k`) stays outside the parens; putting it inside made a `--` swallow the `)` and the output no longer parsed" "BinopParenEmptyBracketTrailingComment"
-            , assertPretty fsPerm "a paren operand that renders multi-line (a record update with an `if` inside) breaks its binop chain consistently on both formats, not gluing then breaking on reparse" "BinopParenBlockMultilineOperand"
-            , assertPretty fsPerm "a paren binop operand breaks the chain only when it renders multi-line: an inline `{- k -}` rides and the chain stays flat (elm-format match), while a `--` forces the `)` down and breaks it" "BinopParenOperandCommentKind"
+        , tests = [ assertPrettyIn fsPerm "PipelineComments" "comments in pipeliens" "CommentsPipeline"
+            , assertPrettyIn fsPerm "PipelineComments" "backward pipeline and operator-rhs gap comments" "PipelineAndGlueComments"
+            , assertPrettyIn fsPerm "PipelineComments" "an inline block comment rides a flat `|>` pipeline instead of reflowing it (as it already did in `++`/`&&`/`<|` chains); a `--` line comment, a multi-line block comment, an author-broken chain and a `when` step all still break" "PipelineInlineComment"
+            , assertPrettyIn fsPerm "PipelineComments" "a `--` line comment trailing the last operand of a broken binop chain (`// acc -- c`) rides that operand's line instead of detaching at the operator indent and oscillating +N ↔ col-0" "TrailingLineCommentBinopOperand"
+            , assertPrettyIn fsPerm "PipelineComments" "a backward `<|` body with inline block comments (`z <| {- a -} 73 {- b -}`) stays flat inline instead of oscillating flat ↔ operator-leading" "BackwardPipeInlineBlockComments"
+            , assertPrettyIn fsPerm "PipelineComments" "a broken backward `<|` whose body carries inline block comments keeps `<|` on the seed line with the comment-bearing body dropped +4, a fixed point (not flipping to operator-leading)" "BackwardPipeBrokenInlineBlockComments"
+            , assertPrettyIn fsPerm "PipelineComments" "a trailing `--` after a parenthesized empty container at a binop chain's end (`0 >> x <= ( {} ) -- k`) stays outside the parens; putting it inside made a `--` swallow the `)` and the output no longer parsed" "BinopParenEmptyBracketTrailingComment"
+            , assertPrettyIn fsPerm "PipelineComments" "a paren operand that renders multi-line (a record update with an `if` inside) breaks its binop chain consistently on both formats, not gluing then breaking on reparse" "BinopParenBlockMultilineOperand"
+            , assertPrettyIn fsPerm "PipelineComments" "a paren binop operand breaks the chain only when it renders multi-line: an inline `{- k -}` rides and the chain stays flat (elm-format match), while a `--` forces the `)` down and breaks it" "BinopParenOperandCommentKind"
             -- Regression guards for the 2026-06-06 column-attachment fixes.
-            , assertPretty fsPerm "a long author-broken binop chain breaks every operator onto its own line; a trailing comment stays inline on the last operand" "BinopChainTrailingComment"
-            , assertPretty fsPerm "trailing comments below a pipeline's last step stay at the step indent" "PipelineTrailingComment"
+            , assertPrettyIn fsPerm "PipelineComments" "a long author-broken binop chain breaks every operator onto its own line; a trailing comment stays inline on the last operand" "BinopChainTrailingComment"
+            , assertPrettyIn fsPerm "PipelineComments" "trailing comments below a pipeline's last step stay at the step indent" "PipelineTrailingComment"
             -- Regression guard for the Cluster B fix: a *multi-line* block comment
             -- glued same-row onto a preceding construct's last line (previously
             -- crashed; now padded under its start via B.addSuffixBox).
-            , assertPretty fsPerm "multi-line block comment trailing a backward-pipeline step glues onto its last line" "BackwardPipeMultilineTrailingComment"
+            , assertPrettyIn fsPerm "PipelineComments" "multi-line block comment trailing a backward-pipeline step glues onto its last line" "BackwardPipeMultilineTrailingComment"
             -- Regression guards for the multiline-string `--`-swallow fix
             -- (subtreeEndsWithLineComment). A `--` comment buried at the end of a
             -- multi-line-string operand's subtree must NOT let the following
@@ -677,13 +671,13 @@ pipelineCommentsSuite fsPerm =
             -- operator into the comment — an ast-mismatch). Two code paths:
             -- the backward-pipeline seed (Site A) and the binop precedence group
             -- (Site B).
-            , assertPretty fsPerm "backward `<|` whose seed ends in a `\"\"\"…\"\"\" -- c` operand stacks `<|` below the comment, not glued onto it" "MultilineStringCommentBackwardPipeSeed"
-            , assertPretty fsPerm "backward `<|` seed `0 + \"\"\"…\"\"\" -- c` stacks `<| rhs` below the comment line" "MultilineStringCommentBackwardPipeBinop"
-            , assertPretty fsPerm "binop precedence chain around a `<|`-pipeline operand ending `\"\"\"…\"\"\" -- c` breaks the next operator below, not onto the comment" "MultilineStringCommentBinopPrecedence"
+            , assertPrettyIn fsPerm "PipelineComments" "backward `<|` whose seed ends in a `\"\"\"…\"\"\" -- c` operand stacks `<|` below the comment, not glued onto it" "MultilineStringCommentBackwardPipeSeed"
+            , assertPrettyIn fsPerm "PipelineComments" "backward `<|` seed `0 + \"\"\"…\"\"\" -- c` stacks `<| rhs` below the comment line" "MultilineStringCommentBackwardPipeBinop"
+            , assertPrettyIn fsPerm "PipelineComments" "binop precedence chain around a `<|`-pipeline operand ending `\"\"\"…\"\"\" -- c` breaks the next operator below, not onto the comment" "MultilineStringCommentBinopPrecedence"
             -- Regression guards for the C/D/E stale-assumption fixes (previously
             -- crashed with a `box: … not ported` Err).
-            , assertPretty fsPerm "an inline lambda body in a backward `<|` pipeline stays inline" "BackwardPipeInlineLambda"
-            , assertPretty fsPerm "a multi-line seed in a backward `<|` pipeline glues `<|` onto its last line; a multi-step chain that goes vertical nests each step one tab stop deeper than the last (elm-format's nested-application shape, not a flat list of same-depth steps); a step body that's a call with a broken argument relocates (call/args one per line at +4) the same way a single-step `<|` body already did, with the trailing `<|` on its own line rather than glued to the last argument" "BackwardPipeMultilineSeed"
+            , assertPrettyIn fsPerm "PipelineComments" "an inline lambda body in a backward `<|` pipeline stays inline" "BackwardPipeInlineLambda"
+            , assertPrettyIn fsPerm "PipelineComments" "a multi-line seed in a backward `<|` pipeline glues `<|` onto its last line; a multi-step chain that goes vertical nests each step one tab stop deeper than the last (elm-format's nested-application shape, not a flat list of same-depth steps); a step body that's a call with a broken argument relocates (call/args one per line at +4) the same way a single-step `<|` body already did, with the trailing `<|` on its own line rather than glued to the last argument" "BackwardPipeMultilineSeed"
             -- gen-random.py seed 21546 (comment-rate 0.6): a comment right after
             -- a lambda `->`, same row as everything, whose body is a mixed
             -- `|>`/`<|` pipeline (unconditionally multi-line regardless of the
@@ -693,7 +687,7 @@ pipelineCommentsSuite fsPerm =
             -- on reparse once the body rendered onto a later row) — fixed by
             -- picking IndentedBlock up front for a body that structurally always
             -- breaks, in InsertExpressions.gren.
-            , assertPretty fsPerm "a leading comment before a lambda body that is a mixed `|>`/`<|` pipeline (always multi-line) leads its own line even when written on the arrow's row" "LambdaMixedPipelineCommentBody"
+            , assertPrettyIn fsPerm "PipelineComments" "a leading comment before a lambda body that is a mixed `|>`/`<|` pipeline (always multi-line) leads its own line even when written on the arrow's row" "LambdaMixedPipelineCommentBody"
 
             -- The same class as the three fixtures above, but the body wraps
             -- for a reason NO AST-level predicate can see: a comment inside it
@@ -705,7 +699,7 @@ pipelineCommentsSuite fsPerm =
             -- wrap?" (`pairLeadingComments` / `BlockJoin`'s `withLeading`).
             -- `flatBodyKeepsCommentInline` is the counterweight: a body that
             -- stays on one line keeps its comment glued to the `->`.
-            , assertPretty fsPerm "a leading comment on a lambda body that wraps drops to its own line WITH the body, whatever forced the wrap (a `--` inside a binop chain or array, an author-broken call) — leaving it glued to the `->` while the body drops below oscillates on reparse" "LambdaLeadingCommentDroppedBody"
+            , assertPrettyIn fsPerm "PipelineComments" "a leading comment on a lambda body that wraps drops to its own line WITH the body, whatever forced the wrap (a `--` inside a binop chain or array, an author-broken call) — leaving it glued to the `->` while the body drops below oscillates on reparse" "LambdaLeadingCommentDroppedBody"
             ]
         }
 
@@ -718,51 +712,51 @@ patternCommentsSuite fsPerm =
         , tearDownSuite = U.noTearDown
         , setUp = U.noFixture
         , tearDown = U.noTearDown
-        , tests = [ assertPretty fsPerm "consecutive comments in when branch" "ConsecutiveCommentsInBranch"
-            , assertPretty fsPerm "type union variant comments and type-syntax positions in signatures" "TypeComments"
-            , assertPretty fsPerm "array patterns, ctor patterns, and when-branch pattern comments" "PatternComments"
-            , assertPretty fsPerm "standalone block comment before a non-first let binding" "LetBindingComments"
-            , assertPretty fsPerm "a record field (literal or update) whose value is a multi-line binop led by a block comment drops the comment then value below `name =` (was an unreachable soft-glue crash)" "RecordFieldLeadingCommentBinop"
-            , assertPretty fsPerm "a `--` line comment trailing a parenthesized `when`-branch body (`(0) -- c`) rides the `)` line instead of oscillating +N ↔ col-0" "TrailingLineCommentParenWhenBody"
-            , assertPretty fsPerm "a record field (literal or update) whose value is a lambda with an always-breaking body (`\\n -> 0 // 0 * (if …)`) drops the whole `\\… ->` below `field =` on the first format instead of gluing then dropping on reparse" "RecordFieldLambdaParenIfValue"
-            , assertPretty fsPerm "a record-update field with a comment-led multi-line binop value (`{ x | f = {- c -} 31 >= 0 >= (let … in …) }`) keeps each comment on the side it was written: the value-leading `{- k0 -}` stays inside, and the `{- k7 -}` written past the `}` stays outside on the `}` row (was pulled onto its own row inside the update)" "RecordUpdateCommentBinopValue"
-            , assertPretty fsPerm "a `--` written past a flat single-field record update whose value is a lambda (`{ z | apply = \\x -> x + 1 } -- c`) stays outside the `}` and the update stays flat, like arrays — the pre-fix crash sank the comment before `}` where it swallowed the closing brace and failed to reparse" "RecordUpdateLambdaFieldTrailingComment"
-            , assertPretty fsPerm "comment trailing a signature's last token stays glued inline" "SignatureTrailingComment"
-            , assertPretty fsPerm "a comment leading a multi-line type record drops onto its own line above the record (elm-format match)" "TypeRecordLeadingComment"
-            , assertPretty fsPerm "comment trailing the last let binding routes after `in` (which is where it stays -- keeping it with the bindings oscillates)" "LetInTrailingComment"
-            , assertPretty fsPerm "comment trailing a non-last let binding's value sits at the bindings-block indent" "BetweenLetBindingsComment"
-            , assertPretty fsPerm "comment trailing a non-last when-branch body (nested in if/let) sits between branches, no blank" "BetweenWhenBranchesComment"
+        , tests = [ assertPrettyIn fsPerm "PatternComments" "consecutive comments in when branch" "ConsecutiveCommentsInBranch"
+            , assertPrettyIn fsPerm "PatternComments" "type union variant comments and type-syntax positions in signatures" "TypeComments"
+            , assertPrettyIn fsPerm "PatternComments" "array patterns, ctor patterns, and when-branch pattern comments" "PatternComments"
+            , assertPrettyIn fsPerm "PatternComments" "standalone block comment before a non-first let binding" "LetBindingComments"
+            , assertPrettyIn fsPerm "PatternComments" "a record field (literal or update) whose value is a multi-line binop led by a block comment drops the comment then value below `name =` (was an unreachable soft-glue crash)" "RecordFieldLeadingCommentBinop"
+            , assertPrettyIn fsPerm "PatternComments" "a `--` line comment trailing a parenthesized `when`-branch body (`(0) -- c`) rides the `)` line instead of oscillating +N ↔ col-0" "TrailingLineCommentParenWhenBody"
+            , assertPrettyIn fsPerm "PatternComments" "a record field (literal or update) whose value is a lambda with an always-breaking body (`\\n -> 0 // 0 * (if …)`) drops the whole `\\… ->` below `field =` on the first format instead of gluing then dropping on reparse" "RecordFieldLambdaParenIfValue"
+            , assertPrettyIn fsPerm "PatternComments" "a record-update field with a comment-led multi-line binop value (`{ x | f = {- c -} 31 >= 0 >= (let … in …) }`) keeps each comment on the side it was written: the value-leading `{- k0 -}` stays inside, and the `{- k7 -}` written past the `}` stays outside on the `}` row (was pulled onto its own row inside the update)" "RecordUpdateCommentBinopValue"
+            , assertPrettyIn fsPerm "PatternComments" "a `--` written past a flat single-field record update whose value is a lambda (`{ z | apply = \\x -> x + 1 } -- c`) stays outside the `}` and the update stays flat, like arrays — the pre-fix crash sank the comment before `}` where it swallowed the closing brace and failed to reparse" "RecordUpdateLambdaFieldTrailingComment"
+            , assertPrettyIn fsPerm "PatternComments" "comment trailing a signature's last token stays glued inline" "SignatureTrailingComment"
+            , assertPrettyIn fsPerm "PatternComments" "a comment leading a multi-line type record drops onto its own line above the record (elm-format match)" "TypeRecordLeadingComment"
+            , assertPrettyIn fsPerm "PatternComments" "comment trailing the last let binding routes after `in` (which is where it stays -- keeping it with the bindings oscillates)" "LetInTrailingComment"
+            , assertPrettyIn fsPerm "PatternComments" "comment trailing a non-last let binding's value sits at the bindings-block indent" "BetweenLetBindingsComment"
+            , assertPrettyIn fsPerm "PatternComments" "comment trailing a non-last when-branch body (nested in if/let) sits between branches, no blank" "BetweenWhenBranchesComment"
             -- Regression guards for the 2026-05-24 fuzzer-found idempotency fixes.
-            , assertPretty fsPerm "trailing comment after a multi-line union variant stays on the variant's last row" "UnionVariantTrailingComment"
-            , assertPretty fsPerm "own-line comment below the last union variant detaches to column 1 (matches elm-format)" "UnionTrailingOwnLineComment"
+            , assertPrettyIn fsPerm "PatternComments" "trailing comment after a multi-line union variant stays on the variant's last row" "UnionVariantTrailingComment"
+            , assertPrettyIn fsPerm "PatternComments" "own-line comment below the last union variant detaches to column 1 (matches elm-format)" "UnionTrailingOwnLineComment"
             -- Option C: every own-line comment below a top-level declaration
             -- detaches to column 1 (matches elm-format). A following declaration
             -- is separated from it by a blank line so it does not re-read as that
             -- declaration's leading comment.
-            , assertPretty fsPerm "own-line comment below a multi-line function type detaches to column 1" "TrailingCommentMultilineType"
-            , assertPretty fsPerm "trailing comment on the closing `}` of a record-payload union variant stays there across reformats" "UnionRecordPayloadTrailingComment"
-            , assertPretty fsPerm "comments inside a record update and before its closing brace" "RecordUpdateFieldComment"
-            , assertPretty fsPerm "trailing comment on a long when-branch body glues inline regardless of length" "WhenBranchTrailingComment"
-            , assertPretty fsPerm "single-line comment around the arrow of a wrapping signature soft-breaks" "SignatureArrowLineComment"
+            , assertPrettyIn fsPerm "PatternComments" "own-line comment below a multi-line function type detaches to column 1" "TrailingCommentMultilineType"
+            , assertPrettyIn fsPerm "PatternComments" "trailing comment on the closing `}` of a record-payload union variant stays there across reformats" "UnionRecordPayloadTrailingComment"
+            , assertPrettyIn fsPerm "PatternComments" "comments inside a record update and before its closing brace" "RecordUpdateFieldComment"
+            , assertPrettyIn fsPerm "PatternComments" "trailing comment on a long when-branch body glues inline regardless of length" "WhenBranchTrailingComment"
+            , assertPrettyIn fsPerm "PatternComments" "single-line comment around the arrow of a wrapping signature soft-breaks" "SignatureArrowLineComment"
             -- Regression guards for the 2026-06-06 column-attachment fixes.
-            , assertPretty fsPerm "comment trailing the then-body routes to leading the else-body" "ThenElseBoundaryComment"
-            , assertPretty fsPerm "own-line comment before a record pattern's closing brace stays inside" "RecordPatternTrailingComment"
+            , assertPrettyIn fsPerm "PatternComments" "comment trailing the then-body routes to leading the else-body" "ThenElseBoundaryComment"
+            , assertPrettyIn fsPerm "PatternComments" "own-line comment before a record pattern's closing brace stays inside" "RecordPatternTrailingComment"
             -- Regression guards for the Cluster B fix: a *multi-line* block comment
             -- glued same-row onto a preceding construct's last line (previously
             -- crashed; now padded under its start via B.addSuffixBox).
-            , assertPretty fsPerm "multi-line block comment trailing a union variant glues onto its last line" "UnionVariantMultilineTrailingComment"
-            , assertPretty fsPerm "multi-line block comment trailing a when-branch body glues onto its last line" "WhenBranchMultilineTrailingComment"
+            , assertPrettyIn fsPerm "PatternComments" "multi-line block comment trailing a union variant glues onto its last line" "UnionVariantMultilineTrailingComment"
+            , assertPrettyIn fsPerm "PatternComments" "multi-line block comment trailing a when-branch body glues onto its last line" "WhenBranchMultilineTrailingComment"
             -- Regression guard for the broken/blockrec oscillation fix: a multi-line
             -- comment trailing a dropped EXPRESSION block (list / record, incl. under
             -- a call) glues onto its closing bracket instead of dropping own-line and
             -- detaching (+4 ↔ col-0). Fixed via the closing-row carry in FlowPolicy
             -- (bracket literals) + factsFor (bracket-ending calls).
-            , assertPretty fsPerm "multi-line comment trailing a dropped type-record block glues onto its `}`" "TypeRecordMultilineTrailingComment"
+            , assertPrettyIn fsPerm "PatternComments" "multi-line comment trailing a dropped type-record block glues onto its `}`" "TypeRecordMultilineTrailingComment"
             -- Regression guard for the C/D/E stale-assumption fixes (previously
             -- crashed with a `box: … not ported` Err).
-            , assertPretty fsPerm "an `if`/lambda-valued field in a comment-bearing record update renders (drops the block)" "RecordUpdateCommentBlockValue"
-            , assertPretty fsPerm "a multi-line call as an inline lambda body drops to its own line at +4" "LambdaMultilineCallBody"
-            , assertPretty fsPerm "a multi-line triple-quoted string as an inline lambda body drops to its own line" "LambdaMultilineStringBody"
+            , assertPrettyIn fsPerm "PatternComments" "an `if`/lambda-valued field in a comment-bearing record update renders (drops the block)" "RecordUpdateCommentBlockValue"
+            , assertPrettyIn fsPerm "PatternComments" "a multi-line call as an inline lambda body drops to its own line at +4" "LambdaMultilineCallBody"
+            , assertPrettyIn fsPerm "PatternComments" "a multi-line triple-quoted string as an inline lambda body drops to its own line" "LambdaMultilineStringBody"
             ]
         }
 
@@ -775,44 +769,44 @@ bracketCommentsSuite fsPerm =
         , tearDownSuite = U.noTearDown
         , setUp = U.noFixture
         , tearDown = U.noTearDown
-        , tests = [ assertPretty fsPerm "comments everywhere" "CommentsEverywhere"
-            , assertPretty fsPerm "when expressions as items in a commented array are preserved" "WhenInCommentedArray"
-            , assertPretty fsPerm "doc/line/block adjacency and inter-declaration comments" "EdgeCaseComments"
-            , assertPretty fsPerm "previously-mishandled comment placements (bugs A–K)" "TrickyComments"
-            , assertPretty fsPerm "multiple comments sharing a top-level comment line" "AdjacentTopLevelComments"
-            , assertPretty fsPerm "a comment (line, block, or multi-line block) on the closing `-}` row of a multi-line block comment glues onto that row instead of dropping to its own line (which, inside a declaration body, would detach on reparse and oscillate col 4 ↔ col 0)" "MultilineCommentTrailedByComment"
-            , assertPretty fsPerm "own-line comment before a container's closing bracket stays inside" "BracketTrailingComments"
-            , assertPretty fsPerm "a comment written just past a container's opening `{`/`[` stays INSIDE it, on the first item's line, and one written past the closing bracket stays outside -- the brackets are among the few tokens whose position the parser records, so which side the author chose is a fact rather than a guess. A record update shows both halves: its `{` AND its base name are recorded, so an opener comment is placed exactly, while one past the base (where only the unrecorded `|` is left) goes to the field after it (rule C2)" "ContainerOpenerComment"
-            , assertPretty fsPerm "a comment never glues onto the FRONT of an item holding a `\"\"\"...\"\"\"` -- the glue would shift the item's first row by the comment's width while the string's own content rows move by a different amount, and Gren requires them indented equally, so the output would stop parsing. Both the opener slot and rule C2's leads-the-next-item slot give way to an own-line comment; a comment gluing onto the item BEFORE it is a suffix landing after the closing `\"\"\"` and is unaffected" "MultilineStringItemComment"
-            , assertPretty fsPerm "an indented comment written below a bracketed container (list/record/update) at a declaration's end detaches to a top-level column-1 comment in a single format, instead of drifting one column left per reformat" "TrailingCommentAfterContainer"
-            , assertPretty fsPerm "a `--` line comment trailing a declaration body (call / single-line record / array / `{}` / `[]`) rides the body's last line instead of oscillating +4 ↔ col-0" "TrailingLineCommentBodyEnd"
-            , assertPretty fsPerm "a trailing comment (line or block) on a paren-based postfix access `(x).name` rides the glued line (was a `comment never reaches makePBox` crash)" "PostfixAccessTrailingComment"
-            , assertPretty fsPerm "a `--` line comment trailing a plain token that follows a bracket in a broken call (`y (0)`⏎`0 -- c`) rides that token's line instead of oscillating +N ↔ col-0" "TrailingLineCommentAfterBracketArg"
+        , tests = [ assertPrettyIn fsPerm "BracketComments" "comments everywhere" "CommentsEverywhere"
+            , assertPrettyIn fsPerm "BracketComments" "when expressions as items in a commented array are preserved" "WhenInCommentedArray"
+            , assertPrettyIn fsPerm "BracketComments" "doc/line/block adjacency and inter-declaration comments" "EdgeCaseComments"
+            , assertPrettyIn fsPerm "BracketComments" "previously-mishandled comment placements (bugs A–K)" "TrickyComments"
+            , assertPrettyIn fsPerm "BracketComments" "multiple comments sharing a top-level comment line" "AdjacentTopLevelComments"
+            , assertPrettyIn fsPerm "BracketComments" "a comment (line, block, or multi-line block) on the closing `-}` row of a multi-line block comment glues onto that row instead of dropping to its own line (which, inside a declaration body, would detach on reparse and oscillate col 4 ↔ col 0)" "MultilineCommentTrailedByComment"
+            , assertPrettyIn fsPerm "BracketComments" "own-line comment before a container's closing bracket stays inside" "BracketTrailingComments"
+            , assertPrettyIn fsPerm "BracketComments" "a comment written just past a container's opening `{`/`[` stays INSIDE it, on the first item's line, and one written past the closing bracket stays outside -- the brackets are among the few tokens whose position the parser records, so which side the author chose is a fact rather than a guess. A record update shows both halves: its `{` AND its base name are recorded, so an opener comment is placed exactly, while one past the base (where only the unrecorded `|` is left) goes to the field after it (rule C2)" "ContainerOpenerComment"
+            , assertPrettyIn fsPerm "BracketComments" "a comment never glues onto the FRONT of an item holding a `\"\"\"...\"\"\"` -- the glue would shift the item's first row by the comment's width while the string's own content rows move by a different amount, and Gren requires them indented equally, so the output would stop parsing. Both the opener slot and rule C2's leads-the-next-item slot give way to an own-line comment; a comment gluing onto the item BEFORE it is a suffix landing after the closing `\"\"\"` and is unaffected" "MultilineStringItemComment"
+            , assertPrettyIn fsPerm "BracketComments" "an indented comment written below a bracketed container (list/record/update) at a declaration's end detaches to a top-level column-1 comment in a single format, instead of drifting one column left per reformat" "TrailingCommentAfterContainer"
+            , assertPrettyIn fsPerm "BracketComments" "a `--` line comment trailing a declaration body (call / single-line record / array / `{}` / `[]`) rides the body's last line instead of oscillating +4 ↔ col-0" "TrailingLineCommentBodyEnd"
+            , assertPrettyIn fsPerm "BracketComments" "a trailing comment (line or block) on a paren-based postfix access `(x).name` rides the glued line (was a `comment never reaches makePBox` crash)" "PostfixAccessTrailingComment"
+            , assertPrettyIn fsPerm "BracketComments" "a `--` line comment trailing a plain token that follows a bracket in a broken call (`y (0)`⏎`0 -- c`) rides that token's line instead of oscillating +N ↔ col-0" "TrailingLineCommentAfterBracketArg"
             -- Option C: every own-line comment below a top-level declaration
             -- detaches to column 1 (matches elm-format). A following declaration
             -- is separated from it by a blank line so it does not re-read as that
             -- declaration's leading comment.
-            , assertPretty fsPerm "own-line comment below a flat binop detaches to column 1" "TrailingCommentFlatBinop"
-            , assertPretty fsPerm "own-line comment below a multi-line call detaches to column 1" "TrailingCommentMultilineCall"
-            , assertPretty fsPerm "detached trailing comment is separated from the following declaration by a blank line" "TrailingCommentThenDecl"
-            , assertPretty fsPerm "long trailing comment in a bracket list glues inline regardless of length" "BracketListOverflowComment"
-            , assertPretty fsPerm "comment in an empty-bracket body slot is not absorbed into the brackets" "EmptyBracketTrailingComment"
-            , assertPretty fsPerm "an empty bracket holding a multi-line block comment or a line comment can't render inline, so it drops to a vertical layout" "EmptyBracketNonInlineComment"
-            , assertPretty fsPerm "a leading binding comment above an empty bracket that itself holds a comment: the leading comment leads the value (own line under `=`), the inside comment stays inside" "EmptyBracketLeadingAndInsideComment"
-            , assertPretty fsPerm "a comment between a declaration's `=` and its body leads the body on its own line -- a `{- -}` exactly like a `--`, a top-level `BodyBlock` exactly like a `let` binding's `IndentedBlock`, and whichever row the author wrote it on (a `BodyBlock` always starts its own line, so there is no flat line to ride)" "DeclBodyLeadingBlockComment"
+            , assertPrettyIn fsPerm "BracketComments" "own-line comment below a flat binop detaches to column 1" "TrailingCommentFlatBinop"
+            , assertPrettyIn fsPerm "BracketComments" "own-line comment below a multi-line call detaches to column 1" "TrailingCommentMultilineCall"
+            , assertPrettyIn fsPerm "BracketComments" "detached trailing comment is separated from the following declaration by a blank line" "TrailingCommentThenDecl"
+            , assertPrettyIn fsPerm "BracketComments" "long trailing comment in a bracket list glues inline regardless of length" "BracketListOverflowComment"
+            , assertPrettyIn fsPerm "BracketComments" "comment in an empty-bracket body slot is not absorbed into the brackets" "EmptyBracketTrailingComment"
+            , assertPrettyIn fsPerm "BracketComments" "an empty bracket holding a multi-line block comment or a line comment can't render inline, so it drops to a vertical layout" "EmptyBracketNonInlineComment"
+            , assertPrettyIn fsPerm "BracketComments" "a leading binding comment above an empty bracket that itself holds a comment: the leading comment leads the value (own line under `=`), the inside comment stays inside" "EmptyBracketLeadingAndInsideComment"
+            , assertPrettyIn fsPerm "BracketComments" "a comment between a declaration's `=` and its body leads the body on its own line -- a `{- -}` exactly like a `--`, a top-level `BodyBlock` exactly like a `let` binding's `IndentedBlock`, and whichever row the author wrote it on (a `BodyBlock` always starts its own line, so there is no flat line to ride)" "DeclBodyLeadingBlockComment"
             -- Regression guard for the Cluster B fix: a *multi-line* block comment
             -- glued same-row onto a preceding construct's last line (previously
             -- crashed; now padded under its start via B.addSuffixBox).
-            , assertPretty fsPerm "multi-line block comment trailing a bracket-list item glues onto its last line" "ListItemMultilineTrailingComment"
-            , assertPretty fsPerm "multi-line block comment trailing a multi-line item in a broken call glues onto its last line" "BrokenCallMultilineTrailingComment"
+            , assertPrettyIn fsPerm "BracketComments" "multi-line block comment trailing a bracket-list item glues onto its last line" "ListItemMultilineTrailingComment"
+            , assertPrettyIn fsPerm "BracketComments" "multi-line block comment trailing a multi-line item in a broken call glues onto its last line" "BrokenCallMultilineTrailingComment"
             -- Regression guards for the broken/blockrec oscillation fix: a multi-line
             -- comment trailing a dropped EXPRESSION block (list / record, incl. under
             -- a call) glues onto its closing bracket instead of dropping own-line and
             -- detaching (+4 ↔ col-0). Fixed via the closing-row carry in FlowPolicy
             -- (bracket literals) + factsFor (bracket-ending calls).
-            , assertPretty fsPerm "multi-line comment trailing a dropped list under a call glues onto its `]`" "CallListMultilineTrailingComment"
-            , assertPretty fsPerm "multi-line comment trailing a dropped record under a call glues onto its `}`" "CallRecordMultilineTrailingComment"
-            , assertPretty fsPerm "multi-line comment trailing a list-body glues onto its `]`" "ListBodyMultilineTrailingComment"
+            , assertPrettyIn fsPerm "BracketComments" "multi-line comment trailing a dropped list under a call glues onto its `]`" "CallListMultilineTrailingComment"
+            , assertPrettyIn fsPerm "BracketComments" "multi-line comment trailing a dropped record under a call glues onto its `}`" "CallRecordMultilineTrailingComment"
+            , assertPrettyIn fsPerm "BracketComments" "multi-line comment trailing a list-body glues onto its `]`" "ListBodyMultilineTrailingComment"
             -- gen-random.py seed 108 (comment-rate 0.6, v1.6's new Neg/unary-minus
             -- grammar): a `--` trailing a unary-minus (`-expr`) body glues onto
             -- that row and stays put (was non-idempotent: prevLineGlueRow/
@@ -824,8 +818,8 @@ bracketCommentsSuite fsPerm =
             -- where a same-row `--` deliberately stays own-line
             -- (KitchenComments) — the fix branches on the prefix string
             -- ("-" glues, "\\" doesn't) rather than gluing unconditionally.
-            , assertPretty fsPerm "a `--` trailing a unary-minus expression glues onto that row and stays put" "NegateTrailingLineComment"
-            , assertPretty fsPerm "a `{- -}` trailing a unary-minus expression glues onto that row unconditionally, bracket-free and call operand alike (a unary minus is a self-contained unit, unlike a call flow, which only glues after a bracket)" "NegateTrailingBlockComment"
+            , assertPrettyIn fsPerm "BracketComments" "a `--` trailing a unary-minus expression glues onto that row and stays put" "NegateTrailingLineComment"
+            , assertPrettyIn fsPerm "BracketComments" "a `{- -}` trailing a unary-minus expression glues onto that row unconditionally, bracket-free and call operand alike (a unary minus is a self-contained unit, unlike a call flow, which only glues after a bracket)" "NegateTrailingBlockComment"
             ]
         }
 
@@ -838,22 +832,22 @@ kitchenSinkSuite fsPerm =
         , tearDownSuite = U.noTearDown
         , setUp = U.noFixture
         , tearDown = U.noTearDown
-        , tests = [ assertPretty fsPerm "every AST construct in one file" "KitchenSink"
-            , assertPretty fsPerm "comments at every position in one file" "KitchenComments"
-            , assertPretty fsPerm "3-line block comments at every round-tripping position" "MultilineBlockComments"
-            , assertPretty fsPerm "3-line block comment in an effect-module where block" "MultilineEffectModule"
-            , assertPretty fsPerm "block comment body re-indented from its own structure, not the open column" "BlockCommentBodyIndent"
-            , assertPretty fsPerm "block comment with closing -} on its own line aligns -} with the opening {-" "BlockCommentClosingAlign"
-            , assertPretty fsPerm "block comment closing -} indented at body level (l == base) is re-anchored to the {- column" "BlockCommentCloserIndented"
-            , assertPretty fsPerm "trailing comment placement (inline vs own line) is preserved, not normalized" "CommentPlacement"
-            , assertPretty fsPerm "a variety of constructs near, at, and past the 100-column page width" "PageWidth"
-            , assertPretty fsPerm "empty literal ([] / {}) as an item inside a bracketed list" "EmptyBracketInList"
-            , assertPretty fsPerm "block-bodied record field values all drop whole below `field =` when multi-line (lambda, if, let, when) — matching elm-format; a single-line lambda stays glued on the `= ` line" "RecordFieldBlockValues"
-            , assertPretty fsPerm "a `--` breaking a glued-lambda field's flow drops the lambda 4 past the `{`, like every other field value — not 2, aligned under the field name" "RecordLambdaFieldCommentIndent"
-            , assertPretty fsPerm "a single-line block comment between an operator and its operand does not displace the operand: a `<|` body stays at `<|`+4, and a paren-wrapped lambda keeps `)` under its own `(`" "PipeCommentOperandIndent"
-            , assertPretty fsPerm "a single-line `{- -}` before a lambda rides the lambda's row — in an array item, a `<|` body, a `|>` operand — and stacks above it only where the body itself leaves the operator's row" "LambdaLeadingBlockCommentRides"
-            , assertPretty fsPerm "a single-line `{- -}` in front of an operator rides that operator's row -- one rule at `++`, `|>` and `<|`, and both author spellings collapse to it; a `--` or a multi-line `{- -}` still takes a row of its own" "OperatorLeadingCommentRides"
-            , assertPretty fsPerm "`port module` with no ports loses the keyword — the header follows the body" "PortModuleKeywordDropped"
-            , assertPretty fsPerm "plain `module` that declares a port gains the keyword — the header follows the body" "PortModuleKeywordAdded"
+        , tests = [ assertPrettyIn fsPerm "KitchenSink" "every AST construct in one file" "KitchenSink"
+            , assertPrettyIn fsPerm "KitchenSink" "comments at every position in one file" "KitchenComments"
+            , assertPrettyIn fsPerm "KitchenSink" "3-line block comments at every round-tripping position" "MultilineBlockComments"
+            , assertPrettyIn fsPerm "KitchenSink" "3-line block comment in an effect-module where block" "MultilineEffectModule"
+            , assertPrettyIn fsPerm "KitchenSink" "block comment body re-indented from its own structure, not the open column" "BlockCommentBodyIndent"
+            , assertPrettyIn fsPerm "KitchenSink" "block comment with closing -} on its own line aligns -} with the opening {-" "BlockCommentClosingAlign"
+            , assertPrettyIn fsPerm "KitchenSink" "block comment closing -} indented at body level (l == base) is re-anchored to the {- column" "BlockCommentCloserIndented"
+            , assertPrettyIn fsPerm "KitchenSink" "trailing comment placement (inline vs own line) is preserved, not normalized" "CommentPlacement"
+            , assertPrettyIn fsPerm "KitchenSink" "a variety of constructs near, at, and past the 100-column page width" "PageWidth"
+            , assertPrettyIn fsPerm "KitchenSink" "empty literal ([] / {}) as an item inside a bracketed list" "EmptyBracketInList"
+            , assertPrettyIn fsPerm "KitchenSink" "block-bodied record field values all drop whole below `field =` when multi-line (lambda, if, let, when) — matching elm-format; a single-line lambda stays glued on the `= ` line" "RecordFieldBlockValues"
+            , assertPrettyIn fsPerm "KitchenSink" "a `--` breaking a glued-lambda field's flow drops the lambda 4 past the `{`, like every other field value — not 2, aligned under the field name" "RecordLambdaFieldCommentIndent"
+            , assertPrettyIn fsPerm "KitchenSink" "a single-line block comment between an operator and its operand does not displace the operand: a `<|` body stays at `<|`+4, and a paren-wrapped lambda keeps `)` under its own `(`" "PipeCommentOperandIndent"
+            , assertPrettyIn fsPerm "KitchenSink" "a single-line `{- -}` before a lambda rides the lambda's row — in an array item, a `<|` body, a `|>` operand — and stacks above it only where the body itself leaves the operator's row" "LambdaLeadingBlockCommentRides"
+            , assertPrettyIn fsPerm "KitchenSink" "a single-line `{- -}` in front of an operator rides that operator's row -- one rule at `++`, `|>` and `<|`, and both author spellings collapse to it; a `--` or a multi-line `{- -}` still takes a row of its own" "OperatorLeadingCommentRides"
+            , assertPrettyIn fsPerm "KitchenSink" "`port module` with no ports loses the keyword — the header follows the body" "PortModuleKeywordDropped"
+            , assertPrettyIn fsPerm "KitchenSink" "plain `module` that declares a port gains the keyword — the header follows the body" "PortModuleKeywordAdded"
             ]
         }

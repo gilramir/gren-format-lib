@@ -1,8 +1,8 @@
 """Where the fixture corpus lives.
 
-Fixtures are grouped one directory per test suite under `testfiles/` —
-`Formatter/` is the general corpus, `Divergence/` is the one-fixture-per-entry
-index of `docs/elmFormatComparison.md`. Every gate that sweeps "the corpus"
+Fixtures are grouped one directory per test suite under `testfiles/` — e.g.
+`BracketComments/`, `KitchenSink/`, and `Divergence/` (the one-fixture-per-entry
+index of `docs/elmFormatComparison.md`). Every gate that sweeps "the corpus"
 means all of them, so it asks here rather than hard-coding a directory: a new
 suite directory is then covered by the fuzzers and the audit the day it is
 added, instead of the day somebody remembers to widen four globs.

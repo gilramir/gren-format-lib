@@ -15,7 +15,7 @@ Two passes, both requiring format¹ == format²:
    in an inline binop, drifts left on reparse" bug class lives.
 
 Usage:
-    ./fuzz-idempotency.py                       # all testfiles/Formatter/*.formatted.gren, both passes
+    ./fuzz-idempotency.py                       # all testfiles/*/*.formatted.gren, both passes
     ./fuzz-idempotency.py path/to/File.gren ... # specific files
     ./fuzz-idempotency.py -j 4                   # run 4 `gren format`s at a time
     ./fuzz-idempotency.py --decl-ends            # only the end-of-declaration pass

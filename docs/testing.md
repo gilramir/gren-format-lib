@@ -33,7 +33,7 @@ one rather than replacing it.
 
 ### The three checks
 
-Each fixture runs through `assertPretty fsPerm "description" "FileBaseName"`,
+Each fixture runs through `assertPrettyIn fsPerm "<dir>" "description" "FileBaseName"`,
 which performs three independent checks on one dirty/formatted pair:
 
 1. **Formatting** — format `testfiles/<dir>/<FileBaseName>.dirty.gren` and
@@ -64,23 +64,22 @@ step.
 
 ### Where the fixtures live
 
-One directory per suite under `tests/testfiles/`:
+One directory per suite under `tests/testfiles/`, each named for the
+`Format.gren` suite function that reads it — e.g. `BracketComments/`,
+`KitchenSink/`, `ImportStatements/`. `Divergence/` is the one suite with no
+source-tree twin: one fixture per entry in the
+[divergence catalogue](elmFormatComparison.md#divergence-catalogue), named for
+its entry (`D17PrecedenceSplit` is #17) and built from that entry's own worked
+example. This suite tests the **documentation**: the `.dirty.gren` is what the
+entry says you wrote, the `.formatted.gren` is what it says gren-format
+produces, so a divergence that gets fixed — or reshaped by an unrelated fix —
+breaks its own catalogue entry instead of leaving a false claim behind.
+Writing it found six such claims, three of them one day old. Nothing else goes
+in this directory; `check-divergence-index.py` (run by `run-tests.sh`) fails if
+the mapping stops being 1:1 in either direction.
 
-- **`Formatter/`** — the general corpus, and what `assertPretty` reads.
-- **`Divergence/`** — one fixture per entry in the
-  [divergence catalogue](elmFormatComparison.md#divergence-catalogue), named for
-  its entry (`D17PrecedenceSplit` is #17) and built from that entry's own worked
-  example. This suite tests the **documentation**: the `.dirty.gren` is what the
-  entry says you wrote, the `.formatted.gren` is what it says gren-format
-  produces, so a divergence that gets fixed — or reshaped by an unrelated fix —
-  breaks its own catalogue entry instead of leaving a false claim behind.
-  Writing it found six such claims, three of them one day old. Nothing else goes
-  in this directory; `check-divergence-index.py` (run by `run-tests.sh`) fails if
-  the mapping stops being 1:1 in either direction.
-
-A fixture in `Formatter/` is asserted with `assertPretty`; one in any other
-directory with `assertPrettyIn fsPerm "<dir>"`, which is the same function with
-the directory left open. Every check is identical either way.
+Every fixture, in any directory, is asserted with `assertPrettyIn fsPerm "<dir>"`.
+Every check is identical regardless of which suite directory it lives in.
 
 Note that a `.dirty.gren` byte-identical to its `.formatted.gren` is normal and
 sometimes the whole point — "gren-format keeps what you wrote" is a claim about
@@ -90,12 +89,12 @@ a gate.
 ### Adding a fixture
 
 Add both `<FileBaseName>.dirty.gren` and `<FileBaseName>.formatted.gren` under
-the suite's directory, then add an `assertPretty` / `assertPrettyIn` line in
-`tests/src/Test/Formatter/Format.gren`. Generate the candidate `.formatted.gren`
-with:
+the suite's directory (`testfiles/<SuiteDir>/`), then add an `assertPrettyIn`
+line in `tests/src/Test/Formatter/Format.gren`. Generate the candidate
+`.formatted.gren` with:
 
 ```bash
-node ../../gren-format/app --show <FileBaseName>.dirty.gren > testfiles/Formatter/<FileBaseName>.formatted.gren
+node ../../gren-format/app --show <FileBaseName>.dirty.gren > testfiles/<SuiteDir>/<FileBaseName>.formatted.gren
 ```
 
 then read it before trusting it — nothing checks that the generated output is
@@ -107,7 +106,7 @@ wrong and it is not always the fixture.
 ### Where the code lives
 
 - **`tests/src/Test/Formatter/Format.gren`** — the fixture list, one
-  `assertPretty` call per case.
+  `assertPrettyIn` call per case.
 - **`tests/testfiles/*/*.dirty.gren` / `*.formatted.gren`** — the fixture pairs;
   the `.formatted.gren` half also doubles as the corpus every other gate
   (matrix, both fuzzers, the audit) walks. `tests/corpus.py` is where those
@@ -139,7 +138,7 @@ and second format.
 ```bash
 cd gren-format-lib/tests
 python3 fuzz-idempotency.py -j 12                                      # whole corpus (exit≠0 if any gap fails)
-python3 fuzz-idempotency.py -v testfiles/Formatter/Foo.formatted.gren  # one file, with the format¹/format² diff per gap
+python3 fuzz-idempotency.py -v testfiles/<SuiteDir>/Foo.formatted.gren  # one file, with the format¹/format² diff per gap
 ```
 
 **Rebuild the `gren-format` app first** (`cd ../../gren-format && ./build.sh`)
@@ -196,8 +195,8 @@ to `-j 2`, so pass a higher `-j` for a full-corpus sweep.
 
 ### Where the code lives
 
-- **`tests/fuzz-whitespace.py`** — the driver; walks the same
-  `testfiles/Formatter/*.formatted.gren` corpus as the idempotency fuzzer.
+- **`tests/fuzz-whitespace.py`** — the driver; walks the same fixture corpus
+  (via `corpus.py`, all `testfiles/*/*.formatted.gren`) as the idempotency fuzzer.
 
 ## Construct × context syntax matrix (`matrix-syntax.py`)
 
@@ -487,7 +486,7 @@ on every node in the corpus.
 cd gren-format-lib/tests
 ./audit-predicates.py -j 12                              # whole corpus
 ./audit-predicates.py -v                                 # list every finding, not just the summary
-./audit-predicates.py -v testfiles/Formatter/Foo.formatted.gren   # one file
+./audit-predicates.py -v testfiles/<SuiteDir>/Foo.formatted.gren   # one file
 ```
 
 **Rebuild the `gren-format` app first** (`cd ../../gren-format && ./build.sh`) —
@@ -496,8 +495,8 @@ whatever formatter source was last compiled, not the current working tree. Exit
 status is non-zero if any finding is reported. This machine has 16 cores; the
 driver defaults to `-j 2`, so pass a higher `-j` for a fast whole-corpus sweep.
 
-The corpus it walks is `testfiles/Formatter/*.formatted.gren` — the same fixture
-set the effectful suite uses. The matrix (`matrix-syntax.py`) additionally runs
+The corpus it walks is `testfiles/*/*.formatted.gren` (via `corpus.py`) — the
+same fixture set the effectful suite uses. The matrix (`matrix-syntax.py`) additionally runs
 `--audit-predicates` on every generated cell, so the audit also covers synthetic
 syntax beyond what the corpus happens to contain.
 

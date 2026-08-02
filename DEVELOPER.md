@@ -960,7 +960,7 @@ node ../gren-format/app --post-ast src/F.gren # format, verify ASTs match, print
 `--lpt` is your best friend for a placement bug: it shows exactly where a comment
 attached and what each node's row range is.
 
-**The effectful suite** is the main gate. Each `assertPretty` runs three checks:
+**The effectful suite** is the main gate. Each `assertPrettyIn` runs three checks:
 
 ```bash
 cd gren-format-lib/tests && ./run-tests.sh
@@ -973,13 +973,14 @@ cd gren-format-lib/tests && ./run-tests.sh
 3. **idempotency** — re-formatting the `.formatted` file changes neither the
    `Module` nor the comment/blank-line `Context` (formatting is a fixed point).
 
-Add a test by writing both `testfiles/Formatter/<Name>.dirty.gren` (deliberately
-messy input) and `<Name>.formatted.gren` (the canonical output), then an
-`assertPretty fsPerm "description" "<Name>"` line in
+Add a test by writing both `testfiles/<SuiteDir>/<Name>.dirty.gren` (deliberately
+messy input) and `<Name>.formatted.gren` (the canonical output) under the
+appropriate suite's directory, then an
+`assertPrettyIn fsPerm "<SuiteDir>" "description" "<Name>"` line in
 `tests/src/Test/Formatter/Format.gren`. Generate the `.formatted` with:
 
 ```bash
-node ../../gren-format/app --show <Name>.dirty.gren > testfiles/Formatter/<Name>.formatted.gren
+node ../../gren-format/app --show <Name>.dirty.gren > testfiles/<SuiteDir>/<Name>.formatted.gren
 ```
 
 **Read it** to confirm it is actually canonical before trusting it.

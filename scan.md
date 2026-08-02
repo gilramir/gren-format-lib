@@ -1,7 +1,7 @@
 # Real-corpus sweep: published-package formatting failures
 
 > **RESOLUTION (2026-07-18).** All five in-scope classes A–E are **fixed**, each
-> with a regression fixture in `tests/testfiles/Formatter/` and an `assertPretty`
+> with a regression fixture under `tests/testfiles/` and an `assertPrettyIn`
 > in `Format.gren` (`MultilineStringTrailingWhitespace` + updated
 > `MultilineStringContent` for A, `SignatureBrokenRecordArg` for B,
 > `BinopCommentBracketOperand` for C, `ElseIfAfterRecordPipe` for D,

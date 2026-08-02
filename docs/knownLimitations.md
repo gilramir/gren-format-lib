@@ -463,7 +463,7 @@ without error today. Tracked at
 [compiler-common#32](https://github.com/gren-lang/compiler-common/issues/32).
 
 Two of this package's own test fixtures rely on that gap —
-`tests/testfiles/Formatter/TypeUnion.formatted.gren`:
+`tests/testfiles/Declarations/TypeUnion.formatted.gren`:
 
 ```gren
 type Shape
@@ -471,7 +471,7 @@ type Shape
     | Rectangle Int Int
 ```
 
-and `tests/testfiles/Formatter/UnionLayoutByAuthor.formatted.gren`:
+and `tests/testfiles/CoreExpressions/UnionLayoutByAuthor.formatted.gren`:
 
 ```gren
 type WithPayloads

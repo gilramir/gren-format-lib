@@ -245,14 +245,16 @@ Design choices that make a *find* into a *fix*:
 The payoff loop, matching how this repo already works. Once a bug is fixed:
 
 ```
-./gen-random.py --promote <seed> --name SomeDescriptiveName
+./gen-random.py --promote <seed> --name SomeDescriptiveName --dir SuiteDirName
 ```
 
-copies `input.min.gren` → `testfiles/Formatter/SomeDescriptiveName.dirty.gren`,
-runs `--show` to produce the `.formatted.gren`, and prints the exact
-`assertPretty` line to paste into `tests/src/Test/Formatter/Format.gren`. A
-random find becomes a frozen regression fixture: the generator's job is
-*discovery*, the fixture suite's job is *preventing recurrence*.
+copies `input.min.gren` → `testfiles/SuiteDirName/SomeDescriptiveName.dirty.gren`
+(the fixture corpus is one directory per suite — `--dir` names which suite this
+find belongs to, e.g. `BracketComments`), runs `--show` to produce the
+`.formatted.gren`, and prints the exact `assertPrettyIn` line to paste into
+`tests/src/Test/Formatter/Format.gren`. A random find becomes a frozen
+regression fixture: the generator's job is *discovery*, the fixture suite's job
+is *preventing recurrence*.
 
 Workflow: run → open `latest/SUMMARY.txt` → pick a class → open
 `failures/<seed>/report.txt` + `input.min.gren` → fix the formatter → rerun that
@@ -270,7 +272,7 @@ seed to confirm → `--promote` into the fixture suite.
 ./gen-random.py --no-comments         # structure only (isolate layout bugs)
 ./gen-random.py --keep-all            # also write passing cases (debug the generator)
 ./gen-random.py --out /path           # artifact root (default tests/gen-out)
-./gen-random.py --promote <seed> --name Foo   # promote a fixed find into the fixture suite
+./gen-random.py --promote <seed> --name Foo --dir SuiteDirName  # promote a fixed find
 ```
 
 **Rebuild the `gren-format` app first** (`cd ../../gren-format && ./build.sh`) —

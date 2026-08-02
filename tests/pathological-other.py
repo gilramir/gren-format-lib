@@ -45,15 +45,15 @@ this shells out to it.
 """
 
 import argparse
-import glob
 import os
 import subprocess
 import sys
 
+from corpus import corpus_files
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 APP = os.path.join(HERE, "..", "..", "gren-format", "app")
 OUT_DIR = os.path.join(HERE, "pathological-other-out")
-FIXTURES_DIR = os.path.join(HERE, "testfiles", "Formatter")
 
 
 # ── Shared plumbing (classify/run_app mirror pathological-nesting.py) ───────
@@ -337,7 +337,7 @@ def scenario_crlf_corpus():
     crash": it also catches a CRLF byte leaking into output, or column/row
     math going wrong once "\\r\\n" replaces "\\n" as the line separator."""
     results = []
-    fixtures = sorted(glob.glob(os.path.join(FIXTURES_DIR, "*.formatted.gren")))
+    fixtures = corpus_files(".formatted.gren")
     for fixture in fixtures:
         name = os.path.basename(fixture)
         with open(fixture, "rb") as f:

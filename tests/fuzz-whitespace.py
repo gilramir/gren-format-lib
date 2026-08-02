@@ -27,7 +27,7 @@ mode was testing the wrong thing.
 
 Usage:
     ./fuzz-whitespace.py [--mode stretch|indent] [-v] [FILE ...]
-Defaults to mode=stretch over all testfiles/Formatter/*.dirty.gren.
+Defaults to mode=stretch over all testfiles/*/*.dirty.gren.
 A perturbation that fails to PARSE or changes the AST is reported as
 "ast-changed" (the perturbation was illegal, not necessarily a formatter bug).
 A perturbation that parses to the same AST but formats differently is a
