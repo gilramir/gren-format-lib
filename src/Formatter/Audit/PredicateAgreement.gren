@@ -2,12 +2,12 @@ module Formatter.Audit.PredicateAgreement exposing (Finding, auditLpt, findingsT
 
 {-| A render-truth audit of the LPT "will this break?" predicates.
 
-Several predicates in `Formatter.Render.NodeClassify` answer "does this subtree
+A predicate in `Formatter.Render.NodeClassify` that answers "does this subtree
 force a hard break?" *before* anything is rendered, so that callers can lay out
-the code around it. Each one is a hand-written mirror of what the renderer
-actually does, and nothing forces the two to agree. When a predicate
-over-approximates -- claims a break the renderer never emits -- callers commit
-to a vertical shape for content that lands on one line.
+the code around it, is a hand-written mirror of what the renderer actually does,
+and nothing forces the two to agree. When such a predicate over-approximates --
+claims a break the renderer never emits -- callers commit to a vertical shape for
+content that lands on one line.
 
 Nothing else catches that. Such output is still deterministic, AST-equivalent,
 idempotent, and stable under both fuzzers; only the layout is wrong. This module
@@ -21,6 +21,17 @@ An under-approximation (False on a node that does render multi-line) is NOT
 reported: these predicates only claim the breaks that are unconditional, and a
 node can still break for reasons they deliberately do not model -- most often
 the author's own row layout (`forceVertical`).
+
+**There is one predicate left under audit, and that is the point.** This module
+was written when `NodeClassify` carried a whole mirror layer --
+`subtreeHasVerticalBox`, `nodeSpansRows`, `bracketOpenGate` and friends, each
+predicting verticality from source rows. All of them are gone: verticality is now
+decided by rendering the child and asking `isSingleLine` / `B.allSingles`, which
+cannot disagree with the renderer because it *is* the renderer. What remains is
+`isMultilineLambdaParenBlockBox`, a structural query over box kinds rather than a
+shape prediction from rows -- so the audit is close to vacuous by construction,
+and shrinking it to that was the goal, not an accident. See `comment-arch.md` §6
+and `docs/commentHandling.md`.
 
 @docs Finding, auditLpt, findingsToJson
 
@@ -37,11 +48,17 @@ import Json.Encode as Json
 {-| One over-approximation: `predicate` claimed `boxKind` at `row`:`col` would
 break, but it rendered as the single line `rendered`.
 
-`propagated` separates a lie from its echo. `subtreeHasVerticalBox`'s fallback
-arm is `Array.any subtreeHasVerticalBox children`, so one wrong answer at a leaf
-makes every ancestor wrong too, and the callers reading them wrong in turn. A
-propagated finding is real but not separately fixable -- it disappears when the
-node below it is fixed. Only `propagated == False` findings are a work-list.
+`propagated` separates a lie from its echo. A predicate whose fallback arm is
+`Array.any thePredicate children` -- as the retired `subtreeHasVerticalBox`'s
+was -- turns one wrong answer at a leaf into a wrong answer at every ancestor,
+and the callers reading them wrong in turn. A propagated finding is real but not
+separately fixable: it disappears when the node below it is fixed. Only
+`propagated == False` findings are a work-list.
+
+The one predicate under audit today is *not* recursive (see the module doc), so
+nothing it reports can be an echo and this flag should always be `False`. It is
+kept because it is the shape any future recursive predicate would need, and
+because a `True` here would itself be news.
 -}
 type alias Finding =
     { predicate : String
@@ -55,6 +72,11 @@ type alias Finding =
 
 {-| The predicates under audit. Every one of them is consulted before layout and
 answers "this will break", so every one of them owes the renderer agreement.
+
+Adding a predicate here is the cheap half of adding one to `NodeClassify`. The
+expensive half is that a new row-reading shape predicate is a step back toward
+the mirror layer this codebase spent Change B deleting -- prefer rendering the
+child and observing its box.
 -}
 auditedPredicates : Array { name : String, test : LPNode -> Bool }
 auditedPredicates =
@@ -71,9 +93,10 @@ auditLpt root =
 
 
 {-| Bottom-up so each node knows whether the lie started here or below it.
-`liesBelow` is threaded up rather than recomputed per node: every audited
-predicate ultimately reads `subtreeHasVerticalBox` over descendants, so a
-descendant that lies explains an ancestor that lies.
+`liesBelow` is threaded up rather than recomputed per node, which is what makes
+the walk linear: a recursive predicate reads its descendants, so a descendant
+that lies explains an ancestor that lies, and re-deriving that per node would
+re-walk each subtree once per ancestor.
 -}
 walk : LPNode -> { findings : Array Finding, liesInSubtree : Bool }
 walk node =
