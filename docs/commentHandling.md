@@ -26,11 +26,22 @@ that implements them stably; when a bug report and the machinery disagree, these
 are what the formatter is *trying* to do. They were written down on 2026-08-01,
 reading back the verdicts from `tests/triage-comment-parity.py --interview` over
 the comment axis's parity divergences, and the code was changed where it did not
-already obey them (see [What changed](#what-changed-2026-08-01)).
+already obey them. Each later interview round has revised the *reading* of a rule
+or found code not yet obeying one; the "What changed" sections below are that
+history in order, most recent last —
+[2026-08-01](#what-changed-2026-08-01), [2026-08-02](#what-changed-2026-08-02),
+[C4 in a binop chain](#what-changed-next-c4-in-a-binop-chain),
+[rounds 4 and 5](#what-changed-interview-rounds-4-and-5).
 
 **C1 / C2 are about attachment; C3–C6 are about layout.** The two never trade
 against each other: attachment is settled first, in `Comments.gren`, and the
 renderer lays out whatever it is handed.
+
+**C1 and C2 are ordered, not parallel.** C1 decides wherever the parse carries
+enough information to see what the author wrote; C2 is the tie-break for the gaps
+where it does not. C2 never overrides C1. Reading the two as competing rules is
+the mistake this ordering exists to prevent — it is why C2's "exception" below is
+not really an exception, but C1 still having evidence.
 
 ### C1 — A comment belongs to the code you wrote it next to
 
@@ -38,13 +49,35 @@ Placement comes from the comment's own source position relative to the tokens th
 parser recorded, and nothing else. Layout never re-homes a comment to a different
 owner to make a line fit.
 
+```gren
+-- you wrote                          -- gren-format
+someFunction                          someFunction
+    argOne -- about argOne                argOne -- about argOne
+    argTwo                                argTwo
+```
+
+The comment annotates `argOne`, and it is still on `argOne`'s row after the call
+is laid out. Nothing about `argTwo` needing its own row, or the call being wide,
+can move it.
+
+One convergence to know about, because it looks like a counter-example: where a
+comment *cannot* share the row it was written on, "trails the previous item" and
+"leads the next one" render identically, so the stored role can differ between two
+formats even though the bytes do not. `someFunction argOne -- about argOne` ⏎
+`argTwo` renders the comment on its own row (a `--` ends its row, and an item
+follows — see C3), so the second parse reads that row as `LeadsOwnLine` where the
+first read `TrailsPrevious`. In that shape both roles render to the same bytes, so
+the output is still a fixed point; what moved is the stored role, not the
+placement C1 is about.
+
 ### C2 — Where the separator has no source position, the comment leads what follows it
 
 `=` `:` `|` `,` `->` and every keyword are parsed and thrown away (see
 [What the parser records](#what-the-parser-records-and-what-it-doesnt)), so
 `x {- c -} SEP y` and `x SEP {- c -} y` reach the formatter as the same three
-facts. One of the two spellings must therefore differ from elm-format whichever
-side is picked. gren-format picks the **later** side — the comment leads `y`:
+facts — where `x` ends, where the comment is, where `y` starts. One of the two
+spellings must therefore differ from elm-format whichever side is picked.
+gren-format picks the **later** side — the comment leads `y`:
 
 ```gren
 -- you wrote (either spelling)          -- gren-format
@@ -57,25 +90,53 @@ let a = 1 {- c -} in b                  let … in ⏎ {- c -} ⏎ b
 ```
 
 **The exception is a `--`, or a multi-line `{- … -}`, at a *line-leading*
-separator** — a `,` or a `|`. Those keep the row the author wrote them on:
+separator** — a `,` or a `|`. Those keep the row the author wrote them on.
+
+It is an exception to C2, not to C1 — it is the case where C1 can still see the
+answer. The parser records where each *item* ends, so the one thing C1 has to go
+on at a separator is **which row the comment is on relative to the items around
+it**. Two spellings are distinguishable exactly when they put it on different
+rows:
+
+| The two spellings around a separator | Different rows? | Decided by |
+|---|---|---|
+| `--` / multi-line `{- … -}` at a **line-leading** separator (`,`, `\|`) — one ends the previous item's row, the other owns a row above the next item | **yes** | **C1** |
+| `--` / multi-line `{- … -}` at a **line-trailing** separator (`=`, `:`, `->`) — both end the same row | no | C2 |
+| single-line `{- -}`, at any separator — ends no row either way | no | C2 |
+
+So at a `,` or a `|`, both authorings survive:
 
 ```gren
-[ apple -- the red one     { rec -- about the base    = A -- about A
-, banana                       | alpha = 1           | B
+[ apple -- the red one     { rec -- about the base        = A -- about A
+, banana                       | alpha = 1                | B
 ]                          }
 
-[ apple                    { rec                      = A
-  -- about banana              -- about alpha         -- about B
-, banana                       | alpha = 1            | B
+[ apple                    { rec                          = A
+-- about banana                -- about alpha             -- about B
+, banana                       | alpha = 1                | B
 ]                          }
 ```
+
+(The own-line comment sits at the separator's own column, not the item's — see
+C6.)
 
 Two spellings, two outputs — and both are fixed points, because a comment that
 ends its row is on the previous item's row or on a row of its own, and re-parsing
 the output puts it back where it was. A third spelling, written *after* the
 separator but still on the item's row (`[ 1, -- c` ⏎ `2 ]`, `{ rec | -- c` ⏎
-`a = 1 }`), is positionally identical to the first and collapses onto it — C2's
-ambiguity is real here too, it just has one fewer side than it looks like.
+`a = 1 }`), puts the comment on the same row as the first spelling, so C1 cannot
+separate them and it collapses onto the first:
+
+```gren
+-- you wrote               -- gren-format
+[ 1, -- c                  [ 1 -- c
+  2 ]                      , 2
+                           ]
+```
+
+So there are three ways to type it and only ever **two** outcomes — the
+before-separator and after-separator spellings on the item's row are one and the
+same as far as the parse is concerned.
 
 That is the whole difference from `=` `:` `->`: those *trail* their line, so the
 earlier side strands them —
@@ -90,8 +151,9 @@ earlier side strands them —
 
 — whereas `,` and `|` *lead* their line, so a comment above one strands nothing;
 it simply sits at the separator's own column. Sending it to the later side
-instead would move the note onto `banana`, which is a C1 violation dressed as a
-layout choice. The idiom is unanimous in real code for a list (every instance
+anyway would move the note onto `banana` **while the parse still says it was
+written after `apple`** — C1 overruled by a layout choice, which the ordering
+above forbids. The idiom is unanimous in real code for a list (every instance
 across `core/` and `compiler-common/` is spelled that way, none the other); the
 record update's `|` has no instances at all either way, and follows because it is
 the same shape.
@@ -105,19 +167,61 @@ A record update's base is not one of its children — the fields are — so a co
 trailing it needs its own role, `TrailsHead`; everywhere else the item above is a
 sibling and `TrailsPrevious` reaches it.
 
-**Two places C2 is not yet applied**, both deliberate and both out of the scope
-that was reviewed:
+**Two places C2 is not yet applied** — the only two spots where the rule set is
+genuinely not uniform. Both are deliberate, and both were out of the scope that
+was reviewed:
 
 - an **`exposing ( … )` list**, the one bracket list whose items get *reordered*.
   `SortSymbols` owns comment ownership there on the opposite model — a comment
-  after a name is that name's and travels with it through the sort, which is what
-  makes `(a {- c -}, b)` and `(b, a {- c -})` land on the same bytes
-  (`unfoldLastTrailing`). Flipping the side means reshaping clustering and the
-  closing-`)` pinning with it; until that is designed and put under the
-  `sort-order` oracle, an exposing list keeps the earlier side.
-- a **union variant's `|`** (`= A {- c -} | B`). elm-format breaks the union open
-  around that comment whichever side it is on, so gren diverges from it either
-  way and flipping buys no parity.
+  after a name is that name's and travels with it through the sort, so the same
+  module written in either author order lands on the same bytes. Flipping the
+  side means reshaping clustering and the closing-`)` pinning with it; until that
+  is designed and put under the `sort-order` oracle, an exposing list keeps the
+  earlier side.
+
+  ```gren
+  module M exposing (alpha {- c -}, bravo)      -- unchanged; C2 would give
+                                                -- (alpha, {- c -} bravo)
+
+  module M exposing (charlie, alpha {- c -}, bravo)     -- you wrote
+  module M exposing (alpha {- c -}, bravo, charlie)     -- gren-format: travels
+  ```
+
+  Travelling is what a comment on an **earlier** name does. A comment trailing
+  the *last* name of a **flat** list is a different case, and deliberately so: on
+  one row, "inside the brackets" and "past the `)`" are written in the same place
+  and the `)` has no position to separate them, so such a comment is read as the
+  *list's* and pinned above the `)` (`unfoldLastTrailing`). It therefore does not
+  travel, and the two orders below are not the same module as far as ownership
+  goes:
+
+  ```gren
+  module M exposing (alpha {- c -}, bravo)     -- alpha's; stays as written
+  module M exposing (bravo, alpha {- c -})     -- the list's; becomes:
+  --  module M exposing
+  --      ( alpha
+  --      , bravo
+  --      {- c -}
+  --      )
+  ```
+
+  That is [A comment past a flat
+  list](knownLimitations.md#a-comment-past-a-flat-list), and `gen-random.py`'s
+  `sort-order` oracle exempts exactly this shape (`_reverse_header_exposing`) for
+  the same reason. Write the list vertically and the `)` has a row of its own,
+  which is enough to tell the two apart.
+- a **union variant's `|`**. elm-format breaks the union open around that comment
+  whichever side it is on, so gren diverges from it either way and flipping buys
+  no parity.
+
+  ```gren
+  type V                                        -- unchanged; C2 would give
+      = A {- c -} | B                           -- = A | {- c -} B
+  ```
+
+  Note this is the *single-line `{- -}`* case only. A `--` or a multi-line
+  `{- … -}` at a union's `|` is a line-leading separator like any other, and C1
+  keeps the row it was written on (`= A -- about A` ⏎ `| B`).
 
 ### C3 — A comment never forces a break
 
@@ -126,30 +230,174 @@ inside it can share that line. A single-line `{- -}` can; a `--` cannot (it
 swallows the rest of the row), and a multi-line `{- … -}` brings its own newlines.
 
 ```gren
-{ rec {- c -} | a = 1 }      stays flat
-[ 1, {- c -} 2 ]             stays flat
-[ 1, -- c                    breaks — the `--` ends the row
-  2 ]
+-- you wrote                 -- gren-format
+{ rec {- c -} | a = 1 }      { rec | {- c -} a = 1 }     flat: the `{- -}` rides
+[ 1 {- c -}, 2 ]             [ 1, {- c -} 2 ]            flat: same
+f {- k -} x                  f {- k -} x                 flat: same
+
+[ 1 -- c                     [ 1 -- c                    open: the `--` ends
+, 2 ]                        , 2                         the row, so item 2
+                             ]                           cannot follow on it
 ```
 
-### C4 — A comment never causes the code around it to be re-laid-out
+The break in the last case is the comment's own row-ending, not a decision: the
+container has to open because there is no line left to put `2` on. That is the
+only kind of break a comment ever causes, and C4 is what says so.
 
-Delete every comment from gren-format's output and you get the layout it would
-have produced for the same input with no comments in it. elm-format's opposite
-rule — a comment inside a construct forces every part of that construct onto its
-own line — is [#23](elmFormatComparison.md#divergence-23); [#14](elmFormatComparison.md#divergence-14),
+### C4 — A comment changes where the rows fall, and nothing else
+
+A comment can force row breaks — that is C3, and it is unavoidable. Everything
+past that must be what gren-format would have produced with the comment deleted:
+the same indentation, the same grouping, the same owner for every piece.
+
+The earlier statement of this rule — "delete every comment from the output and you
+get the comment-free layout" — is too strong, and the reason is worth keeping in
+view. The row break a `--` forces is still there once you delete it, so the two
+outputs differ by construction; the claim only holds of everything *other* than
+the row structure.
+
+**Grouping.** A `--` mid-chain has to break the chain, but at the operator
+precedence chooses, never at whichever operator the comment happens to sit next
+to:
+
+```gren
+-- you wrote            -- was: echoed back        -- is: broken at the `+`,
+                        --      as written         --     which is looser
+one + two -- c          one + two -- c             one
+    * three                 * three                    + two -- c
+                                                         * three
+```
+
+The middle form reads as `(one + two) * three` — a grouping gren-format never
+produces without a comment. Delete the comment from it and you get `one + two` ⏎
+`* three`, which is not what gren-format renders for that expression either way.
+
+**Indentation.** From `PipeCommentOperandIndent`, where the comment-free twin sits
+in the fixture directly beneath each commented case for exactly this comparison:
+
+```gren
+backPipeRecord =            backPipeRecordNoComment =
+    gn <|                       gn <|
+        {- c -}                     { x = 1
+        { x = 1                     , y = 2
+        , y = 2                     }
+        }
+```
+
+The record is at the same column with and without the comment. It used to be one
+level deeper, because a comment-led `<|` body was handed to the broken-*call*
+assembler, which puts item 0 on the opening row and the rest at +4 — right for a
+function and its arguments, wrong for a comment and the operand it annotates.
+
+**The test, operationally.** Render the same construct again with the comment
+deleted and compare. gren disagreeing with its own comment-free rendering is a
+bug; gren agreeing with itself while elm-format differs is a divergence. This
+settles a layout question without consulting elm-format at all, and it found four
+bugs across interview rounds 3–5 (see [What changed](#what-changed-interview-rounds-4-and-5)).
+
+elm-format's opposite rule — a comment inside a construct forces every part of
+that construct onto its own line — is [#23](elmFormatComparison.md#divergence-23);
+[#14](elmFormatComparison.md#divergence-14),
 [#16](elmFormatComparison.md#divergence-16) and [#17](elmFormatComparison.md#divergence-17)
 are instances of the same disagreement.
 
 ### C5 — gren-format adds nothing around a comment
 
-No blank line above or below that the author did not write; no floating a comment
-out onto a row of its own to give it air.
-([#12](elmFormatComparison.md#divergence-12), [#18](elmFormatComparison.md#divergence-18))
+No blank line above or below **because of** the comment; no floating a comment out
+onto a row of its own to give it air.
+([#12](elmFormatComparison.md#divergence-12), [#18](elmFormatComparison.md#divergence-18),
+[#25](elmFormatComparison.md#divergence-25))
+
+```gren
+-- you wrote, and gren-format keeps:     -- elm-format:
+[ 1                                      [ 1
+-- about two
+, 2                                      -- about two
+]                                        , 2
+                                         ]
+```
+
+Two things that look like counter-examples and are not:
+
+- **A blank line gren would have added anyway.** `let` bindings are separated by
+  one forced blank line, and a comment leading a binding travels with it, so the
+  blank lands above the comment. Delete the comment and the blank line is still
+  there — it is the binding's, not the comment's, which is exactly C4's test.
+
+  ```gren
+  -- you wrote            -- gren-format
+  let                     let
+      x =                     x =
+          1                       1
+      -- about y
+      y =                     -- about y
+          2                   y =
+  in                              2
+                          in
+  ```
+
+  The blank line is between the two bindings, where it always is; the comment
+  leads `y` and so ends up under it.
+- **The `"""…"""` guard.** A comment that would glue onto the front of an item
+  holding a multi-line string is put on its own row instead. Gluing shifts that
+  item's first row by the comment's width while the string's content rows move by
+  a different amount, and Gren requires every row of a multi-line string to be
+  indented equally — so the alternative is output that does not parse. This is an
+  output-validity carve-out, not air. (`subtreeHasMultilineString`, fixture
+  `MultilineStringItemComment`.)
+
+  ```gren
+  afterComma =
+      [ "first"
+      {- leads the second item -}
+      , """
+        bravo
+        """
+      ]
+  ```
 
 ### C6 — An own-line comment is indented to the code it leads
 
 Not to a column of its own. ([#24](elmFormatComparison.md#divergence-24))
+
+Precisely: to the column where the line it leads **begins**, which in a bracket
+list, a union body or a record update is the `,`/`|` prefix's column, not the
+item text's. In a flow — call arguments, `let` bindings, `when` bodies — the two
+are the same thing:
+
+```gren
+someFunction              [ 1
+    argOne                , [ 2
+    -- about argTwo         -- about three
+    argTwo                  , 3
+                            ]
+                          ]
+
+{ rec                     type U
+    -- about alpha            = A
+    | alpha = 1               -- about B
+}                             | B
+```
+
+Note the bracket and record cases: the comment is at the `,`/`|` column, two
+columns left of `3` and of `alpha`. This is normalizing, not preserving — write
+the comment over the item text and gren-format pulls it back to the prefix
+column:
+
+```gren
+-- you wrote          -- gren-format
+[ apple               [ apple
+  -- about banana     -- about banana
+, banana              , banana
+]                     ]
+```
+
+A `Standalone` comment — one below a top-level declaration — detaching to column 1
+is the same rule, not an exception: the declaration it leads begins at column 1.
+It is spelled out separately under
+[deliberate divergences](#deliberate-divergences-and-dead-ends-dont-fix-these)
+because the *choice* being made there is to attach it to the declaration below
+rather than to the one above.
 
 ### What changed (2026-08-01)
 
@@ -247,6 +495,58 @@ the comment. `BinopLayout.commentBreaksBinopChain` asks the same question of the
 whole chain, interleaving the operator leaves back between the operands. It is a
 strict superset of the per-operand test, and reparse-stable: the comment is still
 mid-chain in the output, so the second format decides the same way.
+
+### What changed: interview rounds 4 and 5
+
+Three more C4 violations, all the same shape as the binop one above — **gren's
+comment path contradicting gren's own comment-free path**, with elm-format merely
+agreeing with the rendering gren already produces when the comment is removed.
+None of them needed elm-format to settle; each was decided by rendering the
+construct twice.
+
+- **A record field holding a lambda dropped its body 2 past the `{`, not 4**
+  (`4c23e3d`). `renderGluedLambdaField` assembled the field flow with
+  `assembleFlow False 0`, copied from `makePBox`'s `IndentedBlock` arm — where the
+  0 is right because *there* the parent applies the indent. A field is a
+  bracket-list **item** and must carry its own +4, as `renderFieldFlowWithValueBox`
+  already did. The two only disagree when the field's flow breaks, and a comment in
+  the head is the only thing that breaks it. Fixture
+  `RecordLambdaFieldCommentIndent`.
+- **A comment-led `<|` body landed a level too deep** (`0df8347`).
+  `buildBackwardBodyBox` handed it to `assembleBrokenCall`, which puts item 0 on
+  the opening row and everything after it at +4 — right for a function and its
+  arguments, wrong for a comment and the operand it annotates. Leading comments are
+  now peeled and stacked above the body at the body's own column.
+- **A paren-wrapped lambda stopped lining up with its own `)`** (`0df8347`). The
+  direct-operand lambda arm sizes its offsets (body +8, `)` +3) *from the
+  operator*, so they hold only when the prefix **is** the operator — `|> ` / `<| `,
+  three columns. A `{- c -}` on the running line widened the prefix, moving the `(`
+  without moving the body or the `)`. Now gated on that width; a wider prefix falls
+  through to the generic paren arm, which anchors every row at the paren's `(`
+  column — already what a paren-wrapped `if`/`when`/binop does there, so the lambda
+  joins them rather than gaining a rule. Fixture `PipeCommentOperandIndent`
+  (quoted under C4); `LambdaCommentBuriedMixedPipeline` had **frozen** this bug,
+  expecting `)` two columns left of its own `(`, and was regenerated.
+
+Round 5 also found two `bug` verdicts that were **not** formatter bugs: both
+reproduce with no comment present and are
+[compiler-common#14](knownLimitations.md) (a continuation line at the same column
+as the body above it ends that body early). The `--` only forces the body onto its
+own row, which is what changes the parse. They are registered
+`PENDING-UPSTREAM:<issue>`, a reason class that is printed on every matrix run like
+`BUG:` but listed separately, since the work-list belongs to somebody else. It
+needs no follow-up bookkeeping: when the upstream fix ships and the dependency is
+bumped, the cells stop diverging and `parity-baseline-stale` fails until the entry
+is removed.
+
+The rounds 4–5 method is the same one C4 states, and it is the one that keeps
+paying: **for any layout question, render the construct without the comment.**
+Round 5 also produced one bookkeeping rule worth repeating — *do not invent a
+reason string to close out a group*. A fully fixed group's cells leave the
+baseline on `--update-baseline` and need no reason at all; a partly fixed group
+still diverges and needs the real catalogue number. Registering either as `FIXED`
+wrote a meaningless reason over six cells that were plain
+[#25](elmFormatComparison.md#divergence-25).
 
 ## The one-line pipeline
 
