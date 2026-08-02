@@ -1676,30 +1676,54 @@ makeBackwardPipelineBox forceVertical children =
         seedNodes =
             Array.keepIf (\n -> not (isPipelineStepNode n)) children
 
-        -- A step needs the operator-LEADING commented layout when it carries a
-        -- comment that cannot be placed with the `<|` still glued to the line
-        -- above it. Two kinds:
+        -- A step needs the operator-LEADING commented layout when a comment sits
+        -- at its FRONT, on a row of its own. Two places that happens:
         --
-        --   1. Its FIRST child is a comment — a genuine own-line comment BEFORE
-        --      the `<|` (`foo`⏎`{- c -}`⏎`<| bar`). The flat assembler pops the
-        --      first child as the operator, so a leading comment must route here.
-        --      This is the shape divergences #23 / #25 describe.
-        --   2. A NON-LAST step carries a `--`, a multi-line `{- … -}` or a doc
-        --      comment that `spanOperatorRowComments` does not peel: the next
-        --      step's ` <|` is glued onto THIS step's body box by
-        --      `backwardMultiStep`, and a comment ending that box would swallow
-        --      it. The last step has nothing appended after it, so a comment in
-        --      its body is safe and stays on the trailing-operator path.
+        --   1. Before the `<|` itself (`foo`⏎`{- c -}`⏎`<| bar`) — the step's
+        --      first child is the comment. The flat assembler pops the first
+        --      child as the operator, so this must route here.
+        --   2. Between the `<|` and the body (`foo <|`⏎`-- c`⏎`bar`) — the first
+        --      thing left once the operator and the comments that glue onto its
+        --      row are taken off the front. The trailing path lays the body out
+        --      with `assembleFlow`, which puts a row-breaking leading comment at
+        --      the body's column and the body itself +4 past it — right for a
+        --      function and its arguments, wrong for a comment and the operand
+        --      it annotates.
+        --
+        -- Both are the shape divergences #23 / #25 describe. Only a comment that
+        -- cannot RIDE the body's first row counts: a single-line `{- … -}` there
+        -- stays inline (`buildBackwardBodyBox` renders with `inlineStart = True`)
+        -- and is a fixed point under the trailing layout.
         --
         -- A comment the author wrote ON the operator's row (`fn <| -- c`) is
         -- peeled by `spanOperatorRowComments` and glued after the `<|`, so it is
-        -- not a trigger either. It used to be: any `--` anywhere in the step sent
-        -- the chain operator-leading, which moved `<|` off the seed's row and
+        -- not a trigger. It used to be: any `--` anywhere in the step sent the
+        -- chain operator-leading, which moved `<|` off the seed's row and
         -- produced `fn` ⏎ `<| -- c` ⏎ body — a shape gren-format renders for no
         -- comment-free input (both author spellings canonicalize to `fn <|` ⏎ +4
         -- body), and the exact layout divergence #14 records as elm-format's and
         -- gren-format's rejected alternative. Rule C4: a comment changes where the
         -- rows fall, not how the operator sits against its seed.
+        --
+        -- A comment ENDING a non-last step's body is not a trigger either, and
+        -- that is this rule's second retreat. The hazard is real but local: the
+        -- next step's ` <|` is glued onto THIS step's body box by
+        -- `backwardMultiStep`, and a `--` there would swallow it. Flipping the
+        -- whole chain to operator-leading to avoid that was the same C4 violation
+        -- one step further in — a `--` between the first body and the second `<|`
+        -- moved the SEED's `<|` off its row, which no comment near it asked for:
+        --
+        --     fn <| fn -- c        was:  fn                is:  fn <|
+        --         <| one                     <| fn -- c             fn -- c
+        --                                        <| one             <|
+        --                                                               one
+        --
+        -- `backwardMultiStep` now drops just that one `<|` onto a row of its own
+        -- at the body's own indent, which is the move it already makes for a
+        -- relocated broken call (`isBrokenCall`) for the same reason, and which
+        -- leaves every operand at the column it has with the comment deleted.
+        -- Only a `--` is a hazard: `{- … -}` and `{-| … -}` self-terminate, so a
+        -- ` <|` glued after `-}` is safe.
         --
         -- A SINGLE-LINE block comment in the body (leading it right after `<|`,
         -- trailing it, or inline) is NOT a trigger: `buildBackwardBodyBox` renders
@@ -1709,7 +1733,7 @@ makeBackwardPipelineBox forceVertical children =
         -- every comment shared an inline content row, which flipped to the
         -- commented path on reparse once a multi-line body pushed its leading
         -- comment own-line — reintroducing the +4 ↔ operator-leading oscillation.)
-        stepNeedsCommentedLayout isLast stepNode =
+        stepLeadsWithComment stepNode =
             let
                 kids =
                     lpnChildren stepNode
@@ -1732,10 +1756,10 @@ makeBackwardPipelineBox forceVertical children =
                         Nothing ->
                             []
 
-                hasNonRidingComment =
-                    Array.any
-                        (\n ->
-                            when lpnBox n is
+                bodyLeadsWithOwnRowComment =
+                    when Array.first bodyAfterGlue is
+                        Just firstBodyNode ->
+                            when lpnBox firstBodyNode is
                                 SingleLineComment _ ->
                                     True
 
@@ -1747,30 +1771,17 @@ makeBackwardPipelineBox forceVertical children =
 
                                 _ ->
                                     False
-                        )
-                        bodyAfterGlue
 
-                -- NOTE: `kids` is the step's DIRECT children only, so a `--`
-                -- buried deeper in a composite step body would not be seen and
-                -- would be swallowed by the `" <|"` suffix. Believed unreachable
-                -- today: the parser left-nests `<|`, so every non-last step body
-                -- is a single atom. A hazard if the grammar grows -- make this
-                -- recursive (`subtreeEndsWithLineComment`-style) at that point.
+                        Nothing ->
+                            False
             in
-            firstIsComment || (not isLast && hasNonRidingComment)
-
-        lastStepIndex =
-            Array.length stepNodes - 1
+            firstIsComment || bodyLeadsWithOwnRowComment
 
         hasBoundaryComment =
             (Array.any nodeIsComment seedNodes
                 && not (literalCommentsRideFlatLine seedNodes)
             )
-                || Array.any (\b -> b)
-                    (Array.indexedMap
-                        (\i n -> stepNeedsCommentedLayout (i == lastStepIndex) n)
-                        stepNodes
-                    )
+                || Array.any stepLeadsWithComment stepNodes
                 -- A `--` line comment buried at the end of the seed's own
                 -- subtree (e.g. a nested binop's `"""…""" -- c` operand) is
                 -- invisible to the shallow `nodeIsComment seedNodes` scan above,
@@ -2107,16 +2118,45 @@ buildBackwardBodyBox bodyNodes =
 -- +4, the `<|` trailing the previous body. A multi-line body forces the vertical
 -- form (elm-format breaks the chain the moment any body spans rows), and each
 -- body is kept as a Box so a multi-line one glues its trailing `<|` onto its own
--- last line via `B.addSuffix` — UNLESS that body is a relocated (broken-call)
--- shape, in which case the trailing `<|` goes on its own line at the body's own
--- indent instead of gluing to the last argument (`isBrokenCall`, matching
--- elm-format's break for a multi-line application).
+-- last line via `B.addSuffix` — UNLESS that body cannot carry a suffix, in which
+-- case the trailing `<|` goes on its own line at the body's own indent instead of
+-- gluing to the last thing on it. Two bodies cannot:
+--
+--   * a relocated (broken-call) shape — gluing would hang the `<|` off the last
+--     ARGUMENT, where elm-format breaks for a multi-line application
+--     (`isBrokenCall`);
+--   * one ending in a `--`, which would swallow the operator outright
+--     (`subtreeEndsWithLineComment`). This is the C4-preserving alternative to
+--     sending the whole chain operator-leading, which used to move the seed's own
+--     `<|` off its row over a comment two steps away — see
+--     `makeBackwardPipelineBox`.
 backwardMultiStep : Bool -> Box -> Array { glued : Array LPNode, rest : Array LPNode } -> Result String Box
 backwardMultiStep forceVertical seedBox stepBodies =
     traverseResult (\step -> buildBackwardBodyBox step.rest) stepBodies
         |> Result.andThen
             (\bodyBoxes ->
                 let
+                    -- True when a step body ends in an open `--`, so the next
+                    -- step's ` <|` cannot be glued onto its last line. The body's
+                    -- LAST node, not any of them: a `--` in the middle of a body
+                    -- is followed by more of that body, so the ` <|` still lands
+                    -- on a row it cannot swallow.
+                    endsInLineComment step =
+                        when Array.last step.rest is
+                            Just lastNode ->
+                                subtreeEndsWithLineComment lastNode
+
+                            Nothing ->
+                                False
+
+                    bodyEndsInLineComment i =
+                        when Array.get i stepBodies is
+                            Just step ->
+                                endsInLineComment step
+
+                            Nothing ->
+                                False
+
                     -- The comments the author wrote on step i's `<|` row. They
                     -- glue onto the line that introduces that step: step 0's onto
                     -- the seed's `<|`, step i's onto step i-1's body.
@@ -2134,6 +2174,10 @@ backwardMultiStep forceVertical seedBox stepBodies =
                             -- A glued comment is a `--`: nothing can follow it on
                             -- its row, so the chain cannot stay inline.
                             || Array.any (\step -> not (Array.isEmpty step.glued)) stepBodies
+                            -- Same for a `--` ending a body: it is still a
+                            -- single-line box, but the ` <| ` of the step after it
+                            -- cannot share that row.
+                            || Array.any endsInLineComment stepBodies
                 in
                 if not effectiveVertical then
                     -- Every body is single-line here, so `boxLine` cannot fail.
@@ -2170,7 +2214,7 @@ backwardMultiStep forceVertical seedBox stepBodies =
                                         -- THAT particular step is what forced the
                                         -- chain vertical.
                                         withOperator =
-                                            if i < n - 1 && isBrokenCall then
+                                            if i < n - 1 && (isBrokenCall || bodyEndsInLineComment i) then
                                                 B.stack1 [ bodyBox, B.line (B.literal "<|") ]
 
                                             else if i < n - 1 then

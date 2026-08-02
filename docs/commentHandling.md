@@ -32,7 +32,8 @@ history in order, most recent last —
 [2026-08-01](#what-changed-2026-08-01), [2026-08-02](#what-changed-2026-08-02),
 [C4 in a binop chain](#what-changed-next-c4-in-a-binop-chain),
 [rounds 4 and 5](#what-changed-interview-rounds-4-and-5),
-[the `<|` a comment moved](#what-changed-the--a-comment-moved-off-its-seed).
+[the `<|` a comment moved](#what-changed-the--a-comment-moved-off-its-seed),
+[the same `<|`, one step further in](#what-changed-next-the--a-comment-moved-off-a-later-seed).
 
 **C1 / C2 are about attachment; C3–C6 are about layout.** The two never trade
 against each other: attachment is settled first, in `Comments.gren`, and the
@@ -582,6 +583,9 @@ The trigger was `stepNeedsCommentedLayout`, which routed a step carrying *any*
   unchanged;
 - a comment in a **non-last** step's body, whose `<|` for the *next* step is
   glued onto that body's last line by `backwardMultiStep` and would be swallowed.
+  (This one turned out to be the same violation one step further in, and was
+  narrowed again the next day — see
+  [the `<|` a comment moved off a *later* seed](#what-changed-next-the--a-comment-moved-off-a-later-seed).)
 
 Everything else keeps the trailing-operator layout. A comment the author wrote on
 the operator's own row is peeled by `spanOperatorRowComments` and glued after the
@@ -611,6 +615,57 @@ now render byte-identically to the comment-free twin of the same expression, and
 because the author wrote them on one line and the only comment that could break
 them (`-- trailing`) sits at the end of the flow, where C3 says nothing follows
 it to push down.
+
+### What changed next: the `<|` a comment moved off a *later* seed
+
+The second of the two cases kept above was too wide by half, and the half it got
+wrong was the same C4 violation one step further into the chain. It survived the
+round that found the first because it looked like a *reason* rather than a
+symptom: the next step's ` <|` really is glued onto this body's last line, and a
+`--` ending that body really would swallow it. What did not follow is the remedy.
+Diverting the whole chain to the operator-leading layout to protect one operator
+moves **every** operator, including the seed's, over a comment nowhere near it:
+
+```gren
+-- you wrote          -- was                  -- is
+fn <| fn -- c         fn                      fn <|
+    <| one                <| fn -- c              fn -- c
+                              <| one              <|
+                                                      one
+```
+
+Read the right-hand column against `fn <| fn <| one` with the comment deleted
+(`fn <|` ⏎ `fn <|` ⏎ `one`): every operand is at the column it has there. The
+middle column moves all three. That is C4's test, and the middle column fails it
+for the same reason and in the same direction as the version before it.
+
+`backwardMultiStep` already had the move this wants. A body that renders as a
+relocated broken call cannot take a glued ` <|` either, and that case drops the
+operator onto a row of its own at the *body's* indent (`isBrokenCall`), leaving
+everything below at its normal depth. Ending in a `--` is the same problem, so it
+now takes the same exit, keyed on `subtreeEndsWithLineComment` of the body's last
+node — the recursive query, which also closes a hazard the old shallow test had
+noted and left open: a `--` buried deeper than a step's direct children was
+invisible to it.
+
+Only a `--` qualifies. `{- … -}` and `{-| … -}` self-terminate, so ` <|` glued
+after `-}` is safe, and `alpha <| beta {- c -} <| gamma` keeps the plain chain
+(fixture `midChainTrailingComment` / `midChainBlockComment` in
+`BackwardPipeCommentNesting`).
+
+The other half of that case — a comment **leading** a step's body rather than
+ending it (`alpha <|` ⏎ `-- c` ⏎ `beta <| gamma`) — still routes to the
+operator-leading layout, and has to for now: the trailing path lays a body out
+with `assembleFlow`, which reads a row-breaking leading comment as a call's head
+and puts the body +4 past it. That is the `leadingComment` fixture, and removing
+the routing without fixing the assembler renders `beta` one level too deep.
+
+**Still open**: a comment at the *front of the step itself*, before the `<|` —
+case one above — is untouched, so `fn <| fn` ⏎ `-- c` ⏎ `<| one` and its
+`{- c -}` spelling still send the whole chain operator-leading. The `{- c -}`
+spelling is additionally a C3 violation, since a single-line block comment
+sharing the `<|`'s row should ride it (`fn {- c -} <|`). Two cells, both in the
+comment axis's UNREVIEWED column.
 
 ## The one-line pipeline
 

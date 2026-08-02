@@ -1,11 +1,18 @@
 module BackwardPipeCommentNesting exposing (..)
 
 -- A `<|` chain is right-associative, so each step nests one indent deeper than
--- the one above it. A comment forces the operator-LEADING style (a `--` cannot
--- have the next step's `<|` glued after it), but it must not change the
--- NESTING: the commented chain below steps at the same depths as the plain one.
--- The commented path used to apply a flat +4 to every step, so writing a comment
--- anywhere in a chain silently reflowed every step under it.
+-- the one above it. A comment at the FRONT of a step forces the operator-LEADING
+-- style, but it must not change the NESTING: the commented chains below step at
+-- the same depths as the plain one. The commented path used to apply a flat +4
+-- to every step, so writing a comment anywhere in a chain silently reflowed
+-- every step under it.
+--
+-- A comment ending a step's BODY does not force that style. It stops just the
+-- next `<|` from gluing onto its row, and that `<|` drops to a row of its own at
+-- the body's indent -- every operand stays at the column it has with the comment
+-- deleted (`plainChain`). Sending the whole chain operator-leading instead moved
+-- the SEED's `<|` off its row over a comment two steps away, which is the C4
+-- violation `midChainTrailingComment` pins.
 
 
 plainChain =
@@ -37,3 +44,17 @@ blockCommentBetween =
         {- between the seed and the second step -}
         <| beta
             <| gamma
+
+
+midChainTrailingComment =
+    alpha <|
+        beta -- trails the second body
+        <|
+            gamma <|
+                delta
+
+
+midChainBlockComment =
+    alpha <|
+        beta {- self-terminating, so the next `<|` still glues -} <|
+            gamma
