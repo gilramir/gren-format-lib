@@ -1,4 +1,4 @@
-module Formatter.Render.CommentBox exposing (blockCommentBodyOffset, commentNodeBox, commentNodeToBox, docCommentString, emptyBracketedCommentLine, glueTrailingComments, leadingSpaceCount, makeCommentLineBox, multiLineBlockCommentBox, peelTrailingCommentNodes, spanLeadingComments, spanTrailingComments, spanTrailingOwnLineComments)
+module Formatter.Render.CommentBox exposing (blockCommentBodyOffset, commentNodeBox, commentNodeToBox, docCommentString, emptyBracketedCommentLine, glueTrailingComments, leadingSpaceCount, makeCommentLineBox, multiLineBlockCommentBox, peelTrailingCommentNodes, spanLeadingComments, spanOperatorRowComments, spanTrailingComments, spanTrailingOwnLineComments)
 
 {-| Rendering of comment nodes (line, block, doc) to `Box`.
 -}
@@ -262,6 +262,48 @@ spanLeadingComments nodes =
 
                 Nothing ->
                     { leading = acc, rest = [] }
+    in
+    go nodes []
+
+
+{-| Split off the comment run the author wrote on the OPERATOR's own row — a `--`
+written after a `<|` (`fn <| -- c`). Those glue onto the operator's line and let
+the body drop below them, which is what keeps `<|` on the seed's last line
+([divergence #14](../../../docs/elmFormatComparison.md)) when a comment breaks
+the row. Without the peel the whole chain switched to the operator-LEADING
+layout (`fn` ⏎ `<| -- c` ⏎ body), a shape gren-format renders for no
+comment-free input — rule C4.
+
+Only a `--` is peeled, and only one the author put on the operator's row:
+
+  - a single-line `{- -}` needs no peel — it already rides the body's line;
+  - a multi-line `{- … -}` brings its own newlines, so it keeps the
+    operator-leading layout;
+  - a `LeadsOwnLine` comment belongs above the body, not on the operator's line.
+
+-}
+spanOperatorRowComments : Array LPNode -> { glued : Array LPNode, rest : Array LPNode }
+spanOperatorRowComments nodes =
+    let
+        gluesToOperatorRow node =
+            when lpnBox node is
+                SingleLineComment { role } ->
+                    role /= LeadsOwnLine
+
+                _ ->
+                    False
+
+        go remaining acc =
+            when Array.popFirst remaining is
+                Just { first, rest } ->
+                    if gluesToOperatorRow first then
+                        go rest (Array.pushLast first acc)
+
+                    else
+                        { glued = acc, rest = remaining }
+
+                Nothing ->
+                    { glued = acc, rest = [] }
     in
     go nodes []
 

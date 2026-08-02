@@ -16,7 +16,7 @@ import Formatter.Logical.LogicalPrintingTree exposing (CommentRole(..), LPBox(..
 import Formatter.Render.BinopLayout exposing (assembleBinopBox, commentBreaksBinopChain, flattenBinopNodes, isChainBreakingOperandBox, opText, splitTrailingOwnLineComments)
 import Formatter.Render.Box as B exposing (Box(..))
 import Formatter.Render.BoxOps exposing (applyIndent, blockIndentSpaces, boxLine, glueCommentSuffix, glueLeadingCommentPrefix, grenIndent, isBlockNode, isSingleLine, joinInline, prefixOperator, spaceJoinLines, stackWithBlanks, traverseResult, wrapParenVerticalPadded)
-import Formatter.Render.CommentBox exposing (commentNodeBox, commentNodeToBox, emptyBracketedCommentLine, glueTrailingComments, makeCommentLineBox, multiLineBlockCommentBox, peelTrailingCommentNodes, spanLeadingComments, spanTrailingComments, spanTrailingOwnLineComments)
+import Formatter.Render.CommentBox exposing (commentNodeBox, commentNodeToBox, emptyBracketedCommentLine, glueTrailingComments, makeCommentLineBox, multiLineBlockCommentBox, peelTrailingCommentNodes, spanLeadingComments, spanOperatorRowComments, spanTrailingComments, spanTrailingOwnLineComments)
 import Formatter.Render.ElmStructure as E
 import Formatter.Render.FlowAssembly exposing (FlowItem, SoftGlueAlignment(..), assembleBrokenCall, assembleBrokenWithComments, bracketPunc, gluedExposingBox, isCommentItem, pairLeadingComments, parenInnerIsAlignCarrying, softBlockChildForcesVerticalBox, softGlueAlignment, trySoftGlueFlow, verticalExposingBox)
 import Formatter.Render.FlowPolicy as FP
@@ -1677,14 +1677,29 @@ makeBackwardPipelineBox forceVertical children =
             Array.keepIf (\n -> not (isPipelineStepNode n)) children
 
         -- A step needs the operator-LEADING commented layout when it carries a
-        -- comment the flat assembler cannot place inline. Two kinds:
+        -- comment that cannot be placed with the `<|` still glued to the line
+        -- above it. Two kinds:
         --
         --   1. Its FIRST child is a comment — a genuine own-line comment BEFORE
         --      the `<|` (`foo`⏎`{- c -}`⏎`<| bar`). The flat assembler pops the
         --      first child as the operator, so a leading comment must route here.
-        --   2. It contains a `--` line comment or a MULTI-LINE block comment
-        --      anywhere — neither can ride a single flat line (a `--` runs to EOL,
-        --      a multi-line `{- … -}` brings its own newlines).
+        --      This is the shape divergences #23 / #25 describe.
+        --   2. A NON-LAST step carries a `--`, a multi-line `{- … -}` or a doc
+        --      comment that `spanOperatorRowComments` does not peel: the next
+        --      step's ` <|` is glued onto THIS step's body box by
+        --      `backwardMultiStep`, and a comment ending that box would swallow
+        --      it. The last step has nothing appended after it, so a comment in
+        --      its body is safe and stays on the trailing-operator path.
+        --
+        -- A comment the author wrote ON the operator's row (`fn <| -- c`) is
+        -- peeled by `spanOperatorRowComments` and glued after the `<|`, so it is
+        -- not a trigger either. It used to be: any `--` anywhere in the step sent
+        -- the chain operator-leading, which moved `<|` off the seed's row and
+        -- produced `fn` ⏎ `<| -- c` ⏎ body — a shape gren-format renders for no
+        -- comment-free input (both author spellings canonicalize to `fn <|` ⏎ +4
+        -- body), and the exact layout divergence #14 records as elm-format's and
+        -- gren-format's rejected alternative. Rule C4: a comment changes where the
+        -- rows fall, not how the operator sits against its seed.
         --
         -- A SINGLE-LINE block comment in the body (leading it right after `<|`,
         -- trailing it, or inline) is NOT a trigger: `buildBackwardBodyBox` renders
@@ -1694,7 +1709,7 @@ makeBackwardPipelineBox forceVertical children =
         -- every comment shared an inline content row, which flipped to the
         -- commented path on reparse once a multi-line body pushed its leading
         -- comment own-line — reintroducing the +4 ↔ operator-leading oscillation.)
-        stepNeedsCommentedLayout stepNode =
+        stepNeedsCommentedLayout isLast stepNode =
             let
                 kids =
                     lpnChildren stepNode
@@ -1706,6 +1721,16 @@ makeBackwardPipelineBox forceVertical children =
 
                         Nothing ->
                             False
+
+                -- What is left of the step once the operator and the comments
+                -- that glue onto its row are taken off the front.
+                bodyAfterGlue =
+                    when Array.popFirst kids is
+                        Just { rest } ->
+                            (spanOperatorRowComments rest).rest
+
+                        Nothing ->
+                            []
 
                 hasNonRidingComment =
                     Array.any
@@ -1723,7 +1748,7 @@ makeBackwardPipelineBox forceVertical children =
                                 _ ->
                                     False
                         )
-                        kids
+                        bodyAfterGlue
 
                 -- NOTE: `kids` is the step's DIRECT children only, so a `--`
                 -- buried deeper in a composite step body would not be seen and
@@ -1732,13 +1757,20 @@ makeBackwardPipelineBox forceVertical children =
                 -- is a single atom. A hazard if the grammar grows -- make this
                 -- recursive (`subtreeEndsWithLineComment`-style) at that point.
             in
-            firstIsComment || hasNonRidingComment
+            firstIsComment || (not isLast && hasNonRidingComment)
+
+        lastStepIndex =
+            Array.length stepNodes - 1
 
         hasBoundaryComment =
             (Array.any nodeIsComment seedNodes
                 && not (literalCommentsRideFlatLine seedNodes)
             )
-                || Array.any stepNeedsCommentedLayout stepNodes
+                || Array.any (\b -> b)
+                    (Array.indexedMap
+                        (\i n -> stepNeedsCommentedLayout (i == lastStepIndex) n)
+                        stepNodes
+                    )
                 -- A `--` line comment buried at the end of the seed's own
                 -- subtree (e.g. a nested binop's `"""…""" -- c` operand) is
                 -- invisible to the shallow `nodeIsComment seedNodes` scan above,
@@ -1788,7 +1820,10 @@ makeBackwardPipelineBox forceVertical children =
                         (\stepNode ->
                             when Array.popFirst (lpnChildren stepNode) is
                                 Just { rest = bodyNodes } ->
-                                    Ok bodyNodes
+                                    -- The comments the author wrote on the `<|`'s
+                                    -- own row travel with the operator, not with
+                                    -- the body below it.
+                                    Ok (spanOperatorRowComments bodyNodes)
 
                                 Nothing ->
                                     Err "box: backward pipeline step has no children"
@@ -1872,11 +1907,11 @@ backwardStepBodyBox body =
             buildFlowBox 0 body
 
 
-assembleBackwardPipeline : Bool -> Box -> Array (Array LPNode) -> Result String Box
+assembleBackwardPipeline : Bool -> Box -> Array { glued : Array LPNode, rest : Array LPNode } -> Result String Box
 assembleBackwardPipeline forceVertical seedBox stepBodies =
     when stepBodies is
-        [ bodyNodes ] ->
-            backwardSingleStep forceVertical seedBox bodyNodes
+        [ step ] ->
+            backwardSingleStep forceVertical seedBox step
 
         _ ->
             backwardMultiStep forceVertical seedBox stepBodies
@@ -1892,8 +1927,18 @@ assembleBackwardPipeline forceVertical seedBox stepBodies =
 -- `--lpt` for lambdas), so the `_` arm is what actually renders a broken lambda
 -- body. Kept rather than deleted because "believed unreachable" is not proven
 -- unreachable; if you make it fire, the layout it produces is untested.
-backwardSingleStep : Bool -> Box -> Array LPNode -> Result String Box
-backwardSingleStep forceVertical seedBox bodyNodes =
+backwardSingleStep : Bool -> Box -> { glued : Array LPNode, rest : Array LPNode } -> Result String Box
+backwardSingleStep forceVertical seedBox { glued, rest = bodyNodes } =
+    let
+        -- `seed <|`, with any comment the author wrote on that row glued after
+        -- the operator. A glued comment is always a `--`, so it also forces the
+        -- body below it — there is no line left to put the body on.
+        opLineBox =
+            glueTrailingComments (B.addSuffix (B.literal " <|") seedBox) glued
+
+        glueForcesBreak =
+            not (Array.isEmpty glued)
+    in
     when Array.popLast bodyNodes is
         Nothing ->
             Err "box: backward pipeline empty body"
@@ -1902,14 +1947,15 @@ backwardSingleStep forceVertical seedBox bodyNodes =
             when lpnBox lastNode is
                 IndentedBlock ->
                     -- Lambda authored across rows: seed <| \n head+4 \n body+8.
-                    Result.map2
-                        (\headBox bodyBox ->
+                    Result.map3
+                        (\opBox headBox bodyBox ->
                             B.stack1
-                                [ B.addSuffix (B.literal " <|") seedBox
+                                [ opBox
                                 , B.indent headBox
                                 , applyIndent (2 * grenIndent) bodyBox
                                 ]
                         )
+                        opLineBox
                         (buildFlowBox 0 headNodes)
                         (buildFlowBox 0 (lpnChildren lastNode))
 
@@ -1928,13 +1974,10 @@ backwardSingleStep forceVertical seedBox bodyNodes =
                                 -- case does — elm-format breaks the pipeline the
                                 -- moment the body spans rows, even when the author
                                 -- kept `<|` glued to the seed row.
-                                if forceVertical || not (isSingleLine bodyBox) then
-                                    Ok
-                                        (B.stack1
-                                            [ B.addSuffix (B.literal " <|") seedBox
-                                            , B.indent bodyBox
-                                            ]
-                                        )
+                                if forceVertical || not (isSingleLine bodyBox) || glueForcesBreak then
+                                    opLineBox
+                                        |> Result.map
+                                            (\opBox -> B.stack1 [ opBox, B.indent bodyBox ])
 
                                 else
                                     boxLine bodyBox
@@ -2037,7 +2080,24 @@ buildBackwardBodyBox bodyNodes =
                     -- The leading comments are put back here rather than peeled:
                     -- a single-line body is exactly the case they are meant to
                     -- ride, and `assembleFlow True` is what keeps them on its row.
-                    assembleFlow True 0 allItems
+                    --
+                    -- The flow indent is 0 for a body that stays on one row (there
+                    -- are no continuation rows to place) and `grenIndent` for one a
+                    -- comment breaks: `gn -- c` ⏎ `arg` is a call whose argument
+                    -- must land +4 under the function, exactly as the same call
+                    -- broken by the same comment does anywhere else. It read 0
+                    -- unconditionally, so an argument sat flush under its own
+                    -- function — a shape gren-format renders nowhere else (rule
+                    -- C4), reachable only once a comment on the `<|` row stopped
+                    -- diverting the whole chain to the operator-leading layout.
+                    assembleFlow True
+                        (if commentBreaksFlowRow bodyNodes then
+                            grenIndent
+
+                         else
+                            0
+                        )
+                        allItems
                         |> Result.map (\box -> { box = box, isBrokenCall = False })
             )
 
@@ -2051,14 +2111,29 @@ buildBackwardBodyBox bodyNodes =
 -- shape, in which case the trailing `<|` goes on its own line at the body's own
 -- indent instead of gluing to the last argument (`isBrokenCall`, matching
 -- elm-format's break for a multi-line application).
-backwardMultiStep : Bool -> Box -> Array (Array LPNode) -> Result String Box
+backwardMultiStep : Bool -> Box -> Array { glued : Array LPNode, rest : Array LPNode } -> Result String Box
 backwardMultiStep forceVertical seedBox stepBodies =
-    traverseResult buildBackwardBodyBox stepBodies
+    traverseResult (\step -> buildBackwardBodyBox step.rest) stepBodies
         |> Result.andThen
             (\bodyBoxes ->
                 let
+                    -- The comments the author wrote on step i's `<|` row. They
+                    -- glue onto the line that introduces that step: step 0's onto
+                    -- the seed's `<|`, step i's onto step i-1's body.
+                    gluedAt i =
+                        when Array.get i stepBodies is
+                            Just step ->
+                                step.glued
+
+                            Nothing ->
+                                []
+
                     effectiveVertical =
-                        forceVertical || Array.any (\b -> not (isSingleLine b.box)) bodyBoxes
+                        forceVertical
+                            || Array.any (\b -> not (isSingleLine b.box)) bodyBoxes
+                            -- A glued comment is a `--`: nothing can follow it on
+                            -- its row, so the chain cannot stay inline.
+                            || Array.any (\step -> not (Array.isEmpty step.glued)) stepBodies
                 in
                 if not effectiveVertical then
                     -- Every body is single-line here, so `boxLine` cannot fail.
@@ -2079,11 +2154,13 @@ backwardMultiStep forceVertical seedBox stepBodies =
                         n =
                             Array.length bodyBoxes
                     in
-                    Ok
-                        (B.stack1
-                            ([ B.addSuffix (B.literal " <|") seedBox ]
-                                ++ Array.indexedMap
-                                    (\i { box = bodyBox, isBrokenCall } ->
+                    Result.map2
+                        (\headBox stepBoxes -> B.stack1 ([ headBox ] ++ stepBoxes))
+                        (glueTrailingComments (B.addSuffix (B.literal " <|") seedBox) (gluedAt 0))
+                        (traverseResult (\r -> r)
+                            (Array.indexedMap
+                                (\i { box = bodyBox, isBrokenCall } ->
+                                    let
                                         -- Each step nests one MORE tab stop than
                                         -- the previous, cumulatively — elm-format
                                         -- treats a vertical `<|` chain as nested
@@ -2092,18 +2169,25 @@ backwardMultiStep forceVertical seedBox stepBodies =
                                         -- (i+1) tab stops regardless of whether
                                         -- THAT particular step is what forced the
                                         -- chain vertical.
-                                        applyIndent ((i + 1) * grenIndent)
-                                            (if i < n - 1 && isBrokenCall then
+                                        withOperator =
+                                            if i < n - 1 && isBrokenCall then
                                                 B.stack1 [ bodyBox, B.line (B.literal "<|") ]
 
-                                             else if i < n - 1 then
+                                            else if i < n - 1 then
                                                 B.addSuffix (B.literal " <|") bodyBox
 
-                                             else
+                                            else
                                                 bodyBox
-                                            )
+                                    in
+                                    (if i < n - 1 then
+                                        glueTrailingComments withOperator (gluedAt (i + 1))
+
+                                     else
+                                        Ok withOperator
                                     )
-                                    bodyBoxes
+                                        |> Result.map (applyIndent ((i + 1) * grenIndent))
+                                )
+                                bodyBoxes
                             )
                         )
             )

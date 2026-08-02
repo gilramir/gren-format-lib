@@ -2,6 +2,6 @@ module M exposing (x)
 
 
 x =
-    foo
-        <| bar {- one
-                  line two -}
+    foo <|
+        bar {- one
+               line two -}

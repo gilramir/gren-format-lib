@@ -31,7 +31,8 @@ or found code not yet obeying one; the "What changed" sections below are that
 history in order, most recent last —
 [2026-08-01](#what-changed-2026-08-01), [2026-08-02](#what-changed-2026-08-02),
 [C4 in a binop chain](#what-changed-next-c4-in-a-binop-chain),
-[rounds 4 and 5](#what-changed-interview-rounds-4-and-5).
+[rounds 4 and 5](#what-changed-interview-rounds-4-and-5),
+[the `<|` a comment moved](#what-changed-the--a-comment-moved-off-its-seed).
 
 **C1 / C2 are about attachment; C3–C6 are about layout.** The two never trade
 against each other: attachment is settled first, in `Comments.gren`, and the
@@ -547,6 +548,69 @@ baseline on `--update-baseline` and need no reason at all; a partly fixed group
 still diverges and needs the real catalogue number. Registering either as `FIXED`
 wrote a meaningless reason over six cells that were plain
 [#25](elmFormatComparison.md#divergence-25).
+
+### What changed: the `<|` a comment moved off its seed
+
+The largest single family in the comment axis's remaining debt — 78 review
+groups, 173 cells — was one C4 violation, and it was the *reverse* of a decision
+already in the catalogue.
+
+```gren
+-- you wrote          -- was                  -- is, and is what the same
+fn <| -- c            fn                      --     expression renders without
+    one                   <| -- c             --     the comment, plus its row
+                             one              fn <| -- c
+                                                  one
+```
+
+`<|` is the one operator that does **not** lead its row: it stays glued to the
+seed's last line, which is
+[divergence #14](elmFormatComparison.md#divergence-14) — elm-format drops it
+below a multi-line seed and gren-format deliberately does not. A comment,
+though, sent the whole chain to the operator-LEADING layout, producing exactly
+the shape #14 exists to reject, and one gren-format renders for no comment-free
+input: both author spellings (`fn <|` ⏎ `body` and `fn` ⏎ `<| body`)
+canonicalize to `fn <|` ⏎ `+4 body`.
+
+The trigger was `stepNeedsCommentedLayout`, which routed a step carrying *any*
+`--` or multi-line `{- … -}` to that layout. Two of its cases are real and stay:
+
+- a comment written **before** the `<|` (`fn` ⏎ `-- note` ⏎ `<| 1`) — it has to
+  sit above the operator, so the operator cannot be on the seed's row. This is
+  the shape [#23](elmFormatComparison.md#divergence-23) and
+  [#25](elmFormatComparison.md#divergence-25) illustrate, and it is byte-for-byte
+  unchanged;
+- a comment in a **non-last** step's body, whose `<|` for the *next* step is
+  glued onto that body's last line by `backwardMultiStep` and would be swallowed.
+
+Everything else keeps the trailing-operator layout. A comment the author wrote on
+the operator's own row is peeled by `spanOperatorRowComments` and glued after the
+`<|`, so `fn <| -- c` and `fn <|` ⏎ `-- c` stay two spellings with two outputs,
+each a fixed point — the same shape C2's line-leading exception has at a `,`.
+
+Two consequences worth knowing:
+
+- **This does not buy parity.** elm-format floats such a comment down below
+  `fn <|` regardless ([#12](elmFormatComparison.md#divergence-12) /
+  [#25](elmFormatComparison.md#divergence-25)), so the cells still diverge — they
+  are now correctly-shaped divergences instead of a bug frozen in the baseline.
+- **It exposed a second, smaller C4 violation underneath.** With the chain no
+  longer diverted, a comment-broken call reached `buildBackwardBodyBox`'s
+  plain-flow arm, which passed a flow indent of `0` — so an argument sat flush
+  under its own function (`gn -- c` ⏎ `arg`) where the identical call broken by
+  the identical comment indents +4 anywhere else. The arm now passes `grenIndent`
+  when `commentBreaksFlowRow` says the flow breaks.
+
+Five fixtures had frozen the old layout and were regenerated
+(`PipelineOperatorCommentIndent`, `ParenBlockTrailingComment`,
+`BackwardPipeMultilineTrailingComment`, `MultilineStringCommentBinopPrecedence`,
+`LambdaLeadingCommentDroppedBody`). Each new output was checked against the C4
+test before being accepted, not merely against "it round-trips": three of them
+now render byte-identically to the comment-free twin of the same expression, and
+`LambdaLeadingCommentDroppedBody`'s first three declarations went **flat**,
+because the author wrote them on one line and the only comment that could break
+them (`-- trailing`) sits at the end of the flow, where C3 says nothing follows
+it to push down.
 
 ## The one-line pipeline
 

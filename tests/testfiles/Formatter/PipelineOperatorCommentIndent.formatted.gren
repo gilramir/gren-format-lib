@@ -1,9 +1,15 @@
 module PipelineOperatorCommentIndent exposing (..)
 
--- A pipeline operator is rendered as a Box PREFIX, exactly like a binop's
--- operator, so an operand pushed below it by a comment lands in the column it
--- would have occupied on the operator's line -- `|> ` and `<| ` are 3 wide, `+ `
--- is 2, `++ ` is 3. All five of these agree with elm-format.
+-- An operator that LEADS its row is rendered as a Box PREFIX, so an operand
+-- pushed below it by a comment lands in the column it would have occupied on the
+-- operator's line -- `|> ` is 3 wide, `+ ` is 2, `++ ` is 3. These agree with
+-- elm-format.
+--
+-- `<|` is the exception, and not to this rule: it does not lead its row at all.
+-- It stays glued to the seed's last line (divergence #14), so a comment after it
+-- rides that line too and the body drops +4 like any other `<|` body -- the same
+-- rows the same expression gets with the comment deleted. It used to drop the
+-- `<|` below the seed, which is the layout #14 exists to reject.
 
 
 forwardPipe =
@@ -13,9 +19,8 @@ forwardPipe =
 
 
 backwardPipe =
-    fn
-        <| -- c
-           step
+    fn <| -- c
+        step
 
 
 plus =
@@ -63,6 +68,6 @@ ownRowBelowOperator =
 
 -- A `<|` step body's own arguments still indent past the operand.
 backwardPipeArgs =
-    fn
-        <| gn one -- c
+    fn <|
+        gn one -- c
             two
