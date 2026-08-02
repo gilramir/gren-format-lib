@@ -862,7 +862,7 @@ makeUnionBodyBox nodes =
         -- Fold over `nodes`, not `variantNodes`: `pairInlineComments` glues each
         -- comment onto the variant it trails, so `joinInline` still sees one box
         -- per variant.
-        pairInlineComments (\n -> buildFlowBox 0 (lpnChildren n)) nodes
+        pairInlineComments (\_ -> True) (\n -> buildFlowBox 0 (lpnChildren n)) nodes
             |> Result.andThen
                 (\variantBoxes ->
                     when joinInline variantBoxes is
@@ -1979,19 +1979,31 @@ backwardSingleStep forceVertical seedBox { glued, rest = bodyNodes } =
                     -- head/body split.
                     buildBackwardBodyBox bodyNodes
                         |> Result.andThen
-                            (\{ box = bodyBox } ->
+                            (\{ box = bodyBox, ridingLeading } ->
                                 -- A multi-line body drops to +4 under `seed <|`
                                 -- exactly as the author-broken (`forceVertical`)
                                 -- case does — elm-format breaks the pipeline the
                                 -- moment the body spans rows, even when the author
                                 -- kept `<|` glued to the seed row.
                                 if forceVertical || not (isSingleLine bodyBox) || glueForcesBreak then
+                                    -- The body leaves the `<|`'s row, so a comment
+                                    -- written on that row has no row left to ride
+                                    -- and stacks above the body — the shape the
+                                    -- reparse re-derives, since it then reads
+                                    -- `LeadsOwnLine`.
                                     opLineBox
                                         |> Result.map
-                                            (\opBox -> B.stack1 [ opBox, B.indent bodyBox ])
+                                            (\opBox ->
+                                                B.stack1
+                                                    [ opBox
+                                                    , B.indent (B.stack1 (ridingLeading ++ [ bodyBox ]))
+                                                    ]
+                                            )
 
                                 else
-                                    boxLine bodyBox
+                                    -- The body stays on the `<|`'s row, so the
+                                    -- comment does too: `seed <| {- c -} body`.
+                                    boxLine (Array.foldr glueLeadingCommentPrefix bodyBox ridingLeading)
                                         |> Result.map (\bl -> B.addSuffix (B.row [ B.literal " <| ", bl ]) seedBox)
                             )
 
@@ -2006,8 +2018,20 @@ line at the call's own indent, not glued onto the last argument's line —
 matching elm-format's break for a multi-line application. A body that stayed
 on the plain-flow path (a lambda/`if`/`when` body, or anything else
 `assembleFlow` already handles) keeps the trailing `<|` glued to its last
-line, unaffected. -}
-buildBackwardBodyBox : Array LPNode -> Result String { box : Box, isBrokenCall : Bool }
+line, unaffected.
+
+`ridingLeading` is the leading comments the CALLER must place, and it is only
+ever non-empty for a comment the author wrote on the `<|`'s own row (a
+single-line `{- c -}`, role `RidesInline`). Where such a comment goes depends on
+something this function cannot see: the step renders `seed <| {- c -} body` when
+it stays inline, and `seed <|` ⏎ `{- c -} body` when it does not — and the second
+puts the comment on a row without the `<|`, which reparses as `LeadsOwnLine` and
+stacks. So the caller, which makes the inline/vertical call, glues them onto the
+body's first line in the first case and stacks them above it in the second, and
+both are fixed points. Comments that already lead their own line are stacked in
+here as before and do not appear in `ridingLeading` — there is no decision to
+defer for them. -}
+buildBackwardBodyBox : Array LPNode -> Result String { box : Box, isBrokenCall : Bool, ridingLeading : Array Box }
 buildBackwardBodyBox bodyNodes =
     renderFlowItems bodyNodes
         |> Result.andThen
@@ -2058,24 +2082,54 @@ buildBackwardBodyBox bodyNodes =
                     items =
                         Array.dropFirst nLeading allItems
 
+                    leadingBoxes =
+                        Array.mapAndKeepJust (\c -> Maybe.map .box c.comment) leading
+
+                    -- A comment that leads its own row is stacked above the body
+                    -- here, at the body's column — the indent this whole peel
+                    -- exists for. One that RIDES, a single-line `{- c -}` the
+                    -- author wrote on the `<|`'s row, is handed back to the caller
+                    -- untouched instead: where it belongs depends on whether the
+                    -- step ends up inline, which only the caller knows.
+                    --
+                    -- Stacking one unconditionally broke the construct open over a
+                    -- comment that fits (rule C3), and only for a lambda — a
+                    -- lambda is the multi-node body that arrives wrapped in a
+                    -- `BodyBlock`, which is `isBlockNode` and so lands on this
+                    -- arm, while `one` / `{ a = 1 }` / `fn x` take the inline arm
+                    -- below and rode the row correctly.
+                    ridesLeading =
+                        not (Array.isEmpty leading)
+                            && not (Array.all (\c -> commentLeadsOwnLine c.node) leading)
+
                     stackLeading box =
-                        if Array.isEmpty leading then
+                        if Array.isEmpty leading || ridesLeading then
                             box
 
                         else
-                            B.stack1
-                                (Array.mapAndKeepJust (\c -> Maybe.map .box c.comment) leading
-                                    ++ [ box ]
-                                )
+                            B.stack1 (leadingBoxes ++ [ box ])
+
+                    deferred =
+                        if ridesLeading then
+                            leadingBoxes
+
+                        else
+                            []
                 in
                 if Array.isEmpty items then
                     -- Comments and nothing else: there is no body to align to.
                     assembleFlow True 0 allItems
-                        |> Result.map (\box -> { box = box, isBrokenCall = False })
+                        |> Result.map (\box -> { box = box, isBrokenCall = False, ridingLeading = [] })
 
                 else if Array.any .isBlock items then
                     assembleBrokenCall grenIndent items
-                        |> Result.map (\box -> { box = stackLeading box, isBrokenCall = True })
+                        |> Result.map
+                            (\box ->
+                                { box = stackLeading box
+                                , isBrokenCall = True
+                                , ridingLeading = deferred
+                                }
+                            )
 
                 else
                     -- `inlineStart = True`: the body is glued right after `<| `,
@@ -2109,7 +2163,7 @@ buildBackwardBodyBox bodyNodes =
                             0
                         )
                         allItems
-                        |> Result.map (\box -> { box = box, isBrokenCall = False })
+                        |> Result.map (\box -> { box = box, isBrokenCall = False, ridingLeading = [] })
             )
 
 
@@ -2181,7 +2235,11 @@ backwardMultiStep forceVertical seedBox stepBodies =
                 in
                 if not effectiveVertical then
                     -- Every body is single-line here, so `boxLine` cannot fail.
-                    traverseResult (\b -> boxLine b.box) bodyBoxes
+                    -- A comment the author wrote on this step's `<|` row rides
+                    -- that row, since the whole chain stays on it.
+                    traverseResult
+                        (\b -> boxLine (Array.foldr glueLeadingCommentPrefix b.box b.ridingLeading))
+                        bodyBoxes
                         |> Result.map
                             (\bodyLines ->
                                 B.addSuffix
@@ -2203,8 +2261,15 @@ backwardMultiStep forceVertical seedBox stepBodies =
                         (glueTrailingComments (B.addSuffix (B.literal " <|") seedBox) (gluedAt 0))
                         (traverseResult (\r -> r)
                             (Array.indexedMap
-                                (\i { box = bodyBox, isBrokenCall } ->
+                                (\i { box = plainBodyBox, isBrokenCall, ridingLeading } ->
                                     let
+                                        -- The chain is vertical, so this body
+                                        -- starts a row of its own and a comment
+                                        -- from the `<|`'s row stacks above it —
+                                        -- which is what the reparse re-derives.
+                                        bodyBox =
+                                            B.stack1 (ridingLeading ++ [ plainBodyBox ])
+
                                         -- Each step nests one MORE tab stop than
                                         -- the previous, cumulatively — elm-format
                                         -- treats a vertical `<|` chain as nested
@@ -2586,7 +2651,7 @@ makeRecordUpdateBox baseName forceVertical children =
                     -- author wrote; `pairInlineComments` glues each onto the
                     -- field it trails, or (rule C2, `LeadsNext`) onto the one
                     -- after it.
-                    pairInlineComments renderRecordFieldBox rest
+                    pairInlineComments (\_ -> True) renderRecordFieldBox rest
                         |> Result.andThen
                             (\fieldBoxes ->
                                 when Array.popFirst fieldBoxes is
@@ -3444,7 +3509,7 @@ already-sorted exposed names (leaves). Inline: `(a, b, c)`. Vertical:
 The comment-free exposing-list path. -}
 makeExposingListBox : Bool -> Array LPNode -> Result String Box
 makeExposingListBox forceVertical children =
-    pairInlineComments (\n -> makePBox (lpnBox n) (lpnChildren n)) children
+    pairInlineComments (\_ -> True) (\n -> makePBox (lpnBox n) (lpnChildren n)) children
         |> Result.andThen
             (\itemBoxes ->
                 when B.allSingles itemBoxes is
@@ -3990,7 +4055,7 @@ makeLiteralBox forceMultiline bracket children =
         -- instead of being handed to the flow assembler, which has no drop rule.
         -- Array / tuple / paren items are plain expressions, not fields, so they
         -- stay on the generic `makePBox` path.
-        pairInlineComments (literalItemRenderer bracket) children
+        pairInlineComments isSingleLine (literalItemRenderer bracket) children
             |> Result.andThen
                 (\itemBoxes ->
                     when bracketPunc bracket is
@@ -4046,8 +4111,8 @@ first. With no comments among the children this is exactly
 `traverseResult renderItem` — the same one function serves the comment-free and
 comment-bearing cases, so the two cannot drift apart.
 -}
-pairInlineComments : (LPNode -> Result String Box) -> Array LPNode -> Result String (Array Box)
-pairInlineComments renderItem children =
+pairInlineComments : (Box -> Bool) -> (LPNode -> Result String Box) -> Array LPNode -> Result String (Array Box)
+pairInlineComments leadMayRide renderItem children =
     Array.foldl
         (\node accResult ->
             accResult
@@ -4062,7 +4127,14 @@ pairInlineComments renderItem children =
                                             -- `,` between two items, so it belongs to
                                             -- the item AFTER it (`[ 1, {- c -} 2 ]`).
                                             -- Held with the opener run in `lead`.
-                                            Ok { acc | lead = Array.pushLast cbox acc.lead }
+                                            --
+                                            -- `atOpener = False`: this run must GLUE
+                                            -- whatever the item looks like. Stacking it
+                                            -- would put the comment inside the caller's
+                                            -- `, ` prefix, and the reparse then reads it
+                                            -- as written BEFORE the separator, which is a
+                                            -- different comment with a different role.
+                                            Ok { acc | lead = Array.pushLast cbox acc.lead, atOpener = False }
 
                                         else
                                             when Array.popLast acc.boxes is
@@ -4075,7 +4147,9 @@ pairInlineComments renderItem children =
                                                     -- (`[ {- c -} 1, 2 ]`), so it leads the
                                                     -- FIRST item instead of trailing a
                                                     -- previous one. Held until that item
-                                                    -- renders — see `lead`.
+                                                    -- renders — see `lead`. No separator
+                                                    -- prefix stands between it and the
+                                                    -- item, so this run may stack.
                                                     Ok { acc | lead = Array.pushLast cbox acc.lead }
                                     )
 
@@ -4083,13 +4157,26 @@ pairInlineComments renderItem children =
                             renderItem node
                                 |> Result.map
                                     (\box ->
-                                        { boxes = Array.pushLast (glueLeadBoxes acc.lead box) acc.boxes
+                                        { boxes =
+                                            Array.pushLast
+                                                (glueLeadBoxes
+                                                    (if acc.atOpener then
+                                                        leadMayRide
+
+                                                     else
+                                                        \_ -> True
+                                                    )
+                                                    acc.lead
+                                                    box
+                                                )
+                                                acc.boxes
                                         , lead = []
+                                        , atOpener = True
                                         }
                                     )
                     )
         )
-        (Ok { boxes = [], lead = [] })
+        (Ok { boxes = [], lead = [], atOpener = True })
         children
         -- A `lead` run with no item left to lead cannot arise from the
         -- classifier (an opener always has a first item, and `LeadsNext` is only
@@ -4098,13 +4185,42 @@ pairInlineComments renderItem children =
         |> Result.map (\acc -> acc.boxes ++ acc.lead)
 
 
-{-| Glue held leading comment boxes onto the front of the first item's box, in
-source order (`{- a -} {- b -} 1`). Each is a single-line `{- … -}` — the only
-kind that reaches here, since anything else fails `literalCommentsRideFlatLine`
-and routes to `commentBracketListBox` instead. -}
-glueLeadBoxes : Array Box -> Box -> Box
-glueLeadBoxes lead box =
-    Array.foldr glueLeadingCommentPrefix box lead
+{-| Glue held leading comment boxes onto the front of the item's box, in source
+order (`{- a -} {- b -} 1`). Each is a single-line `{- … -}` — the only kind that
+reaches here, since anything else fails `literalCommentsRideFlatLine` and routes
+to `commentBracketListBox` instead.
+
+`mayRide` is the caller's answer to "can THIS box take a prefix on its first row
+alone?". A bracketed literal's items answer `isSingleLine`: the prefix does not
+shift the box's continuation rows (`glueLeadingCommentPrefix`), which is right
+when there are none and wrong when there are — it slides the first row out from
+under the rest of its own construct, so `[ {- c -} if cond then` leaves `else`
+back at the item column, no longer under its `if`. A multi-line item takes the
+comments stacked above it instead, which is also the shape the reparse
+re-derives, since the comment then reads `LeadsOwnLine` and routes to
+`commentBracketListBox`.
+
+The other callers answer yes always, and are unchanged: a record field, a record
+update's field and a union variant all render as `head` ⏎ indented tail, so the
+prefix shifts the head row and nothing that has to stay under it. Stacking there
+puts the comment inside the `| ` / `, ` prefix, where the reparse reads it as
+BEFORE the separator — an oscillation the record-update fixtures catch.
+
+The caller also overrides `mayRide` to yes for a run held across a `,` (rule C2's
+`LeadsNext`), for that same reason: that run renders inside a `, ` prefix even in
+a bracketed literal. Only the OPENER run, which has no separator between it and
+its item, is free to stack.
+
+The question only arose once a comment could reach a multi-node ITEM at all: such
+an item is wrapped in a `BodyBlock`, and `Comments.gren` used to redirect every
+comment before one INSIDE it. -}
+glueLeadBoxes : (Box -> Bool) -> Array Box -> Box -> Box
+glueLeadBoxes mayRide lead box =
+    if Array.isEmpty lead || mayRide box then
+        Array.foldr glueLeadingCommentPrefix box lead
+
+    else
+        B.stack1 (lead ++ [ box ])
 
 
 {-| Render a bracketed literal that contains a comment child, as an always-
@@ -4245,6 +4361,7 @@ commentBracketListBox bracket nodes =
                                                 Array.pushLast
                                                     { box = cbox, inline = commentRidesInline node }
                                                     acc.lead
+                                            , leadAtOpener = Array.isEmpty acc.lead || acc.leadAtOpener
                                         }
 
                                 else if commentLeadsNext node then
@@ -4267,6 +4384,12 @@ commentBracketListBox bracket nodes =
                                                 Array.pushLast
                                                     { box = cbox, inline = commentTextCanRide node }
                                                     acc.lead
+                                            -- A separator run must GLUE: stacking would
+                                            -- put the comment inside the `, ` prefix, and
+                                            -- the reparse reads that as written BEFORE
+                                            -- the separator -- a different comment with a
+                                            -- different role, so the file oscillates.
+                                            , leadAtOpener = False
                                         }
 
                                 else if commentTrailsRole node then
@@ -4351,12 +4474,34 @@ commentBracketListBox bracket nodes =
                                                 in
                                                 Ok
                                                     { entries = flushed
-                                                    , pending = Just { box = glueLeadingCommentRun True acc.lead box, isComment = False }
+                                                    , pending =
+                                                        Just
+                                                            { box =
+                                                                -- An OPENER run may ride only a
+                                                                -- single-line item, for the reason
+                                                                -- `glueLeadBoxes` gives — and it must
+                                                                -- agree with `glueLeadBoxes` exactly. A
+                                                                -- comment in the opener slot classifies
+                                                                -- `RidesInline` whatever row it is on (it
+                                                                -- glues to the `[`, and nothing precedes
+                                                                -- it to compare rows with), so the two
+                                                                -- paths cannot be told apart by role: the
+                                                                -- flat path renders format 1 and this one
+                                                                -- format 2 of the same file, and one
+                                                                -- riding while the other stacks is an
+                                                                -- oscillation with no role to blame.
+                                                                glueLeadingCommentRun
+                                                                    (not acc.leadAtOpener || isSingleLine box)
+                                                                    acc.lead
+                                                                    box
+                                                            , isComment = False
+                                                            }
                                                     , lead = []
+                                                    , leadAtOpener = True
                                                     }
                                             )
             in
-            Array.foldl step (Ok { entries = [], pending = Nothing, lead = [] }) nodes
+            Array.foldl step (Ok { entries = [], pending = Nothing, lead = [], leadAtOpener = True }) nodes
                 |> Result.map
                     (\state ->
                         let

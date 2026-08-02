@@ -780,6 +780,7 @@ kitchenSinkSuite fsPerm =
             , assertPretty fsPerm "block-bodied record field values all drop whole below `field =` when multi-line (lambda, if, let, when) — matching elm-format; a single-line lambda stays glued on the `= ` line" "RecordFieldBlockValues"
             , assertPretty fsPerm "a `--` breaking a glued-lambda field's flow drops the lambda 4 past the `{`, like every other field value — not 2, aligned under the field name" "RecordLambdaFieldCommentIndent"
             , assertPretty fsPerm "a single-line block comment between an operator and its operand does not displace the operand: a `<|` body stays at `<|`+4, and a paren-wrapped lambda keeps `)` under its own `(`" "PipeCommentOperandIndent"
+            , assertPretty fsPerm "a single-line `{- -}` before a lambda rides the lambda's row — in an array item, a `<|` body, a `|>` operand — and stacks above it only where the body itself leaves the operator's row" "LambdaLeadingBlockCommentRides"
             , assertPretty fsPerm "`port module` with no ports loses the keyword — the header follows the body" "PortModuleKeywordDropped"
             , assertPretty fsPerm "plain `module` that declares a port gains the keyword — the header follows the body" "PortModuleKeywordAdded"
             ]

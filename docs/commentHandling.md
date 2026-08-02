@@ -33,7 +33,8 @@ history in order, most recent last —
 [C4 in a binop chain](#what-changed-next-c4-in-a-binop-chain),
 [rounds 4 and 5](#what-changed-interview-rounds-4-and-5),
 [the `<|` a comment moved](#what-changed-the--a-comment-moved-off-its-seed),
-[the same `<|`, one step further in](#what-changed-next-the--a-comment-moved-off-a-later-seed).
+[the same `<|`, one step further in](#what-changed-next-the--a-comment-moved-off-a-later-seed),
+[the `{- -}` that opened a container](#what-changed-next-the----that-opened-a-container-for-a-lambda).
 
 **C1 / C2 are about attachment; C3–C6 are about layout.** The two never trade
 against each other: attachment is settled first, in `Comments.gren`, and the
@@ -666,6 +667,71 @@ case one above — is untouched, so `fn <| fn` ⏎ `-- c` ⏎ `<| one` and its
 spelling is additionally a C3 violation, since a single-line block comment
 sharing the `<|`'s row should ride it (`fn {- c -} <|`). Two cells, both in the
 comment axis's UNREVIEWED column.
+
+### What changed next: the `{- -}` that opened a container for a lambda
+
+A single-line `{- -}` never forces a break (C3), and one written before an array
+item rode that item's row — before `one`, before `{ a = 1 }`, before `fn one`.
+Before a **lambda** it broke the container open:
+
+```gren
+-- you wrote                       -- was                -- is
+[ {- c -} \q -> q + one ]          [ {- c -}             [ {- c -} \q -> q + one ]
+                                     \q -> q + one
+                                   ]
+```
+
+The cause is a wrapper, not a lambda rule. A value made of several LPT nodes is
+wrapped in a `BodyBlock`, and `Comments.gren` redirected every comment landing
+before a `BodyBlock` *inside* it, as an own-line comment. That is right for the
+one `BodyBlock` the arm was written for — a declaration's value, which always
+starts its own row — and false for every other use, where `BodyBlock` is a plain
+grouping wrapper renderered through `buildFlowBox` with no hard newline at all.
+A lambda is simply the multi-node value common enough to notice; `one` and
+`{ a = 1 }` stay bare children and never met the arm. The redirect is now gated
+on the container actually being a declaration's (`isDeclValueContainer`), and on
+the same `RidesInline` test the neighbouring `PipelineStep` arm already used.
+
+Letting the comment out of the wrapper then exposed two render sites that had
+never seen one there, and both are about the same thing: **where a comment may
+ride depends on the rendered box, so the code that decides must be the code that
+knows the box.**
+
+- **`<|`.** `buildBackwardBodyBox` stacked leading comments above the body
+  unconditionally. It cannot decide: the step renders `fn <| {- c -} \q -> …`
+  when it stays inline and `fn <|` ⏎ `{- c -}` ⏎ `\q -> …` when it does not,
+  and the second is not optional — with the `<|` on an earlier row the comment
+  reparses as `LeadsOwnLine`, so gluing there oscillates. It now hands riding
+  comments back as `ridingLeading` and the caller, which makes the
+  inline/vertical call, places them.
+
+- **Bracket items.** The prefix lands on the item's first row and deliberately
+  does not shift its continuation rows, which is right when there are none and
+  wrong when there are — it slides the first row out from under the rest of its
+  own construct, so `[ {- c -} if cond then` leaves `else` back at the item
+  column rather than under its `if`. Riding is now limited to a single-line item.
+
+The bracket half took two corrections, both found by `fuzz-idempotency.py` and
+both the same mistake — narrowing a rule past the case it was about:
+
+- **Both bracket paths had to change together.** A comment in the opener slot
+  classifies `RidesInline` on any row (it glues to the `[`, and nothing precedes
+  it to compare rows with), so the flat path renders format 1 of a file and
+  `commentBracketListBox` renders format 2, with no role to tell them apart. One
+  riding while the other stacked was an oscillation with nothing to blame it on.
+
+- **Only an OPENER run may stack.** A comment held for the item after a `,`
+  (rule C2's `LeadsNext`) is rendered inside the caller's `, ` prefix, so
+  stacking it emits `, {- c -}` ⏎ `  item` — which reparses as a comment written
+  *before* the separator, a different comment with a different role. It must glue
+  whatever the item looks like. The same is true of a record field, a record
+  update's field and a union variant, which all render as `head` ⏎ indented tail:
+  the prefix shifts the head row and nothing that has to stay under it. Both
+  bracket folds now carry the opener-vs-separator distinction, and
+  `pairInlineComments` takes the ride test from its caller rather than assuming
+  one.
+
+Fixture `LambdaLeadingBlockCommentRides`, each shape beside its comment-free twin.
 
 ## The one-line pipeline
 

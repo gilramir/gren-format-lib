@@ -1171,28 +1171,51 @@ insertAmongChildren containerBox commentNode row col children =
                             finalBefore ++ [ newNextNode ] ++ afterRest
 
                     BodyBlock ->
-                        -- A `BodyBlock` wraps a declaration's VALUE. A comment
-                        -- the author wrote on its OWN line between `=` and the
-                        -- value belongs to the value, not to the head — so
-                        -- redirect it inside, exactly as the `IndentedBlock` arm
-                        -- above does for a `let` binding's value (which is why
-                        -- the identical comment under a `let` binding's `=`
-                        -- already rendered own-line while a top-level `x =`
-                        -- glued it onto the head as `x = {- c -}`).
+                        -- A `BodyBlock` under `OriginalRows` wraps a declaration's
+                        -- VALUE. A comment the author wrote on its OWN line
+                        -- between `=` and the value belongs to the value, not to
+                        -- the head — so redirect it inside, exactly as the
+                        -- `IndentedBlock` arm above does for a `let` binding's
+                        -- value (which is why the identical comment under a `let`
+                        -- binding's `=` already rendered own-line while a
+                        -- top-level `x =` glued it onto the head as
+                        -- `x = {- c -}`).
                         --
-                        -- Unconditional, like those two arms, and for the same
-                        -- reason: a `BodyBlock` joins with a hard newline, so the
-                        -- value ALWAYS starts its own line. There is no flat line
-                        -- here for a comment to ride, and the row the author
-                        -- wrote it on cannot change that — `x = {- c -}` and
-                        -- `x =` ⏎ `{- c -}` are the same layout question, and
-                        -- elm-format answers both with the comment on its own
-                        -- line above the body.
-                        let
-                            newNextNode =
-                                lpnNode BodyBlock (Array.pushFirst leadingComment (lpnChildren nextNode))
-                        in
-                        finalBefore ++ [ newNextNode ] ++ afterRest
+                        -- Unconditional THERE, like those two arms, and for the
+                        -- same reason: a declaration's value always starts its own
+                        -- line. There is no flat line for a comment to ride, and
+                        -- the row the author wrote it on cannot change that —
+                        -- `x = {- c -}` and `x =` ⏎ `{- c -}` are the same layout
+                        -- question, and elm-format answers both with the comment
+                        -- on its own line above the body.
+                        --
+                        -- Everywhere else `BodyBlock` is a plain grouping wrapper
+                        -- around a multi-node value — an array item, a `<|`/`|>`
+                        -- step body, a call argument — and it renders through
+                        -- `buildFlowBox`, with NO hard newline. `[ \q -> q + one ]`
+                        -- is one row, so the premise above is simply false there,
+                        -- and applying it anyway let a single-line `{- c -}` break
+                        -- the container open (`[ {- c -}` ⏎ `\q -> q + one` ⏎ `]`)
+                        -- — rule C3, a comment never forces a break. It reached
+                        -- only lambdas, since a lambda is the multi-node value
+                        -- that gets this wrapper while `one` / `{ a = 1 }` / `fn x`
+                        -- stay bare children and rode the row correctly.
+                        --
+                        -- Same test as the `PipelineStep` arm above, for the same
+                        -- reason: only a `RidesInline` comment has a flat row to
+                        -- stay on. A `--` ends its row and a multi-line `{- … -}`
+                        -- brings its own newlines, so both still lead the body
+                        -- from inside, and an own-row comment classifies
+                        -- `LeadsOwnLine` and is redirected as before.
+                        if isDeclValueContainer containerBox || classifiedRole /= RidesInline then
+                            let
+                                newNextNode =
+                                    lpnNode BodyBlock (Array.pushFirst leadingComment (lpnChildren nextNode))
+                            in
+                            finalBefore ++ [ newNextNode ] ++ afterRest
+
+                        else
+                            finalBefore ++ [ classifiedComment ] ++ finalAfter
 
                     SoftIndentedBlock ->
                         -- Unlike the three wrappers above, a `SoftIndentedBlock`
@@ -1484,6 +1507,23 @@ isBracketContainerBox box =
             True
 
         RecordUpdate _ ->
+            True
+
+        _ ->
+            False
+
+
+-- True for the container whose `BodyBlock` child is a declaration's VALUE, which
+-- always starts a line of its own. Every other parent gives `BodyBlock` the
+-- meaning "a value made of several nodes" — an array item, a `<|`/`|>` step body,
+-- a call argument — and renders it as a plain flow that can stay on one row. The
+-- distinction decides whether a comment before it has a line to ride; see the
+-- `BodyBlock` arm of `insertAmongChildren`. (A `let` binding's value is an
+-- `IndentedBlock`, handled by its own arm, so it does not need naming here.)
+isDeclValueContainer : LPBox -> Bool
+isDeclValueContainer box =
+    when box is
+        OriginalRows _ ->
             True
 
         _ ->

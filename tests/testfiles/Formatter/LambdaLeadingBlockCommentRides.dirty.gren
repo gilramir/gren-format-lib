@@ -1,0 +1,100 @@
+module LambdaLeadingBlockCommentRides exposing (..)
+
+-- A single-line `{- -}` never forces a break (rule C3), so one written just
+-- before a lambda rides the lambda's row exactly as the same comment before
+-- `one` / `{ a = 1 }` / `fn one` already did. It did not: a lambda is the
+-- multi-node value that arrives wrapped in a `BodyBlock`, and every comment
+-- landing before a `BodyBlock` was redirected inside it as an own-line comment
+-- -- right for a declaration's value, which always starts its own row, and
+-- wrong for an array item or a `<|` / `|>` step body, which need not.
+--
+-- Each shape is followed by its comment-free twin: the comment must change
+-- where the rows fall and nothing else (rule C4).
+
+
+arrayItem =
+    [ {- lambda -} \q -> q + one ]
+
+
+arrayItemNoComment =
+    [ \q -> q + one ]
+
+
+arrayItemWithSibling =
+    [ {- lambda -} \q -> q + one, other ]
+
+
+arrayItemWithSiblingNoComment =
+    [ \q -> q + one, other ]
+
+
+backPipeBody =
+    fn <| {- lambda -} \q -> q + one
+
+
+backPipeBodyNoComment =
+    fn <| \q -> q + one
+
+
+backPipeChain =
+    fn <| gn <| {- lambda -} \q -> q + one
+
+
+backPipeChainNoComment =
+    fn <| gn <| \q -> q + one
+
+
+pipelineOperand =
+    seed
+        |> {- lambda -} \q -> q + one
+
+
+pipelineOperandNoComment =
+    seed
+        |> \q -> q + one
+
+
+-- The comment has a row to ride only while the body stays on the operator's
+-- row. Once the body leaves it -- because the author broke the chain, or the
+-- body itself spans rows -- the comment stacks above the body instead. That is
+-- also what the reparse re-derives: with the operator on an earlier row the
+-- comment reads as leading its own line, so both spellings are fixed points.
+
+
+backPipeBodyBroken =
+    fn
+        <| {- lambda -} \q -> q + one
+
+
+backPipeBodyBrokenNoComment =
+    fn
+        <| \q -> q + one
+
+
+-- A declaration's value always starts its own row, so there is no row to ride
+-- and this one is unchanged.
+
+
+declarationValue =
+    {- lambda -} \q -> q + one
+
+
+-- A row to ride is not enough: the comment's prefix lands on the item's first
+-- row only, so an item whose own rows must stay aligned with that first one --
+-- `else` under its `if`, `in` under its `let` -- cannot take it. Those stack,
+-- which is also what a reparse re-derives.
+
+
+ifItem =
+    [ {- block -} if cond then one else two ]
+
+
+letItem =
+    [ {- block -} let z = 1 in z ]
+
+
+brokenLambdaItem =
+    [ {- block -} \q ->
+        q + one
+    , other
+    ]
