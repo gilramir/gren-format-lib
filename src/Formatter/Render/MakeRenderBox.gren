@@ -1744,7 +1744,7 @@ makeBackwardPipelineBox forceVertical children =
         -- every comment shared an inline content row, which flipped to the
         -- commented path on reparse once a multi-line body pushed its leading
         -- comment own-line — reintroducing the +4 ↔ operator-leading oscillation.)
-        stepLeadsWithComment stepNode =
+        stepLeadsWithComment isFirst stepNode =
             let
                 kids =
                     lpnChildren stepNode
@@ -1754,16 +1754,29 @@ makeBackwardPipelineBox forceVertical children =
                 -- operator (`fn {- c -} <|` ⏎ `one`), which is the comment-free
                 -- layout with the comment on the row the author wrote it —
                 -- rules C3 and C5, and the same answer `++` and `|>` give for
-                -- the identical authoring. Anything that cannot ride still routes
-                -- to the operator-leading layout.
+                -- the identical authoring.
+                --
+                -- One that cannot ride is a trigger only on the FIRST step, whose
+                -- operator sits on the SEED's row: with a `--` above it the seed
+                -- cannot keep it, and the whole chain is operator-leading from the
+                -- top (`fn` ⏎ `-- c` ⏎ `<| one`, which is what the author wrote
+                -- and what divergence #23 records). A later step's operator sits
+                -- on the previous BODY's row, and dropping just that one operator
+                -- to a row of its own is enough — `backwardMultiStep` does it via
+                -- `leadOwnRow`, the same move `isBrokenCall` and a body-ending
+                -- `--` already take. Treating it as a whole-chain trigger moved
+                -- the seed's `<|` over a comment two steps away, the last of the
+                -- C4 violations this family had.
                 firstIsComment =
-                    when Array.first kids is
-                        Just firstChild ->
-                            nodeIsComment firstChild
-                                && not (Array.all commentTextCanRide (spanLeadingComments kids).leading)
+                    isFirst
+                        && (when Array.first kids is
+                                Just firstChild ->
+                                    nodeIsComment firstChild
+                                        && not (Array.all commentTextCanRide (spanLeadingComments kids).leading)
 
-                        Nothing ->
-                            False
+                                Nothing ->
+                                    False
+                           )
 
                 -- What is left of the step once the operator and the comments
                 -- that glue onto its row are taken off the front.
@@ -1800,7 +1813,7 @@ makeBackwardPipelineBox forceVertical children =
             (Array.any nodeIsComment seedNodes
                 && not (literalCommentsRideFlatLine seedNodes)
             )
-                || Array.any stepLeadsWithComment stepNodes
+                || Array.any (\b -> b) (Array.indexedMap (\i n -> stepLeadsWithComment (i == 0) n) stepNodes)
                 -- A `--` line comment buried at the end of the seed's own
                 -- subtree (e.g. a nested binop's `"""…""" -- c` operand) is
                 -- invisible to the shallow `nodeIsComment seedNodes` scan above,
@@ -1849,12 +1862,19 @@ makeBackwardPipelineBox forceVertical children =
                     traverseResult
                         (\stepNode ->
                             let
-                                -- Comments before the `<|`. Only a run that can
-                                -- ride reaches here (`stepLeadsWithComment` sends
-                                -- the rest operator-leading), and it rides the
-                                -- operator's row IN FRONT of it: `fn {- c -} <|`.
+                                -- Comments before the `<|`, split by whether they
+                                -- can share its row. A ridable run glues onto the
+                                -- operator's row IN FRONT of it (`fn {- c -} <|`);
+                                -- one that cannot takes rows of its own above the
+                                -- operator, which then drops to a row of its own
+                                -- too. Only a LATER step can carry the second kind
+                                -- — on the first step it is a whole-chain trigger,
+                                -- since that operator sits on the seed's row.
                                 { leading, rest = afterLead } =
                                     spanLeadingComments (lpnChildren stepNode)
+
+                                canRide =
+                                    Array.all commentTextCanRide leading
                             in
                             when Array.popFirst afterLead is
                                 Just { rest = bodyNodes } ->
@@ -1864,7 +1884,18 @@ makeBackwardPipelineBox forceVertical children =
                                     spanOperatorRowComments bodyNodes
                                         |> (\split ->
                                                 Ok
-                                                    { leadGlued = leading
+                                                    { leadGlued =
+                                                        if canRide then
+                                                            leading
+
+                                                        else
+                                                            []
+                                                    , leadOwnRow =
+                                                        if canRide then
+                                                            []
+
+                                                        else
+                                                            leading
                                                     , glued = split.glued
                                                     , rest = split.rest
                                                     }
@@ -1962,7 +1993,7 @@ stepLeadBoxes leadGlued base =
         |> Result.map (Array.foldl glueCommentSuffix base)
 
 
-assembleBackwardPipeline : Bool -> Box -> Array { leadGlued : Array LPNode, glued : Array LPNode, rest : Array LPNode } -> Result String Box
+assembleBackwardPipeline : Bool -> Box -> Array { leadGlued : Array LPNode, leadOwnRow : Array LPNode, glued : Array LPNode, rest : Array LPNode } -> Result String Box
 assembleBackwardPipeline forceVertical seedBox stepBodies =
     when stepBodies is
         [ step ] ->
@@ -1982,7 +2013,7 @@ assembleBackwardPipeline forceVertical seedBox stepBodies =
 -- `--lpt` for lambdas), so the `_` arm is what actually renders a broken lambda
 -- body. Kept rather than deleted because "believed unreachable" is not proven
 -- unreachable; if you make it fire, the layout it produces is untested.
-backwardSingleStep : Bool -> Box -> { leadGlued : Array LPNode, glued : Array LPNode, rest : Array LPNode } -> Result String Box
+backwardSingleStep : Bool -> Box -> { leadGlued : Array LPNode, leadOwnRow : Array LPNode, glued : Array LPNode, rest : Array LPNode } -> Result String Box
 backwardSingleStep forceVertical seedBox { leadGlued, glued, rest = bodyNodes } =
     let
         -- `seed <|`, with any comment the author wrote on that row glued after
@@ -2241,7 +2272,7 @@ buildBackwardBodyBox bodyNodes =
 --     sending the whole chain operator-leading, which used to move the seed's own
 --     `<|` off its row over a comment two steps away — see
 --     `makeBackwardPipelineBox`.
-backwardMultiStep : Bool -> Box -> Array { leadGlued : Array LPNode, glued : Array LPNode, rest : Array LPNode } -> Result String Box
+backwardMultiStep : Bool -> Box -> Array { leadGlued : Array LPNode, leadOwnRow : Array LPNode, glued : Array LPNode, rest : Array LPNode } -> Result String Box
 backwardMultiStep forceVertical seedBox stepBodies =
     traverseResult (\step -> buildBackwardBodyBox step.rest) stepBodies
         |> Result.andThen
@@ -2289,6 +2320,19 @@ backwardMultiStep forceVertical seedBox stepBodies =
                             Nothing ->
                                 Ok base
 
+                    -- Comments in front of step i's `<|` that cannot share its
+                    -- row. They take rows of their own between the previous body
+                    -- and the operator, which drops to a row of its own below
+                    -- them — at the previous body's indent, so every operand stays
+                    -- where the comment-free chain puts it.
+                    leadOwnRowAt i =
+                        when Array.get i stepBodies is
+                            Just step ->
+                                step.leadOwnRow
+
+                            Nothing ->
+                                []
+
                     effectiveVertical =
                         forceVertical
                             || Array.any (\b -> not (isSingleLine b.box)) bodyBoxes
@@ -2299,6 +2343,9 @@ backwardMultiStep forceVertical seedBox stepBodies =
                             -- single-line box, but the ` <| ` of the step after it
                             -- cannot share that row.
                             || Array.any endsInLineComment stepBodies
+                            -- An own-row comment before an operator needs rows,
+                            -- so the chain cannot stay on one.
+                            || Array.any (\step -> not (Array.isEmpty step.leadOwnRow)) stepBodies
                 in
                 if not effectiveVertical then
                     -- Every body is single-line here, so `boxLine` cannot fail.
@@ -2356,14 +2403,29 @@ backwardMultiStep forceVertical seedBox stepBodies =
                                         -- (i+1) tab stops regardless of whether
                                         -- THAT particular step is what forced the
                                         -- chain vertical.
+                                        nextLeadOwnRow =
+                                            leadOwnRowAt (i + 1)
+
                                         withOperator =
-                                            if i < n - 1 && (isBrokenCall || bodyEndsInLineComment i) then
+                                            if
+                                                i
+                                                    < n
+                                                    - 1
+                                                    && (isBrokenCall
+                                                            || bodyEndsInLineComment i
+                                                            || not (Array.isEmpty nextLeadOwnRow)
+                                                       )
+                                            then
                                                 -- The `<|` is on a row of its own,
                                                 -- so a comment written in front of
                                                 -- it goes on that row, not this
-                                                -- body's last one.
-                                                leadGluedOnto (i + 1) (B.line (B.literal "<|"))
-                                                    |> Result.map (\opRow -> B.stack1 [ bodyBox, opRow ])
+                                                -- body's last one — and one that
+                                                -- cannot ride at all goes on rows
+                                                -- above it.
+                                                Result.map2
+                                                    (\ownRows opRow -> B.stack1 ([ bodyBox ] ++ ownRows ++ [ opRow ]))
+                                                    (traverseResult commentNodeBox nextLeadOwnRow)
+                                                    (leadGluedOnto (i + 1) (B.line (B.literal "<|")))
 
                                             else if i < n - 1 then
                                                 leadGluedOnto (i + 1) bodyBox

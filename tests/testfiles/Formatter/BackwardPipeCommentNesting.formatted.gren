@@ -61,3 +61,25 @@ midChainBlockComment =
     alpha <|
         beta {- self-terminating, so the next `<|` still glues -} <|
             gamma
+
+-- A comment that cannot ride, in front of a LATER step's `<|`, drops just that
+-- operator to a row of its own with the comment above it -- at the previous
+-- body's indent, so every operand keeps the column `plainChain` gives it. Only
+-- on the FIRST step is it a whole-chain trigger (`leadingCommentFirstStep`),
+-- because that operator sits on the seed's own row.
+
+
+lineCommentBeforeSecondOperator =
+    alpha <|
+        beta
+        -- leads the second operator
+        <|
+            gamma <|
+                delta
+
+
+leadingCommentFirstStep =
+    alpha
+        -- leads the first operator
+        <| beta
+            <| gamma

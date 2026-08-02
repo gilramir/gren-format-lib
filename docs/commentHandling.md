@@ -35,7 +35,8 @@ history in order, most recent last —
 [the `<|` a comment moved](#what-changed-the--a-comment-moved-off-its-seed),
 [the same `<|`, one step further in](#what-changed-next-the--a-comment-moved-off-a-later-seed),
 [the `{- -}` that opened a container](#what-changed-next-the----that-opened-a-container-for-a-lambda),
-[the `{- -}` that floated off an operator](#what-changed-next-the----that-floated-off-an-operators-row).
+[the `{- -}` that floated off an operator](#what-changed-next-the----that-floated-off-an-operators-row),
+[the `--` in front of a later `<|`](#what-changed-last-the----in-front-of-a-later-).
 
 **C1 / C2 are about attachment; C3–C6 are about layout.** The two never trade
 against each other: attachment is settled first, in `Comments.gren`, and the
@@ -662,12 +663,11 @@ with `assembleFlow`, which reads a row-breaking leading comment as a call's head
 and puts the body +4 past it. That is the `leadingComment` fixture, and removing
 the routing without fixing the assembler renders `beta` one level too deep.
 
-**Still open**: a comment at the *front of the step itself*, before the `<|` —
-case one above — is untouched, so `fn <| fn` ⏎ `-- c` ⏎ `<| one` and its
-`{- c -}` spelling still send the whole chain operator-leading. The `{- c -}`
-spelling is additionally a C3 violation, since a single-line block comment
-sharing the `<|`'s row should ride it (`fn {- c -} <|`). Two cells, both in the
-comment axis's UNREVIEWED column.
+**Since closed.** The `{- c -}` spelling was the C3 violation fixed in
+[the `{- -}` that floated off an operator's row](#what-changed-next-the----that-floated-off-an-operators-row);
+the `--` spelling was the last of this family, and it went the same way as the
+body-ending `--` above — see
+[the `--` in front of a later `<|`](#what-changed-last-the----in-front-of-a-later-).
 
 ### What changed next: the `{- -}` that opened a container for a lambda
 
@@ -777,6 +777,43 @@ and its fixture title called it author-driven. It predates C1–C6; under C5 it 
 the bug this entry fixes, and `++` had been contradicting it in the same repo the
 whole time. Two other fixtures asserted the same shape in their own prose and
 were corrected with it.
+
+### What changed last: the `--` in front of a later `<|`
+
+The final cell of the comment axis, and the last of the `<|` family: a comment
+that cannot ride, written in front of a **later** step's `<|`, still sent the
+whole chain operator-leading.
+
+```gren
+-- you wrote      -- was            -- is, = elm-format   -- with the comment
+fn <| fn          fn                fn <|                 fn <|
+-- c                  <| fn             fn                    fn <|
+<| one                    -- c          -- c                      one
+                          <| one        <|
+                                            one
+```
+
+Which step the comment leads decides it, and the reason is where that step's
+operator sits:
+
+- **The first step's** operator is on the **seed's own row**. A `--` above it
+  means the seed cannot keep it, and the whole chain really is operator-leading
+  from the top — `fn` ⏎ `-- c` ⏎ `<| one`, which is what the author wrote and
+  what [#23](elmFormatComparison.md#divergence-23) records. Unchanged.
+- **A later step's** operator is on the previous *body's* row. Dropping that one
+  operator to a row of its own is enough, and it is the move `backwardMultiStep`
+  already makes for a relocated broken call and for a body ending in a `--`. The
+  comment takes the rows above it, at the previous body's indent, and every
+  operand keeps the column the comment-free chain gives it — read the right-hand
+  column above against the far right one.
+
+Same shape as [the mid-chain `--`](#what-changed-next-the--a-comment-moved-off-a-later-seed)
+and the same mistake: a real local hazard answered by moving every operator in
+the chain instead of the one that was blocked. Fixtures
+`lineCommentBeforeSecondOperator` / `leadingCommentFirstStep` in
+`BackwardPipeCommentNesting`.
+
+**The comment axis has no UNREVIEWED cells left.**
 
 ## The one-line pipeline
 
