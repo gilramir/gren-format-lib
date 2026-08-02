@@ -1,11 +1,30 @@
 # Comment/Layout Architecture Plan: stop re-deriving, start storing
 
 **Status:** Change A (Phases 1–3) AND Change B landed in full — the plan is
-complete. No `Render/*` code re-derives a comment-placement or verticality
-decision from source rows; layout is decided once from author-intent flags and
-the rendered box shape. All gates green, every fixture byte-identical
-(2026-07-19), on branch `comments`. This document is a self-contained plan meant
-to be handed to an implementer with no prior conversation context.
+complete, including the final phase's enforcement gate. No `Render/*` code
+re-derives a comment-placement or verticality decision from source rows; layout
+is decided once from author-intent flags and the rendered box shape. All gates
+green, every fixture byte-identical (2026-07-19), on branch `comments`. This
+document is a self-contained plan meant to be handed to an implementer with no
+prior conversation context.
+
+**What this document is now.** It is the *rationale and bug history* behind the
+architecture — why placement is stored rather than re-derived, and what it cost
+to learn that. It is not the normative statement of comment behaviour, and it is
+not a description of the current code:
+
+- **What the formatter is trying to do** — rules C1–C6, with worked examples —
+  lives in [`docs/commentHandling.md`](docs/commentHandling.md#the-rules-in-english).
+  Those rules were written down 2026-08-01, twelve days after this plan landed;
+  nothing below states them.
+- **What the code does today** is the source. `CommentRole`'s docstring in
+  `src/Formatter/Logical/LogicalPrintingTree.gren` is the authority on the roles
+  — the set has grown from the five §5.1 proposed to **seven**, and §5.1 is kept
+  as written for the record rather than updated in place. See
+  [Roles since the plan](#roles-since-the-plan-2026-08-01) for the delta and the
+  fixed-point argument each new role owes.
+
+Read this document for *why*; read those two for *what*.
 
 ## Progress log
 
@@ -63,11 +82,14 @@ to be handed to an implementer with no prior conversation context.
     `literalCommentsRideFlatLine`; every other consumer glues it like
     `TrailsPrevious`). The unused `InsideBracketClose` role was removed —
     `CommentRole` is now 4 constructors.
-  - `--lpt` prints each comment's role. **End state:** a grep of `Render/*` for
-    row accessors returns only Change-B shape-prediction (`nodeSpansRows`, …),
-    signature-segment layout, `isElidedArrow`'s zero-width check, and one
-    `lpnMaxRow >= 0` "has real content" guard — **no comment-placement row
-    re-derivation remains.**
+  - `--lpt` prints each comment's role. **End state at the time:** a grep of
+    `Render/*` for row accessors returned only Change-B shape-prediction
+    (`nodeSpansRows`, …), signature-segment layout, `isElidedArrow`'s zero-width
+    check, and one `lpnMaxRow >= 0` "has real content" guard — **no
+    comment-placement row re-derivation remains.** (Change B has since deleted
+    the shape-prediction hits too, and `tests/check-render-invariant.py` now
+    enforces the grep — see [Where it ended
+    up](#where-it-ended-up-2026-08-01).)
 
 - **Phase 2 (cut the flow paths over to roles) — DONE.** All three flow paths
   the plan names now take the comment glue/own-line decision from the stored
@@ -111,7 +133,9 @@ to be handed to an implementer with no prior conversation context.
   row is the last *non-comment* operand (mirrors `contentRow`), so binop
   containers get their own branch in `classifyCommentKind`. All gates
   byte-identical afterward.
-- **NOT YET DONE:** Phase 4+ (Change B, observe-don't-predict) only. The
+- **Written when Phase 4+ (Change B) was still outstanding**, and left in place
+  as the record of that moment — Change B has since landed in full (see the
+  first progress entry, which is chronologically *later* than this one). The
   Change-A goal — no `Render/*` comment-placement decision reads source rows —
   is met. Sites that were *already* row-free (kind/structure only) and so needed
   no change: `stepNeedsCommentedLayout` (pipeline), `pairLeadingRecordComments`,
@@ -119,6 +143,70 @@ to be handed to an implementer with no prior conversation context.
   reads the stored role too), `typeHasCommentBracket` (all classify by comment
   kind / bracket structure, not rows). The remaining row-reads in `Render/*` are
   Change B's target (shape prediction) plus genuinely-structural uses.
+
+## Where it ended up (2026-08-01)
+
+The plan is a year-zero snapshot; this is the scorecard against §8's definition
+of done, twelve days on. Four met, one met differently, one only half met.
+
+| §8 wanted | Today |
+|---|---|
+| All Phase-0 gates green, fixtures byte-identical, parity baseline unchanged | **Met**, and the gate set has grown — the syntax matrix gained a comment axis (`--comments`, ~38.5k cells) that crosses syntax with comments and asks elm-format. It found 424 hard failures on its first run, all fixed. |
+| `FlowState` / `ItemFacts` / `FlowItem` have no row fields | **Met.** |
+| Near-zero row-read decision sites in `Render/*` (from ~150, `MakeRenderBox` ~98 alone) | **Met, and enforced** — `tests/check-render-invariant.py` greps `Render/*` and fails on any row/position accessor outside a named allowlist of structural uses, each carrying its reason. `run-tests.sh` runs it first. |
+| `NodeClassify` keeps only structural queries; `subtreeHasVerticalBox` and the `subtreeHasComment`-as-layout-input family are gone | **Half met.** `subtreeHasVerticalBox` is gone. `subtreeHasComment` is not — it has five callers in `MakeRenderBox` (binop chains ×2, signature segments ×2, pipeline). See below. |
+| `checkContentVertical` gone or reduced to "synthesized parens opt out" | **Met by reduction**, not deletion. It is exactly the author-vs-synthesized gate now: a genuine `Src.Parens` consults its rendered content shape, a formatter-synthesized wrap does not. |
+| Every classifier arm documented with the fixture that pins it | **Met** — `classifyCommentKind`'s doc comment names a fixture per branch. |
+
+**Why `subtreeHasComment` is allowed to survive.** It is not a shape prediction.
+It answers "is there a comment anywhere in this subtree", which routes to a
+different *renderer* — it never claims a subtree will break. Crucially it is
+reparse-invariant in a way a row-read is not: reformatting moves rows, but it
+neither adds nor removes comments, so the second format routes the same way. The
+family §8 wanted gone is `subtreeHasComment`-**as-layout-input** — "there is a
+comment here, therefore this breaks" — and that is gone. A presence test used to
+pick a code path is a different thing, and the enforcement gate agrees: it greps
+for row accessors, and this reads none.
+
+The one cost is real and worth naming: a routing test forks the comment-bearing
+and comment-free paths, which is exactly what
+`feedback_fallback_layout_consistency` (§9) warns about. Every one of the four
+C4 bugs found in interview rounds 3–5 was a fork like this drifting — the
+comment path disagreeing with the comment-free path about indent or grouping.
+The routing is sound; keeping the two arms in agreement is a standing obligation,
+and the test for it is in
+[C4](docs/commentHandling.md#c4--a-comment-changes-where-the-rows-fall-and-nothing-else):
+render the construct again with the comment deleted and compare.
+
+## Roles since the plan (2026-08-01)
+
+§5.1 proposed five roles. There are now **seven**, and the churn is itself the
+evidence for the architecture: each addition was one classifier arm plus one
+renderer arm, with no per-site fixed-point argument to redo.
+
+`InsideBracketClose` was **removed** — a comment inside a bracket container is
+not a distinct role, since the classifier's bracket branch tags it
+`TrailsPrevious` / `RidesInline` / `LeadsOwnLine` like any other, which is all
+`commentBracketListBox` needs. Three were **added**:
+
+| Role | Added for | Example |
+|---|---|---|
+| `LeadsNext` | rule **C2** — the comment belongs to the sibling *after* a separator the parser did not record | `[ 1 {- c -}` ⏎ `, 2 ]` → `[ 1` ⏎ `, {- c -} 2` ⏎ `]` |
+| `TrailsHead` | a container's **head** is not one of its children, so `TrailsPrevious` has nothing to reach — today exactly a record update's base | `{ rec -- c` ⏎ `\| a = 1 }` keeps the `--` on the base's row |
+| `LeadsInline` | the front-of-line mirror of `TrailsPrevious`: a block comment glued before a declaration's first token, travelling with it through the import sort | `{- c -} import Qux` |
+
+Each owes the §5.4 fixed-point argument, and `LeadsNext`'s is the one that bit:
+it renders on the **next** item's row, so a classifier keying only on "same row
+as the previous item" reads its own output back as an own-row comment and drops
+it to its own line. `[ 1 {- c -}` ⏎ `, 2 ]` oscillated exactly that way. The rule
+keys on **either** adjacent item's row. This is §5.4's obligation restated: a role
+is a fixed point only when the row it is *decided from* equals a row it can
+*render on*.
+
+The current role set, with each one's meaning and the reparse argument, is the
+`CommentRole` docstring in `src/Formatter/Logical/LogicalPrintingTree.gren`. The
+renderer-side consumer table is in
+[`docs/commentHandling.md`](docs/commentHandling.md#the-renderer-side--consuming-the-role).
 
 ---
 
@@ -180,6 +268,24 @@ Author-intent flags are sound fixed points by design: flat output reparses
 flat, vertical output reparses vertical. Roles are sound fixed points if the
 classifier's rule matches the renderer's output (§5.4 states the proof
 obligation once, instead of once per render arm).
+
+What the invariant buys. A render-time row test asks "is the comment on the same
+row as the thing before it?" of rows that the *previous* format already moved —
+so the answer can flip on every pass. Schematically, the shape of the bug this
+plan removes:
+
+```gren
+-- format 1                -- format 2                -- format 3
+[ 1                        [ 1                        [ 1
+  {- c -}                  , {- c -} 2                  {- c -}
+, 2 ]                      ]                          , 2
+                                                      ]
+```
+
+Neither pass is wrong on its own terms; they disagree because each reads the
+previous pass's output as if it were the author's. Storing the answer once, from
+the rows the author actually wrote, is what makes format 2 equal format 1. (All
+three shapes are stable today — this is the disease, not a current output.)
 
 ---
 
@@ -299,6 +405,11 @@ Logical→Render boundary as *decision inputs*.
 
 ### 5.1 The new type
 
+> **Superseded.** Five roles were proposed; there are seven today, and
+> `InsideBracketClose` is not among them. See [Roles since the
+> plan](#roles-since-the-plan-2026-08-01); the live list is `CommentRole`'s
+> docstring in the source. The proposal is kept as written below.
+
 In `Formatter/Logical/LogicalPrintingTree.gren`:
 
 ```gren
@@ -407,24 +518,69 @@ and document the arm with the fixture name that pins it.
 ### 5.4 The fixed-point proof (once, here, instead of per render arm)
 
 The idempotency argument the eight fixes each made locally becomes one global
-argument:
+argument. **The obligation, stated once:** a role is a fixed point when the row
+the classifier *decides it from* is a row the renderer can *put the comment on*.
+Every argument below is that sentence instantiated, and every violation of it —
+including the one found after this plan landed — is a case where the two rows
+were different.
 
 - `TrailsPrevious` renders as `<prev item's last rendered line> <comment>`.
   On reparse, the comment sits on the same row as the previous item's last
   token (for `--`) or closing bracket — which is precisely the classifier's
   `TrailsPrevious` condition. Fixed point.
+
+  ```gren
+  [ apple -- the red one     -- decided from: apple's row
+  , banana                   -- rendered on:  apple's row       same row ✓
+  ]
+  ```
 - `LeadsOwnLine` renders the comment on its own row at the flow indent. On
   reparse its row differs from both neighbors → classified `LeadsOwnLine`
   again. Fixed point.
+
+  ```gren
+  [ apple                    -- decided from: a row of its own
+  -- about banana            -- rendered on:  a row of its own  same row ✓
+  , banana
+  ]
+  ```
 - `RidesInline` renders mid-line between two same-row tokens → reparse sees
   the same → fixed point.
+
+  ```gren
+  f {- k -} x                -- both neighbours on the comment's row, before
+                             -- and after ✓
+  ```
 - `InsideBracketClose` renders before the close bracket, inside → the descent
   guard re-fires. Fixed point (this is what `lpnBracketNode` already
-  guarantees).
+  guarantees). *(This role was later removed — the bracket branch tags such a
+  comment like any other.)*
 - `Standalone` renders at column 1 — trivially stable (cannot drift).
 
+**The role added later that failed this test, and how.** `LeadsNext` (rule C2)
+renders the comment glued to the front of the **following** item — so it lands
+on a row the classifier was not looking at:
+
+```gren
+-- you wrote                -- gren-format
+[ 1 {- c -}                 [ 1
+, 2 ]                       , {- c -} 2
+                            ]
+--  decided from: item 1's row
+--  rendered on:  item 2's row      DIFFERENT ROW ✗
+```
+
+Reparsed, the comment is on item 2's row, so a classifier keying only on "same
+row as the previous item" calls it an own-row comment and drops it to its own
+line — the col-N ↔ col-0 oscillation this whole plan exists to remove, arriving
+through a brand-new role. The fix is to key on **either** adjacent item's row,
+which restores the invariant: the decision row is now a set that contains the
+render row.
+
 Any future comment bug is then a *classifier* bug with exactly one place to
-fix, and `fuzz-idempotency.py` remains the gate that proves it.
+fix, and `fuzz-idempotency.py` remains the gate that proves it. That has held —
+every comment-placement bug since has been one classifier arm or one renderer
+arm, never a fixed-point argument to redo across sites.
 
 ### 5.5 Render-side consumption (what each §3 site becomes)
 
@@ -473,8 +629,9 @@ Then, site by site:
 - The top-level detach rule and `VerticalSpace`'s column-based
   detached-vs-leading distinction (works on original columns, pre-render —
   legitimate).
-- The `let` last-binding trailing comment routing below `in`
-  (deliberate divergence, README #20 — memory says do not re-open).
+- The `let` last-binding trailing comment routing below `in` (a deliberate
+  divergence — [#20](docs/elmFormatComparison.md#divergence-20) at the time of
+  writing; do not re-open).
 - The where-block `--` escape (parser gives byte-identical AST+Context for
   both layouts — unfixable here, don't try).
 - `Comments.gren`'s descent/boundary logic itself — it is the *right* place
@@ -510,6 +667,25 @@ Everything in between — `nodeSpansRows`, `subtreeHasComment`-as-layout-input,
 `subtreeHasVerticalBox`, `checkContentVertical` backstops — is a prediction
 layer that exists only because decisions were made before rendering, and it
 goes away.
+
+What a lying predicate looks like from outside. The caller lays out the code
+*around* a child on the strength of the prediction, so an under-approximation
+does not merely mis-indent — it commits to a layout the child then contradicts:
+
+```gren
+-- the predicate said "this operand is one line", so the chain stays flat …
+x = alpha ++ (if p then one else two)
+
+-- … but the operand renders multi-line, and the flat assembly has nowhere to
+-- put it. Best case the next format disagrees with this one; worst case the
+-- assembler hits a shape it was promised could not occur and returns `Err`
+-- ("unreachable soft-glue", the 27e8903 / 6021c73 crashes).
+```
+
+`audit-predicates.py` exists only because this is otherwise invisible: the
+output is deterministic, AST-equivalent and often idempotent, so every
+self-consistency gate in the repo passes it. Render the child and ask
+`isSingleLine` and the question cannot be answered wrongly.
 
 ### 6.2 Box reuse is mandatory, not optional
 
@@ -652,12 +828,20 @@ no auto task branches).
 - `checkContentVertical` is gone or reduced to "synthesized parens opt out".
 - The classifier's arms are each documented with the fixture that pins them.
 
+Scored against the code as it stands: [Where it ended
+up](#where-it-ended-up-2026-08-01).
+
 ## 9. Pitfalls and standing decisions (read before coding)
 
-- **Deliberate divergences from elm-format are not bugs.** README "Divergence
-  catalogue" (#10 redundant parens, #14, #18, #20 pipeline `|>` alignment,
-  #21 let-last-binding comment, #22, …). Matching output to elm-format is a
-  *gate for shared constructs only*, via the matrix parity baseline.
+- **Deliberate divergences from elm-format are not bugs.** The catalogue is
+  [`docs/elmFormatComparison.md`](docs/elmFormatComparison.md) — #10 redundant
+  parens, #17 precedence-split binop chains, #19 pipeline `|>` alignment, #20
+  let-last-binding comment, #22 position-less separators, … Matching output to
+  elm-format is a *gate for shared constructs only*, via the matrix parity
+  baseline. **The numbers move**: entries have been removed and later ones
+  renumbered down more than once, so cite by reading the entry text, not by
+  recalling a number — proposing a citation from memory has produced two wrong
+  ones in a single review round.
 - **The `let` last-binding trailing comment routes below `in` on purpose** —
   both "fixes" oscillate because `in` has no position. Do not let the
   classifier "improve" this.

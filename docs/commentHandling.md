@@ -569,8 +569,10 @@ The invariant that keeps comments stable:
 ## `CommentRole` — decide once, store it
 
 A comment leaf carries a `CommentRole`, decided **once** in `Comments.gren` from
-the pristine parse rows and read verbatim by the renderer. The ones that decide
-placement inside a construct:
+the pristine parse rows and read verbatim by the renderer. All seven, which is
+the complete set — `CommentRole`'s docstring in
+`Formatter.Logical.LogicalPrintingTree` is the authority if this table ever
+drifts from it:
 
 | Role | Meaning | Renders as |
 |---|---|---|
@@ -579,6 +581,7 @@ placement inside a construct:
 | `LeadsNext` | belongs to the sibling that *follows*, across a separator with no position — rule **C2** | glued to the front of that sibling's box, inside the `,`/`\|` prefix |
 | `TrailsHead` | glues onto the container's **head**, which is not one of its children — today only a record update's base (`{ rec -- c`) | `<head's line> <comment>` |
 | `RidesInline` | a single-line `{- -}` riding mid-flow without breaking (`f {- k -} x`) | mid-line, inline |
+| `LeadsInline` | the front-of-line mirror of `TrailsPrevious`: a block comment glued before a declaration's first token (`{- c -} import Qux`) — it travels with the declaration, so it never breaks an import run | glued to the front of the declaration's first line |
 | `Standalone` | a top-level detached comment at column 1 | its own `OriginalRows` |
 
 `RidesInline` vs `TrailsPrevious` matters to exactly **one** consumer

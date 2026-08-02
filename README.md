@@ -237,7 +237,7 @@ Gren is a spiritual descendant of Elm, so `gren format` and `elm-format`
 should agree on shared syntax unless there's a deliberate reason not to. Both
 formatters share the same "your line breaks are your layout decisions"
 philosophy — neither reflows code to fit a page width — so they agree almost
-everywhere. Where they don't, it's a catalogued choice: 24 divergences,
+everywhere. Where they don't, it's a catalogued choice: 26 divergences,
 covering things like blank-line placement around comments, redundant parens
 (the most common difference on real code), and how a multi-line operator chain
 breaks. One of them isn't a choice at all — Gren's parser throws away the
