@@ -342,6 +342,10 @@ documentation instead of quietly outliving it.
    Fixture: `Divergence/D09VerbatimLiterals`, which pins all three. Both sides
    re-verified against the `elm-format` binary 2026-08-02.
 
+   Filed upstream as
+   [compiler-common#34](https://github.com/gren-lang/compiler-common/issues/34);
+   the write-up is `parser-literal-spelling-bug.md`.
+
 10. <a id="divergence-10"></a>**Redundant parens: gren-format keeps the ones you wrote, elm-format
     strips them.** If you put parens somewhere they aren't needed, gren-format
     leaves them exactly as written, in every position, with no exceptions.
