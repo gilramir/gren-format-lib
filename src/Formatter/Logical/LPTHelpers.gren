@@ -1,5 +1,6 @@
 module Formatter.Logical.LPTHelpers exposing
     ( authoredBracketList
+    , endOfToken
     , fixupParensChildrenNodesAt
     , itemsSpanRows
     , mkText
@@ -51,13 +52,40 @@ mkTextFromLocString ltext =
     UnbreakableText ltext
 
 
--- Build an UnbreakableText for a synthesized (elided) token whose position
--- is *zero-width*: `start == end == pos`. The token still renders its full
--- text; the zero width matters only for comment placement. Anchoring a
--- synthesized keyword/punctuation at a single point (rather than giving it a
--- fake span) keeps it from overlapping a comment that happens to sit at the
--- same column, which is what makes comment placement around elided tokens
--- stable across reformats (idempotent).
+{-| The position one past the last character of a token that starts at `start`
+and reads `text` — i.e. the anchor `mkZeroWidthText` wants for whatever elided
+token follows it. Only for tokens the AST gives a start but no end. -}
+endOfToken : Position -> String -> Position
+endOfToken start text =
+    { row = start.row, col = start.col + String.count text }
+
+
+{-| Build an `UnbreakableText` for a synthesized (elided) token whose position
+is *zero-width*: `start == end == pos`. The token still renders its full text;
+the zero width matters only for comment placement. Anchoring a synthesized
+keyword/punctuation at a single point (rather than giving it a fake span) keeps
+it from overlapping a comment that sits at the same column, which is what makes
+comment placement around elided tokens stable across reformats (idempotent).
+
+**The anchoring policy, once, for all ~14 sites.** Gren's parser records no
+position for `=` `:` `|` `,` `->` `as` `exposing` `(..)` `else if`, an effect
+module's `where` labels, or a pattern's `as` — so every one of them has to be
+given one here. The rule is: anchor at **the end of the last REAL token before
+it**, never a column further on.
+
+The end of a real token is a position that survives reformatting, so a comment
+written in the gap after that token lies past the anchor both in the source and
+in the re-parsed output, and therefore sorts to the same side twice. A `+1`
+would TIE with a comment that immediately follows the token, letting it fall on
+either side across reformats — the oscillation class this rule exists to
+prevent. The visible trade-off is that a gap comment always renders after the
+elided token; that is the deliberate canonical placement (rule C2).
+
+Where the real column is not recoverable — an effect module's
+`where { … } exposing`, whose column depends on the block's contents — there is
+no honest anchor, and the site falls back to a position-less `SynthesizedText`
+instead of inventing one.
+-}
 mkZeroWidthText : Position -> String -> LPBox
 mkZeroWidthText pos text =
     UnbreakableText

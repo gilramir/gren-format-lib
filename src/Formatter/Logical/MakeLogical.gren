@@ -16,7 +16,7 @@ import Math exposing (maxSafeInteger)
 import Formatter.Logical.InsertExpressions exposing (insertExpression)
 import Formatter.Logical.InsertPatterns exposing (folderInsertPattern)
 import Formatter.Logical.InsertTypes exposing (makeSignatureBranch)
-import Formatter.Logical.LPTHelpers exposing (mkText, mkTextFromLocString, mkZeroWidthText, plainAcross, resultFoldl)
+import Formatter.Logical.LPTHelpers exposing (endOfToken, mkText, mkTextFromLocString, mkZeroWidthText, plainAcross, resultFoldl)
 import Formatter.Logical.LogicalPrintingTree exposing
     ( LPBox(..)
     , LPNode(..)
@@ -154,24 +154,14 @@ processModuleLine modAst root =
             buildWhereBlock modAst.effects
 
         exposingPos =
-            { row = modAst.name.start.row
-            , col = modAst.name.start.col + String.count modAst.name.value
-            }
+            endOfToken modAst.name.start modAst.name.value
 
-        -- `exposing` has no position in the AST, so we synthesize one. We
-        -- anchor it *exactly at the end of the module name* (a real, stable
-        -- position) rather than one column further. This guarantees
-        -- idempotency: any comment written between the name and the exports
-        -- list lies past the name's end, so it always sorts *after* this
-        -- synthesized `exposing` — in the source AND in our own re-parsed
-        -- output. (A `+1` here would tie with a comment that immediately
-        -- follows the name, so the comment could fall on either side across
-        -- reformats.) The trade-off is that such a comment always renders
-        -- after `exposing`; that is the deliberate canonical placement.
+        -- `exposing` has no position in the AST, so it is anchored at the end of
+        -- the module name per the standard rule (see `mkZeroWidthText`).
         --
-        -- For `effect module … where { … } exposing`, the real column
-        -- depends on the where-block's contents and isn't tracked in the
-        -- AST, so we fall back to SynthesizedText (position-less).
+        -- For `effect module … where { … } exposing` the real column depends on
+        -- the where-block's contents and is not tracked, so there is no honest
+        -- anchor and this falls back to a position-less `SynthesizedText`.
         exposingNode =
             when modAst.effects is
                 Src.Manager _ ->
@@ -905,11 +895,8 @@ processFunctionSignature locName maybeType root =
                             -- doesn't stretch all the way down to the definition
                             -- — that would suck a line comment sitting between
                             -- signature and definition into the signature row.
-                            nameLen =
-                                String.count locName.value
-
                             sigNameEnd =
-                                { row = sigStart.row, col = sigStart.col + nameLen }
+                                endOfToken sigStart locName.value
 
                             nameNode =
                                 lpnLeaf (UnbreakableText { start = sigStart, end = sigNameEnd, value = locName.value })
