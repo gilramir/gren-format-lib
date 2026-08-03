@@ -3746,7 +3746,7 @@ makePBox box children =
 
         EmptyBracketed loc ->
             when bracketPunc loc.value is
-                Just { left, right } ->
+                { left = left, right = right } ->
                     if Array.isEmpty children then
                         Ok (B.line (B.row [ B.punc left, B.punc right ]))
 
@@ -3784,12 +3784,6 @@ makePBox box children =
                                                     ++ [ B.line (B.punc right) ]
                                                 )
                                         )
-
-                Nothing ->
-                    -- unreachable: ListBrackets has exactly 3 constructors
-                    -- (ListParen/ListCurly/ListSquare); bracketPunc matches
-                    -- all of them and always returns Just.
-                    Err "unreachable: bracket kind"
 
         Binop { forceVertical } ->
             makeBinopBox forceVertical children
@@ -4188,14 +4182,8 @@ makeLiteralBox forceMultiline bracket children =
             |> Result.andThen
                 (\itemBoxes ->
                     when bracketPunc bracket is
-                        Just { left, right } ->
+                        { left = left, right = right } ->
                             Ok (E.groupBox (bracket /= ListParen) left "," right forceMultiline itemBoxes)
-
-                        Nothing ->
-                            -- unreachable: ListBrackets has exactly 3 constructors
-                            -- (ListParen/ListCurly/ListSquare); bracketPunc matches
-                            -- all of them and always returns Just.
-                            Err "unreachable: bracket kind"
                 )
 
 
@@ -4451,13 +4439,7 @@ glueLeadingCommentRun bodyMayRide lead box =
 commentBracketListBox : ListBrackets -> Array LPNode -> Result String Box
 commentBracketListBox bracket nodes =
     when bracketPunc bracket is
-        Nothing ->
-            -- unreachable: ListBrackets has exactly 3 constructors
-            -- (ListParen/ListCurly/ListSquare); bracketPunc matches
-            -- all of them and always returns Just.
-            Err "unreachable: bracket kind"
-
-        Just { left, right } ->
+        { left = left, right = right } ->
             let
                 -- Nothing has been emitted yet, so a comment here was written
                 -- just after the opening bracket and leads the FIRST item

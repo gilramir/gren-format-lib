@@ -50,14 +50,19 @@ verticalExposingBox itemLines =
             B.line (B.punc "()")
 
 
-bracketPunc : ListBrackets -> Maybe { left : String, right : String }
+{-| The opening and closing punctuation for a bracket kind. Total: `ListBrackets`
+has exactly these three constructors, so there is no "no punctuation" case. It
+returned a `Maybe` until 2026-08-02, which cost three call sites an impossible
+`Nothing` branch each, all three carrying the same copied comment explaining that
+it could not happen. -}
+bracketPunc : ListBrackets -> { left : String, right : String }
 bracketPunc bracket =
     when bracket is
         ListCurly ->
-            Just { left = "{", right = "}" }
+            { left = "{", right = "}" }
 
         ListSquare ->
-            Just { left = "[", right = "]" }
+            { left = "[", right = "]" }
 
         ListParen ->
             -- A parenthesized exposing list reached via the general list path
@@ -76,7 +81,7 @@ bracketPunc bracket =
             -- the parens. The elastic close removed that constraint: a comment
             -- after the last name is now read as the list's and pinned above the
             -- `)` at any column, so the column no longer decides anything.
-            Just { left = "(", right = ")" }
+            { left = "(", right = ")" }
 
 
 {-| One rendered flow child.
