@@ -1,0 +1,323 @@
+# Testing runs of comments
+
+How this repo intends to get **more than one comment in a row** right, without
+enumerating the combinations and without anyone eyeballing the output.
+
+> **Status.** The analysis and the coverage map below are current. The
+> *deletion-invariance oracle* and the *run-classification refactor* are
+> proposed, not built — each is marked where it appears. Nothing here describes
+> behaviour the formatter does not have; where a claim is about shipped code it
+> names the function.
+
+---
+
+## The problem
+
+A comment run — two or more comments with no code between them — has a test
+space that grows as `3^n`, because the formatter distinguishes three comment
+kinds and the rules branch on all three:
+
+| kind | ends its row? | brings its own rows? | can ride a flat line? |
+|---|---|---|---|
+| `-- c` | yes | no | **no** |
+| `{- c -}` on one row | no | no | **yes** |
+| `{- c` … `-}` across rows | no | yes | **no** |
+
+One comment in one gap is 3 cases. Two is 9, three is 27, and a corpus gap
+count in the ten-thousands multiplies every one of them. Worse, the thing a
+run gets wrong is usually *layout*, and layout has no local truth: a run can be
+stable, AST-preserving, idempotent and comment-preserving while sitting in
+visibly the wrong place. Every gate in this repo except the elm-format oracle
+is a self-consistency check (see
+[the gate list](#what-each-gate-actually-covers)), and elm-format needs a
+reviewed baseline entry per divergence — which does not scale to `3^n` either.
+
+So: enumerating is impractical, and judging the output is not mechanical.
+
+---
+
+## The combinatorics are mostly illusory
+
+The escape is that a run's *effect on layout* need not depend on the sequence
+at all. It already doesn't in one place, and that place is the model for the
+rest.
+
+`Render/NodeClassify.gren` decides whether a bracketed literal can stay on one
+line with comments inside it:
+
+```gren
+literalCommentsRideFlatLine children =
+    not (Array.any (\node -> …not ridable…) children)
+```
+
+That is `Array.all canRide` — an **all-or-nothing fold**. A run of `n` comments
+contributes exactly one boolean to the layout around it. Nine kind-pairs
+collapse to two outcomes; twenty-seven kind-triples collapse to the same two.
+
+Where that pattern holds, `3^n` is not the size of anything. The work is to
+make it hold *everywhere* a comment can land, and then to gate the fold rather
+than the combinations.
+
+---
+
+## The laws, and where they come from
+
+The laws are not new policy. Each of the six comment rules in
+[`commentHandling.md`](commentHandling.md), taken at its word, already says what
+a run must do — the single-comment statement generalises with no extra
+decisions:
+
+| rule | for one comment | the same rule, for a run |
+|---|---|---|
+| **C1** a comment belongs to the code you wrote it next to | which code | **run cohesion** — one gap is one attachment, so the run gets **one role**, not one per comment |
+| **C2** at an unrecorded separator, the comment leads what follows | which side | the side is a property of the *gap*, so the whole run goes to the same side |
+| **C3** a comment never forces a break | ride or break | the run rides iff **every** member can ride (`Array.all`) — shipped, as `literalCommentsRideFlatLine` |
+| **C4** a comment changes where the lines fall, and nothing else | — | **deletion invariance** — see below |
+| **C5** gren-format adds nothing around a comment | — | nothing is injected *between* members; source order is preserved |
+| **C6** an own-line comment is indented to the code it leads | which column | **run alignment** — every own-line member of one run sits at one column |
+
+C1 and C3 are the structural ones: together they say a run behaves like a
+single comment whose kind is the *worst* kind in it. C4 is the one that turns
+into a machine-checkable oracle.
+
+---
+
+## The oracle: deletion invariance
+
+*(Proposed. Not built.)*
+
+C4 says a comment changes where the rows fall and nothing else. Applied to the
+k-th comment of a run, that is:
+
+> **In a run of two or more comments where at least two members share a
+> ride-class, deleting one of those members must change the output by exactly
+> that comment's own rendering — nothing else moves.**
+
+This is the whole answer to "how do we judge whether it looks right": you don't
+judge the n-comment output. You check that it differs from the (n−1)-comment
+output by exactly the one comment you removed. The (n−1) case is in turn
+checked against (n−2), down to n=1 — which the existing gates and the
+elm-format oracle already cover. **n-comment correctness follows from
+1-comment correctness by induction**, and no human reads a three-comment
+layout.
+
+### Why the "two share a class" guard is not a fudge
+
+Naively, "deleting a comment moves nothing else" is **false**, and deliberately
+so. Two shipped rules make a comment change the surrounding layout:
+
+- `literalCommentsRideFlatLine` — deleting the only non-ridable member lets the
+  container collapse back to one line. That is C3 working.
+- `NodeClassify.commentBreaksFlowRow` — a comment that ends a row is folded into
+  the force-vertical decision, so deleting it can re-flow a call or a binop
+  chain. That fix is what closed 214 cells of the comment axis in 2026-07-31.
+
+Both are `any`/`all` folds over the run's *classes*. So if the run still
+contains another member of the same class after the deletion, **every such fold
+returns what it returned before, by construction** — no verdict can flip, and
+the invariance holds unconditionally. There is nothing to compute, no
+baseline, and no exception list to keep in step with the code.
+
+That is why the law is stated over duplicate-class members rather than over
+arbitrary ones. It costs one extra comment in the probe and buys an oracle with
+no judgement in it.
+
+### What it collapses the test space to
+
+| level | what runs | judged by |
+|---|---|---|
+| n = 1 | 3 kinds × every gap × every context | idempotency, AST, marker count, **elm-format parity** |
+| n = 2 | 4 **class**-pairs (ride+ride, ride+noride, noride+ride, noride+noride) | the above, plus parity — this is the boundary where `Array.all` can flip |
+| n = 3 | deletion invariance only | itself; no baseline, no review |
+
+Roughly eight shapes per gap instead of `3 + 9 + 27`, and only the first two
+levels need a baseline at all.
+
+---
+
+## The code change that makes C1 and C3 structural
+
+*(Proposed. Not built.)*
+
+The render half is already run-shaped. `Render/CommentBox.gren` exposes
+`spanLeadingComments`, `spanTrailingComments`, `spanTrailingOwnLineComments`,
+`spanOperatorRowComments` and `peelTrailingCommentNodes` — all of them take and
+return `Array LPNode` — and `makeCommentLineBox` folds over the run. Adding a
+second comment does not reach new code there.
+
+The classifier half is not. `Comments.gren`'s `classifyCommentKind` decides a
+role for **one** comment from its neighbours, and when a run is inserted the
+previous *comment* is the neighbour the next one classifies against. So the
+role of comment k can depend on comments 1..k−1 through a path nobody wrote
+down — which is exactly the situation the laws above are meant to remove.
+
+The change that makes C1 and C3 hold by construction rather than by testing:
+
+1. identify the maximal comment run in a gap **once** (today the run-formation
+   rule is spread over several sites that have to agree);
+2. decide **one** role for the run, from the gap — the same decision
+   `classifyCommentKind` makes now, taken once;
+3. let each member contribute only its own `commentTextCanRide` to a fold.
+
+After that, "the run gets one role" and "the run rides iff all members ride"
+are not properties to test — they are the shape of the code.
+
+---
+
+## What each gate actually covers
+
+The reason this document exists is that the coverage map had a hole nobody had
+drawn, and it hid a real class of bug for a long time.
+
+| gate | varies | does **not** vary |
+|---|---|---|
+| fixtures | whatever someone wrote by hand | — |
+| `fuzz-idempotency.py` per-gap pass | every inter-token gap × **all three kinds** (since 2026-08-03) | more than one comment |
+| `fuzz-idempotency.py` decl-end pass | own-line trailing comment, block and line form | more than one comment |
+| `fuzz-whitespace.py` | inter-token whitespace | comments, syntax |
+| `matrix-syntax.py` | every expression form × 25 **expression** contexts × 4 layout variants | comments; **declaration syntax** |
+| `matrix-syntax.py --comments` | the above × 1 comment × 4 placements | more than one comment; declaration syntax |
+| `audit-predicates.py` | corpus, predicate vs renderer | nothing new |
+| `gen-random.py` | structure **and** comments, randomly | — (the only gate that generates runs at all, and it has no parity oracle) |
+
+Two holes are visible in that table, and they compound:
+
+- **No declaration contexts.** `matrix-syntax.py`'s context list is
+  expression-only: no signature, type alias, union, port, import, module header,
+  or `let` binding with a signature. A comment-placement question about a type
+  signature therefore reaches no oracle at all.
+- **One comment kind per gap, until 2026-08-03.** The per-gap pass injected only
+  `{- ¤ -}` — the single-line block. That is precisely the kind most placement
+  rules do *not* fire for: `commentTextCanRide` is literally "single-line block
+  or not", and C2's line-leading-separator exception applies to a `--` and a
+  multi-line `{- … -}` but **not** to a single-line one.
+
+Their intersection is what hid the signature-`->` rule: a comment in a type
+signature's arrow gap was invisible to the fuzzer (only one kind swept) *and*
+invisible to the comment matrix (no declaration contexts). When that rule was
+changed on 2026-08-03, the only evidence available was hand-written fixtures.
+
+### The worked example: what the hole cost
+
+Extending the per-gap pass to all three kinds, the same afternoon, over the
+same 319-file corpus that had been green for months:
+
+| kind | findings |
+|---|---|
+| `{- c -}` single-line block — *the kind that had always been swept* | **0** |
+| `{- c` … `-}` multi-line block | **785**, in 129 files |
+| `-- c` line comment | **222**, in 59 files |
+
+Running each failing probe under the previous build attributed them. Of the
+arrow-gap subset:
+
+| kind | regression from that morning's commit | pre-existing |
+|---|---|---|
+| multi-line block | **401** | 2 |
+| single-line block | **3** | 1 |
+| `--` | 0 | 0 |
+
+The `--` is what that change was actually *about*, and it was clean. The
+breakage was entirely in the other two kinds — which the change also moved,
+and which nothing exercised.
+
+The diagnosis was quick and the first two fixes were both wrong in the same
+instructive way.
+
+`signatureForceVertical` asks "did the author break the type at a `->`", from
+source rows. A multi-line `{- … -}` inflated the segment's row span, so the
+answer came out "no", the signature rendered inline — and the reparse, where the
+comment's own rows had pushed the `->` down, answered "yes". Classic oscillation.
+
+**Fix attempt 1** — skip comment nodes when computing the segment's row span.
+This cleared every arrow-gap finding and looked done; a wider re-sweep found 15
+still oscillating elsewhere.
+
+**Fix attempt 2** — skip comments *recursively*, since the survivors carried
+their comments nested inside a record type where the cached `lpnMaxRow` still
+folded them in. **This changed nothing at all**, which is the interesting part:
+
+> Subtracting the comment's rows cannot work, because the comment also moves
+> the **code's** rows. There is no row-derived answer that survives the reflow.
+
+**The fix that worked** is kind-based, not row-based: if a comment anywhere in
+the type is one that *cannot ride* — a `--` or a multi-line `{- … -}` with a
+real item after it — the signature commits to the broken layout up front. A
+comment's kind is the same before and after it reflows, so both passes agree.
+That is `commentBreaksAnyFlowRow`, and it is the recursive form of the existing
+`commentBreaksFlowRow`, which was written for the same class one level down.
+
+One refinement was still needed: `commentBreaksFlowRow` ignores a comment at the
+end of a flow, because nothing follows it — true for a call (`foo bar -- c` is
+one row), false inside a **bracket**, where the closing `}` is a real token that
+gets pushed down. The last two oscillating gaps were exactly that.
+
+Result: **0 regressions**, and 98 *pre-existing* findings cleared as a side
+effect. Two fixtures moved closer to elm-format — a signature the author broke
+at the `->` no longer collapses onto one line when it carries a comment, which
+is the shape elm-format produces.
+
+### The residual, and why this gate ships red
+
+After the fixes the corpus sweep stands at **418 findings — 0 regressions, all
+pre-existing**: 294 multi-line block, 124 `--`, 0 single-line block. Every one
+was attributed against the previous build; none is new.
+
+So `fuzz-idempotency.py --gaps` currently **fails**, and that is deliberate. A
+green gate would require either fixing 418 latent oscillations first or
+narrowing the sweep back to the kind that was already clean — and narrowing it
+is exactly the mistake that hid them. The count is printed per kind on every
+run, in the same spirit as the `UNREVIEWED` / `BUG:` counters in the parity
+baselines: debt that is visible is debt that gets paid, and a number that moves
+in the wrong direction is a regression signal even while the absolute figure is
+non-zero.
+
+Two consequences worth stating:
+
+- **Do not add this pass to `run-tests.sh`** until the residual is worked down.
+  It is a deliberate gate, run by hand, like `matrix-syntax.py --comments`.
+- **Attribute before you blame.** With a non-zero baseline, "the fuzzer fails"
+  says nothing on its own. Build the previous commit to a second binary and
+  re-probe the failures; the question is always *which* of these are new.
+
+Four things are worth keeping from that:
+
+1. **A gate that runs green over the wrong axis reads exactly like a gate that
+   runs green.** Before trusting one, check what it *varies*, not whether it
+   passed.
+2. **A rule that branches on comment kind must be tested on every kind it
+   branches on.** The change was reasoned about, documented and fixtured for
+   the `--`; the multi-line block came along for the ride and broke, because
+   "follows the `--`" was asserted rather than swept.
+3. **A row-derived layout decision cannot be repaired by ignoring the comment's
+   rows.** The comment moves the code too. Fold the comment's *kind* into the
+   decision instead — kinds are stable across a reflow, rows are not. This is
+   the general form of the lesson `commentBreaksFlowRow` already recorded, and
+   the second time it has had to be learned.
+4. **Attribution is cheap and worth doing.** Building the previous commit to a
+   second binary and re-probing only the failures turned "hundreds of findings
+   in old code" into "401 of them are yours, from this morning" in one run.
+   Without it the regression would have been filed as pre-existing debt.
+
+   Check the instrument before the result, though: the first attribution script
+   keyed each probe's working directory on `hash((path, gap)) % 64`, so
+   concurrent threads collided and two identical runs reported 22 and 75
+   regressions. One directory per worker *thread* made it deterministic. A
+   flaky measurement of a flakiness bug is very easy to mistake for a finding.
+
+---
+
+## Order of work
+
+1. ~~per-gap pass sweeps all three comment kinds~~ *(done 2026-08-03)*
+2. **work the 418-finding residual down to zero**, then wire the pass into
+   `run-tests.sh`. Until then it is a hand-run gate with a known baseline.
+3. **declaration contexts in `matrix-syntax.py`** — signature, alias, union,
+   port, import, module header, `let` binding with signature. This is the n=1
+   base case, and nothing above it means anything until it is trustworthy.
+4. run-classification refactor — makes C1 and C3 structural
+5. the deletion-invariance oracle
+6. n=2 class-pairs, with elm-format parity
+
+Steps 2–4 come before 5 and 6: an induction is only as good as its base case,
+and a law is cheaper to hold by construction than to check.

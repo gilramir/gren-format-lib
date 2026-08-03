@@ -60,7 +60,9 @@ blockOwnRow n =
 -- lead the type after the arrow.
 
 
-blockFitsBefore : Int -> {- about the result -} String
+blockFitsBefore :
+    Int
+    -> {- about the result -} String
 blockFitsBefore n =
     ""
 

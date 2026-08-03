@@ -1,9 +1,9 @@
-module Formatter.Render.NodeClassify exposing (commentBreaksFlowRow, commentTextCanRide, fieldValueDropsToOwnLine, isColonLeaf, isDroppingSignatureRecordNode, isEmptyLine, isMultilineLambdaParenBlockBox, isTypeRecordLiteral, isOpAndRhsNode, isPipelineStepNode, leafLineRow, leafValue, literalCommentsRideFlatLine, nodeIsComment, parenContentIsLambdaHead, rowsSpanMultiple, signatureForceVertical, splitSignatureSegments, subtreeEndsWithLineComment, subtreeHasComment, typeHasCommentBracket)
+module Formatter.Render.NodeClassify exposing (commentBreaksAnyFlowRow, commentBreaksFlowRow, commentTextCanRide, fieldValueDropsToOwnLine, isColonLeaf, isDroppingSignatureRecordNode, isEmptyLine, isMultilineLambdaParenBlockBox, isTypeRecordLiteral, isOpAndRhsNode, isPipelineStepNode, leafLineRow, leafValue, literalCommentsRideFlatLine, nodeIsComment, parenContentIsLambdaHead, rowsSpanMultiple, signatureForceVertical, splitSignatureSegments, subtreeEndsWithLineComment, subtreeHasComment, typeHasCommentBracket)
 
 {-| Boolean predicates and small structural queries over LPT nodes.
 -}
 
-import Formatter.Logical.LogicalPrintingTree exposing (CommentRole(..), LPBox(..), LPNode, ListBrackets(..), commentRole, firstRowInSubtree, lpnBox, lpnBracketStart, lpnChildren, lpnMaxRow)
+import Formatter.Logical.LogicalPrintingTree exposing (CommentRole(..), LPBox(..), LPNode, ListBrackets(..), commentRole, firstRowInSubtree, lpnBox, lpnBracketStart, lpnChildren, lpnLeaf, lpnMaxRow)
 import Formatter.Render.Box as B
 
 
@@ -133,6 +133,77 @@ commentBreaksFlowRow children =
                 { broke = acc.broke || acc.pending, pending = False }
     in
     (Array.foldl step { broke = False, pending = False } children).broke
+
+
+{-| `commentBreaksFlowRow` asked of every flow in a subtree, not just the top
+one: True when a comment **anywhere** inside these nodes pushes a later sibling
+onto a new row.
+
+A signature needs the recursive form. `signatureForceVertical` asks "did the
+author break the type at a `->`", from source rows — and a comment that brings
+its own rows changes where the code lands, so the answer flips between the first
+format and the reparse and the file oscillates. Written with the block
+delimiters spelled out, since they would nest if quoted literally:
+
+    author:   doubleAll : Array Int OPEN a
+                 b CLOSE -> Array Int
+    format¹:  doubleAll : Array Int OPEN a
+                                       b CLOSE
+                  -> Array Int
+    format²:  doubleAll :
+                  Array Int OPEN a …
+
+…because in format¹ the arrow now sits on a later row than the type before it,
+which is the very thing `signatureForceVertical` reads as "the author broke
+here".
+
+Skipping the comment's *rows* does not fix that — the comment moves the CODE's
+rows too, so any row-derived answer still flips. What is stable is the comment's
+**kind**, which is what this reads: a `--` or a multi-line `{- … -}` with a real
+item after it forces the break in both passes, so committing to the broken
+layout up front lands on the shape the reparse agrees with. Same reasoning as
+`commentBreaksFlowRow`'s own, one level up.
+
+Recursion matters: `KitchenComments`' `extremelyCommented` carries its comments
+*inside* a record type, so the top-level flow of the signature sees none of
+them, and 15 gaps of it oscillated until this descended.
+
+One refinement over the flat form. `commentBreaksFlowRow` ignores a comment at
+the very END of a flow, because nothing follows it — true for a call
+(`foo bar -- c` is one row). Inside a **bracket** it is false: the closing
+`}`/`]`/`)` is a real token that a line-ending comment pushes onto the next row
+just like any item would be. `{ … String OPEN … CLOSE }` was the last pair of
+gaps still oscillating once the recursion was in. -}
+commentBreaksAnyFlowRow : Array LPNode -> Bool
+commentBreaksAnyFlowRow nodes =
+    commentBreaksFlowRow nodes
+        || Array.any
+            (\n ->
+                let
+                    kids =
+                        lpnChildren n
+
+                    closed =
+                        when lpnBox n is
+                            AllAcrossOrAllVertical _ ->
+                                True
+
+                            AlwaysVertical _ ->
+                                True
+
+                            RecordUpdate _ ->
+                                True
+
+                            ParenBlock _ ->
+                                True
+
+                            _ ->
+                                False
+                in
+                (closed && commentBreaksFlowRow (kids ++ [ lpnLeaf (SynthesizedText "}") ]))
+                    || commentBreaksAnyFlowRow kids
+            )
+            nodes
 
 
 {-| True when every comment among a bracketed literal's direct children can ride
@@ -383,7 +454,7 @@ segFirstRow : Array LPNode -> Int
 segFirstRow seg =
     Array.foldl
         (\node acc ->
-            if isArrowLeaf node then
+            if isArrowLeaf node || nodeIsComment node then
                 acc
 
             else
@@ -420,7 +491,7 @@ segLastRow : Array LPNode -> Int
 segLastRow seg =
     Array.foldl
         (\node acc ->
-            if isArrowLeaf node then
+            if isArrowLeaf node || nodeIsComment node then
                 acc
 
             else

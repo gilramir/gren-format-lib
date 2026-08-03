@@ -7,8 +7,10 @@ module SignatureParenComment exposing (..)
 -- different outputs, the only hard `--show` failure in the tbd list.
 
 
-lineComment : (Int -> Int -- inside, before the close paren
-              ) -> Int
+lineComment :
+    (Int -> Int -- inside, before the close paren
+    )
+    -> Int
 lineComment q =
     q 1
 
@@ -18,8 +20,10 @@ blockComment q =
     q 1
 
 
-nestedInApplication : Array (Int -> Int -- inside a paren under a type application
-                            ) -> Int
+nestedInApplication :
+    Array (Int -> Int -- inside a paren under a type application
+          )
+    -> Int
 nestedInApplication q =
     0
 
@@ -35,6 +39,7 @@ pastTheCloseParen q =
 
 insideRecordType :
     { a : Int -- inside a record type
-    } -> Int
+    }
+    -> Int
 insideRecordType r =
     r.a

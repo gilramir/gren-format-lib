@@ -60,12 +60,14 @@ type Shape
         Int Int
 
 
-port output : {- 45 a
-                 45 b
-                 45 c -} {- 46 a
-                            46 b
-                            46 c -}
-    String -> Cmd msg
+port output :
+    {- 45 a
+       45 b
+       45 c -} {- 46 a
+                  46 b
+                  46 c -}
+    String
+    -> Cmd msg
 
 
 sig :

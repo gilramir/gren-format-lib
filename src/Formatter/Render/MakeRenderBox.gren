@@ -20,7 +20,7 @@ import Formatter.Render.CommentBox exposing (commentNodeBox, emptyBracketedComme
 import Formatter.Render.ElmStructure as E
 import Formatter.Render.FlowAssembly exposing (FlowItem, SoftGlueAlignment(..), assembleBrokenCall, assembleBrokenWithComments, bracketPunc, gluedExposingBox, isCommentItem, pairLeadingComments, pairableCommentLine, parenInnerIsAlignCarrying, softBlockChildForcesVerticalBox, softGlueAlignment, trySoftGlueFlow, verticalExposingBox)
 import Formatter.Render.FlowPolicy as FP
-import Formatter.Render.NodeClassify exposing (commentBreaksFlowRow, commentTextCanRide, fieldValueDropsToOwnLine, isColonLeaf, isDroppingSignatureRecordNode, isMultilineLambdaParenBlockBox, isOpAndRhsNode, isTypeRecordLiteral, isPipelineStepNode, leafLineRow, leafValue, literalCommentsRideFlatLine, nodeIsComment, parenContentIsLambdaHead, rowsSpanMultiple, signatureForceVertical, splitSignatureSegments, subtreeEndsWithLineComment, subtreeHasComment, typeHasCommentBracket)
+import Formatter.Render.NodeClassify exposing (commentBreaksAnyFlowRow, commentBreaksFlowRow, commentTextCanRide, fieldValueDropsToOwnLine, isColonLeaf, isDroppingSignatureRecordNode, isMultilineLambdaParenBlockBox, isOpAndRhsNode, isTypeRecordLiteral, isPipelineStepNode, leafLineRow, leafValue, literalCommentsRideFlatLine, nodeIsComment, parenContentIsLambdaHead, rowsSpanMultiple, signatureForceVertical, splitSignatureSegments, subtreeEndsWithLineComment, subtreeHasComment, typeHasCommentBracket)
 
 
 {-| Entry point: render one top-level root child to a Box, or `Err` if it
@@ -3275,6 +3275,7 @@ which must run instead of being preempted here.
 typeSegmentsForceVertical : Bool -> Array (Array LPNode) -> Bool
 typeSegmentsForceVertical hasComment segments =
     signatureForceVertical segments
+        || Array.any commentBreaksAnyFlowRow segments
         || (not hasComment
                 && Array.any (segmentHasDroppingRecordBox True) segments
            )

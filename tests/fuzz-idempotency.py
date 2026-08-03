@@ -3,10 +3,10 @@
 
 Two passes, both requiring format¹ == format²:
 
-1. Per-gap pass: insert a block comment into every inter-token whitespace gap
-   (one at a time). Surfaces the "comment shifts on reparse" class without
-   anyone hand-placing comments (the way KitchenComments' `extremelyCommented`
-   does). This pass only ever glues a comment *inline* into an existing gap.
+1. Per-gap pass: insert a comment into every inter-token whitespace gap (one at
+   a time), in each of the three kinds the formatter distinguishes. Surfaces the
+   "comment shifts on reparse" class without anyone hand-placing comments (the
+   way KitchenComments' `extremelyCommented` does).
 
 2. End-of-declaration pass: inject an OWN-LINE trailing comment — both the block
    (`{- ¤ -}`) and line (`-- ¤`) form — indented one level below the last line
@@ -14,12 +14,29 @@ Two passes, both requiring format¹ == format²:
    yet it is exactly where the "indented comment past a closing bracket, or deep
    in an inline binop, drifts left on reparse" bug class lives.
 
+**The three kinds are the axis, not a detail.** Placement rules branch on
+comment kind everywhere — `commentTextCanRide` is exactly "single-line `{- -}`
+or not", and C2's line-leading-separator exception applies to a `--` and a
+multi-line `{- … -}` but not to a single-line `{- -}`. Until 2026-08-03 this
+pass injected only `{- ¤ -}`, so every rule that fires *only* for the other two
+kinds was untested at every gap in the corpus: the `--` at a signature's `->`
+was invisible here and invisible to `matrix-syntax.py --comments` (whose
+contexts are expression-only), and the fix for it therefore shipped against
+fixtures alone.
+
+A `--` runs to end of line, so it cannot simply be spliced into a gap: the pass
+breaks the line at the gap and re-indents the tail to the gap's own column,
+which is how a person would have to write it too. Where that re-indentation does
+not parse the probe is skipped and **counted** — a high skip rate means thin
+coverage, so it is reported per file rather than swallowed.
+
 Usage:
     ./fuzz-idempotency.py                       # all testfiles/*/*.formatted.gren, both passes
     ./fuzz-idempotency.py path/to/File.gren ... # specific files
     ./fuzz-idempotency.py -j 4                   # run 4 `gren format`s at a time
     ./fuzz-idempotency.py --decl-ends            # only the end-of-declaration pass
     ./fuzz-idempotency.py --gaps                 # only the per-gap pass
+    ./fuzz-idempotency.py --kind line            # only one comment kind (block|multi|line)
 
 The gaps of each file are checked concurrently (default 2 jobs; `gren format`
 is a subprocess so threads scale with CPUs). Each worker thread gets its own
@@ -51,6 +68,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 GREN_FORMAT = os.path.join(HERE, "..", "..", "gren-format", "gren-format.sh")
 MARKER = "{- ¤ -}"  # ¤ — unlikely to collide with real comment text
 MARKER_LINE = "-- ¤"  # line-comment form, for the end-of-declaration pass
+MARKER_MULTI = "{- ¤\n   second row -}"  # multi-line block form
 
 # Each worker thread formats in its own project dir so concurrent `gren format`
 # invocations never write the same Fuzz.gren. Created lazily, reused across the
@@ -262,20 +280,59 @@ def run_show(workdir, source):
     )
 
 
-def all_gaps_variant(src, gaps):
-    """Insert MARKER into every gap simultaneously."""
+def splice_block(src, g, text):
+    """A `{- … -}` splices straight into the gap: it self-terminates, so the
+    code after it stays where it was (a multi-line one carries its tail onto the
+    comment's closing row, which is exactly the shape being tested)."""
+    return src[:g] + " " + text + src[g:]
+
+
+def splice_line(src, g, text):
+    """A `--` runs to end of line, so it cannot be spliced inline — everything
+    after it on that row would be swallowed. Break the row at the gap instead
+    and re-indent the tail to the gap's own column, which is how the comment
+    would have to be written by hand:
+
+        foo :  ⏎  ····Int -> String        foo :  ⏎  ····Int -- ¤
+                                                     ·······-> String
+
+    Column-aligning the tail (rather than picking a fixed indent) keeps the
+    continuation legal for the widest range of gaps; where it still does not
+    parse, the caller counts the probe as skipped."""
+    ws_end = g
+    while ws_end < len(src) and src[ws_end] in " \t":
+        ws_end += 1
+    col = g - (src.rfind("\n", 0, g) + 1)
+    return src[:g] + " " + text + "\n" + " " * col + src[ws_end:]
+
+
+# (label, comment text, splice fn, may-inject-all-gaps-at-once).
+#
+# The all-at-once fast path works for both block forms — a `{- … -}` is
+# whitespace to the parser, so N of them in one file is still one legal program.
+# A `--` breaks its row, so N of them at once would re-indent the whole file;
+# the line kind always takes the per-gap path.
+KINDS = [
+    ("block", MARKER, splice_block, True),
+    ("multi", MARKER_MULTI, splice_block, True),
+    ("line", MARKER_LINE, splice_line, False),
+]
+
+
+def all_gaps_variant(src, gaps, text=MARKER):
+    """Insert `text` into every gap simultaneously."""
     parts = []
     prev = 0
     for g in gaps:
         parts.append(src[prev:g])
-        parts.append(" " + MARKER)
+        parts.append(" " + text)
         prev = g
     parts.append(src[prev:])
     return "".join(parts)
 
 
-def fast_check(base, src, gaps):
-    """Insert MARKER into all gaps at once and run --show.
+def fast_check(base, src, gaps, text=MARKER):
+    """Insert `text` into all gaps at once and run --show.
 
     Returns:
       "ok"         — idempotent (file is clean, no per-gap work needed)
@@ -284,7 +341,7 @@ def fast_check(base, src, gaps):
                      (fall back to per-gap)
     """
     workdir = worker_workdir(base)
-    r = run_show(workdir, all_gaps_variant(src, gaps))
+    r = run_show(workdir, all_gaps_variant(src, gaps, text))
     blob = r.stdout + r.stderr
     if "FAILED TO PARSE" in blob or "Could not format" in blob:
         return "parse-fail"
@@ -295,12 +352,11 @@ def fast_check(base, src, gaps):
     return "ok"
 
 
-def check_gap(base, src, g):
-    """Insert the marker at gap `g` only, run --show, classify the outcome.
-    Used in the slow path when fast_check did not return "ok".
+def check_gap(base, src, g, splice=splice_block, text=MARKER):
+    """Insert one comment at gap `g`, run --show, classify the outcome.
     Runs on a pool worker; uses that worker's isolated project dir."""
     workdir = worker_workdir(base)
-    r = run_show(workdir, src[:g] + " " + MARKER + src[g:])
+    r = run_show(workdir, splice(src, g, text))
     blob = r.stdout + r.stderr
     if "FAILED TO PARSE" in blob or "Could not format" in blob:
         return ("skip", g, "")
@@ -312,10 +368,11 @@ def check_gap(base, src, g):
     return ("ok", g, "")
 
 
-def report_slow_path(base, pool, path, src, gaps, verbose):
-    """Per-gap fallback for a file that failed the fast check. Returns bug count."""
+def report_slow_path(base, pool, path, src, gaps, verbose, kind=KINDS[0]):
+    """Per-gap pass over one file for one comment kind. Returns bug count."""
+    label, text, splice, _fast = kind
     name = os.path.basename(path)
-    results = list(pool.map(lambda g: check_gap(base, src, g), gaps))
+    results = list(pool.map(lambda g: check_gap(base, src, g, splice, text), gaps))
     bugs, skipped = [], 0
     for r in results:
         if r[0] == "skip":
@@ -324,7 +381,7 @@ def report_slow_path(base, pool, path, src, gaps, verbose):
             _, g, detail = r
             bugs.append((g, detail))
     status = "OK " if not bugs else "BUG"
-    print(f"{status} {name}: {len(gaps)} gaps, {skipped} skipped (parser), {len(bugs)} non-idempotent")
+    print(f"{status} {name} [{label}]: {len(gaps)} gaps, {skipped} skipped (parser), {len(bugs)} non-idempotent")
     for g, detail in bugs:
         line = src.count("\n", 0, g) + 1
         ctx = (src[max(0, g - 20) : g] + "⟨here⟩" + src[g : g + 20]).replace("\n", "⏎")
@@ -394,10 +451,13 @@ def main(argv):
     ap.add_argument("-j", "--jobs", type=int, default=2, help="concurrent `gren format`s (default 2)")
     ap.add_argument("--gaps", action="store_true", help="run only the per-gap pass (skip the end-of-declaration pass)")
     ap.add_argument("--decl-ends", action="store_true", help="run only the end-of-declaration pass (skip the per-gap pass)")
+    ap.add_argument("--kind", action="append", choices=[k[0] for k in KINDS],
+                    help="restrict the per-gap pass to one comment kind (repeatable; default all three)")
     ap.add_argument("files", nargs="*")
     args = ap.parse_args(argv[1:])
     run_gaps = not args.decl_ends
     run_decl_ends = not args.gaps
+    kinds = [k for k in KINDS if not args.kind or k[0] in args.kind]
 
     files = args.files
     if not files:
@@ -411,19 +471,26 @@ def main(argv):
     with tempfile.TemporaryDirectory() as base:
         with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
             if run_gaps:
-                # Per-gap pass: fast check all files in parallel (one --show each),
-                # then fall back to per-gap for any failures.
-                print("== per-gap comment pass ==")
-                fast_outcomes = list(pool.map(
-                    lambda t: fast_check(base, t[1], t[2]),
-                    file_data,
-                ))
-                for (path, src, gaps), fast in zip(file_data, fast_outcomes):
-                    name = os.path.basename(path)
-                    if fast == "ok":
-                        print(f"OK  {name}: {len(gaps)} gaps, 0 skipped (parser), 0 non-idempotent")
+                # Per-gap pass, once per comment kind. A kind that can be
+                # injected into every gap at once gets the fast check first (one
+                # --show per file), falling back to per-gap only where that
+                # fails; a `--` has no such shortcut and always goes per-gap.
+                for label, text, splice, can_fast in kinds:
+                    print(f"== per-gap comment pass [{label}] ==")
+                    kind = (label, text, splice, can_fast)
+                    if can_fast:
+                        fast_outcomes = list(pool.map(
+                            lambda t: fast_check(base, t[1], t[2], text),
+                            file_data,
+                        ))
                     else:
-                        total += report_slow_path(base, pool, path, src, gaps, args.v)
+                        fast_outcomes = ["slow"] * len(file_data)
+                    for (path, src, gaps), fast in zip(file_data, fast_outcomes):
+                        name = os.path.basename(path)
+                        if fast == "ok":
+                            print(f"OK  {name} [{label}]: {len(gaps)} gaps, 0 skipped (parser), 0 non-idempotent")
+                        else:
+                            total += report_slow_path(base, pool, path, src, gaps, args.v, kind)
 
             if run_decl_ends:
                 # End-of-declaration pass: inject an own-line trailing comment
