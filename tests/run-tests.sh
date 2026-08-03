@@ -25,8 +25,15 @@ python3 "$(dirname "$(realpath "$0")")/check-render-invariant.py" || exit 1
 # surfacing as a missing-file error inside the suite.
 python3 "$(dirname "$(realpath "$0")")/check-divergence-index.py" || exit 1
 
+# A failed build must NOT fall through to `node app` — the app from the previous
+# build is still sitting there, so running it reports a green for the code as it
+# was BEFORE the edit that broke the compile.
 pushd ..
-devbox run build_test
+devbox run build_test || {
+  popd
+  echo "run-tests.sh: build failed — not running the previously-built app" >&2
+  exit 1
+}
 
 popd
 node app "$@"
