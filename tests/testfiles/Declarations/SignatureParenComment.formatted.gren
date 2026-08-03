@@ -26,8 +26,9 @@ nestedInApplication q =
 
 -- Controls: written OUTSIDE the paren, and inside a record type (a bracket that
 -- already recorded its close). Both were always stable.
-pastTheCloseParen : (Int -> Int) -> -- outside, past the close paren
-    Int
+pastTheCloseParen :
+    (Int -> Int) -- outside, past the close paren
+    -> Int
 pastTheCloseParen q =
     q 1
 

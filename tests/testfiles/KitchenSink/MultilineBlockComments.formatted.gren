@@ -69,13 +69,12 @@ port output : {- 45 a
 
 
 sig :
-    Int
-    -> {- 10 a
-          10 b
-          10 c -}
-    Array {- 11 a
-             11 b
-             11 c -}
+    Int {- 10 a
+           10 b
+           10 c -}
+    -> Array {- 11 a
+                11 b
+                11 c -}
     String
     -> { a {- 12 a
               12 b

@@ -1,9 +1,8 @@
 module D05SignatureArrowComment exposing (..)
 
--- Divergence #5. A single-line comment right after a `->` in a wrapped
--- signature is glued to that `->`, so a short note does not push the type it
--- annotates onto a third row. elm-format drops the comment to its own indented
--- row above that type.
+-- Divergence #5. A `--` at a type's `->` keeps the row it was written on, so
+-- one written PAST the arrow snaps back to the row above it. elm-format keeps
+-- it below the arrow, on its own indented row.
 
 
 bestDiscount :
@@ -12,6 +11,32 @@ bestDiscount :
     Maybe { code : String, basisPoints : Int }
 bestDiscount codes =
     Nothing
+
+
+
+-- The two spellings that now agree with elm-format byte-for-byte: the `--`
+-- trailing the type to the arrow's left, and the `--` on a row of its own
+-- above the arrow.
+
+
+trailingForm :
+    Array { code : String, basisPoints : Int } -- comment about the result
+    -> Maybe { code : String, basisPoints : Int }
+trailingForm codes =
+    Nothing
+
+
+ownRowForm :
+    Array { code : String, basisPoints : Int }
+    -- comment about the result
+    -> Maybe { code : String, basisPoints : Int }
+ownRowForm codes =
+    Nothing
+
+
+
+-- A single-line block comment is not the exception: it leads the type after
+-- the arrow whichever side of the `->` it was typed on.
 
 
 blockForm :

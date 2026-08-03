@@ -582,6 +582,7 @@ declarationSuite fsPerm =
             , assertPrettyIn fsPerm "Declarations" "union types" "TypeUnion"
             , assertPrettyIn fsPerm "Declarations" "type signatures" "TypeSignature"
             , assertPrettyIn fsPerm "Declarations" "a comment written inside a parenthesized type, between the last token and the `)`, stays inside the parens and is a fixed point -- the paren records its closing position, so the comment no longer escapes past `)` and then flips sides of the `->` on reparse" "SignatureParenComment"
+            , assertPrettyIn fsPerm "Declarations" "a `--` or multi-line `{- -}` at a type's `->` keeps the row it was written on (C2's line-leading-separator exception); a single-line `{- -}` still leads what follows the arrow" "SignatureArrowCommentKeepsRow"
             , assertPrettyIn fsPerm "Declarations" "type constructor applied to 2+ argument types" "TypeCtorMultiArg"
             , assertPrettyIn fsPerm "Declarations" "ports" "Ports"
             , assertPrettyIn fsPerm "Declarations" "effect module where { command = ... } renders each binding as one field" "EffectModuleWhere"

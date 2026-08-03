@@ -222,33 +222,49 @@ documentation instead of quietly outliving it.
    are consistent. See [Import statements](formatterRules.md#import-statements) for the canonical
    shape.
 
-5. <a id="divergence-5"></a>**A single-line comment right after a `->` in a wrapped signature**
-   When a multi-row signature has a `--` comment (or a `{- ... -}` that
-   fits on one line) right after a `->`, gren-format glues it to that `->` on
-   the same line; the rest of the signature still uses the canonical
-   per-`->`-segment layout (see [Type signatures](formatterRules.md#type-signatures)):
+5. <a id="divergence-5"></a>**A `--` written *past* a wrapped signature's `->` snaps back to the
+   row above the arrow.** A `--` (or a multi-line `{- … -}`) at a type's `->`
+   keeps the row it was written on — [#22](#divergence-22)'s line-leading-separator
+   exception, the same rule that holds at a `,` and a `|`. Of the three ways to
+   type it, the first two now match elm-format byte-for-byte:
 
    ```gren
-   -- gren-format:
+   -- you wrote, and BOTH formatters produce:
+   bestDiscount :
+       Array { code : String, basisPoints : Int } -- comment about the result
+       -> Maybe { code : String, basisPoints : Int }
+
+   bestDiscount :
+       Array { code : String, basisPoints : Int }
+       -- comment about the result
+       -> Maybe { code : String, basisPoints : Int }
+   ```
+
+   The third — the comment written after the arrow, still on the previous
+   type's row — is where they part. The `->` carries no source position, so
+   that spelling reaches gren-format as the *first* one and collapses onto it;
+   elm-format has its own parser and keeps the comment below the arrow:
+
+   ```gren
+   -- you wrote:
    bestDiscount :
        Array { code : String, basisPoints : Int }
        -> -- comment about the result
        Maybe { code : String, basisPoints : Int }
 
-   -- elm-format:
-   bestDiscount :
-       Array { code : String, basisPoints : Int }
-       ->
-           -- comment about the result
-           Maybe { code : String, basisPoints : Int }
+   -- gren-format:                          -- elm-format:
+   bestDiscount :                           bestDiscount :
+       Array { … } -- comment about …           Array { … }
+       -> Maybe { … }                           ->
+                                                    -- comment about the result
+                                                    Maybe { … }
    ```
 
-   elm-format instead drops the comment to its own indented line above the
-   type it leads. gren-format's glued form keeps a short comment from pushing
-   the type it annotates onto a third line. (A *multi-line* block comment
-   right after a `->` is out of scope for this point — both tools handle that
-   case differently again, and neither matches its own single-line-comment
-   behavior above.)
+   A **single-line** `{- … -}` at the arrow is not the exception and follows
+   the general [C2](commentHandling.md#c2--when-the-parser-doesnt-record-the-punctuation-the-comment-leads-what-follows)
+   rule instead, leading the type after the arrow (`-> {- c -} Int`) whichever
+   side of the `->` it was typed on. Written on the later side that agrees with
+   elm-format; written on the earlier side it is the ordinary #22 trade.
 
 6. <a id="divergence-6"></a>**Union type declarations always stack one variant per line in
    elm-format** Even when the author wrote
@@ -1050,12 +1066,12 @@ documentation instead of quietly outliving it.
     the two matches it and the other diverges. There is no version of this that
     matches both.
 
-    **A `--` (or a multi-line `{- … -}`) at a `,` or a `|` is the exception** and
-    keeps the row it was written on. Those separators *lead* their line, so a
-    comment above one strands nothing — it sits at the separator's own column —
-    and a comment that ends its row is genuinely tellable apart: it is on the
-    previous item's row, or on a row of its own. Two spellings, two outputs, both
-    fixed points:
+    **A `--` (or a multi-line `{- … -}`) at a `,`, a `|`, or a broken
+    signature's `->` is the exception** and keeps the row it was written on.
+    Those separators *lead* their line, so a comment above one strands nothing —
+    it sits at the separator's own column — and a comment that ends its row is
+    genuinely tellable apart: it is on the previous item's row, or on a row of
+    its own. Two spellings, two outputs, both fixed points:
 
     ```gren
     -- you wrote, and gren-format keeps:
@@ -1067,12 +1083,25 @@ documentation instead of quietly outliving it.
     -- about banana                   -- about alpha            -- about B
     , banana                          | alpha = 1              | B
     ]                             }
+
+    foo :                         foo :
+        Int -- about Int              Int
+        -> String                     -- about Int
+                                      -> String
     ```
 
-    An own-row comment sits at the **separator's** column in all three — the
-    `,`, the update's `|`, the union's `|` — not indented under the item above
-    it. That is the same column rule [#24](#divergence-24) states for a record
-    update, holding at every line-leading separator.
+    An own-row comment sits at the **separator's** column in all of them — the
+    `,`, the update's `|`, the union's `|`, the signature's `->` — not indented
+    under the item above it. That is the same column rule
+    [#24](#divergence-24) states for a record update, holding at every
+    line-leading separator.
+
+    The `->` is the one member of the family where the exception *gains*
+    elm-format parity rather than trading it: the comment-free layouts already
+    agree byte-for-byte, so keeping the row makes both spellings above match
+    elm-format exactly (see [#5](#divergence-5)). At a `,` and a `|` the
+    exception matches on the first spelling only, and at a record update on
+    neither — as below.
 
     The third spelling — the comment written *after* the separator, still on the
     previous item's row — is positionally identical to the first (the separator
@@ -1088,6 +1117,10 @@ documentation instead of quietly outliving it.
     { rec | -- about the base     { rec -- about the base
         alpha = 1 }                   | alpha = 1
                                   }
+
+    foo : Int -> -- about Int     foo :
+        String                        Int -- about Int
+                                      -> String
     ```
 
     **This is where the record update costs parity, and it is worth stating

@@ -342,16 +342,17 @@ f =
     a
 ```
 
-### The exception: a `--` or a multi-line `{- … -}` above a `,` or a `|`
+### The exception: a `--` or a multi-line `{- … -}` above a `,`, a `|`, or a `->`
 
 There is one family of separators where both spellings survive, because the
-formatter *can* still tell them apart: a `,` or a `|` that **starts** its line.
+formatter *can* still tell them apart: the separators that **start** their line
+— a `,`, a `|`, and the `->` of a signature broken across rows.
 
 The reason is simple. A `--` (or a multi-line `{- … -}`) ends its line, so it is
 either on the previous item's line or on a line of its own — two visibly
-different places. And because `,` and `|` lead their line rather than trailing
-it, a comment written above one strands nothing: it just sits at the separator's
-own column.
+different places. And because these separators lead their line rather than
+trailing it, a comment written above one strands nothing: it just sits at the
+separator's own column.
 
 So both of these are kept exactly as written:
 
@@ -394,6 +395,21 @@ And so does a custom type's `|`:
 type W
     = A -- about A
     | B
+```
+
+And so does a signature's `->`, once the signature is broken across rows:
+
+```gren
+-- you write, and gren-format keeps:
+trailing :
+    Int -- the argument
+    -> String
+
+
+ownRow :
+    Int
+    -- the argument
+    -> String
 ```
 
 A single-line `{- -}` has no such pull — it doesn't end its line, so the two
@@ -442,7 +458,21 @@ c =
     ]
 ```
 
-So there are three ways to type it and only ever **two** outcomes.
+So there are three ways to type it and only ever **two** outcomes. The `->` has
+the same third spelling, and it collapses the same way:
+
+```gren
+-- you write:
+pastArrow : Int -> -- the argument
+    String
+```
+
+```gren
+-- gren-format writes:
+pastArrow :
+    Int -- the argument
+    -> String
+```
 
 ### Three places that don't take the later side
 

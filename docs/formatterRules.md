@@ -371,35 +371,52 @@ The multi-line shape triggers when any `->` separator appears on a different
 row than the one before it. A line break right after the `:` with the rest
 still on one line is not enough — the break must fall between `->` segments.
 
-A single-line comment (a `--` comment, or a `{- ... -}` that fits on one
-physical line) landing right after a `->` glues to that `->` on the same
-line, rather than starting its own line; the rest of the signature still
-uses the per-segment shape:
+A `--` at a `->` keeps the row you wrote it on, and the rest of the signature
+still uses the per-segment shape. Trailing the type to the arrow's left, or on a
+row of its own above the arrow — both survive, because a `--` ends its row and
+the `->` leads its own:
 
 ```gren
 bestDiscount :
+    Array { code : String, basisPoints : Int } -- comment about the result
+    -> Maybe { code : String, basisPoints : Int }
+
+
+bestDiscount :
     Array { code : String, basisPoints : Int }
-    -> -- comment about the result
-    Maybe { code : String, basisPoints : Int }
+    -- comment about the result
+    -> Maybe { code : String, basisPoints : Int }
+```
+
+A multi-line `{- … -}` follows the `--`, on whichever row it opened:
+
+```gren
+convert :
+    Int {- explanation that
+           spans multiple lines -}
+    -> Int
+    -> Int
+```
+
+A `{- … -}` that fits on **one** line is the one that does not keep its row: it
+doesn't end its line, so the side of the `->` you wrote it on isn't visible, and
+it follows the general rule — leading the type after the arrow. This is
+[C2](commentHandling.md#c2--when-the-parser-doesnt-record-the-punctuation-the-comment-leads-what-follows)
+and its exception; see [When the formatter can't tell what you
+meant](#when-the-formatter-cant-tell-what-you-meant).
+
+```gren
+-- both of these:
+convert : Int {- the input -} -> Int
+convert : Int -> {- the input -} Int
+
+-- format to:
+convert : Int -> {- the input -} Int
 ```
 
 Only a signature the author kept on **one row** falls back to filling the flow
 and wrapping at word boundaries when it carries a comment — there's no
-`->`-segment boundary to anchor a break to. A multi-line block comment is
-different again: it forces a break right after itself, and whatever follows
-just continues to fill the same line rather than starting a new per-segment
-line:
-
-```gren
-convert : Int -> {- explanation that
-                    spans multiple lines -}
-    Int -> Int
-```
-
-Compare this to the canonical per-segment shape a few lines up: there, every
-`->` starts its own line. Here, `Int -> Int` stays together on one
-continuation line — the break landed where the comment ended, not at a
-`->` boundary.
+`->`-segment boundary to anchor a break to.
 
 ---
 
@@ -2276,12 +2293,12 @@ reason:
 [ 1, {- c -} 2 ]
 ```
 
-**A `--` at a `,` or a `|` is the exception** — it keeps the row you wrote it on,
-and the two spellings do *not* collapse onto each other. A `--` ends its row, so
-it reads as a note about that row, and it is genuinely tellable apart: it is
-either on the previous item's row or on a row of its own. Both `,` and `|` lead
-their line, so a comment above one strands nothing — it sits at the separator's
-own column:
+**A `--` at a `,`, a `|`, or a broken signature's `->` is the exception** — it
+keeps the row you wrote it on, and the two spellings do *not* collapse onto each
+other. A `--` ends its row, so it reads as a note about that row, and it is
+genuinely tellable apart: it is either on the previous item's row or on a row of
+its own. All three separators lead their line, so a comment above one strands
+nothing — it sits at the separator's own column:
 
 ```gren
 -- you wrote, and the formatter keeps:
@@ -2302,13 +2319,26 @@ own column:
     -- about alpha
     | alpha = 1
 }
+
+foo :
+    Int -- about Int
+    -> String
+
+foo :
+    Int
+    -- about Int
+    -> String
 ```
 
 A multi-line `{- … -}` follows the `--`: it opened on a row, and that row is what
-decides it. A union `|` behaves the same way, and is covered above.
+decides it. A union `|` behaves the same way, and is covered above. A signature's
+`->` is worked through in [Type signatures](#type-signatures) — it is the one
+member of the family where keeping the row also *matches* elm-format, on both
+spellings.
 
-A comment around one of the keywords `then`, `else`, `is`, `in`, or a lambda's /
-branch's `->` always lands **after** the keyword, leading what follows it:
+A comment around one of the keywords `then`, `else`, `is`, `in`, or a **lambda's
+or branch's** `->` always lands **after** the keyword, leading what follows it
+(a *type's* `->` is the exception just described, not one of these):
 
 ```gren
 -- both of these:

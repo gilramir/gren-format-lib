@@ -1096,7 +1096,7 @@ insertAmongChildren containerBox commentNode row col children =
             -- (`[ {}, … ]`, a bare `EmptyBracketed`) skippable as before, so its
             -- own comment placement is unchanged; only the value-wrapper stops
             -- the skip.
-            { before = finalBefore, after = finalAfter } =
+            { before = skippedBefore, after = skippedAfter } =
                 let
                     helper b a =
                         when Array.popFirst a is
@@ -1117,6 +1117,21 @@ insertAmongChildren containerBox commentNode row col children =
                                                 { before = b, after = a }
                 in
                 helper before after
+
+            -- …and step BACK over a type's `->`, for the one comment shape that
+            -- keeps the row it was written on. See
+            -- `commentKeepsRowAtTypeArrow`.
+            { before = finalBefore, after = finalAfter } =
+                if commentKeepsRowAtTypeArrow commentNode skippedBefore then
+                    when Array.popLast skippedBefore is
+                        Just { last = arrowNode, initial = front } ->
+                            { before = front, after = Array.pushFirst arrowNode skippedAfter }
+
+                        Nothing ->
+                            { before = skippedBefore, after = skippedAfter }
+
+                else
+                    { before = skippedBefore, after = skippedAfter }
         in
         let
             -- The comment's role, decided here from its final neighbours (the
@@ -1667,6 +1682,11 @@ lastRenderedRow node =
 -- renders), so a pure row test would flip on reformat. Other position-less tokens (`in`, `=`, `:`) are NOT elided
 -- here: a comment on its own row after them legitimately stays own-line (e.g.
 -- the `let … in` trailing comment, a deliberate README divergence).
+--
+-- Reached only by the comment shapes that do NOT keep their row — in practice a
+-- single-line `{- -}`, which renders `-> {- c -} String`. A `--` or a multi-line
+-- `{- … -}` is stepped back over the arrow by `commentKeepsRowAtTypeArrow`
+-- before it is ever classified, so its `prev` is the type to the arrow's left.
 nodeIsElided : LPNode -> Bool
 nodeIsElided node =
     when lpnBox node is
@@ -1676,6 +1696,47 @@ nodeIsElided node =
                 && loc.start.col == loc.end.col
 
         _ ->
+            False
+
+
+{-| Rule **C2**'s line-leading-separator exception at a type's `->`.
+
+The arrow carries no source position — it is anchored zero-width at the end of
+the type to its left (`InsertTypes.makeSignatureBranch`) — so every comment
+written in the arrow gap sorts *after* it, whichever side of it the author typed
+it on. That is the general C2 rule, and for a single-line `{- -}` it stands:
+`Int {- c -}` ⏎ `-> String` and `Int` ⏎ `-> {- c -} String` both render
+`-> {- c -} String`, the way a `,` gap sends one to the item below.
+
+A `--` and a multi-line `{- … -}` are the exception, the same one `,` and a
+union's / a record update's `|` already make: a broken signature renders its
+`->` **line-leading**, so a comment above one strands nothing — it just sits at
+the arrow's column — and both shapes end their row anyway, so the row the author
+gave them is a spelling the formatter can see and keep:
+
+    foo :                       foo :
+        Int -- c                    Int
+        -> String                   -- c
+                                    -> String
+
+Stepping the splice point back over the arrow is all that takes: the comment's
+`prev` becomes the type to its left, and the ordinary same-row / own-row rules
+then say `TrailsPrevious` or `LeadsOwnLine`. (The third spelling — `Int -> -- c`
+⏎ `String`, written past the arrow but still on the left type's row — is
+positionally identical to the trailing one, since the arrow is invisible, and
+collapses onto it: three ways to type it, two outcomes, exactly as at a `,`.)
+
+Requires something before the arrow, so the step-back can never leave the
+comment with no predecessor to classify against. -}
+commentKeepsRowAtTypeArrow : LPNode -> Array LPNode -> Bool
+commentKeepsRowAtTypeArrow commentNode before =
+    when Array.popLast before is
+        Just { last = prevNode, initial = front } ->
+            nodeIsElided prevNode
+                && not (Array.isEmpty front)
+                && not (commentIsSingleLineBlock commentNode)
+
+        Nothing ->
             False
 
 

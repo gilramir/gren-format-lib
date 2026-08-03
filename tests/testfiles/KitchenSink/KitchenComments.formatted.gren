@@ -225,11 +225,10 @@ reprice rawMultiplier ({ items, flags } as inboundCart) =
     other functions don't already cover: between function-call arguments,
     around `->` in signatures, around `=` and `in` in let-bindings, around
     `if`/`then`, around `when`/`is`, and between case-arrow and body. -}
-torturedComments : Int -> -- comment after the first parameter type
-    {- block comment before the arrow -}
-    String -> -- comment between -> and the next type
-    {- block comment between -> and Bool -}
-    Bool
+torturedComments :
+    Int -- comment after the first parameter type
+    -> {- block comment before the arrow -} String -- comment between -> and the next type
+    -> {- block comment between -> and Bool -} Bool
 torturedComments primaryIntValue secondaryStringValue tertiaryBoolValue =
     let
         {- block comment between `let` and the first binding -}
@@ -335,8 +334,9 @@ extremelyCommented {-c22-} {-c23-} ({ {-c24-} score, {-c25-} {-c26-} label {-c27
 
 
 {-| Pick the best discount from a list of candidate codes. -}
-bestDiscount : Array { code : String, basisPoints : Int } -> -- comment after one parameter type
-    Maybe { code : String, basisPoints : Int }
+bestDiscount :
+    Array { code : String, basisPoints : Int } -- comment after one parameter type
+    -> Maybe { code : String, basisPoints : Int }
 bestDiscount candidateDiscounts =
     candidateDiscounts
         -- comment leading into a long pipeline

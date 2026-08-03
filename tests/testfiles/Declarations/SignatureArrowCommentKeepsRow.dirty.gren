@@ -1,0 +1,90 @@
+port module SignatureArrowCommentKeepsRow exposing (..)
+
+-- Rule C2's line-leading-separator exception at a type's `->`. A broken
+-- signature renders the arrow line-leading, so a `--` (or a multi-line
+-- `{- ... -}`) above one strands nothing and keeps the row it was written on.
+-- A single-line `{- -}` still follows the general rule and leads what comes
+-- after the arrow.
+-- Spelling 1: the `--` trails the type to the arrow's left.
+
+
+trailing : Int -- the argument
+    -> String
+trailing n =
+    ""
+
+
+
+-- Spelling 2: the `--` on a row of its own, above the arrow.
+
+
+ownRow : Int
+    -- the argument
+    -> String
+ownRow n =
+    ""
+
+
+
+-- Spelling 3: the `--` written PAST the arrow, still on the previous type's
+-- row. The arrow carries no position, so this is spelling 1 and collapses onto
+-- it.
+
+
+pastArrow : Int -> -- the argument
+    String
+pastArrow n =
+    ""
+
+
+
+-- A multi-line `{- ... -}` keeps its row the same way, both spellings.
+
+
+blockTrailing : Int {- about
+                       the argument -}
+    -> String
+blockTrailing n =
+    ""
+
+
+blockOwnRow : Int
+    {- about
+       the argument -}
+    -> String
+blockOwnRow n =
+    ""
+
+
+
+-- The contrast: a SINGLE-line `{- -}` is not the exception. Both spellings
+-- lead the type after the arrow.
+
+
+blockFitsBefore : Int {- about the result -}
+    -> String
+blockFitsBefore n =
+    ""
+
+
+blockFitsAfter : Int
+    -> {- about the result -} String
+blockFitsAfter n =
+    ""
+
+
+
+-- The same exception inside a type alias body, at a nested arrow under parens,
+-- and in a port.
+
+
+type alias Handler =
+    Int -- the code
+    -> (Int -- the nested argument
+        -> String)
+    -- the result
+    -> Bool
+
+
+port send : Int -- the payload
+    -> Cmd msg
