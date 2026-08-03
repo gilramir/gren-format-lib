@@ -710,7 +710,8 @@ mutually-recursive dispatch (`makePBox`) plus the per-construct renderers. Gren
 forbids circular imports, so only functions that never transitively reach the
 `makePBox`/`buildFlowBox` recursion could move out. Import DAG:
 `MakeRenderBox` → all five; `BinopLayout`/`CommentBox`/`FlowAssembly` →
-`BoxOps`, `NodeClassify`; `BoxOps` and `NodeClassify` depend on neither.
+`BoxOps`, `NodeClassify` (and `FlowAssembly` → `FlowPolicy`); `BoxOps`,
+`NodeClassify` and `FlowPolicy` import no other Render module.
 
 Layout is **author-driven, not fit-driven**: there is no page width and no
 layout search. Each box already knows whether it renders inline or vertical —

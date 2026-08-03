@@ -20,7 +20,7 @@ import Formatter.Render.CommentBox exposing (commentNodeBox, emptyBracketedComme
 import Formatter.Render.ElmStructure as E
 import Formatter.Render.FlowAssembly exposing (FlowItem, SoftGlueAlignment(..), assembleBrokenCall, assembleBrokenWithComments, bracketPunc, gluedExposingBox, isCommentItem, pairLeadingComments, parenInnerIsAlignCarrying, softBlockChildForcesVerticalBox, softGlueAlignment, trySoftGlueFlow, verticalExposingBox)
 import Formatter.Render.FlowPolicy as FP
-import Formatter.Render.NodeClassify exposing (commentBreaksFlowRow, commentTextCanRide, fieldValueDropsToOwnLine, isColonLeaf, isDroppingSignatureRecordNode, isMultilineLambdaParenBlockBox, isOpAndRhsNode, isPipelineStepNode, leafLineRow, leafValue, literalCommentsRideFlatLine, nodeIsComment, parenContentIsLambdaHead, rowsSpanMultiple, signatureForceVertical, splitSignatureSegments, subtreeEndsWithLineComment, subtreeHasComment, typeHasCommentBracket)
+import Formatter.Render.NodeClassify exposing (commentBreaksFlowRow, commentTextCanRide, fieldValueDropsToOwnLine, isColonLeaf, isDroppingSignatureRecordNode, isMultilineLambdaParenBlockBox, isOpAndRhsNode, isTypeRecordLiteral, isPipelineStepNode, leafLineRow, leafValue, literalCommentsRideFlatLine, nodeIsComment, parenContentIsLambdaHead, rowsSpanMultiple, signatureForceVertical, splitSignatureSegments, subtreeEndsWithLineComment, subtreeHasComment, typeHasCommentBracket)
 
 
 {-| Entry point: render one top-level root child to a Box, or `Err` if it
@@ -3339,7 +3339,7 @@ makeSignatureBox children =
                                                     -- multi-line record type below its head/`:`.
                                                     -- Other bracket types (parens, extensible
                                                     -- records) keep the inline glue.
-                                                    if FP.isTypeRecordLiteral single && not (isSingleLine typeBox) then
+                                                    if isTypeRecordLiteral single && not (isSingleLine typeBox) then
                                                         B.stack1 [ B.line headerLine, B.indent typeBox ]
 
                                                     else
@@ -4827,7 +4827,7 @@ assembleFlowImpl inlineStart flowIndent items =
         bracketFacts item =
             FP.BracketLiteralItem
                 { forcesVertical = not (isSingleLine item.box)
-                , isTypeRecord = FP.isTypeRecordLiteral item.node
+                , isTypeRecord = isTypeRecordLiteral item.node
                 }
 
         -- Glue a single line onto the last completed row's last line — the

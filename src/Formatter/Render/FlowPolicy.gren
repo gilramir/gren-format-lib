@@ -8,8 +8,6 @@ module Formatter.Render.FlowPolicy exposing
     , Placement(..)
     , decide
     , initialFlowState
-    , isTypeRecordLiteral
-    , nodeIsComment
     )
 
 {-| The flow fold's decision layer, consumed by the Box renderer.
@@ -36,7 +34,6 @@ surfaced before facts are built.
 
 @docs NextSeparator, FlowState, initialFlowState, FlowConfig, BlockKind
 @docs ItemFacts, Placement, Decision, decide
-@docs nodeIsComment, isTypeRecordLiteral
 
 -}
 
@@ -574,65 +571,3 @@ blockNextSep rule =
 
 -- True if the node is a line or block comment. (Doc comments are their own
 -- top-level OriginalRows so they don't appear in mid-flow positions.)
-nodeIsComment : LPNode -> Bool
-nodeIsComment node =
-    when lpnBox node is
-        SingleLineComment _ ->
-            True
-
-        BlockComment _ ->
-            True
-
-        _ ->
-            False
-
-
-{-| True when `node` is a curly-bracket *type* record literal (`{ a : T, … }`),
-as opposed to an *expression* record (`{ a = v }`), a record update, an array,
-or a pattern. The discriminator is the field separator: a type field is built
-with `SynthesizedText ":"`, an expression field with `SynthesizedText "="`.
-
-Used to decide whether a multi-line record child in a flow drops to its own
-line (elm-format's application rule for type applications / type field values)
-without disturbing the many *expression* flows that share the fold and must
-keep their records/arrays/patterns inline.
--}
-isTypeRecordLiteral : LPNode -> Bool
-isTypeRecordLiteral node =
-    let
-        isCurly =
-            when lpnBox node is
-                AlwaysVertical ListCurly ->
-                    True
-
-                AllAcrossOrAllVertical ListCurly ->
-                    True
-
-                _ ->
-                    False
-
-        fieldHasColonSep field =
-            Array.any
-                (\c ->
-                    when lpnBox c is
-                        SynthesizedText ":" ->
-                            True
-
-                        _ ->
-                            False
-                )
-                (lpnChildren field)
-
-        firstField =
-            lpnChildren node
-                |> Array.keepIf (\c -> not (nodeIsComment c))
-                |> Array.first
-    in
-    isCurly
-        && (when firstField is
-                Just f ->
-                    fieldHasColonSep f
-
-                Nothing ->
-                    False
-           )

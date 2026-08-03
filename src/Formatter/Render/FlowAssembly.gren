@@ -7,7 +7,7 @@ import Formatter.Logical.LogicalPrintingTree exposing (CommentRole(..), LPBox(..
 import Formatter.Render.Box as B exposing (Box(..))
 import Formatter.Render.BoxOps exposing (applyIndent, glueCommentSuffix, isSingleLine, joinInline, nodesShareStartRow, traverseResult)
 import Formatter.Render.FlowPolicy as FP
-import Formatter.Render.NodeClassify exposing (isEmptyLine)
+import Formatter.Render.NodeClassify exposing (isEmptyLine, isTypeRecordLiteral)
 
 
 -- `exposing` stays glued to the header. Inline list: `header (a, b, c)` on one
@@ -584,7 +584,7 @@ trySoftGlueFlow items =
                         -- item (`} {- c -}`) would otherwise satisfy the
                         -- non-empty-suffix gate and wrongly glue a signature
                         -- segment's dropping record.
-                        if isSoftGlueLiteral soft && not (Array.isEmpty prefixLines) && not (Array.isEmpty suffixLines) && not (FP.isTypeRecordLiteral soft.node) then
+                        if isSoftGlueLiteral soft && not (Array.isEmpty prefixLines) && not (Array.isEmpty suffixLines) && not (isTypeRecordLiteral soft.node) then
                             let
                                 prefixLine =
                                     B.row (Array.intersperse B.space prefixLines)
@@ -669,7 +669,7 @@ pairLeadingComments items =
                                     False
 
                                 Just next ->
-                                    FP.isTypeRecordLiteral next.node
+                                    isTypeRecordLiteral next.node
                                         || (commentDoesNotGlue it && softBlockDropsBox next)
                            )
     in

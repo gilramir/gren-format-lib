@@ -1,11 +1,10 @@
-module Formatter.Render.NodeClassify exposing (commentBreaksFlowRow, commentTextCanRide, fieldValueDropsToOwnLine, isColonLeaf, isDroppingSignatureRecordNode, isEmptyLine, isMultilineLambdaParenBlockBox, isOpAndRhsNode, isPipelineStepNode, leafLineRow, leafValue, literalCommentsRideFlatLine, nodeIsComment, parenContentIsLambdaHead, rowsSpanMultiple, signatureForceVertical, splitSignatureSegments, subtreeEndsWithLineComment, subtreeHasComment, typeHasCommentBracket)
+module Formatter.Render.NodeClassify exposing (commentBreaksFlowRow, commentTextCanRide, fieldValueDropsToOwnLine, isColonLeaf, isDroppingSignatureRecordNode, isEmptyLine, isMultilineLambdaParenBlockBox, isTypeRecordLiteral, isOpAndRhsNode, isPipelineStepNode, leafLineRow, leafValue, literalCommentsRideFlatLine, nodeIsComment, parenContentIsLambdaHead, rowsSpanMultiple, signatureForceVertical, splitSignatureSegments, subtreeEndsWithLineComment, subtreeHasComment, typeHasCommentBracket)
 
 {-| Boolean predicates and small structural queries over LPT nodes.
 -}
 
-import Formatter.Logical.LogicalPrintingTree exposing (CommentRole(..), LPBox(..), LPNode, commentRole, firstRowInSubtree, lpnBox, lpnBracketStart, lpnChildren, lpnMaxRow)
+import Formatter.Logical.LogicalPrintingTree exposing (CommentRole(..), LPBox(..), LPNode, ListBrackets(..), commentRole, firstRowInSubtree, lpnBox, lpnBracketStart, lpnChildren, lpnMaxRow)
 import Formatter.Render.Box as B
-import Formatter.Render.FlowPolicy as FP
 
 
 nodeIsComment : LPNode -> Bool
@@ -431,8 +430,59 @@ segLastRow seg =
         seg
 
 
+{-| True when `node` is a curly-bracket *type* record literal (`{ a : T, … }`),
+as opposed to an *expression* record (`{ a = v }`), a record update, an array,
+or a pattern. The discriminator is the field separator: a type field is built
+with `SynthesizedText ":"`, an expression field with `SynthesizedText "="`.
+
+Used to decide whether a multi-line record child in a flow drops to its own
+line (elm-format's application rule for type applications / type field values)
+without disturbing the many *expression* flows that share the fold and must
+keep their records/arrays/patterns inline.
+-}
+isTypeRecordLiteral : LPNode -> Bool
+isTypeRecordLiteral node =
+    let
+        isCurly =
+            when lpnBox node is
+                AlwaysVertical ListCurly ->
+                    True
+
+                AllAcrossOrAllVertical ListCurly ->
+                    True
+
+                _ ->
+                    False
+
+        fieldHasColonSep field =
+            Array.any
+                (\c ->
+                    when lpnBox c is
+                        SynthesizedText ":" ->
+                            True
+
+                        _ ->
+                            False
+                )
+                (lpnChildren field)
+
+        firstField =
+            lpnChildren node
+                |> Array.keepIf (\c -> not (nodeIsComment c))
+                |> Array.first
+    in
+    isCurly
+        && (when firstField is
+                Just f ->
+                    fieldHasColonSep f
+
+                Nothing ->
+                    False
+           )
+
+
 {-| True for a node that renders as a multi-line record TYPE — either a plain
-record literal (`FP.isTypeRecordLiteral`, `{ a : Int }`) or an extensible
+record literal (`isTypeRecordLiteral`, `{ a : Int }`) or an extensible
 record type, which reuses the `RecordUpdate` box the same way a record-update
 EXPRESSION does (`{ r | a : Int }`; see `LogicalPrintingTree.gren`'s
 `RecordUpdate` doc). Treating any `RecordUpdate` found here as a type is safe
@@ -440,7 +490,7 @@ only because every call site restricts `node` to a signature's TYPE position,
 where `RecordUpdate` can never mean an update expression. -}
 isDroppingSignatureRecordNode : LPNode -> Bool
 isDroppingSignatureRecordNode node =
-    FP.isTypeRecordLiteral node
+    isTypeRecordLiteral node
         || (when lpnBox node is
                 RecordUpdate _ ->
                     True
