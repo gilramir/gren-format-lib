@@ -389,7 +389,7 @@ renders multi-line, so it satisfied the contract while being wrong.
 The formatter knows something no gate can currently see: **which layout decision
 it took, and which predicate produced it.** Have it emit that —
 
-    decl 3 `foo`  signatureForceVertical=False  commentSplitsType=True  -> perSegment
+    decl 3 `foo`  signatureForceVertical=False  typeContentSpansRows=True  -> perSegment
 
 — then format twice and require the **decision set** to match, not just the
 bytes. Two properties fall out, and between them they cover every failure of
@@ -398,10 +398,16 @@ this class:
 - **under-approximation** (the oscillations: 401 cells, then 15, then 32). The
   chosen form is not a fixed point, so the decision flips on the reparse. Today
   this surfaces as a byte diff and the culprit has to be inferred; here it
-  names itself.
+  names itself. **This is what the 347-finding residual of step 2 is made of**,
+  which is the argument for building the gate before working that list down: it
+  turns 347 byte diffs into 347 named decisions, and the names group.
 - **over-approximation** (the 50 cells). Render the *alternative* form, reparse
   it, recompute: if the alternative would also have been a fixed point, the
   predicate forced a layout it did not need to.
+
+The predicate this section was written to catch (`commentSplitsType`) is gone —
+step 4 deleted it rather than gating it. What remains is every *other*
+row-derived decision, and the residual says there are plenty.
 
 Note that a purely external gate cannot do this. "Did the formatter choose the
 per-segment shape" is observable in the output, but if the two formats already
