@@ -1,4 +1,4 @@
-module Formatter.Render.CommentBox exposing (blockCommentBodyOffset, commentNodeBox, docCommentString, emptyBracketedCommentLine, glueTrailingComments, leadingSpaceCount, makeCommentLineBox, multiLineBlockCommentBox, peelTrailingCommentNodes, spanLeadingComments, spanOperatorRowComments, spanTrailingComments, spanTrailingOwnLineComments)
+module Formatter.Render.CommentBox exposing (commentNodeBox, emptyBracketedCommentLine, glueTrailingComments, makeCommentLineBox, multiLineBlockCommentBox, peelTrailingCommentNodes, spanLeadingComments, spanOperatorRowComments, spanTrailingComments, spanTrailingOwnLineComments)
 
 {-| Rendering of comment nodes (line, block, doc) to `Box`.
 -}

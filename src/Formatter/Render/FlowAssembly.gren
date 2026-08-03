@@ -1,4 +1,4 @@
-module Formatter.Render.FlowAssembly exposing (FlowItem, SoftGlueAlignment(..), assembleBrokenCall, assembleBrokenWithComments, bracketPunc, flowItemInlineLine, gluedExposingBox, isCommentItem, isSoftGlueLiteral, pairLeadingComments, parenInnerIsAlignCarrying, shouldGlueBox, softBlockChildForcesVerticalBox, softGlueAlignment, trySoftGlueFlow, verticalExposingBox)
+module Formatter.Render.FlowAssembly exposing (FlowItem, SoftGlueAlignment(..), assembleBrokenCall, assembleBrokenWithComments, bracketPunc, gluedExposingBox, isCommentItem, pairLeadingComments, parenInnerIsAlignCarrying, softBlockChildForcesVerticalBox, softGlueAlignment, trySoftGlueFlow, verticalExposingBox)
 
 {-| Flow-assembly support: the `FlowItem`/`SoftGlueAlignment` types and the pure helpers that lay pre-rendered flow items out into a `Box`.
 -}

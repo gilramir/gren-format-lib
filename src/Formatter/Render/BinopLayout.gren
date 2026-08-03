@@ -1,4 +1,4 @@
-module Formatter.Render.BinopLayout exposing (assembleBinopBox, commentBreaksBinopChain, flattenBinopNodes, inlineBinopBox, isChainBreakingOperandBox, opText, renderBinopGroup, splitTrailingOwnLineComments)
+module Formatter.Render.BinopLayout exposing (assembleBinopBox, commentBreaksBinopChain, flattenBinopNodes, isChainBreakingOperandBox, opText, splitTrailingOwnLineComments)
 
 {-| Pure layout assembly for binary-operator chains (operand boxes + operator texts -> Box).
 -}
