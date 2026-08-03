@@ -1141,6 +1141,19 @@ documentation instead of quietly outliving it.
     fn a { rec | a = 1 } {- c -} last
     ```
 
+    A *run* of them behaves the same way, all-or-nothing: every comment of the
+    run rides the first item's line, or — as soon as one of them cannot ride,
+    being a `--` or a multi-line `{- … -}` — the whole run stands on its own
+    rows. (Until 2026-08-02 an opener run broke after its first comment while
+    the identical run in a `,` gap rode; only the first comment of an opener
+    run is classified `RidesInline`, and the ride test there asked the role
+    rather than the comment's shape.)
+
+    ```gren
+    -- both formatters:
+    [ {- a -} {- b -} 1, 2 ]
+    ```
+
     A record update is where the two halves meet: its `{` and its base name are
     both recorded, so a comment before the base is placed exactly, and only a
     single-line `{- -}` after it — where nothing but the `|` remains, and the two

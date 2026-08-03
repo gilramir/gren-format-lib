@@ -4451,11 +4451,18 @@ commentBracketListBox bracket nodes =
                                 -- `Nothing` arm below).
                                 when FP.containerCommentSlot { atOpener = atOpener acc, canGlue = True } node is
                                     FP.LeadsOpener ->
+                                        -- `commentTextCanRide` (SHAPE), not
+                                        -- `commentRidesInline` (ROLE). Only the FIRST
+                                        -- comment of an opener run is classified
+                                        -- `RidesInline`; a second is `LeadsNext`, so
+                                        -- the role test made a run of two always break
+                                        -- after the first while the identical run in a
+                                        -- `,` gap rode — and elm-format rides both.
                                         Ok
                                             { acc
                                                 | lead =
                                                     Array.pushLast
-                                                        { box = cbox, inline = commentRidesInline node }
+                                                        { box = cbox, inline = commentTextCanRide node }
                                                         acc.lead
                                                 , leadAtOpener = Array.isEmpty acc.lead || acc.leadAtOpener
                                             }

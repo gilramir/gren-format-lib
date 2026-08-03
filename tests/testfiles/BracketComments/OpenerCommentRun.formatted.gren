@@ -1,0 +1,57 @@
+module OpenerCommentRun exposing (..)
+
+
+-- A RUN of single-line block comments just inside an opening bracket rides the
+-- first item's line, exactly as the identical run in a `,` gap does. Only the
+-- first comment of the run is classified `RidesInline`; the second is
+-- `LeadsNext`, so a role-based ride test broke the run after one comment while
+-- the comma slot rode all of it.
+arrayOpenerRun =
+    [ {- a -} {- b -} 1
+    , 2
+    ]
+
+
+arrayCommaRun =
+    [ 1
+    , {- a -} {- b -} 2
+    ]
+
+
+recordOpenerRun =
+    { {- a -} {- b -} x = 1
+    , y = 2
+    }
+
+
+updateOpenerRun r =
+    { r
+        | {- a -} {- b -} x = 1
+        , y = 2
+    }
+
+
+threeInARow =
+    [ {- a -} {- b -} {- c -} 1
+    , 2
+    ]
+
+
+-- A `--` cannot ride: it runs to end of line. The whole run breaks, including
+-- the block comment before it (all-or-nothing over a run).
+lineCommentInRun =
+    [ {- a -}
+      -- b
+      1
+    , 2
+    ]
+
+
+-- A multi-line block comment cannot ride either, and stops the run.
+multilineInRun =
+    [ {- a -}
+      {- b
+         still b -}
+      1
+    , 2
+    ]
