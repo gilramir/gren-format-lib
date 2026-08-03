@@ -216,7 +216,7 @@ multiLineBlockCommentBox value =
             Ok (B.stack1 (Array.map (\ln -> B.line (B.literal ln)) allLines))
 
 
--- ═══ TYPE ALIAS & UNION DECLARATIONS ═══
+-- ═══ COMMENT-RUN SPAN / PEEL HELPERS ═══
 
 
 -- Split a run of leading comment nodes off the front of a step's children.

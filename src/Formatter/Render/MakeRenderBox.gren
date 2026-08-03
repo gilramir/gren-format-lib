@@ -558,7 +558,6 @@ precedenceBinopBoxFromItems ops operandItems =
                         )
 
 
--- The comment-aware flow: `buildFlowBox grenIndent` when inline,
 {-| A forced-vertical binop chain, laid out **precedence-aware**: the chain
 breaks only at its lowest-precedence operators, and tighter-binding operators
 (with their operands) stay glued inline within a group — `baseScore` /
@@ -1020,8 +1019,7 @@ makePipelineBox forceVertical op children =
                                             -- own that could disagree with it (the binop
                                             -- fallback took the shortcut of reproducing
                                             -- that layout locally and it silently
-                                            -- diverged under a comment — see
-                                            -- commentAwareBinopBox).
+                                            -- diverged under a comment).
                                             buildFlowBox 0 children
                             )
                 )
@@ -1098,11 +1096,9 @@ splitStepTriggerItems stepItems =
     ).split
 
 
--- The three `splitStepTriggerItems` predicates, each the item-box form of the
--- node-rendering one it replaced (`isMultilineLambdaParenBlockAnyBodyBox`,
--- `isMultilineBracketContainerBox`, `flowChildForcesVerticalBox`). The structural
--- half is unchanged; only the verticality half moved from "render it again" to
--- "read the box we have". A comment item's `box` is `B.blankLine` (single-line),
+-- The three `splitStepTriggerItems` predicates. Each replaced a node-rendering
+-- predicate of the same shape: the structural half is unchanged, and only the
+-- verticality half moved from "render it again" to "read the box we have". A comment item's `box` is `B.blankLine` (single-line),
 -- so the explicit comment guard below is belt-and-braces, matching the original.
 
 
@@ -1262,7 +1258,7 @@ directOperandLambdaSplit item =
                 Nothing
 
 
--- One `|> step`. A step with a *trigger* (see `splitStepTrigger`) relocates it:
+-- One `|> step`. A step with a *trigger* (see `splitStepTriggerItems`) relocates it:
 -- the preamble (`|> fn …`) glues inline, the trigger drops to its own line at
 -- +grenIndent (relative to the step's own base — the pipeline assembler adds
 -- the step's +4 from the seed), and any suffix args land below it at the same
@@ -2135,7 +2131,7 @@ buildBackwardBodyBox bodyNodes =
                     -- oscillations guarded against below are untouched.
                     --
                     -- Only a single-line block comment can reach this point with a
-                    -- leading position — `stepNeedsCommentedLayout` routes a `--`,
+                    -- leading position — `stepLeadsWithComment` routes a `--`,
                     -- a multi-line `{- … -}`, and a comment before the `<|` itself
                     -- to the operator-leading path instead.
                     nLeading =
@@ -5157,7 +5153,7 @@ assembleFlowImpl inlineStart flowIndent items =
                                 -- block). Reached when a pipeline step's trigger
                                 -- `suffix` holds two or more multi-line block
                                 -- arguments (`|> f a b c` with `b` and `c` both
-                                -- multi-line): `splitStepTrigger` relocates only the
+                                -- multi-line): `splitStepTriggerItems` relocates only the
                                 -- first, and the rest render through this flow, so a
                                 -- block genuinely can follow a block here. Each lands
                                 -- on its own line at the flow's indent — elm-format's

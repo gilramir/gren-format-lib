@@ -65,7 +65,8 @@ layers below cure it in different ways:
   what follows. (An earlier design claimed the comment as the construct's
   trailing comment and placed it by column depth — the render column was meant
   to re-trigger the claim on reparse — but the two disagreed for many shapes and
-  it drifted. See `trailing-comment-drift.md` §13 for the full story.)
+  it drifted: the claim and the placement had to agree about a column that
+  the formatting itself moved.)
 - **Inner descent** (`insertCommentIntoSubtree`): the formatter does not
   *descend* into a child it trails when the next sibling is a flow boundary
   (`nextSiblingIsBoundary` — the `in` keyword, the next binding, the next branch)
@@ -770,9 +771,10 @@ findOrCreateOrigRow row stype nodes =
             -- fresh column-1 OriginalRows, matching elm-format. (An earlier rule,
             -- `columnClaim`, could claim such a comment as the construct's
             -- trailing comment and place it by column depth; that was the source
-            -- of the trailing-comment drift/oscillation. See §13 of
-            -- trailing-comment-drift.md for why detaching everything is both the
-            -- fix and full elm-format parity.)
+            -- of the trailing-comment drift/oscillation — the claim and the
+            -- placement had to agree about a column that the formatting itself
+            -- moved. Detaching everything is both the fix and full elm-format
+            -- parity.)
             let
                 -- Create a new OriginalRows node inserted in sorted order
                 newNode =
@@ -964,7 +966,7 @@ insertCommentIntoSubtree commentNode row col node =
                             -- so "inside or outside the container" is a fact we
                             -- have rather than a choice we make. Without this the
                             -- comment was hoisted onto its own line above the whole
-                            -- container (parity family A1).
+                            -- container.
                             commentAfterBracketOpen =
                                 when lpnBracketStart child is
                                     Nothing ->
@@ -1295,7 +1297,7 @@ insertAmongChildren containerBox commentNode row col children =
 --       the `}` descend to the last field; only one written past the `}`
 --       stays outside. Excluding it used to let `fn a { r | a = 1 } {- c -} b`
 --       render as `{ r | a = 1 {- c -} }`, i.e. as a comment on the last
---       field rather than on the record (parity family A5).
+--       field rather than on the record.
 -- For every *other* box kind the sibling check in the descent expresses the same
 -- intent whenever a sibling follows, so most constructs need no entry here.
 boxKeepsTrailingCommentOutside : LPNode -> Bool
@@ -1659,11 +1661,10 @@ lastRenderedRow node =
     max lp be
 
 
--- True when a comment directly trailing this node glues regardless of row,
--- matching FlowPolicy's `prevElided` — which is set ONLY from `isElidedArrow`:
--- the zero-width synthesized signature `->` (an `UnbreakableText "->"` anchored
--- at the end of its `from` type, not where it renders), so a pure row test would
--- flip on reformat. Other position-less tokens (`in`, `=`, `:`) are NOT elided
+-- True when a comment directly trailing this node glues regardless of row.
+-- Scoped to ONE token: the zero-width synthesized signature `->` (an
+-- `UnbreakableText "->"` anchored at the end of its `from` type, not where it
+-- renders), so a pure row test would flip on reformat. Other position-less tokens (`in`, `=`, `:`) are NOT elided
 -- here: a comment on its own row after them legitimately stays own-line (e.g.
 -- the `let … in` trailing comment, a deliberate README divergence).
 nodeIsElided : LPNode -> Bool
@@ -1699,8 +1700,8 @@ subtreeContainsComment node =
 -- can glue onto its closing bracket's line). An `AlwaysVertical` list always
 -- does; an `AllAcrossOrAllVertical` list stays inline unless a contained comment
 -- (or a multi-row span) forces it open. This mirrors `factsFor`'s render-derived
--- `forcesVertical` from source structure — the render-observed version arrives
--- with Change B.
+-- `forcesVertical` from source structure; it is a logical-stage predicate, so it
+-- cannot observe the rendered box the way the render stage does.
 bracketRendersMultiline : LPNode -> Bool
 bracketRendersMultiline node =
     when lpnBox node is

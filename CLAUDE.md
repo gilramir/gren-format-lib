@@ -209,12 +209,12 @@ inconsistency) was removed entirely 2026-07-15.
 `whenExpr/pipelineOperand` (a `(when …)` direct pipeline operand stranding the
 `|>`) and `*/parenBinopArg` (a doubled `((if/when/let ...)` call argument
 anchoring `else`/`in`/its inner `)` to the OUTER paren instead of the inner
-one) were both fixed the same day, in `Render/MakeRenderBox.gren`:
-`isMultilineLambdaParenBlockAnyBodyBox` now recognizes a ParenBlock whose sole
-child is a `WhenFlow`, and `parenGenericFallbackBox` now checks
-`parenContentLeadsWithBlockParen` (descends through `Pipeline`/`Binop` to the
-leftmost operand) to pick the padded paren-wrap when that operand is itself a
-paren-wrapped `if`/`when`/`let`.
+one) were both fixed the same day, in `Render/MakeRenderBox.gren`, by making the
+paren wrap anchor on the paren that actually encloses the block. Both fixes were
+originally two dedicated predicates; neither survives — the padding they selected
+for is what `wrapParenVerticalPadded` does in every vertical case, so
+`parenGenericFallbackBox` now applies it unconditionally there rather than asking
+a predicate which paren to pad.
 
 **Reclassifying is not a formality.** When the 46 UNREVIEWED were reviewed, two
 weaker tests both got it wrong: "same tokens once parens are deleted" cleared 45

@@ -7,9 +7,10 @@ module Formatter.Render.ElmStructure exposing
 renderer (`Formatter.Render.MakeRenderBox`). Verticality is driven by the
 caller's `forceMultiline` (author intent), NOT a page-width fit search.
 
-Only `groupBox` (elm's `group'`, for bracketed literals) is needed by tranche 1;
-more combinators (`equalsPair`, `extensionGroup`, …) get added as the strangler
-rollout ports more constructs.
+The module is deliberately small: it holds the two combinators the renderer
+actually calls (`groupBox` for bracketed literals, `extensionGroup` for an
+extensible record type), each with a single call site. Port another only when a
+construct needs it.
 -}
 
 import Formatter.Render.Box as B exposing (Box)

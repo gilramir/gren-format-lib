@@ -317,17 +317,10 @@ parenContentIsLambdaHead node =
             False
 
 
-{-| Render a comment-bearing record update as the always-vertical form: base on
-its own line (`{ base`), then each field prefixed `| ` (first) / `, ` (rest) and
-each comment child on its own line — all indented +4 — and the closing `}` on its
-own line at the `{` column (elm-format). Comment children never carry a field
-prefix; the first *field* (not the first child) gets the `| `. Box `stack1` +
-`B.indent` + `B.prefix` supply the alignment. A multi-line block comment falls
-back via `commentNodeBox`'s verbatim guard. -}
--- True when a record-update field's value is forced onto its own line(s) by a
--- comment among the field's children (e.g. `gamma = {- c -} 3`). `buildFlowBox`
--- drops such a value below `= `, so it composes with the field's `| `/`, `
--- prefix — unlike a soft broken-call/binop value, which stays glued (elm-format).
+{-| True when a record-update field's value is forced onto its own line(s) by a
+comment among the field's children (e.g. `gamma = {- c -} 3`). `buildFlowBox`
+drops such a value below `= `, so it composes with the field's `| `/`, `
+prefix — unlike a soft broken-call/binop value, which stays glued (elm-format). -}
 fieldValueDropsToOwnLine : LPNode -> Bool
 fieldValueDropsToOwnLine node =
     Array.any nodeIsComment (lpnChildren node)

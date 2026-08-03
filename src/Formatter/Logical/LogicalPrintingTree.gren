@@ -674,7 +674,7 @@ bounds this is a property of the node itself, not aggregated from children.
 
 The opening bracket has no leaf of its own in the tree, so a container whose
 first item dropped to the next input row looks like it *starts* on that row.
-`MakeRenderBox.segFirstRow` uses this to read a signature segment's true
+`NodeClassify.segFirstRow` uses this to read a signature segment's true
 start row (`-> { ⏎ x : Int }` begins at the `{`, not the field), so a break
 inside the braces doesn't masquerade as a break between `->` segments.
 -}
@@ -693,7 +693,7 @@ The bracket is part of the node's source extent even though it has no leaf, so
 `[` and the first item (`[ {- c -} 1 ]`) reads as starting *before* the whole
 container, and every ancestor inherits that lie because the bounds aggregate
 from the children's cached values. That is what hoisted such a comment onto its
-own line above the container (parity family A1).
+own line above the container.
 
 Called at construction, before the node is handed to a parent's `lpnNode`, so
 the corrected bounds propagate upward for free. -}

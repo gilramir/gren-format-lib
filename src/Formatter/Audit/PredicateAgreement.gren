@@ -74,8 +74,9 @@ answers "this will break", so every one of them owes the renderer agreement.
 
 Adding a predicate here is the cheap half of adding one to `NodeClassify`. The
 expensive half is that a new row-reading shape predicate is a step back toward
-the mirror layer this codebase spent Change B deleting -- prefer rendering the
-child and observing its box.
+the mirror layer this codebase spent a long refactor deleting (the one
+`tests/check-render-invariant.py` now enforces the absence of) -- prefer
+rendering the child and observing its box.
 -}
 auditedPredicates : Array { name : String, test : LPNode -> Bool }
 auditedPredicates =
