@@ -263,12 +263,18 @@ is the shape elm-format produces.
 
 ### The residual, and why this gate ships red
 
-After the fixes the corpus sweep stands at **418 findings — 0 regressions, all
-pre-existing**: 294 multi-line block, 124 `--`, 0 single-line block. Every one
+As of 2026-08-03 the corpus sweep stands at **424 findings — 0 regressions, all
+pre-existing**: 298 multi-line block, 126 `--`, 0 single-line block. Every one
 was attributed against the previous build; none is new.
 
+The figure moves when the *corpus* grows, not only when behaviour does — the
+`D27`–`D29` divergence fixtures added six of those 424 between them, exercising
+known families (a `--` splitting a declaration keyword leaves a detached comment
+that gains a blank line on reformat). So a rise is a prompt to attribute, not
+proof of a regression; and a fall can equally mean a fixture was deleted.
+
 So `fuzz-idempotency.py --gaps` currently **fails**, and that is deliberate. A
-green gate would require either fixing 418 latent oscillations first or
+green gate would require either fixing those latent oscillations first or
 narrowing the sweep back to the kind that was already clean — and narrowing it
 is exactly the mistake that hid them. The count is printed per kind on every
 run, in the same spirit as the `UNREVIEWED` / `BUG:` counters in the parity
@@ -314,7 +320,7 @@ Four things are worth keeping from that:
 ## Order of work
 
 1. ~~per-gap pass sweeps all three comment kinds~~ *(done 2026-08-03)*
-2. **work the 418-finding residual down to zero**, then wire the pass into
+2. **work the ~420-finding residual down to zero**, then wire the pass into
    `run-tests.sh`. Until then it is a hand-run gate with a known baseline.
 3. ~~declaration contexts in `matrix-syntax.py`~~ *(done 2026-08-03: 11 type
    constructs × 15 declaration contexts, +341 syntax cells, +4,930 comment
