@@ -1267,6 +1267,30 @@ documentation instead of quietly outliving it.
     elm-format's column lines up with nothing: not the `{`, not the fields, not
     the closing `}`. gren-format keeps the update's inner columns uniform.
 
+    **The same holds at every `|`, not just a record update's** — the comment
+    axis's type contexts (2026-08-03) reached the other two and both answer the
+    same way. gren-format puts the comment at the column of the line it leads;
+    elm-format hangs it two columns past the enclosing opener, where again
+    nothing lines up with it:
+
+    ```gren
+    -- an extensible record TYPE's `|`
+    -- gren-format:            -- elm-format:
+    foo :                      foo :
+        { r                        { r
+            -- note                  -- note
+            | a : Int                    | a : Int
+        }                          }
+        -> Int                     -> Int
+
+    -- a union's `|`
+    -- gren-format:            -- elm-format:
+    type U                     type U
+        = A Int                    = A Int
+        -- note                      -- note
+        | B Int                    | B Int
+    ```
+
 25. <a id="divergence-25"></a>**A comment sits on the rows you gave it; elm-format re-spaces around
     it, in both directions.** [#23](#divergence-23) is about elm-format breaking
     the *code* open to make room for a comment. This is the other half: what

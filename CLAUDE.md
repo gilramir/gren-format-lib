@@ -568,14 +568,47 @@ section of `comment-parity-triage.md`.
 interactively; there is no in-place edit, and the superseded rows are the record
 of what was thought before.
 
-**Current state (2026-08-03), after the type axis landed.** 45,948 cells,
-**25,611 baseline entries**, 58 failing (the one pre-existing family above).
-Reasons: 12,580 INHERITED, 4,640 #22, 2,615 #13, 2,242 #23, **1,140
-UNREVIEWED**, then combinations. The comment axis had been driven to 0
-UNREVIEWED on 2026-08-02; every one of these is a **type-context** cell from
-this axis's first run. That is fresh debt of exactly
-the kind the interview rounds exist to work down — `triage-comment-parity.py
---review` is the tool, and the type cells are all of it.
+**Current state (2026-08-03), after the type axis landed and its debt was read
+down.** 45,948 cells, 58 failing (the one pre-existing family above), **0
+UNREVIEWED and 0 BUG** — every divergence names a catalogue entry. The type axis
+arrived with 1,436 UNREVIEWED, all type-context cells; the fix below cleared 139
+of them outright and the remaining 1,140 were reviewed in one sitting and
+registered:
+
+| cells | reason | what it is |
+|---|---|---|
+| 380 | #23 | elm-format breaks the surrounding code further; gren emitted exactly its comment-free rendering |
+| 332 | #22 | every token the comment crossed is position-less, so both authorings arrive identically |
+| 172 | #5 | a comment past a type's `->` snaps back to the row above the arrow |
+| 110 | #23+#25 | elm both opens the container and floats the comment onto its own row with a blank line |
+| 61 | #1 | elm's blank-line separator splits a comment away from the declaration it documents |
+| 32 | #28 | a type application has no container to indent its argument from |
+| 26 | #25 | elm re-spaces the comment's own rows; gren keeps the rows the author gave it |
+| 19 | #24 | an own-row comment leading a `\|` line: gren at the line's column, elm two past the opener |
+| 8 | #10+#23 | elm strips the redundant parens and lifts the type below the `:` |
+
+**A further 1,963 cells turned out to be carrying a stale label**, found while
+confirming the zero: `INHERITED:UNREVIEWED` — inherited from a base that was
+unreviewed *at the time it was written*. It is not literally `UNREVIEWED`, so
+`--update-baseline`'s "keep any prior reason" rule preserved it verbatim for ever
+and the UNREVIEWED counter never saw it, while it read to a human as reviewed
+debt. Not one of those 123 base cells was still unreviewed (119 registered,
+mostly #28; 4 gone from the syntax baseline entirely). `reason_is_stale` now
+recomputes them against the base's *current* reason; 1,931 auto-classified and
+**32 were genuine debt that had been hiding behind the label**, registered
+`INHERITED:#28+#23` (20), `INHERITED:#27+#23` / `INHERITED:#29+#23` (4 each) and
+`#24` (4). A reviewed reason never contains the token, so `#22`, `BUG: …`,
+`PENDING-UPSTREAM: …` and `INHERITED:#28` are all still preserved. **Treat any
+compound reason built from another baseline's entry as needing this
+treatment** — the bug is not `UNREVIEWED` specifically, it is that a *derived*
+label was cached and never re-derived.
+
+One entry was **extended** rather than added: [#24](docs/elmFormatComparison.md#divergence-24)
+covered a record update's `|`; the type contexts reached the extensible record
+TYPE's `|` and a union's `|`, and both answer the same way. The `D24` fixture now
+carries all three. Nothing else needed a new number — which is the useful
+result, since a type context asking a *new* comment question would have meant
+the C1–C6 rules did not cover types.
 
 Reading it found a bug before any of it could be registered: **a comment written
 anywhere inside a `let` binding's type annotation escaped the annotation

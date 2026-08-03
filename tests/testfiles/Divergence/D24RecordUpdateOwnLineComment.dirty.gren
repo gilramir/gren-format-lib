@@ -5,6 +5,10 @@ module D24RecordUpdateOwnLineComment exposing (..)
 -- `{`, the same column every other part of the update uses. elm-format hangs it
 -- two columns past the `{`, lining up with nothing: not the `{`, not the
 -- fields, not the closing `}`.
+--
+-- The same holds at the other two `|`s — an extensible record TYPE's and a
+-- union's. gren-format puts the comment at the column of the line it leads;
+-- elm-format hangs it two past the enclosing opener in each.
 
 
 v rec =
@@ -20,3 +24,19 @@ nested rec =
         | a = 1
       }
     ]
+
+
+extRecordType :
+    { r
+        -- note
+        | a : Int
+    }
+    -> Int
+extRecordType q =
+    1
+
+
+type U
+    = A Int
+    -- note
+    | B Int

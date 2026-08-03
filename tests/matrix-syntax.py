@@ -336,6 +336,26 @@ def marker_role(out):
 
 
 REASON_INHERITED = "INHERITED"  # prefix: "INHERITED: <the syntax cell's own reason>"
+
+
+def reason_is_stale(reason):
+    """True for a stored reason that must be RECOMPUTED rather than preserved.
+
+    `UNREVIEWED` is the obvious one. The trap is `INHERITED:UNREVIEWED` — a
+    comment cell that inherited its base's reason back when the base was itself
+    unreviewed. It is not literally `UNREVIEWED`, so the "keep any prior reason"
+    rule preserved it verbatim for ever, and the UNREVIEWED counter never saw
+    it: 1,963 cells were wearing that label on 2026-08-03 with **not one** of
+    their 123 base cells still unreviewed (119 registered — mostly #28 — and 4
+    gone from the syntax baseline entirely, i.e. matching elm-format now).
+
+    A stale label that reads as reviewed debt is the failure mode this whole
+    baseline exists to prevent, so these recompute against the base's CURRENT
+    reason instead. A genuinely reviewed reason (`#22`, `BUG: …`,
+    `PENDING-UPSTREAM: …`, `INHERITED:#28`) never contains the token and is
+    still preserved.
+    """
+    return reason == REASON_UNREVIEWED or f"{REASON_INHERITED}:{REASON_UNREVIEWED}" in reason
 REASON_UNRECORDED = "#22"  # comment snapped to a canonical side of an unrecorded token
 REASON_ELM_REFLOWS = "#23"  # gren kept its comment-free layout; elm-format re-flowed
 
@@ -1206,7 +1226,7 @@ def report_comment_parity(results, baseline, update, verbose=False, base_pairs=N
         cells = {}
         for key, r in diverging.items():
             prior = baseline.get(key)
-            if prior and prior != REASON_UNREVIEWED:
+            if prior and not reason_is_stale(prior):
                 cells[key] = prior
                 continue
             family = comment_family(r["parity"]["gren"], r["parity"]["elm"],
