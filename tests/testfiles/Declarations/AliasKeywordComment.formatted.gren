@@ -1,0 +1,21 @@
+module M exposing (S, T, U, V)
+
+
+type alias T =
+    Int
+
+
+{- own row -}
+
+
+type alias S =
+    Int
+
+
+{- inline -}
+type alias U =
+    Int
+
+
+type {- union -} V
+    = A

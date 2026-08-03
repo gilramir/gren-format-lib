@@ -277,28 +277,67 @@ Used to tell a genuinely free-floating comment (a gap on *both* sides) apart
 from a comment that merely leads an import with no gap below it — imports
 never register as a group start (see `classifyChildren`'s `core` field), so
 without this check both would look identical to `insertEmptyLines`.
+
+**Row adjacency is not the whole answer, because this pass is about to change
+it.** A node that starts its own unit always gets two blank lines above it, so
+a comment sitting directly on top of one is detached below in the output no
+matter how the author wrote it. Reading only the input rows there made the two
+passes disagree:
+
+    type alias T =              -- first format:      -- and then:
+        Int                     type alias T =        type alias T =
+                                    Int                   Int
+    type
+        {- b -}                 {- b -}                                 <- one
+        alias S =                                     {- b -}           <- two
+        Int                     type alias S =        type alias S =
+
+`{- b -}` cannot live inside `type … alias`, so it is emitted above the
+declaration. In the source it sits on the row directly above it, so `detached`
+was False and it got one blank — while `computeGroupStarts` had *already*
+excluded it from leading that declaration (`commentCol > 1`), which made the
+declaration a unit start and put two blanks between them. The pass inserted a
+gap and then reasoned as if there were none; the reparse saw the real gap and
+answered two. `computeGroupStarts` states this same hazard for its own case
+("on a reparse the comment … now has a physical blank below it"); the fix is to
+give this function the same knowledge rather than let it read a row adjacency
+the caller is about to destroy.
+
+So a comment that does **not** itself lead the node below (not a group start,
+hence not part of its unit) and is followed by a node that **does** start a
+group is detached below by construction. Requiring the comment not be a group
+start is what keeps a real leading comment — which shares the unit and gets no
+blank between — out of this.
 -}
-computeDetachedBelow : Array DeclInfo -> Array Bool
-computeDetachedBelow infos =
+computeDetachedBelow : Array Bool -> Array DeclInfo -> Array Bool
+computeDetachedBelow groupStarts infos =
     let
         { flags } =
             Array.foldl
-                (\info acc ->
+                (\{ info, isGroupStart } acc ->
                     let
                         detached =
-                            when acc.nextFirst is
-                                Just nf ->
-                                    nf > info.last + 1
+                            when acc.next is
+                                Just nx ->
+                                    nx.first
+                                        > info.last
+                                        + 1
+                                        || (nx.isGroupStart && not isGroupStart)
 
                                 Nothing ->
                                     True
                     in
                     { flags = Builder.pushLast detached acc.flags
-                    , nextFirst = Just info.first
+                    , next = Just { first = info.first, isGroupStart = isGroupStart }
                     }
                 )
-                { flags = Builder.empty (Array.length infos), nextFirst = Nothing }
-                (Array.reverse infos)
+                { flags = Builder.empty (Array.length infos), next = Nothing }
+                (Array.reverse
+                    (Array.map2 (\info gs -> { info = info, isGroupStart = gs })
+                        infos
+                        groupStarts
+                    )
+                )
     in
     -- See the matching note in `computeGroupStarts`: `Array.Builder` (amortized
     -- O(1) push) + one final reverse, instead of O(n) `Array.pushLast` per element.
@@ -337,7 +376,7 @@ insertEmptyLines root =
             computeGroupStarts infos
 
         detachedBelow =
-            computeDetachedBelow infos
+            computeDetachedBelow groupStarts infos
 
         zipped =
             Array.map3
