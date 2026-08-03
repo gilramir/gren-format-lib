@@ -5073,9 +5073,9 @@ assembleFlowImpl inlineStart flowIndent items =
                                 -- including `GlueNoSep`, is ever assigned to a
                                 -- comment item that reaches this inline
                                 -- (non-`AlreadyTerminated`) branch in the current
-                                -- wiring (see box-err.md §3 for the traced proof).
+                                -- wiring — traced arm by arm through `FP.decide`.
                                 FP.GlueNoSep ->
-                                    Err "box: unexpected inline comment placement"
+                                    Err "unreachable: inline comment placement"
 
                                 FP.OwnLineAfterBlank ->
                                     Err "box: unexpected inline comment placement"
@@ -5427,18 +5427,18 @@ assembleFlowImpl inlineStart flowIndent items =
                         , state = decision.next
                         }
 
-                -- unreachable (both arms below; see box-err.md §3 for the
-                -- traced proof): `GlueSpace` is never assigned to a
-                -- non-comment `ItemFacts` case in `FP.decide`; `OwnLineAfterBlank`
-                -- is assigned only to `FP.WhenBranchItem`, which `factsFor`
-                -- never constructs (`WhenBranch` nodes route through the
-                -- dedicated `renderWhenBranchesBox`/`makeWhenBranchBox` path,
-                -- never through this generic flow assembler).
+                -- unreachable (both arms below, traced through `FP.decide`):
+                -- `GlueSpace` is never assigned to a non-comment `ItemFacts`
+                -- case; `OwnLineAfterBlank` is assigned only to
+                -- `FP.WhenBranchItem`, which `factsFor` never constructs
+                -- (`WhenBranch` nodes route through the dedicated
+                -- `renderWhenBranchesBox`/`makeWhenBranchBox` path, never
+                -- through this generic flow assembler).
                 FP.GlueSpace ->
-                    Err "box: unexpected flow placement"
+                    Err "unreachable: flow placement GlueSpace"
 
                 FP.OwnLineAfterBlank ->
-                    Err "box: unexpected flow placement"
+                    Err "unreachable: flow placement OwnLineAfterBlank"
 
         step paired accResult =
             accResult |> Result.andThen (stepUnwrapped paired)
