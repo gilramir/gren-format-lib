@@ -1154,14 +1154,28 @@ documentation instead of quietly outliving it.
     nothing in `core/`, `compiler-common/`, `compiler-node/` or this repo — the
     spelling does not occur in real code, in any of its three forms.
 
-    Three constructs do not follow C2: an `exposing ( … )` list, whose items
-    are *sorted* and whose comment ownership `SortSymbols` models the other way
-    round; a union variant's `|`, where elm-format breaks the union open
-    around the comment on either side, so no side gains parity; and an
-    import's `as`, where both spellings land on the **earlier** side, before
-    the `as` (elm-format keeps each side as written, so this matches it on the
-    before-`as` spelling and diverges on the other). For the first two the
-    flip has a cost elsewhere that has not been paid.
+    Three constructs do not follow C2. Since both spellings collapse into one
+    output, the side chosen decides **which of the two authors gets their text
+    back unchanged**; C2 serves the one who writes the comment after the
+    separator, and these three serve the one who writes it before:
+
+    - an `exposing ( … )` list, whose items are *sorted* and whose comment
+      ownership `SortSymbols` models the other way round — the one structural
+      reason of the three;
+    - a union variant's `|`, where a note beside a variant reads as a note
+      about that variant (elm-format breaks the union open around the comment
+      on either side, so no side gains parity);
+    - an import's `as`, where the comment stays beside the module name it
+      annotates (elm-format keeps each side as written, so this matches it on
+      the before-`as` spelling and diverges on the other).
+
+    The last two are **stated preferences, not forced choices**. The parser
+    records no more at a union's `|` than at a record update's: both spellings
+    of each arrive byte-identical, so either construct could be made to serve
+    either author. Reviewed and kept 2026-08-03 — the two `|`s deliberately
+    answer the same question in opposite directions, and a single-line `{- -}`
+    beside a `|` occurs nowhere in the 592-file package corpus, in either
+    position, in either construct.
 
     Where the token **is** recorded, gren-format keeps the side you wrote it on
     and agrees with elm-format. A comment just inside an opening bracket stays

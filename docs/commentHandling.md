@@ -436,6 +436,10 @@ d rec =
     { rec | {- inline -} alpha = 1 }
 ```
 
+So `d`'s author gets their text back and `c`'s does not. A custom type's `|`
+answers the same question the other way — see [Three places that don't take the
+later side](#three-places-that-dont-take-the-later-side).
+
 ### Three ways to type it, two possible results
 
 At a `,` there is a third spelling: after the comma but still on the first
@@ -476,6 +480,13 @@ pastArrow :
 
 ### Three places that don't take the later side
 
+Because both spellings collapse into one output, the side C2 picks decides
+**which of the two authors gets their text back unchanged** — the one who wrote
+the comment before the separator, or the one who wrote it after. There is no
+choice that serves both. C2 serves the author who writes it *after*; the three
+places below serve the one who writes it *before*. The first has a structural
+reason; the other two are a stated preference.
+
 - **A module's `exposing ( … )` list**, which is the one list whose items get
   **reordered**. There, a comment after a name belongs to that name and travels
   with it through the sort, so the same module written in any order lands on the
@@ -502,9 +513,13 @@ pastArrow :
 - **A single-line `{- -}` at a custom type's `|`.** The `|` is as unrecorded
   here as anywhere, so the two spellings still collapse into one — but the side
   picked is the **earlier** one: the comment lands trailing the variant before
-  it. elm-format breaks the type open around such a comment whichever side it
-  is on, so neither choice would match it, and nothing pushed this one to the
-  later side.
+  it. A note written beside a variant reads as a note *about that variant*, so
+  the union serves the author who writes the comment **before** the `|`. A
+  record update's `|` collapses in exactly the same way and serves the author
+  who writes it **after** — the two are a deliberate pair of preferences, not a
+  difference in what the formatter can see. (elm-format breaks the type open
+  around such a comment whichever side it is on, so neither choice would match
+  it; parity does not decide this one either way.)
 
   ```gren
   -- you write (either one of these):
@@ -529,7 +544,8 @@ pastArrow :
 - **An import's `as`.** The `as` keyword and the alias name after it are also
   unrecorded, so the two spellings collapse here too — and here as well the
   side picked is the **earlier** one: the comment lands before the `as`,
-  trailing the module name.
+  trailing the module name it annotates. Same preference as the union's `|`,
+  for the same reason.
 
   ```gren
   -- you write (either one of these):

@@ -2249,9 +2249,12 @@ A record field's `=` follows the same rule as a definition's — the comment lan
 ```
 
 A comment around a union `|` always lands **after the variant before it** — one
-of the exceptions to the "later side" rule, kept because elm-format breaks the
+of the exceptions to the "later side" rule. Both spellings collapse into one
+output, so the side chosen decides which of the two authors gets their text back
+unchanged; a note beside a variant reads as a note about that variant, so the
+union serves the one who writes it **before** the `|`. (elm-format breaks the
 union open around such a comment on either side, so no side would match it
-anyway:
+anyway.)
 
 ```gren
 -- both of these:
@@ -2268,9 +2271,12 @@ line, so variants the author wrote flat stay flat, per
 [C3](commentHandling.md#c3--a-comment-never-forces-a-break).)
 
 A `{- -}` comment around a **record update's** `|` (and an extensible record
-type's) lands **after the `|`, leading the first field**. (This is only about the
-gap *after* the base name. One written before it — right after the `{` — is in
-the opener slot and stays exactly where you put it.)
+type's) lands **after the `|`, leading the first field** — the same question as
+the union's `|`, answered the other way, serving the author who writes the
+comment **after** the separator. The two are a deliberate pair of preferences;
+the formatter sees exactly as much at one `|` as at the other. (This is only
+about the gap *after* the base name. One written before it — right after the `{`
+— is in the opener slot and stays exactly where you put it.)
 
 ```gren
 -- both of these:
