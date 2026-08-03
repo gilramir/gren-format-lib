@@ -425,8 +425,12 @@ makes the mistake cheap to find, but not making it is better.
 ## Order of work
 
 1. ~~per-gap pass sweeps all three comment kinds~~ *(done 2026-08-03)*
-2. **work the ~420-finding residual down to zero**, then wire the pass into
-   `run-tests.sh`. Until then it is a hand-run gate with a known baseline.
+2. **work the 347-finding residual down to zero**, then wire the pass into
+   `run-tests.sh`. Until then it is a hand-run gate with a known baseline. (It
+   was ~420 until `45f7269`, which took 77 of them at once: `VerticalSpace`
+   inserted a blank line and then asked a *source-row* question about the gap it
+   had just created. Worth knowing before picking off the rest one at a time —
+   the residual is not 347 separate bugs.)
 3. ~~declaration contexts in `matrix-syntax.py`~~ *(done 2026-08-03: 11 type
    constructs × 15 declaration contexts, +341 syntax cells, +4,930 comment
    cells)*. This was the n=1 base case, and nothing above it meant much until it
@@ -443,8 +447,14 @@ makes the mistake cheap to find, but not making it is better.
      carries a multi-line record is not a fixed point, because
      `typeSegmentsForceVertical` switches its dropping-record trigger off when a
      comment is present;
-   - **1,436 UNREVIEWED comment-parity divergences**, all type-context cells,
-     unread.
+   - ~~**1,436 UNREVIEWED comment-parity divergences**, all type-context
+     cells~~ *(closed 2026-08-03: `aa377fd` cleared 139 by fixing a real bug —
+     every comment inside a `let` binding's annotation escaped it — and
+     `2e4fcc4` reviewed and registered the other 1,140. Only one catalogue entry
+     needed changing, and as an **extension**: [#24](elmFormatComparison.md#divergence-24)
+     now covers the extensible-record-type and union `|` as well as the record
+     update's. That no type context asked a genuinely new comment question is
+     the useful result — it says C1–C6 already covered types.)*
 4. **stop predicting in `makeSignatureBox`'s comment arm** — render, look at the
    box, delete `commentSplitsType`. See [The real fix](#the-real-fix-do-not-predict).
 5. **the decision-stability gate** — the formatter emits which layout decision
