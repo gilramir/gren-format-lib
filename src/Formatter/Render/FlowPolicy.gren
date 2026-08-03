@@ -1,5 +1,6 @@
 module Formatter.Render.FlowPolicy exposing
     ( BlockKind(..)
+    , ContainerSlot(..)
     , Decision
     , FlowConfig
     , FlowStart(..)
@@ -7,6 +8,7 @@ module Formatter.Render.FlowPolicy exposing
     , ItemFacts(..)
     , NextSeparator(..)
     , Placement(..)
+    , containerCommentSlot
     , decide
     , initialFlowState
     )
@@ -35,6 +37,7 @@ surfaced before facts are built.
 
 @docs NextSeparator, FlowState, initialFlowState, FlowConfig, FlowStart, BlockKind
 @docs ItemFacts, Placement, Decision, decide
+@docs ContainerSlot, containerCommentSlot
 
 -}
 
@@ -43,6 +46,8 @@ import Formatter.Logical.LogicalPrintingTree exposing
     , LPBox(..)
     , LPNode
     , ListBrackets(..)
+    , commentGluesToPrevious
+    , commentRole
     , lpnBox
     , lpnChildren
     , roleGlues
@@ -206,6 +211,65 @@ type alias Decision =
     { placement : Placement
     , next : FlowState
     }
+
+
+{-| The four slots a comment can take among a vertical container's children.
+See `containerCommentSlot`. -}
+type ContainerSlot
+    = LeadsOpener
+    | LeadsFollowing
+    | GluesPrevious
+    | StandsAlone
+
+
+{-| Where a comment sits among the children of a VERTICAL container — a union
+body's variants, a record update's fields, a `when`'s branches, a bracket
+list's items.
+
+This is the container-fold twin of `decide`. `decide` places an item in a
+*flow*; this places a comment among *container children*, which is a different
+question with a much smaller answer set. Each container then materializes the
+answer its own way, because the materializations genuinely differ (a
+when-branch stacks its lead run above the branch and separates branches with
+blank lines; a bracket list glues the run onto the item's front behind a `, `
+prefix; a union body has no prefix at all).
+
+What must NOT differ is the classification, and before 2026-08-02 it was four
+hand-written if-chains that agreed only by inspection — one of them said so:
+the update fold's state "mirrors `commentBracketListBox`'s `pending`", an
+invariant asserted in prose and enforced by nothing.
+
+The caller supplies the two facts only it can know:
+
+  - `atOpener` — nothing has been emitted yet AND this container has an opener
+    slot, so a comment here was written just after the `[`/`{` and leads the
+    first item. Containers with no opener slot (a union body, a when's
+    branches) pass `False`; the record update's opener slot is peeled off
+    before the fold (`splitOpenerComments`) so it passes `False` too.
+  - `canGlue` — there is something this comment may glue onto. Each container
+    defines that differently, and the differences are deliberate: the update
+    requires the previous child to be a real FIELD (so two comments flanking a
+    `|` each keep their own line instead of chaining), while the union body,
+    the when-branches and the bracket list allow a second trailing comment to
+    chain onto the first.
+
+The result order is the priority order, and it is the same in all four.
+-}
+containerCommentSlot : { atOpener : Bool, canGlue : Bool } -> LPNode -> ContainerSlot
+containerCommentSlot facts node =
+    if facts.atOpener then
+        LeadsOpener
+
+    else if commentRole (lpnBox node) == Just LeadsNext then
+        -- Rule C2: written across a separator the parser records no position
+        -- for, so it belongs to the item that FOLLOWS it.
+        LeadsFollowing
+
+    else if facts.canGlue && commentGluesToPrevious node then
+        GluesPrevious
+
+    else
+        StandsAlone
 
 
 {-| THE decision procedure: how does this item join the flow, and what state
