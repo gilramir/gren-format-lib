@@ -569,13 +569,49 @@ interactively; there is no in-place edit, and the superseded rows are the record
 of what was thought before.
 
 **Current state (2026-08-03), after the type axis landed.** 45,948 cells,
-**25,720 baseline entries**, 58 failing (the one pre-existing family above).
-Reasons: 12,477 INHERITED, 4,610 #22, 2,525 #13, 2,278 #23, **1,436
+**25,611 baseline entries**, 58 failing (the one pre-existing family above).
+Reasons: 12,580 INHERITED, 4,640 #22, 2,615 #13, 2,242 #23, **1,140
 UNREVIEWED**, then combinations. The comment axis had been driven to 0
-UNREVIEWED on 2026-08-02; every one of the 1,436 is a **type-context** cell from
-this axis's first run and none has been read yet. That is fresh debt of exactly
+UNREVIEWED on 2026-08-02; every one of these is a **type-context** cell from
+this axis's first run. That is fresh debt of exactly
 the kind the interview rounds exist to work down — `triage-comment-parity.py
 --review` is the tool, and the type cells are all of it.
+
+Reading it found a bug before any of it could be registered: **a comment written
+anywhere inside a `let` binding's type annotation escaped the annotation
+entirely**, hoisted onto its own row above the whole binding (or dropped below
+onto the value). The same comment in a top-level signature was placed correctly.
+`Src.DefineRecord` carries **one** `name` position and it is the *definition's* —
+a row below the annotation — and `folderInsertLetDef` reused that node for the
+signature flow too, so the flow read `bnd`(row 7), `:`, `Int`(row 6): out of
+source order, with no gap inside it for `Comments` to find. `locDef.start` *is*
+the annotation's name when the binding has one, so that is what the signature
+now uses. **+139 cells of elm-format parity in the `letSig` contexts (76/587
+byte-identical → 215/587), 0 new divergences, 58 failures unchanged** — every
+number attributed against a rebuild of the pre-fix source. Fixture
+`Declarations/LetAnnotationComment`.
+
+**That one bug was 260 of the 1,381 cells (19%) the triage had left to read** —
+186 of family X, 38 of A6, 16 each of A2/A3, 4 of B7. Registering the
+pre-decided families first, as the plan said to, would have written catalogue
+reasons over groups the fix reshapes. **Read the long tail before registering
+the big families**, not after: the tail is where the unclassified cells are, and
+"unclassified" is what a bug looks like before anyone has named it.
+
+One thing the reading settled that is *not* a bug: `bnd : Int -> Int -- c`
+dropping the comment below the annotation. elm-format keeps it inside — but only
+because it breaks the signature open to make room, which it does at top level
+too. That is [#23](docs/elmFormatComparison.md#divergence-23) plus
+[#29](docs/elmFormatComparison.md#divergence-29), both already catalogued.
+Verified against elm-format on four annotation comment positions where the two
+formatters now agree byte-for-byte.
+
+Also pre-existing and worth knowing before the next run: the type axis ships
+**19 `[untranslatable]` parity failures in `letSig` alone** — cells whose
+Gren-with-comment source translates to Elm that Elm's own parser rejects, so
+their parity is not actually being checked. Identical on a pre-fix build. `to_elm`
+reports them rather than faking a divergence, which is right, but they are a
+hole in the day-old type axis, not a clean green.
 
 ### Predicate/renderer agreement audit
 

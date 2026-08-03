@@ -1412,8 +1412,24 @@ folderInsertLetDef locDef accNodes =
                                             colonNode =
                                                 lpnLeaf (SynthesizedText ":")
 
+                                            -- The annotation's OWN `bnd`, not the
+                                            -- value binding's. `DefineRecord` carries
+                                            -- one `name` position and it is the
+                                            -- definition's, a row (or more) BELOW the
+                                            -- annotation; reusing it here left the
+                                            -- signature flow out of source order —
+                                            -- `bnd` on row 7 followed by its type on
+                                            -- row 6 — so `Comments` could find no gap
+                                            -- inside it and every comment written in
+                                            -- the annotation escaped above or below
+                                            -- the whole binding. `locDef.start` is the
+                                            -- annotation's name when there is one and
+                                            -- the definition's when there is not.
+                                            sigNameNode =
+                                                lpnLeaf (mkText locDef.start def.name.value)
+
                                             sigChildren =
-                                                [ nameNode, colonNode ] ++ sigTypeNodes
+                                                [ sigNameNode, colonNode ] ++ sigTypeNodes
 
                                             sigContainer =
                                                 lpnNode IndentedBlock [ plainAcross sigChildren ]

@@ -1,0 +1,28 @@
+module M exposing (v)
+
+
+v =
+    let
+        a :   {- lead -}   Int
+        a =
+              one
+
+        b : Array  {- app -}  Int
+        b =
+            one
+
+        c : { x :  {- field -}  Int }
+        c =
+            one
+
+        d : (Int ->  {- arrow -}  Int)
+        d =
+            one
+
+        e :
+              -- own row
+              Int
+        e =
+            one
+    in
+    a
