@@ -1,4 +1,4 @@
-module Formatter.Render.BoxOps exposing (applyIndent, blockIndentSpaces, boxLine, glueCommentSuffix, glueLeadingCommentPrefix, grenIndent, isBlockNode, isSingleLine, joinInline, nodeStartRow, nodesShareStartRow, prefixOperator, spaceJoinLines, stackWithBlanks, traverseResult, wrapParenVerticalPadded)
+module Formatter.Render.BoxOps exposing (applyIndent, blockIndentSpaces, boxLine, glueCommentSuffix, glueLeadingCommentPrefix, grenIndent, isBlockNode, isSingleLine, joinInline, nodesShareStartRow, prefixOperator, spaceJoinLines, stackWithBlanks, traverseResult, wrapParenVerticalPadded)
 
 {-| Low-level `Box`/`Line` manipulation helpers shared by the renderer.
 -}
@@ -140,16 +140,6 @@ glueLeadingCommentPrefix commentBox declBox =
 
                 Nothing ->
                     declBox
-
-
-nodeStartRow : LPNode -> Int
-nodeStartRow node =
-    when lpnFirstPos node is
-        Just p ->
-            p.row
-
-        Nothing ->
-            -1
 
 
 nodesShareStartRow : LPNode -> LPNode -> Bool

@@ -1,6 +1,5 @@
 module Formatter.Logical.LPTHelpers exposing
     ( authoredBracketList
-    , fixupParensChildrenNodes
     , fixupParensChildrenNodesAt
     , itemsSpanRows
     , mkText
@@ -9,7 +8,6 @@ module Formatter.Logical.LPTHelpers exposing
     , plainAcross
     , resultFoldl
     , syntheticParens
-    , tryMapFirstLeaf
     , tryMapLastLeaf
     )
 
@@ -158,28 +156,6 @@ resultFoldl callback initialAcc items =
         items
 
 
--- Walk to the deepest first UnbreakableText leaf and apply f to it.
--- Returns Nothing if no UnbreakableText leaf is found.
-tryMapFirstLeaf : (Located String -> LPBox) -> LPNode -> Maybe LPNode
-tryMapFirstLeaf f node =
-    when lpnBox node is
-        UnbreakableText loc ->
-            Just (lpnNode (f loc) (lpnChildren node))
-
-        _ ->
-            when Array.popFirst (lpnChildren node) is
-                Nothing ->
-                    Nothing
-
-                Just { first = firstChild, rest = restChildren } ->
-                    when tryMapFirstLeaf f firstChild is
-                        Nothing ->
-                            Nothing
-
-                        Just updated ->
-                            Just (lpnNode (lpnBox node) (Array.pushFirst updated restChildren))
-
-
 -- Walk to the deepest last UnbreakableText leaf and apply f to it.
 -- Returns Nothing if no UnbreakableText leaf is found.
 tryMapLastLeaf : (Located String -> LPBox) -> LPNode -> Maybe LPNode
@@ -202,22 +178,10 @@ tryMapLastLeaf f node =
                             Just (lpnNode (lpnBox node) (Array.pushLast updated initialChildren))
 
 
--- Wrap a non-empty list of nodes in ParenBlock; emit "()" if empty.
--- ParenBlock renders ( and ) immediately adjacent to the children (no space),
--- which is essential when the first/last child is a bracket-rendered
--- container like an array literal.
-fixupParensChildrenNodes : Array LPNode -> Result String (Array LPNode)
-fixupParensChildrenNodes nodes =
-    when Array.popFirst nodes is
-        Nothing ->
-            Ok [ lpnLeaf (SynthesizedText "()") ]
-
-        Just _ ->
-            Ok [ syntheticParens nodes ]
-
-
-{-| `fixupParensChildrenNodes` for parens the AUTHOR wrote, whose closing `)`
-sits at `closeEnd`.
+{-| Wrap a non-empty list of nodes in the parens the AUTHOR wrote, whose closing
+`)` sits at `closeEnd`. (`ParenBlock` renders `(` and `)` immediately adjacent to
+the children, which matters when the first/last child is itself a
+bracket-rendered container.)
 
 The `)` has no leaf of its own, so without recording it the node's row range
 stops at its last inner token and a comment written between that token and the

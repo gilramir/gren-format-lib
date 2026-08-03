@@ -65,7 +65,6 @@ Two core types:
   - `IfCondition` — like above but +8, so an `if` condition's wrap is distinct
     from its branch body.
   - `WhenBranchPattern` — a when-branch's pattern with `->` glued after it.
-  - `AlignedFlow` — a flow whose inner newlines align to its start column.
 
 **Bracketed lists**
   - `AllAcrossOrAllVertical` — author wrote it on one line: inline unless it
@@ -396,12 +395,6 @@ type LPBox
     -- groups across rows. A chain carrying any comment falls back to the existing
     -- `OpAndRhs` fill rendering (children laid out as a plain flow), unchanged.
     | Binop { forceVertical : Bool }
-    -- A flow whose internal newlines are aligned to the column where the
-    -- flow starts. Used to wrap indentation-sensitive
-    -- constructs (if/then/else, let/in) so their bodies indent
-    -- relative to the keyword's actual column, even when comments have
-    -- shifted that keyword to the right.
-    | AlignedFlow
     -- `when … is` expression. Children are:
     --   [whenNode, …scrutineeNodes, isNode, IndentedBlock(branchNodes)]
     -- Flat: "when scrutinee is" on one line (when the author wrote it so).

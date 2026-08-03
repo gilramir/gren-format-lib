@@ -182,9 +182,6 @@ lpBoxFields lpbox =
             , { key = "forceVertical", value = Json.bool forceVertical }
             ]
 
-        AlignedFlow ->
-            [ { key = "type", value = Json.string "AlignedFlow" } ]
-
         WhenFlow { forceVertical } ->
             [ { key = "type", value = Json.string "WhenFlow" }
             , { key = "forceVertical", value = Json.bool forceVertical }

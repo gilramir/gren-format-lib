@@ -228,9 +228,6 @@ boxKindName box =
         Binop r ->
             "Binop" ++ forced r.forceVertical
 
-        AlignedFlow ->
-            "AlignedFlow"
-
         WhenFlow r ->
             "WhenFlow" ++ forced r.forceVertical
 

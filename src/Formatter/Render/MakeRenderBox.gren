@@ -3891,12 +3891,6 @@ makePBox box children =
             -- step.
             renderPipelineStepChildren children
 
-        AlignedFlow ->
-            -- unreachable: no code path in InsertExpressions/InsertPatterns/
-            -- InsertTypes/MakeLogical ever constructs an AlignedFlow box —
-            -- it's a defined-but-unused LPBox constructor.
-            Err "unreachable: AlignedFlow is never constructed"
-
         RootBox ->
             -- unreachable: RootBox is the singular tree root; it is never
             -- passed to makePBox as a child.
@@ -4792,7 +4786,8 @@ buildFlowBoxInline indent nodes =
 
 
 {-| Assemble a *broken* flow — every item on its own line: the first at the base
-column, each remaining item at +`indent` (the `brokenFlow = True` path). Box
+column, each remaining item at +`indent`. This is a separate assembler from
+`assembleFlow`, not a mode of it. Box
 already renders broken function applications via `assembleBrokenCall`, so the one
 caller here is the forced-vertical comment-bearing binop (`operand0` /
 `op … rest` at +4). Top-level comment items ARE handled:
@@ -4837,7 +4832,6 @@ assembleFlowImpl inlineStart flowIndent items =
         config =
             { indent = flowIndent
             , inlineStart = inlineStart
-            , brokenFlow = False
             }
 
         flushRow curRow rows =

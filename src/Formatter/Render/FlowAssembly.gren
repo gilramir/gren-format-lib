@@ -393,8 +393,8 @@ lines land per the item's own alignment):
     character width. This is only sound because these boxes' continuation lines
     are punctuation- or verbatim-prefixed (`, item`, `}`, string content) — NOT
     `Tab`-indented.
-  - `AlignCarryingTabbed` — `RecordUpdate` and `AlignedFlow`: align-carrying
-    too (anchored at the item's start column), but their Box continuation lines
+  - `AlignCarryingTabbed` — `RecordUpdate`: align-carrying too (anchored at the
+    item's start column), but its Box continuation lines
     carry `Tab`s, which a bare `B.prefix`'s space padding would quantize to the
     next multiple of 4 (the census's "per-row exact-space indent" hard class).
     `B.freezeTabs` first rewrites those `Tab`s to the literal spaces they render
@@ -463,9 +463,6 @@ softGlueAlignment node =
             AlignCarrying
 
         RecordUpdate _ ->
-            AlignCarryingTabbed
-
-        AlignedFlow ->
             AlignCarryingTabbed
 
         AcrossOrVertical _ ->

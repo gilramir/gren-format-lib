@@ -1,9 +1,9 @@
-module Formatter.Render.NodeClassify exposing (commentBreaksFlowRow, commentTextCanRide, fieldValueDropsToOwnLine, isArrowLeaf, isColonLeaf, isDroppingSignatureRecordNode, isElidedArrow, isEmptyLine, isMultilineLambdaParenBlockBox, isOpAndRhsNode, isPipelineStepNode, leafLineRow, leafValue, literalCommentsRideFlatLine, nodeIsComment, parenContentIsLambdaHead, rowsSpanMultiple, segFirstRow, segLastRow, signatureForceVertical, splitSignatureSegments, subtreeEndsWithLineComment, subtreeHasComment, typeHasCommentBracket)
+module Formatter.Render.NodeClassify exposing (commentBreaksFlowRow, commentTextCanRide, fieldValueDropsToOwnLine, isArrowLeaf, isColonLeaf, isDroppingSignatureRecordNode, isEmptyLine, isMultilineLambdaParenBlockBox, isOpAndRhsNode, isPipelineStepNode, leafLineRow, leafValue, literalCommentsRideFlatLine, nodeIsComment, parenContentIsLambdaHead, rowsSpanMultiple, segFirstRow, segLastRow, signatureForceVertical, splitSignatureSegments, subtreeEndsWithLineComment, subtreeHasComment, typeHasCommentBracket)
 
 {-| Boolean predicates and small structural queries over LPT nodes.
 -}
 
-import Formatter.Logical.LogicalPrintingTree exposing (CommentRole(..), LPBox(..), LPNode, commentRole, firstRowInSubtree, lpnBox, lpnBracketStart, lpnChildren, lpnFirstPos, lpnLastPos, lpnMaxRow)
+import Formatter.Logical.LogicalPrintingTree exposing (CommentRole(..), LPBox(..), LPNode, commentRole, firstRowInSubtree, lpnBox, lpnBracketStart, lpnChildren, lpnMaxRow)
 import Formatter.Render.Box as B
 import Formatter.Render.FlowPolicy as FP
 
@@ -505,24 +505,6 @@ isEmptyLine node =
     when lpnBox node is
         EmptyLine ->
             True
-
-        _ ->
-            False
-
-
--- The synthesized signature `->` — a zero-width `UnbreakableText` (start == end)
--- built by `LPTHelpers.mkZeroWidthText`, anchored at the end of its `from` type,
--- not where it renders. A comment directly trailing it must glue regardless of
--- source row (scoped to `->` by value: other elided tokens precede a short
--- neighbour or bracketed block where a comment on its own row legitimately stays
--- own-line).
-isElidedArrow : LPNode -> Bool
-isElidedArrow node =
-    when lpnBox node is
-        UnbreakableText loc ->
-            loc.value == "->"
-                && loc.start.row == loc.end.row
-                && loc.start.col == loc.end.col
 
         _ ->
             False

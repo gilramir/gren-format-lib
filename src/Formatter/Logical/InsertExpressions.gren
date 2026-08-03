@@ -360,8 +360,8 @@ insertExpression locExpr =
         Src.Negate expr ->
             -- Wrap the rendered inner in PrefixGlue "-" so the `-` lands
             -- immediately adjacent to whatever the inner renders to.
-            -- The old approach of descending via tryMapFirstLeaf put the
-            -- `-` *inside* a wrapping ParenBlock — e.g. `-(n - 1)`
+            -- The old approach of descending to the inner's first text leaf
+            -- put the `-` *inside* a wrapping ParenBlock — e.g. `-(n - 1)`
             -- emitted as `(-n - 1)`, which has a different AST shape.
             let
                 negLoc =
@@ -707,8 +707,8 @@ insertLambda locExpr { patterns = patterns, body = body } =
                     -- Formatter.Render emits \ immediately before the pattern
                     -- (no space). This works for all pattern shapes including
                     -- record ({ x, y }) and array ([ x, y ]) whose opening
-                    -- bracket is synthesised during rendering and would be
-                    -- skipped by tryMapFirstLeaf.
+                    -- bracket is synthesised during rendering, so descending to
+                    -- the pattern's first text leaf would skip past it.
                     backslashLoc =
                         { start = locExpr.start
                         , end = { row = locExpr.start.row, col = locExpr.start.col + 1 }

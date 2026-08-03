@@ -8,10 +8,8 @@ module Formatter.Render.FlowPolicy exposing
     , Placement(..)
     , decide
     , initialFlowState
-    , isMultiLineCommentValue
     , isTypeRecordLiteral
     , nodeIsComment
-    , pairLeadingRecordComments
     , roleGlues
     )
 
@@ -39,8 +37,7 @@ surfaced before facts are built.
 
 @docs NextSeparator, FlowState, initialFlowState, FlowConfig, BlockKind
 @docs ItemFacts, Placement, Decision, decide
-@docs nodeIsComment, isMultiLineCommentValue, isTypeRecordLiteral
-@docs pairLeadingRecordComments, roleGlues
+@docs nodeIsComment, isTypeRecordLiteral, roleGlues
 
 -}
 
@@ -108,14 +105,11 @@ initialFlowState =
   - `inlineStart` — the first node continues a line the caller already
     started (a binop RHS, a `( … )` body), so a leading single-line block
     comment stays inline instead of standing on its own line.
-  - `brokenFlow` — every normal separator is a hard newline instead of a
-    soft break (broken call arguments, comment-bearing binop fallback).
 
 -}
 type alias FlowConfig =
     { indent : Int
     , inlineStart : Bool
-    , brokenFlow : Bool
     }
 
 
@@ -156,9 +150,9 @@ type ItemFacts
 
 {-| The fully-resolved join shape for one item — the complete set of join
 shapes the flow fold's arms produce. `decide` resolves all separator-state
-branching (`FirstItem` / `AlreadyTerminated` bypasses, same-row glue tests,
-`brokenFlow`), so a materializer is a straight `Placement -> combinator` map
-with no decisions of its own.
+branching (`FirstItem` / `AlreadyTerminated` bypasses, same-row glue tests),
+so a materializer is a straight `Placement -> combinator` map with no
+decisions of its own.
 
   - `AsFirst` — the item stands alone (nothing precedes).
   - `GlueNoSep` — direct concatenation (after a comment has ended its own line).
@@ -216,7 +210,7 @@ decide : FlowConfig -> FlowState -> ItemFacts -> Decision
 decide config state facts =
     when facts is
         LeafItem ->
-            { placement = joinPlacement config state.separator
+            { placement = joinPlacement state.separator
             , next =
                 { separator = FlowSep }
             }
@@ -309,7 +303,7 @@ decide config state facts =
                         GlueSpace
 
                     else
-                        joinPlacement config state.separator
+                        joinPlacement state.separator
                 , next =
                     -- Carry this comment's row forward (not -1) so a FURTHER
                     -- same-row trailing comment glues onto the same line too — a
@@ -373,7 +367,7 @@ decide config state facts =
                 -- reparses as an own-line comment and detaches (the +4 ↔ col-0
                 -- oscillation). A following non-comment item still breaks
                 -- (`separator = FlowSep`); only a same-row comment glues.
-                { placement = joinPlacement config state.separator
+                { placement = joinPlacement state.separator
                 , next =
                     { separator = FlowSep }
                 }
@@ -388,7 +382,7 @@ decide config state facts =
                 -- comment fixtures, which put a block comment after a single-line
                 -- bracket (`{ x } {- … -}`) on its own line. A following
                 -- non-comment item still joins by separator.
-                { placement = joinPlacement config state.separator
+                { placement = joinPlacement state.separator
                 , next =
                     { separator = FlowSep }
                 }
@@ -461,20 +455,15 @@ decide config state facts =
 
 
 -- The plain-item join: how a non-comment, non-block item follows the pending
--- separator. In a broken flow the normal soft separator is a forced newline
--- instead.
-joinPlacement : FlowConfig -> NextSeparator -> Placement
-joinPlacement config sep =
+-- separator.
+joinPlacement : NextSeparator -> Placement
+joinPlacement sep =
     when sep is
         FirstItem ->
             AsFirst
 
         FlowSep ->
-            if config.brokenFlow then
-                OwnLine
-
-            else
-                SoftSep
+            SoftSep
 
         HardNl ->
             OwnLine
@@ -598,12 +587,6 @@ nodeIsComment node =
             False
 
 
--- True if a comment body spans more than one source line.
-isMultiLineCommentValue : String -> Bool
-isMultiLineCommentValue value =
-    String.contains "\n" value
-
-
 {-| True when `node` is a curly-bracket *type* record literal (`{ a : T, … }`),
 as opposed to an *expression* record (`{ a = v }`), a record update, an array,
 or a pattern. The discriminator is the field separator: a type field is built
@@ -653,71 +636,3 @@ isTypeRecordLiteral node =
                 Nothing ->
                     False
            )
-
-
-{-| Pair each single-line block comment with an immediately following type
-record literal, removing the comment from the item list and attaching it to the
-record's entry. The flow fold then decides — with the exact type-record-drop
-gates (`decide`'s `BracketLiteralItem` arm) — whether the pair drops together
-(comment on its own line directly above the record, elm-format's placement) or
-replays the plain unpaired steps. Pairing is deliberately loose (structural
-only); the tight gating happens at the record's fold step, where the separator
-state and the rendered doc are known.
--}
-pairLeadingRecordComments : Array LPNode -> Array { node : LPNode, pairedComment : Maybe LPNode }
-pairLeadingRecordComments nodes =
-    let
-        pairableComment n =
-            when lpnBox n is
-                BlockComment { loc } ->
-                    not (isMultiLineCommentValue loc.value)
-
-                _ ->
-                    False
-
-        -- NB Gren's `Array.get -1` wraps to the LAST element (negative indices
-        -- count from the end) — without this guard, a record at index 0 whose
-        -- flow ends in a pairable comment (`{ … } {- c -}`) would fetch that
-        -- TRAILING comment via `at (0 - 1)` as its "leading" one and render it
-        -- twice (a silent comment duplication that is string-idempotent, so the
-        -- idempotency fuzzer alone does not catch it).
-        at i =
-            if i < 0 then
-                Nothing
-
-            else
-                Array.get i nodes
-    in
-    nodes
-        |> Array.indexedMap (\i n -> { i = i, n = n })
-        |> Array.mapAndKeepJust
-            (\{ i, n } ->
-                if
-                    pairableComment n
-                        && (at (i + 1)
-                                |> Maybe.map isTypeRecordLiteral
-                                |> Maybe.withDefault False
-                           )
-                then
-                    -- Consumed: attached to the record that follows.
-                    Nothing
-
-                else
-                    Just
-                        { node = n
-                        , pairedComment =
-                            if isTypeRecordLiteral n then
-                                at (i - 1)
-                                    |> Maybe.andThen
-                                        (\prev ->
-                                            if pairableComment prev then
-                                                Just prev
-
-                                            else
-                                                Nothing
-                                        )
-
-                            else
-                                Nothing
-                        }
-            )

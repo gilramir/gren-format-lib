@@ -35,11 +35,9 @@ ACCESSOR = re.compile(
 # Functions permitted to read a row/position accessor, with the reason each is
 # NOT a comment-placement / verticality decision.
 ALLOWED = {
-    "nodeStartRow": "structural: the start row of a node, for fn+arg0 glue",
     "nodesShareStartRow": "structural: do fn and arg0 share a source row (glue on the opening line)",
     "segFirstRow": "signature-segment layout: a `->` segment's true start row",
     "segLastRow": "signature-segment layout: a `->` segment's true last row",
-    "isElidedArrow": "structural: a zero-width synthesized `->` (start == end), no row *comparison*",
     "assembleBrokenWithComments": "a `lastRow >= 0` 'previous entry is real content' guard; the glue call itself is role-based",
     "makeUnionBodyBox": "author-intent: did the author write the union variants across rows (flat vs vertical)",
 }
