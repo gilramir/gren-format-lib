@@ -1,4 +1,4 @@
-module Formatter.Render.BinopLayout exposing (assembleBinopBox, commentBreaksBinopChain, flattenBinopNodes, isChainBreakingOperandBox, opText, splitTrailingOwnLineComments)
+module Formatter.Render.BinopLayout exposing (assembleBinopBox, commentBreaksBinopChain, flattenBinopNodes, isChainBreakingOperandBox, opText)
 
 {-| Pure layout assembly for binary-operator chains (operand boxes + operator texts -> Box).
 -}
@@ -91,39 +91,6 @@ isChainBreakingOperandBox box =
 
         _ ->
             False
-
-
-{-| Split an operand's node array into its content (the operand plus any INLINE
-trailing comment, e.g. a block comment on the operand's own row) and the trailing
-OWN-LINE comments (a `--` line comment, or a block comment the author put on a
-later row). In a broken binop chain the content rides the operator line
-(`++ beta {- inline -}`), while own-line comments render on their own line at the
-operator indent (leading the next operator), matching how the author laid them
-out. -}
-splitTrailingOwnLineComments : Array LPNode -> { content : Array LPNode, ownLine : Array LPNode }
-splitTrailingOwnLineComments nodes =
-    let
-        -- A comment leads its own line (rendered at the operator indent, leading
-        -- the next operator) exactly when the classifier tagged it `LeadsOwnLine`
-        -- at insertion time. A `TrailsPrevious` / `RidesInline` comment rides the
-        -- operand's last line inline. (Formerly re-derived here from source rows
-        -- via `contentRow` — the classifier now decides it once.)
-        isOwnLineComment node =
-            commentRole (lpnBox node) == Just LeadsOwnLine
-
-        peeled =
-            Array.foldr
-                (\node acc ->
-                    if acc.peeling && isOwnLineComment node then
-                        { peeling = True, content = acc.content, ownLine = [ node ] ++ acc.ownLine }
-
-                    else
-                        { peeling = False, content = [ node ] ++ acc.content, ownLine = acc.ownLine }
-                )
-                { peeling = True, content = [], ownLine = [] }
-                nodes
-    in
-    { content = peeled.content, ownLine = peeled.ownLine }
 
 
 -- Render an operator-precedence group (parts joined inline by higher-precedence

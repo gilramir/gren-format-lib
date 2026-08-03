@@ -13,10 +13,10 @@ signatures, and comments — each laid out to match elm-format.
 
 import Formatter.Logical.BinopPrecedence exposing (binopMinPrecedence, binopPrecedence)
 import Formatter.Logical.LogicalPrintingTree exposing (CommentRole(..), LPBox(..), LPNode, ListBrackets(..), SyntaxType(..), commentGluesToPrevious, commentRole, firstRowInSubtree, lpnBox, lpnChildren, lpnLastBracketEnd, lpnLastPos, lpnMaxRow, prefixGlyph)
-import Formatter.Render.BinopLayout exposing (assembleBinopBox, commentBreaksBinopChain, flattenBinopNodes, isChainBreakingOperandBox, opText, splitTrailingOwnLineComments)
+import Formatter.Render.BinopLayout exposing (assembleBinopBox, commentBreaksBinopChain, flattenBinopNodes, isChainBreakingOperandBox, opText)
 import Formatter.Render.Box as B exposing (Box(..))
 import Formatter.Render.BoxOps exposing (applyIndent, blockIndentSpaces, boxLine, glueCommentSuffix, glueLeadingCommentPrefix, grenIndent, isBlockNode, isSingleLine, joinInline, prefixOperator, spaceJoinLines, stackWithBlanks, traverseResult, wrapParenVerticalPadded)
-import Formatter.Render.CommentBox exposing (commentNodeBox, emptyBracketedCommentLine, glueTrailingComments, makeCommentLineBox, multiLineBlockCommentBox, peelTrailingCommentNodes, spanLeadingComments, spanOperatorRowComments, spanTrailingComments, spanTrailingOwnLineComments)
+import Formatter.Render.CommentBox exposing (commentNodeBox, emptyBracketedCommentLine, glueTrailingComments, makeCommentLineBox, multiLineBlockCommentBox, peelTrailingCommentNodes, spanLeadingComments, spanOperatorRowComments, spanTrailingComments, spanTrailingOwnLine, spanTrailingOwnLineComments)
 import Formatter.Render.ElmStructure as E
 import Formatter.Render.FlowAssembly exposing (FlowItem, SoftGlueAlignment(..), assembleBrokenCall, assembleBrokenWithComments, bracketPunc, gluedExposingBox, isCommentItem, pairLeadingComments, parenInnerIsAlignCarrying, softBlockChildForcesVerticalBox, softGlueAlignment, trySoftGlueFlow, verticalExposingBox)
 import Formatter.Render.FlowPolicy as FP
@@ -268,29 +268,6 @@ operandItemsRenderMultiline items =
             False
 
 
-{-| `BinopLayout.splitTrailingOwnLineComments` over pre-rendered items: peel
-the trailing run of `LeadsOwnLine` comment items off an operand group. -}
-splitTrailingOwnLineCommentItems : Array FlowItem -> { content : Array FlowItem, ownLine : Array FlowItem }
-splitTrailingOwnLineCommentItems items =
-    let
-        isOwnLineComment it =
-            commentRole (lpnBox it.node) == Just LeadsOwnLine
-
-        peeled =
-            Array.foldr
-                (\it acc ->
-                    if acc.peeling && isOwnLineComment it then
-                        { peeling = True, content = acc.content, ownLine = [ it ] ++ acc.ownLine }
-
-                    else
-                        { peeling = False, content = [ it ] ++ acc.content, ownLine = acc.ownLine }
-                )
-                { peeling = True, content = [], ownLine = [] }
-                items
-    in
-    { content = peeled.content, ownLine = peeled.ownLine }
-
-
 {-| One group of a vertical binop chain past the first: the operator that leads
 it, the box its content rendered to, and the run of own-line comment items
 peeled off its end. -}
@@ -452,26 +429,26 @@ verticalBinopChainBoxFromItems ops operandItems =
                                     (Array.map2 (\opNode opItem -> { text = opText opNode, item = opItem }) ops opItems)
 
                             op0 =
-                                splitTrailingOwnLineCommentItems grouped.firstGroup
+                                spanTrailingOwnLine .node grouped.firstGroup
 
                             segData =
                                 Array.map
-                                    (\g -> { op = g.op, split = splitTrailingOwnLineCommentItems g.items })
+                                    (\g -> { op = g.op, split = spanTrailingOwnLine .node g.items })
                                     grouped.rest
                         in
-                        renderOperandContent op0.content
+                        renderOperandContent op0.body
                             |> Result.andThen
                                 (\firstBox ->
                                     traverseResult
                                         (\seg ->
-                                            renderOperandContent seg.split.content
+                                            renderOperandContent seg.split.body
                                                 |> Result.map
                                                     (\operandBox ->
-                                                        { op = seg.op, operandBox = operandBox, ownLine = seg.split.ownLine }
+                                                        { op = seg.op, operandBox = operandBox, ownLine = seg.split.trailing }
                                                     )
                                         )
                                         segData
-                                        |> Result.andThen (binopChainIndentedLines op0.ownLine)
+                                        |> Result.andThen (binopChainIndentedLines op0.trailing)
                                         |> Result.map
                                             (\indentedLines ->
                                                 -- Every operator line + every own-line comment
@@ -596,14 +573,14 @@ verticalBinopChainBox children =
                     groupBinopByPrecedence flat.operands flat.ops
 
                 op0 =
-                    splitTrailingOwnLineComments grouped.firstGroup
+                    spanTrailingOwnLine (\n -> n) grouped.firstGroup
 
                 segData =
                     Array.map
-                        (\g -> { op = g.op, split = splitTrailingOwnLineComments g.nodes })
+                        (\g -> { op = g.op, split = spanTrailingOwnLine (\n -> n) g.nodes })
                         grouped.rest
             in
-            renderOperandContent op0.content
+            renderOperandContent op0.body
                 |> Result.andThen
                     (\firstBox ->
                         -- The own-line comment runs go through `renderFlowItems`
@@ -611,15 +588,15 @@ verticalBinopChainBox children =
                         -- live item path uses — decides their placement here too.
                         -- Rendering a comment leaf to an item is what
                         -- `buildFlowBox 0 [ c ]` did internally anyway.
-                        renderFlowItems op0.ownLine
+                        renderFlowItems op0.trailing
                             |> Result.andThen
                                 (\op0Items ->
                                     traverseResult
                                         (\seg ->
-                                            renderOperandContent seg.split.content
+                                            renderOperandContent seg.split.body
                                                 |> Result.andThen
                                                     (\operandBox ->
-                                                        renderFlowItems seg.split.ownLine
+                                                        renderFlowItems seg.split.trailing
                                                             |> Result.map
                                                                 (\ownLineItems ->
                                                                     { op = seg.op, operandBox = operandBox, ownLine = ownLineItems }

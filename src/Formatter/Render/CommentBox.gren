@@ -1,4 +1,4 @@
-module Formatter.Render.CommentBox exposing (commentNodeBox, emptyBracketedCommentLine, glueTrailingComments, makeCommentLineBox, multiLineBlockCommentBox, peelTrailingCommentNodes, spanLeadingComments, spanOperatorRowComments, spanTrailingComments, spanTrailingOwnLineComments)
+module Formatter.Render.CommentBox exposing (commentNodeBox, emptyBracketedCommentLine, glueTrailingComments, makeCommentLineBox, multiLineBlockCommentBox, peelTrailingCommentNodes, spanLeadingComments, spanOperatorRowComments, spanTrailingComments, spanTrailingOwnLine, spanTrailingOwnLineComments)
 
 {-| Rendering of comment nodes (line, block, doc) to `Box`.
 -}
@@ -283,17 +283,21 @@ spanTrailingComments nodes =
     go nodes []
 
 
--- Split off only the trailing run of comments the author put on their OWN line
--- (`LeadsOwnLine`). Unlike `spanTrailingComments`, a comment that rides the
--- previous token's line (`module Foo {- c -} exposing`) stays in the body, where
--- the caller's flow renders it on that line — peeling it would move it below.
-spanTrailingOwnLineComments : Array LPNode -> { body : Array LPNode, trailing : Array LPNode }
-spanTrailingOwnLineComments nodes =
+{-| Split off only the trailing run of comments the author put on their OWN line
+(`LeadsOwnLine`). Unlike `spanTrailingComments`, a comment that rides the
+previous token's line (`module Foo {- c -} exposing`) stays in the body, where
+the caller's flow renders it on that line — peeling it would move it below.
+
+Polymorphic in the element so the pre-rendered `FlowItem` path shares it: pass
+`identity` for a plain node array, `.node` for flow items. This is the only
+implementation of the peel; keep it that way. -}
+spanTrailingOwnLine : (a -> LPNode) -> Array a -> { body : Array a, trailing : Array a }
+spanTrailingOwnLine toNode items =
     let
         go remaining acc =
             when Array.popLast remaining is
                 Just { last, initial } ->
-                    if commentRole (lpnBox last) == Just LeadsOwnLine then
+                    if commentRole (lpnBox (toNode last)) == Just LeadsOwnLine then
                         go initial ([ last ] ++ acc)
 
                     else
@@ -302,7 +306,12 @@ spanTrailingOwnLineComments nodes =
                 Nothing ->
                     { body = [], trailing = acc }
     in
-    go nodes []
+    go items []
+
+
+spanTrailingOwnLineComments : Array LPNode -> { body : Array LPNode, trailing : Array LPNode }
+spanTrailingOwnLineComments nodes =
+    spanTrailingOwnLine (\n -> n) nodes
 
 
 -- Peel trailing comments off a block body / forward pipeline step: single-line
