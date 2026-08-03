@@ -129,7 +129,14 @@ def collect(jobs):
     """
     mx = load_matrix()
     unreviewed = {k for k, v in mx.load_comment_baseline().items() if v == "UNREVIEWED"}
-    syntax_cells = mx.enumerate_cells(mx.CONSTRUCTS, mx.CONTEXTS, mx.VARIANTS)
+    # Both vocabularies: `matrix-syntax.py` grew a TYPE axis (declaration
+    # contexts) on 2026-08-03, and its cells are exactly the ones this tool is
+    # now being pointed at.
+    syntax_cells = mx.enumerate_cells(
+        mx.CONSTRUCTS + mx.TYPE_CONSTRUCTS,
+        mx.CONTEXTS + mx.TYPE_CONTEXTS,
+        mx.VARIANTS,
+    )
     comment_cells, _, _ = mx.enumerate_comment_cells(
         syntax_cells, list(mx.COMMENT_KINDS), mx.COMMENT_POSITIONS)
     todo = [c for c in comment_cells if mx.comment_key(c) in unreviewed]
@@ -169,7 +176,7 @@ def collect(jobs):
 
     def one_base(cell):
         construct, context, variant = cell
-        source = mx.source_for(mx.variant_atom(construct, variant), context.template)
+        source = mx.source_for(mx.variant_atom(construct, variant), context)
         key = f"{construct.name}/{context.name}@{variant}"
         return dict(key=key, gren=gren_format(source) or "", elm=elm_format(source) or "")
 
