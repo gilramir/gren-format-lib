@@ -1,4 +1,4 @@
-module Formatter.Render.FlowAssembly exposing (FlowItem, SoftGlueAlignment(..), assembleBrokenCall, assembleBrokenWithComments, bracketPunc, gluedExposingBox, isCommentItem, pairLeadingComments, parenInnerIsAlignCarrying, softBlockChildForcesVerticalBox, softGlueAlignment, trySoftGlueFlow, verticalExposingBox)
+module Formatter.Render.FlowAssembly exposing (FlowItem, SoftGlueAlignment(..), assembleBrokenCall, assembleBrokenWithComments, bracketPunc, gluedExposingBox, isCommentItem, pairLeadingComments, pairableCommentLine, parenInnerIsAlignCarrying, softBlockChildForcesVerticalBox, softGlueAlignment, trySoftGlueFlow, verticalExposingBox)
 
 {-| Flow-assembly support: the `FlowItem`/`SoftGlueAlignment` types and the pure helpers that lay pre-rendered flow items out into a `Box`.
 -}
@@ -110,6 +110,29 @@ isCommentItem item =
     item.comment /= Nothing
 
 
+{-| The single line of a comment that can ride its neighbour's row: a
+single-line block comment that rendered to exactly one `Line`. A `--` runs to
+end of line and a multi-line `{- … -}` brings its own newlines, so neither can
+ride — both give `Nothing`.
+
+Takes a `FlowItem`'s `comment` payload, so both the broken-flow assembler here
+and the binop-chain splitter in `MakeRenderBox` ask it the same way; the latter
+had a copy of this body, whose docstring said it was "literally the
+`pairableCommentLine` rule". -}
+pairableCommentLine : { box : Box, isLineComment : Bool, multiLine : Bool } -> Maybe B.Line
+pairableCommentLine c =
+    if not c.isLineComment && not c.multiLine then
+        when B.isLine c.box is
+            Ok cl ->
+                Just cl
+
+            Err _ ->
+                Nothing
+
+    else
+        Nothing
+
+
 {-| Assemble a broken flow (head at base, each following item at +`indent`) that
 may carry comments. A comment trailing the preceding item on the same source row
 glues onto that item's last line — for a single-line item, its line plus a space
@@ -129,20 +152,6 @@ there either. -}
 assembleBrokenWithComments : Int -> Array FlowItem -> Result String Box
 assembleBrokenWithComments indent items =
     let
-        -- The line of a single-line block comment that leads its neighbour —
-        -- the only comment kind that can ride the next term's line.
-        pairableCommentLine c =
-            if not c.isLineComment && not c.multiLine then
-                when B.isLine c.box is
-                    Ok cl ->
-                        Just cl
-
-                    Err _ ->
-                        Nothing
-
-            else
-                Nothing
-
         -- `acc.pending` holds the lines of leading block comments waiting for
         -- the term they ride; flushing drops each on its own row instead (next
         -- term multi-line, or the flow ended).

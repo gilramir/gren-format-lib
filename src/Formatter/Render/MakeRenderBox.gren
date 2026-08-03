@@ -18,7 +18,7 @@ import Formatter.Render.Box as B exposing (Box(..))
 import Formatter.Render.BoxOps exposing (applyIndent, blockIndentSpaces, boxLine, glueCommentSuffix, glueLeadingCommentPrefix, grenIndent, isBlockNode, isSingleLine, joinInline, prefixOperator, spaceJoinLines, stackWithBlanks, traverseResult, wrapParenVerticalPadded)
 import Formatter.Render.CommentBox exposing (commentNodeBox, emptyBracketedCommentLine, glueTrailingComments, makeCommentLineBox, multiLineBlockCommentBox, peelTrailingCommentNodes, spanLeadingComments, spanOperatorRowComments, spanTrailingComments, spanTrailingOwnLine, spanTrailingOwnLineComments)
 import Formatter.Render.ElmStructure as E
-import Formatter.Render.FlowAssembly exposing (FlowItem, SoftGlueAlignment(..), assembleBrokenCall, assembleBrokenWithComments, bracketPunc, gluedExposingBox, isCommentItem, pairLeadingComments, parenInnerIsAlignCarrying, softBlockChildForcesVerticalBox, softGlueAlignment, trySoftGlueFlow, verticalExposingBox)
+import Formatter.Render.FlowAssembly exposing (FlowItem, SoftGlueAlignment(..), assembleBrokenCall, assembleBrokenWithComments, bracketPunc, gluedExposingBox, isCommentItem, pairLeadingComments, pairableCommentLine, parenInnerIsAlignCarrying, softBlockChildForcesVerticalBox, softGlueAlignment, trySoftGlueFlow, verticalExposingBox)
 import Formatter.Render.FlowPolicy as FP
 import Formatter.Render.NodeClassify exposing (commentBreaksFlowRow, commentTextCanRide, fieldValueDropsToOwnLine, isColonLeaf, isDroppingSignatureRecordNode, isMultilineLambdaParenBlockBox, isOpAndRhsNode, isTypeRecordLiteral, isPipelineStepNode, leafLineRow, leafValue, literalCommentsRideFlatLine, nodeIsComment, parenContentIsLambdaHead, rowsSpanMultiple, signatureForceVertical, splitSignatureSegments, subtreeEndsWithLineComment, subtreeHasComment, typeHasCommentBracket)
 
@@ -281,23 +281,11 @@ rule `assembleBrokenWithComments` uses for a broken call, over the same
 `FlowItem.comment` record, so a broken call and a broken binop chain pair the
 same comments. A `--` can have nothing after it on its row and a multi-line
 `{- -}` has no single line to ride, so neither pairs. -}
+-- `FlowAssembly.pairableCommentLine` for a whole flow item: `Nothing` unless the
+-- item is a comment that can ride its neighbour's row.
 pairableCommentItemLine : FlowItem -> Maybe B.Line
 pairableCommentItemLine item =
-    when item.comment is
-        Just c ->
-            if not c.isLineComment && not c.multiLine then
-                when B.isLine c.box is
-                    Ok cl ->
-                        Just cl
-
-                    Err _ ->
-                        Nothing
-
-            else
-                Nothing
-
-        Nothing ->
-            Nothing
+    Maybe.andThen pairableCommentLine item.comment
 
 
 {-| Decide a group's own-line comment run: either the WHOLE run rides the next
@@ -4337,20 +4325,20 @@ glueLeadBoxes mayRide lead box =
         B.stack1 (lead ++ [ box ])
 
 
-{-| Render a bracketed literal that contains a comment child, as an always-
-vertical list. Each item is on its own line prefixed `{ `/`[ ` (first) or `, `
-(rest); a comment on the same source row as the preceding item trails it with a
-space, a comment on its own row gets its own line at the bracket column; the
-closing bracket sits on its own line. Box stacking supplies the alignment
-(elm-format). The uniform record-array coupling (a whole-list flat/expanded
-choice) is NOT reproduced — those fall back. -}
--- True when a comment glues onto the previous bracket-list item (rather than
--- standing on its own line): the stored `CommentRole` is `TrailsPrevious` or
--- `RidesInline`. Decided once in `Comments.gren`, not from source rows here.
--- True when this comment can share a line with the code after it: a
--- single-line `{- … -}`, which the classifier tags `RidesInline`. A `--` runs
--- to end of line and a multi-line `{- … -}` brings its own newlines, so both
--- are `TrailsPrevious` and must break instead.
+{-| True when this comment's stored role is exactly `RidesInline`.
+
+**Not the same question as `commentTextCanRide`**, which asks the comment's
+SHAPE (is it a single-line `{- … -}`). Every `RidesInline` comment is a
+single-line block comment, but not every single-line block comment is
+`RidesInline` — the second comment of a run just inside an opening bracket
+(`[ {- a -} {- b -} 1`) is classified `LeadsNext`, so it is shape-ridable but
+not role-ridable.
+
+Three stale comments sat on this function until 2026-08-02, one of them
+describing `commentTextCanRide`'s rule and asserting that the classifier tags
+such a comment `RidesInline`. That conflation is not true of a run, and it is
+the likely origin of the two predicates being used in sibling arms of
+`commentBracketListBox`. -}
 commentRidesInline : LPNode -> Bool
 commentRidesInline node =
     commentRole (lpnBox node) == Just RidesInline
@@ -4433,6 +4421,13 @@ glueLeadingCommentRun bodyMayRide lead box =
                 box
 
 
+{-| Render a bracketed literal that contains a comment child, as an always-
+vertical list. Each item is on its own line prefixed `{ `/`[ ` (first) or `, `
+(rest); a comment on the same source row as the preceding item trails it with a
+space, a comment on its own row gets its own line at the bracket column; the
+closing bracket sits on its own line. Box stacking supplies the alignment
+(elm-format). The uniform record-array coupling (a whole-list flat/expanded
+choice) is NOT reproduced — those fall back. -}
 commentBracketListBox : ListBrackets -> Array LPNode -> Result String Box
 commentBracketListBox bracket nodes =
     when bracketPunc bracket is
