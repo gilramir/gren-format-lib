@@ -568,7 +568,19 @@ def comment_variant(src, gap, kind, position):
 # both valid and the shape a real author writes.
 
 Construct = collections.namedtuple("Construct", "name atom flat broken paren_wrapped")
-Context = collections.namedtuple("Context", "name template flat value_position")
+
+# name, template, flat, value_position, kind, header
+#   kind    "expr" -- `{x}` is an EXPRESSION and the template is a `v = <body>`
+#           body; "type" -- `{x}` is a TYPE and the template is a whole
+#           declaration. The two axes have disjoint vocabularies: an expression
+#           cannot stand in a signature and a type cannot stand in a call
+#           argument, so constructs and contexts are paired by `kind`.
+#   header  the module line (+ `v = ` for expression contexts), or None for the
+#           kind's default. A `port` context needs `port module`.
+Context = collections.namedtuple(
+    "Context", "name template flat value_position kind header",
+    defaults=("expr", None),
+)
 
 # name, atom, flat, broken, paren_wrapped
 #   atom          usable anywhere an atom is expected, so anything not already
@@ -667,6 +679,67 @@ CONTEXTS = [
     Context("ifElse",           "if cond then other else {x}",  False, True),
 ]
 
+# ---------------------------------------------------------------------------
+# The TYPE axis: type constructs in declaration contexts.
+#
+# Everything above embeds an EXPRESSION in an expression context, so the whole
+# of Gren's declaration syntax -- signatures, type aliases, unions, ports, a
+# `let` binding's annotation -- had no cell here at all. That is one half of
+# what hid the signature-`->` comment rule (the other half was
+# `fuzz-idempotency.py` sweeping only one comment kind); see
+# `docs/commentRunTesting.md`.
+#
+# Same namedtuples, same variants, same four oracles. The vocabularies are
+# disjoint and `enumerate_cells` pairs them by `kind`, because a type cannot
+# stand in a call argument and an expression cannot stand in a signature.
+#
+# The atom convention is the expression axis's: `atom` is usable wherever an
+# ATOM is expected, so anything applied or arrow-joined carries its own parens,
+# and `paren_wrapped` marks the ones whose bare form (`atom[1:-1]`) is legal in
+# a type's "value position" -- a slot that accepts a non-atomic type.
+TYPE_CONSTRUCTS = [
+    Construct("tyName",       "Int",                      True,  None,                        False),
+    Construct("tyVar",        "a",                        True,  None,                        False),
+    Construct("tyApp",        "(Array Int)",              True,  "(Array\nInt)",              True),
+    Construct("tyAppNested",  "(Array (Maybe Int))",      True,  "(Array\n(Maybe Int))",      True),
+    Construct("tyFn",         "(Int -> Int)",             True,  "(Int\n-> Int)",             True),
+    Construct("tyFn3",        "(Int -> String -> Bool)",  True,  "(Int\n-> String\n-> Bool)", True),
+    Construct("tyRecord0",    "{}",                       True,  None,                        False),
+    Construct("tyRecord1",    "{ a : Int }",              True,  "{ a :\nInt }",              False),
+    Construct("tyRecord2",    "{ a : Int, b : String }",  True,  "{ a : Int\n, b : String }", False),
+    Construct("tyRecordNest", "{ a : { b : Int } }",      True,  "{ a :\n{ b : Int } }",      False),
+    Construct("tyExtRecord",  "{ r | a : Int }",          True,  "{ r\n| a : Int }",          False),
+]
+
+# A type context's template is a WHOLE declaration, not a `v = ` body, so each
+# carries its own trailing definition where the parser needs one.
+#
+# `flat` is False for the templates that are themselves written across rows --
+# the author broke the signature at a `->`, so the canonical output is the
+# per-segment shape and oracle 1's "stayed on one line" question does not
+# apply. `value_position` is True where the slot accepts a NON-atomic type
+# (`foo : {x}` takes `Int -> Int` bare; `Array {x}` does not).
+TYPE_CONTEXTS = [
+    Context("sigSole",        "foo : {x}\nfoo =\n    one",                     True,  True,  "type"),
+    Context("sigFirstArg",    "foo : {x} -> Int\nfoo q =\n    one",            True,  False, "type"),
+    Context("sigLastArg",     "foo : Int -> {x}\nfoo q =\n    one",            True,  True,  "type"),
+    Context("sigMidArg",      "foo : Int -> {x} -> Bool\nfoo q r =\n    one",  True,  False, "type"),
+    Context("sigTypeAppArg",  "foo : Array {x}\nfoo =\n    one",               True,  False, "type"),
+    Context("sigBrokenFirst", "foo :\n    {x}\n    -> Int\nfoo q =\n    one",  False, False, "type"),
+    Context("sigBrokenLast",  "foo :\n    Int\n    -> {x}\nfoo q =\n    one",  False, True,  "type"),
+    Context("aliasBody",      "type alias T =\n    {x}",                       True,  True,  "type"),
+    Context("aliasArrow",     "type alias T =\n    {x}\n    -> Int",           False, False, "type"),
+    Context("aliasField",     "type alias T =\n    { fld : {x} }",             True,  True,  "type"),
+    Context("unionPayload",   "type U\n    = A {x}",                           True,  False, "type"),
+    Context("unionPayload2",  "type U\n    = A {x}\n    | B Int",              False, False, "type"),
+    Context("letSig",         "v =\n    let\n        bnd : {x}\n        bnd =\n            one\n    in\n    bnd",
+                                                                               True,  True,  "type"),
+    Context("portArg",        "port send : {x} -> Cmd msg",                    True,  False, "type",
+            "port module M exposing (..)\n\n\n"),
+    Context("portResult",     "port send : Int -> {x}",                        True,  True,  "type",
+            "port module M exposing (..)\n\n\n"),
+]
+
 # The four layout variants. `flat_input` variants keep oracle 1 (the flat/break
 # two-directional check); the author-broken ones drop it -- a broken input has
 # no local layout truth (gren collapses a broken-but-fitting binop), so they
@@ -705,9 +778,15 @@ def enumerate_cells(constructs, contexts, variants):
     """Every applicable (construct, context, variant) triple. A variant is
     skipped when the construct has no atom for it, and bare variants are skipped
     outside value-position contexts."""
+    type_names = {c.name for c in TYPE_CONSTRUCTS}
     cells = []
     for c in constructs:
+        c_kind = "type" if c.name in type_names else "expr"
         for x in contexts:
+            # The two vocabularies are disjoint: a type cannot stand in a call
+            # argument and an expression cannot stand in a signature.
+            if x.kind != c_kind:
+                continue
             for v in variants:
                 atom = variant_atom(c, v)
                 if atom is None:
@@ -732,47 +811,77 @@ MODULE_LINE = "module M exposing (..)\n\n\n"
 HEADER = MODULE_LINE + "v = "
 
 
-def source_for(construct_atom, context_template):
-    body, _span = substitute(context_template, construct_atom)
-    return HEADER + body + "\n"
+def context_header(context):
+    """The text a context's template is appended to. Explicit when the context
+    sets one (a `port` declaration needs `port module`), otherwise the kind's
+    default: expression templates are a `v = ` body, type templates are whole
+    declarations."""
+    if context.header is not None:
+        return context.header
+    return HEADER if context.kind == "expr" else MODULE_LINE
 
 
-def source_and_atom_span(construct_atom, context_template):
+def source_for(construct_atom, context):
+    body, _span = substitute(context.template, construct_atom, context_header(context))
+    return context_header(context) + body + "\n"
+
+
+def source_and_atom_span(construct_atom, context):
     """`source_for`, plus the atom's [start, end) offsets in the returned source.
     The comment axis uses the span to tell atom-local gaps from context ones."""
-    body, (lo, hi) = substitute(context_template, construct_atom)
-    return HEADER + body + "\n", (len(HEADER) + lo, len(HEADER) + hi)
+    header = context_header(context)
+    body, (lo, hi) = substitute(context.template, construct_atom, header)
+    return header + body + "\n", (len(header) + lo, len(header) + hi)
 
 
-def substitute(template, atom):
+def substitute(template, atom, header=HEADER):
     """Put `atom` where `{x}` is; return (body, (atom_start, atom_end)) with the
     offsets measured in the returned body. A multi-line atom keeps its
-    continuation lines aligned under the column `{x}` lands in (4 for the `v = `
-    prefix + the offset of `{x}` in the template), so every continuation is
-    indented past the top-level `v` and the source parses. The atom's own
-    relative indentation is preserved on top of that base -- the formatter
-    re-flows it regardless; all that matters here is that it is valid and spans
-    rows."""
+    continuation lines aligned under the COLUMN `{x}` lands in, so every
+    continuation is indented past the declaration's own column and the source
+    parses. The atom's own relative indentation is preserved on top of that base
+    -- the formatter re-flows it regardless; all that matters here is that it is
+    valid and spans rows.
+
+    The column is the offset of `{x}` within its own line of the template, plus
+    the width of the header's last line (4 for `v = `, 0 for a whole-declaration
+    template). A type template is itself multi-line, so taking `{x}`'s index in
+    the whole string -- which is what this did while every template was one line
+    -- would indent continuations by the length of everything above them."""
     idx = template.index("{x}")
     before, after = template[:idx], template[idx + 3:]
     if "\n" not in atom:
         return before + atom + after, (idx, idx + len(atom))
-    col = 4 + idx  # len("v = ") == 4
+    line_start = template.rfind("\n", 0, idx) + 1
+    base = len(header.split("\n")[-1]) if line_start == 0 else 0
+    col = base + (idx - line_start)
     lines = atom.split("\n")
     glued = lines[0] + "".join("\n" + " " * col + ln for ln in lines[1:])
     return before + glued + after, (idx, idx + len(glued))
 
 
-def body_lines(formatted):
-    """The rendered decl body: everything after the `v =` line."""
+def body_lines(formatted, context=None):
+    """The rendered lines oracle 1 measures.
+
+    For an expression cell that is the decl body -- everything after the `v =`
+    line -- so "the atom stayed flat" is exactly "one line".
+
+    For a type cell the atom sits inside a whole declaration that has its own
+    line count, so there is no single-line answer to compare against. The
+    measure there is every non-blank line after the module header, and oracle 1
+    asks whether the formatter ADDED rows relative to the flat source rather
+    than whether it produced one."""
     lines = formatted.split("\n")
-    for i, line in enumerate(lines):
-        if line.startswith("v ="):
-            body = lines[i + 1:]
-            while body and not body[-1].strip():
-                body.pop()
-            return body
-    return None
+    if context is None or context.kind == "expr":
+        for i, line in enumerate(lines):
+            if line.startswith("v ="):
+                body = lines[i + 1:]
+                while body and not body[-1].strip():
+                    body.pop()
+                return body
+        return None
+    body = [ln for ln in lines[1:] if ln.strip()]
+    return body or None
 
 
 def run(app_args, path):
@@ -811,7 +920,7 @@ def base_output_pair(cell):
     can ask "did the comment change anything the uncommented cell did not
     already do?" (see `explained_by_base`)."""
     construct, context, variant = cell
-    source = source_for(variant_atom(construct, variant), context.template)
+    source = source_for(variant_atom(construct, variant), context)
     key = f"{construct.name}/{context.name}" + ("" if variant == "flat" else "@" + variant)
     with tempfile.TemporaryDirectory() as tmp:
         path = pathlib.Path(tmp) / "M.gren"
@@ -836,7 +945,7 @@ def check_cell(cell):
     construct, context, variant = cell
     cname, xname = construct.name, context.name
     atom = variant_atom(construct, variant)
-    source = source_for(atom, context.template)
+    source = source_for(atom, context)
     flat_input = variant in FLAT_INPUT_VARIANTS
     expect_flat = flat_input and construct.flat and context.flat
 
@@ -862,9 +971,9 @@ def check_cell(cell):
             return result(kind="unknown-error", detail=out.strip()[:600])
 
         formatted = shown.stdout
-        body = body_lines(formatted)
+        body = body_lines(formatted, context)
         if body is None:
-            return result(kind="no-body", detail="could not locate `v =` in output", output=formatted)
+            return result(kind="no-body", detail="could not locate the declaration in output", output=formatted)
 
         try:
             audited = run("--audit-predicates", path)
@@ -884,7 +993,7 @@ def check_cell(cell):
         # variant has no local layout truth -- gren collapses a broken-but-
         # fitting binop -- so it leans on oracles 2-4 (crash/AST/idempotency,
         # predicate audit, elm-format parity) instead.
-        if flat_input:
+        if flat_input and context.kind == "expr":
             is_flat = len(body) == 1
             if expect_flat and not is_flat:
                 return result(kind="broke-when-flat", output=formatted,
@@ -893,6 +1002,16 @@ def check_cell(cell):
             if not expect_flat and is_flat:
                 return result(kind="flat-when-should-break", output=formatted,
                               detail="an if/when/let is involved, so the body must break")
+        elif flat_input and expect_flat:
+            # Type axis. The declaration has its own line count, so "flat" is
+            # not "one line" -- it is "the formatter added no rows". A type has
+            # no `if`/`when`/`let`, so there is no must-break half to check.
+            want = len([ln for ln in source.split("\n")[len(context_header(context).split("\n")) - 1:]
+                        if ln.strip()])
+            if len(body) > want:
+                return result(kind="broke-when-flat", output=formatted,
+                              detail=f"written across {want} lines with nothing forcing a break, "
+                                     f"but the declaration rendered across {len(body)}")
 
         # Parity runs only on cells that satisfy oracles 1-3. A cell that
         # already violates a truth would diverge from elm-format too, and
@@ -916,14 +1035,24 @@ def enumerate_comment_cells(cells, kinds, positions):
     # every slice reports the context gaps it happens to inherit as brand-new
     # divergences. A slice that excludes the representative simply sweeps no
     # context gaps -- the whole run covers them.
-    rep = (CONSTRUCTS[0].name, "flat")
+    #
+    # One representative per AXIS: the expression contexts' gaps are swept with
+    # the first expression construct, the type contexts' with the first type
+    # construct. A single global representative would sweep no context gaps at
+    # all on the axis it does not belong to, since `enumerate_cells` never pairs
+    # an expression construct with a type context.
+    reps = {"expr": (CONSTRUCTS[0].name, "flat"),
+            "type": (TYPE_CONSTRUCTS[0].name, "flat")}
     out, n_atom, n_ctx = [], 0, 0
     for construct, context, variant in cells:
         atom = variant_atom(construct, variant)
-        source, (lo, hi) = source_and_atom_span(atom, context.template)
-        is_rep = (construct.name, variant) == rep
+        source, (lo, hi) = source_and_atom_span(atom, context)
+        is_rep = (construct.name, variant) == reps[context.kind]
+        # The module line, whose length varies: a `port` context's header is
+        # `port module …`.
+        header_end = len(context_header(context)) - (4 if context.kind == "expr" else 0)
         for ordinal, gap in enumerate(gap_indices(source)):
-            if gap < len(MODULE_LINE):
+            if gap < header_end:
                 # The module header is fixed boilerplate here, identical in every
                 # cell -- it is not one of this matrix's two axes, and header
                 # comments are already the corpus fuzzers' ground. Skipping it
@@ -1376,8 +1505,10 @@ def main():
     if args.update_baseline and not PARITY:
         sys.exit("--update-baseline needs the parity oracle")
 
-    constructs = [c for c in CONSTRUCTS if not args.construct or c.name == args.construct]
-    contexts = [x for x in CONTEXTS if not args.context or x.name == args.context]
+    all_constructs = CONSTRUCTS + TYPE_CONSTRUCTS
+    all_contexts = CONTEXTS + TYPE_CONTEXTS
+    constructs = [c for c in all_constructs if not args.construct or c.name == args.construct]
+    contexts = [x for x in all_contexts if not args.context or x.name == args.context]
     variants = args.variant or VARIANTS
     if not constructs or not contexts:
         sys.exit("no cells selected -- check --construct/--context names")

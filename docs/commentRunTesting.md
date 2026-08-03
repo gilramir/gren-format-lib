@@ -175,22 +175,26 @@ drawn, and it hid a real class of bug for a long time.
 | `fuzz-idempotency.py` per-gap pass | every inter-token gap × **all three kinds** (since 2026-08-03) | more than one comment |
 | `fuzz-idempotency.py` decl-end pass | own-line trailing comment, block and line form | more than one comment |
 | `fuzz-whitespace.py` | inter-token whitespace | comments, syntax |
-| `matrix-syntax.py` | every expression form × 25 **expression** contexts × 4 layout variants | comments; **declaration syntax** |
-| `matrix-syntax.py --comments` | the above × 1 comment × 4 placements | more than one comment; declaration syntax |
+| `matrix-syntax.py` | every expression form × 25 expression contexts, **and every type form × 15 declaration contexts**, × 4 layout variants | comments |
+| `matrix-syntax.py --comments` | the above × 1 comment × 4 placements | more than one comment |
 | `audit-predicates.py` | corpus, predicate vs renderer | nothing new |
 | `gen-random.py` | structure **and** comments, randomly | — (the only gate that generates runs at all, and it has no parity oracle) |
 
-Two holes are visible in that table, and they compound:
+Two holes were visible in that table until 2026-08-03, and they compounded:
 
-- **No declaration contexts.** `matrix-syntax.py`'s context list is
-  expression-only: no signature, type alias, union, port, import, module header,
-  or `let` binding with a signature. A comment-placement question about a type
-  signature therefore reaches no oracle at all.
-- **One comment kind per gap, until 2026-08-03.** The per-gap pass injected only
+- **No declaration contexts.** `matrix-syntax.py`'s context list was
+  expression-only: no signature, type alias, union, port, or `let` binding with
+  a signature. A comment-placement question about a type therefore reached no
+  oracle at all. *Closed the same day* by the type axis — a second vocabulary
+  of type constructs paired with declaration contexts, run through the same four
+  oracles. (Still uncovered: an `import`'s own syntax and the module header,
+  which the corpus fuzzers reach but no elm-format oracle does.)
+- **One comment kind per gap.** The per-gap pass injected only
   `{- ¤ -}` — the single-line block. That is precisely the kind most placement
   rules do *not* fire for: `commentTextCanRide` is literally "single-line block
   or not", and C2's line-leading-separator exception applies to a `--` and a
-  multi-line `{- … -}` but **not** to a single-line one.
+  multi-line `{- … -}` but **not** to a single-line one. *Closed the same day*
+  by the three-kind sweep.
 
 Their intersection is what hid the signature-`->` rule: a comment in a type
 signature's arrow gap was invisible to the fuzzer (only one kind swept) *and*
@@ -312,9 +316,19 @@ Four things are worth keeping from that:
 1. ~~per-gap pass sweeps all three comment kinds~~ *(done 2026-08-03)*
 2. **work the 418-finding residual down to zero**, then wire the pass into
    `run-tests.sh`. Until then it is a hand-run gate with a known baseline.
-3. **declaration contexts in `matrix-syntax.py`** — signature, alias, union,
-   port, import, module header, `let` binding with signature. This is the n=1
-   base case, and nothing above it means anything until it is trustworthy.
+3. ~~declaration contexts in `matrix-syntax.py`~~ *(done 2026-08-03: 11 type
+   constructs × 15 declaration contexts, +341 syntax cells, +4,930 comment
+   cells)*. This was the n=1 base case, and nothing above it meant much until it
+   existed. Its first run produced three work-lists, none of them regressions:
+   - **123 UNREVIEWED parity divergences, one family** — gren flattens an
+     author's break inside a type where elm-format keeps it, contradicting
+     gren's own author-driven rule;
+   - **58 hard failures, one family** — a comment-bearing signature whose type
+     carries a multi-line record is not a fixed point, because
+     `typeSegmentsForceVertical` switches its dropping-record trigger off when a
+     comment is present;
+   - **1,436 UNREVIEWED comment-parity divergences**, all type-context cells,
+     unread.
 4. run-classification refactor — makes C1 and C3 structural
 5. the deletion-invariance oracle
 6. n=2 class-pairs, with elm-format parity

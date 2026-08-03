@@ -106,7 +106,26 @@ The corpus reaches only the syntax somebody thought to write, and both fuzzers
 perturb *comments* and *whitespace* over that fixed corpus — **neither varies
 syntax**. A bug needing a conjunction of features therefore has no fixture. This
 is the syntax axis: it embeds every expression form in every context, in up to
-four **layout variants**, and checks each one (**1738 cells**).
+four **layout variants**, and checks each one (**2079 cells**).
+
+It has **two vocabularies**, paired by `kind` and never crossed — an expression
+cannot stand in a signature and a type cannot stand in a call argument:
+
+- **expr** — 41 expression constructs × 25 expression contexts. The template is
+  a `v = <body>`.
+- **type** — 11 type constructs (`Int`, `(Array Int)`, `(Int -> Int)`,
+  `{ a : Int }`, `{ r | a : Int }`, …) × 15 **declaration** contexts: a
+  signature's sole/first/mid/last argument, a signature already broken at a
+  `->`, a type alias body, an alias field, a union payload, a `let` binding's
+  annotation, and a `port`. The template is a whole declaration, so each carries
+  its own header (`port module …` for the port contexts) and its own trailing
+  definition.
+
+The type axis was added 2026-08-03. Until then the whole of Gren's declaration
+syntax had no cell here, which — together with `fuzz-idempotency.py` sweeping
+only one comment kind — is what hid the signature-`->` comment rule long enough
+for a change to it to ship with 401 regressions. See
+[`docs/commentRunTesting.md`](docs/commentRunTesting.md).
 
 The variants are the author-broken axis (added 2026-07-18, after a record-literal
 binop-field crash slipped through a flat-only matrix):
@@ -176,12 +195,36 @@ genuine bug gets a `BUG:` reason, which is **also** printed every run — being
 understood is not the same as being acceptable, and a baseline entry is the
 easiest place in this repo for a known bug to go quiet.
 
-Current state: **1738/1738 pass oracles 1–3**; 1168 are byte-identical to
-elm-format, with 570 registered divergences — 398 redundant parens (#10), 125
+Current state: **2079/2079 pass oracles 1–3**; 1354 are byte-identical to
+elm-format, with 725 registered divergences — 430 redundant parens (#10), 125
 single-item-container collapse (#21, records *and* arrays), 38 precedence-split
 binop chains (#17), 6 backward-`<|` flat layout (#14), 3 pipeline-`|>` alignment
-(#19), **0 UNREVIEWED**, and
-**0 known BUGs** — every divergence is a documented catalogue entry. (A former
+(#19), **0 known BUGs**, and **123 UNREVIEWED** — all 123 from the type axis's
+first run, and all one family.
+
+**That family, stated so it is not mistaken for noise:** every one is a `broken`
+or `bareBroken` variant, i.e. the author wrote the type across rows.
+gren-format **flattens** an author's break inside a type unless it falls at a
+top-level `->` or a record's `,`; elm-format keeps it, and drops the redundant
+parens as well:
+
+```gren
+-- you wrote:        -- gren-format:      -- elm-format:
+foo : (Array         foo : (Array Int)    foo :
+       Int)                                   Array
+                                                  Int
+```
+
+This contradicts gren-format's own author-driven rule ("written across rows, it
+stays across rows") *and* elm-format, so it is likely a bug rather than a
+divergence to catalogue — but it is a real behaviour change to make, and the
+inline signature path currently `Err`s rather than emits a broken form, so it
+was left registered and visible rather than fixed in the same commit as the
+axis. The code comment in `makeSignatureBox` that justifies the flattening
+("elm-format flattens a segment the author broke inside a record type or
+parens") is **wrong**: elm-format does not.
+
+(A former
 divergence, a record update as a direct multi-line `|>` operand keeping its
 fields 4 past the `{`, was eliminated 2026-07-31 by rendering the pipeline
 operator as a Box *prefix* instead of a flow item — the fields now hang off the
@@ -230,7 +273,10 @@ Deliberately not covered, and stated in the script rather than hidden: multi-lin
 string literals (`"""x"""` does not parse on one line, so it cannot be a one-line
 atom) and more than one comment per cell (a comment *run* has its own
 all-or-nothing rules; `fuzz-idempotency.py`'s all-gaps pass generates one, but
-without the elm-format oracle).
+without the elm-format oracle). Also still uncovered on the declaration side: an
+`import`'s own syntax and the module header — both reached by the corpus fuzzers,
+neither by an elm-format oracle. The plan for the comment-run half is
+[`docs/commentRunTesting.md`](docs/commentRunTesting.md).
 
 #### The comment axis (`--comments`)
 
@@ -314,7 +360,30 @@ commits:
   That last one also fixed a comment-free instance of the same bug
   (`{ fld = \q -> { a = 1` / `, b = 2 } }` oscillated with no comment anywhere).
 
-The axis reports **0 failing cells**.
+The axis reported **0 failing cells** until the type axis was added on
+2026-08-03. It now runs **45,948 cells with 58 failing**, and those 58 are one
+pre-existing family — every one verified against a build of `735adc4^`, so none
+is new:
+
+```gren
+foo : Int -> {- ¤ -} { a : Int
+             , b : String }
+```
+
+`typeSegmentsForceVertical` gates its dropping-record trigger on
+`not hasComment`, so a comment-bearing signature whose type carries a multi-line
+record never commits to the broken layout. The first format emits `foo : Int ->`
+with the record below it; the reparse sees the record starting on a later row,
+concludes the author broke at the `->`, and renders the fully-broken form. The
+same "a comment adds a row and the reparse reads a different layout" class as
+`commentBreaksFlowRow` and `commentBreaksAnyFlowRow`, in the one place the
+force-vertical trigger is still switched off when a comment is present.
+
+**So `--comments` is currently RED at 58.** Left unfixed deliberately: the fix
+means ungating that trigger, which reroutes the `hasComment &&
+typeHasCommentBracket` branch too, and that is a layout change wanting its own
+review rather than a rider on the axis that found it. Treat a count above 58, or
+any failure outside `tyRecord2` in a mid/last signature argument, as new.
 
 **Reviewed 2026-07-31** (`comment-parity-triage.md` has the per-family evidence
 and the verdicts): the 16,141 UNREVIEWED divergences were sorted into 13
@@ -482,6 +551,15 @@ section of `comment-parity-triage.md`.
 `{sig: decision}` over the log in order, so the last row wins. `--redo` re-asks
 interactively; there is no in-place edit, and the superseded rows are the record
 of what was thought before.
+
+**Current state (2026-08-03), after the type axis landed.** 45,948 cells,
+**25,720 baseline entries**, 58 failing (the one pre-existing family above).
+Reasons: 12,477 INHERITED, 4,610 #22, 2,525 #13, 2,278 #23, **1,436
+UNREVIEWED**, then combinations. The comment axis had been driven to 0
+UNREVIEWED on 2026-08-02; every one of the 1,436 is a **type-context** cell from
+this axis's first run and none has been read yet. That is fresh debt of exactly
+the kind the interview rounds exist to work down — `triage-comment-parity.py
+--review` is the tool, and the type cells are all of it.
 
 ### Predicate/renderer agreement audit
 
