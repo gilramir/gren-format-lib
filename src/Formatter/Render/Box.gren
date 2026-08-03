@@ -8,6 +8,7 @@ module Formatter.Render.Box exposing
     , blankLine
     , destructure
     , freezeTabs
+    , height
     , identifier
     , indent
     , isLine
@@ -198,6 +199,20 @@ isLine b =
 
         _ ->
             Err b
+
+
+{-| How many lines the box occupies. `Stack` always holds at least two. -}
+height : Box -> Int
+height b =
+    when b is
+        SingleLine _ ->
+            1
+
+        MustBreakBox _ ->
+            1
+
+        Stack s ->
+            2 + Array.length s.rest
 
 
 allSingles : Array Box -> Result (Array Box) (Array Line)

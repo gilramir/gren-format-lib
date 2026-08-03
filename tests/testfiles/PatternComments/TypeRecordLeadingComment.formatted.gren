@@ -19,11 +19,12 @@ type alias Container =
 
 
 -- comment in the flow of a type application whose record arg spans rows
-typeAppWithComment : HasIdentifier
-    {- note -}
-    { payload : String
-    , flags : Int
-    }
+typeAppWithComment :
+    HasIdentifier
+        {- note -}
+        { payload : String
+        , flags : Int
+        }
 typeAppWithComment =
     something
 

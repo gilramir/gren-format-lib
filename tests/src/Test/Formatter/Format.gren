@@ -596,6 +596,7 @@ declarationSuite fsPerm =
             , assertPrettyIn fsPerm "Declarations" "subscription-only effect module (the Src.Sub where-block case)" "EffectModuleSubscriptionOnly"
             , assertPrettyIn fsPerm "Declarations" "empty record type `{}` in a type alias and a signature" "EmptyRecordType"
             , assertPrettyIn fsPerm "Declarations" "empty-bodied doc comment `{-| -}`" "EmptyDocComment"
+            , assertPrettyIn fsPerm "Declarations" "a comment-bearing signature takes its shape from the rendered box, not a predicate" "SignatureCommentRecordType"
             ]
         }
 

@@ -376,10 +376,9 @@ commits:
   That last one also fixed a comment-free instance of the same bug
   (`{ fld = \q -> { a = 1` / `, b = 2 } }` oscillated with no comment anywhere).
 
-The axis reported **0 failing cells** until the type axis was added on
-2026-08-03. It now runs **45,948 cells with 58 failing**, and those 58 are one
-pre-existing family — every one verified against a build of `735adc4^`, so none
-is new:
+The axis runs **45,948 cells with 0 failing**. It was 0 until the type axis was
+added on 2026-08-03, then 58 for a day — one family, a comment-bearing signature
+whose type carries a multi-line record:
 
 ```gren
 foo : Int -> {- ¤ -} { a : Int
@@ -387,19 +386,17 @@ foo : Int -> {- ¤ -} { a : Int
 ```
 
 `typeSegmentsForceVertical` gates its dropping-record trigger on
-`not hasComment`, so a comment-bearing signature whose type carries a multi-line
-record never commits to the broken layout. The first format emits `foo : Int ->`
-with the record below it; the reparse sees the record starting on a later row,
-concludes the author broke at the `->`, and renders the fully-broken form. The
-same "a comment adds a row and the reparse reads a different layout" class as
-`commentBreaksFlowRow` and `commentSplitsType`, in the one place the
-force-vertical trigger is still switched off when a comment is present.
-
-**So `--comments` is currently RED at 58.** Left unfixed deliberately: the fix
-means ungating that trigger, which reroutes the `hasComment &&
-typeHasCommentBracket` branch too, and that is a layout change wanting its own
-review rather than a rider on the axis that found it. Treat a count above 58, or
-any failure outside `tyRecord2` in a mid/last signature argument, as new.
+`not hasComment`, because a comment-bearing type has an arm of its own. That arm
+was *predicting* which comment would break which row (`commentSplitsType`)
+instead of rendering and looking, so the first format emitted `foo : Int ->` with
+the record below it, and the reparse — seeing the record start on a later row —
+concluded the author broke at the `->`. **Fixed 2026-08-03** by measuring the
+assembled box instead: `FlowAssembly.typeContentSpansRows` asks whether the
+type's own content came back on more than one row, which is both the layout
+question (elm-format drops such a type below `name :`) and the stability one (a
+type still on one row cannot have moved a segment). `commentSplitsType` and
+`typeHasCommentBracket` are gone; parity went **20,017 → 20,111** byte-identical.
+Write-up in [`docs/commentRunTesting.md`](docs/commentRunTesting.md#the-real-fix-do-not-predict).
 
 **Reviewed 2026-07-31** (`comment-parity-triage.md` has the per-family evidence
 and the verdicts): the 16,141 UNREVIEWED divergences were sorted into 13
@@ -568,9 +565,10 @@ section of `comment-parity-triage.md`.
 interactively; there is no in-place edit, and the superseded rows are the record
 of what was thought before.
 
-**Current state (2026-08-03), after the type axis landed and its debt was read
-down.** 45,948 cells, 58 failing (the one pre-existing family above), **0
-UNREVIEWED and 0 BUG** — every divergence names a catalogue entry. The type axis
+**Current state (2026-08-03), after the type axis landed, its debt was read down
+and `commentSplitsType` was deleted.** 45,948 cells, **0 failing**, 20,111
+byte-identical to elm-format, 25,575 registered divergences, **0 UNREVIEWED and
+0 BUG** — every divergence names a catalogue entry. The type axis
 arrived with 1,436 UNREVIEWED, all type-context cells; the fix below cleared 139
 of them outright and the remaining 1,140 were reviewed in one sitting and
 registered:
@@ -620,7 +618,8 @@ signature flow too, so the flow read `bnd`(row 7), `:`, `Int`(row 6): out of
 source order, with no gap inside it for `Comments` to find. `locDef.start` *is*
 the annotation's name when the binding has one, so that is what the signature
 now uses. **+139 cells of elm-format parity in the `letSig` contexts (76/587
-byte-identical → 215/587), 0 new divergences, 58 failures unchanged** — every
+byte-identical → 215/587), 0 new divergences, the 58 failures unchanged** (they
+went to 0 later the same day; see the `typeContentSpansRows` fix above) — every
 number attributed against a rebuild of the pre-fix source. Fixture
 `Declarations/LetAnnotationComment`.
 

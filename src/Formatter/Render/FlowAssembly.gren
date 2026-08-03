@@ -1,4 +1,4 @@
-module Formatter.Render.FlowAssembly exposing (FlowItem, SoftGlueAlignment(..), assembleBrokenCall, assembleBrokenWithComments, bracketPunc, gluedExposingBox, isCommentItem, pairLeadingComments, pairableCommentLine, parenInnerIsAlignCarrying, softBlockChildForcesVerticalBox, softGlueAlignment, trySoftGlueFlow, verticalExposingBox)
+module Formatter.Render.FlowAssembly exposing (FlowItem, FlowMeasure, SoftGlueAlignment(..), assembleBrokenCall, assembleBrokenWithComments, bracketPunc, gluedExposingBox, isCommentItem, pairLeadingComments, pairableCommentLine, parenInnerIsAlignCarrying, softBlockChildForcesVerticalBox, softGlueAlignment, trySoftGlueFlow, typeContentSpansRows, verticalExposingBox)
 
 {-| Flow-assembly support: the `FlowItem`/`SoftGlueAlignment` types and the pure helpers that lay pre-rendered flow items out into a `Box`.
 -}
@@ -7,7 +7,7 @@ import Formatter.Logical.LogicalPrintingTree exposing (CommentRole(..), LPBox(..
 import Formatter.Render.Box as B exposing (Box(..))
 import Formatter.Render.BoxOps exposing (applyIndent, glueCommentSuffix, isSingleLine, joinInline, nodesShareStartRow, traverseResult)
 import Formatter.Render.FlowPolicy as FP
-import Formatter.Render.NodeClassify exposing (isEmptyLine, isTypeRecordLiteral)
+import Formatter.Render.NodeClassify exposing (isColonLeaf, isEmptyLine, isTypeRecordLiteral, nodeIsComment)
 
 
 -- `exposing` stays glued to the header. Inline list: `header (a, b, c)` on one
@@ -103,6 +103,101 @@ type alias FlowItem =
     , comment : Maybe { box : Box, isLineComment : Bool, multiLine : Bool }
     , lambdaBodyBox : Maybe Box
     }
+
+
+{-| What `assembleFlowMeasured` reports for one placed flow item: the item, and
+how many rows the assembled box grew by when it was placed. See
+`typeContentSpansRows` for the one question these answer. -}
+type alias FlowMeasure =
+    { node : LPNode
+    , box : Box
+    , rowsAdded : Int
+    }
+
+
+{-| Did the TYPE's own content come back spread over more than one row, in the
+box the assembler actually built?
+
+This is the question `makeSignatureBox` / `makeTypeAliasBody` must answer before
+choosing between the inline flow and the per-segment layout, and it is the
+comment-bearing twin of the rule the no-comment arm already uses ("the flow came
+back multi-line, so a break the author wrote survived rendering"). A type that
+came back on one row keeps the inline layout; one that did not takes the
+per-segment shape, which for a single-segment type is simply the whole type
+dropped below the header.
+
+It is asked of the **rendered box**, not of the nodes. The predicate it replaces
+(`commentSplitsType`) hand-predicted which comment would break which row and was
+mis-scoped three times in one day, because a prediction can disagree with the
+renderer; a measurement cannot. It also has to be right for two separate
+reasons, and asking the box gets both at once:
+
+  - **layout.** elm-format drops a type below `name :` as soon as something
+    breaks it open, and so did gren before, via this predicate.
+  - **stability.** `NodeClassify.signatureForceVertical` asks of the *source*
+    rows whether a later `->` segment starts below the previous one, so an
+    inline format that let a comment push a segment down is read back as
+    author-broken and re-rendered per-segment: the file oscillates. A type whose
+    content stayed on one row cannot have moved a segment, so committing to the
+    inline layout exactly there is what makes it a fixed point.
+
+Two details make the measured rows the right ones:
+
+  - **the header is skipped** — everything up to and including a top-level `:`
+    leaf. A signature has exactly one (a record field's `:` is a child of the
+    record node, never a flow sibling of the type); an alias body has none, and
+    drops nothing.
+  - **comments are skipped**, exactly as `segFirstRow`/`segLastRow` skip them.
+    That is what keeps `foo : -- c` ⏎ `Int -> Int` inline: the comment brings a
+    row of its own, but the *type* is still on one row, and pulling it below the
+    header would be re-laying-out code the comment only moved. The same skip at
+    the other end keeps `foo : Int -> String {- x` ⏎ `y -}` inline. Those two
+    ends were `commentSplitsType`'s "content before and after" guards, each
+    learned by getting it wrong; here they are not a rule, just the consequence
+    of measuring content. -}
+typeContentSpansRows : Array FlowMeasure -> Bool
+typeContentSpansRows measures =
+    let
+        -- Running the row additions up gives each item's last row; its own
+        -- height gives back its first.
+        placed =
+            (Array.foldl
+                (\m acc ->
+                    let
+                        endRow =
+                            acc.total + m.rowsAdded - 1
+                    in
+                    { total = acc.total + m.rowsAdded
+                    , out =
+                        Array.pushLast
+                            { node = m.node
+                            , firstRow = endRow - (B.height m.box - 1)
+                            , lastRow = endRow
+                            }
+                            acc.out
+                    }
+                )
+                { total = 0, out = [] }
+                measures
+            ).out
+
+        afterColon =
+            when Array.findFirst (\p -> isColonLeaf p.node) placed is
+                Just found ->
+                    Array.dropFirst (found.index + 1) placed
+
+                Nothing ->
+                    placed
+
+        content =
+            Array.keepIf (\p -> not (nodeIsComment p.node)) afterColon
+    in
+    when { first = Array.first content, last = Array.last content } is
+        { first = Just f, last = Just l } ->
+            l.lastRow > f.firstRow
+
+        _ ->
+            False
 
 
 isCommentItem : FlowItem -> Bool

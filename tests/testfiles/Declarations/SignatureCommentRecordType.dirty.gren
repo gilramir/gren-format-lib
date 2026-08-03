@@ -1,0 +1,49 @@
+module SignatureCommentRecordType exposing (..)
+
+-- A comment-bearing signature commits to the shape the REPARSE will agree with,
+-- and the test is the rendered box: did the type's own content come back on more
+-- than one row? Nothing here predicts which comment kind breaks which row --
+-- `commentSplitsType` did, and it was mis-scoped three times in one day.
+
+
+-- the type spans rows, so the whole type drops and splits per `->` segment
+recordArg : Int -> {- c -} { a : Int
+, b : String }
+recordArg q =
+    one
+
+
+-- a `--` says the same thing about the same shape
+recordArgLine : Int -> -- c
+    { a : Int
+, b : String }
+recordArgLine q =
+    one
+
+
+-- the comment leads the WHOLE type: it brings a row of its own, but no content
+-- item moved, so the type keeps its one row
+leadsEverything : -- c
+    Int -> String
+leadsEverything q =
+    one
+
+
+-- ... and the same at the other end
+trailsEverything : Int -> String {- x
+y -}
+trailsEverything q =
+    one
+
+
+-- a single-node type the comment pushed across rows drops whole below the header
+parenType : ( Int {- x
+y -} -> String )
+parenType q =
+    one
+
+
+-- ... and one it did not stays glued after the `:`
+ridesInline : { a : Int {- c -} }
+ridesInline =
+    one

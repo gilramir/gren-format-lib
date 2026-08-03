@@ -285,9 +285,10 @@ is the shape elm-format produces.
 
 ### The residual, and why this gate ships red
 
-As of 2026-08-03 the corpus sweep stands at **424 findings — 0 regressions, all
-pre-existing**: 298 multi-line block, 126 `--`, 0 single-line block. Every one
-was attributed against the previous build; none is new.
+As of 2026-08-03 the corpus sweep stands at **347 findings — 0 regressions, all
+pre-existing**: 296 multi-line block, 51 `--`, 0 single-line block. (It was 424,
+in the proportions 298 / 126 / 0, until `45f7269` took 77 of them at once.) Every
+one was attributed against the previous build; none is new.
 
 The figure moves when the *corpus* grows, not only when behaviour does — the
 `D27`–`D29` divergence fixtures added six of those 424 between them, exercising
@@ -343,9 +344,12 @@ Four things are worth keeping from that:
 
 ## The systemic problem behind the mis-scopings
 
+*(Diagnosis kept for the record; the predicate it is about was deleted the same
+day — see [The real fix](#the-real-fix-do-not-predict).)*
+
 Three wrong scopings of one predicate in one day is not bad luck; it is a
-predictable failure of the *shape* `commentSplitsType` has. It is a **mirror
-predicate** — it hand-predicts what the renderer will do, before rendering —
+predictable failure of the *shape* `commentSplitsType` had. It was a **mirror
+predicate** — it hand-predicted what the renderer would do, before rendering —
 and this codebase deliberately got rid of its mirror predicates.
 `Audit/PredicateAgreement.gren` says so in its own module doc:
 
@@ -362,8 +366,10 @@ The distinction that decides whether a predicate is legitimate:
 | **author-intent flag** — records what you wrote, information that exists nowhere else | **yes** | `signatureForceVertical` ("did you break at a `->`") |
 | **renderer prediction** — claims what the output will look like | **no**, ask the box | `commentSplitsType` |
 
-`commentSplitsType` is the second kind wearing the first kind's clothes, which
-is why it keeps being wrong at the edges.
+`commentSplitsType` was the second kind wearing the first kind's clothes, which
+is why it kept being wrong at the edges. The replacement is a question asked of
+the assembled box (`typeContentSpansRows`), which cannot disagree with the
+renderer because it is measuring it.
 
 ### Why the existing audit cannot catch it
 
@@ -405,21 +411,80 @@ holds.
 
 ### The real fix: do not predict
 
-*(Proposed. Not built.)*
+*(Done 2026-08-03. `commentSplitsType` is deleted.)*
 
-`makeSignatureBox`'s no-comment arm already does the right thing: it renders the
+`makeSignatureBox`'s no-comment arm already did the right thing: it renders the
 flow, asks `B.isLine`, and falls through to the per-segment layout when the
 answer is "multi-line". No prediction, no mirror, no possible disagreement.
 
 The comment-bearing arm chooses between two renderings of the *same children*,
-so it could work the same way — and then `commentSplitsType` would not exist.
-The obstacle is that the question is not "is the box multi-line" (a
-comment-bearing type usually is, legitimately) but "did a `->` boundary land on
-a later row", which needs per-segment positions inside the assembled box that
-`buildFlowBox` does not currently expose. That is the piece of work; the payoff
-is deleting a predicate that has been wrong three times.
+so it could work the same way. The obstacle was that the question is not "is the
+box multi-line" (a comment-bearing type usually is, legitimately) but "did a
+`->` boundary land on a later row", which needs per-item positions inside the
+assembled box that `buildFlowBox` did not expose.
 
-Do this one *before* the decision-stability gate if only one gets done: the gate
+**Exposing them turned out to need one number per item, and no new judgement.**
+`assembleFlowMeasured` returns, alongside the box, how many rows the assembly
+*grew by* when each item was placed. That is enough to place every item, because
+the two cases differ by exactly one row:
+
+- an item that GLUED onto the running row adds `height item.box - 1` — its first
+  line shares the previous item's last row;
+- an item that STARTED a row adds `height item.box`, or more when a paired
+  leading comment came down with it.
+
+Running the additions up gives each item's last row; subtracting its own height
+gives its first. The count is taken **between** placement steps, off the
+accumulator — the ~35 placement arms are untouched — so a measured assembly and
+an unmeasured one cannot disagree about the box. It is a flag rather than
+always-on only to keep the row-summing scan off the hot path of every other flow
+in the file.
+
+And then the question turned out to be smaller than "did a `->` boundary move".
+`FlowAssembly.typeContentSpansRows` asks only: **did the type's own content come
+back on more than one row?** Everything follows from that one bit:
+
+- if it did not, no segment can have moved relative to any other, so the inline
+  layout is a fixed point — which is the *stability* half, the reparse's
+  `signatureForceVertical` question answered without asking it;
+- if it did, the per-segment shape is right, and for a single-segment type
+  "per-segment" simply *is* the whole type dropped below the header — which is
+  the *layout* half, and what elm-format does.
+
+Skipping comments when deciding what counts as content is what makes
+`foo : -- c` ⏎ `Int -> Int` stay inline and `foo : Int -> String {- x` ⏎ `y -}`
+with it. Those were `commentSplitsType`'s two guards — "real content before AND
+after the comment" — each learned by getting it wrong; here they are not a rule
+at all, just the consequence of measuring content.
+
+Two arms disappeared with the predicate:
+
+- the single-node arm (`typeHasCommentBracket`), which glued a comment-bearing
+  bracket type after `:` and dropped only an `isTypeRecordLiteral`. The other
+  brackets it claimed to keep glued never reached it — `commentSplitsType` had
+  already forced them vertical — and elm-format drops all three. For one segment
+  `perSegment` *is* that drop, so the general rule covers it.
+- `commentSplitsType` itself, from `typeSegmentsForceVertical`, which both
+  `makeSignatureBox` and `makeTypeAliasBody` share.
+
+**Result: the comment axis's 58 hard failures went to 0** — the whole
+`tyRecord2` family this file described as its residual — with **+94 cells of
+elm-format parity** (20,017 → 20,111 byte-identical) and **0 UNREVIEWED, 0 BUG**.
+The 28 cells that could not be parity-checked before (a failing cell has no
+verdict) auto-classified as #22 and #13; 64 baseline entries went away because
+those cells now match elm-format exactly. The syntax axis (2079/2079, 1358
+identical), `fuzz-idempotency.py` (347: 0 block / 296 multi / 51 line, per-kind
+unchanged), `fuzz-whitespace.py`, `audit-predicates.py` and all 334 fixtures are
+unchanged — bar one fixture, `TypeRecordLeadingComment`, whose type-application
+declaration is now byte-identical to elm-format where it used to diverge.
+
+That last one is worth noting on its own: the old code kept
+`typeAppWithComment : HasIdentifier` ⏎ `{- note -}` glued for a *single-line*
+block comment and dropped the whole type for a `--`, because `commentSplitsType`
+branched on comment kind. Asking the box is kind-blind, so the two spellings
+now agree — and agree with elm-format.
+
+Doing this *before* the decision-stability gate was the right order: the gate
 makes the mistake cheap to find, but not making it is better.
 
 ## Order of work
@@ -443,10 +508,13 @@ makes the mistake cheap to find, but not making it is better.
      [#27](elmFormatComparison.md#divergence-27),
      [#28](elmFormatComparison.md#divergence-28) and
      [#29](elmFormatComparison.md#divergence-29). **0 UNREVIEWED**;
-   - **58 hard failures, one family** — a comment-bearing signature whose type
+   - ~~**58 hard failures, one family** — a comment-bearing signature whose type
      carries a multi-line record is not a fixed point, because
      `typeSegmentsForceVertical` switches its dropping-record trigger off when a
-     comment is present;
+     comment is present~~ *(closed 2026-08-03 by step 4 below, which turned out
+     to be the same bug seen from the other end: the trigger is off because a
+     comment-bearing type has its own arm, and that arm was predicting instead
+     of measuring)*;
    - ~~**1,436 UNREVIEWED comment-parity divergences**, all type-context
      cells~~ *(closed 2026-08-03: `aa377fd` cleared 139 by fixing a real bug —
      every comment inside a `let` binding's annotation escaped it — and
@@ -455,8 +523,10 @@ makes the mistake cheap to find, but not making it is better.
      now covers the extensible-record-type and union `|` as well as the record
      update's. That no type context asked a genuinely new comment question is
      the useful result — it says C1–C6 already covered types.)*
-4. **stop predicting in `makeSignatureBox`'s comment arm** — render, look at the
-   box, delete `commentSplitsType`. See [The real fix](#the-real-fix-do-not-predict).
+4. ~~**stop predicting in `makeSignatureBox`'s comment arm** — render, look at
+   the box, delete `commentSplitsType`~~ *(done 2026-08-03; it also closed the
+   58 above and gained 94 cells of elm-format parity)*. See
+   [The real fix](#the-real-fix-do-not-predict).
 5. **the decision-stability gate** — the formatter emits which layout decision
    it took and why; format twice, diff the decisions. See
    [What would catch it](#what-would-catch-it-decision-stability).
@@ -464,7 +534,7 @@ makes the mistake cheap to find, but not making it is better.
 7. the deletion-invariance oracle
 8. n=2 class-pairs, with elm-format parity
 
-Steps 4 and 5 are the systemic pair and 4 comes first: the gate makes the
+Steps 4 and 5 were the systemic pair and 4 came first: the gate makes the
 mistake cheap to find, but not making it is better. Steps 2, 6 and 7 come before
 8 — an induction is only as good as its base case, and a law is cheaper to hold
 by construction than to check.

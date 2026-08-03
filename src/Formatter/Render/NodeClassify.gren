@@ -1,9 +1,9 @@
-module Formatter.Render.NodeClassify exposing (commentEndsItsLine, commentSplitsType, commentBreaksFlowRow, commentTextCanRide, fieldValueDropsToOwnLine, isColonLeaf, isDroppingSignatureRecordNode, isEmptyLine, isMultilineLambdaParenBlockBox, isTypeRecordLiteral, isOpAndRhsNode, isPipelineStepNode, leafLineRow, leafValue, literalCommentsRideFlatLine, nodeIsComment, parenContentIsLambdaHead, rowsSpanMultiple, signatureForceVertical, splitSignatureSegments, subtreeEndsWithLineComment, subtreeHasComment, typeHasCommentBracket)
+module Formatter.Render.NodeClassify exposing (commentEndsItsLine, commentBreaksFlowRow, commentTextCanRide, fieldValueDropsToOwnLine, isColonLeaf, isDroppingSignatureRecordNode, isEmptyLine, isMultilineLambdaParenBlockBox, isTypeRecordLiteral, isOpAndRhsNode, isPipelineStepNode, leafLineRow, leafValue, literalCommentsRideFlatLine, nodeIsComment, parenContentIsLambdaHead, rowsSpanMultiple, signatureForceVertical, splitSignatureSegments, subtreeEndsWithLineComment, subtreeHasComment)
 
 {-| Boolean predicates and small structural queries over LPT nodes.
 -}
 
-import Formatter.Logical.LogicalPrintingTree exposing (CommentRole(..), LPBox(..), LPNode, ListBrackets(..), commentRole, firstRowInSubtree, lpnBox, lpnBracketStart, lpnChildren, lpnLeaf, lpnMaxRow)
+import Formatter.Logical.LogicalPrintingTree exposing (CommentRole(..), LPBox(..), LPNode, ListBrackets(..), commentRole, firstRowInSubtree, lpnBox, lpnBracketStart, lpnChildren, lpnMaxRow)
 import Formatter.Render.Box as B
 
 
@@ -141,104 +141,6 @@ commentBreaksFlowRow children =
     (Array.foldl step { broke = False, pending = False } children).broke
 
 
-{-| True when a comment forces one of a type's `->` boundaries to break — the
-signal `makeSignatureBox` needs to commit to the per-segment layout up front,
-so the first format lands on the shape the reparse will agree with.
-
-`signatureForceVertical` reads source rows, and the AST has no comments in it,
-so a comment that pushes a later segment down is invisible to it: the first
-format renders inline, the break happens anyway, and the reparse sees the
-boundary and renders the broken layout. Folding this in makes the two agree.
-
-**The condition is a comment with real content both BEFORE and AFTER it**, in
-document order over the whole type, and it is that narrow for a reason —
-each half was learned by getting it wrong:
-
-  - *before* — a comment ahead of ALL the type's content (`foo : -- c` ⏎
-    `Int -> Int`) shifts the segments down as one block; their rows do not move
-    relative to each other, so no boundary breaks. Asking only "is there
-    content after it" fired here and split `Int -> Int` at the `->` against the
-    author's own one-row layout, 50 comment-axis cells' worth.
-  - *after* — a comment trailing the whole type (`foo : Int -> String -- c`)
-    moves nothing at all, and that shape is a long-standing fixed point.
-
-Between those, a comment anywhere inside the type does push what follows it
-down, whether it sits in the arrow gap (`Array Int {- a` ⏎ `b -} -> Int`) or
-nested inside a record several levels in (`{ … String {- a` ⏎ `b -} }` as a
-segment's tail). Both are one test once the walk descends, which is why this
-flattens rather than recursing per flow.
-
-Reads LPT box kinds and tree shape only — no source rows, no rendered text —
-so it is render-invariant safe. -}
-commentSplitsType : Array (Array LPNode) -> Bool
-commentSplitsType segments =
-    let
-        -- Leaves in document order. A container contributes its children, not
-        -- itself; what matters is only where real tokens sit relative to
-        -- comments.
-        --
-        -- A BRACKET container also contributes its closing delimiter, as a
-        -- stand-in token after its last child. The `}`/`]`/`)` is rendered but
-        -- is not a node, so without it a comment at the end of a record
-        -- (`-> { a : Int -- c }`) looks like it has nothing after it — when in
-        -- fact it pushes the `}` onto a new row, which makes the record
-        -- multi-line, which makes the record DROP below the arrow, which is a
-        -- boundary break the reparse sees and the first format did not. 32
-        -- comment-axis cells oscillated exactly there.
-        closesWithBracket node =
-            when lpnBox node is
-                AllAcrossOrAllVertical _ ->
-                    True
-
-                AlwaysVertical _ ->
-                    True
-
-                RecordUpdate _ ->
-                    True
-
-                ParenBlock _ ->
-                    True
-
-                _ ->
-                    False
-
-        flatten node =
-            when lpnChildren node is
-                [] ->
-                    [ node ]
-
-                kids ->
-                    if nodeIsComment node then
-                        [ node ]
-
-                    else
-                        let
-                            inner =
-                                Array.foldl (\k acc -> acc ++ flatten k) [] kids
-                        in
-                        if closesWithBracket node then
-                            Array.pushLast (lpnLeaf (SynthesizedText "}")) inner
-
-                        else
-                            inner
-
-        step node acc =
-            if nodeIsComment node then
-                { acc | pending = acc.pending || (acc.seenReal && commentEndsItsLine node) }
-
-            else
-                { seenReal = True
-                , pending = False
-                , broke = acc.broke || acc.pending
-                }
-    in
-    (Array.foldl
-        step
-        { seenReal = False, pending = False, broke = False }
-        (Array.foldl (\seg acc -> acc ++ Array.foldl (\n a -> a ++ flatten n) [] seg) [] segments)
-    ).broke
-
-
 {-| True when every comment among a bracketed literal's direct children can ride
 the flat form's single line: a `{- … -}` written on one source row, trailing an
 item on that same row.
@@ -298,32 +200,6 @@ commentTextCanRide node =
 
         _ ->
             False
-
-
--- True when the subtree contains a bracketed literal (record/array/record-update)
--- that holds a comment among its direct children — i.e. a comment that forces the
--- bracket multi-line (`{ a : Int {- c -} }`). Used by `makeSignatureBox` to
--- detect a comment nested in a signature's record type, which elm-format keeps
--- glued inline but `assembleFlow` would otherwise drop to its own line.
-typeHasCommentBracket : LPNode -> Bool
-typeHasCommentBracket node =
-    let
-        isBracketBox =
-            when lpnBox node is
-                AllAcrossOrAllVertical _ ->
-                    True
-
-                AlwaysVertical _ ->
-                    True
-
-                RecordUpdate _ ->
-                    True
-
-                _ ->
-                    False
-    in
-    (isBracketBox && Array.any nodeIsComment (lpnChildren node))
-        || Array.any typeHasCommentBracket (lpnChildren node)
 
 
 -- ═══ BINOPS ═══
