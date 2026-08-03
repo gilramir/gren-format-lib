@@ -244,17 +244,39 @@ folded them in. **This changed nothing at all**, which is the interesting part:
 > Subtracting the comment's rows cannot work, because the comment also moves
 > the **code's** rows. There is no row-derived answer that survives the reflow.
 
-**The fix that worked** is kind-based, not row-based: if a comment anywhere in
-the type is one that *cannot ride* — a `--` or a multi-line `{- … -}` with a
-real item after it — the signature commits to the broken layout up front. A
-comment's kind is the same before and after it reflows, so both passes agree.
-That is `commentBreaksAnyFlowRow`, and it is the recursive form of the existing
-`commentBreaksFlowRow`, which was written for the same class one level down.
+**The fix that worked** is kind-based, not row-based: a comment's kind is the
+same before and after it reflows, so both passes agree on it where they cannot
+agree on rows. That is `commentSplitsType`, and it took two goes to scope:
 
-One refinement was still needed: `commentBreaksFlowRow` ignores a comment at the
-end of a flow, because nothing follows it — true for a call (`foo bar -- c` is
-one row), false inside a **bracket**, where the closing `}` is a real token that
-gets pushed down. The last two oscillating gaps were exactly that.
+- **First cut** — "a comment that cannot ride, with a real item after it,
+  anywhere in the type". Fixed the oscillation and **regressed 50 comment-axis
+  cells**: `foo : -- c` ⏎ `Int -> Int` split at the `->`, against the author's
+  own one-row layout, because a comment ahead of *all* the content also has
+  content after it.
+- **Scoped** — real content both **before and after** the comment. Before,
+  because a comment ahead of everything shifts the segments down as one block
+  and their rows do not move relative to each other. After, because a comment
+  trailing the whole type moves nothing, and that shape is a long-standing
+  fixed point.
+
+Between those two guards it catches a comment in the arrow gap and one nested
+several levels inside a record alike, which is why it flattens the type in
+document order rather than recursing per flow.
+
+One thing the flatten has to add back: a bracket container contributes its
+**closing delimiter** as a stand-in token after its last child. The `}`/`]`/`)`
+is rendered but is not a node, so without it a comment at the end of a record
+(`-> { a : Int -- c }`) looks like nothing follows it — when in fact it pushes
+the `}` onto a new row, the record becomes multi-line, the record *drops* below
+the arrow, and the reparse sees a boundary the first format did not. That cost a
+third pass: I removed the bracket handling on the grounds that the flatten
+subsumed it, and 32 cells started oscillating.
+
+**Three wrong scopings of one predicate in one day** is the honest tally, and
+the pattern in all three is the same: each was validated against the shapes that
+prompted it and not against the shapes it would newly reach. The comment axis
+caught every one, which is the argument for running it before committing rather
+than after.
 
 Result: **0 regressions**, and 98 *pre-existing* findings cleared as a side
 effect. Two fixtures moved closer to elm-format — a signature the author broke

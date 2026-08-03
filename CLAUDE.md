@@ -392,7 +392,7 @@ record never commits to the broken layout. The first format emits `foo : Int ->`
 with the record below it; the reparse sees the record starting on a later row,
 concludes the author broke at the `->`, and renders the fully-broken form. The
 same "a comment adds a row and the reparse reads a different layout" class as
-`commentBreaksFlowRow` and `commentBreaksAnyFlowRow`, in the one place the
+`commentBreaksFlowRow` and `commentSplitsType`, in the one place the
 force-vertical trigger is still switched off when a comment is present.
 
 **So `--comments` is currently RED at 58.** Left unfixed deliberately: the fix
