@@ -1,4 +1,4 @@
-module Formatter.Render.CommentBox exposing (blockCommentBodyOffset, commentNodeBox, commentNodeToBox, docCommentString, emptyBracketedCommentLine, glueTrailingComments, leadingSpaceCount, makeCommentLineBox, multiLineBlockCommentBox, peelTrailingCommentNodes, spanLeadingComments, spanOperatorRowComments, spanTrailingComments, spanTrailingOwnLineComments)
+module Formatter.Render.CommentBox exposing (blockCommentBodyOffset, commentNodeBox, docCommentString, emptyBracketedCommentLine, glueTrailingComments, leadingSpaceCount, makeCommentLineBox, multiLineBlockCommentBox, peelTrailingCommentNodes, spanLeadingComments, spanOperatorRowComments, spanTrailingComments, spanTrailingOwnLineComments)
 
 {-| Rendering of comment nodes (line, block, doc) to `Box`.
 -}
@@ -36,7 +36,7 @@ makeCommentLineBox children =
             Err "box: empty comment line"
 
         Just { first = first0, rest } ->
-            commentNodeToBox first0
+            commentNodeBox first0
                 |> Result.andThen
                     (\firstBox ->
                         Array.foldl
@@ -44,7 +44,7 @@ makeCommentLineBox children =
                                 accResult
                                     |> Result.andThen
                                         (\acc ->
-                                            commentNodeToBox node
+                                            commentNodeBox node
                                                 |> Result.andThen
                                                     (\box ->
                                                         if commentTrailsRole node then
@@ -71,34 +71,6 @@ makeCommentLineBox children =
                             rest
                             |> Result.map .box
                     )
-
-
--- Render one comment node to a Box, tagging its source row and whether it is a
--- `--` line comment (which always terminates its line): a multi-line block
--- comment reindents via `multiLineBlockCommentBox`; a doc comment's body is
--- emitted verbatim as a single literal (safe — it is a standalone root child
--- ending in `-}`).
-commentNodeToBox : LPNode -> Result String Box
-commentNodeToBox node =
-    when lpnBox node is
-        SingleLineComment { loc } ->
-            Ok (B.line (B.literal ("--" ++ loc.value)))
-
-        BlockComment { loc } ->
-            if String.contains "\n" loc.value then
-                multiLineBlockCommentBox loc.value
-
-            else
-                Ok (B.line (B.literal ("{-" ++ loc.value ++ "-}")))
-
-        DocComment loc ->
-            Ok (B.line (B.literal (docCommentString loc.value)))
-
-        _ ->
-            -- unreachable: this function only ever runs on children of a
-            -- comment-tagged OriginalRows, which Comments.gren/MakeLogical.gren
-            -- always build as SingleLineComment, BlockComment, or DocComment.
-            Err "unreachable: comment-line node"
 
 
 {-| Render one comment child of an otherwise-empty bracket (`{ {- c -} }`) as a
@@ -402,8 +374,14 @@ glueTrailingComments box trailing =
         trailing
 
 
-{-| Render a comment-kind node (single-line `--`/`{- -}`, or a multi-line block
-comment) to a Box. Mirrors the comment arms of `renderFlowItem`. -}
+{-| Render any comment node — a `--` line comment, a single-line or multi-line
+`{- -}`, or a `{-| -}` doc comment — to a Box. The one renderer for all three
+kinds, used both for a comment that is its own top-level `OriginalRows` child
+and for one sitting in a flow.
+
+A multi-line block comment reindents via `multiLineBlockCommentBox`; a doc
+comment's body is emitted verbatim as a single literal (safe — it is a
+standalone root child, already carrying its own closing delimiter). -}
 commentNodeBox : LPNode -> Result String Box
 commentNodeBox node =
     when lpnBox node is
@@ -416,6 +394,9 @@ commentNodeBox node =
 
             else
                 Ok (B.line (B.literal ("{-" ++ loc.value ++ "-}")))
+
+        DocComment loc ->
+            Ok (B.line (B.literal (docCommentString loc.value)))
 
         _ ->
             Err "box: not a comment node"

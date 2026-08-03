@@ -849,7 +849,7 @@ insertLet locExpr { defs = defs, body = body } =
     resultFoldl folderInsertLetDef [] defs
         |> Result.andThen
             (\defNodes ->
-                insertExpressionAsBodyBlock body
+                insertExpressionAsBlock BodyBlock body
                     |> Result.map (\bodyNode -> [ letNode ] ++ defNodes ++ [ inNode, bodyNode ])
             )
 
@@ -883,13 +883,13 @@ insertIf locExpr { branches = branches, elseBranch = elseBranch } =
                             condNode =
                                 lpnNode (IfCondition { forceVertical = condForceVertical }) ([ ifNode ] ++ testNodes ++ [ thenNode ])
                         in
-                        insertExpressionAsIndentedBlock firstBranch.body
+                        insertExpressionAsBlock IndentedBlock firstBranch.body
                             |> Result.andThen
                                 (\bodyNode ->
                                     resultFoldl folderInsertElseIfBranch [ condNode, bodyNode ] restBranches
                                         |> Result.andThen
                                             (\branchNodes ->
-                                                insertExpressionAsIndentedBlock elseBranch
+                                                insertExpressionAsBlock IndentedBlock elseBranch
                                                     |> Result.map
                                                         (\elseBodyNode ->
                                                             branchNodes ++ [ elseNode, elseBodyNode ]
@@ -1155,42 +1155,27 @@ folderInsertExprAsItem expr accNodes =
         |> Result.map (\node -> Array.pushLast node accNodes)
 
 
-{-| Wrap an expression as a single `IndentedBlock` node.
+{-| Wrap an expression as a single block node of the given kind.
 
-The body is rendered with a hard newline and `+4` indentation, used for
-branch bodies and other constructs whose body must drop onto its own line.
+The two kinds in use differ only in how the renderer joins the body:
+
+  - `IndentedBlock` — hard newline and `+4`, for branch bodies and other
+    constructs whose body must drop onto its own indented line.
+  - `BodyBlock` — hard newline at the *current* indent (no extra `+4`), for
+    the `in` body of a `let`, which aligns with the `let` keyword.
+
 Errors when the expression produces no nodes.
 -}
-insertExpressionAsIndentedBlock : Src.Expression -> Result String LPNode
-insertExpressionAsIndentedBlock locExpr =
+insertExpressionAsBlock : LPBox -> Src.Expression -> Result String LPNode
+insertExpressionAsBlock box locExpr =
     insertExpression locExpr
         |> Result.andThen
             (\nodes ->
                 if Array.isEmpty nodes then
-                    Err "insertExpressionAsIndentedBlock: empty expression"
+                    Err "insertExpressionAsBlock: empty expression"
 
                 else
-                    Ok (lpnNode IndentedBlock nodes)
-            )
-
-
-{-| Wrap an expression as a single `BodyBlock` node.
-
-`BodyBlock` joins its content with a hard newline at the *current* indent
-(no extra `+4`). Used for the `in` body of a `let`, where the body should
-align with the `let` keyword rather than indent further.
-Errors when the expression produces no nodes.
--}
-insertExpressionAsBodyBlock : Src.Expression -> Result String LPNode
-insertExpressionAsBodyBlock locExpr =
-    insertExpression locExpr
-        |> Result.andThen
-            (\nodes ->
-                if Array.isEmpty nodes then
-                    Err "insertExpressionAsBodyBlock: empty expression"
-
-                else
-                    Ok (lpnNode BodyBlock nodes)
+                    Ok (lpnNode box nodes)
             )
 
 
@@ -1576,7 +1561,7 @@ folderInsertElseIfBranch branch accNodes =
                     condNode =
                         lpnNode (IfCondition { forceVertical = condForceVertical }) ([ elseIfNode ] ++ testNodes ++ [ thenNode ])
                 in
-                insertExpressionAsIndentedBlock branch.body
+                insertExpressionAsBlock IndentedBlock branch.body
                     |> Result.map (\bodyNode -> accNodes ++ [ condNode, bodyNode ])
             )
 
@@ -1594,7 +1579,7 @@ folderInsertWhenBranch branch accNodes =
     insertPattern branch.pattern
         |> Result.andThen
             (\patNodes ->
-                insertExpressionAsIndentedBlock branch.body
+                insertExpressionAsBlock IndentedBlock branch.body
                     |> Result.map
                         (\bodyNode ->
                             let

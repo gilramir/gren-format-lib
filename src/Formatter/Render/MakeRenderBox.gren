@@ -16,7 +16,7 @@ import Formatter.Logical.LogicalPrintingTree exposing (CommentRole(..), LPBox(..
 import Formatter.Render.BinopLayout exposing (assembleBinopBox, commentBreaksBinopChain, flattenBinopNodes, isChainBreakingOperandBox, opText, splitTrailingOwnLineComments)
 import Formatter.Render.Box as B exposing (Box(..))
 import Formatter.Render.BoxOps exposing (applyIndent, blockIndentSpaces, boxLine, glueCommentSuffix, glueLeadingCommentPrefix, grenIndent, isBlockNode, isSingleLine, joinInline, prefixOperator, spaceJoinLines, stackWithBlanks, traverseResult, wrapParenVerticalPadded)
-import Formatter.Render.CommentBox exposing (commentNodeBox, commentNodeToBox, emptyBracketedCommentLine, glueTrailingComments, makeCommentLineBox, multiLineBlockCommentBox, peelTrailingCommentNodes, spanLeadingComments, spanOperatorRowComments, spanTrailingComments, spanTrailingOwnLineComments)
+import Formatter.Render.CommentBox exposing (commentNodeBox, emptyBracketedCommentLine, glueTrailingComments, makeCommentLineBox, multiLineBlockCommentBox, peelTrailingCommentNodes, spanLeadingComments, spanOperatorRowComments, spanTrailingComments, spanTrailingOwnLineComments)
 import Formatter.Render.ElmStructure as E
 import Formatter.Render.FlowAssembly exposing (FlowItem, SoftGlueAlignment(..), assembleBrokenCall, assembleBrokenWithComments, bracketPunc, gluedExposingBox, isCommentItem, pairLeadingComments, parenInnerIsAlignCarrying, softBlockChildForcesVerticalBox, softGlueAlignment, trySoftGlueFlow, verticalExposingBox)
 import Formatter.Render.FlowPolicy as FP
@@ -45,7 +45,7 @@ makePrettyLineBox node =
                 -- source order). See `CommentRole.LeadsInline`.
                 Result.andThen
                     (\declBox ->
-                        traverseResult commentNodeToBox leading
+                        traverseResult commentNodeBox leading
                             |> Result.map
                                 (\commentBoxes ->
                                     Array.foldr glueLeadingCommentPrefix declBox commentBoxes
@@ -1407,7 +1407,7 @@ operatorPrefixedOperandBox renderOperand op operandNodes =
         traverseResult
             (\node ->
                 commentNodeBox node
-                    |> Result.map (\box -> { box = box, inline = commentFitsOnOneLine node })
+                    |> Result.map (\box -> { box = box, inline = commentTextCanRide node })
             )
             leading
             |> Result.andThen
@@ -1464,16 +1464,6 @@ runStartsOnOperatorRow leading =
 -- comment's SHAPE, not the role it was given, so it also holds for one the
 -- author put on its own row — that comment still takes the operand onto its row
 -- (`<|` ⏎ `{- c -} "?"`, which is elm-format's layout too).
-commentFitsOnOneLine : LPNode -> Bool
-commentFitsOnOneLine node =
-    when lpnBox node is
-        BlockComment { loc } ->
-            not (String.contains "\n" loc.value)
-
-        _ ->
-            False
-
-
 -- The `|>` / `<|` leaf a pipeline step starts with. Anything else (a step whose
 -- children were rewritten, a leading comment left in place) is not an operator
 -- and keeps the whole child array on the flow path.
@@ -3867,7 +3857,7 @@ makePBox box children =
 
         SingleLineComment _ ->
             -- unreachable: a comment node is handled before `makePBox` — as its
-            -- own top-level `OriginalRows` (via `commentNodeToBox`), and as a flow
+            -- own top-level `OriginalRows` (via `commentNodeBox`), and as a flow
             -- child by `renderFlowItem`'s own `SingleLineComment`/`BlockComment`
             -- arms. Only its `_ ->` arm calls `makePBox`, so a comment never
             -- reaches here.
@@ -3880,7 +3870,7 @@ makePBox box children =
         DocComment _ ->
             -- unreachable: a DocComment is only ever the sole child of its own
             -- OriginalRows (MakeLogical.gren), dispatched through
-            -- makeCommentLineBox / commentNodeToBox — never through makePBox.
+            -- makeCommentLineBox / commentNodeBox — never through makePBox.
             Err "unreachable: DocComment never reaches makePBox"
 
         PipelineStep ->
