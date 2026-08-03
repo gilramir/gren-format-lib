@@ -350,7 +350,7 @@ binopChainIndentedLines firstOwnLine segments =
         -- Own-row comment items to their own boxes (`buildFlowBox 0 [ c ]`
         -- with the item already rendered).
         renderOwnRows items =
-            traverseResult (\c -> assembleFlow False 0 [ c ]) items
+            traverseResult (\c -> assembleFlow FP.OwnStart 0 [ c ]) items
 
         step seg accResult =
             accResult
@@ -410,12 +410,12 @@ up-front render in `makeBinopBox`. Only the operator leaves are rendered here
 verticalBinopChainBoxFromItems : Array LPNode -> Array (Array FlowItem) -> Result String Box
 verticalBinopChainBoxFromItems ops operandItems =
     let
-        -- Assemble a group's content: `assembleFlow True 0` (the
+        -- Assemble a group's content: `assembleFlow FP.InlineStart 0` (the
         -- `buildFlowBoxInline 0` assembly) keeps a LEADING block comment glued
         -- on-line (`{- c -} 100`) rather than dropping the operand to its own
         -- row, matching how the operator segment should read.
         renderOperandContent items =
-            assembleFlow True 0 items
+            assembleFlow FP.InlineStart 0 items
     in
     when Array.popFirst operandItems is
         Just _ ->
@@ -522,10 +522,10 @@ precedenceBinopBoxFromItems ops operandItems =
 
         Just { first = operand0, rest = _ } ->
             if Array.isEmpty ops then
-                assembleFlow False 0 operand0
+                assembleFlow FP.OwnStart 0 operand0
 
             else
-                traverseResult (assembleFlow False 0) operandItems
+                traverseResult (assembleFlow FP.OwnStart 0) operandItems
                     |> Result.andThen
                         (\operandBoxes ->
                             assembleBinopBox
@@ -1448,7 +1448,7 @@ stepOperandBox : Array LPNode -> Result String Box
 stepOperandBox children =
     -- Render the children ONCE, up front, and drive everything below off those
     -- items: the trigger split's verticality tests, the preamble assembly
-    -- (`assembleFlow True 0` IS `buildFlowBoxInline 0`), the suffix, and — for
+    -- (`assembleFlow FP.InlineStart 0` IS `buildFlowBoxInline 0`), the suffix, and — for
     -- every trigger but the relocated lambda — the trigger box itself. Each of
     -- those used to re-render its own subtree.
     renderFlowItems children
@@ -1467,7 +1467,7 @@ stepOperandBox children =
                         -- nothing to relocate or stack.
                         when splitAfterGluedOperand items is
                             Just { glued, suffix } ->
-                                assembleFlow False grenIndent glued
+                                assembleFlow FP.OwnStart grenIndent glued
                                     |> Result.andThen
                                         (\gluedBox ->
                                             stepSuffixBox suffix
@@ -1478,7 +1478,7 @@ stepOperandBox children =
                                         )
 
                             Nothing ->
-                                assembleFlow False grenIndent items
+                                assembleFlow FP.OwnStart grenIndent items
 
                     Just { preamble, trigger, suffix } ->
                         let
@@ -1584,10 +1584,10 @@ stepPreambleBox preamble =
         Ok B.blankLine
 
     else if Array.length preamble <= 1 || Array.any isCommentItem preamble then
-        assembleFlow True 0 preamble
+        assembleFlow FP.InlineStart 0 preamble
 
     else
-        assembleFlow True 0 (Array.slice 0 1 preamble)
+        assembleFlow FP.InlineStart 0 (Array.slice 0 1 preamble)
             |> Result.andThen
                 (\headBox ->
                     stepSuffixBox (Array.dropFirst 1 preamble)
@@ -1618,7 +1618,7 @@ before, so the single-suffix layout is untouched. -}
 stepSuffixBox : Array FlowItem -> Result String Box
 stepSuffixBox suffix =
     if Array.length suffix <= 1 then
-        assembleFlow False 0 suffix
+        assembleFlow FP.OwnStart 0 suffix
 
     else
         assembleBrokenWithComments 0 suffix
@@ -1656,7 +1656,7 @@ makeBackwardPipelineBox forceVertical children =
         --
         -- Both are the shape divergences #23 / #25 describe. Only a comment that
         -- cannot RIDE the body's first row counts: a single-line `{- … -}` there
-        -- stays inline (`buildBackwardBodyBox` renders with `inlineStart = True`)
+        -- stays inline (`buildBackwardBodyBox` renders with `InlineStart`)
         -- and is a fixed point under the trailing layout.
         --
         -- A comment the author wrote ON the operator's row (`fn <| -- c`) is
@@ -1691,7 +1691,7 @@ makeBackwardPipelineBox forceVertical children =
         --
         -- A SINGLE-LINE block comment in the body (leading it right after `<|`,
         -- trailing it, or inline) is NOT a trigger: `buildBackwardBodyBox` renders
-        -- the body with `inlineStart = True`, so such a comment rides the body's
+        -- the body with `InlineStart`, so such a comment rides the body's
         -- line, and on a multi-line body it lands own-line above the body — both
         -- fixed points under the flat layout. (The former test keyed off whether
         -- every comment shared an inline content row, which flipped to the
@@ -2094,7 +2094,7 @@ buildBackwardBodyBox bodyNodes =
                     -- and stack them above it at the body's own column. Note this
                     -- changes only the INDENT: the comment already occupied a row
                     -- of its own here, and still does, so the reparse sees the
-                    -- same row structure and the `inlineStart` / operator-leading
+                    -- same row structure and the flow-start / operator-leading
                     -- oscillations guarded against below are untouched.
                     --
                     -- Only a single-line block comment can reach this point with a
@@ -2159,7 +2159,7 @@ buildBackwardBodyBox bodyNodes =
                 in
                 if Array.isEmpty items then
                     -- Comments and nothing else: there is no body to align to.
-                    assembleFlow True 0 allItems
+                    assembleFlow FP.InlineStart 0 allItems
                         |> Result.map (\box -> { box = box, isBrokenCall = False, ridingLeading = [] })
 
                 else if Array.any .isBlock items then
@@ -2173,10 +2173,10 @@ buildBackwardBodyBox bodyNodes =
                             )
 
                 else
-                    -- `inlineStart = True`: the body is glued right after `<| `,
+                    -- `InlineStart`: the body is glued right after `<| `,
                     -- so a leading single-line block comment (`<| {- c -} body`)
                     -- stays inline instead of dropping to its own line. Rendering
-                    -- it own-line (`inlineStart = False`) made an otherwise
+                    -- it own-line (`OwnStart`) made an otherwise
                     -- single-line body multi-line, forcing the `<|` to break onto
                     -- the seed's continuation — which reparses (comment now on its
                     -- own row) into the operator-leading commented layout and
@@ -2185,7 +2185,7 @@ buildBackwardBodyBox bodyNodes =
                     --
                     -- The leading comments are put back here rather than peeled:
                     -- a single-line body is exactly the case they are meant to
-                    -- ride, and `assembleFlow True` is what keeps them on its row.
+                    -- ride, and `assembleFlow FP.InlineStart` is what keeps them on its row.
                     --
                     -- The flow indent is 0 for a body that stays on one row (there
                     -- are no continuation rows to place) and `grenIndent` for one a
@@ -2196,7 +2196,7 @@ buildBackwardBodyBox bodyNodes =
                     -- function — a shape gren-format renders nowhere else (rule
                     -- C4), reachable only once a comment on the `<|` row stopped
                     -- diverting the whole chain to the operator-leading layout.
-                    assembleFlow True
+                    assembleFlow FP.InlineStart
                         (if commentBreaksFlowRow bodyNodes then
                             grenIndent
 
@@ -2572,7 +2572,7 @@ elm-format does here.
 The flow's continuation indent is `grenIndent`, matching
 `renderFieldFlowWithValueBox` — the field is rendered as a bracket-list ITEM, so
 its own box has to carry the +4; nothing indents it from outside. (It read
-`assembleFlow False 0` until 2026-08-01, copied from `makePBox`'s `IndentedBlock`
+`assembleFlow FP.OwnStart 0` until 2026-08-01, copied from `makePBox`'s `IndentedBlock`
 arm, where the 0 is right because there the *parent* applies the indent. A
 single-line body never uses the continuation indent, so the two agreed on every
 comment-free input — a comment in the head is the only thing that breaks this
@@ -2599,7 +2599,7 @@ renderGluedLambdaField headNodes bodyNode =
                 if isSingleLine bodyBox then
                     renderFlowItems headNodes
                         |> Result.andThen
-                            (\headItems -> assembleFlow False grenIndent (Array.pushLast bodyItem headItems))
+                            (\headItems -> assembleFlow FP.OwnStart grenIndent (Array.pushLast bodyItem headItems))
 
                 else
                     -- `headNodes` is `[ name, =, lambdaHead ]`; the lambda drops as
@@ -2610,7 +2610,7 @@ renderGluedLambdaField headNodes bodyNode =
                             renderFlowItems [ lambdaHead ]
                                 |> Result.andThen
                                     (\lambdaHeadItems ->
-                                        assembleFlow False 0 (Array.pushLast bodyItem lambdaHeadItems)
+                                        assembleFlow FP.OwnStart 0 (Array.pushLast bodyItem lambdaHeadItems)
                                     )
                                 |> Result.andThen (dropFieldValueBoxWithBox fieldHead)
 
@@ -2690,7 +2690,7 @@ renderFieldFlowWithValueBox field valueNode headNodes valueBox =
                             assembleBrokenCall grenIndent items
 
                         else
-                            assembleFlow False grenIndent items
+                            assembleFlow FP.OwnStart grenIndent items
                     )
 
         _ ->
@@ -3690,7 +3690,7 @@ makePBox box children =
                             assembleBrokenCall grenIndent items
 
                         else
-                            assembleFlow False grenIndent items
+                            assembleFlow FP.OwnStart grenIndent items
                     )
 
         BodyBlock ->
@@ -4000,11 +4000,11 @@ vertical form triggers on either verticality signal or a multi-line lambda body
 — see `parenLambdaMultilineItems`).
 
 The content is rendered ONCE, as flow items, and everything downstream reads
-those: `innerBox` is `assembleFlow True 0` over them (exactly what
+those: `innerBox` is `assembleFlow FP.InlineStart 0` over them (exactly what
 `buildFlowBoxInline 0 children` produced), and the lambda-body test reads the
 second item's own box instead of re-rendering the subtree. Rendering it twice
 made a nested `(\x -> [ … ])` chain cost 2^depth — depth 22 took over a minute.
-Inline-start (`assembleFlow True`): the content continues the `(`-line, so a
+Inline-start (`assembleFlow FP.InlineStart`): the content continues the `(`-line, so a
 leading single-line block comment stays inline (`({- c -} expr)`).
 -}
 parenGenericFallbackBox :
@@ -4021,7 +4021,7 @@ parenGenericFallbackBox flags children =
                     -- IndentedBlock children` IS `buildFlowBox 0 children`, so
                     -- this is byte-for-byte what the two consumers used to
                     -- compute for themselves. The HEAD is deliberately not
-                    -- carried: they render it with `inlineStart = True` while an
+                    -- carried: they render it with `InlineStart` while an
                     -- item is rendered without, and the head is a parameter list
                     -- -- it cannot contain the nesting, so re-rendering it is
                     -- O(1) per level.
@@ -4038,7 +4038,7 @@ parenGenericFallbackBox flags children =
                             Nothing ->
                                 Nothing
                 in
-                assembleFlow True 0 items
+                assembleFlow FP.InlineStart 0 items
                     |> Result.map
                         (\innerBox ->
                             let
@@ -4704,17 +4704,17 @@ there is no fallback renderer, so that fails the whole file. -}
 buildFlowBox : Int -> Array LPNode -> Result String Box
 buildFlowBox indent nodes =
     renderFlowItems nodes
-        |> Result.andThen (assembleFlow False indent)
+        |> Result.andThen (assembleFlow FP.OwnStart indent)
 
 
 {-| Like `buildFlowBox`, but for a flow that continues on the same line as a
 token the caller already emitted (a binop/`OpAndRhs` rhs after its operator, a
 `( … )` body). A leading single-line block comment there stays inline instead of
-dropping to its own line (`inlineStart = True`). -}
+dropping to its own line (`InlineStart`). -}
 buildFlowBoxInline : Int -> Array LPNode -> Result String Box
 buildFlowBoxInline indent nodes =
     renderFlowItems nodes
-        |> Result.andThen (assembleFlow True indent)
+        |> Result.andThen (assembleFlow FP.InlineStart indent)
 
 
 {-| Assemble a *broken* flow — every item on its own line: the first at the base
@@ -4731,8 +4731,8 @@ buildFlowBoxBroken indent nodes =
         |> Result.andThen (assembleBrokenWithComments indent)
 
 
-assembleFlow : Bool -> Int -> Array FlowItem -> Result String Box
-assembleFlow inlineStart flowIndent items =
+assembleFlow : FP.FlowStart -> Int -> Array FlowItem -> Result String Box
+assembleFlow flowStart flowIndent items =
     when trySoftGlueFlow items is
         Just box ->
             Ok box
@@ -4743,7 +4743,7 @@ assembleFlow inlineStart flowIndent items =
             -- a block's last line itself — `glueOntoLastRow`'s `B.addSuffix`
             -- — exactly where the policy decides a `SoftSep`/`GlueSpace`
             -- lands with an empty current row.)
-            assembleFlowImpl inlineStart flowIndent items
+            assembleFlowImpl flowStart flowIndent items
 
 
 {-| Assemble a flow into a Box, taking every join decision from
@@ -4758,12 +4758,12 @@ join space-separated); `rows` are the completed lines/blocks above it. The
 first row sits at the flow's own column; every continuation row is indented by
 `flowIndent` at the end (the outer nest wrapping the whole flow).
 -}
-assembleFlowImpl : Bool -> Int -> Array FlowItem -> Result String Box
-assembleFlowImpl inlineStart flowIndent items =
+assembleFlowImpl : FP.FlowStart -> Int -> Array FlowItem -> Result String Box
+assembleFlowImpl flowStart flowIndent items =
     let
         config =
             { indent = flowIndent
-            , inlineStart = inlineStart
+            , start = flowStart
             }
 
         flushRow curRow rows =

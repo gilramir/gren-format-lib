@@ -2,6 +2,7 @@ module Formatter.Render.FlowPolicy exposing
     ( BlockKind(..)
     , Decision
     , FlowConfig
+    , FlowStart(..)
     , FlowState
     , ItemFacts(..)
     , NextSeparator(..)
@@ -32,7 +33,7 @@ into a `Box`).
 is not actually a block comment — is a caller-side classification error,
 surfaced before facts are built.
 
-@docs NextSeparator, FlowState, initialFlowState, FlowConfig, BlockKind
+@docs NextSeparator, FlowState, initialFlowState, FlowConfig, FlowStart, BlockKind
 @docs ItemFacts, Placement, Decision, decide
 
 -}
@@ -94,19 +95,34 @@ initialFlowState =
     { separator = FirstItem }
 
 
+{-| Does the flow's first item continue a line the caller already started?
+
+  - `InlineStart` — it does (a binop RHS, a `( … )` body), so a leading
+    single-line block comment stays inline instead of standing on its own line.
+  - `OwnStart` — it does not; the flow begins its own line.
+
+A named type rather than a `Bool` because it is passed positionally beside an
+indent at ~26 call sites, where `False 0` and `True 0` are indistinguishable
+at a glance — one such copy-paste shipped a real indent bug (a record field
+holding a lambda dropped its body 2 past the `{` instead of 4, fixed
+2026-08-01). A `Bool` can be copied to the wrong site silently; this cannot.
+-}
+type FlowStart
+    = InlineStart
+    | OwnStart
+
+
 {-| Per-flow configuration, fixed for the whole fold.
 
   - `indent` — the flow's own indent (the fold's base indent); the
     type-record drop uses it to pick the drop rule (`IndentedRule` when the
     flow is unnested, `BodyRule` when the caller already indented it).
-  - `inlineStart` — the first node continues a line the caller already
-    started (a binop RHS, a `( … )` body), so a leading single-line block
-    comment stays inline instead of standing on its own line.
+  - `start` — see `FlowStart`.
 
 -}
 type alias FlowConfig =
     { indent : Int
-    , inlineStart : Bool
+    , start : FlowStart
     }
 
 
@@ -244,7 +260,7 @@ decide config state facts =
                 -- A single-line block comment that continues a line stays
                 -- inline (`a * {- c -} b`, a binop RHS, a `( … )` body).
                 standaloneLeading =
-                    (state.separator == FirstItem && not config.inlineStart)
+                    (state.separator == FirstItem && config.start == OwnStart)
                         || state.separator == AlreadyTerminated
                         || state.separator == TerminatedByBlockComment
             in
