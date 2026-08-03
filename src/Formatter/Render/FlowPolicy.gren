@@ -10,7 +10,6 @@ module Formatter.Render.FlowPolicy exposing
     , initialFlowState
     , isTypeRecordLiteral
     , nodeIsComment
-    , roleGlues
     )
 
 {-| The flow fold's decision layer, consumed by the Box renderer.
@@ -37,7 +36,7 @@ surfaced before facts are built.
 
 @docs NextSeparator, FlowState, initialFlowState, FlowConfig, BlockKind
 @docs ItemFacts, Placement, Decision, decide
-@docs nodeIsComment, isTypeRecordLiteral, roleGlues
+@docs nodeIsComment, isTypeRecordLiteral
 
 -}
 
@@ -48,6 +47,7 @@ import Formatter.Logical.LogicalPrintingTree exposing
     , ListBrackets(..)
     , lpnBox
     , lpnChildren
+    , roleGlues
     )
 
 
@@ -488,11 +488,6 @@ joinPlacement sep =
 (an inline `{- -}` riding a flat flow). `LeadsOwnLine` / `Standalone` do not
 glue here.
 -}
-roleGlues : CommentRole -> Bool
-roleGlues role =
-    role == TrailsPrevious || role == RidesInline
-
-
 -- The own-line-comment join: a `TrailsPrevious` / `RidesInline` comment glues
 -- with a space; a `LeadsOwnLine` comment forces its own line. The glue/own-line
 -- call is the stored `CommentRole` — decided once in `Comments.gren` from the

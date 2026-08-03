@@ -5,6 +5,7 @@ module Formatter.Logical.LogicalPrintingTree exposing
     , ListBrackets(..)
     , PrefixKind(..)
     , SyntaxType(..)
+    , commentGluesToPrevious
     , commentRole
     , firstRowInSubtree
     , gluesTrailingComment
@@ -28,6 +29,7 @@ module Formatter.Logical.LogicalPrintingTree exposing
     , lpnWithBox
     , lpnWithBracketStart
     , prefixGlyph
+    , roleGlues
     , stypeToString
     , subtreeRowRange
     )
@@ -568,6 +570,32 @@ commentRole box =
 
         _ ->
             Nothing
+
+
+{-| Does this role glue the comment onto the end of the previous item's last
+rendered line, rather than give it a line of its own?
+
+The one spelling of that question. It had four — `FlowPolicy.roleGlues`,
+`CommentBox.commentTrailsRole`, `MakeRenderBox.commentTrailsRole` and
+`FlowAssembly.commentGlues` — which is one per module that needed to ask, each
+free to drift from the others. It lives here, beside `CommentRole` itself,
+because the answer is a property of the role and of nothing else.
+-}
+roleGlues : CommentRole -> Bool
+roleGlues role =
+    role == TrailsPrevious || role == RidesInline
+
+
+{-| `roleGlues` for a comment node: does a comment glue onto what precedes it?
+`False` for any non-comment node. -}
+commentGluesToPrevious : LPNode -> Bool
+commentGluesToPrevious node =
+    when commentRole (lpnBox node) is
+        Just role ->
+            roleGlues role
+
+        Nothing ->
+            False
 
 
 {-| Rebuild a comment leaf carrying `role`. A no-op on any other node. Role

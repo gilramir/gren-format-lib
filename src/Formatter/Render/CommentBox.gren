@@ -3,26 +3,10 @@ module Formatter.Render.CommentBox exposing (commentNodeBox, emptyBracketedComme
 {-| Rendering of comment nodes (line, block, doc) to `Box`.
 -}
 
-import Formatter.Logical.LogicalPrintingTree exposing (CommentRole(..), LPBox(..), LPNode, commentRole, lpnBox)
+import Formatter.Logical.LogicalPrintingTree exposing (CommentRole(..), LPBox(..), LPNode, commentGluesToPrevious, commentRole, lpnBox)
 import Formatter.Render.Box as B exposing (Box(..))
 import Formatter.Render.BoxOps exposing (glueCommentSuffix)
 import Formatter.Render.NodeClassify exposing (nodeIsComment)
-
-
--- True when a comment glues onto the previous comment on the same line (the
--- stored `CommentRole` is `TrailsPrevious`/`RidesInline`), rather than stacking
--- below it. Decided once in `Comments.gren`, not from source rows here.
-commentTrailsRole : LPNode -> Bool
-commentTrailsRole node =
-    when commentRole (lpnBox node) is
-        Just TrailsPrevious ->
-            True
-
-        Just RidesInline ->
-            True
-
-        _ ->
-            False
 
 
 {-| Render a standalone top-level comment-line item. Same-row block comments
@@ -47,7 +31,7 @@ makeCommentLineBox children =
                                             commentNodeBox node
                                                 |> Result.andThen
                                                     (\box ->
-                                                        if commentTrailsRole node then
+                                                        if commentGluesToPrevious node then
                                                             -- Same-row block comment: join
                                                             -- with a space onto the last
                                                             -- line. A multi-line comment

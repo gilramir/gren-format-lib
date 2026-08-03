@@ -12,7 +12,7 @@ signatures, and comments — each laid out to match elm-format.
 -}
 
 import Formatter.Logical.BinopPrecedence exposing (binopMinPrecedence, binopPrecedence)
-import Formatter.Logical.LogicalPrintingTree exposing (CommentRole(..), LPBox(..), LPNode, ListBrackets(..), SyntaxType(..), commentRole, firstRowInSubtree, lpnBox, lpnChildren, lpnLastBracketEnd, lpnLastPos, lpnMaxRow, prefixGlyph)
+import Formatter.Logical.LogicalPrintingTree exposing (CommentRole(..), LPBox(..), LPNode, ListBrackets(..), SyntaxType(..), commentGluesToPrevious, commentRole, firstRowInSubtree, lpnBox, lpnChildren, lpnLastBracketEnd, lpnLastPos, lpnMaxRow, prefixGlyph)
 import Formatter.Render.BinopLayout exposing (assembleBinopBox, commentBreaksBinopChain, flattenBinopNodes, isChainBreakingOperandBox, opText, splitTrailingOwnLineComments)
 import Formatter.Render.Box as B exposing (Box(..))
 import Formatter.Render.BoxOps exposing (applyIndent, blockIndentSpaces, boxLine, glueCommentSuffix, glueLeadingCommentPrefix, grenIndent, isBlockNode, isSingleLine, joinInline, prefixOperator, spaceJoinLines, stackWithBlanks, traverseResult, wrapParenVerticalPadded)
@@ -896,7 +896,7 @@ makeUnionBodyVerticalBox nodes =
         placeComment acc node commentBox =
             when Array.popLast acc.boxes is
                 Just { last = lastBox, initial } ->
-                    if commentTrailsRole node then
+                    if commentGluesToPrevious node then
                         { acc | boxes = Array.pushLast (glueCommentSuffix commentBox lastBox) initial }
 
                     else
@@ -2952,7 +2952,7 @@ makeRecordUpdateVerticalBox baseBox children =
                                                 , lastWasField = False
                                             }
 
-                                        else if commentTrailsRole node && acc.lastWasField then
+                                        else if commentGluesToPrevious node && acc.lastWasField then
                                             when Array.popLast acc.lines is
                                                 Just { last = lastBox, initial } ->
                                                     { acc | lines = Array.pushLast (glueCommentSuffix cbox lastBox) initial, lastWasField = False }
@@ -3156,7 +3156,7 @@ renderWhenBranchesBox children =
             -- already accumulating own-line comments that LEAD the next branch
             -- (`pending`), so a same-row run leading a branch stays together
             -- rather than the second gluing back onto the previous branch.
-            if commentTrailsRole node && not (Array.isEmpty acc.boxes) && Array.isEmpty acc.pending then
+            if commentGluesToPrevious node && not (Array.isEmpty acc.boxes) && Array.isEmpty acc.pending then
                 commentNodeBox node
                     |> Result.andThen
                         (\cbox ->
@@ -4362,19 +4362,6 @@ choice) is NOT reproduced — those fall back. -}
 -- True when a comment glues onto the previous bracket-list item (rather than
 -- standing on its own line): the stored `CommentRole` is `TrailsPrevious` or
 -- `RidesInline`. Decided once in `Comments.gren`, not from source rows here.
-commentTrailsRole : LPNode -> Bool
-commentTrailsRole node =
-    when commentRole (lpnBox node) is
-        Just TrailsPrevious ->
-            True
-
-        Just RidesInline ->
-            True
-
-        _ ->
-            False
-
-
 -- True when this comment can share a line with the code after it: a
 -- single-line `{- … -}`, which the classifier tags `RidesInline`. A `--` runs
 -- to end of line and a multi-line `{- … -}` brings its own newlines, so both
@@ -4521,7 +4508,7 @@ commentBracketListBox bracket nodes =
                                             , leadAtOpener = False
                                         }
 
-                                else if commentTrailsRole node then
+                                else if commentGluesToPrevious node then
                                     -- Trailing the preceding item: attach with a
                                     -- single space (layout is author-driven, not
                                     -- width-driven). A multi-line trailing comment
