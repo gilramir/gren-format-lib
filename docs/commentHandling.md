@@ -165,6 +165,7 @@ closers) survive with a recorded position. All of these are gone by the time the
 formatter runs:
 
     =    :    |    ,    ->    if / then / else    when / is    let / in
+    an import's `as` and alias name
 
 That means `x {- c -} = y` and `x = {- c -} y` arrive at the formatter as
 *exactly the same information*: where `x` ends, where the comment is, where `y`
@@ -443,7 +444,7 @@ c =
 
 So there are three ways to type it and only ever **two** outcomes.
 
-### Two places C2 doesn't apply
+### Three places that don't take the later side
 
 - **A module's `exposing ( … )` list**, which is the one list whose items get
   **reordered**. There, a comment after a name belongs to that name and travels
@@ -468,14 +469,48 @@ So there are three ways to type it and only ever **two** outcomes.
       )
   ```
 
-- **A single-line `{- -}` at a custom type's `|`.** elm-format breaks the type
-  open around such a comment whichever side it is on, so moving it buys nothing;
-  gren-format leaves it where you wrote it.
+- **A single-line `{- -}` at a custom type's `|`.** The `|` is as unrecorded
+  here as anywhere, so the two spellings still collapse into one — but the side
+  picked is the **earlier** one: the comment lands trailing the variant before
+  it. elm-format breaks the type open around such a comment whichever side it
+  is on, so neither choice would match it, and nothing pushed this one to the
+  later side.
 
   ```gren
-  -- you write, and gren-format keeps:
+  -- you write (either one of these):
   type V
       = A {- c -} | B
+
+
+  type W
+      = A | {- c -} B
+  ```
+
+  ```gren
+  -- gren-format writes (both trail the earlier variant):
+  type V
+      = A {- c -} | B
+
+
+  type W
+      = A {- c -} | B
+  ```
+
+- **An import's `as`.** The `as` keyword and the alias name after it are also
+  unrecorded, so the two spellings collapse here too — and here as well the
+  side picked is the **earlier** one: the comment lands before the `as`,
+  trailing the module name.
+
+  ```gren
+  -- you write (either one of these):
+  import Dict {- c -} as D
+  import Math as {- c -} M
+  ```
+
+  ```gren
+  -- gren-format writes (both before the `as`):
+  import Dict {- c -} as D
+  import Math {- c -} as M
   ```
 
 ---
@@ -779,9 +814,10 @@ a =
 ```
 
 A comment on its own line **below a top-level declaration** follows the same
-rule: the declaration it leads begins at column 1, so the comment moves to
-column 1. What your original indentation still decides is which declaration the
-comment belongs to — written indented under the code above, it stays with that
+rule: everything at the top level begins at column 1, so the comment moves to
+column 1 — whether it trails the declaration above or introduces the one below.
+What your original indentation still decides is which declaration the comment
+belongs to — written indented under the code above, it stays with that
 code and a blank line separates it from what follows:
 
 ```gren

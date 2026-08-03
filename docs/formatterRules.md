@@ -2175,8 +2175,8 @@ comparison with elm-format, it is catalogued as
 
 The canonical side is the **later** one — the comment leads what follows the
 token. The worked cases below are all instances of that one rule, and the
-exceptions to it (a `--` at a `,` or a `|`, a union variant's `|`, and an
-`exposing` list) say so where they appear.
+exceptions to it (a `--` at a `,` or a `|`, a union variant's `|`, an import's
+`as`, and an `exposing` list) say so where they appear.
 
 Where the token **is** recorded, the formatter keeps the side you wrote it on.
 The brackets are the useful case: a comment just inside an opening bracket
@@ -2243,9 +2243,12 @@ type T = A | {- c -} B
 
 -- format to:
 type T
-    = A {- c -}
-    | B
+    = A {- c -} | B
 ```
+
+(The comment doesn't break the union open — a single-line `{- -}` rides the
+line, so variants the author wrote flat stay flat, per
+[C3](commentHandling.md#c3--a-comment-never-forces-a-break).)
 
 A `{- -}` comment around a **record update's** `|` (and an extensible record
 type's) lands **after the `|`, leading the first field**. (This is only about the

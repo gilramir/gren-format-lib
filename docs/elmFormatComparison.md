@@ -1121,11 +1121,14 @@ documentation instead of quietly outliving it.
     nothing in `core/`, `compiler-common/`, `compiler-node/` or this repo — the
     spelling does not occur in real code, in any of its three forms.
 
-    Two constructs do not follow C2 yet, both because the flip has a cost
-    elsewhere that has not been paid: an `exposing ( … )` list, whose items are
-    *sorted* and whose comment ownership `SortSymbols` models the other way
-    round; and a union variant's `|`, where elm-format breaks the union open
-    around the comment on either side, so no side gains parity.
+    Three constructs do not follow C2: an `exposing ( … )` list, whose items
+    are *sorted* and whose comment ownership `SortSymbols` models the other way
+    round; a union variant's `|`, where elm-format breaks the union open
+    around the comment on either side, so no side gains parity; and an
+    import's `as`, where both spellings land on the **earlier** side, before
+    the `as` (elm-format keeps each side as written, so this matches it on the
+    before-`as` spelling and diverges on the other). For the first two the
+    flip has a cost elsewhere that has not been paid.
 
     Where the token **is** recorded, gren-format keeps the side you wrote it on
     and agrees with elm-format. A comment just inside an opening bracket stays
