@@ -716,7 +716,7 @@ documentation instead of quietly outliving it.
     ```
 
     (The comment is past the comma because the comma has no source position and
-    [C2](commentHandling.md#c2--where-the-separator-has-no-source-position-the-comment-leads-what-follows-it)
+    [C2](commentHandling.md#c2--when-the-parser-doesnt-record-the-punctuation-the-comment-leads-what-follows)
     sends it to the later side — that half is [#22](#divergence-22). What *this*
     entry is about is the row: one row in, one row out.)
 
@@ -1028,7 +1028,7 @@ documentation instead of quietly outliving it.
     [When the formatter can't tell what you meant](formatterRules.md#when-the-formatter-cant-tell-what-you-meant).
 
     The side it picks is the **later** one — the comment leads what follows the
-    separator ([rule C2](commentHandling.md#c2--where-the-separator-has-no-source-position-the-comment-leads-what-follows-it)):
+    separator ([rule C2](commentHandling.md#c2--when-the-parser-doesnt-record-the-punctuation-the-comment-leads-what-follows)):
 
     ```gren
     -- both of these:                     -- gren-format:

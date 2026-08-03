@@ -285,8 +285,7 @@ the other three rather than quietly reporting a thinner green.
 ### What it guards against
 
 An architectural regression rather than a formatting bug directly: the
-comment-placement architecture (see [`commentHandling.md`](commentHandling.md))
-requires that placement be decided exactly once, in `Comments.gren`, and
+comment-placement architecture requires that placement be decided exactly once, in `Comments.gren`, and
 stored as a `CommentRole` — never re-derived from source rows once rendering
 starts — and that the renderer decide verticality from the *rendered box
 shape* (`isSingleLine` / `B.allSingles`), never from source position. A
@@ -325,10 +324,12 @@ reason.
 ### Where the code lives
 
 - **`tests/check-render-invariant.py`** — the grep + allowlist.
-- **`docs/commentHandling.md`** — the full comment-architecture model this
-  check enforces.
-- **`comment-arch.md`** — the bug-history / rationale that motivated the
-  architecture.
+- **`src/Formatter/Logical/LogicalPrintingTree.gren`** — the `CommentRole`
+  docstring: the roles this check exists to keep authoritative.
+- **`src/Formatter/Logical/Comments.gren`** — `classifyCommentKind`, where each
+  role is decided, with the fixture that pins each arm.
+- **`docs/commentHandling.md`** — the reader-facing statement of what the
+  formatter is trying to do with comments.
 
 ## Property-based random generator (`gen-random.py`)
 
@@ -529,5 +530,5 @@ structurally, then audit" to "read the rendered box" is one fewer mirror that
 can drift. The audit still matters for the predicates that cannot be eliminated
 that way — a new structural predicate added to `NodeClassify` should be added to
 `auditedPredicates` so it is held to the same agreement. The background on why
-layout decisions read the rendered box rather than source rows is in
-[`commentHandling.md`](commentHandling.md).
+layout decisions read the rendered box rather than source rows is in the
+`Formatter.Render.NodeClassify` module comment.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Enforce the comment/layout architecture invariant (see comment-arch.md, §7).
+"""Enforce the comment/layout architecture invariant.
 
     After Comments.gren runs, no code in Render/* reads source rows or positions
     to make a layout or comment-placement decision.
@@ -148,7 +148,8 @@ def main():
     if violations:
         print("FAIL: render-invariant — new source-row read in Render/* "
               "(layout must come from author flags + rendered box shape, not rows).")
-        print("      See comment-arch.md §7 and docs/commentHandling.md.\n")
+        print("      Placement is the stored CommentRole (see its docstring in\n"
+              "      Logical/LogicalPrintingTree.gren); verticality is the rendered box.\n")
         for name, ln, fn, text in violations:
             print(f"  {name}:{ln}  in `{fn}`")
             print(f"      {text}")

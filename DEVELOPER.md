@@ -841,7 +841,9 @@ section](#author-layout--the-forcevertical-flag) for the pattern.
 classifies its `CommentRole`** (`TrailsPrevious` / `LeadsOwnLine` /
 `RidesInline` / `Standalone`) once, from the pristine parse rows; the renderer
 reads that role and never re-derives placement from rows. See
-`docs/commentHandling.md` for the whole model and `Comments.gren`, "Adding
+`CommentRole`'s docstring in `Formatter.Logical.LogicalPrintingTree` for the
+whole model, `docs/commentHandling.md` for the behaviour it implements, and
+`Comments.gren`, "Adding
 support for a new construct", for the required reading. The short version:
 
 - Emit your tokens as ordinary boxes in a flow and boundary comments place

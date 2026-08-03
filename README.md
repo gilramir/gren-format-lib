@@ -6,13 +6,16 @@ consistent indentation, comments and blank lines kept where they belong, and
 also honoring the single-line/multi-line formatting the author of the source code chose.
 
 This README covers the essentials — an overview, a formatted example, and the
-core formatting rules. Four companion documents go deeper:
+core formatting rules. Five companion documents go deeper:
 
 - **[How the formatter works](docs/howItWorks.md)** — a conceptual,
   step-by-step tour of the pipeline (parse → Logical Printing Tree → render
   plan → text), with a worked example at each step.
 - **[Gren Formatter Rules](docs/formatterRules.md)** — the full rule
   reference, with a before/after example for every construct.
+- **[How gren-format places your comments](docs/commentHandling.md)** — the six
+  rules that decide where every comment lands, each with a verified
+  "you write / gren-format writes" example.
 - **[Comparison with elm-format](docs/elmFormatComparison.md)** — every place
   `gren format` deliberately diverges from `elm-format`, and why.
 - **[Known limitations](docs/knownLimitations.md)** — compiler/parser bugs
@@ -26,6 +29,7 @@ core formatting rules. Four companion documents go deeper:
 - [A formatted example](#a-formatted-example)
 - [Gren Formatter Rules](#gren-formatter-rules)
   - [Background](#background)
+- [Comments](#comments)
 - [Known limitations](#known-limitations)
 - [Performance](#performance)
 - [Comparison with elm-format](#comparison-with-elm-format)
@@ -181,6 +185,28 @@ A few things are **always fixed**, regardless of how you wrote them:
   [Module declaration](docs/formatterRules.md#module-declaration)).
 
 Everything else follows your layout choices.
+
+---
+
+## Comments
+
+`gren format` never changes the text of a comment — it only decides where the
+comment sits relative to the code around it. Six rules decide every comment in a
+file:
+
+1. A comment belongs to the code you wrote it next to.
+2. Where the parser doesn't record the punctuation (`=`, `:`, `,`, `|`, `->`,
+   and the keywords), the comment leads what follows it.
+3. A comment never forces a break — unless it's a `--` or a multi-line
+   `{- … -}`, which can't share a line with code that follows.
+4. A comment changes where the lines fall, and nothing else: the indentation and
+   the grouping are what you'd get with the comment deleted.
+5. gren-format adds nothing around a comment — no blank line, no line of its own
+   for air.
+6. A comment on its own line is indented to the code it leads.
+
+Each rule, with a "you write / gren-format writes" example for every case, is in
+**[How gren-format places your comments](docs/commentHandling.md)**.
 
 ---
 

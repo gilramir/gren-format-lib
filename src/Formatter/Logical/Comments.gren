@@ -1488,7 +1488,8 @@ lastRealPosition node =
 -- renderer then reads instead of re-deriving from source rows. This
 -- consolidates the rules that today live scattered across the render layer
 -- (FlowPolicy's two-row state machine, `lastRenderedRow`, the bracket
--- descent). See `comment-arch.md` §5.3.
+-- descent). `classifyCommentKind` below is where each rule is stated, with
+-- the fixture that pins it.
 
 
 -- True for the bracket container box kinds whose interior comments render via

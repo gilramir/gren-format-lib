@@ -16,7 +16,7 @@ if [ "${1:-}" = "--coverage" ]; then
   exec "${COV}" "$@"
 fi
 
-# Architecture invariant (docs/commentHandling.md): no Render/* code may read a
+# Architecture invariant: no Render/* code may read a
 # source row/position to make a layout or comment-placement decision.
 python3 "$(dirname "$(realpath "$0")")/check-render-invariant.py" || exit 1
 

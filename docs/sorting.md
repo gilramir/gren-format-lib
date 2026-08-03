@@ -143,7 +143,7 @@ moves. Which name a comment belongs to is decided by **where the comment starts*
   This is required for idempotency: a comment before a bracket's first item never
   survives a reparse *inside* the bracket (the parser attaches it ahead of the
   `(`), so the sort emits it there directly. See the "Bug B" history in
-  `tbd.md` / `comment-arch.md`. A comment leading a name that sorts to any
+  `tbd.md`. A comment leading a name that sorts to any
   *non-first* slot stays inside the bracket, on its own line above that name.
 
 - **A comment written before the first name** (`( -- describes zebra` ⏎

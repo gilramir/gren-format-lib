@@ -30,8 +30,7 @@ decided by rendering the child and asking `isSingleLine` / `B.allSingles`, which
 cannot disagree with the renderer because it *is* the renderer. What remains is
 `isMultilineLambdaParenBlockBox`, a structural query over box kinds rather than a
 shape prediction from rows -- so the audit is close to vacuous by construction,
-and shrinking it to that was the goal, not an accident. See `comment-arch.md` §6
-and `docs/commentHandling.md`.
+and shrinking it to that was the goal, not an accident.
 
 @docs Finding, auditLpt, findingsToJson
 

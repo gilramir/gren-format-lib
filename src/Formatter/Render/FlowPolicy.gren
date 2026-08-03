@@ -86,7 +86,8 @@ type NextSeparator
 
 Comment placement no longer needs any source-row state here: whether a comment
 glues onto the previous item or leads its own line is the stored `CommentRole`,
-decided once in `Formatter.Logical.Comments` (see comment-arch.md). The old
+decided once in `Formatter.Logical.Comments` (see `CommentRole`'s docstring in
+`Formatter.Logical.LogicalPrintingTree`). The old
 `prevRowBlock` / `prevRowLine` / `prevElided` two-row state machine that
 re-derived that at render time is gone.
 -}

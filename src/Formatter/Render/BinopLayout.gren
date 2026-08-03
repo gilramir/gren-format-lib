@@ -107,7 +107,7 @@ splitTrailingOwnLineComments nodes =
         -- the next operator) exactly when the classifier tagged it `LeadsOwnLine`
         -- at insertion time. A `TrailsPrevious` / `RidesInline` comment rides the
         -- operand's last line inline. (Formerly re-derived here from source rows
-        -- via `contentRow` — the classifier now decides it once; see comment-arch.md.)
+        -- via `contentRow` — the classifier now decides it once.)
         isOwnLineComment node =
             commentRole (lpnBox node) == Just LeadsOwnLine
 

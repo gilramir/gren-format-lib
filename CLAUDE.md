@@ -332,7 +332,7 @@ they are and the next step for each.
 **Interview round 1, 2026-08-01.** 30 of those groups (2,948 cells) were given a
 verdict with `--interview`, and read together they are **six English rules** —
 now the normative statement of comment behaviour in
-[`docs/commentHandling.md`](docs/commentHandling.md#the-rules-in-english). The
+[`docs/commentHandling.md`](docs/commentHandling.md#the-six-rules-at-a-glance). The
 verdicts were consistent under one of them (**C2**: at a separator the parser does
 not record, the comment goes to the *later* side), which `=` `:` `in` `is` `then`
 `->` already did and `,` `|` did not. Both were changed to match, via a new
@@ -517,7 +517,7 @@ The audit itself is `src/Formatter/Audit/PredicateAgreement.gren`. Most of the
 former shape predicates (`subtreeHasVerticalBox`, `nodeSpansRows`, …) were
 retired — verticality is now decided from the rendered box (`isSingleLine` /
 `B.allSingles`), so the audit now covers only the one structural query that
-remains (`isMultilineLambdaParenBlockBox`). See `docs/commentHandling.md`.
+remains (`isMultilineLambdaParenBlockBox`).
 
 ### Render-invariant check (`check-render-invariant.py`)
 
@@ -529,7 +529,9 @@ make a layout or comment-placement decision** (placement is the stored
 outside a small allowlist of genuinely-structural functions. A new render-side
 row-read is almost always a regression toward the oscillation/crash class this
 architecture removed; if a use is truly structural, allowlist its function there
-with a reason. Full model: `docs/commentHandling.md`; rationale: `comment-arch.md`.
+with a reason. The model it protects is `CommentRole`'s docstring in
+`Formatter.Logical.LogicalPrintingTree` plus `classifyCommentKind` in
+`Comments.gren`.
 
 ### Whitespace-canonicalization fuzzer
 
@@ -731,8 +733,12 @@ node directly under `RootBox`. Comments and blank lines are inserted as sibling
 - `DEVELOPER.md` — orientation guide for extending the formatter
   with new syntax: the full checklist, position rules, comment-attachment
   hazards, and the "things to worry about" section.
-- `docs/commentHandling.md` — the comment architecture: the `CommentRole`
-  model (placement decided once in `Comments.gren`, never re-derived from rows
-  in `Render/*`), how each renderer consumes the role, verticality from rendered
-  box shape, and the enforced invariant. `comment-arch.md` is the companion
-  rationale / bug-history that motivated it.
+- `docs/commentHandling.md` — reader-facing: the six rules (C1–C6) that decide
+  where every comment lands, with a verified before/after example for each.
+  **This is the normative statement of comment *behaviour*.** The
+  *implementation* model — placement decided once in `Comments.gren` and stored
+  as a `CommentRole`, never re-derived from rows in `Render/*` — lives in the
+  source: `CommentRole`'s docstring in
+  `Formatter.Logical.LogicalPrintingTree` and `classifyCommentKind` in
+  `Comments.gren`, with `tests/check-render-invariant.py` as the enforcement
+  gate.
