@@ -1,0 +1,35 @@
+module D29LetAnnotationHeadGlue exposing (..)
+
+-- Divergence #29. A `let` binding's annotation is not rendered by
+-- `makeSignatureBox` -- it is an ordinary token flow -- so a type whose break
+-- gren-format keeps stays glued to the `bnd :` line. elm-format lifts it below
+-- the `:`, the way a top-level signature does.
+
+
+parenAnnotation : Int
+parenAnnotation =
+    let
+        bnd : (Array
+                Int
+              )
+        bnd =
+            one
+    in
+    bnd
+
+-- A multi-line RECORD type already drops below the `:` here and matches
+-- elm-format byte-for-byte: a dropping record is a flow-level rule, not a
+-- signature one.
+
+
+recordAnnotation : Int
+recordAnnotation =
+    let
+        bnd :
+            { a : Int
+            , b : String
+            }
+        bnd =
+            one
+    in
+    bnd

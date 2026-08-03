@@ -94,6 +94,8 @@ divergenceCatalogueSuite fsPerm =
             , entry "#25 a comment occupies the rows the author gave it — nothing is floated to give it air" "D25CommentKeepsItsRows"
             , entry "#26 a `--` trailing a `<|` keeps the operator on the seed's row and rides it" "D26BackPipeLineComment"
             , entry "#27 a parenthesized function type flattens; a parenthesized application keeps its break" "D27ParenFunctionTypeFlattens"
+            , entry "#28 a type break gren-format does not record is flattened (bare application, inside one record field, the outer application of a nested one)" "D28TypeBreakNotRecorded"
+            , entry "#29 a `let` annotation keeps a broken type on the `name :` line; a dropping record type still lifts" "D29LetAnnotationHeadGlue"
             ]
         }
 

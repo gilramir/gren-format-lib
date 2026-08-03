@@ -320,13 +320,14 @@ Four things are worth keeping from that:
    constructs × 15 declaration contexts, +341 syntax cells, +4,930 comment
    cells)*. This was the n=1 base case, and nothing above it meant much until it
    existed. Its first run produced three work-lists, none of them regressions:
-   - **123 UNREVIEWED parity divergences, one family** — gren flattens an
-     author's break inside a type where elm-format keeps it, contradicting
-     gren's own author-driven rule. Partly fixed the same day (→105): a
+   - **123 UNREVIEWED parity divergences** — gren flattened an author's break
+     inside a type where elm-format keeps it. Closed the same day: 18 fixed (a
      parenthesized application now keeps its break, and a signature goes
-     multi-line for any break that survives rendering. What remains is
-     [#27](elmFormatComparison.md#divergence-27) and the shared
-     `itemsSpanRows` limit, which reaches expression records too;
+     multi-line for any break that *survives rendering*), and the other 105
+     reviewed into catalogue entries
+     [#27](elmFormatComparison.md#divergence-27),
+     [#28](elmFormatComparison.md#divergence-28) and
+     [#29](elmFormatComparison.md#divergence-29). **0 UNREVIEWED**;
    - **58 hard failures, one family** — a comment-bearing signature whose type
      carries a multi-line record is not a fixed point, because
      `typeSegmentsForceVertical` switches its dropping-record trigger off when a

@@ -196,28 +196,34 @@ understood is not the same as being acceptable, and a baseline entry is the
 easiest place in this repo for a known bug to go quiet.
 
 Current state: **2079/2079 pass oracles 1–3**; 1358 are byte-identical to
-elm-format, with 721 registered divergences — 430 redundant parens (#10), 125
-single-item-container collapse (#21, records *and* arrays), 38 precedence-split
-binop chains (#17), 6 backward-`<|` flat layout (#14), 3 pipeline-`|>` alignment
-(#19), **0 known BUGs**, and **105 UNREVIEWED** — all from the type axis's first
-run, all `broken`/`bareBroken` variants, i.e. the author wrote the type across
-rows and gren-format did not keep the break.
+elm-format, with 721 registered divergences — 444 redundant parens (#10), 125
+single-item-container collapse (#21), 65 unrecorded type breaks (#28), 38
+precedence-split binop chains (#17), 30 parenthesized function types (#27), 10
+`let`-annotation head glue (#29+#10), 6 backward-`<|` flat layout (#14), 3
+pipeline-`|>` alignment (#19) — **0 UNREVIEWED and 0 known BUGs**. Every
+divergence names a catalogue entry.
 
-The axis's first run reported 123. Eighteen were fixed on 2026-08-03 — a
-parenthesized *application* now keeps its break, and a signature goes multi-line
-whenever a break **survives rendering**. What is left is three families:
+The type axis arrived on 2026-08-03 with 123 UNREVIEWED. Eighteen were fixed the
+same day (a parenthesized *application* now keeps its break, and a signature goes
+multi-line whenever a break **survives rendering**); the remaining 105 were
+reviewed and became three entries:
 
-- **A parenthesized function type** (`(Int⏎-> Int)`) still flattens, and the
-  signature stays flat with it — [divergence #27](docs/elmFormatComparison.md#divergence-27).
-  An arrow-joined type must break *before* each `->`, and that per-segment shape
-  is not rendered inside a `ParenBlock` yet.
-- **A break inside a single record field** (`{ a :⏎Int }`, or between `{` and
-  the first field) is invisible to `itemsSpanRows`, which only sees gaps
-  *between* items. Not a signature question: an expression record collapses
-  `{ a =⏎1 }` identically, so changing it moves every record and array literal
-  in the corpus.
-- **Parens gren keeps and elm-format strips** — ordinary #10, in cells whose
-  break now survives on both sides.
+- **[#27](docs/elmFormatComparison.md#divergence-27)** (30) — a parenthesized
+  *function* type still flattens. An arrow-joined type must break *before* each
+  `->`, and that per-segment shape is not rendered inside a `ParenBlock`.
+- **[#28](docs/elmFormatComparison.md#divergence-28)** (65) — a type break with
+  nothing to record it: a bare application (`InsertTypes.typeWithArgs` splices
+  argument nodes flat into the parent flow), a break inside one record field or
+  before the first one (`itemsSpanRows` compares each field's start to the
+  previous field's *end*), and the outer application of a nested one. **The
+  record half is not a type question** — `itemsSpanRows` is shared with
+  expression records and arrays, so `v = { a =` ⏎ `1 }` collapses identically,
+  and changing it moves every bracketed literal in the corpus.
+- **[#29](docs/elmFormatComparison.md#divergence-29)** (10) — a `let` binding's
+  annotation is not rendered by `makeSignatureBox` at all, so a broken type
+  stays glued to the `bnd :` line. An inconsistency rather than a preference:
+  the same type under a top-level `foo :` does lift, and a multi-line *record*
+  type already lifts here too (a flow-level `DropBlock` rule).
 
 **The rule that decides all of this is "did the break survive rendering", asked
 of the rendered box** (`makeSignatureBox`'s inline arm falls through to the

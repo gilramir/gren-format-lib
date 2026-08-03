@@ -1,0 +1,62 @@
+module D28TypeBreakNotRecorded exposing (..)
+
+-- Divergence #28. gren-format keeps a type break in three places -- between
+-- `->` segments, between a record type's fields, and inside a parenthesized
+-- application. Anywhere else in a type there is nothing to hold the author's
+-- layout, so the break is flattened. elm-format keeps every one.
+-- A bare (unparenthesized) type application:
+
+
+type alias BareApp =
+    Array
+    Int
+
+
+
+-- A break inside ONE record field, and a break between `{` and the first
+-- field: `itemsSpanRows` only sees gaps BETWEEN fields.
+
+
+insideField : { a :
+    Int } -> Int
+insideField r =
+    1
+
+
+beforeFirstField : {
+    a : Int, b : String } -> Int
+beforeFirstField r =
+    1
+
+
+
+-- The OUTER application of a nested one: the inner paren keeps its break, the
+-- application around it does not.
+
+
+nestedApp : Array (Array
+    Int)
+nestedApp =
+    one
+
+
+
+-- The three that ARE kept, for contrast.
+
+
+keptArrow : Int
+    -> Int
+keptArrow n =
+    n
+
+
+keptFields : { a : Int
+    , b : String }
+keptFields =
+    one
+
+
+keptParenApp : (Array
+    Int) -> Int
+keptParenApp f =
+    1

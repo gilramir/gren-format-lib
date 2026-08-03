@@ -45,6 +45,8 @@ code, and why the places they *don't* look the way they do.
   - [#25 A comment keeps the rows you gave it](#divergence-25)
   - [#26 A `--` trailing a `<|` moves the operator](#divergence-26)
   - [#27 A parenthesized function type flattens](#divergence-27)
+  - [#28 A type break gren-format doesn't record](#divergence-28)
+  - [#29 A `let` annotation doesn't lift a broken type below the `:`](#divergence-29)
 - [Out of scope for comparison](#out-of-scope-for-comparison)
 
 ---
@@ -105,6 +107,8 @@ if it stops being — an entry with no fixture, or a fixture with no entry.
 | 12 | `D12TrailingCommentStays` | 25 | `D25CommentKeepsItsRows` |
 | 13 | `D13BinopOperandTrailingComment` | 26 | `D26BackPipeLineComment` |
 | | | 27 | `D27ParenFunctionTypeFlattens` |
+| | | 28 | `D28TypeBreakNotRecorded` |
+| | | 29 | `D29LetAnnotationHeadGlue` |
 
 This is not decoration. Writing those fixtures found **six entries whose
 worked example no longer matched the shipped formatter** — #8, #9, #18, #22, #25
@@ -1382,6 +1386,82 @@ documentation instead of quietly outliving it.
         )                      -> Int
         -> Int
     ```
+
+
+28. <a id="divergence-28"></a>**A type break gren-format doesn't record is flattened;
+    elm-format keeps every one.** When you write a type across rows, gren-format
+    keeps the break in three places — between `->` segments, between a record
+    type's fields, and inside a parenthesized *application*. Anywhere else in a
+    type there is nothing to hold the author's layout, so the break is lost:
+
+    ```gren
+    -- you write:              -- gren-format:        -- elm-format:
+    type alias T =             type alias T =         type alias T =
+        Array                      Array Int              Array
+        Int                                                   Int
+
+    foo : { a :                foo : { a : Int }      foo :
+        Int }                                             { a :
+                                                              Int
+                                                          }
+
+    foo : Array (Array         foo :                  foo :
+        Int)                       Array (Array           Array
+                                           Int                (Array
+                                         )                        Int
+                                                                )
+    ```
+
+    The three cases are one cause. A type is built as a flat run of leaves —
+    `InsertTypes.typeWithArgs` splices its argument nodes straight into the
+    parent flow — so there is no container to hold "the author broke this".
+    Only three things in a type carry an author-layout flag at all: the `->`
+    segmentation, `itemsSpanRows` over a record's fields, and (since
+    2026-08-03) a parenthesized application. `itemsSpanRows` compares each
+    field's *start* against the previous field's *end*, which is why a break
+    inside a single field, or between `{` and the first field, is invisible to
+    it.
+
+    **The record half is not a type question.** `itemsSpanRows` is shared with
+    expression records and arrays, so `v = { a =` ⏎ `1 }` collapses to
+    `{ a = 1 }` in exactly the same way. Changing it moves every bracketed
+    literal in the corpus, which is why it is catalogued rather than fixed.
+
+    Related: [#27](#divergence-27) is the same phenomenon for a parenthesized
+    *function* type, kept separate because its fix is different (the
+    per-`->`-segment shape rendered inside a `ParenBlock`, not an author-layout
+    flag).
+
+29. <a id="divergence-29"></a>**A `let` binding's annotation keeps a broken type on the
+    `name :` line; elm-format lifts it below.** A top-level signature that
+    breaks puts the type on its own rows under `foo :`. A `let` binding's
+    annotation is not rendered by `makeSignatureBox` at all — it is an ordinary
+    token flow (`bnd`, `:`, the type) — so a type that breaks stays glued to the
+    `bnd :` line:
+
+    ```gren
+    -- you write:                -- gren-format:        -- elm-format:
+    let                          let                    let
+        bnd : (Array                 bnd : (Array           bnd :
+              Int)                           Int                Array
+        bnd =                              )                        Int
+            one                      bnd =                  bnd =
+    in                                   one                    one
+    bnd                          in                     in
+                                 bnd                    bnd
+    ```
+
+    This only shows up for a type whose break gren-format keeps *and* which does
+    not drop of its own accord. A multi-line **record** type already drops below
+    the `:` here and matches elm-format byte-for-byte, because a dropping record
+    is a flow-level rule (`FlowPolicy`'s `DropBlock`) rather than a signature
+    one — so the shape above is the parenthesized case specifically, and it
+    carries [#10](#divergence-10) with it.
+
+    It is an inconsistency rather than a preference: the same type under a
+    top-level `foo :` does lift. Lifting it here means either routing a `let`
+    annotation through `makeSignatureBox` or giving a multi-line `ParenBlock`
+    the same drop behaviour a record has, and both reach well beyond `let`.
 
 
 ## Out of scope for comparison
