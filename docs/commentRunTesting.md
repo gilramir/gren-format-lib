@@ -322,7 +322,11 @@ Four things are worth keeping from that:
    existed. Its first run produced three work-lists, none of them regressions:
    - **123 UNREVIEWED parity divergences, one family** — gren flattens an
      author's break inside a type where elm-format keeps it, contradicting
-     gren's own author-driven rule;
+     gren's own author-driven rule. Partly fixed the same day (→105): a
+     parenthesized application now keeps its break, and a signature goes
+     multi-line for any break that survives rendering. What remains is
+     [#27](elmFormatComparison.md#divergence-27) and the shared
+     `itemsSpanRows` limit, which reaches expression records too;
    - **58 hard failures, one family** — a comment-bearing signature whose type
      carries a multi-line record is not a fixed point, because
      `typeSegmentsForceVertical` switches its dropping-record trigger off when a

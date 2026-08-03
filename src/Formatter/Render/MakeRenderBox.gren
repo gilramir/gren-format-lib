@@ -3383,36 +3383,53 @@ makeSignatureBox children =
             -- by `assembleFlow`.
             buildFlowBox grenIndent children
 
-        else if not forceVertical then
-            -- Inline, no comment: the whole signature on one line (one flow over
-            -- all children). elm-format flattens a segment the author broke
-            -- inside a record type or parens (a break not at a `->` boundary)
-            -- back onto the line; Box has no flatten, so if the flow comes back
-            -- multi-line we Err rather than emit the (wrong) broken form.
-            buildFlowBox 0 children
-                |> Result.andThen
-                    (\box ->
-                        when B.isLine box is
-                            Ok _ ->
-                                Ok box
-
-                            Err _ ->
-                                Err "box: inline signature segment unexpectedly broke across lines"
-                    )
-
         else
-            -- Author broke at a `->`: header on line 1, one segment per line at
-            -- +4. `buildFlowBox 0` renders each segment, placing any inline
-            -- comment it carries.
-            buildFlowBox 0 colonSplit.header
-                |> Result.andThen
-                    (\headerBox ->
-                        traverseResult (buildFlowBox 0) segments
-                            |> Result.map
-                                (\segBoxes ->
-                                    B.stack1 ([ headerBox ] ++ Array.map B.indent segBoxes)
-                                )
-                    )
+            let
+                -- Author broke at a `->`: header on line 1, one segment per line
+                -- at +4. `buildFlowBox 0` renders each segment, placing any
+                -- inline comment it carries.
+                perSegment _ =
+                    buildFlowBox 0 colonSplit.header
+                        |> Result.andThen
+                            (\headerBox ->
+                                traverseResult (buildFlowBox 0) segments
+                                    |> Result.map
+                                        (\segBoxes ->
+                                            B.stack1 ([ headerBox ] ++ Array.map B.indent segBoxes)
+                                        )
+                            )
+            in
+            if forceVertical then
+                perSegment {}
+
+            else
+                -- Inline, no comment. The whole signature goes on one line --
+                -- UNLESS the flow comes back multi-line, which means a break the
+                -- author wrote survived rendering (a record type written across
+                -- rows, a parenthesized application). Then the per-segment shape
+                -- is the right one: "written across rows, it stays across rows",
+                -- and elm-format agrees.
+                --
+                -- **This asks the rendered box, not the source rows, and that is
+                -- what makes it a fixed point.** A row-derived version of the
+                -- same rule ("some segment spans rows") fires for breaks that do
+                -- NOT survive -- a `{ a :` / `Int }` field, a parenthesized
+                -- function type -- so the first format emitted the broken
+                -- signature, the break itself was flattened inside it, and the
+                -- reparse saw a one-row type and went back to inline. Only a
+                -- break the renderer actually keeps may decide the layout around
+                -- it. (Until 2026-08-03 this arm `Err`ed here instead, on the
+                -- claim that elm-format flattens such a break. It does not.)
+                buildFlowBox 0 children
+                    |> Result.andThen
+                        (\box ->
+                            when B.isLine box is
+                                Ok _ ->
+                                    Ok box
+
+                                Err _ ->
+                                    perSegment {}
+                        )
 
 
 {-| Render a `module …` / `import …` line. When it ends in an `exposing ( … )`

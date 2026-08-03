@@ -221,17 +221,40 @@ the range over the `)` and records it as the node's `lastBracketEnd`, which is
 what keeps the comment inside the parens where it was written.
 
 The empty case cannot arise for authored parens (`()` is a different type), so it
-shares the synthesized fallback. -}
-fixupParensChildrenNodesAt : Position -> Array LPNode -> Result String (Array LPNode)
-fixupParensChildrenNodesAt closeEnd nodes =
+shares the synthesized fallback.
+
+`spansRows` is the author-layout flag, and a parenthesized TYPE is its only
+caller. Nothing recorded it before, so `(Array⏎Int)` lost the break the author
+wrote and came back on one line. An expression in parens needs no such flag: its
+content carries its own (a binop chain, a call), whereas a type's content is a
+bare flow of leaves with nothing to hold one.
+
+The flag has to reach the CONTENT, not just the `ParenBlock`. `ParenBlock`'s own
+`forceVertical` decides where the closing `)` goes and nothing else, so setting
+only that emitted `(Array Int⏎)` — parens opened, break gone — and the reparse,
+seeing the content back on one row, closed it up again. Wrapping the content in
+a forced-vertical flow is what makes the break survive its own output. -}
+fixupParensChildrenNodesAt : Bool -> Position -> Array LPNode -> Result String (Array LPNode)
+fixupParensChildrenNodesAt spansRows closeEnd nodes =
     when Array.popFirst nodes is
         Nothing ->
             Ok [ lpnLeaf (SynthesizedText "()") ]
 
         Just _ ->
+            let
+                content =
+                    if spansRows then
+                        [ lpnNode
+                            (AcrossOrVertical { forceVertical = True, checkContentVertical = False })
+                            nodes
+                        ]
+
+                    else
+                        nodes
+            in
             Ok
                 [ lpnBracketNode
-                    (ParenBlock { forceVertical = False, checkContentVertical = True })
+                    (ParenBlock { forceVertical = spansRows, checkContentVertical = True })
                     closeEnd
-                    nodes
+                    content
                 ]

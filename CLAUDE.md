@@ -195,34 +195,44 @@ genuine bug gets a `BUG:` reason, which is **also** printed every run — being
 understood is not the same as being acceptable, and a baseline entry is the
 easiest place in this repo for a known bug to go quiet.
 
-Current state: **2079/2079 pass oracles 1–3**; 1354 are byte-identical to
-elm-format, with 725 registered divergences — 430 redundant parens (#10), 125
+Current state: **2079/2079 pass oracles 1–3**; 1358 are byte-identical to
+elm-format, with 721 registered divergences — 430 redundant parens (#10), 125
 single-item-container collapse (#21, records *and* arrays), 38 precedence-split
 binop chains (#17), 6 backward-`<|` flat layout (#14), 3 pipeline-`|>` alignment
-(#19), **0 known BUGs**, and **123 UNREVIEWED** — all 123 from the type axis's
-first run, and all one family.
+(#19), **0 known BUGs**, and **105 UNREVIEWED** — all from the type axis's first
+run, all `broken`/`bareBroken` variants, i.e. the author wrote the type across
+rows and gren-format did not keep the break.
 
-**That family, stated so it is not mistaken for noise:** every one is a `broken`
-or `bareBroken` variant, i.e. the author wrote the type across rows.
-gren-format **flattens** an author's break inside a type unless it falls at a
-top-level `->` or a record's `,`; elm-format keeps it, and drops the redundant
-parens as well:
+The axis's first run reported 123. Eighteen were fixed on 2026-08-03 — a
+parenthesized *application* now keeps its break, and a signature goes multi-line
+whenever a break **survives rendering**. What is left is three families:
 
-```gren
--- you wrote:        -- gren-format:      -- elm-format:
-foo : (Array         foo : (Array Int)    foo :
-       Int)                                   Array
-                                                  Int
-```
+- **A parenthesized function type** (`(Int⏎-> Int)`) still flattens, and the
+  signature stays flat with it — [divergence #27](docs/elmFormatComparison.md#divergence-27).
+  An arrow-joined type must break *before* each `->`, and that per-segment shape
+  is not rendered inside a `ParenBlock` yet.
+- **A break inside a single record field** (`{ a :⏎Int }`, or between `{` and
+  the first field) is invisible to `itemsSpanRows`, which only sees gaps
+  *between* items. Not a signature question: an expression record collapses
+  `{ a =⏎1 }` identically, so changing it moves every record and array literal
+  in the corpus.
+- **Parens gren keeps and elm-format strips** — ordinary #10, in cells whose
+  break now survives on both sides.
 
-This contradicts gren-format's own author-driven rule ("written across rows, it
-stays across rows") *and* elm-format, so it is likely a bug rather than a
-divergence to catalogue — but it is a real behaviour change to make, and the
-inline signature path currently `Err`s rather than emits a broken form, so it
-was left registered and visible rather than fixed in the same commit as the
-axis. The code comment in `makeSignatureBox` that justifies the flattening
-("elm-format flattens a segment the author broke inside a record type or
-parens") is **wrong**: elm-format does not.
+**The rule that decides all of this is "did the break survive rendering", asked
+of the rendered box** (`makeSignatureBox`'s inline arm falls through to the
+per-segment layout when the flow comes back multi-line). A row-derived version
+— "some segment spans rows" — was tried first and is wrong: it fires for breaks
+that do *not* survive, so the first format emits a broken signature wrapped
+around a break that got flattened inside it, and the reparse reads a one-row
+type and goes back to inline. Twelve cells oscillated that way before the test
+moved to the box.
+
+Until 2026-08-03 the flattening was deliberate, pinned by
+`SignatureSegmentBreaks`, and justified by a code comment claiming *"elm-format
+flattens a segment the author broke inside a record type or parens"*. That claim
+is **false** — elm-format keeps every one of them — which is what reopened the
+decision.
 
 (A former
 divergence, a record update as a direct multi-line `|>` operand keeping its

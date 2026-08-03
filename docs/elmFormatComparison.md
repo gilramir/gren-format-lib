@@ -44,6 +44,7 @@ code, and why the places they *don't* look the way they do.
   - [#24 Record update's own-line comment indent](#divergence-24)
   - [#25 A comment keeps the rows you gave it](#divergence-25)
   - [#26 A `--` trailing a `<|` moves the operator](#divergence-26)
+  - [#27 A parenthesized function type flattens](#divergence-27)
 - [Out of scope for comparison](#out-of-scope-for-comparison)
 
 ---
@@ -103,8 +104,9 @@ if it stops being — an entry with no fixture, or a fixture with no entry.
 | 11 | `D11DocCommentBody` | 24 | `D24RecordUpdateOwnLineComment` |
 | 12 | `D12TrailingCommentStays` | 25 | `D25CommentKeepsItsRows` |
 | 13 | `D13BinopOperandTrailingComment` | 26 | `D26BackPipeLineComment` |
+| | | 27 | `D27ParenFunctionTypeFlattens` |
 
-This is not decoration. Writing those 26 fixtures found **six entries whose
+This is not decoration. Writing those fixtures found **six entries whose
 worked example no longer matched the shipped formatter** — #8, #9, #18, #22, #25
 and #26 — three of them stale by one day, and one (#9) making a claim about
 literal preservation that had never been true for integers or string escapes.
@@ -1339,6 +1341,47 @@ documentation instead of quietly outliving it.
     cell in this family agrees: a single-line `{- c -}` after either operator, and
     either operator with no comment at all. This entry is exactly the `<|`-plus-`--`
     corner.
+
+
+27. <a id="divergence-27"></a>**A parenthesized *function* type is flattened back onto
+    one line; elm-format keeps the break.** When you write the type across rows,
+    gren-format keeps your break — inside a record type, inside parens, and
+    between `->` segments alike (that was not true before 2026-08-03; see
+    [Type signatures](formatterRules.md#type-signatures)). The one place it
+    still flattens is an arrow-joined type inside parens:
+
+    ```gren
+    -- you write:            -- gren-format:                 -- elm-format:
+    parened : (Int           parened : (Int -> Int) -> Int   parened :
+        -> Int) -> Int                                           (Int
+                                                                  -> Int
+                                                                 )
+                                                                 -> Int
+    ```
+
+    The break vanishes and the signature stays flat with it. The reason is
+    mechanical rather than considered: an arrow-joined type has to break
+    **before** each `->` — the per-segment shape `makeSignatureBox` builds at
+    the top level — and that shape is not yet rendered inside a `ParenBlock`. A
+    generic vertical flow would emit `(Int ->` ⏎ `····Int`, matching neither
+    formatter's canonical layout, so the flat form is kept until the segment
+    renderer reaches inside parens.
+
+    The signature staying flat is not a second choice; it follows from the
+    first. A signature breaks only for a break that *survives* rendering — one
+    broken around a break that vanished would read as a one-row type on reparse
+    and flip straight back. See `SignatureSegmentBreaks`.
+
+    A parenthesized **application** has no such problem and keeps its break:
+
+    ```gren
+    -- gren-format:        -- elm-format (same break, parens stripped, [#10](#divergence-10)):
+    parenedApp :           parenedApp :
+        (Array                 Array
+            Int                    Int
+        )                      -> Int
+        -> Int
+    ```
 
 
 ## Out of scope for comparison

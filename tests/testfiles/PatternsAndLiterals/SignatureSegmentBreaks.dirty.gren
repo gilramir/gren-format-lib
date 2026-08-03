@@ -1,26 +1,59 @@
 module SignatureSegmentBreaks exposing (..)
 
 
--- A break inside a record type does not make the signature multi-line:
--- only a break between the `->` parts does.
-makePoint : Int -> Int -> {
-    x : Int, y : Int }
-makePoint x y =
-    { x = x, y = y }
+-- A signature goes multi-line when a break you wrote SURVIVES rendering --
+-- between `->` parts, between record fields, or inside a parenthesized
+-- application. A break the renderer does not keep leaves the signature flat,
+-- because a signature broken around a break that vanished would flip back on
+-- reparse.
+-- Between `->` parts:
+keptMultiLine : Int
+    -> { x : Int, y : Int }
+keptMultiLine n =
+    { x = n, y = n }
 
 
--- A break inside parens does not either.
+-- Inside a parenthesized APPLICATION: the break is kept, so the signature
+-- breaks with it. (Before 2026-08-03 this was flattened onto one line, on the
+-- strength of a claim that elm-format did the same. It does not.)
+parenedApp : (Array
+    Int) -> Int
+parenedApp f =
+    1
+
+
+-- Between record fields:
+betweenFields : Int -> { x : Int
+    , y : Int }
+betweenFields n =
+    { x = n, y = n }
+
+
+
+-- ...and the breaks that are NOT kept, so the signature stays flat.
+-- A parenthesized FUNCTION type: an arrow-joined type has to break BEFORE each
+-- `->`, and that per-segment shape is not rendered inside a ParenBlock yet.
+-- Divergence #27.
 parened : (Int
     -> Int) -> Int
 parened f =
     f 1
 
 
--- A break between `->` parts keeps the signature one-segment-per-line.
-keptMultiLine : Int
-    -> { x : Int, y : Int }
-keptMultiLine n =
-    { x = n, y = n }
+-- A break inside a single record field's own value, or between `{` and the
+-- first field: `itemsSpanRows` only sees gaps BETWEEN fields. The same is true
+-- of an expression record (`{ a =` / `1 }`), so changing it is a corpus-wide
+-- decision, not a signature one.
+makePoint : Int -> Int -> {
+    x : Int, y : Int }
+makePoint x y =
+    { x = x, y = y }
+
+
+insideField : Int -> { x :
+    Int }
+insideField n =
+    { x = n }
 
 
 -- A comment forcing the RETURN record vertical, even though the author wrote

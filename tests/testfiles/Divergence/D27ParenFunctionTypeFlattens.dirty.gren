@@ -1,0 +1,23 @@
+module D27ParenFunctionTypeFlattens exposing (..)
+
+-- Divergence #27. When you write a type across rows, gren-format keeps the
+-- break -- except for an arrow-joined type inside parens, which is flattened
+-- back onto one line. elm-format keeps that one broken too. The signature
+-- itself still goes multi-line, so only the inside of the parens differs.
+
+
+parened : (Int
+    -> Int) -> Int
+parened f =
+    f 1
+
+
+
+-- A parenthesized APPLICATION has no such problem and keeps its break (both
+-- formatters break it; gren-format also keeps the parens, #10).
+
+
+parenedApp : (Array
+    Int) -> Int
+parenedApp f =
+    1

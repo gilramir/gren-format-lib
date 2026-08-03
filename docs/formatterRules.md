@@ -367,9 +367,39 @@ keptMultiLine :
     -> Int
 ```
 
-The multi-line shape triggers when any `->` separator appears on a different
-row than the one before it. A line break right after the `:` with the rest
-still on one line is not enough — the break must fall between `->` segments.
+The multi-line shape triggers when you broke the type **anywhere** — between
+`->` segments, inside a record type, or inside parens. A line break right after
+the `:` with the rest still on one line is not enough; there has to be a break
+within the type itself.
+
+A break inside parens keeps that break too, as long as the parenthesized type is
+an application:
+
+```gren
+-- you write, and gren-format keeps:
+parenedApp :
+    (Array
+        Int
+    )
+    -> Int
+```
+
+A parenthesized **function** type is the exception — the signature goes
+multi-line, but the arrow-joined type inside the parens is flattened back onto
+one line, because an arrow-joined type has to break *before* each `->` and that
+per-segment shape is not yet rendered inside parens:
+
+```gren
+-- you write:            -- gren-format writes:
+parened : (Int           parened : (Int -> Int) -> Int
+    -> Int) -> Int
+```
+
+The signature stays flat too, and that follows from the same rule: it goes
+multi-line only for a break that **survives** rendering. One broken around a
+break that vanished would read as a one-row type on reparse and flip back.
+
+See [divergence #27](elmFormatComparison.md#divergence-27).
 
 A `--` at a `->` keeps the row you wrote it on, and the rest of the signature
 still uses the per-segment shape. Trailing the type to the arrow's left, or on a

@@ -93,6 +93,7 @@ divergenceCatalogueSuite fsPerm =
             , entry "#24 a record update's own-row comment sits at the field indent" "D24RecordUpdateOwnLineComment"
             , entry "#25 a comment occupies the rows the author gave it — nothing is floated to give it air" "D25CommentKeepsItsRows"
             , entry "#26 a `--` trailing a `<|` keeps the operator on the seed's row and rides it" "D26BackPipeLineComment"
+            , entry "#27 a parenthesized function type flattens; a parenthesized application keeps its break" "D27ParenFunctionTypeFlattens"
             ]
         }
 
@@ -519,7 +520,7 @@ patternsAndLiteralsSuite fsPerm =
             , assertPrettyIn fsPerm "PatternsAndLiterals" "block comment or multiple single-line comments before a let-binding signature do not insert a blank between signature and definition" "LetCommentedSignatureVariants"
             , assertPrettyIn fsPerm "PatternsAndLiterals" "one blank line is forced between let bindings regardless of authored blanks; a comment or signature sticks to the binding below it" "LetBlankLines"
             , assertPrettyIn fsPerm "PatternsAndLiterals" "a wrapped infix declaration leaves no phantom row gap below it" "InfixWrapped"
-            , assertPrettyIn fsPerm "PatternsAndLiterals" "only a break between -> parts makes a signature multi-line; breaks inside a record type or parens do not; a comment-forced return record explodes every -> part" "SignatureSegmentBreaks"
+            , assertPrettyIn fsPerm "PatternsAndLiterals" "a signature goes multi-line for a break that SURVIVES rendering (-> parts, between record fields, inside a parenthesized application) and stays flat for one that does not (parenthesized function type #27, a break inside one record field); a comment-forced return record explodes every -> part" "SignatureSegmentBreaks"
             , assertPrettyIn fsPerm "PatternsAndLiterals" "a comment-bearing record type in a signature drops below the `:` head at +4; the author's blank line before an inner comment is dropped (gren keeps no blank lines inside brackets; elm-format keeps one before a comment)" "SignatureRecordTypeComment"
             , assertPrettyIn fsPerm "PatternsAndLiterals" "a single-segment (no ->) signature whose sole type is a multi-line record, plain or extensible, no longer crashes and drops the record below the header" "SignatureSoleRecordType"
             , assertPrettyIn fsPerm "PatternsAndLiterals" "a multi-line record at a segment head with the -> kept on its closing } line forces the whole signature vertical (record stays broken, -> drops to its own line) instead of crashing" "SignatureBrokenRecordArg"
