@@ -815,21 +815,11 @@ makeTypeAliasBody nodes =
         segments =
             splitSignatureSegments nodes
 
-        -- Same second trigger `makeSignatureBox` uses: a segment carrying a
-        -- record type that renders multi-line must commit the whole type to the
-        -- broken layout up front, because a multi-line record type in a flow
-        -- DROPS (FlowPolicy's `DropBlock`) rather than gluing -- so leaving the
-        -- decision to the flow would keep `} -> Int` on the record's closing
-        -- line. Gated on `not hasComment` for the same reason as there: a
-        -- comment-bearing type has its own handling in the flow.
         hasComment =
             Array.any subtreeHasComment nodes
 
         forceVertical =
-            signatureForceVertical segments
-                || (not hasComment
-                        && Array.any (segmentHasDroppingRecordBox True) segments
-                   )
+            typeSegmentsForceVertical hasComment segments
     in
     if forceVertical then
         traverseResult (buildFlowBox 0) segments
@@ -3274,6 +3264,37 @@ segmentHasDroppingRecordBox includeHead segment =
             )
 
 
+{-| The force-vertical trigger shared by a type signature (`makeSignatureBox`)
+and a type alias body (`makeTypeAliasBody`). Both commit the whole type to the
+broken layout up front under the same two conditions, and must keep agreeing:
+they render the same segment structure.
+
+The first is `signatureForceVertical` — the author broke the type at a `->`.
+
+The second is a segment carrying a record type that renders multi-line. Such a
+record DROPS in a flow (FlowPolicy's `DropBlock`) rather than gluing, so leaving
+the decision to the flow would keep `} -> Int` on the record's closing line, and
+the drop's extra rows could flip the boundary-break decision on reparse (the
+idempotency fixed-point rule). The head position (`i == 0`) counts too
+(`includeHead = True`): a multi-line record can sit at a segment's head with the
+`->` still on its closing `}` line (`{ a : Int, b : Msg } -> X`, record broken,
+arrow not). Then no `->`-boundary row break exists for `signatureForceVertical`
+to see, yet elm-format still breaks the whole thing — and without the head check
+the flow renders multi-line while `forceVertical` is `False`, hitting the
+"inline signature segment unexpectedly broke" Err.
+
+Gated on `not hasComment`: a comment-bearing type has its own dedicated handling
+(the `hasComment && typeHasCommentBracket` branch, or the generic comment flow),
+which must run instead of being preempted here.
+-}
+typeSegmentsForceVertical : Bool -> Array (Array LPNode) -> Bool
+typeSegmentsForceVertical hasComment segments =
+    signatureForceVertical segments
+        || (not hasComment
+                && Array.any (segmentHasDroppingRecordBox True) segments
+           )
+
+
 {-| Render a function/port signature. Inline (header + type on one line) when the
 author kept it on one line; header on line 1 with one `->` segment per line at +4
 when the author broke it at an arrow boundary. The header and each segment render
@@ -3314,29 +3335,8 @@ makeSignatureBox children =
             hasComment =
                 Array.any subtreeHasComment children
 
-            -- A multi-segment type whose segment carries a dropping record
-            -- commits to the fully-broken layout up front
-            -- (`segmentHasDroppingRecordBox`), so the drop's extra rows can't
-            -- flip the boundary-break decision on reparse (the idempotency
-            -- fixed-point rule). The head position (`i == 0`) is checked too
-            -- (`includeHead = True`): a multi-line record can sit at the head of
-            -- a segment while the `->` stays on the record's closing `}` line
-            -- (`{ a : Int, b : Msg } -> X` written with the record broken but
-            -- the arrow un-broken). Then no `->`-boundary row break exists for
-            -- `signatureForceVertical` to see, yet elm-format still commits the
-            -- whole signature to the broken layout (record stays broken, `-> X`
-            -- drops to its own line). Without the head check the flow renders
-            -- multi-line while `forceVertical` is `False`, hitting the
-            -- "inline signature segment unexpectedly broke" Err. Gated on
-            -- `not hasComment` because a comment-bearing type already has its
-            -- own dedicated handling below (the `hasComment &&
-            -- typeHasCommentBracket` branch / the generic comment flow), which
-            -- must run instead of being preempted here.
             forceVertical =
-                signatureForceVertical segments
-                    || (not hasComment
-                            && Array.any (segmentHasDroppingRecordBox True) segments
-                       )
+                typeSegmentsForceVertical hasComment segments
         in
         if not forceVertical && hasComment && Array.any typeHasCommentBracket colonSplit.typeNodes then
             -- A comment INSIDE a record/bracket type (`foo : { a : Int {- c -} }`)
