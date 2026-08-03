@@ -339,6 +339,89 @@ Four things are worth keeping from that:
 
 ---
 
+---
+
+## The systemic problem behind the mis-scopings
+
+Three wrong scopings of one predicate in one day is not bad luck; it is a
+predictable failure of the *shape* `commentSplitsType` has. It is a **mirror
+predicate** — it hand-predicts what the renderer will do, before rendering —
+and this codebase deliberately got rid of its mirror predicates.
+`Audit/PredicateAgreement.gren` says so in its own module doc:
+
+> **There is one predicate left under audit, and that is the point.** This
+> module was written when `NodeClassify` carried a whole mirror layer …
+> All of them are gone: verticality is now decided by rendering the child and
+> asking `isSingleLine` / `B.allSingles`, which cannot disagree with the
+> renderer because it *is* the renderer.
+
+The distinction that decides whether a predicate is legitimate:
+
+| kind | may read source rows? | example |
+|---|---|---|
+| **author-intent flag** — records what you wrote, information that exists nowhere else | **yes** | `signatureForceVertical` ("did you break at a `->`") |
+| **renderer prediction** — claims what the output will look like | **no**, ask the box | `commentSplitsType` |
+
+`commentSplitsType` is the second kind wearing the first kind's clothes, which
+is why it keeps being wrong at the edges.
+
+### Why the existing audit cannot catch it
+
+*(Checked, not assumed.)* Adding `commentSplitsType` to
+`--audit-predicates` would be **vacuous**. That audit's contract is
+`predicate True ⇒ the node's box renders multi-line`, and
+`commentSplitsType` is True only when the type holds a comment with
+`commentEndsItsLine` True — a `--` or a multi-line `{- … -}` — which forces its
+flow multi-line *by definition*. The contract is entailed by the predicate. The
+50-cell mis-scoping proves it from the other side: `foo : -- c` ⏎ `Int -> Int`
+renders multi-line, so it satisfied the contract while being wrong.
+
+### What would catch it: decision stability
+
+*(Proposed. Not built.)*
+
+The formatter knows something no gate can currently see: **which layout decision
+it took, and which predicate produced it.** Have it emit that —
+
+    decl 3 `foo`  signatureForceVertical=False  commentSplitsType=True  -> perSegment
+
+— then format twice and require the **decision set** to match, not just the
+bytes. Two properties fall out, and between them they cover every failure of
+this class:
+
+- **under-approximation** (the oscillations: 401 cells, then 15, then 32). The
+  chosen form is not a fixed point, so the decision flips on the reparse. Today
+  this surfaces as a byte diff and the culprit has to be inferred; here it
+  names itself.
+- **over-approximation** (the 50 cells). Render the *alternative* form, reparse
+  it, recompute: if the alternative would also have been a fixed point, the
+  predicate forced a layout it did not need to.
+
+Note that a purely external gate cannot do this. "Did the formatter choose the
+per-segment shape" is observable in the output, but if the two formats already
+agree the comparison is vacuous — it collapses back into the idempotency check
+we already have. The value is precisely the *reason*, which only the formatter
+holds.
+
+### The real fix: do not predict
+
+*(Proposed. Not built.)*
+
+`makeSignatureBox`'s no-comment arm already does the right thing: it renders the
+flow, asks `B.isLine`, and falls through to the per-segment layout when the
+answer is "multi-line". No prediction, no mirror, no possible disagreement.
+
+The comment-bearing arm chooses between two renderings of the *same children*,
+so it could work the same way — and then `commentSplitsType` would not exist.
+The obstacle is that the question is not "is the box multi-line" (a
+comment-bearing type usually is, legitimately) but "did a `->` boundary land on
+a later row", which needs per-segment positions inside the assembled box that
+`buildFlowBox` does not currently expose. That is the piece of work; the payoff
+is deleting a predicate that has been wrong three times.
+
+Do this one *before* the decision-stability gate if only one gets done: the gate
+makes the mistake cheap to find, but not making it is better.
+
 ## Order of work
 
 1. ~~per-gap pass sweeps all three comment kinds~~ *(done 2026-08-03)*
@@ -362,9 +445,16 @@ Four things are worth keeping from that:
      comment is present;
    - **1,436 UNREVIEWED comment-parity divergences**, all type-context cells,
      unread.
-4. run-classification refactor — makes C1 and C3 structural
-5. the deletion-invariance oracle
-6. n=2 class-pairs, with elm-format parity
+4. **stop predicting in `makeSignatureBox`'s comment arm** — render, look at the
+   box, delete `commentSplitsType`. See [The real fix](#the-real-fix-do-not-predict).
+5. **the decision-stability gate** — the formatter emits which layout decision
+   it took and why; format twice, diff the decisions. See
+   [What would catch it](#what-would-catch-it-decision-stability).
+6. run-classification refactor — makes C1 and C3 structural
+7. the deletion-invariance oracle
+8. n=2 class-pairs, with elm-format parity
 
-Steps 2–4 come before 5 and 6: an induction is only as good as its base case,
-and a law is cheaper to hold by construction than to check.
+Steps 4 and 5 are the systemic pair and 4 comes first: the gate makes the
+mistake cheap to find, but not making it is better. Steps 2, 6 and 7 come before
+8 — an induction is only as good as its base case, and a law is cheaper to hold
+by construction than to check.
