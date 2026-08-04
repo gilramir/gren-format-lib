@@ -269,6 +269,42 @@ safe. They were only landing at different columns. Ten minutes in
 propose. **For a suspected parser bug, go read the parser** — a black-box grid
 over the wrong variable reads like a characterisation and is not one.
 
+**The sixth family (8 probes) is diagnosed but NOT fixed — read this before
+starting on it.** One shape, in `RecordLambdaFieldCommentIndent` (×4),
+`RecordFieldLambdaDrop` (×2), `BlockRecordFieldValue` and `RecordFieldBlockValues`:
+a multi-line `{- … -}` trailing a lambda body inside a record field. Only the
+**comment's continuation row** moves; everything else is byte-identical.
+
+The same construct gets three different offsets between the `{-` column and its
+continuation row, depending on the path that glued it:
+
+| shape | offset |
+|---|---|
+| a detached top-level comment | +3 |
+| `{ fld = q + one {- c` (no lambda) | +3 |
+| `{ fld = \q -> q + one {- c` written **flat** | **+1** |
+| the same, written **already broken** | **+5** |
+
+`blockCommentBodyOffset` is 3 and `addSuffixBox`'s contract is "the suffix's
+continuation is indented by the glued line's rendered width", so **+3 is the
+principled answer** and the other two are both wrong. The instability is that the
+flat spelling formats to +1 and its own output reparses to +5 — and +5 is a fixed
+point, so only the first format is unstable.
+
+Mechanism: `Box.prefix` pads continuation lines with `lineLength 0 pref` literal
+spaces — the prefix's width measured **at column 0** — while the enclosing layout
+indents with `Tab`, which snaps to the next multiple of 4 *from wherever the line
+already is*. A `Tab` following two literal spaces advances 2, one at column 0
+advances 4, so the padding and the real indent disagree by a path-dependent
+amount. `Box.freezeTabs` exists for exactly this ("so a box can be prefix-glued
+to an arbitrary column") and is presumably part of the fix.
+
+**What is NOT the fix: adding `Binop` to `boxKeepsTrailingCommentOutside`.** It
+converges the ownership half, and breaks **7 fixtures** — a trailing comment
+belongs *inside* the binop in every one of them (`BinopChainCommentChain`,
+`TrailingLineCommentBinopOperand`, `BinopParenEmptyBracketTrailingComment`, the
+`"""…""" -- c` backward-pipe pair, …). Tried, reverted, measured.
+
 **The first attempt was the opposite fix and a fixture said so.** Reading the
 probe as "the run's tail renders below the declaration, so detach it to column
 1" produced a patch that failed `MultilineCommentTrailedByComment` — a fixture
