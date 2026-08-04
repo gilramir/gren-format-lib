@@ -49,6 +49,7 @@ type alias Cart =
     , flags : { isShippable : Bool, isGift : Bool, isPriority : Bool }
     }
 
+
 -- a line comment between two top-level declarations
 {- a block comment between two top-level declarations -}
 

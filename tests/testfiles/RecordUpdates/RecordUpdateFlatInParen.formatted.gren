@@ -28,6 +28,7 @@ directOperandUpdate =
 directOperandLiteral =
     base |> (\p -> { millis = p.millis + offset })
 
+
 -- An update the author DID break across rows still renders vertical, and one
 -- whose field breaks on its own opens too — the gate keeps both.
 

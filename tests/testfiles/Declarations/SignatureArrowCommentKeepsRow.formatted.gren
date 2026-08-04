@@ -25,6 +25,7 @@ ownRow :
 ownRow n =
     ""
 
+
 -- Spelling 3: the `--` written PAST the arrow, still on the previous type's
 -- row. The arrow carries no position, so this is spelling 1 and collapses onto
 -- it.
@@ -56,6 +57,7 @@ blockOwnRow :
 blockOwnRow n =
     ""
 
+
 -- The contrast: a SINGLE-line `{- -}` is not the exception. Both spellings
 -- lead the type after the arrow.
 
@@ -72,6 +74,7 @@ blockFitsAfter :
     -> {- about the result -} String
 blockFitsAfter n =
     ""
+
 
 -- The same exception inside a type alias body, at a nested arrow under parens,
 -- and in a port.

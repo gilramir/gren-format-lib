@@ -138,6 +138,7 @@ class Findings:
         self.by_measurement = collections.Counter()  # rendered-shape flip -> probes
         self.by_signature = collections.Counter()  # the input name-set -> probes
         self.example = {}  # that name-set -> one probe that has it
+        self.members = collections.defaultdict(list)  # that name-set -> every probe
         self.by_branch = collections.Counter()  # (name=choice, gained|lost) -> probes
         self.unexplained = []  # bytes moved, nothing flipped at all
         self.measurement_only = []  # bytes moved, only rendered shapes flipped
@@ -175,6 +176,7 @@ class Findings:
             key = tuple(inputs)
             self.by_signature[key] += 1
             self.example.setdefault(key, label)
+            self.members[key].append(label)
 
     def _histogram(self, title, counter):
         if not counter:
@@ -204,6 +206,21 @@ class Findings:
             for names, count in self.by_signature.most_common(15):
                 print(f"  {count:5d}  {' + '.join(names)}")
                 print(f"         e.g. {self.example[names]}")
+                if verbose:
+                    # A decision set is not a shape. One shape routinely reaches
+                    # two roles and lands in two groups, so the group alone can
+                    # hide a family that the *fixture* names give away at a
+                    # glance -- which is how the module-header family was found.
+                    by_file = collections.Counter(
+                        m.split("[", 1)[0] for m in self.members[names]
+                    )
+                    for fixture, n in by_file.most_common():
+                        probes = " ".join(
+                            m.split(".formatted.gren", 1)[1]
+                            for m in self.members[names]
+                            if m.startswith(fixture)
+                        )
+                        print(f"         {n:4d} {fixture}  {probes}")
             if len(self.by_signature) > 15:
                 print(f"  ... and {len(self.by_signature) - 15} more combinations")
 

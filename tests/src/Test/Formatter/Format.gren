@@ -530,6 +530,7 @@ patternsAndLiteralsSuite fsPerm =
             , assertPrettyIn fsPerm "PatternsAndLiterals" "a multi-line record at a segment head with the -> kept on its closing } line forces the whole signature vertical (record stays broken, -> drops to its own line) instead of crashing" "SignatureBrokenRecordArg"
             , assertPrettyIn fsPerm "PatternsAndLiterals" "a multi-line block comment below a declaration detaches to column 1, leaving no trailing-whitespace line" "ClaimedMultilineComment"
             , assertPrettyIn fsPerm "PatternsAndLiterals" "two blank lines are forced before every top-level declaration unit (function/alias/union/port), regardless of authored blanks; the unit begins at its doc comment, else signature, else declaration" "ForcedDeclBlankLines"
+            , assertPrettyIn fsPerm "PatternsAndLiterals" "a run of comments floats or attaches as ONE unit: with a gap on both sides of the run the two blank lines go above its first line -- asking each comment alone made a `{-| doc -} -- c` row answer two on the first format (one node, its rows covering both) and one on the reparse (two adjacent nodes)" "FloatingCommentRunBlankLines"
             , assertPrettyIn fsPerm "PatternsAndLiterals" "float literals round-trip (decimal stays decimal, scientific stays scientific)" "FloatLiterals"
             , assertPrettyIn fsPerm "PatternsAndLiterals" "only a comment that cannot ride a literal's flat line forces it open: -- , multi-line, and own-row comments break it; an inline block comment does not" "LiteralInlineComment"
             ]

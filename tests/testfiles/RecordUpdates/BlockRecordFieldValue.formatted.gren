@@ -34,6 +34,7 @@ letValue =
         q
     }
 
+
 -- Parens around a block break with it. gren keeps author parens (elm-format
 -- elides them here) -- a pre-existing, systematic difference, not specific to
 -- this rule.

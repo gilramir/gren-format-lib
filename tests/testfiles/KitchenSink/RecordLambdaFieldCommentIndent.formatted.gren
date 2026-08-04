@@ -27,6 +27,7 @@ updateField =
             \q -> q + one
     }
 
+
 -- The comparison cases: a non-lambda value with the same comment, and the
 -- comment-free glued lambda, which must stay on the `= ` line.
 

@@ -53,6 +53,7 @@ pipelineOperandNoComment =
     seed
         |> \q -> q + one
 
+
 -- The comment has a row to ride only while the body stays on the operator's
 -- row. Once the body leaves it -- because the author broke the chain, or the
 -- body itself spans rows -- the comment stacks above the body instead. That is
@@ -70,6 +71,7 @@ backPipeBodyBrokenNoComment =
     fn <|
         \q -> q + one
 
+
 -- A declaration's value always starts its own row, so there is no row to ride
 -- and this one is unchanged.
 
@@ -77,6 +79,7 @@ backPipeBodyBrokenNoComment =
 declarationValue =
     {- lambda -}
     \q -> q + one
+
 
 -- A row to ride is not enough: the comment's prefix lands on the item's first
 -- row only, so an item whose own rows must stay aligned with that first one --

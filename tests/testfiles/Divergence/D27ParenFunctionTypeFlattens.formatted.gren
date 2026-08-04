@@ -10,6 +10,7 @@ parened : (Int -> Int) -> Int
 parened f =
     f 1
 
+
 -- A parenthesized APPLICATION has no such problem and keeps its break (both
 -- formatters break it; gren-format also keeps the parens, #10).
 

@@ -45,6 +45,7 @@ infix left  7 (*) = mul
 infix non   4 (==) = eq
 infix right 5 (<|) = apL
 
+
 -- A simple line comment introducing the next section.
 {- A multi-line block comment that should be preserved as-is even though
    it contains things that look almost like   code:

@@ -1,0 +1,34 @@
+module FloatingCommentRunBlankLines exposing (..)
+
+-- A run leading an import is not floating: it keeps the gap-driven single blank.
+import Array
+
+
+sole : Int
+sole =
+    1
+
+
+-- A two-line run with a gap above it and a gap below it floats as ONE unit,
+-- so the two blank lines go above the first line of the run.
+
+
+pair : Int
+pair =
+    2
+
+
+{-| A doc comment with a `--` written on its own row -}
+-- trailing the doc row
+
+
+docced : Int
+docced =
+    3
+
+
+-- A run with no gap below it LEADS the declaration, so it is part of that
+-- unit and nothing separates it from the signature.
+led : Int
+led =
+    4

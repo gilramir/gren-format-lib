@@ -308,6 +308,24 @@ hence not part of its unit) and is followed by a node that **does** start a
 group is detached below by construction. Requiring the comment not be a group
 start is what keeps a real leading comment — which shares the unit and gets no
 blank between — out of this.
+
+**Detachment is a property of the whole comment run, so it propagates up
+through one.** A comment directly above another comment that is itself detached
+below is detached below too — the run as a unit has a gap under it, and nothing
+in it leads the declaration below. Without this the two passes disagree
+whenever a run arrives as one node and comes back as several:
+
+    {-| doc -} -- c            {-| doc -}         {-| doc -}
+                               -- c               -- c
+    foo = 1                                                    <- two vs one
+                               foo = 1            foo = 1
+
+The `-- c` is written on the doc comment's row, so it is a *child* of that
+node and the node's rows cover both; the run is detached from `foo` and gets
+two blanks above. Reparsed, the `-- c` is its own column-1 node directly below
+the doc comment, so the doc comment's own next sibling is adjacent and it read
+as not detached — one blank. Asking the run rather than the node answers the
+same either way.
 -}
 computeDetachedBelow : Array Bool -> Array DeclInfo -> Array Bool
 computeDetachedBelow groupStarts infos =
@@ -323,12 +341,23 @@ computeDetachedBelow groupStarts infos =
                                         > info.last
                                         + 1
                                         || (nx.isGroupStart && not isGroupStart)
+                                        || (info.isComment
+                                                && nx.isComment
+                                                && not nx.isGroupStart
+                                                && nx.detached
+                                           )
 
                                 Nothing ->
                                     True
                     in
                     { flags = Builder.pushLast detached acc.flags
-                    , next = Just { first = info.first, isGroupStart = isGroupStart }
+                    , next =
+                        Just
+                            { first = info.first
+                            , isGroupStart = isGroupStart
+                            , isComment = info.isComment
+                            , detached = detached
+                            }
                     }
                 )
                 { flags = Builder.empty (Array.length infos), next = Nothing }

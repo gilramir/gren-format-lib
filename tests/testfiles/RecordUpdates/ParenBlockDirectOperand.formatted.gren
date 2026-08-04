@@ -40,6 +40,7 @@ lambdaDirectOperand =
                     bbbbb
            )
 
+
 -- A `(when …)` paren has a single child (WhenFlow bundles header + branches),
 -- unlike if/let, whose body is exposed as the ParenBlock's own second child --
 -- this used to mean it wasn't recognised as a direct operand and got

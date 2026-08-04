@@ -177,7 +177,31 @@ family straddled the top two decision groups — 34 probes in `Comment.role` +
 `endsItsLine` + `textCanRide`, 9 in `Comment.role` alone — so neither group
 looked like one shape, and it was the *fixture* names that gave it away: 43 of
 the 148 sat in files with `Effect` in the name. One shape reaching two roles is
-not the exception here; the second family was the same story.
+not the exception here; the second family was the same story. `-v` now prints
+every probe of each group, grouped by fixture, so the clustering is in the
+histogram rather than in a `grep` over the sweep log.
+
+**The fourth family (27 probes) was a blank-line count, not a comment
+placement** — the first one not to move a comment at all. Both formats put
+`{-| doc -}` and a `--` written on its row on two rows with a gap below them;
+they disagreed on the gap *above*, two then one. `computeDetachedBelow` asks
+whether a node has a gap under it, and it asked per node: on the first format
+the `--` is a *child* of the doc comment, so that one node's rows cover both and
+it sees the gap; reparsed, the `--` is its own column-1 node directly below, so
+the doc comment's own next sibling is adjacent and the gap is somebody else's.
+**Detachment is a property of the comment run**, and now propagates up through
+an adjacent following comment that is not itself a group start. **118 → 91**, 27
+fixed and 0 new — 26 of them `--` probes, the first move in that count (51 → 25)
+since the residual work began. Fixture `FloatingCommentRunBlankLines`, which
+adds 0 findings of its own.
+
+It is the first of these fixes to change existing output: **16 fixtures gained
+a blank line**, each a floating run of two or more comments between
+declarations, which now gets the two blank lines above it that a *single*
+floating comment has always had. That inconsistency was the bug; elm-format
+gives a run and a single comment the same treatment too (three blanks in its
+case — the count is [#1](docs/elmFormatComparison.md#divergence-1), unchanged
+here).
 
 Three things shape the output, and each was a wrong first design corrected by
 running it:

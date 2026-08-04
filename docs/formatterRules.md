@@ -711,6 +711,25 @@ square n =
     n * n
 ```
 
+A *run* of comments — several on consecutive lines, of any kind — floats or
+attaches as one. The run is floating when the gaps sit above the first line and
+below the last, so the two blank lines go above the whole run:
+
+```gren
+double : Int -> Int
+double n =
+    n * 2
+
+
+{-| A floating note -}
+-- and a second line of it
+
+
+square : Int -> Int
+square n =
+    n * n
+```
+
 A comment glued directly beneath the code above it, with no gap at all, stays
 glued — the "floating" treatment only kicks in once the author has already
 separated it from what's above:

@@ -10,6 +10,7 @@ module D28TypeBreakNotRecorded exposing (..)
 type alias BareApp =
     Array Int
 
+
 -- A break inside ONE record field, and a break between `{` and the first
 -- field: `itemsSpanRows` only sees gaps BETWEEN fields.
 
@@ -22,6 +23,7 @@ insideField r =
 beforeFirstField : { a : Int, b : String } -> Int
 beforeFirstField r =
     1
+
 
 -- The OUTER application of a nested one: the inner paren keeps its break, the
 -- application around it does not.

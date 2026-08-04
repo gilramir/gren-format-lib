@@ -62,6 +62,7 @@ midChainBlockComment =
         beta {- self-terminating, so the next `<|` still glues -} <|
             gamma
 
+
 -- A comment that cannot ride, in front of a LATER step's `<|`, drops just that
 -- operator to a row of its own with the comment above it -- at the previous
 -- body's indent, so every operand keeps the column `plainChain` gives it. Only

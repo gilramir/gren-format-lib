@@ -17,6 +17,7 @@ parenAnnotation =
     in
     bnd
 
+
 -- A multi-line RECORD type already drops below the `:` here and matches
 -- elm-format byte-for-byte: a dropping record is a flow-level rule, not a
 -- signature one.

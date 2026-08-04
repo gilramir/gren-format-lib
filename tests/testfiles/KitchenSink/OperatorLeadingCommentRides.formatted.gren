@@ -57,6 +57,7 @@ backPipeNoComment =
     fn <|
         one
 
+
 -- The `<|` chain keeps its staircase: the comment rides the row its operator
 -- trails, and every step below stays where it was.
 
@@ -71,6 +72,7 @@ backPipeChainNoComment =
     fn <|
         gn <|
             one
+
 
 -- Nothing else rides. A `--` runs to the end of its row and a multi-line
 -- `{- ... -}` brings its own newlines, so both keep a row of their own and the

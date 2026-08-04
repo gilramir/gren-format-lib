@@ -22,6 +22,7 @@ backPipeRecordNoComment =
         , y = 2
         }
 
+
 -- A paren-wrapped lambda after a comment: the `(` moved with the comment but
 -- the body and the closing `)` did not, so `)` stopped lining up with `(`.
 

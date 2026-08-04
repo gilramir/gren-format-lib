@@ -2,6 +2,7 @@ effect module D08EffectWhereLineComment where { command = MyCmd } exposing (..)
 
 -- line note
 
+
 -- Divergence #8. A `--` written inside an effect module's `where { ... }`
 -- escapes the block and lands under the header. This one is NOT a preference:
 -- the two files gren-format would have to tell apart are byte-identical as far
