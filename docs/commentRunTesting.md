@@ -286,11 +286,35 @@ is the shape elm-format produces.
 
 ### The residual, and why this gate ships red
 
-As of 2026-08-03 the corpus sweep stands at **172 findings — 0 regressions, all
-pre-existing**: 121 multi-line block, 51 `--`, 0 single-line block. (424 → 347
+As of 2026-08-04 the corpus sweep stands at **148 findings — 0 regressions, all
+pre-existing**: 97 multi-line block, 51 `--`, 0 single-line block. (424 → 347
 when `45f7269` took 77 at once; 347 → 172 when the decision-stability histogram
-below named the largest family and it turned out to be one rule, missing.) Every
-one was attributed against the previous build; none is new.
+below named the largest family and it turned out to be one rule, missing;
+172 → 140 when `f7c0c54` took the *next* family — see below — and 140 → 148
+because the two fixtures pinning that fix expose eight probes of a pre-existing
+class.) Every one was attributed against the previous build; none is new.
+
+**The second family: 172 → 140.** The histogram's next entry (67 probes,
+`Comment.role` + `endsItsLine` + `textCanRide`) reproduced as a multi-line
+`{- … -}` written past a *pipeline step's* last token. A step relocates its
+first breaking argument and stacks everything after it one per line — the
+broken-call rule — and a trailing comment was going through that stacking, so it
+landed on a fresh row below the declaration and the reparse re-homed it to
+column 1. A comment is not an argument: it now glues onto the trigger's last
+row, which is what the identical shape written as a plain call has always done,
+and what this same path already did whenever a real argument followed the
+trigger. 32 probes fixed, 0 new, `--` unchanged at 51.
+
+Pinning it found a **comment-loss** bug that no gate here could have caught
+(`312f0a1`): the relocated-lambda renderer reads the paren's head and body and
+discards any further child, so a comment past the lambda body's last token was
+deleted outright. A dropped comment is AST-equivalent and its output is its own
+fixed point — `--show` passes, and so does every stability check. Only a
+non-canonical *input*, where the comment survived the first format and vanished
+on the second, made it visible. **That is the hole this whole document is about,
+met from the comment-preservation side rather than the placement side**: the
+oracle for it is `gen-random.py`'s comment multiset, and this shape was outside
+that generator's grammar.
 
 The figure moves when the *corpus* grows, not only when behaviour does — the
 `D27`–`D29` divergence fixtures added six of those 424 between them, exercising
@@ -617,15 +641,20 @@ makes the mistake cheap to find, but not making it is better.
 ## Order of work
 
 1. ~~per-gap pass sweeps all three comment kinds~~ *(done 2026-08-03)*
-2. **work the 347-finding residual down to zero**, then wire the pass into
-   `run-tests.sh`. Until then it is a hand-run gate with a known baseline. (It
-   was ~420 until `45f7269`, which took 77 of them at once: `VerticalSpace`
+2. **work the residual (148 as of 2026-08-04) down to zero**, then wire the pass
+   into `run-tests.sh`. Until then it is a hand-run gate with a known baseline.
+   (It was ~420 until `45f7269`, which took 77 of them at once: `VerticalSpace`
    inserted a blank line and then asked a *source-row* question about the gap it
    had just created. Worth knowing before picking off the rest one at a time —
-   the residual is not 347 separate bugs.) **Step 5 below now says how many it
-   is**: 238 of them are one family — a comment changing which declaration owns
-   it, `LeadsOwnLine` under one becoming `Standalone` above the next, which is
-   `45f7269`'s class again — and five families cover the lot.
+   the residual is not 148 separate bugs.) **Step 5 below says how many it
+   is**: the first family (238 probes) was a comment changing which declaration
+   owns it, `LeadsOwnLine` under one becoming `Standalone` above the next, which
+   is `45f7269`'s class again (`43a9cd9`, 347 → 172); the second (67 probes)
+   was the same *placement* reached with the `TrailsPrevious` role, via a
+   pipeline step stacking a trailing comment as though it were an argument
+   (`f7c0c54`, 172 → 140). **Both families were one rule each.** Re-run
+   `./check-decision-stability.py -j 12 --gaps -v` for the current histogram
+   before picking the next.
 3. ~~declaration contexts in `matrix-syntax.py`~~ *(done 2026-08-03: 11 type
    constructs × 15 declaration contexts, +341 syntax cells, +4,930 comment
    cells)*. This was the n=1 base case, and nothing above it meant much until it

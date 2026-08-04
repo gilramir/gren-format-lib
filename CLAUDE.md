@@ -136,6 +136,28 @@ one shape: a multi-line `{- … -}` past a declaration's last token, which rende
 rows; asking it of the finished tree instead (`detachOwnLineTrailer`) took
 **fuzz-idempotency 347 → 172**.
 
+**The next family down the histogram (67 probes) was one rule too** — the same
+comment *placement* reached with a different role. A trailing comment run in a
+pipeline step was going through the step's argument stacking ("once one argument
+breaks, every argument after it gets its own line"), which put it on a fresh row
+below the declaration; the reparse re-homes that to column 1 exactly as above. A
+comment is not an argument, and the identical shape written as a plain call has
+always glued it onto the previous row. **172 → 140** (`f7c0c54`), 32 fixed and 0
+new, with the `--` count unchanged at 51 — that unchanged number is the evidence
+the scoping held.
+
+Pinning it with a fixture surfaced a **comment-LOSS** bug that no gate in this
+repo could have caught (`312f0a1`): `makeMultilineLambdaArgBox` reads a paren's
+head and body and discards any further child, so a comment past the lambda
+body's last token was deleted. A dropped comment is AST-equivalent and its
+output is its own fixed point, so `--show` passes and so does every stability
+check; `gen-random.py`'s comment-multiset oracle is the gate for that class and
+this shape was outside its grammar. **Adding a comment-bearing fixture is itself
+a probe** — the two fixtures for these commits added eight findings of a
+*pre-existing* class (a multi-line comment glued to a lambda body's last token
+changes column between formats), which is why the corpus sweep reads 148 rather
+than 140.
+
 Three things shape the output, and each was a wrong first design corrected by
 running it:
 
