@@ -228,10 +228,16 @@ operand one column either way flips the parse and no operand kind is safe (only
 `-` is affected — it is the sole operator with a unary form). The real compiler
 and elm-format both read subtraction. Nothing is fixable here — a comment between
 `-` and its operand does not parse in a *genuine* negation, so that tree can only
-arrive through the misparse — and gren-format's AST check already refuses to
-write the file. Written up in
-[`docs/knownLimitations.md`](docs/knownLimitations.md#a-binary---whose-right-operand-starts-at-the-operators-own-column);
-**not yet filed upstream**. Treat the residual as 80 with 11 attributed.
+arrive through the misparse — and **failing is the decision**: no workaround is
+wanted, because any rendering faithful to the misparsed tree would rewrite a
+subtraction the real compiler accepts. gren-format's AST check refuses the file
+and we wait for
+[compiler-common#35](https://github.com/gren-lang/compiler-common/issues/35).
+Written up in
+[`docs/knownLimitations.md`](docs/knownLimitations.md#a-binary---whose-right-operand-starts-at-the-operators-own-column).
+Treat the residual as 80 with 11 attributed; when the fix ships and the
+dependency is bumped, the eleven stop being reported on their own — there is no
+baseline entry to retire.
 
 **The first characterisation of it was wrong, and reading the parser is what
 corrected it.** Three repros, then a grid over operand *kinds*, said "only a

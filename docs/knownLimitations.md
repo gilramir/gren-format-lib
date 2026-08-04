@@ -128,9 +128,9 @@ compiler-common#14 on 2026-08-01.
 `10 -` ⏎ `        3` is read by the parser as the **call** `10 (-3)` — the `-`
 becomes a unary negation on the operand below instead of the subtraction
 operator. The real Gren compiler reads it as subtraction (a module using it as an
-`Int` compiles, which a call of `10` could not), and elm-format agrees.
-**Not yet filed upstream**; the draft issue is
-`../parser-minus-column-negation-bug.md` (outside the repo).
+`Int` compiles, which a call of `10` could not), and elm-format agrees. Tracked at
+[compiler-common#35](https://github.com/gren-lang/compiler-common/issues/35),
+which carries the AST dumps, the column grid and a one-line proposed fix.
 
 The trigger is **the column**, and nothing else: the right operand starting one
 past the `-`, on a later row. `argOrOperatorLoop` decides "no space after the
@@ -173,16 +173,24 @@ did, and **gren-format's AST check catches this and refuses to write the file**
 formatted. The message blames the formatter, which is misleading here; the
 render is faithful to the tree it was handed.
 
-There is nothing to fix on the formatter side: a comment between `-` and its
-operand does not parse at all in a *genuine* negation (`v = - -- c` ⏎ `3` is a
-parse error), so a negation node carrying a leading comment can only arrive
-through this misparse. Eleven of `fuzz-idempotency.py`'s residual findings are
-this bug — the fuzzer inserts a `--` into the gap after a `-` in
-`BinaryOps`, `Records`, `LambdaPatterns`, `LetBlankLines`, `NegateParens`,
-`WhenBranchBody`, `BinopLayoutByAuthor`, `BinopParenOperandCommentKind`,
-`KitchenComments` and `KitchenSink`.
+**Failing is the decision, not an oversight.** There is nothing to fix on the
+formatter side — a comment between `-` and its operand does not parse at all in a
+*genuine* negation (`v = - -- c` ⏎ `3` is a parse error), so a negation node
+carrying a leading comment can only arrive through this misparse — and no
+workaround is wanted: any rendering faithful to the misparsed tree would rewrite
+a subtraction the real compiler accepts. gren-format refuses the file and waits
+for compiler-common#35.
 
-Workaround: keep the right operand on the operator's row, or parenthesize.
+Eleven of `fuzz-idempotency.py`'s residual findings are this bug — the fuzzer
+inserts a `--` into the gap after a `-` in `BinaryOps`, `Records`,
+`LambdaPatterns`, `LetBlankLines`, `NegateParens`, `WhenBranchBody`,
+`BinopLayoutByAuthor`, `BinopParenOperandCommentKind`, `KitchenComments` and
+`KitchenSink`. They are not tracked in a baseline anywhere: when the fix ships
+and the `compiler-common` dependency is bumped, those eleven simply stop being
+reported and the residual drops by eleven.
+
+Workaround for a file you need formatted today: keep the right operand on the
+operator's row, or parenthesize.
 
 ## Wide `when` branch patterns
 
