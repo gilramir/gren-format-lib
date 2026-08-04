@@ -278,7 +278,7 @@ a multi-line `{- … -}` trailing a lambda body inside a record field. Only the
 The same construct gets three different offsets between the `{-` column and its
 continuation row, depending on the path that glued it:
 
-| shape | before | after `d1e40a2` |
+| shape | before | after `1b3f9cc` |
 |---|---|---|
 | a detached top-level comment | +3 | +3 |
 | `{ fld = q + one {- c` (no lambda) | +3 | +3 |
@@ -290,7 +290,7 @@ continuation row, depending on the path that glued it:
 continuation is indented by the glued line's rendered width", so **+3 is the
 principled answer**.
 
-**The +1 half is fixed** (`d1e40a2`): `softGlueAlignment`'s per-box-TYPE table
+**The +1 half is fixed** (`1b3f9cc`): `softGlueAlignment`'s per-box-TYPE table
 called `OpAndRhs` `NestCarrying`, meaning "continuation lines already carry their
 own indent relative to the flow base, so glue first-line-only". That is true of a
 broken operand and false of one whose tail is a multi-line comment — that comment
