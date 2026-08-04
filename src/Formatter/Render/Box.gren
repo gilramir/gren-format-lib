@@ -240,8 +240,13 @@ same length. -}
 prefix : Line -> Box -> Box
 prefix pref =
     let
+        -- Built once and shared by every padded line, as the space run it
+        -- replaced was. Inside the lambda it would be rebuilt per line.
+        padding =
+            blankLike pref
+
         padLineWithSpaces l =
-            row [ blankLike pref, l ]
+            row [ padding, l ]
 
         addPrefixToLine l =
             row [ pref, l ]
