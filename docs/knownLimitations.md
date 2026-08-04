@@ -12,6 +12,7 @@ nothing is going wrong.
 - [A compiler bug with field access on a record-update base](#a-compiler-bug-with-field-access-on-a-record-update-base)
 - [An unparenthesized constructor pattern can't be aliased with `as`](#an-unparenthesized-constructor-pattern-cant-be-aliased-with-as)
 - [A continuation line at the same column as the body above it](#a-continuation-line-at-the-same-column-as-the-body-above-it)
+- [An integer literal minus a right operand on a later row](#an-integer-literal-minus-a-right-operand-on-a-later-row)
 - [Wide `when` branch patterns](#wide-when-branch-patterns)
 - [Comment placement near invisible tokens](#comment-placement-near-invisible-tokens)
 - [A line break inside a declaration's head](#a-line-break-inside-a-declarations-head)
@@ -121,6 +122,63 @@ The full write-up, with both `--pre-ast` dumps and the `gren make` type error
 that pins down the real compiler's reading, is in
 `gren-format/parser-same-column-continuation-bug.md`; it was added to
 compiler-common#14 on 2026-08-01.
+
+## An integer literal minus a right operand on a later row
+
+`10 -` ⏎ `3` is read by the parser as the **call** `10 (-3)` — the `-` becomes a
+unary negation on the operand below instead of the subtraction operator. The real
+Gren compiler reads it as subtraction (the module below compiles, which a call
+of `10` could not), and elm-format agrees. **Not yet filed upstream.**
+
+The trigger is narrow. Only a **decimal integer literal** on the left, only `-`,
+and only with the right operand on a later row:
+
+```gren
+10 - 3          -- ok, one row
+10 -            -- MISPARSED as 10 (-3)
+    3
+10 -            -- MISPARSED, right operand kind does not matter
+    b
+a -             -- ok, left operand is not a literal
+    3
+10 +            -- ok, only `-` has a unary form
+    3
+1.5 -           -- ok, a float literal is fine
+    3
+0x10 -          -- ok, a hex literal is fine
+    3
+fn (10 -        -- ok inside a call's parens
+    3)
+```
+
+A comment is not needed to trigger it, but a comment is how it shows up: with
+one written after the operator the misparse becomes visible in the output.
+gren-format renders the negation glued to its operand, as it must, and the
+comment lands between them:
+
+```gren
+subtraction =           -- input             -- gren-format's rendering
+    10 - -- c                                    10
+        3                                            --- c
+                                                      3
+```
+
+The `-` is now inside the `--`, so the output no longer means what the input
+did, and **gren-format's AST check catches this and refuses to write the file**
+(`AST MISMATCH AFTER FORMATTING`) — nothing is corrupted, but the file cannot be
+formatted. The message blames the formatter, which is misleading here; the
+render is faithful to the tree it was handed.
+
+There is nothing to fix on the formatter side: a comment between `-` and its
+operand does not parse at all in a *genuine* negation (`v = - -- c` ⏎ `3` is a
+parse error), so a negation node carrying a leading comment can only arrive
+through this misparse. Eleven of `fuzz-idempotency.py`'s residual findings are
+this bug — the fuzzer inserts a `--` into the gap after a `-` in
+`BinaryOps`, `Records`, `LambdaPatterns`, `LetBlankLines`, `NegateParens`,
+`WhenBranchBody`, `BinopLayoutByAuthor`, `BinopParenOperandCommentKind`,
+`KitchenComments` and `KitchenSink`.
+
+Workaround: keep the right operand on the operator's row, or parenthesize.
 
 ## Wide `when` branch patterns
 

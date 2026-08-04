@@ -217,6 +217,19 @@ on from it — took **91 → 80**, 11 fixed and 0 new, no corpus fixture changed
 Fixture `BinopChainCommentChain`, which pins the boundary too: a comment on a
 genuinely later row still keeps its own row at the operator indent.
 
+**The next group down — 11 probes, `commentBreaksFlowRow` + `forceVertical`,
+every one a `--` — is not a formatter bug at all.** It is a parser one:
+`10 -` ⏎ `3` is read as the call `10 (-3)`, so a `--` written after that `-`
+renders inside the negation and comes out as `---`, swallowing the operator. The
+real compiler and elm-format both read subtraction; the trigger needs a decimal
+**integer literal** on the left and the right operand on a later row (`a -`,
+`1.5 -`, `0x10 -` and `10 +` are all fine). Nothing is fixable here — a comment
+between `-` and its operand does not parse in a *genuine* negation, so that tree
+can only arrive through the misparse — and gren-format's AST check already
+refuses to write the file. Written up in
+[`docs/knownLimitations.md`](docs/knownLimitations.md#an-integer-literal-minus-a-right-operand-on-a-later-row);
+**not yet filed upstream**. Treat the residual as 80 with 11 attributed.
+
 **The first attempt was the opposite fix and a fixture said so.** Reading the
 probe as "the run's tail renders below the declaration, so detach it to column
 1" produced a patch that failed `MultilineCommentTrailedByComment` — a fixture
