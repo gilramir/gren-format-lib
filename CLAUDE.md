@@ -284,7 +284,7 @@ continuation row, depending on the path that glued it:
 | `{ fld = q + one {- c` (no lambda) | +3 | +3 |
 | `q + one {- c` (plain binop) | **+1** | **+3** |
 | `{ fld = \q -> q + one {- c` written **flat** | **+1** | **+3** |
-| the same, written **already broken** | **+5** | **+3** (`e0a1b1c`) |
+| the same, written **already broken** | **+5** | **+3** (`7cd7784`) |
 
 `blockCommentBodyOffset` is 3 and `addSuffixBox`'s contract is "the suffix's
 continuation is indented by the glued line's rendered width", so **+3 is the
