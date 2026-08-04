@@ -1520,6 +1520,17 @@ stepOperandBox children =
                                                 if Array.isEmpty suffix then
                                                     Ok (B.stack1 [ preambleBox, applyIndent grenIndent triggerBox ])
 
+                                                else if Array.all isCommentItem suffix then
+                                                    -- Not arguments: a trailing
+                                                    -- comment run glues onto the
+                                                    -- trigger's last row. See
+                                                    -- `stepSuffixBox`.
+                                                    glueTrailingComments triggerBox (Array.map .node suffix)
+                                                        |> Result.map
+                                                            (\gluedTrigger ->
+                                                                B.stack1 [ preambleBox, applyIndent grenIndent gluedTrigger ]
+                                                            )
+
                                                 else
                                                     -- Suffix args land one per line
                                                     -- below the relocated trigger,
@@ -1544,10 +1555,29 @@ the last one: `|> (\y -> …) 5` — the paren is a direct-glued operand, so it 
 becomes a trigger, but `5` still follows something that broke.
 
 `Nothing` when nothing breaks, or when the breaking item is last (the common
-case, and the layout that was always right). -}
+case, and the layout that was always right). A trailing comment run does not
+count as "after it" — the split's purpose is the one-argument-per-line rule, and
+a comment is not an argument (`stepSuffixBox`); left in the flow, it glues onto
+the operand's last row the way a plain call's does. -}
 splitAfterGluedOperand : Array FlowItem -> Maybe { glued : Array FlowItem, suffix : Array FlowItem }
 splitAfterGluedOperand items =
     let
+        lastArgIndex =
+            (Array.foldl
+                (\item acc ->
+                    { i = acc.i + 1
+                    , found =
+                        if isCommentItem item then
+                            acc.found
+
+                        else
+                            acc.i
+                    }
+                )
+                { i = 0, found = -1 }
+                items
+            ).found
+
         breakIndex =
             (Array.foldl
                 (\item acc ->
@@ -1561,7 +1591,7 @@ splitAfterGluedOperand items =
                 items
             ).found
     in
-    if breakIndex < 0 || breakIndex >= Array.length items - 1 then
+    if breakIndex < 0 || breakIndex >= lastArgIndex then
         Nothing
 
     else
@@ -1629,7 +1659,18 @@ a leading `{- c -}` rides its argument's line, a trailing one glues onto the
 argument before it, and a `--` stands on its own row.
 
 One item is the common case and needs no stacking: the flow renders it exactly as
-before, so the single-suffix layout is untouched. -}
+before, so the single-suffix layout is untouched.
+
+**A suffix of nothing but comments never reaches here**, and both callers say so:
+this is the one-argument-per-line rule and a comment is not an argument. Stacking
+one put a multi-line `{- … -}` written after a step's last token on a fresh row
+*below* the declaration, which the reparse re-homes to column 1 — the
+non-idempotency `Comments.detachOwnLineTrailer` cures for the own-line role. The
+identical shape as a plain call (`fn [ 1` ⏎ `, 2` ⏎ `] {- c` ⏎ `second -}`) glues
+the comment onto the `]` row and is a fixed point; so does this path already
+whenever a real argument follows the trigger, since `assembleBrokenWithComments`
+glues a trailing comment onto the argument before it. The comments-only case was
+the one spelling of it that stacked. -}
 stepSuffixBox : Array FlowItem -> Result String Box
 stepSuffixBox suffix =
     if Array.length suffix <= 1 then

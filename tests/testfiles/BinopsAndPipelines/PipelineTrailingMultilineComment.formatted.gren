@@ -1,0 +1,61 @@
+module PipelineTrailingMultilineComment exposing (..)
+
+
+-- A multi-line `{- -}` written after a pipeline step's relocated trigger is not
+-- an argument: it glues onto the trigger's last row, the way the identical
+-- shape written as a plain call does.
+triggerLambda =
+    Time.now
+        |> Task.andThen
+            (\start ->
+                doWork start
+            ) {- c
+                 second -}
+
+
+triggerBracket =
+    seed
+        |> fn
+            [ 1
+            , 2
+            ] {- c
+                 second -}
+
+
+-- The same for a direct-glued operand, which never becomes a trigger.
+directOperandParen =
+    seed
+        |> (\a ->
+                g a
+           ) {- c
+                second -}
+
+
+directOperandBracket =
+    seed
+        |> [ 1
+           , 2
+           ] {- c
+                second -}
+
+
+-- The control: a real argument after the trigger still lands on its own line,
+-- and the comment glues onto IT.
+triggerWithSuffixArg =
+    seed
+        |> fn
+            (\a ->
+                g a
+            )
+            arg {- c
+                   second -}
+
+
+-- The control the fix is measured against: the same trigger shape as a plain
+-- call, which already glued.
+plainCall =
+    fn
+        [ 1
+        , 2
+        ] {- c
+             second -}
