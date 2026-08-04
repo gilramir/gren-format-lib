@@ -210,6 +210,35 @@ deliberately absent, because reproducing its formula here would be a mirror
 predicate, and this repo has paid for those. Guessing at a decision to shrink
 the counter is how the gate starts lying.
 
+### Reproducing one probe (`repro.py`)
+
+Both gates above report a finding as `<fixture>[<kind>]@<gap>`, and every
+investigation starts by turning that triple back into an input you can look at.
+`repro.py` does exactly that — splice, format twice, print both passes and the
+diff — and then hands you the tree, which is where a comment's `CommentRole` and
+its owning declaration actually live:
+
+```bash
+cd gren-format-lib/tests
+./repro.py TrickyComments.formatted.gren multi 100        # both passes + diff
+./repro.py <fixture> <kind> <gap> --input                 # the spliced source
+./repro.py <fixture> <kind> <gap> --lpt1                  # the tree pass 1 rendered from
+./repro.py <fixture> <kind> <gap> --lpt2                  # the tree pass 2 rendered from
+./repro.py <fixture> <kind> <gap> --decisions             # which decisions differed
+```
+
+`<fixture>` may be a path or a bare basename (searched under `testfiles/`), so a
+name pasted off a findings list works. It imports `fuzz-idempotency.py`'s
+`KINDS` **by path** for the same reason `check-decision-stability.py` does: a
+repro that splices differently from the gate that found the finding is not a
+repro. Exit 0 = STABLE, 1 = MOVED, 2 = could not run — including a probe whose
+source the parser rejects, which is the gates' own `skipped (parser)` bucket and
+is named rather than reported as a failure.
+
+It uses `--show-first`, not `--show`: `--show` runs the idempotency comparison
+internally and fails on precisely the input under investigation, so it would
+refuse to print the output you need.
+
 ### Construct × context syntax matrix
 
 The corpus reaches only the syntax somebody thought to write, and both fuzzers
