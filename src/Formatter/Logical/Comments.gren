@@ -1209,9 +1209,47 @@ insertCommentIntoSubtree commentNode row col node =
                             -- keeping box (or the next sibling starts a new flow
                             -- item) and the comment isn't genuinely inside child's
                             -- closing bracket. See the trailing-comment boundary rule.
+                            -- The comment sits past the LAST thing a paren wraps,
+                            -- with only the `)` after it. It belongs to the paren,
+                            -- not to whatever that last thing happens to be: the
+                            -- reparse reads it that way (its row is past the
+                            -- content's, and the `)` is what follows), so
+                            -- descending here renders it at the content's own
+                            -- indent and the second format pulls it back out to
+                            -- the paren's. `(\a ->` ⏎ `body {- c` ⏎ `second -}` ⏎
+                            -- `)` oscillated exactly that way, between the lambda
+                            -- body's indent and the paren's.
+                            parenTailKeepsCommentOutside =
+                                hasNoFollowingSibling
+                                    && commentBringsOwnRows
+                                    && (when lpnBox node is
+                                            ParenBlock _ ->
+                                                True
+
+                                            _ ->
+                                                False
+                                       )
+
+                            -- Scoped to a comment that cannot ride the content's
+                            -- last row. A single-line `{- c -}` and a `--` both
+                            -- stay ON that row (`(0 * f -- k` ⏎ `)`, `r {-c92-}`),
+                            -- so they are the content's, and pulling them out to
+                            -- the paren would put them on a row of their own — a
+                            -- change to shapes that are not broken. Only a
+                            -- multi-line block comment brings its own rows and so
+                            -- renders below the content whatever owns it.
+                            commentBringsOwnRows =
+                                when lpnBox commentNode is
+                                    BlockComment { loc } ->
+                                        String.contains "\n" loc.value
+
+                                    _ ->
+                                        False
+
                             trailingCommentEscapes =
                                 (boxKeepsTrailingCommentOutside child
                                     || nextSiblingIsBoundary
+                                    || parenTailKeepsCommentOutside
                                 )
                                     && subtreeEndsBefore child row col
                                     && not (commentInsideTrailingBracket child row col)

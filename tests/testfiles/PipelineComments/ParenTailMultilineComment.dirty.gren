@@ -1,0 +1,27 @@
+module ParenTailMultilineComment exposing (..)
+
+
+lambdaBodyTail =
+    seed
+        |> fn
+            (\a ->
+                g a {- past the lambda body
+                       the paren's `)` is what follows -}
+            )
+
+
+whenTail x =
+    fn
+        (when x is
+            Nothing ->
+                0 {- past the last branch inside a paren
+                     which used to be dropped outright -}
+        )
+
+
+ridingCommentsStayInside =
+    seed
+        |> fn
+            (\a ->
+                g a {- rides -} -- and this one too
+            )

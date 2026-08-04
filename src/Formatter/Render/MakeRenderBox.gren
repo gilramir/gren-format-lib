@@ -4044,9 +4044,35 @@ makeParenBlockBoxWithParts flags children =
                 WhenFlow _ ->
                     -- The `when` renders through its ordinary builder, so the
                     -- paren cannot change its internal shape.
-                    makePBox (lpnBox first) (lpnChildren first)
-                        |> Result.map wrapParenVerticalPadded
-                        |> noParts
+                    --
+                    -- Anything after it is a comment the author wrote past the
+                    -- `when`'s last branch and before the `)`. This arm used to
+                    -- render `first` alone, which DROPPED it -- silently, since a
+                    -- lost comment is AST-equivalent and its output is its own
+                    -- fixed point, so only the fuzzer's marker count can see it.
+                    -- The comments stack below the `when` and the paren wrap then
+                    -- places them at `(`+1, beside where a comment already sitting
+                    -- before the `)` renders. A non-comment sibling has no meaning
+                    -- here and is an `Err` rather than a second silent drop.
+                    when Array.dropFirst 1 children is
+                        [] ->
+                            makePBox (lpnBox first) (lpnChildren first)
+                                |> Result.map wrapParenVerticalPadded
+                                |> noParts
+
+                        trailing ->
+                            if Array.all nodeIsComment trailing then
+                                Result.map2
+                                    (\whenBox commentBoxes ->
+                                        wrapParenVerticalPadded
+                                            (B.stack1 (Array.pushFirst whenBox commentBoxes))
+                                    )
+                                    (makePBox (lpnBox first) (lpnChildren first))
+                                    (traverseResult commentNodeBox trailing)
+                                    |> noParts
+
+                            else
+                                Err "box: paren `when` followed by a non-comment sibling"
 
                 IfCondition _ ->
                     noParts (blockInParenBox children)

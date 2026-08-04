@@ -224,8 +224,8 @@ Fixture `BinopChainCommentChain`, which pins the boundary too: a comment on a
 genuinely later row still keeps its own row at the operator indent.
 
 **The eighth family (15 probes, `Pipeline*` + `KitchenSink`/`KitchenComments`)
-is diagnosed and BLOCKED on a renderer gap — do not re-attempt the attachment
-change without fixing that first.** A multi-line `{- … -}` past a lambda body
+needed a renderer fix BEFORE its attachment fix — in that order, and the order is
+the lesson.** A multi-line `{- … -}` past a lambda body
 inside a parenthesised pipeline argument renders at the body's indent, and the
 reparse attaches it one level out, to the `ParenBlock`, beside any comment
 already sitting before the `)`. The reparse's placement is the fixed point
@@ -244,13 +244,20 @@ probes. It also **adds 11**, and one of those is a **comment LOSS**:
    second row -}
     )                       -- the comment does not appear in the output at all
 
-The block-style `ParenBlock` path renders its content and its `)` and never
-looks at a trailing comment child, so once the comment is attached there it
-vanishes. Same class as `makeMultilineLambdaArgBox`'s drop (`312f0a1`), and
-caught the same way — by `fuzz-idempotency.py`'s marker count, not by any
-diff-against-itself check. **Order of work: teach the paren renderer to emit
-trailing comment children, then re-apply the attachment change.** Reverted; the
-residual stays 66.
+`makeParenBlockBoxWithParts`'s `WhenFlow` arm rendered `children[0]` alone —
+"the `when` renders through its ordinary builder" — so once the comment was
+attached as a paren child it vanished. Same class as
+`makeMultilineLambdaArgBox`'s drop (`312f0a1`), and caught the same way, by
+`fuzz-idempotency.py`'s **marker count**: a dropped comment is AST-equivalent and
+its output is its own fixed point, so nothing else in the repo can see it.
+
+That arm now stacks any trailing comment children below the `when` before the
+paren wrap places them at `(`+1, and a *non*-comment sibling there is an `Err`
+rather than a second silent drop. The renderer fix alone is a **no-op on the
+corpus** — nothing produced a paren-child comment until the attachment change
+did — which is what made it safe to land first and verify separately. Together:
+**66 → 50**, 16 fixed and **0 new**, where the attachment change alone had been
+15 fixed and 11 new. Fixture `ParenTailMultilineComment`.
 
 **The seventh family (5 probes) was the FIRST family's rule again, on the one
 container the peel would not look inside.** A multi-line `{- … -}` past the
