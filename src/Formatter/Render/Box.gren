@@ -240,19 +240,50 @@ same length. -}
 prefix : Line -> Box -> Box
 prefix pref =
     let
-        prefixLength =
-            lineLength 0 pref
-
-        paddingSpaces =
-            Array.repeat prefixLength space
-
         padLineWithSpaces l =
-            row [ row paddingSpaces, l ]
+            row [ blankLike pref, l ]
 
         addPrefixToLine l =
             row [ pref, l ]
     in
     mapFirstLine addPrefixToLine padLineWithSpaces
+
+
+{-| A line of the same shape and the same rendered width as `pref`, with every
+glyph replaced by a space.
+
+This is what `prefix` pads its continuation lines with, and the reason it is a
+*copy of the line* rather than a count of spaces is `Tab`. A tab stop advances to
+the next multiple of 4 **from wherever it stands**, so the width of a line
+holding one is not a property of the line — it depends on the column the line
+ends up at, which a bottom-up assembler does not know. Padding with
+`lineLength 0 pref` spaces therefore measured the prefix as if it began at column
+0; embedded anywhere else (after a bracket literal's two-column opener, say) the
+real prefix was narrower or wider and the padded lines drifted out of alignment
+by the difference.
+
+Copying keeps each element at the same offset within the padding as within the
+prefix, so by induction every `Tab` in the copy stands at the same column as its
+twin and advances by the same amount, at *any* starting column. A prefix with no
+`Tab`s renders exactly as the old space run did.
+-}
+blankLike : Line -> Line
+blankLike l =
+    when l is
+        Text t ->
+            Text (String.repeat (String.count t) " ")
+
+        NoTrim t ->
+            Text (String.repeat (String.count t) " ")
+
+        Space ->
+            Space
+
+        Tab ->
+            Tab
+
+        Row parts ->
+            Row (Array.map blankLike parts)
 
 
 {-| Replace every `Tab` with the literal spaces it renders to at its

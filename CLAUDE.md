@@ -269,8 +269,8 @@ safe. They were only landing at different columns. Ten minutes in
 propose. **For a suspected parser bug, go read the parser** — a black-box grid
 over the wrong variable reads like a characterisation and is not one.
 
-**The sixth family (8 probes) is HALF fixed — read this before starting on the
-rest.** One shape, in `RecordLambdaFieldCommentIndent` (×4),
+**The sixth family (8 probes) is fixed, in two commits with two different
+causes.** One shape, in `RecordLambdaFieldCommentIndent` (×4),
 `RecordFieldLambdaDrop` (×2), `BlockRecordFieldValue` and `RecordFieldBlockValues`:
 a multi-line `{- … -}` trailing a lambda body inside a record field. Only the
 **comment's continuation row** moves; everything else is byte-identical.
@@ -284,7 +284,7 @@ continuation row, depending on the path that glued it:
 | `{ fld = q + one {- c` (no lambda) | +3 | +3 |
 | `q + one {- c` (plain binop) | **+1** | **+3** |
 | `{ fld = \q -> q + one {- c` written **flat** | **+1** | **+3** |
-| the same, written **already broken** | **+5** | **+5** — still wrong |
+| the same, written **already broken** | **+5** | **+3** (`e0a1b1c`) |
 
 `blockCommentBodyOffset` is 3 and `addSuffixBox`'s contract is "the suffix's
 continuation is indented by the glued line's rendered width", so **+3 is the
@@ -298,21 +298,25 @@ is glued with literal-space padding, so the box is **align-carrying** whatever
 its type says. `subtreeEndsWithMultilineBlockComment` (LPT shape + the comment's
 own text; no rows, no rendered output) now overrides the table.
 
-**The +5 half is not**, and here is the arithmetic. `Box.prefix` pads by
-`lineLength 0 pref` — the prefix measured **at column 0** — while the line is
-actually rendered further right. In the failing case the prefix is
-`Row[Tab, Tab, "q + one", Space]` sitting at column 6: measured at 0 it is
-4+4+7+1 = **16**, rendered at 6 it is 2+4+7+1 = **14**, because a `Tab` snaps to
-the next multiple of 4 *from where it stands*. Two columns of error, and the
-record literal's `{ ` is what puts the line at a non-multiple-of-4 column.
+**The +5 half was a `Box.prefix` measurement bug**, fixed by padding with a
+*blanked copy of the prefix line* rather than a count of spaces
+(`Box.blankLike`). `prefix` used `lineLength 0 pref` — the prefix's width **if it
+began at column 0** — while the line is rendered wherever it lands. In the
+failing case the prefix was `Row[Tab, Tab, "q + one", Space]` sitting at column
+6: measured at 0 it is 4+4+7+1 = **16**, rendered at 6 it is 2+4+7+1 = **14**,
+because a `Tab` snaps to the next multiple of 4 *from where it stands* — and the
+record literal's `{ ` is what puts the line at a non-multiple-of-4 column. A copy
+keeps every element, `Tab` included, at the same offset within the padding as
+within the prefix, so both snap identically at **any** column and no absolute
+column has to be known. A Tab-free prefix renders exactly as the old space run
+did, which is why the corpus did not move.
 
-**What is NOT the fix: freezing the prefix inside `addSuffixBox`.** `freezeTabs`
-converts Tabs to the spaces they render to *standing alone*, so it fixes the
-width and simultaneously changes the emitted line — 2 fixtures regressed (a
-`when`-in-parens header, a `KitchenComments` binop chain), because they rely on
-those Tabs re-snapping once the box is embedded. A correct fix has to give the
-glue the line's true starting column, or keep Tabs out of a line that will be
-used as a glue prefix.
+**What was NOT the fix, tried and reverted: freezing the prefix inside
+`addSuffixBox`.** `freezeTabs` converts Tabs to the spaces they render to
+*standing alone*, fixing the width and changing the emitted line at the same
+time — 2 fixtures regressed (a `when`-in-parens header, a `KitchenComments` binop
+chain) because they rely on those Tabs re-snapping once the box is embedded.
+Copying pads without touching the emitted line, which is the difference.
 
 **What is NOT the fix: adding `Binop` to `boxKeepsTrailingCommentOutside`.** It
 converges the ownership half, and breaks **7 fixtures** — a trailing comment
