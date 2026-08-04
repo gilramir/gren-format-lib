@@ -1,0 +1,51 @@
+module PipelineLambdaArgTrailingComment exposing (..)
+
+
+-- A comment written past the body of a lambda ARGUMENT of a pipeline step is
+-- kept: the relocated-lambda renderer reads only the head and the body, so
+-- anything after them used to be dropped outright.
+singleLineBlock =
+    seed
+        |> fn
+            (\a ->
+                g a
+             {- x -}
+            )
+
+
+lineComment =
+    seed
+        |> fn
+            (\a ->
+                g a
+             -- x
+            )
+
+
+multilineBlock =
+    seed
+        |> fn
+            (\a ->
+                g a
+             {- x
+                second -}
+            )
+
+
+commentRun =
+    seed
+        |> fn
+            (\a ->
+                g a
+             {- one -} {- two -}
+            )
+
+
+-- The control: the identical paren as a plain call argument, which always kept
+-- the comment. Both spellings are byte-identical to elm-format.
+plainCall =
+    fn
+        (\a ->
+            g a
+         {- x -}
+        )

@@ -1117,6 +1117,26 @@ itemForcesFlowVertical item =
     not (nodeIsComment item.node) && not (isSingleLine item.box)
 
 
+{-| Whether a lambda `ParenBlock` holds nothing but its head and its body — the
+precondition `makeMultilineLambdaArgBox` is written to.
+
+That renderer reads the first child and the second and **silently discards the
+rest**, and a comment written past the lambda body's last token is exactly such a
+child: a `{- x -}` on its own row before the `)` of a pipeline step's lambda
+argument was lost outright. Nothing downstream could see it — a dropped comment
+leaves an AST-equivalent output that is its own fixed point, so `--show` passes;
+only a non-canonical *input* made a fuzzer notice, because the comment then
+survived the first format and vanished on the second.
+
+A paren with more children relocates through the generic paren box instead, which
+renders all of them — and puts the trailing comment one column past the `(`,
+which is both what gren already does for the identical paren in a plain call and
+what elm-format prints for both. -}
+lambdaParenIsHeadAndBodyOnly : LPNode -> Bool
+lambdaParenIsHeadAndBodyOnly node =
+    Array.length (lpnChildren node) <= 2
+
+
 {-| Render a relocated multi-line lambda argument `(\args ->` … `)` — head glued
 to `(`, body at `(` + grenIndent, `)` on its own line at the `(` column
 (elm-format). elm-format anchors everything at the `(` column; here the box's
@@ -1134,7 +1154,10 @@ the head's inner fold, which survives the first-line glue untouched.
 caller's own render already produced. Rendering it here instead cost a second
 full render of the body per nesting level, which is 2^depth for a lambda nested
 through its own body. `Nothing` (the paren was not rendered through a
-`renderFlowItem`) falls back to rendering it. -}
+`renderFlowItem`) falls back to rendering it.
+
+Callers must check `lambdaParenIsHeadAndBodyOnly` first: this renders exactly the
+head and the body and discards anything after them. -}
 makeMultilineLambdaArgBox : Maybe Box -> Array LPNode -> Result String Box
 makeMultilineLambdaArgBox bodyBoxFromItem children =
     let
@@ -1498,7 +1521,7 @@ stepOperandBox children =
                     Just { preamble, trigger, suffix } ->
                         let
                             triggerBoxResult =
-                                if isMultilineLambdaParenBlockBox trigger.node then
+                                if isMultilineLambdaParenBlockBox trigger.node && lambdaParenIsHeadAndBodyOnly trigger.node then
                                     makeMultilineLambdaArgBox trigger.lambdaBodyBox (lpnChildren trigger.node)
 
                                 else
@@ -1509,6 +1532,9 @@ stepOperandBox children =
                                     -- `wrapParenVerticalPadded (buildFlowBoxInline
                                     -- 0 …)`, byte-identical to the former
                                     -- `makeMultilineParenArgBox` special case).
+                                    -- A lambda paren carrying anything past its
+                                    -- body comes here too — see
+                                    -- `lambdaParenIsHeadAndBodyOnly`.
                                     Ok trigger.box
                         in
                         stepPreambleBox preamble
