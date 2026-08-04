@@ -56,6 +56,7 @@ cannot see — the marker-count check catches that class directly.
 
 import argparse
 import concurrent.futures
+import json
 import os
 import subprocess
 import sys
@@ -280,6 +281,81 @@ def run_show(workdir, source):
     )
 
 
+def known_upstream_issue(workdir, source):
+    """Name the upstream bug a finding is caused by, or None.
+
+    Some findings are not the formatter's to fix: the parser hands it a tree the
+    source did not mean, and any faithful rendering of that tree is wrong. Those
+    stay REPORTED and still fail the run — this only puts a name on them, so a
+    finding that has already been diagnosed and filed is recognisable on sight
+    instead of being re-investigated. Narrowing the gate would be the other
+    thing, and is not what this is.
+
+    Today there is one:
+
+    **compiler-common#35** — a binary `-` whose right operand starts on a later
+    row at the operator's own column is parsed as a unary negation, so `10 -` ⏎
+    `        3` becomes `Call (10, [Negate 3])`. A `--` written after that `-`
+    then renders between the negation and its operand and comes out as `---`,
+    swallowing the operator.
+
+    Two signals must agree, because a label that can cover a *different* failure
+    is worse than no label:
+
+      1. the AST the parser produced holds a **`negate` whose operand starts on
+         a different row than the `-` itself**. A genuine negation cannot look
+         like that — the parser requires the operand to follow the `-`
+         immediately, and `v = - -- c` ⏎ `3` is a parse error — so the shape
+         only exists when this bug produced it. (Read off the parser's own
+         output rather than by re-deriving its column rule, which would be a
+         mirror of the parser and wrong in its own way.)
+      2. the format fails the **AST comparison**. That is how this bug always
+         surfaces: the `-` ends up inside the `--`, so the output no longer means
+         what the input did. A probe carrying a misparsed negation that fails for
+         some *other* reason keeps its finding unlabelled, and gets investigated.
+    """
+    path = os.path.join(workdir, "src", "Fuzz.gren")
+    with open(path, "w") as f:
+        f.write(source)
+    r = subprocess.run(
+        [GREN_FORMAT, "--pre-ast", path], capture_output=True, text=True
+    )
+    if r.returncode != 0 or not r.stdout.strip():
+        return None
+    try:
+        ast = json.loads(r.stdout)
+    except ValueError:
+        return None
+
+    found = []
+
+    def walk(node):
+        if isinstance(node, dict):
+            value = node.get("value")
+            if (
+                isinstance(value, dict)
+                and value.get("type") == "negate"
+                and isinstance(node.get("start"), dict)
+                and isinstance(value.get("expr"), dict)
+                and isinstance(value["expr"].get("start"), dict)
+                and node["start"]["row"] != value["expr"]["start"]["row"]
+            ):
+                found.append(True)
+            for v in node.values():
+                walk(v)
+        elif isinstance(node, list):
+            for v in node:
+                walk(v)
+
+    walk(ast)
+    if not found:
+        return None
+    shown = run_show(workdir, source)
+    if "AST MISMATCH" not in shown.stdout + shown.stderr:
+        return None
+    return "compiler-common#35"
+
+
 def splice_block(src, g, text):
     """A `{- … -}` splices straight into the gap: it self-terminates, so the
     code after it stays where it was (a multi-line one carries its tail onto the
@@ -369,7 +445,8 @@ def check_gap(base, src, g, splice=splice_block, text=MARKER):
 
 
 def report_slow_path(base, pool, path, src, gaps, verbose, kind=KINDS[0]):
-    """Per-gap pass over one file for one comment kind. Returns bug count."""
+    """Per-gap pass over one file for one comment kind. Returns
+    (bug count, known-upstream count)."""
     label, text, splice, _fast = kind
     name = os.path.basename(path)
     results = list(pool.map(lambda g: check_gap(base, src, g, splice, text), gaps))
@@ -380,16 +457,29 @@ def report_slow_path(base, pool, path, src, gaps, verbose, kind=KINDS[0]):
         elif r[0] == "bug":
             _, g, detail = r
             bugs.append((g, detail))
+    # Only findings pay for this second parse, so it costs ~one run per reported
+    # bug rather than one per probe.
+    known = list(
+        pool.map(
+            lambda gd: known_upstream_issue(
+                worker_workdir(base), splice(src, gd[0], text)
+            ),
+            bugs,
+        )
+    )
+    known_count = sum(1 for k in known if k)
+    tail = f", {known_count} known upstream" if known_count else ""
     status = "OK " if not bugs else "BUG"
-    print(f"{status} {name} [{label}]: {len(gaps)} gaps, {skipped} skipped (parser), {len(bugs)} non-idempotent")
-    for g, detail in bugs:
+    print(f"{status} {name} [{label}]: {len(gaps)} gaps, {skipped} skipped (parser), {len(bugs)} non-idempotent{tail}")
+    for (g, detail), issue in zip(bugs, known):
         line = src.count("\n", 0, g) + 1
         ctx = (src[max(0, g - 20) : g] + "⟨here⟩" + src[g : g + 20]).replace("\n", "⏎")
-        print(f"      gap at line {line}: …{ctx}…")
+        mark = f"  [known: {issue}]" if issue else ""
+        print(f"      gap at line {line}: …{ctx}…{mark}")
         if verbose and detail:
             for dl in detail.splitlines()[:20]:
                 print("        " + dl)
-    return len(bugs)
+    return len(bugs), known_count
 
 
 def check_one_decl_end(base, src, pos, indent, comment):
@@ -468,6 +558,7 @@ def main(argv):
     file_data = [(path, src, gap_indices(src)) for path, src in file_data]
 
     total = 0
+    known_total = 0
     with tempfile.TemporaryDirectory() as base:
         with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
             if run_gaps:
@@ -490,7 +581,9 @@ def main(argv):
                         if fast == "ok":
                             print(f"OK  {name} [{label}]: {len(gaps)} gaps, 0 skipped (parser), 0 non-idempotent")
                         else:
-                            total += report_slow_path(base, pool, path, src, gaps, args.v, kind)
+                            bugs, known = report_slow_path(base, pool, path, src, gaps, args.v, kind)
+                            total += bugs
+                            known_total += known
 
             if run_decl_ends:
                 # End-of-declaration pass: inject an own-line trailing comment
@@ -499,7 +592,13 @@ def main(argv):
                 for path, src, _gaps in file_data:
                     total += report_decl_ends(base, pool, path, src, args.v)
 
-    print(f"\n{'FAIL' if total else 'PASS'}: {total} non-idempotent finding(s)")
+    # The known-upstream count is subtracted from nothing: those findings are
+    # real and still fail the run. Printing it separately is what stops a
+    # diagnosed, filed bug from being investigated a second time.
+    tail = ""
+    if known_total:
+        tail = f" ({known_total} known upstream, waiting on a parser fix — see the `known: …` marks above)"
+    print(f"\n{'FAIL' if total else 'PASS'}: {total} non-idempotent finding(s){tail}")
     return 1 if total else 0
 
 

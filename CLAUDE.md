@@ -100,6 +100,12 @@ fuzzers invoke `../../gren-format/gren-format.sh` as a subprocess, so they
 require an up-to-date binary. Run after any change to comment handling, and
 after adding any comment-bearing fixture.
 
+A finding whose cause is a **known upstream parser bug** is reported with its
+issue number (`[known: compiler-common#35]`) and counted in the summary line.
+`known_upstream_issue` is where those live; it labels and never subtracts, so
+the count and the exit status are exactly what they were. Adding one means
+naming two agreeing signals — see that function's doc.
+
 ### Decision-stability gate (`check-decision-stability.py`)
 
 The idempotency fuzzer says *whether* a format is a fixed point. It cannot say
@@ -235,9 +241,25 @@ and we wait for
 [compiler-common#35](https://github.com/gren-lang/compiler-common/issues/35).
 Written up in
 [`docs/knownLimitations.md`](docs/knownLimitations.md#a-binary---whose-right-operand-starts-at-the-operators-own-column).
-Treat the residual as 80 with 11 attributed; when the fix ships and the
-dependency is bumped, the eleven stop being reported on their own — there is no
-baseline entry to retire.
+
+**Both gates now name it rather than leaving it to be re-investigated.**
+`fuzz-idempotency.known_upstream_issue` marks a finding `[known:
+compiler-common#35]` and counts it in the summary; `check-decision-stability.py`
+imports the same function and marks the probe in its group listing. It labels,
+never subtracts — the findings still count and the run still fails, because
+hiding one is how a gate starts lying about what it covers. The label needs
+**two** signals to agree: the parser's own AST holds a `negate` whose operand
+starts on a different row than the `-` (impossible in a genuine negation), *and*
+the format fails the AST comparison. A probe carrying the misparse that fails for
+some other reason stays unlabelled and gets investigated.
+
+**The evidence-based label found 17, where grouping had said 11.** The decision
+histogram put the family in `commentBreaksFlowRow + forceVertical`, but the same
+bug also reaches `commentBreaksFlowRow` alone and
+`… + IfCondition.forceVertical` — a decision set is a symptom, not a cause, so a
+family can straddle several. Treat the residual as **80 with 17 attributed = 63
+formatter-side**; when the fix ships and the dependency is bumped they stop being
+reported on their own, with no baseline entry to retire.
 
 **The first characterisation of it was wrong, and reading the parser is what
 corrected it.** Three repros, then a grid over operand *kinds*, said "only a

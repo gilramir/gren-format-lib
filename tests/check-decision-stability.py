@@ -145,11 +145,22 @@ class Findings:
         self.moved = 0  # probes whose bytes differed
         self.skipped = 0
         self.errors = []  # (label, message)
+        self.known = collections.Counter()  # upstream issue -> probes caused by it
+        self.known_labels = set()  # those probes, for marking them in the listing
+        self.issue_of = {}  # probe label -> its issue
 
-    def record(self, label, report):
+    def record(self, label, report, issue=None):
         if not report["bytesDiffer"]:
             return
         self.moved += 1
+        if issue:
+            # Reported, never subtracted: the probe still counts as moved. The
+            # name is here so a family that has already been diagnosed and filed
+            # is recognisable while picking the next one off the histogram,
+            # rather than after a second investigation.
+            self.known[issue] += 1
+            self.known_labels.add(label)
+            self.issue_of[label] = issue
         names = sorted({f["name"] for f in report["flips"]})
         inputs = [n for n in names if not is_measurement(n)]
         measurements = [n for n in names if is_measurement(n)]
@@ -215,12 +226,15 @@ class Findings:
                         m.split("[", 1)[0] for m in self.members[names]
                     )
                     for fixture, n in by_file.most_common():
+                        mine = [m for m in self.members[names] if m.startswith(fixture)]
                         probes = " ".join(
-                            m.split(".formatted.gren", 1)[1]
-                            for m in self.members[names]
-                            if m.startswith(fixture)
+                            m.split(".formatted.gren", 1)[1] for m in mine
                         )
-                        print(f"         {n:4d} {fixture}  {probes}")
+                        known = {
+                            self.issue_of[m] for m in mine if m in self.known_labels
+                        }
+                        mark = f"  [known: {', '.join(sorted(known))}]" if known else ""
+                        print(f"         {n:4d} {fixture}  {probes}{mark}")
             if len(self.by_signature) > 15:
                 print(f"  ... and {len(self.by_signature) - 15} more combinations")
 
@@ -237,6 +251,11 @@ class Findings:
 
         print()
         print(f"probes whose bytes moved      : {self.moved}")
+        for issue, count in self.known.most_common():
+            print(
+                f"  {'known upstream':<28}: {count}  ({issue} — the parser hands the\n"
+                f"      formatter a tree the source did not mean; still counted, still red)"
+            )
         print(
             f"  {'named by an intent flip':<28}: "
             f"{self.moved - len(self.unexplained) - len(self.measurement_only)}"
@@ -305,7 +324,16 @@ def sweep_gaps(pool, base, file_data, kinds, findings, verbose):
                     findings.errors.append((site, status))
                 else:
                     before = findings.moved
-                    findings.record(site, report)
+                    # Only a probe that actually moved pays for the extra parse
+                    # the attribution costs.
+                    issue = (
+                        FI.known_upstream_issue(
+                            FI.worker_workdir(base), splice(src, g, text)
+                        )
+                        if report["bytesDiffer"]
+                        else None
+                    )
+                    findings.record(site, report, issue)
                     moved_here += findings.moved - before
             status_word = "BUG" if moved_here else "OK "
             print(f"{status_word} {name} [{label}]: {len(gaps)} gaps, {moved_here} moved")

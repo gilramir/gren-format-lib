@@ -181,13 +181,17 @@ workaround is wanted: any rendering faithful to the misparsed tree would rewrite
 a subtraction the real compiler accepts. gren-format refuses the file and waits
 for compiler-common#35.
 
-Eleven of `fuzz-idempotency.py`'s residual findings are this bug — the fuzzer
-inserts a `--` into the gap after a `-` in `BinaryOps`, `Records`,
+**Seventeen** of `fuzz-idempotency.py`'s residual findings are this bug — the
+fuzzer inserts a `--` into the gap after a `-` in `BinaryOps`, `Records` (×2),
+`BinopParenOperandCommentKind` (×2), `KitchenComments` (×3), `KitchenSink`,
 `LambdaPatterns`, `LetBlankLines`, `NegateParens`, `WhenBranchBody`,
-`BinopLayoutByAuthor`, `BinopParenOperandCommentKind`, `KitchenComments` and
-`KitchenSink`. They are not tracked in a baseline anywhere: when the fix ships
-and the `compiler-common` dependency is bumped, those eleven simply stop being
-reported and the residual drops by eleven.
+`BinopLayoutByAuthor`, `BinopMixedPrecedenceBroken`, `D17PrecedenceSplit` and
+`IfPredicate`. Both `fuzz-idempotency.py` and `check-decision-stability.py`
+**name them on sight** (`[known: compiler-common#35]`, plus a count in the
+summary) so they are not investigated again; they still count as findings and
+still fail the run. They are in no baseline: when the fix ships and the
+`compiler-common` dependency is bumped, they stop being reported and the
+residual drops by seventeen.
 
 Workaround for a file you need formatted today: keep the right operand on the
 operator's row, or parenthesize.
