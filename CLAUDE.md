@@ -203,6 +203,30 @@ gives a run and a single comment the same treatment too (three blanks in its
 case — the count is [#1](docs/elmFormatComparison.md#divergence-1), unchanged
 here).
 
+**The fifth family (11 probes) was the one container that had not learned that
+comments chain.** A comment written on a multi-line `{- … -}`'s closing row was
+dropped to a row of its own below a binop chain, where the reparse — seeing a
+comment past the declaration's last token — re-homes it to column 1.
+`classifyCommentKind`'s binop branch keys on the last real **operand** row, so
+the injected comment's own closing row counted as "a later row"; every other
+container already keys on the previous comment's LAST row (`a5d948c`, the
+bracket branch; `prevLineGlueRow` / `prevBlockGlueRow`, the generic flow), which
+is why `MultilineCommentTrailedByComment` pins `0 {- a` ⏎ `b -} {- c -}` gluing.
+Adding `chainedRefRow` — the operand row grown through the comment run written
+on from it — took **91 → 80**, 11 fixed and 0 new, no corpus fixture changed.
+Fixture `BinopChainCommentChain`, which pins the boundary too: a comment on a
+genuinely later row still keeps its own row at the operator indent.
+
+**The first attempt was the opposite fix and a fixture said so.** Reading the
+probe as "the run's tail renders below the declaration, so detach it to column
+1" produced a patch that failed `MultilineCommentTrailedByComment` — a fixture
+written for this exact shape whose own description says detaching there would
+"oscillate col 4 ↔ col 0". The gates cost ten minutes and the fixture named the
+answer: **when a shape is unstable in one container, look for the container that
+already agrees before designing a rule.** Note also that neither matrix could
+have found this family — `--comments` injects exactly one comment per cell, and
+this needs two.
+
 Three things shape the output, and each was a wrong first design corrected by
 running it:
 

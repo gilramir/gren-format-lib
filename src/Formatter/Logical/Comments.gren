@@ -2338,8 +2338,11 @@ classifyCommentKind containerBox commentNode before after row =
         -- A binop chain (`Binop` / one `OpAndRhs` step) glues a same-row trailing
         -- comment onto the operand's last line regardless of bracket-ness, and
         -- drops a later-row one to its own line at the operator indent — line and
-        -- block comments alike, and relative to the last real OPERAND row (not a
-        -- preceding comment). This mirrors `BinopLayout`'s `contentRow` exactly.
+        -- block comments alike, and relative to the last real OPERAND row plus
+        -- any comment run written on from it (`chainedRefRow`). (An older note
+        -- here said the rule mirrors `BinopLayout`'s `contentRow`; that function
+        -- is gone — a comment-bearing chain renders through the comment-aware
+        -- flow, which places each comment from its stored role.)
         isBinopContainer =
             when containerBox is
                 OpAndRhs ->
@@ -2407,6 +2410,32 @@ classifyCommentKind containerBox commentNode before after row =
                         max acc (lastRenderedRow n)
                 )
                 -1
+                before
+
+        -- `refRow` with the trailing comment run chained onto it: a comment
+        -- written on the last row of the comment before it joins that run
+        -- (`a5d948c`), because a multi-line `{- … -}` closes several rows under
+        -- its `{-` and what the author wrote after that `-}` sits beside it, not
+        -- on a line of its own. The generic-flow branch keys on the previous
+        -- comment's last row (`prevLineGlueRow` / `prevBlockGlueRow`) and the
+        -- bracket branch does too (`bracketItemRow`); this is what lets the binop
+        -- branch answer the same, instead of dropping the second comment of
+        --
+        --     a ++ b {- c
+        --              second -} {- t -}
+        --
+        -- to its own row below the chain — where the reparse, seeing a comment
+        -- past the declaration's last token, re-homes it to column 1.
+        chainedRefRow =
+            Array.foldl
+                (\n acc ->
+                    if isCommentNode n && firstRowInSubtree n <= acc then
+                        max acc (lastRowInSubtree n)
+
+                    else
+                        acc
+                )
+                refRow
                 before
 
         prev =
@@ -2696,8 +2725,9 @@ classifyCommentKind containerBox commentNode before after row =
 
     else if isBinopContainer then
         -- Same-row-as-operand trails inline; a later-row comment leads its own
-        -- line at the operator indent (relative to `refRow`, the last operand).
-        if row > refRow then
+        -- line at the operator indent (relative to `chainedRefRow` — the last
+        -- operand, plus any trailing comment run written on from its row).
+        if row > chainedRefRow then
             LeadsOwnLine
 
         else

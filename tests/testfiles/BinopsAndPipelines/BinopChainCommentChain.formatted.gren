@@ -1,0 +1,27 @@
+module BinopChainCommentChain exposing (..)
+
+
+blockOnClosingRow =
+    alpha
+        ++ beta {- first
+                   still first -} {- written beside the closer -}
+
+
+lineOnClosingRow =
+    alpha
+        ++ beta {- first
+                   still first -} -- written beside the closer
+
+
+chainOfThree =
+    alpha
+        ++ beta {- first
+                   still first -} {- second
+                                     still second -} -- last of the run
+
+
+ownRowStaysOwnRow =
+    alpha
+        ++ beta {- first
+                   still first -}
+        {- a row of its own, below the run -} ++ gamma
