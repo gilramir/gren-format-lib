@@ -12,7 +12,7 @@ nothing is going wrong.
 - [A compiler bug with field access on a record-update base](#a-compiler-bug-with-field-access-on-a-record-update-base)
 - [An unparenthesized constructor pattern can't be aliased with `as`](#an-unparenthesized-constructor-pattern-cant-be-aliased-with-as)
 - [A continuation line at the same column as the body above it](#a-continuation-line-at-the-same-column-as-the-body-above-it)
-- [An integer literal minus a right operand on a later row](#an-integer-literal-minus-a-right-operand-on-a-later-row)
+- [A binary `-` whose right operand starts at the operator's own column](#a-binary---whose-right-operand-starts-at-the-operators-own-column)
 - [Wide `when` branch patterns](#wide-when-branch-patterns)
 - [Comment placement near invisible tokens](#comment-placement-near-invisible-tokens)
 - [A line break inside a declaration's head](#a-line-break-inside-a-declarations-head)
@@ -123,33 +123,37 @@ that pins down the real compiler's reading, is in
 `gren-format/parser-same-column-continuation-bug.md`; it was added to
 compiler-common#14 on 2026-08-01.
 
-## An integer literal minus a right operand on a later row
+## A binary `-` whose right operand starts at the operator's own column
 
-`10 -` ⏎ `3` is read by the parser as the **call** `10 (-3)` — the `-` becomes a
-unary negation on the operand below instead of the subtraction operator. The real
-Gren compiler reads it as subtraction (the module below compiles, which a call
-of `10` could not), and elm-format agrees. **Not yet filed upstream.**
+`10 -` ⏎ `        3` is read by the parser as the **call** `10 (-3)` — the `-`
+becomes a unary negation on the operand below instead of the subtraction
+operator. The real Gren compiler reads it as subtraction (a module using it as an
+`Int` compiles, which a call of `10` could not), and elm-format agrees.
+**Not yet filed upstream**; the draft issue is
+`../parser-minus-column-negation-bug.md` (outside the repo).
 
-The trigger is narrow. Only a **decimal integer literal** on the left, only `-`,
-and only with the right operand on a later row:
+The trigger is **the column**, and nothing else: the right operand starting one
+past the `-`, on a later row. `argOrOperatorLoop` decides "no space after the
+operator" by comparing `operator.end.col == pos.col` *after* the whitespace
+parser has run, so it ignores the row. Shifting the operand one column either
+way flips the parse, and no operand kind is safe:
 
 ```gren
-10 - 3          -- ok, one row
-10 -            -- MISPARSED as 10 (-3)
-    3
-10 -            -- MISPARSED, right operand kind does not matter
-    b
-a -             -- ok, left operand is not a literal
-    3
-10 +            -- ok, only `-` has a unary form
-    3
-1.5 -           -- ok, a float literal is fine
-    3
-0x10 -          -- ok, a hex literal is fine
-    3
-fn (10 -        -- ok inside a call's parens
-    3)
+10 -            -- MISPARSED as 10 (-3): `-` ends at col 9, `3` is at col 9
+        3
+10 -            -- ok: `3` is at col 10
+         3
+a -             -- MISPARSED: `-` ends at col 8, `b` is at col 8
+       b
+a -             -- ok: `b` is at col 9
+        b
+1.5 -           -- MISPARSED at the matching column; so are 0x10, (a), fn a
+         3
+10 +            -- ok at any column: only `-` has a unary form
+        3
 ```
+
+A blank line between the two rows makes no difference.
 
 A comment is not needed to trigger it, but a comment is how it shows up: with
 one written after the operator the misparse becomes visible in the output.

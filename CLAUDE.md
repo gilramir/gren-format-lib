@@ -218,17 +218,28 @@ Fixture `BinopChainCommentChain`, which pins the boundary too: a comment on a
 genuinely later row still keeps its own row at the operator indent.
 
 **The next group down — 11 probes, `commentBreaksFlowRow` + `forceVertical`,
-every one a `--` — is not a formatter bug at all.** It is a parser one:
-`10 -` ⏎ `3` is read as the call `10 (-3)`, so a `--` written after that `-`
-renders inside the negation and comes out as `---`, swallowing the operator. The
-real compiler and elm-format both read subtraction; the trigger needs a decimal
-**integer literal** on the left and the right operand on a later row (`a -`,
-`1.5 -`, `0x10 -` and `10 +` are all fine). Nothing is fixable here — a comment
-between `-` and its operand does not parse in a *genuine* negation, so that tree
-can only arrive through the misparse — and gren-format's AST check already
-refuses to write the file. Written up in
-[`docs/knownLimitations.md`](docs/knownLimitations.md#an-integer-literal-minus-a-right-operand-on-a-later-row);
+every one a `--` — is not a formatter bug at all.** It is a parser one: a binary
+`-` whose right operand starts on a later row **at the operator's own column** is
+read as a negation, so `10 -` ⏎ `        3` parses as the call `10 (-3)`, and a
+`--` written after that `-` renders inside the negation and comes out as `---`,
+swallowing the operator. `argOrOperatorLoop` tests `operator.end.col == pos.col`
+*after* running the whitespace parser, so it ignores the row; shifting the
+operand one column either way flips the parse and no operand kind is safe (only
+`-` is affected — it is the sole operator with a unary form). The real compiler
+and elm-format both read subtraction. Nothing is fixable here — a comment between
+`-` and its operand does not parse in a *genuine* negation, so that tree can only
+arrive through the misparse — and gren-format's AST check already refuses to
+write the file. Written up in
+[`docs/knownLimitations.md`](docs/knownLimitations.md#a-binary---whose-right-operand-starts-at-the-operators-own-column);
 **not yet filed upstream**. Treat the residual as 80 with 11 attributed.
+
+**The first characterisation of it was wrong, and reading the parser is what
+corrected it.** Three repros, then a grid over operand *kinds*, said "only a
+decimal integer literal on the left" — `1.5 -`, `0x10 -` and `a -` all looked
+safe. They were only landing at different columns. Ten minutes in
+`Compiler/Parse/Expression.gren` produced the real rule and a one-line fix to
+propose. **For a suspected parser bug, go read the parser** — a black-box grid
+over the wrong variable reads like a characterisation and is not one.
 
 **The first attempt was the opposite fix and a fixture said so.** Reading the
 probe as "the run's tail renders below the declaration, so detach it to column
