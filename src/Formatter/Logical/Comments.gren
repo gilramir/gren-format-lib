@@ -244,7 +244,7 @@ detachOwnLineTrailer : LPNode -> Array LPNode
 detachOwnLineTrailer child =
     when lpnBox child is
         OriginalRows rowInfo ->
-            if isDeclStype rowInfo.stype then
+            if hostsOwnLineTrailer rowInfo.stype then
                 let
                     peeled =
                         peelOwnLineTrailingRun child
@@ -375,6 +375,33 @@ runRendersBelowDeclaration node =
                 _ ->
                     False
            )
+
+
+{-| Which `OriginalRows` kinds `detachOwnLineTrailer` applies to.
+
+`isDeclStype` is the wrong question here, and deliberately so: it also decides
+which nodes a *leading* comment may glue onto and which count as covering a row
+(`coveredByOtherDecl`), and the module header answers those two differently — it
+has no keyword column a leading comment can pair with, and it is not a
+declaration a later comment can trail into.
+
+But for a comment written past the header's last token it behaves exactly like
+any other top-level node: an effect module's `where { … }` block makes the
+header multi-line, so a trailing multi-line `{- … -}` finds no glue row,
+classifies `LeadsOwnLine`, and renders on a fresh row *underneath* the header —
+which the reparse then re-homes to a column-1 `Standalone`, the same
+disagreement `detachOwnLineTrailer` exists to remove. elm-format detaches this
+one too (it detaches a trailing block comment after a *one-row* header as well,
+where gren still glues — a separate, stable divergence this does not touch).
+-}
+hostsOwnLineTrailer : SyntaxType -> Bool
+hostsOwnLineTrailer st =
+    when st is
+        StModule ->
+            True
+
+        _ ->
+            isDeclStype st
 
 
 {-| Whether the trailing-run peel may look inside this container for the run's

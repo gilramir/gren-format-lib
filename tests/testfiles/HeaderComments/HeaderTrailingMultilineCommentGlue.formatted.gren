@@ -1,0 +1,9 @@
+module HeaderTrailingMultilineCommentGlue exposing (..) {- a one-row header
+                                                           still glues its trailing comment -}
+
+import Task
+
+
+mapTask : (a -> b) -> Task.Task x a -> Task.Task x b
+mapTask f task =
+    Task.map f task

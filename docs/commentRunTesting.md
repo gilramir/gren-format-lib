@@ -286,13 +286,51 @@ is the shape elm-format produces.
 
 ### The residual, and why this gate ships red
 
-As of 2026-08-04 the corpus sweep stands at **148 findings — 0 regressions, all
-pre-existing**: 97 multi-line block, 51 `--`, 0 single-line block. (424 → 347
+As of 2026-08-04 the corpus sweep stands at **118 findings — 0 regressions, all
+pre-existing**: 67 multi-line block, 51 `--`, 0 single-line block. (424 → 347
 when `45f7269` took 77 at once; 347 → 172 when the decision-stability histogram
 below named the largest family and it turned out to be one rule, missing;
-172 → 140 when `f7c0c54` took the *next* family — see below — and 140 → 148
-because the two fixtures pinning that fix expose eight probes of a pre-existing
-class.) Every one was attributed against the previous build; none is new.
+172 → 140 when `f7c0c54` took the *next* family — see below; 140 → 148 because
+the two fixtures pinning that fix expose eight probes of a pre-existing class;
+and 148 → 118 when the recomputed histogram's largest family turned out to be
+the module header — see below.) Every one was attributed against the previous
+build; none is new.
+
+**The third family: 148 → 118.** Recomputing the histogram put 43 of the 148 in
+one place: an effect module's header. They spanned the top two entries (34 of
+the 45 `Comment.role` + `endsItsLine` + `textCanRide`, 9 of the 38 `Comment.role`
+alone), which is why the *fixture* clustering found them and the decision
+clustering did not — one shape can reach two roles, as the second family also
+showed.
+
+An effect module's `where { … }` block makes the header multi-row, so a
+multi-line `{- … -}` written past its last token finds no glue row, classifies
+`LeadsOwnLine`, and renders on a fresh row underneath — the exact shape
+`detachOwnLineTrailer` was built for in the first family, applied to a node it
+never saw. Its gate was `isDeclStype`, which excludes `StModule` **and is right
+to**: that predicate also decides which nodes a *leading* comment may glue onto
+and which count as covering a row, and the header answers both of those
+differently. The trailer question is a third question, so it gets its own
+predicate (`hostsOwnLineTrailer`). 30 probes fixed, 0 new, `--` unchanged at 51
+— the same evidence of scoping the previous two families used.
+
+The boundary is worth stating because it is not "a trailing comment on a
+header": a **one-row** header still glues its trailing multi-line comment, since
+nothing renders below it. elm-format detaches both, so gren's one-row glue is a
+divergence — an existing, stable one this change deliberately leaves alone.
+Fixtures `EffectHeaderTrailingMultilineComment` and, for the boundary,
+`HeaderTrailingMultilineCommentGlue`.
+
+**What is left of that family: 13 probes**, and they are a different mechanism
+rather than a remainder of this one. In each, the *injected* comment changes how
+many rows the header occupies, and an **existing** header comment then changes
+role between the two passes — a `--` or a single-line `{- c3 -}` that glued to
+`} exposing (..)` when the header was one row moves off it when the header is
+several. That is a placement still derived from source rows — the class the
+render-invariant check exists to keep out of `Render/*`, met on the logical
+side. The `--` half is also inside `runRendersBelowDeclaration`'s deliberate
+exclusion, so it needs its own fixtures and its own decision rather than a
+widening of this one.
 
 **The second family: 172 → 140.** The histogram's next entry (67 probes,
 `Comment.role` + `endsItsLine` + `textCanRide`) reproduced as a multi-line
@@ -641,20 +679,25 @@ makes the mistake cheap to find, but not making it is better.
 ## Order of work
 
 1. ~~per-gap pass sweeps all three comment kinds~~ *(done 2026-08-03)*
-2. **work the residual (148 as of 2026-08-04) down to zero**, then wire the pass
+2. **work the residual (118 as of 2026-08-04) down to zero**, then wire the pass
    into `run-tests.sh`. Until then it is a hand-run gate with a known baseline.
    (It was ~420 until `45f7269`, which took 77 of them at once: `VerticalSpace`
    inserted a blank line and then asked a *source-row* question about the gap it
    had just created. Worth knowing before picking off the rest one at a time —
-   the residual is not 148 separate bugs.) **Step 5 below says how many it
+   the residual is not 118 separate bugs.) **Step 5 below says how many it
    is**: the first family (238 probes) was a comment changing which declaration
    owns it, `LeadsOwnLine` under one becoming `Standalone` above the next, which
    is `45f7269`'s class again (`43a9cd9`, 347 → 172); the second (67 probes)
    was the same *placement* reached with the `TrailsPrevious` role, via a
    pipeline step stacking a trailing comment as though it were an argument
-   (`f7c0c54`, 172 → 140). **Both families were one rule each.** Re-run
-   `./check-decision-stability.py -j 12 --gaps -v` for the current histogram
-   before picking the next.
+   (`f7c0c54`, 172 → 140); the third (43 probes) was that same first shape again,
+   on the one top-level node `detachOwnLineTrailer`'s gate excluded — the module
+   header (148 → 118). **All three families were one rule each, and two of the
+   three were the *same* rule asked of a node or a role it had not been asked
+   of.** Re-run `./check-decision-stability.py -j 12 --gaps -v` for the current
+   histogram before picking the next — and group its probes by **fixture** as
+   well as by decision set, which is how the third family was spotted: it
+   straddled the top two decision groups and was invisible in either alone.
 3. ~~declaration contexts in `matrix-syntax.py`~~ *(done 2026-08-03: 11 type
    constructs × 15 declaration contexts, +341 syntax cells, +4,930 comment
    cells)*. This was the n=1 base case, and nothing above it meant much until it

@@ -155,8 +155,29 @@ check; `gen-random.py`'s comment-multiset oracle is the gate for that class and
 this shape was outside its grammar. **Adding a comment-bearing fixture is itself
 a probe** — the two fixtures for these commits added eight findings of a
 *pre-existing* class (a multi-line comment glued to a lambda body's last token
-changes column between formats), which is why the corpus sweep reads 148 rather
+changes column between formats), which is why the corpus sweep read 148 rather
 than 140.
+
+**The third family (43 probes) was the FIRST rule again, on the one top-level
+node its gate excluded** — the module header. An effect module's `where { … }`
+block makes the header multi-row, so a multi-line `{- … -}` past its last token
+renders below it and the reparse re-homes it to column 1, exactly as above.
+`detachOwnLineTrailer` was gated on `isDeclStype`, which excludes `StModule` and
+is **right to**: that same predicate decides which nodes a *leading* comment may
+glue onto and which count as covering a row, and the header answers both
+differently. The trailer question is a third question and now has its own
+predicate, `hostsOwnLineTrailer`. **148 → 118**, 30 fixed and 0 new, `--` again
+unchanged at 51. A **one-row** header still glues its trailing comment (nothing
+renders below it) — elm-format detaches that one too, a stable divergence left
+alone and pinned by `HeaderTrailingMultilineCommentGlue` beside the fix's own
+`EffectHeaderTrailingMultilineComment`.
+
+**Group the histogram's probes by fixture as well as by decision set.** This
+family straddled the top two decision groups — 34 probes in `Comment.role` +
+`endsItsLine` + `textCanRide`, 9 in `Comment.role` alone — so neither group
+looked like one shape, and it was the *fixture* names that gave it away: 43 of
+the 148 sat in files with `Effect` in the name. One shape reaching two roles is
+not the exception here; the second family was the same story.
 
 Three things shape the output, and each was a wrong first design corrected by
 running it:
