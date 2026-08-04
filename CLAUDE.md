@@ -126,6 +126,16 @@ cd gren-format-lib/tests
 the two gates cannot drift onto different gaps; it reuses that gate's all-gaps
 fast path too, which matters more here because `--decisions` formats twice.
 
+**It paid for itself the same day.** Its first whole-corpus run landed on exactly
+the same 347 probes `fuzz-idempotency.py --gaps` reports and named 320 of them,
+in about five families. The largest — 238 probes, `Comment.role` +
+`Comment.endsItsLine` + `Comment.textCanRide` moving together — turned out to be
+one shape: a multi-line `{- … -}` past a declaration's last token, which renders
+*below* the declaration and is therefore re-homed to column 1 on reparse.
+`Comments.gren` already stated that rule and already implemented it from source
+rows; asking it of the finished tree instead (`detachOwnLineTrailer`) took
+**fuzz-idempotency 347 → 172**.
+
 Three things shape the output, and each was a wrong first design corrected by
 running it:
 

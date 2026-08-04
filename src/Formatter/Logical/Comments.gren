@@ -55,10 +55,14 @@ its own line one row down and re-attaches at the *enclosing* level — so the
 indent oscillates, or drifts left to column 1 over several formats. The two
 layers below cure it in different ways:
 
-- **Top level** (`findOrCreateOrigRow`): an own-line comment below a top-level
-  declaration is **never** attached to it — it always detaches to a fresh
-  column-1 `OriginalRows`. This is what elm-format does, and column 1 is
-  trivially a fixed point (it cannot drift). `VerticalSpace` then separates the
+- **Top level** (`findOrCreateOrigRow`, plus `detachOwnLineTrailer`): an own-line
+  comment below a top-level declaration is **never** attached to it — it always
+  detaches to a fresh column-1 `OriginalRows`. This is what elm-format does, and
+  column 1 is trivially a fixed point (it cannot drift). `findOrCreateOrigRow`
+  answers that from the comment's source row, which misses a comment written ON
+  the declaration's last row that nonetheless *renders* below it — a multi-line
+  `{- … -}` with no glue row. `detachOwnLineTrailer` is the same rule asked of
+  the finished tree, and it runs last for that reason. `VerticalSpace` then separates the
   detached comment from a *following* declaration with a blank line, using the
   comment's original column to tell a detached-trailing comment (indented, so it
   belonged to the construct above) from a genuine column-1 leading comment of
@@ -122,6 +126,7 @@ import Formatter.Logical.LogicalPrintingTree exposing
     , LPNode(..)
     , ListBrackets(..)
     , SyntaxType(..)
+    , commentRole
     , firstRowInSubtree
     , gluesTrailingComment
     , lastRowInSubtree
@@ -194,7 +199,239 @@ lptAddComments ctx root =
                 |> Builder.append final.rest
                 |> Builder.toArray
     in
-    lpnReplaceChildren root finalChildren
+    lpnReplaceChildren root (Array.mapAndFlatten detachOwnLineTrailer finalChildren)
+
+
+{-| The top-level trailing-comment boundary rule, asked of the TREE instead of
+of the source rows.
+
+`findOrCreateOrigRow` already refuses to attach a comment written on a row
+*below* a declaration: it detaches to a fresh column-1 `OriginalRows`, which is
+what elm-format does and is trivially a fixed point. A comment written on the
+declaration's LAST row escapes that check — its row is inside the declaration's
+range — and yet it can still end up rendering below the declaration. A
+multi-line `{- … -}` that finds no glue row classifies `LeadsOwnLine`, which
+renders on a fresh line under the last token:
+
+    v =                       first format:        and then, for ever:
+        fn a b {- c           v =                  v =
+       second -}                 fn a b                fn a b
+                                 {- c             {- c
+                                    second -}        second -}
+
+The reparse then sees exactly the shape `findOrCreateOrigRow` refuses, detaches
+it to column 1, and the two formats disagree. Same class as `45f7269`: a
+placement decided from a source row that this pass itself is about to invalidate.
+
+So once every comment is placed, lift any trailing comment run that renders
+own-line into the same column-1 `OriginalRows` the reparse would give it — the
+first format builds the tree the second one would.
+
+**Scoped to a run that renders own-line**, i.e. whose first member is
+`LeadsOwnLine`. A trailing comment that GLUES (`TrailsPrevious` / `RidesInline`)
+stays on the declaration's last row, is already a fixed point, and belongs to
+the code it was written next to (C1) — `[ 1` ⏎ `, 2` ⏎ `] {- c` ⏎ `second -}`
+keeps its comment on the `]` row. elm-format detaches that one too, and the
+broader rule "any multi-line comment past the last token detaches" would gain
+that parity; it is deliberately not taken here, because it would change shapes
+that are not broken. Only the ones that render below the declaration are.
+
+The whole run moves together (C1 run cohesion) and only the first member becomes
+`Standalone`; a `-- c` glued behind it keeps `TrailsPrevious`, which is the tree
+the reparse produces.
+-}
+detachOwnLineTrailer : LPNode -> Array LPNode
+detachOwnLineTrailer child =
+    when lpnBox child is
+        OriginalRows rowInfo ->
+            if isDeclStype rowInfo.stype then
+                let
+                    peeled =
+                        peelOwnLineTrailingRun child
+                in
+                when Array.popFirst peeled.run is
+                    Just { first = leadComment, rest = restOfRun } ->
+                        if not (runRendersBelowDeclaration leadComment) then
+                            [ child ]
+
+                        else
+                        let
+                            runNodes =
+                                Array.pushFirst (lpnSetCommentRole Standalone leadComment) restOfRun
+
+                            runFirstRow =
+                                firstRowInSubtree leadComment
+
+                            runLastRow =
+                                Array.foldl (\n acc -> max acc (lastRowInSubtree n)) runFirstRow runNodes
+
+                            trimmedDecl =
+                                lpnNode
+                                    (OriginalRows { rowInfo | last = lastRowInSubtree peeled.node })
+                                    (lpnChildren peeled.node)
+                        in
+                        [ trimmedDecl
+                        , lpnNode
+                            (OriginalRows
+                                { first = runFirstRow
+                                , last = runLastRow
+                                , stype = commentRunStype leadComment
+                                }
+                            )
+                            runNodes
+                        ]
+
+                    Nothing ->
+                        [ child ]
+
+            else
+                [ child ]
+
+        _ ->
+            [ child ]
+
+
+{-| The maximal suffix of comment nodes that has no code after it anywhere in
+the subtree, removed from the node.
+
+Descends through the last non-comment child, because that is where the previous
+level's run continues: the order on the page is *code, inner run, outer
+trailers*, so the inner run is appended before this level's own trailing
+comments.
+
+A container whose children are **all** comments is left alone (`front` empty),
+rather than emptied — an empty `BodyBlock` is not a declaration body, and no
+shape that reaches here needs it. -}
+peelOwnLineTrailingRun : LPNode -> { node : LPNode, run : Array LPNode }
+peelOwnLineTrailingRun node =
+    let
+        children =
+            lpnChildren node
+
+        split =
+            Array.foldr
+                (\c acc ->
+                    if acc.stillTrailing && isCommentNode c then
+                        { acc | trailing = Array.pushFirst c acc.trailing }
+
+                    else
+                        { stillTrailing = False, front = Array.pushFirst c acc.front, trailing = acc.trailing }
+                )
+                { stillTrailing = True, front = [], trailing = [] }
+                children
+    in
+    when Array.popLast split.front is
+        Nothing ->
+            { node = node, run = [] }
+
+        Just { last = lastCode, initial = front } ->
+            let
+                inner =
+                    if descendsForTrailingRun (lpnBox lastCode) then
+                        peelOwnLineTrailingRun lastCode
+
+                    else
+                        { node = lastCode, run = [] }
+
+                run =
+                    inner.run ++ split.trailing
+            in
+            if Array.isEmpty run then
+                { node = node, run = [] }
+
+            else
+                { node = lpnReplaceChildren node (Array.pushLast inner.node front)
+                , run = run
+                }
+
+
+{-| Whether this run leader is one that renders on a fresh row *below* the
+declaration's last token — the only case the lift is for.
+
+Two conditions, and both are needed:
+
+  - `LeadsOwnLine`. A run that glues (`TrailsPrevious` / `RidesInline`) stays on
+    the declaration's last row, is already a fixed point, and belongs to the
+    code it was written next to.
+  - **the comment brings its own rows** — a `{- … -}` written across more than
+    one row. `LeadsOwnLine` alone is not "renders own-line": the render layer
+    keeps a *single-line* block comment inline regardless of the role, which is
+    why `[ 1 ] {- one -} {- two -}` stays on its row, and why lifting on the
+    role alone broke nine fixtures including that one.
+
+A `--` is deliberately **not** included even though it also ends its row.
+Several fixtures pin an own-line `--` staying at the construct's indent below a
+wrapped import and below a pipeline's last step; whether those shapes should
+detach is a separate question with its own fixtures, not a free rider on this
+one. -}
+runRendersBelowDeclaration : LPNode -> Bool
+runRendersBelowDeclaration node =
+    commentRole (lpnBox node)
+        == Just LeadsOwnLine
+        && (when lpnBox node is
+                BlockComment c ->
+                    String.contains "\n" c.loc.value
+
+                _ ->
+                    False
+           )
+
+
+{-| Whether the trailing-run peel may look inside this container for the run's
+earlier members.
+
+Only a **flow wrapper** — one that renders its children and nothing after them.
+A container that renders a closing delimiter (`}` `]` `)`) does not qualify: the
+delimiter is not a node, so its last child having no node after it does not mean
+it has no *token* after it. `{ rec | fld = x -- c` ⏎ `}` is the shape — the `--`
+is the record update's last child and the `}` still follows it, so it is not a
+declaration trailer and must not be lifted out. (This is the same stand-in-token
+trap `docs/commentRunTesting.md` records for `commentSplitsType`, met from the
+other side; ignoring it here made the fix a no-op on its own reproducer, since
+the `--` joined the run and its `TrailsPrevious` role vetoed the lift.)
+
+Anything not listed stops the descent. That is the safe default: a missed lift
+leaves an existing non-idempotency in place, where a wrong one would move a
+comment that has a rendered token after it. -}
+descendsForTrailingRun : LPBox -> Bool
+descendsForTrailingRun box =
+    when box is
+        BodyBlock ->
+            True
+
+        IndentedBlock ->
+            True
+
+        SoftIndentedBlock ->
+            True
+
+        AcrossOrVertical _ ->
+            True
+
+        Binop _ ->
+            True
+
+        OpAndRhs ->
+            True
+
+        Pipeline _ ->
+            True
+
+        PipelineStep ->
+            True
+
+        _ ->
+            False
+
+
+commentRunStype : LPNode -> SyntaxType
+commentRunStype node =
+    when lpnBox node is
+        SingleLineComment _ ->
+            StSingleLineComment
+
+        _ ->
+            StBlockComment
 
 
 addOneComment : Located Ctx.Comment -> CommentState -> CommentState

@@ -232,7 +232,7 @@ more here because `--decisions` formats twice.
 
 ### What the first run found
 
-Of those 347, **320 are named by an author-intent flip**, 7 by a rendered shape
+Of those 347, **320 were named by an author-intent flip**, 7 by a rendered shape
 alone, and **20 are unexplained**. They group, which is the whole point:
 
 | probes | the decisions that moved |
@@ -255,6 +255,15 @@ can only move if the comment changed **which declaration owns it**. So the
 staying put and changing role. Read on a probe, the big family is a comment
 going `LeadsOwnLine` under one declaration to `Standalone` above the next —
 which is the detached-comment class `45f7269` already took 77 findings out of.
+
+**The instrument paid for itself the same day.** The 238-probe family was one
+shape — a multi-line `{- … -}` written past a declaration's last token, which
+renders below the declaration and so is re-homed to column 1 on reparse. The
+rule that fixes it was already written down in `Comments.gren`'s module doc and
+already implemented from source rows (`findOrCreateOrigRow`); asking the same
+question of the finished tree (`detachOwnLineTrailer`) took
+**fuzz-idempotency 347 → 172**. Write-up in
+[`commentRunTesting.md`](commentRunTesting.md).
 
 ### Where the code lives
 

@@ -1,0 +1,55 @@
+module Declarations.DeclTrailingMultilineComment exposing (..)
+
+
+-- A multi-line {- -} written past a declaration's last token renders on its own
+-- row BELOW that token, so it is not inside the declaration any more. It
+-- detaches to column 1 -- the same place the reparse puts it, and the same
+-- place elm-format puts it.
+pastRecordUpdate rec lower =
+    { rec | fld = lower } {- detaches
+   because it renders below -}
+
+
+pastPlainCall a b =
+    fn a b {- detaches
+   after a call's last token -}
+
+
+pastArrayLiteral =
+    [ 1, 2 ] {- detaches
+   after a single-row array -}
+
+
+-- The whole run travels together, and only its leader becomes standalone: the
+-- `--` behind it keeps trailing the block comment.
+runTravelsTogether a b =
+    fn a b {- leader
+   spans rows -} -- and this trails the leader
+
+
+-- NOT affected: a single-line {- -} renders inline whatever its role, so it
+-- stays on the declaration's last row.
+singleLineBlockStays rec lower =
+    { rec | fld = lower } {- stays -}
+
+
+-- NOT affected: a `--` glues onto the row it was written on.
+lineCommentStays rec lower =
+    { rec | fld = lower } -- stays
+
+
+-- NOT affected: a comment that GLUES stays with the code it was written next
+-- to. A multi-line bracket's `]` gives this one a row to glue onto, so it never
+-- renders below the declaration.
+gluedToMultilineBracket =
+    [ 1
+    , 2
+    ] {- glues onto the ] row
+   and stays there -}
+
+
+-- NOT affected: a comment INSIDE the braces has the `}` after it, so it is not
+-- a declaration trailer at all.
+insideTheBraces rec lower =
+    { rec | fld = lower {- inside
+   the braces -} }

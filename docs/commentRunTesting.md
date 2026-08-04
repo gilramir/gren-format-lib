@@ -176,7 +176,7 @@ drawn, and it hid a real class of bug for a long time.
 | `fuzz-idempotency.py` decl-end pass | own-line trailing comment, block and line form | more than one comment |
 | `fuzz-whitespace.py` | inter-token whitespace | comments, syntax |
 | `matrix-syntax.py` | every expression form × 25 expression contexts, **and every type form × 15 declaration contexts**, × 4 layout variants | comments |
-| `matrix-syntax.py --comments` | the above × 1 comment × 4 placements | more than one comment |
+| `matrix-syntax.py --comments` | the above × 1 comment × 4 placements | more than one comment, **and the multi-line `{- … -}` kind** — its kinds are the single-line block and the `--` only |
 | `audit-predicates.py` | corpus, predicate vs renderer | nothing new |
 | `check-decision-stability.py` | nothing — it re-probes the two above | it varies no input; it reports the formatter's *reason* for a diff the others found |
 | `gen-random.py` | structure **and** comments, randomly | — (the only gate that generates runs at all, and it has no parity oracle) |
@@ -286,9 +286,10 @@ is the shape elm-format produces.
 
 ### The residual, and why this gate ships red
 
-As of 2026-08-03 the corpus sweep stands at **347 findings — 0 regressions, all
-pre-existing**: 296 multi-line block, 51 `--`, 0 single-line block. (It was 424,
-in the proportions 298 / 126 / 0, until `45f7269` took 77 of them at once.) Every
+As of 2026-08-03 the corpus sweep stands at **172 findings — 0 regressions, all
+pre-existing**: 121 multi-line block, 51 `--`, 0 single-line block. (424 → 347
+when `45f7269` took 77 at once; 347 → 172 when the decision-stability histogram
+below named the largest family and it turned out to be one rule, missing.) Every
 one was attributed against the previous build; none is new.
 
 The figure moves when the *corpus* grows, not only when behaviour does — the
@@ -476,6 +477,56 @@ already took 77 findings out of.
 **So the residual is not 347 problems; on this evidence it is about five**, and
 the largest is already a named, half-fixed one. That is what the instrument was
 for.
+
+#### What the 238 turned out to be — 347 → 172
+
+Read on the probes rather than guessed at, the family is one shape: **a
+multi-line `{- … -}` written past a declaration's last token.** It finds no glue
+row, so it classifies `LeadsOwnLine` and renders on a fresh line *under* the
+declaration — and a row below the declaration is not inside it, so the reparse
+re-homes it to a column-1 `Standalone`.
+
+The rule that fixes it was **already written down**: `Comments.gren`'s own module
+doc says an own-line comment below a top-level declaration is never attached to
+it, always detaching to column 1, "which is what elm-format does, and column 1 is
+trivially a fixed point". `findOrCreateOrigRow` implements it — from the
+comment's **source row**, which for this shape is still the declaration's last
+row. `detachOwnLineTrailer` asks the same question of the finished tree instead,
+lifting a trailing comment run that renders own-line. Same lesson as `45f7269`
+and `aa377fd` before it: a placement decided from a source row that the pass is
+about to invalidate.
+
+Three things had to be got right, and the first two attempts got them wrong:
+
+- **`LeadsOwnLine` is not "renders own-line".** The render layer keeps a
+  *single-line* `{- c -}` inline whatever its role, so lifting on the role alone
+  moved `[ 1 ] {- one -} {- two -}` off its row — **nine fixtures**, caught by
+  `run-tests.sh` before anything else ran.
+- **A bracket's close is a token that is not a node.** The peel descended into a
+  record update and swallowed the `-- inclusive` written *inside* the braces,
+  whose `}` still follows it; that comment's `TrailsPrevious` role then vetoed
+  the lift and the fix was a no-op on its own reproducer. The descent is now an
+  allowlist of flow wrappers, defaulting to "stop" — the safe direction, since a
+  missed lift leaves an existing finding rather than moving a comment wrongly.
+  This is the stand-in-token trap recorded above for `commentSplitsType`, met
+  from the other side.
+- **A `--` is deliberately excluded**, though it also ends its row. Fixtures pin
+  an own-line `--` staying at the construct's indent below a wrapped import and
+  below a pipeline's last step; whether those should detach is its own question.
+  The `--` count moved **51 → 51**, which is the evidence that the scoping held.
+
+Result: **fuzz-idempotency 347 → 172** (multi 296 → 121, `--` 51 → 51, block 0 →
+0), 336 fixtures pass, and the comment axis, both whitespace modes, the predicate
+audit, the syntax matrix and the corpus decision gate are all unmoved. Fixture
+`Declarations/DeclTrailingMultilineComment`, which pins the four shapes that move
+and the four that must not.
+
+One honest note on the comment axis's silence here: it injects only the
+single-line `{- c -}` and the `--`, never a multi-line block, so it **cannot see
+this change at all**. Its 0-failing / 20,111-identical result is evidence of no
+regression and no evidence of the fix. That is the same one-kind-per-gap hole
+this document records the per-gap fuzzer having had until 2026-08-03 — still open
+on this axis.
 
 The 20 unexplained and the 7 shape-only are the gate's own debt, printed on
 every run. They come down by adding a decision to `DecisionTrace` under its

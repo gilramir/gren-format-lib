@@ -597,6 +597,7 @@ declarationSuite fsPerm =
             , assertPrettyIn fsPerm "Declarations" "empty record type `{}` in a type alias and a signature" "EmptyRecordType"
             , assertPrettyIn fsPerm "Declarations" "empty-bodied doc comment `{-| -}`" "EmptyDocComment"
             , assertPrettyIn fsPerm "Declarations" "a comment-bearing signature takes its shape from the rendered box, not a predicate" "SignatureCommentRecordType"
+            , assertPrettyIn fsPerm "Declarations" "a multi-line `{- -}` past a declaration's last token renders below it, so it detaches to column 1 like the reparse and elm-format do; a glued or single-line one stays put" "DeclTrailingMultilineComment"
             ]
         }
 
