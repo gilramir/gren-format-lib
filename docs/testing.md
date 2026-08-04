@@ -159,6 +159,114 @@ gap no existing fixture exercised.
   `run-tests.sh` since it walks every gap in the corpus and is much slower
   than the fixture suite.
 
+## Decision-stability gate (`check-decision-stability.py`)
+
+### What it guards against
+
+Self-consistency, like the fuzzer above — but it answers a different question
+about the same failure. The idempotency fuzzer says *whether* a format is a
+fixed point and hands back a byte diff. It cannot say **which decision** was
+not, and that is the expensive part: with a non-zero residual of known
+non-idempotent probes, every finding's culprit has to be traced by hand, and two
+findings with the same cause look no more alike than two with different ones.
+
+This gate asks the formatter directly, so findings that share a cause share a
+name and the work-list becomes a histogram.
+
+### What it checks
+
+`--decisions` formats a file twice and reports which layout *decisions* differed
+between the passes: `forceVertical` on a call, a comment's `CommentRole`,
+`commentBreaksFlowRow`, whether a rendered child came back on one line. The
+decisions carry **no positions** — a row is exactly what moves between two
+formats, so a decision keyed on one would report every finding and explain none.
+
+Three things shape what is reported, and each replaced a wrong first attempt:
+
+- **Flips are confined to declarations whose rendered output moved.** Formatting
+  a file that is not already canonical legitimately changes many decisions: the
+  second pass reads the first pass's tidied rows, not the author's. Comparing
+  the raw traces is therefore mostly the formatter *converging*.
+  `Formatter.Render.renderRootChildren` exists so a declaration's two renderings
+  can be compared; `convergedFlips` counts what the restriction throws away.
+- **Flips are split into author-intent decisions and rendered-shape
+  measurements** (`*.rendersOneLine`). Once a declaration reflows, every shape
+  inside it has moved too — nine of the ten names in a finding are the reflow
+  being observed rather than its cause. Probes are grouped by the *intent* set.
+- **A "silent flip" check (a decision moved, the bytes did not) was tried and
+  dropped as vacuous.** Over the corpus the input already *is* the output, so
+  both traces come from identical text and nothing can differ. That is exactly
+  the trap [`commentRunTesting.md`](commentRunTesting.md) names: when the two
+  formats agree, an output-shaped comparison collapses back into the idempotency
+  check we already have.
+
+Two counters are the gate's own debt, printed every run: a probe whose bytes
+moved with **no** flip at all (`UNEXPLAINED`), and one explained only by a
+rendered shape. They come down by adding a decision to
+`Formatter.Audit.DecisionTrace`, under that module's stated rule — **trace an
+input, never a composite**. A traced value is either a flag read straight off
+the LPT or the result of calling the renderer's own exported predicate with the
+node's own children. Nothing here recomputes a formula that lives in
+`MakeRenderBox`; that would be a mirror predicate, and mirror predicates are
+what this codebase spent a refactor deleting.
+
+### How to run it
+
+```bash
+cd gren-format-lib/tests
+./check-decision-stability.py -j 12          # the corpus as written — the gate proper, green
+./check-decision-stability.py -j 12 --gaps   # a comment in every gap — the instrument, red
+./check-decision-stability.py --gaps --kind line -v testfiles/<SuiteDir>/Foo.formatted.gren
+```
+
+**Rebuild the app first** — it shells out to it. The plain mode is a real gate
+and passes over all 325 fixtures. The `--gaps` mode inherits
+`fuzz-idempotency.py`'s known-red residual, so its exit status says nothing new;
+its value is the histogram.
+
+Its probes are `fuzz-idempotency.py`'s, imported from that file by path rather
+than copied, so the two gates cannot drift onto different gaps — and the first
+whole-corpus run confirmed it, landing on **exactly the same 347 probes** that
+gate reports. It reuses the all-gaps fast path from there too, which matters
+more here because `--decisions` formats twice.
+
+### What the first run found
+
+Of those 347, **320 are named by an author-intent flip**, 7 by a rendered shape
+alone, and **20 are unexplained**. They group, which is the whole point:
+
+| probes | the decisions that moved |
+|---|---|
+| 238 | `Comment.role` + `Comment.endsItsLine` + `Comment.textCanRide` |
+| 47 | `Comment.role` alone |
+| 24 | `AcrossOrVertical.forceVertical` (+ `commentBreaksFlowRow`, `checkContentVertical`) |
+| 12 | `BracketContainer.literalCommentsRideFlatLine` |
+| ~6 | `Pipeline` / `Binop` / `IfCondition` `forceVertical` |
+
+The single sharpest line is which way the branches moved:
+`Comment.role=LeadsOwnLine` was **lost 246 times** and
+`Comment.role=Standalone` **gained 268** — one transition accounting for most of
+the residual.
+
+The two comment families are distinguishable because `endsItsLine` and
+`textCanRide` are functions of the comment's *text*, which cannot change: they
+can only move if the comment changed **which declaration owns it**. So the
+238-probe family is a comment relocating between declarations, and the 47 is one
+staying put and changing role. Read on a probe, the big family is a comment
+going `LeadsOwnLine` under one declaration to `Standalone` above the next —
+which is the detached-comment class `45f7269` already took 77 findings out of.
+
+### Where the code lives
+
+- **`src/Formatter/Audit/DecisionTrace.gren`** — the trace and the diff. Its
+  module doc carries the rule about what may honestly be traced.
+- **`src/Formatter/Render.gren`** — `renderRootChildren`, the per-declaration
+  render the confinement needs. `makePrettyResult` is these joined with newlines.
+- **`gren-format/src/Format.gren`** — `decisionsFile` / `decisionStabilityReport`:
+  the same two passes `verifyReparse` runs, keeping both trees and leaving the
+  AST comparison out (this flag is aimed at files that are *not* fixed points).
+- **`tests/check-decision-stability.py`** — the driver and the histogram.
+
 ## Whitespace-canonicalization fuzzer (`fuzz-whitespace.py`)
 
 ### What it guards against

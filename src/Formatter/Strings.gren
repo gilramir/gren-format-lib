@@ -1,6 +1,6 @@
 module Formatter.Strings exposing
-    ( countNewlines
-    , joinResultStrings
+    ( collectResults
+    , countNewlines
     )
 
 
@@ -23,20 +23,25 @@ countNewlines string =
 
 
 {-
-   Finds the first Err (matching the left-to-right short-circuit order a
-   sequential Result.andThen fold would give), if any; otherwise joins every
-   Ok string with the separator.
+   Turns an array of Results into a Result of an array: the first Err
+   (left-to-right, matching the short-circuit order a sequential
+   `Result.andThen` fold would give), or every Ok value in order.
 
-   This used to fold with `Array.pushLast str strings` to build up the
-   collected-so-far array. `Array.pushLast` is O(n) per call (it's
-   `Array.toSpliced` under the hood, a full-array copy), so accumulating one
-   element at a time made this O(n^2) on a file with many top-level
-   declarations — this runs once per RootBox child, joining the whole
-   formatted output back together. `Array.map`/`Array.findFirst` are each a
-   single native O(n) pass.
+   Two whole-array passes rather than a fold that accumulates with
+   `Array.pushLast`. `Array.pushLast` is O(n) per call (it's `Array.toSpliced`
+   under the hood, a full-array copy), so building the result one element at a
+   time is O(n^2) on a file with many top-level declarations — and this runs
+   once per RootBox child. `Array.map` / `Array.findFirst` are each a single
+   native O(n) pass.
+
+   This replaced `joinResultStrings`, which collected exactly this way and then
+   joined the strings. Separating the collect from the join is what lets
+   `Formatter.Render.renderRootChildren` hand the rendered declarations out
+   individually, which the decision-stability audit needs; `makePrettyResult` is
+   now this followed by a `String.join`.
 -}
-joinResultStrings : String -> Array (Result String String) -> Result String String
-joinResultStrings sep array =
+collectResults : Array (Result e a) -> Result e (Array a)
+collectResults array =
     let
         isErr item =
             when item is
@@ -51,13 +56,15 @@ joinResultStrings sep array =
             Err e
 
         _ ->
-            array
-                |> Array.map (\item -> when item is
-                    Ok s ->
-                        s
+            Ok
+                (Array.mapAndKeepJust
+                    (\item ->
+                        when item is
+                            Ok value ->
+                                Just value
 
-                    Err _ ->
-                        ""
+                            Err _ ->
+                                Nothing
+                    )
+                    array
                 )
-                |> String.join sep
-                |> Ok

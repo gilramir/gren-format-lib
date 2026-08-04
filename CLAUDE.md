@@ -100,6 +100,63 @@ fuzzers invoke `../../gren-format/gren-format.sh` as a subprocess, so they
 require an up-to-date binary. Run after any change to comment handling, and
 after adding any comment-bearing fixture.
 
+### Decision-stability gate (`check-decision-stability.py`)
+
+The idempotency fuzzer says *whether* a format is a fixed point. It cannot say
+**which decision** was not, and with a residual of hundreds of known
+non-idempotent probes that is the whole cost: a byte diff has to be traced back
+to a culprit by hand, and two findings with the same cause look no more alike
+than two with different ones. This is the instrument that makes them group.
+
+`--decisions` formats a file twice and reports which layout *decisions* differed
+between the passes — `forceVertical` on a call, a comment's `CommentRole`,
+whether a rendered child came back on one line — as named branches with **no
+positions in them** (a row is exactly what moves; a decision keyed on one would
+report every finding and explain none).
+
+```bash
+cd gren-format-lib/tests
+./check-decision-stability.py -j 12            # the corpus as written — the gate proper
+./check-decision-stability.py -j 12 --gaps     # a comment in every gap — the instrument
+./check-decision-stability.py --gaps --kind line -v testfiles/<Dir>/Foo.formatted.gren
+```
+
+**Rebuild the app first** — it shells out to it. The `--gaps` mode imports
+`fuzz-idempotency.py`'s probe definitions by path rather than copying them, so
+the two gates cannot drift onto different gaps; it reuses that gate's all-gaps
+fast path too, which matters more here because `--decisions` formats twice.
+
+Three things shape the output, and each was a wrong first design corrected by
+running it:
+
+- **Flips are confined to declarations whose rendered output moved.** Formatting
+  a non-canonical file legitimately changes many decisions — the second pass
+  reads the first pass's tidied rows, not the author's — so the raw trace diff
+  is mostly the formatter *converging*. `Formatter.Render.renderRootChildren`
+  exists to make this restriction possible: it gives the per-declaration text
+  that `makePrettyResult` joins, so a declaration's two renderings can be
+  compared. `convergedFlips` counts what the restriction discards.
+- **Flips are split into author-intent decisions and rendered-shape
+  measurements** (`*.rendersOneLine`). Once a declaration reflows, every shape
+  inside it moves too; nine of the ten names in a finding are the reflow being
+  observed. Probes are grouped by the *intent* set, which is what shares a cause.
+- **A "silent flip" check was tried and dropped as vacuous.** Over the corpus
+  the input already is the output, so the two traces come from identical text
+  and nothing can differ — exactly the "if the two formats agree the comparison
+  collapses into the idempotency check we already have" trap
+  [`docs/commentRunTesting.md`](docs/commentRunTesting.md) warns about.
+
+**Two counters are this gate's own debt**, printed every run: a probe whose
+bytes moved with *no* flip at all (`UNEXPLAINED`), and one explained only by a
+rendered shape. Both come down by adding a decision to
+`Formatter.Audit.DecisionTrace` — whose module doc states the rule that keeps it
+honest: **trace an input, never a composite.** A traced value is either a flag
+read straight off the LPT or the result of calling the renderer's own exported
+predicate with the node's own children. `commentForcesBracketOpen` is
+deliberately absent, because reproducing its formula here would be a mirror
+predicate, and this repo has paid for those. Guessing at a decision to shrink
+the counter is how the gate starts lying.
+
 ### Construct × context syntax matrix
 
 The corpus reaches only the syntax somebody thought to write, and both fuzzers
@@ -831,6 +888,7 @@ node ../gren-format/app --pre-ast    MyFile.gren   # parsed AST + context as JSO
 node ../gren-format/app --pre-context MyFile.gren   # just the parse Context (comments) as JSON
 node ../gren-format/app --lpt        MyFile.gren   # Logical Printing Tree as JSON
 node ../gren-format/app --box        MyFile.gren   # the Box tree each decl renders to, as a JSON array
+node ../gren-format/app --decisions  MyFile.gren   # format twice; which layout decisions differed, as JSON
 ```
 
 `--lpt` is the most useful debug flag for comment-placement and layout bugs.

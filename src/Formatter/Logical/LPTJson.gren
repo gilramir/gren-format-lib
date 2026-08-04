@@ -15,32 +15,7 @@ machine consumer.
 import Json.Encode as Json
 
 import Compiler.SourcePosition exposing (Located, Position)
-import Formatter.Logical.LogicalPrintingTree exposing (CommentRole(..), LPBox(..), LPNode, ListBrackets(..), SyntaxType(..), lpnBox, lpnChildren, prefixGlyph, stypeToString)
-
-
-roleString : CommentRole -> String
-roleString role =
-    when role is
-        TrailsPrevious ->
-            "TrailsPrevious"
-
-        LeadsOwnLine ->
-            "LeadsOwnLine"
-
-        LeadsNext ->
-            "LeadsNext"
-
-        TrailsHead ->
-            "TrailsHead"
-
-        RidesInline ->
-            "RidesInline"
-
-        LeadsInline ->
-            "LeadsInline"
-
-        Standalone ->
-            "Standalone"
+import Formatter.Logical.LogicalPrintingTree exposing (LPBox(..), LPNode, bracketsToString, lpnBox, lpnChildren, prefixGlyph, roleToString, stypeToString)
 
 
 {-| Serialise the Logical Printing Tree to JSON for debugging.
@@ -88,7 +63,7 @@ lpBoxFields lpbox =
         SingleLineComment { loc, role } ->
             [ { key = "type", value = Json.string "SingleLineComment" }
             , { key = "value", value = Json.string loc.value }
-            , { key = "role", value = Json.string (roleString role) }
+            , { key = "role", value = Json.string (roleToString role) }
             , { key = "startRow", value = Json.int loc.start.row }
             , { key = "startCol", value = Json.int loc.start.col }
             ]
@@ -96,7 +71,7 @@ lpBoxFields lpbox =
         BlockComment { loc, role } ->
             [ { key = "type", value = Json.string "BlockComment" }
             , { key = "value", value = Json.string loc.value }
-            , { key = "role", value = Json.string (roleString role) }
+            , { key = "role", value = Json.string (roleToString role) }
             , { key = "startRow", value = Json.int loc.start.row }
             , { key = "startCol", value = Json.int loc.start.col }
             ]
@@ -216,15 +191,3 @@ lpBoxFields lpbox =
             , { key = "endCol", value = Json.int located.end.col }
             ]
 
-
-bracketsToString : ListBrackets -> String
-bracketsToString brackets =
-    when brackets is
-        ListParen ->
-            "paren"
-
-        ListCurly ->
-            "curly"
-
-        ListSquare ->
-            "square"

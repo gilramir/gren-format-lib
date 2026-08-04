@@ -1,0 +1,727 @@
+module Formatter.Audit.DecisionTrace exposing (Decision, DeclTrace, Flip, traceDeclarations, diffDeclarations, reportToJson)
+
+{-| What the formatter decided, and whether it decides the same thing again.
+
+Every other gate in this repo compares **output**. When a format is not a fixed
+point the byte diff says *where* the two runs disagree and never *why*; the
+culprit decision has to be inferred by hand, one diff at a time. That is what
+the 347-finding residual of `docs/commentRunTesting.md` is made of, and it is
+why they have never grouped: hundreds of byte diffs with no shared vocabulary
+between them.
+
+This module gives them one. It reads back, per top-level declaration, the
+layout decisions the formatter took, as `name = choice` pairs with no positions
+in them. Formatting twice and diffing the two decision sets turns
+
+    -   foo : Int -> {- c -} { a : Int, b : String }
+    +   foo :
+    +       Int
+    +       -> {- c -} { a : Int, b : String }
+
+into
+
+    decl 3 `foo`  AcrossOrVertical.forceVertical  False x1 -> True x1
+
+and a decision name is a thing hundreds of findings can share.
+
+
+## Why the trace has no rows in it
+
+A row *is* what moves between the two formats; a decision keyed on one would
+report every finding and explain none. So a `Decision` carries only the
+declaration it belongs to, the decision's name, and the branch taken. Two
+traces are compared as **multisets of `(decl, name, choice)`** rather than
+aligned node-by-node, for the same reason: a comment that lands under a
+different parent on the reparse shifts every structural path after it, and an
+alignment that reports 40 spurious moves for one real flip is worse than no
+alignment at all. A multiset difference reports exactly the branches whose
+population changed.
+
+
+## What is traced, and the rule that keeps it honest
+
+Two kinds of thing, and **nothing is recomputed from a formula written here**:
+
+  - **The flags the LPT carries** -- `forceVertical`, `checkContentVertical`,
+    the bracket-container constructor, each comment's `CommentRole`, and the
+    blank lines `VerticalSpace` put above a declaration. These are the
+    author-intent decisions, taken in the logical stage from source rows, and
+    they are read straight off the node.
+
+  - **Values produced by calling the renderer's own exported predicates** with
+    the node's own children -- `commentBreaksFlowRow`,
+    `literalCommentsRideFlatLine`, `signatureForceVertical`,
+    `commentEndsItsLine`, `commentTextCanRide` -- plus, for the shapes whose
+    layout is decided by measuring a rendered child, whether that child's box
+    comes back on one line (`makePBox` + `isSingleLine`, the same question
+    `Formatter.Audit.PredicateAgreement` asks).
+
+The rule is: **trace an input, never a composite.** `commentForcesBracketOpen`
+is deliberately absent even though it is a decision, because reproducing it
+here would mean copying its formula out of `MakeRenderBox` -- a mirror, and
+this codebase has paid for mirrors three times in one day. Its two inputs are
+traced instead, so a flip in it still shows up, under the name of whichever
+input moved.
+
+The cost of that rule is coverage: some decisions have no traced input, so some
+byte diffs will show no flipped decision. That is reported rather than hidden
+-- a diff with an empty flip list is `unexplained`, and the count of those is
+this gate's own debt, in the same spirit as the `UNREVIEWED` counter in the
+parity baselines. Adding a decision here is how it gets paid down; guessing at
+one is how the gate starts lying.
+
+@docs Decision, DeclTrace, Flip, traceDeclarations, diffDeclarations, reportToJson
+
+-}
+
+import Formatter.Logical.LogicalPrintingTree exposing (LPBox(..), LPNode, SyntaxType(..), bracketsToString, lpnBox, lpnChildren, roleToString, stypeToString)
+import Formatter.Render as Render
+import Formatter.Render.BoxOps exposing (isSingleLine)
+import Formatter.Render.MakeRenderBox exposing (makePBox)
+import Formatter.Render.NodeClassify exposing (commentBreaksFlowRow, commentEndsItsLine, commentTextCanRide, literalCommentsRideFlatLine, signatureForceVertical, splitSignatureSegments, subtreeEndsWithLineComment)
+import Json.Encode as Json
+
+
+{-| One decision: the declaration it was taken in, its name, and the branch.
+
+`decl` is `"<n> <name>"` -- the declaration's index among the root's *declaration*
+children (comments and blank lines are not counted, so inserting one does not
+renumber anything) and the first literal token in it, which for every
+declaration kind is the name being declared.
+
+`choice` is a short enum-ish string (`"True"`, `"LeadsOwnLine"`,
+`"alwaysVertical:curly"`), never a rendering and never a number that could
+drift.
+-}
+type alias Decision =
+    { decl : String
+    , name : String
+    , choice : String
+    }
+
+
+{-| One branch whose population changed between the two formats: it was taken
+`before` times in the first format and `after` times in the second, and the two
+differ. A flip normally arrives as a pair -- `False 1 -> 0` beside
+`True 0 -> 1` -- because the node is still there and took the other branch; a
+lone entry means the decision stopped (or started) being asked at all, which is
+a structural change and worth reading differently.
+-}
+type alias Flip =
+    { decl : String
+    , name : String
+    , choice : String
+    , before : Int
+    , after : Int
+    }
+
+
+-- TRACING
+
+
+{-| One declaration's decisions, beside the output it renders to.
+
+The text is what makes the trace a diagnostic rather than a second pile of
+noise. Formatting a file that is not already canonical legitimately changes many
+decisions -- the second pass reads the first pass's tidied rows, not the
+author's -- so "this decision differs between the passes" on its own is mostly
+the formatter converging. Confining the comparison to declarations whose
+**output** moved leaves the decisions that actually did something.
+-}
+type alias DeclTrace =
+    { decl : String
+    , decisions : Array Decision
+    , text : String
+    }
+
+
+{-| The trace, grouped by declaration, each carrying the text it renders to.
+
+Root children are attributed to a declaration: a declaration's own subtree to
+itself, and a leading comment or blank line to the declaration it precedes
+(`"eof"` for anything trailing the last one), because that is the code it was
+written against.
+
+Attribution puts a declaration's leading comments and blank lines under its
+label, so the labels come out in contiguous runs and the grouping is a single
+pass. The text of a run is its children's rendered output joined the way
+`makePrettyResult` joins it, so two runs compare exactly as the two files do.
+-}
+traceDeclarations : LPNode -> Result String (Array DeclTrace)
+traceDeclarations root =
+    Render.renderRootChildren root
+        |> Result.map
+            (\texts ->
+                lpnChildren root
+                    |> labelRootChildren
+                    |> attributeToFollowing
+                    |> Array.indexedMap
+                        (\index item ->
+                            { decl = item.decl
+                            , decisions = rootChildDecisions item
+                            , text = Maybe.withDefault "" (Array.get index texts)
+                            }
+                        )
+                    |> Array.foldl
+                        (\entry acc ->
+                            when Array.popLast acc is
+                                Just { last = prev, initial = rest } ->
+                                    if prev.decl == entry.decl then
+                                        Array.pushLast
+                                            { prev
+                                                | decisions = prev.decisions ++ entry.decisions
+                                                , text = prev.text ++ "\n" ++ entry.text
+                                            }
+                                            rest
+
+                                    else
+                                        Array.pushLast entry acc
+
+                                Nothing ->
+                                    Array.pushLast entry acc
+                        )
+                        []
+            )
+
+
+{-| A root child's own label, if it is a declaration, plus how many blank lines
+`VerticalSpace` put directly above it. -}
+type alias LabelledChild =
+    { node : LPNode
+    , ownLabel : Maybe String
+    , blanksAbove : Int
+    }
+
+
+labelRootChildren : Array LPNode -> Array LabelledChild
+labelRootChildren kids =
+    (Array.foldl
+        (\node acc ->
+            if isEmptyLineNode node then
+                -- Counted, and still emitted: the result stays index-aligned
+                -- with `lpnChildren`, which is what lets `traceDeclarations`
+                -- pair each child with its rendered text.
+                { acc
+                    | blanks = acc.blanks + 1
+                    , out = Array.pushLast { node = node, ownLabel = Nothing, blanksAbove = 0 } acc.out
+                }
+
+            else if isDeclarationChild node then
+                { declIndex = acc.declIndex + 1
+                , blanks = 0
+                , out =
+                    Array.pushLast
+                        { node = node
+                        , ownLabel = Just (String.fromInt acc.declIndex ++ " " ++ declarationName node)
+                        , blanksAbove = acc.blanks
+                        }
+                        acc.out
+                }
+
+            else
+                { acc
+                    | blanks = 0
+                    , out = Array.pushLast { node = node, ownLabel = Nothing, blanksAbove = 0 } acc.out
+                }
+        )
+        { declIndex = 1, blanks = 0, out = [] }
+        kids
+    ).out
+
+
+{-| Give every non-declaration root child the label of the declaration it leads.
+Right-to-left, so each one sees the next declaration's label. -}
+attributeToFollowing : Array LabelledChild -> Array { node : LPNode, decl : String, ownLabel : Maybe String, blanksAbove : Int }
+attributeToFollowing items =
+    (Array.foldr
+        (\item acc ->
+            let
+                label =
+                    Maybe.withDefault acc.next item.ownLabel
+            in
+            { next = label
+            , out =
+                Array.pushFirst
+                    { node = item.node
+                    , decl = label
+                    , ownLabel = item.ownLabel
+                    , blanksAbove = item.blanksAbove
+                    }
+                    acc.out
+            }
+        )
+        { next = "eof", out = [] }
+        items
+    ).out
+
+
+rootChildDecisions : { node : LPNode, decl : String, ownLabel : Maybe String, blanksAbove : Int } -> Array Decision
+rootChildDecisions item =
+    let
+        blankLines =
+            when item.ownLabel is
+                Just _ ->
+                    [ { decl = item.decl
+                      , name = "VerticalSpace.blankLinesAbove"
+                      , choice = String.fromInt item.blanksAbove
+                      }
+                    ]
+
+                Nothing ->
+                    []
+    in
+    blankLines ++ collect item.decl item.node
+
+
+collect : String -> LPNode -> Array Decision
+collect decl node =
+    nodeDecisions decl node ++ Array.mapAndFlatten (collect decl) (lpnChildren node)
+
+
+{-| The decisions visible at one node. See the module doc for the rule that
+decides what belongs here. -}
+nodeDecisions : String -> LPNode -> Array Decision
+nodeDecisions decl node =
+    let
+        children =
+            lpnChildren node
+
+        say name choice =
+            { decl = decl, name = name, choice = choice }
+
+        flag name value =
+            say name (boolName value)
+
+        -- Whether this node's own box comes back on one line. Every "render the
+        -- child and look at it" decision in `MakeRenderBox` reads exactly this,
+        -- so tracing it covers all of them at once without reproducing any of
+        -- them. `Err` is a real third outcome: a node whose builder needs
+        -- context its parent holds cannot be rendered alone, and saying so is
+        -- better than picking a boolean.
+        shape prefix =
+            when makePBox (lpnBox node) children is
+                Ok box ->
+                    [ say (prefix ++ ".rendersOneLine") (boolName (isSingleLine box)) ]
+
+                Err _ ->
+                    [ say (prefix ++ ".rendersOneLine") "notRenderable" ]
+    in
+    when lpnBox node is
+        AcrossOrVertical r ->
+            [ flag "AcrossOrVertical.forceVertical" r.forceVertical
+            , flag "AcrossOrVertical.checkContentVertical" r.checkContentVertical
+            , flag "AcrossOrVertical.commentBreaksFlowRow" (commentBreaksFlowRow children)
+            ]
+                ++ shape "AcrossOrVertical"
+
+        ParenBlock r ->
+            [ flag "ParenBlock.forceVertical" r.forceVertical
+            , flag "ParenBlock.checkContentVertical" r.checkContentVertical
+            ]
+                ++ shape "ParenBlock"
+
+        Binop r ->
+            [ flag "Binop.forceVertical" r.forceVertical ] ++ shape "Binop"
+
+        Pipeline r ->
+            [ flag "Pipeline.forceVertical" r.forceVertical ] ++ shape "Pipeline"
+
+        IfCondition r ->
+            [ flag "IfCondition.forceVertical" r.forceVertical ] ++ shape "IfCondition"
+
+        WhenFlow r ->
+            [ flag "WhenFlow.forceVertical" r.forceVertical ] ++ shape "WhenFlow"
+
+        RecordUpdate r ->
+            [ flag "RecordUpdate.forceVertical" r.forceVertical
+            , flag "RecordUpdate.literalCommentsRideFlatLine" (literalCommentsRideFlatLine children)
+            ]
+                ++ shape "RecordUpdate"
+
+        AllAcrossOrAllVertical brackets ->
+            [ say "BracketContainer.shape" ("allAcrossOrAllVertical:" ++ bracketsToString brackets)
+            , flag "BracketContainer.literalCommentsRideFlatLine" (literalCommentsRideFlatLine children)
+            , flag "BracketContainer.endsWithLineComment" (Array.any subtreeEndsWithLineComment children)
+            ]
+                ++ shape "BracketContainer"
+
+        AlwaysVertical brackets ->
+            [ say "BracketContainer.shape" ("alwaysVertical:" ++ bracketsToString brackets)
+            , flag "BracketContainer.literalCommentsRideFlatLine" (literalCommentsRideFlatLine children)
+            , flag "BracketContainer.endsWithLineComment" (Array.any subtreeEndsWithLineComment children)
+            ]
+
+        EmptyBracketed brackets ->
+            [ say "BracketContainer.shape" ("empty:" ++ bracketsToString brackets.value) ]
+
+        SingleLineComment c ->
+            [ say "Comment.role" (roleToString c.role)
+            , flag "Comment.endsItsLine" (commentEndsItsLine node)
+            , flag "Comment.textCanRide" (commentTextCanRide node)
+            ]
+
+        BlockComment c ->
+            [ say "Comment.role" (roleToString c.role)
+            , flag "Comment.endsItsLine" (commentEndsItsLine node)
+            , flag "Comment.textCanRide" (commentTextCanRide node)
+            ]
+
+        OriginalRows r ->
+            when r.stype is
+                StFunctionSignature ->
+                    [ flag "Signature.signatureForceVertical"
+                        (signatureForceVertical (splitSignatureSegments (typeNodesOf children)))
+                    ]
+
+                StPort ->
+                    [ flag "Signature.signatureForceVertical"
+                        (signatureForceVertical (splitSignatureSegments (typeNodesOf children)))
+                    ]
+
+                _ ->
+                    []
+
+        PipelineStep ->
+            shape "PipelineStep"
+
+        IndentedBlock ->
+            shape "IndentedBlock"
+
+        SoftIndentedBlock ->
+            shape "SoftIndentedBlock"
+
+        BodyBlock ->
+            shape "BodyBlock"
+
+        OpAndRhs ->
+            shape "OpAndRhs"
+
+        _ ->
+            []
+
+
+{-| The nodes after a signature's top-level `:` -- the type, which is what
+`splitSignatureSegments` splits at each `->`. Everything up to and including the
+colon is the header. -}
+typeNodesOf : Array LPNode -> Array LPNode
+typeNodesOf children =
+    (Array.foldl
+        (\node acc ->
+            if acc.pastColon then
+                { acc | out = Array.pushLast node acc.out }
+
+            else if isColonToken node then
+                { acc | pastColon = True }
+
+            else
+                acc
+        )
+        { pastColon = False, out = [] }
+        children
+    ).out
+
+
+isColonToken : LPNode -> Bool
+isColonToken node =
+    when lpnBox node is
+        UnbreakableText loc ->
+            loc.value == ":"
+
+        SynthesizedText t ->
+            t == ":"
+
+        _ ->
+            False
+
+
+isEmptyLineNode : LPNode -> Bool
+isEmptyLineNode node =
+    lpnBox node == EmptyLine
+
+
+{-| A root child that is a real declaration rather than a detached comment or a
+blank line. Only these are counted when numbering declarations, so a comment
+moving in or out of the root does not renumber the ones after it. -}
+isDeclarationChild : LPNode -> Bool
+isDeclarationChild node =
+    when lpnBox node is
+        OriginalRows r ->
+            when r.stype is
+                StSingleLineComment ->
+                    False
+
+                StBlockComment ->
+                    False
+
+                StDocComment ->
+                    False
+
+                _ ->
+                    True
+
+        _ ->
+            False
+
+
+{-| The declared name: the first literal token in the declaration's subtree. For
+every `SyntaxType` that reaches here that is the name being declared (`module`
+and `import` name themselves after their keyword, which is synthesized and so
+skipped). Used only as a label, alongside the index that actually keys it. -}
+declarationName : LPNode -> String
+declarationName node =
+    Maybe.withDefault (stypeToString (declStype node)) (firstLiteralToken node)
+
+
+declStype : LPNode -> SyntaxType
+declStype node =
+    when lpnBox node is
+        OriginalRows r ->
+            r.stype
+
+        _ ->
+            StFunctionDeclaration
+
+
+firstLiteralToken : LPNode -> Maybe String
+firstLiteralToken node =
+    when lpnBox node is
+        UnbreakableText loc ->
+            Just loc.value
+
+        _ ->
+            Array.foldl
+                (\child acc ->
+                    when acc is
+                        Just _ ->
+                            acc
+
+                        Nothing ->
+                            firstLiteralToken child
+                )
+                Nothing
+                (lpnChildren node)
+
+
+boolName : Bool -> String
+boolName b =
+    if b then
+        "True"
+
+    else
+        "False"
+
+
+-- DIFFING
+
+
+{-| The branches whose population differs between two traces.
+
+A multiset difference, not an alignment -- see the module doc. Both sides are
+tallied by `(decl, name, choice)` and merged; a key present on one side only
+reports the other as `0`.
+-}
+diffTraces : Array Decision -> Array Decision -> Array Flip
+diffTraces before after =
+    mergeTallies (tally before) (tally after) 0 0 []
+
+
+{-| What changed between two formats, with the decisions that did nothing left
+out.
+
+`flips` covers only the declarations whose rendered output differs, so every
+entry in it is a decision that had an effect. `convergedFlips` counts the rest
+-- decisions that differ in a declaration whose output is byte-identical. Those
+are not findings: they are what a second format legitimately decides differently
+when the first pass has already tidied the rows the flags are read from. The
+number is reported rather than dropped because it is the honest size of the
+noise this restriction removes.
+
+Declarations are aligned by position. Formatting neither adds nor removes one,
+and the index counts only real declarations (`isDeclarationChild`), so the
+alignment holds through any amount of comment and blank-line movement; a
+mismatched pair is treated as moved rather than assumed away.
+-}
+diffDeclarations :
+    Array DeclTrace
+    -> Array DeclTrace
+    -> { flips : Array Flip, movedDecls : Array String, convergedFlips : Int }
+diffDeclarations before after =
+    let
+        walked =
+            walkDecls before after 0 { movedBefore = [], movedAfter = [], movedDecls = [], converged = 0 }
+    in
+    { flips = diffTraces walked.movedBefore walked.movedAfter
+    , movedDecls = walked.movedDecls
+    , convergedFlips = walked.converged
+    }
+
+
+type alias DeclDiffAcc =
+    { movedBefore : Array Decision
+    , movedAfter : Array Decision
+    , movedDecls : Array String
+    , converged : Int
+    }
+
+
+walkDecls : Array DeclTrace -> Array DeclTrace -> Int -> DeclDiffAcc -> DeclDiffAcc
+walkDecls before after i acc =
+    when { b = Array.get i before, a = Array.get i after } is
+        { b = Nothing, a = Nothing } ->
+            acc
+
+        { b = Just bd, a = Just ad } ->
+            if bd.decl == ad.decl && bd.text == ad.text then
+                walkDecls before after (i + 1)
+                    { acc | converged = acc.converged + Array.length (diffTraces bd.decisions ad.decisions) }
+
+            else
+                walkDecls before after (i + 1)
+                    { acc
+                        | movedBefore = acc.movedBefore ++ bd.decisions
+                        , movedAfter = acc.movedAfter ++ ad.decisions
+                        , movedDecls =
+                            Array.pushLast
+                                (if bd.decl == ad.decl then
+                                    bd.decl
+
+                                 else
+                                    bd.decl ++ " -> " ++ ad.decl
+                                )
+                                acc.movedDecls
+                    }
+
+        { b = Just bd, a = Nothing } ->
+            walkDecls before after (i + 1)
+                { acc
+                    | movedBefore = acc.movedBefore ++ bd.decisions
+                    , movedDecls = Array.pushLast (bd.decl ++ " (gone)") acc.movedDecls
+                }
+
+        { b = Nothing, a = Just ad } ->
+            walkDecls before after (i + 1)
+                { acc
+                    | movedAfter = acc.movedAfter ++ ad.decisions
+                    , movedDecls = Array.pushLast (ad.decl ++ " (new)") acc.movedDecls
+                }
+
+
+type alias Tally =
+    { decl : String
+    , name : String
+    , choice : String
+    , sortKey : String
+    , count : Int
+    }
+
+
+tally : Array Decision -> Array Tally
+tally decisions =
+    decisions
+        |> Array.map (\d -> { decl = d.decl, name = d.name, choice = d.choice, sortKey = sortKeyOf d, count = 1 })
+        |> Array.sortBy .sortKey
+        |> Array.foldl
+            (\entry acc ->
+                when Array.popLast acc is
+                    Just { last = prev, initial = rest } ->
+                        if prev.sortKey == entry.sortKey then
+                            Array.pushLast { prev | count = prev.count + 1 } rest
+
+                        else
+                            Array.pushLast entry acc
+
+                    Nothing ->
+                        Array.pushLast entry acc
+            )
+            []
+
+
+{-| The tally key. `\u{0001}` cannot occur in a declaration name, a decision
+name or a choice, so the packed string orders and compares exactly as the triple
+does. -}
+sortKeyOf : Decision -> String
+sortKeyOf d =
+    d.decl ++ "\u{0001}" ++ d.name ++ "\u{0001}" ++ d.choice
+
+
+{-| Merge two key-sorted tallies, keeping only the keys whose counts differ.
+Index-walked and tail-recursive: a large file has tens of thousands of
+decisions. -}
+mergeTallies : Array Tally -> Array Tally -> Int -> Int -> Array Flip -> Array Flip
+mergeTallies before after i j acc =
+    when { b = Array.get i before, a = Array.get j after } is
+        { b = Nothing, a = Nothing } ->
+            acc
+
+        { b = Just bEntry, a = Nothing } ->
+            mergeTallies before after (i + 1) j (Array.pushLast (flipOf bEntry bEntry.count 0) acc)
+
+        { b = Nothing, a = Just aEntry } ->
+            mergeTallies before after i (j + 1) (Array.pushLast (flipOf aEntry 0 aEntry.count) acc)
+
+        { b = Just bEntry, a = Just aEntry } ->
+            if bEntry.sortKey == aEntry.sortKey then
+                if bEntry.count == aEntry.count then
+                    mergeTallies before after (i + 1) (j + 1) acc
+
+                else
+                    mergeTallies before after (i + 1) (j + 1) (Array.pushLast (flipOf bEntry bEntry.count aEntry.count) acc)
+
+            else if bEntry.sortKey < aEntry.sortKey then
+                mergeTallies before after (i + 1) j (Array.pushLast (flipOf bEntry bEntry.count 0) acc)
+
+            else
+                mergeTallies before after i (j + 1) (Array.pushLast (flipOf aEntry 0 aEntry.count) acc)
+
+
+flipOf : Tally -> Int -> Int -> Flip
+flipOf entry before after =
+    { decl = entry.decl
+    , name = entry.name
+    , choice = entry.choice
+    , before = before
+    , after = after
+    }
+
+
+-- REPORTING
+
+
+{-| The `--decisions` payload.
+
+`unexplained` is the finding this gate exists to make visible: the two formats
+produced different bytes and no traced decision changed, so the branch that
+moved is one nothing here records. It is reported per file rather than summed
+away, because the work-list is "which decision is missing", one file at a time.
+-}
+reportToJson :
+    { bytesDiffer : Bool
+    , flips : Array Flip
+    , movedDecls : Array String
+    , convergedFlips : Int
+    , decisionCount : Int
+    }
+    -> String
+reportToJson report =
+    Json.object
+        [ { key = "bytesDiffer", value = Json.bool report.bytesDiffer }
+        , { key = "unexplained", value = Json.bool (report.bytesDiffer && Array.isEmpty report.flips) }
+        , { key = "decisionCount", value = Json.int report.decisionCount }
+        , { key = "convergedFlips", value = Json.int report.convergedFlips }
+        , { key = "movedDecls", value = Json.array Json.string report.movedDecls }
+        , { key = "flips"
+          , value =
+                Json.array
+                    (\f ->
+                        Json.object
+                            [ { key = "decl", value = Json.string f.decl }
+                            , { key = "name", value = Json.string f.name }
+                            , { key = "choice", value = Json.string f.choice }
+                            , { key = "before", value = Json.int f.before }
+                            , { key = "after", value = Json.int f.after }
+                            ]
+                    )
+                    report.flips
+          }
+        ]
+        |> Json.encode 2

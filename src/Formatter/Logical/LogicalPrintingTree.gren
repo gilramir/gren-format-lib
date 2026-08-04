@@ -5,6 +5,7 @@ module Formatter.Logical.LogicalPrintingTree exposing
     , ListBrackets(..)
     , PrefixKind(..)
     , SyntaxType(..)
+    , bracketsToString
     , commentGluesToPrevious
     , commentRole
     , firstRowInSubtree
@@ -30,6 +31,7 @@ module Formatter.Logical.LogicalPrintingTree exposing
     , lpnWithBracketStart
     , prefixGlyph
     , roleGlues
+    , roleToString
     , stypeToString
     , subtreeRowRange
     )
@@ -157,6 +159,23 @@ stypeToString st =
             "infixDecl"
 
 
+{-| The bracket pair a container is written with. Lives here, beside the type,
+because two debuggers now name it -- `--lpt`'s JSON and the decision trace --
+and a bracket that spells itself `curly` in one dump and `Curly` in the other is
+a diff nobody can read across. -}
+bracketsToString : ListBrackets -> String
+bracketsToString brackets =
+    when brackets is
+        ListParen ->
+            "paren"
+
+        ListCurly ->
+            "curly"
+
+        ListSquare ->
+            "square"
+
+
 {-| How a comment joins the tokens around it — decided **once**, at
 comment-insertion time in `Formatter.Logical.Comments`, from the pristine
 parse rows, and stored on the comment leaf. The renderer reads the role and
@@ -212,6 +231,34 @@ type CommentRole
     | RidesInline
     | LeadsInline
     | Standalone
+
+
+{-| The role's name. Lives here for the same reason `roleGlues` does: the answer
+is a property of the role and of nothing else, and two debuggers read it back
+(`--lpt`'s JSON and the decision trace). -}
+roleToString : CommentRole -> String
+roleToString role =
+    when role is
+        TrailsPrevious ->
+            "TrailsPrevious"
+
+        LeadsOwnLine ->
+            "LeadsOwnLine"
+
+        LeadsNext ->
+            "LeadsNext"
+
+        TrailsHead ->
+            "TrailsHead"
+
+        RidesInline ->
+            "RidesInline"
+
+        LeadsInline ->
+            "LeadsInline"
+
+        Standalone ->
+            "Standalone"
 
 
 type LPBox

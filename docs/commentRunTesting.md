@@ -178,6 +178,7 @@ drawn, and it hid a real class of bug for a long time.
 | `matrix-syntax.py` | every expression form × 25 expression contexts, **and every type form × 15 declaration contexts**, × 4 layout variants | comments |
 | `matrix-syntax.py --comments` | the above × 1 comment × 4 placements | more than one comment |
 | `audit-predicates.py` | corpus, predicate vs renderer | nothing new |
+| `check-decision-stability.py` | nothing — it re-probes the two above | it varies no input; it reports the formatter's *reason* for a diff the others found |
 | `gen-random.py` | structure **and** comments, randomly | — (the only gate that generates runs at all, and it has no parity oracle) |
 
 Two holes were visible in that table until 2026-08-03, and they compounded:
@@ -312,6 +313,13 @@ Two consequences worth stating:
 - **Attribute before you blame.** With a non-zero baseline, "the fuzzer fails"
   says nothing on its own. Build the previous commit to a second binary and
   re-probe the failures; the question is always *which* of these are new.
+- **Ask what flipped before reading the diff.**
+  `./check-decision-stability.py --gaps` re-probes these same 347 and prints the
+  decision each one moved, grouped. They come to about five families, one of
+  which is 238 of them; see
+  [What catches it](#what-catches-it-decision-stability). Working the residual
+  from that histogram rather than from the byte diffs is the point of having
+  built it.
 
 Four things are worth keeping from that:
 
@@ -382,38 +390,100 @@ flow multi-line *by definition*. The contract is entailed by the predicate. The
 50-cell mis-scoping proves it from the other side: `foo : -- c` ⏎ `Int -> Int`
 renders multi-line, so it satisfied the contract while being wrong.
 
-### What would catch it: decision stability
+### What catches it: decision stability
 
-*(Proposed. Not built.)*
+*(Built 2026-08-03. `--decisions`, `Formatter.Audit.DecisionTrace`,
+`tests/check-decision-stability.py`.)*
 
-The formatter knows something no gate can currently see: **which layout decision
-it took, and which predicate produced it.** Have it emit that —
+The formatter knows something no other gate can see: **which layout decision it
+took.** It now emits that. `--decisions` formats a file twice and reports which
+decisions differed between the passes — `forceVertical` on a call, a comment's
+`CommentRole`, `commentBreaksFlowRow`, whether a rendered child came back on one
+line — as named branches with **no positions in them**, because a row is exactly
+what moves and a decision keyed on one would report every finding and explain
+none.
 
-    decl 3 `foo`  signatureForceVertical=False  typeContentSpansRows=True  -> perSegment
+Two properties were wanted, and one shipped:
 
-— then format twice and require the **decision set** to match, not just the
-bytes. Two properties fall out, and between them they cover every failure of
-this class:
+- **under-approximation** (the oscillations: 401 cells, then 15, then 32) — the
+  chosen form is not a fixed point, so the decision flips on the reparse. This
+  is what the 347-finding residual of step 2 is made of, and it is what the gate
+  now names. **Built.**
+- **over-approximation** (the 50 cells) — render the *alternative* form, reparse
+  it, recompute; if the alternative would also have been a fixed point, the
+  predicate forced a layout it did not need to. **Not built**: it needs a way to
+  force a decision the other way, which nothing in the pipeline has.
 
-- **under-approximation** (the oscillations: 401 cells, then 15, then 32). The
-  chosen form is not a fixed point, so the decision flips on the reparse. Today
-  this surfaces as a byte diff and the culprit has to be inferred; here it
-  names itself. **This is what the 347-finding residual of step 2 is made of**,
-  which is the argument for building the gate before working that list down: it
-  turns 347 byte diffs into 347 named decisions, and the names group.
-- **over-approximation** (the 50 cells). Render the *alternative* form, reparse
-  it, recompute: if the alternative would also have been a fixed point, the
-  predicate forced a layout it did not need to.
-
-The predicate this section was written to catch (`commentSplitsType`) is gone —
-step 4 deleted it rather than gating it. What remains is every *other*
-row-derived decision, and the residual says there are plenty.
-
-Note that a purely external gate cannot do this. "Did the formatter choose the
+A purely external gate could not have done this. "Did the formatter choose the
 per-segment shape" is observable in the output, but if the two formats already
 agree the comparison is vacuous — it collapses back into the idempotency check
-we already have. The value is precisely the *reason*, which only the formatter
-holds.
+we already have. That is not a hypothetical: a "silent flip" check (a decision
+moved, the bytes did not) was built, run, and **deleted the same day** for
+exactly that reason. Over the corpus the input already *is* the output, so both
+traces come from identical text and nothing can differ. The value is precisely
+the *reason*, which only the formatter holds.
+
+#### The two design corrections, both found by running it
+
+**The raw trace diff is mostly noise, and the noise is the formatter working.**
+Formatting a file that is not already canonical legitimately changes many
+decisions: the second pass reads the first pass's tidied rows, not the author's.
+On one fixture the first version reported 11 flipped probes where 7 had moved.
+The fix is to confine flips to declarations whose **rendered output** actually
+differs — a decision that flipped in a declaration whose bytes are unchanged
+caused nothing. That needed `Formatter.Render.renderRootChildren`, the
+per-declaration render `makePrettyResult` joins; `convergedFlips` reports how
+much the confinement discards, rather than hiding it.
+
+**A flat list of flipped names buries the cause.** Once a declaration reflows,
+every `rendersOneLine` inside it has moved too, so a one-cause finding still
+shows ten names. They are split into *author-intent* decisions (read off the
+tree before anything is rendered) and *rendered-shape measurements*, and probes
+group by the intent set. The split is a ranking, not a claim: some decisions
+legitimately render a child and measure it — `makeSignatureBox` is one — so a
+measurement can be a cause.
+
+#### What the first whole-corpus run found
+
+It landed on **exactly the same 347 probes** `fuzz-idempotency.py --gaps`
+reports, which is the cross-check that the two gates are probing the same gaps
+(they share the probe definitions by import, not by copy). Of those, **320 are
+named by an author-intent flip**, 7 by a rendered shape alone, and **20 are
+unexplained**:
+
+| probes | the decisions that moved |
+|---|---|
+| 238 | `Comment.role` + `Comment.endsItsLine` + `Comment.textCanRide` |
+| 47 | `Comment.role` alone |
+| 24 | `AcrossOrVertical.forceVertical` (+ `commentBreaksFlowRow`, `checkContentVertical`) |
+| 12 | `BracketContainer.literalCommentsRideFlatLine` |
+| ~6 | `Pipeline` / `Binop` / `IfCondition` `forceVertical` |
+
+The single sharpest line is which way the branches moved:
+`Comment.role=LeadsOwnLine` was **lost 246 times** and
+`Comment.role=Standalone` **gained 268** — one transition accounting for most of
+the residual.
+
+The two comment families are distinguishable, and that is the useful part.
+`endsItsLine` and `textCanRide` are functions of the comment's *text*, which
+cannot change between two formats of the same file — so they can only move if
+the comment changed **which declaration owns it**. The 238 are a comment
+relocating; the 47 are one staying put and changing role. Read on a probe, the
+big family is a comment going from `LeadsOwnLine` under one declaration to
+`Standalone` above the next, which is the detached-comment class `45f7269`
+already took 77 findings out of.
+
+**So the residual is not 347 problems; on this evidence it is about five**, and
+the largest is already a named, half-fixed one. That is what the instrument was
+for.
+
+The 20 unexplained and the 7 shape-only are the gate's own debt, printed on
+every run. They come down by adding a decision to `DecisionTrace` under its
+stated rule — **trace an input, never a composite** — which is narrower than
+"whatever makes the number smaller". `commentForcesBracketOpen` is deliberately
+absent even though it is a real decision: reproducing its formula in the tracer
+would be a mirror predicate, the exact shape this document spends its middle
+section explaining the cost of.
 
 ### The real fix: do not predict
 
@@ -501,7 +571,10 @@ makes the mistake cheap to find, but not making it is better.
    was ~420 until `45f7269`, which took 77 of them at once: `VerticalSpace`
    inserted a blank line and then asked a *source-row* question about the gap it
    had just created. Worth knowing before picking off the rest one at a time —
-   the residual is not 347 separate bugs.)
+   the residual is not 347 separate bugs.) **Step 5 below now says how many it
+   is**: 238 of them are one family — a comment changing which declaration owns
+   it, `LeadsOwnLine` under one becoming `Standalone` above the next, which is
+   `45f7269`'s class again — and five families cover the lot.
 3. ~~declaration contexts in `matrix-syntax.py`~~ *(done 2026-08-03: 11 type
    constructs × 15 declaration contexts, +341 syntax cells, +4,930 comment
    cells)*. This was the n=1 base case, and nothing above it meant much until it
@@ -533,9 +606,14 @@ makes the mistake cheap to find, but not making it is better.
    the box, delete `commentSplitsType`~~ *(done 2026-08-03; it also closed the
    58 above and gained 94 cells of elm-format parity)*. See
    [The real fix](#the-real-fix-do-not-predict).
-5. **the decision-stability gate** — the formatter emits which layout decision
-   it took and why; format twice, diff the decisions. See
-   [What would catch it](#what-would-catch-it-decision-stability).
+5. ~~**the decision-stability gate** — the formatter emits which layout decision
+   it took and why; format twice, diff the decisions~~ *(done 2026-08-03:
+   `--decisions`, `Formatter.Audit.DecisionTrace`,
+   `tests/check-decision-stability.py`)*. See
+   [What catches it](#what-catches-it-decision-stability). Its first run
+   reduced step 2's 347 findings to **about five named families**, 320 of them
+   attributed, 20 unexplained. **Step 2 should now be worked from that
+   histogram, largest family first**, not from the byte diffs.
 6. run-classification refactor — makes C1 and C3 structural
 7. the deletion-invariance oracle
 8. n=2 class-pairs, with elm-format parity
