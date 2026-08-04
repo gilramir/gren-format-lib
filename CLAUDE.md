@@ -223,6 +223,20 @@ on from it — took **91 → 80**, 11 fixed and 0 new, no corpus fixture changed
 Fixture `BinopChainCommentChain`, which pins the boundary too: a comment on a
 genuinely later row still keeps its own row at the operator indent.
 
+**The seventh family (5 probes) was the FIRST family's rule again, on the one
+container the peel would not look inside.** A multi-line `{- … -}` past the
+**last** `when` branch's bracketed body rendered at the branch's indent, and the
+reparse — seeing a comment past the declaration's last token — re-homed it to
+column 1. `detachOwnLineTrailer` peels the trailing run by descending through
+each node's last child, and `descendsForTrailingRun` listed every flow wrapper
+except `WhenFlow` / `WhenBranch`. They qualify on that predicate's own test: a
+`when` has no closing delimiter, so its last branch's body is the last thing it
+renders. **71 → 66**, 0 new, no corpus fixture changed. Only the last branch is
+reachable — the peel descends through the last child alone — so a comment
+trailing an earlier branch keeps its place, which the fixture pins along with the
+bare-literal body that still rides its own row
+(`WhenLastBranchTrailingMultiline`).
+
 **The next group down — 11 probes, `commentBreaksFlowRow` + `forceVertical`,
 every one a `--` — is not a formatter bug at all.** It is a parser one: a binary
 `-` whose right operand starts on a later row **at the operator's own column** is

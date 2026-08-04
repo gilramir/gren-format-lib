@@ -1,0 +1,40 @@
+module WhenLastBranchTrailingMultiline exposing (..)
+
+
+lastBranch value =
+    when value is
+        First ->
+            1
+
+        Second ->
+            2 {- past the last branch
+                 so nothing renders below it -}
+
+
+notLastBranch value =
+    when value is
+        First ->
+            1 {- past a branch that is not the last
+                 so the next branch still follows -}
+
+        Second ->
+            2
+
+
+nestedInParens value =
+    when value is
+        Only ->
+            (0)
+{- past a parenthesized last branch body
+   the paren closes before the comment -}
+
+
+recordBodyLastBranch value =
+    when value is
+        First ->
+            { a = 1 }
+
+        Second ->
+            { b = 2 }
+{- past the last branch's record body
+   which is where the reparse re-homed it -}

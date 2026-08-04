@@ -419,7 +419,15 @@ the `--` joined the run and its `TrailsPrevious` role vetoed the lift.)
 
 Anything not listed stops the descent. That is the safe default: a missed lift
 leaves an existing non-idempotency in place, where a wrong one would move a
-comment that has a rendered token after it. -}
+comment that has a rendered token after it.
+
+`WhenFlow` / `WhenBranch` qualify on exactly that test — a `when` has no closing
+delimiter, and its last branch's body is the last thing it renders. A comment
+past that body was rendering at the branch's indent while the reparse, seeing it
+past the declaration's last token, re-homed it to column 1. Only the LAST branch
+is reachable here, since the peel descends through the last child alone; a
+comment trailing an earlier branch has a following sibling and stays where it
+is. -}
 descendsForTrailingRun : LPBox -> Bool
 descendsForTrailingRun box =
     when box is
@@ -445,6 +453,12 @@ descendsForTrailingRun box =
             True
 
         PipelineStep ->
+            True
+
+        WhenFlow _ ->
+            True
+
+        WhenBranch ->
             True
 
         _ ->
