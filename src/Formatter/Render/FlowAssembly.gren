@@ -7,7 +7,7 @@ import Formatter.Logical.LogicalPrintingTree exposing (CommentRole(..), LPBox(..
 import Formatter.Render.Box as B exposing (Box(..))
 import Formatter.Render.BoxOps exposing (applyIndent, glueCommentSuffix, isSingleLine, joinInline, nodesShareStartRow, traverseResult)
 import Formatter.Render.FlowPolicy as FP
-import Formatter.Render.NodeClassify exposing (isColonLeaf, isEmptyLine, isTypeRecordLiteral, nodeIsComment)
+import Formatter.Render.NodeClassify exposing (isColonLeaf, isEmptyLine, isTypeRecordLiteral, nodeIsComment, subtreeEndsWithMultilineBlockComment)
 
 
 -- `exposing` stays glued to the header. Inline list: `header (a, b, c)` on one
@@ -545,6 +545,23 @@ parenInnerIsAlignCarrying children =
 
 softGlueAlignment : LPNode -> SoftGlueAlignment
 softGlueAlignment node =
+    if subtreeEndsWithMultilineBlockComment node then
+        -- A multi-line `{- … -}` glued onto the box's last row pads its own
+        -- continuation lines with literal spaces, so the body hangs under the
+        -- comment's `{-`. That is an ALIGN anchor, no matter what the node type
+        -- says: the box's tail is no longer nested relative to the flow base.
+        -- Gluing it first-line-only (`NestCarrying`) leaves the comment's body
+        -- short by the glued prefix's width, which is how a binop operand with
+        -- a trailing multi-line comment ended up with its second row one column
+        -- past the comment's opener instead of three.
+        AlignCarrying
+
+    else
+        softGlueAlignmentByType node
+
+
+softGlueAlignmentByType : LPNode -> SoftGlueAlignment
+softGlueAlignmentByType node =
     when lpnBox node is
         AlwaysVertical _ ->
             AlignCarrying

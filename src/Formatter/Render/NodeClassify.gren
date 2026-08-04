@@ -1,4 +1,4 @@
-module Formatter.Render.NodeClassify exposing (commentEndsItsLine, commentBreaksFlowRow, commentTextCanRide, fieldValueDropsToOwnLine, isColonLeaf, isDroppingSignatureRecordNode, isEmptyLine, isMultilineLambdaParenBlockBox, isTypeRecordLiteral, isOpAndRhsNode, isPipelineStepNode, leafLineRow, leafValue, literalCommentsRideFlatLine, nodeIsComment, parenContentIsLambdaHead, rowsSpanMultiple, signatureForceVertical, splitSignatureSegments, subtreeEndsWithLineComment, subtreeHasComment)
+module Formatter.Render.NodeClassify exposing (commentEndsItsLine, commentBreaksFlowRow, commentTextCanRide, fieldValueDropsToOwnLine, isColonLeaf, isDroppingSignatureRecordNode, isEmptyLine, isMultilineLambdaParenBlockBox, isTypeRecordLiteral, isOpAndRhsNode, isPipelineStepNode, leafLineRow, leafValue, literalCommentsRideFlatLine, nodeIsComment, parenContentIsLambdaHead, rowsSpanMultiple, signatureForceVertical, splitSignatureSegments, subtreeEndsWithLineComment, subtreeEndsWithMultilineBlockComment, subtreeHasComment)
 
 {-| Boolean predicates and small structural queries over LPT nodes.
 -}
@@ -73,6 +73,50 @@ subtreeEndsWithLineComment node =
             when Array.last (lpnChildren node) is
                 Just child ->
                     subtreeEndsWithLineComment child
+
+                Nothing ->
+                    False
+
+
+{-| True when the subtree's last descendant is a **multi-line** `{- … -}`.
+
+Such a comment is glued onto the running row with `B.prefix`, which pads its
+continuation lines with literal spaces so the body hangs under the comment's own
+opening delimiter. That makes the whole box **align-carrying** — anchored at an absolute
+column — whatever its node type would otherwise say, which is what
+`FlowAssembly.softGlueAlignment` needs to know: gluing such a box first-line-only
+leaves its continuation short by the glued prefix's width.
+
+Descends the right spine reading LPT shape and the comment's own TEXT only — no
+rendered output, no source rows — so it is render-invariant safe. It stops at the
+same container boxes as `subtreeEndsWithLineComment`, and for the same reason:
+their rendered last line is a synthesized closing delimiter emitted after the
+last child, so the comment inside is not what the next glue lands on. -}
+subtreeEndsWithMultilineBlockComment : LPNode -> Bool
+subtreeEndsWithMultilineBlockComment node =
+    when lpnBox node is
+        BlockComment { loc } ->
+            String.contains "\n" loc.value
+
+        AllAcrossOrAllVertical _ ->
+            False
+
+        AlwaysVertical _ ->
+            False
+
+        RecordUpdate _ ->
+            False
+
+        ParenBlock _ ->
+            False
+
+        EmptyBracketed _ ->
+            False
+
+        _ ->
+            when Array.last (lpnChildren node) is
+                Just child ->
+                    subtreeEndsWithMultilineBlockComment child
 
                 Nothing ->
                     False

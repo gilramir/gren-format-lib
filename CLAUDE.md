@@ -269,8 +269,8 @@ safe. They were only landing at different columns. Ten minutes in
 propose. **For a suspected parser bug, go read the parser** — a black-box grid
 over the wrong variable reads like a characterisation and is not one.
 
-**The sixth family (8 probes) is diagnosed but NOT fixed — read this before
-starting on it.** One shape, in `RecordLambdaFieldCommentIndent` (×4),
+**The sixth family (8 probes) is HALF fixed — read this before starting on the
+rest.** One shape, in `RecordLambdaFieldCommentIndent` (×4),
 `RecordFieldLambdaDrop` (×2), `BlockRecordFieldValue` and `RecordFieldBlockValues`:
 a multi-line `{- … -}` trailing a lambda body inside a record field. Only the
 **comment's continuation row** moves; everything else is byte-identical.
@@ -278,26 +278,41 @@ a multi-line `{- … -}` trailing a lambda body inside a record field. Only the
 The same construct gets three different offsets between the `{-` column and its
 continuation row, depending on the path that glued it:
 
-| shape | offset |
-|---|---|
-| a detached top-level comment | +3 |
-| `{ fld = q + one {- c` (no lambda) | +3 |
-| `{ fld = \q -> q + one {- c` written **flat** | **+1** |
-| the same, written **already broken** | **+5** |
+| shape | before | after `d1e40a2` |
+|---|---|---|
+| a detached top-level comment | +3 | +3 |
+| `{ fld = q + one {- c` (no lambda) | +3 | +3 |
+| `q + one {- c` (plain binop) | **+1** | **+3** |
+| `{ fld = \q -> q + one {- c` written **flat** | **+1** | **+3** |
+| the same, written **already broken** | **+5** | **+5** — still wrong |
 
 `blockCommentBodyOffset` is 3 and `addSuffixBox`'s contract is "the suffix's
 continuation is indented by the glued line's rendered width", so **+3 is the
-principled answer** and the other two are both wrong. The instability is that the
-flat spelling formats to +1 and its own output reparses to +5 — and +5 is a fixed
-point, so only the first format is unstable.
+principled answer**.
 
-Mechanism: `Box.prefix` pads continuation lines with `lineLength 0 pref` literal
-spaces — the prefix's width measured **at column 0** — while the enclosing layout
-indents with `Tab`, which snaps to the next multiple of 4 *from wherever the line
-already is*. A `Tab` following two literal spaces advances 2, one at column 0
-advances 4, so the padding and the real indent disagree by a path-dependent
-amount. `Box.freezeTabs` exists for exactly this ("so a box can be prefix-glued
-to an arbitrary column") and is presumably part of the fix.
+**The +1 half is fixed** (`d1e40a2`): `softGlueAlignment`'s per-box-TYPE table
+called `OpAndRhs` `NestCarrying`, meaning "continuation lines already carry their
+own indent relative to the flow base, so glue first-line-only". That is true of a
+broken operand and false of one whose tail is a multi-line comment — that comment
+is glued with literal-space padding, so the box is **align-carrying** whatever
+its type says. `subtreeEndsWithMultilineBlockComment` (LPT shape + the comment's
+own text; no rows, no rendered output) now overrides the table.
+
+**The +5 half is not**, and here is the arithmetic. `Box.prefix` pads by
+`lineLength 0 pref` — the prefix measured **at column 0** — while the line is
+actually rendered further right. In the failing case the prefix is
+`Row[Tab, Tab, "q + one", Space]` sitting at column 6: measured at 0 it is
+4+4+7+1 = **16**, rendered at 6 it is 2+4+7+1 = **14**, because a `Tab` snaps to
+the next multiple of 4 *from where it stands*. Two columns of error, and the
+record literal's `{ ` is what puts the line at a non-multiple-of-4 column.
+
+**What is NOT the fix: freezing the prefix inside `addSuffixBox`.** `freezeTabs`
+converts Tabs to the spaces they render to *standing alone*, so it fixes the
+width and simultaneously changes the emitted line — 2 fixtures regressed (a
+`when`-in-parens header, a `KitchenComments` binop chain), because they rely on
+those Tabs re-snapping once the box is embedded. A correct fix has to give the
+glue the line's true starting column, or keep Tabs out of a line that will be
+used as a glue prefix.
 
 **What is NOT the fix: adding `Binop` to `boxKeepsTrailingCommentOutside`.** It
 converges the ownership half, and breaks **7 fixtures** — a trailing comment
