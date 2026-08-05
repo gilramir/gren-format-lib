@@ -1767,3 +1767,36 @@ type arrow's comment, so check the context is a lambda.
 No formatter bug surfaced; the three bugs the addition was written for were
 already fixed.
 
+
+### Lambda as a pipeline operand
+
+**v1.33 (implemented 2026-08-05):** the chain built by `mk_pipeline` may end in a
+BARE lambda (`seed |> f <| \q -> q`), which brings v1.32's two comment slots
+with it.
+
+**v1.32 alone did not close the gap it was written for.** `mk_pipeline` builds
+its operands from `arg()`, which offers only an atom or a `Paren`, so a lambda
+could never be a pipeline operand at all — v1.32 put the comment slots on
+`mk_lambda`, but nothing ever put a lambda *there*. `fn <| {- c -} \q -> q`, the
+shape [`86ef9d7`] fixed (a comment leading a lambda operand rendered on the wrong
+side of the operator), stayed ungeneratable until this.
+
+**LAST operand only.** A lambda body swallows everything to its right, so
+`a |> \q -> q |> b` parses as one lambda body containing `|> b` rather than a
+three-operand chain. At the end of the chain there is nothing left to swallow.
+This is a legality claim, and the thing that actually enforces it is the
+**quarantine count** — a chain that failed to parse would land there, so a
+non-zero quarantine after this change means the restriction is wrong.
+
+`emit_binop` needed no change: it emits an operand with `one_line` when the chain
+is inline and `emit(operand, ocol)` at the operator's own column when broken,
+which dispatches to `emit_lambda` and takes the body's `own_line` indent from
+there.
+
+**Sweep:** 8000 fresh seeds — 3000 `--comment-rate 0.6` (8000000..8002999), 2500
+`--max-depth 7 --comment-rate 0.6` (8100000..8102499), 2500 default
+(8200000..8202499) — all clean, **0 quarantine** in all three runs. Verified the
+shape emits before trusting that: replaying seeds 100..180 at
+`--comment-rate 0.95` produces `<| {- k10 -} \{ name, count } acc -> {- k11 -} .v`,
+which is `86ef9d7`'s bug in generated form.
+

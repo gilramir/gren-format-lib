@@ -1688,6 +1688,20 @@ class Gen:
         k = self.rng.randint(4, 9)
         operands = [self.arg(d) for _ in range(k)]
         ops = ["<|" if self.chance(0.25) else "|>" for _ in range(k - 1)]
+        # v1.33: a BARE lambda as the chain's operand. `arg()` offers only an
+        # atom or a `Paren`, so a lambda could never be a pipeline operand at
+        # all — and `fn <| {- c -} \q -> q` is the shape `86ef9d7` fixed (a
+        # comment leading a lambda operand rendered on the wrong side of the
+        # operator), reached then by the corpus fuzzer because this generator
+        # could not produce it. The v1.32 slots on `mk_lambda` come with it.
+        #
+        # LAST operand only: a lambda body swallows everything to its right, so
+        # `a |> \q -> q |> b` would parse as one lambda body containing `|> b`
+        # rather than a three-operand chain. At the end there is nothing left to
+        # swallow. (Legality is enforced by the quarantine count, which must
+        # stay 0 — a chain that failed to parse would land there.)
+        if self.chance(0.25):
+            operands[-1] = self.mk_lambda(d)
         return Binop(operands, ops, broken=self.chance(0.5))
 
     def mk_record(self, d):
