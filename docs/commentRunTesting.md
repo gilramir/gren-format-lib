@@ -286,11 +286,16 @@ is the shape elm-format produces.
 
 ### The residual, and why this gate ships red
 
-> **Superseded 2026-08-05.** The formatter-side residual is **zero**; the sweep
-> reports 17 findings and all 17 are `[known: compiler-common#35]`, a parser bug.
-> The gate still ships red, but for that reason alone. What follows is the record
-> of how the residual came down, kept because the *method* is the reusable part —
-> every family named below turned out to be one rule.
+> **Superseded 2026-08-05.** The residual reached **zero** that day — 17 findings,
+> all `[known: compiler-common#35]`, a parser bug. It reads **19** by the evening,
+> and both extras are *pre-existing*, attributed by rebuilding the two previous
+> commits: a **comment run** in a record-update field (`{ rec | fld = \q -> fn`
+> `{- ¤ … -}` `q {- multi … -} }`) flips `renderGluedLambdaField`'s glue-vs-drop
+> decision between formats. It is this document's own subject — two comments in
+> one place, which no gate here samples — and it surfaced because a new fixture
+> probed it. **Adding a comment-bearing fixture is itself a probe.** What follows
+> is the record of how the residual came down, kept because the *method* is the
+> reusable part: every family named below turned out to be one rule.
 
 As of 2026-08-04 the corpus sweep stood at **118 findings — 0 regressions, all
 pre-existing**: 67 multi-line block, 51 `--`, 0 single-line block. (424 → 347
@@ -779,15 +784,28 @@ makes the mistake cheap to find, but not making it is better.
      `boxKeepsTrailingCommentOutside`, so the same shape with no lambda had
      always been stable, which is also the output the fix lands on.
    - **54 — a glue row derived from source rows that the format then
-     collapses.** `bracketRendersMultiline` uses `range.maxRow > range.minRow`
+     collapses.** `bracketRendersMultiline` used `range.maxRow > range.minRow`
      as its proxy for "does this render multi-line", and a single-item container
      collapses ([#21](elmFormatComparison.md#divergence-21)), so a comment after
-     an author-broken `(Int` ⏎ `-> Int)` or `[ 1` ⏎ `]` glues on the first format
-     and takes its own row on the second. Its docstring already names the shape
-     of the problem — *"it is a logical-stage predicate, so it cannot observe the
-     rendered box"* — which makes it the same class as `commentSplitsType`.
-     **Open.** It touches every comment-after-a-bracket placement, so it wants
-     its own change and its own measurement.
+     an author-broken `(Int` ⏎ `-> Int)` or `[ 1` ⏎ `]` glued on the first format
+     and took its own row on the second. Its docstring already named the shape of
+     the problem — *"it is a logical-stage predicate, so it cannot observe the
+     rendered box"* — which made it the same class as `commentSplitsType`.
+     **Fixed** — 54 → 0, and **the fix is subtractive**: the answer was already
+     computed, stored and correct in the box constructor
+     (`authoredBracketList` picks `AlwaysVertical` vs `AllAcrossOrAllVertical`
+     from `itemsSpanRows`), and the row re-derivation beside it was both
+     redundant and wrong — it counted a break *inside* one item, the very thing
+     `itemsSpanRows` documents itself as ignoring. The `ParenBlock` arm of
+     `prevBlockGlueRow` had the same bug and the same stored answer
+     (`forceVertical`), which is where ~48 of the 54 were: a formatter-synthesized
+     type paren carries no author position, so it renders flat however the author
+     broke it. Fixture `BracketComments/CollapsedContainerTrailingComment`.
+
+   **The axis is back to 0 failing, at 68,922 cells.** Both fixes are one rule
+   each, and neither needed a new concept: the first was an existing rule asked
+   of one more container, the second was deleting a mirror that an author-intent
+   flag already answered.
 7. run-classification refactor — makes C1 and C3 structural. **Before any n=2
    baseline**, or the baseline is built against ownership the refactor changes.
    The unit of work is that "what is a run" is implemented at **six sites that

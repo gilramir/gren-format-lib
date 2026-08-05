@@ -1389,24 +1389,25 @@ Two of those deserve emphasis, because they cover holes that look covered:
   subtracted**: the gate stays red on purpose until the parser fix ships,
   because hiding a finding is how a gate starts lying about its coverage. The
   **formatter-side residual is zero.**
-- `matrix-syntax.py --comments`: 68,922 cells, **54 failing**, and that number is
-  the point of the entry. The axis swept only two of the three comment kinds
-  until 2026-08-05; adding the multi-line block found 70 non-idempotencies the
-  same afternoon. 16 are fixed (`containerTailKeepsCommentOutside`); the other 54
-  are one open cause — `bracketRendersMultiline` deriving a glue row from the
-  author's rows for a container the format then collapses. Details and the
-  work-list are in [`commentRunTesting.md`](commentRunTesting.md).
+- `matrix-syntax.py --comments`: 68,922 cells, **0 failing**. The axis swept only
+  two of the three comment kinds until 2026-08-05; adding the multi-line block
+  found 70 non-idempotencies the same afternoon, in two causes, both now fixed —
+  `containerTailKeepsCommentOutside` (16) and a glue row that
+  `bracketRendersMultiline` was deriving from the author's rows for a container
+  the format then collapses (54). Write-up in
+  [`commentRunTesting.md`](commentRunTesting.md).
 
 For the two kinds that had been swept, that last line is the one to quote to a
 sceptic: every place `gren format` and `elm-format` put a `--` or a single-line
 `{- -}` differently is a *decision on record with a reason*, not an unexamined
-difference. The multi-line kind is a day old here and its divergences are freshly
-registered debt, not yet reviewed.
+difference. The multi-line kind is a day old here, and its divergences are
+registered debt that has not been reviewed yet — counted and visible, not
+audited.
 
-**Read the red as a feature.** A gate that runs green over the wrong axis reads
-exactly like a gate that runs green — which is what this one did for months. The
-54 are visible, attributed and counted; narrowing the sweep to recover the green
-is the mistake that produced them.
+**And note what a green gate is worth.** This axis ran green for months over two
+of the three comment kinds; adding the third found 70 non-idempotencies the same
+afternoon. A gate that runs green over the wrong axis reads exactly like a gate
+that runs green. Check what a gate *varies* before trusting what it reports.
 
 The honest caveats, stated so nobody has to discover them:
 

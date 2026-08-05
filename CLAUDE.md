@@ -273,11 +273,39 @@ trailing an earlier branch keeps its place, which the fixture pins along with th
 bare-literal body that still rides its own row
 (`WhenLastBranchTrailingMultiline`).
 
-**THE FORMATTER-SIDE RESIDUAL IS ZERO (2026-08-05).** `fuzz-idempotency.py`
-reports **17** findings and all 17 are `[known: compiler-common#35]`. The gate is
-red on purpose and stays red until that parser fix ships and the dependency is
-bumped; nothing in it is this formatter's to fix. `check-decision-stability.py`
-PASSes 0 over 343 fixtures, and its `--gaps -v` total matches the fuzzer.
+**THE FORMATTER-SIDE RESIDUAL WENT TO ZERO (2026-08-05)** — `fuzz-idempotency.py`
+reported **17** findings, all 17 `[known: compiler-common#35]`, and
+`check-decision-stability.py` PASSed 0 over 343 fixtures. The gate is red on
+purpose and stays red until that parser fix ships and the dependency is bumped;
+nothing in *that* 17 is this formatter's to fix.
+
+**It reads 19 later the same day, and the 2 are pre-existing.** Both are the same
+gap of the new `ContainerTailMultilineComment` fixture, one per comment kind — a
+SECOND comment injected into a record-update field that already carries a
+trailing multi-line one:
+
+```gren
+v =
+    { rec
+        | fld = \q -> fn {- ¤
+   second row -} q {- multi
+                              second row -}
+    }
+```
+
+Format¹ keeps `\q ->` glued to `| fld = `; format² drops the lambda whole below
+`fld =`. That is `renderGluedLambdaField`'s glue-vs-drop decision, reached
+through a comment RUN — the class `docs/commentRunTesting.md` exists for, and one
+no gate here samples (`--comments` injects one comment per cell, the fuzzers one
+per gap).
+
+**Attributed by rebuild, not by argument**: it MOVES identically on this build,
+on `16a33db` (the container fix alone) and on `16a33db~1` (neither fix), so
+neither change caused it. **Adding a comment-bearing fixture is itself a probe** —
+the rise from 17 is two new probes of a pre-existing class, exactly as the two
+fixtures behind `f7c0c54` once took the sweep from 140 to 148. Do not delete the
+`updateField` case to get the number back: narrowing coverage to recover a green
+is the mistake this whole section is about.
 
 Two of the last three probes needed **attachment** changes, not renderer ones,
 and both had already had a renderer half written and reverted. The lesson is in
@@ -879,12 +907,13 @@ commits:
   That last one also fixed a comment-free instance of the same bug
   (`{ fld = \q -> { a = 1` / `, b = 2 } }` oscillated with no comment anywhere).
 
-**The axis runs 68,922 cells and ships RED, with 54 known findings** (2026-08-05).
-It ran 45,948 cells with 0 failing until the **multi-line block kind** was added
-that day — `COMMENT_KINDS` was `{block, line}` while `fuzz-idempotency.py`'s
-`KINDS` was `{block, multi, line}`, the same one-kind-per-gap hole this file
-records costing 401 regressions, left open on the one axis with an elm-format
-oracle. It found **70 non-idempotencies immediately**, in two causes:
+**The axis runs 68,922 cells with 0 failing** (2026-08-05). It ran 45,948 with 0
+failing until the **multi-line block kind** was added that day — `COMMENT_KINDS`
+was `{block, line}` while `fuzz-idempotency.py`'s `KINDS` was
+`{block, multi, line}`, the same one-kind-per-gap hole this file records costing
+401 regressions, left open on the one axis with an elm-format oracle. It found
+**70 non-idempotencies immediately**, in two causes, both since fixed (70 → 54 →
+0):
 
 - **16 — fixed** (`containerTailKeepsCommentOutside`): a multi-line `{- … -}`
   past a bracketed container's ITEM descended into that item's lambda body,
@@ -897,13 +926,21 @@ oracle. It found **70 non-idempotencies immediately**, in two causes:
   gained the same rule for its four flat-authored fields, which stop being broken
   open by a trailing comment (its own `singleLineBodyStaysGlued` said so for the
   other comment kind).
-- **54 — open**: `bracketRendersMultiline` derives a glue row from
-  `range.maxRow > range.minRow`, the AUTHOR's rows, and a single-item container
-  collapses (#21) — so a comment after `(Int` ⏎ `-> Int)` glues on format¹ and
-  takes its own row on format². Its docstring already says why it is the wrong
-  shape: *"it is a logical-stage predicate, so it cannot observe the rendered
-  box."* Same class as `commentSplitsType`. It reaches every
-  comment-after-a-bracket placement, so it wants its own change.
+- **54 — fixed, by DELETING a mirror**: `bracketRendersMultiline` derived a glue
+  row from `range.maxRow > range.minRow`, the AUTHOR's rows, and a single-item
+  container collapses (#21) — so a comment after `(Int` ⏎ `-> Int)` glued on
+  format¹ and took its own row on format². The answer was already computed,
+  stored and correct one layer up: `authoredBracketList` picks `AlwaysVertical`
+  vs `AllAcrossOrAllVertical` from `itemsSpanRows`, and the row re-derivation
+  beside it asked a *different* question — it counted a break **inside** one
+  item, which `itemsSpanRows` documents itself as ignoring. `prevBlockGlueRow`'s
+  `ParenBlock` arm had the same bug with the same stored answer available
+  (`forceVertical`), and that is where ~48 of the 54 were: a
+  formatter-synthesized type paren carries no author position, so it renders flat
+  however the author broke it. Fixture
+  `BracketComments/CollapsedContainerTrailingComment`. **Read a mirror predicate
+  as a question about where the answer already lives** — both halves here were
+  subtractive, and 354 fixtures did not move.
 
 **Do not narrow the sweep to make it green** — that is exactly the mistake that
 hid these. Per-kind counts print on every run; a number moving the wrong way is a

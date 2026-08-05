@@ -2302,12 +2302,33 @@ subtreeContainsComment node =
     isCommentNode node || Array.any subtreeContainsComment (lpnChildren node)
 
 
--- Whether a bracket container renders multi-line (so a following block comment
--- can glue onto its closing bracket's line). An `AlwaysVertical` list always
--- does; an `AllAcrossOrAllVertical` list stays inline unless a contained comment
--- (or a multi-row span) forces it open. This mirrors `factsFor`'s render-derived
--- `forcesVertical` from source structure; it is a logical-stage predicate, so it
--- cannot observe the rendered box the way the render stage does.
+{-| Whether a bracket container renders multi-line, so a following block comment
+can glue onto its closing bracket's line.
+
+**The box type IS the answer**, and asking anything else was the bug.
+`authoredBracketList` has already made this exact decision once, from
+`itemsSpanRows`, and recorded it in the constructor: `AlwaysVertical` renders
+vertical, `AllAcrossOrAllVertical` renders inline unless a comment forces it
+open. Re-deriving it here from `subtreeRowRange` asked a DIFFERENT question —
+"does anything in this subtree span rows", which counts a break *inside* one
+item, the very thing `itemsSpanRows` documents itself as ignoring ("A lone item
+that is itself multi-line does not count, since there is no gap *between* items
+to cross").
+
+The two disagree on exactly the shape that collapses. `[ 1` ⏎ `]` has one item,
+so `itemsSpanRows` is False and the box is `AllAcrossOrAllVertical` — it renders
+`[ 1 ]`, one row ([#21](../../../docs/elmFormatComparison.md#divergence-21)) —
+while the row range still spans the author's two rows. A trailing multi-line
+`{- … -}` therefore found a glue row that the output does not have, glued on the
+first format, and took its own row on the second, for ever. 54 findings, from
+`matrix-syntax.py --comments` once it swept the multi-line kind.
+
+So this now reads the stored flag and no rows at all. That is the same
+correction `commentSplitsType` needed and the same one `45f7269` needed: a
+placement decided from a source row the formatting itself invalidates. Here the
+fix is subtractive — the author-intent flag was already computed, stored and
+correct, and the mirror beside it was the only thing wrong.
+-}
 bracketRendersMultiline : LPNode -> Bool
 bracketRendersMultiline node =
     when lpnBox node is
@@ -2315,11 +2336,7 @@ bracketRendersMultiline node =
             True
 
         _ ->
-            let
-                range =
-                    subtreeRowRange node
-            in
-            range.maxRow > range.minRow || subtreeContainsComment node
+            subtreeContainsComment node
 
 
 {-| True when a `ParenBlock`'s content is a block construct (`if` / `when` /
@@ -2496,19 +2513,26 @@ prevBlockGlueRow commentIsMultiline node =
 
         -- A same-row block comment glues onto a multi-line paren's closing `)`
         -- (`(bar baz) {- c -}`); after a single-line paren it stays own-line, as
-        -- after a plain call. `lastRenderedRow` is -1-safe for the single-line
-        -- case only via the span check below.
+        -- after a plain call.
         --
-        -- The span is a proxy for "renders multi-line", so it must also cover a
-        -- paren whose content breaks unconditionally regardless of how the
-        -- author laid it out (`parenContentAlwaysBreaks` — see there for the
-        -- oscillation this closes).
-        ParenBlock _ ->
-            let
-                range =
-                    subtreeRowRange node
-            in
-            if range.maxRow > range.minRow || parenContentAlwaysBreaks node then
+        -- "Renders multi-line" is the paren's own stored `forceVertical` — set
+        -- when the author wrote the `(` and `)` on different rows, which is what
+        -- makes the renderer put the `)` on its own line — plus a paren whose
+        -- content breaks unconditionally however the author laid it out
+        -- (`parenContentAlwaysBreaks`; see there for the oscillation that
+        -- closes).
+        --
+        -- It used to be the subtree's ROW SPAN, which is a different question
+        -- and wrong for the same reason `bracketRendersMultiline`'s was: a
+        -- formatter-SYNTHESIZED paren (a type or pattern wrap) carries no author
+        -- position, so `forceVertical` is False and it renders flat — while its
+        -- content's rows still span whatever the author wrote. `foo : (Int` ⏎
+        -- `-> Int) {- … -}` renders `(Int -> Int)` on one row, so the glue row
+        -- the span promised does not exist in the output, and the second format
+        -- moved the comment to its own row. Roughly 48 of the 54 findings the
+        -- multi-line comment sweep turned up were this arm.
+        ParenBlock info ->
+            if info.forceVertical || parenContentAlwaysBreaks node then
                 lastRenderedRow node
 
             else

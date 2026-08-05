@@ -840,6 +840,14 @@ bracketCommentsSuite fsPerm =
             -- single-line `{- -}` ride the item's row and stay its own, and a
             -- nested container's own brackets still take their comment).
             , assertPrettyIn fsPerm "BracketComments" "multi-line comment past a container item belongs to the container, not to the item's lambda body" "ContainerTailMultilineComment"
+            -- The other half of the same sweep: "does this container render
+            -- multi-line" is its stored box type, not its source row span. The
+            -- two disagree exactly where the container COLLAPSES (a single item
+            -- has no between-item gap, #21), so the row span promised a glue row
+            -- the output did not have. Pins both sides -- a collapsed container's
+            -- trailing comment takes its own row, a genuinely broken one still
+            -- glues onto the closing bracket.
+            , assertPrettyIn fsPerm "BracketComments" "a trailing block comment glues onto a container's close only when the container really renders across rows" "CollapsedContainerTrailingComment"
             -- gen-random.py seed 108 (comment-rate 0.6, v1.6's new Neg/unary-minus
             -- grammar): a `--` trailing a unary-minus (`-expr`) body glues onto
             -- that row and stays put (was non-idempotent: prevLineGlueRow/

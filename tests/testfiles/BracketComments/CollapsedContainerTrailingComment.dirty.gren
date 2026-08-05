@@ -1,0 +1,70 @@
+module CollapsedContainerTrailingComment exposing (..)
+
+-- "Does this container render multi-line?" -- which decides whether a trailing
+-- block comment may glue onto its closing bracket's row -- is the container's
+-- own STORED box type, not its source row span.
+--
+-- The two disagree on exactly the containers that COLLAPSE. `authoredBracketList`
+-- builds an `AllAcrossOrAllVertical` when `itemsSpanRows` is False, and a
+-- single-item container can never have a gap *between* items, so `[ 1` / `]`
+-- renders `[ 1 ]` on one row (divergence #21) while its row range still spans
+-- the two rows the author used. `bracketRendersMultiline` read the range,
+-- promised a glue row the output does not have, and the comment moved to its own
+-- row on the second format. Reading the box type instead is subtractive: the
+-- author-intent flag was already computed, stored and right.
+--
+-- A formatter-SYNTHESIZED paren (a type or pattern wrap) is the same story with
+-- the same fix: it carries no author position, so its `forceVertical` is False
+-- and it renders flat however the author broke it.
+--
+-- Found by `matrix-syntax.py --comments` on the multi-line comment kind
+-- (2026-08-05): 54 cells, ~48 of them the paren arm.
+
+
+oneItemArray =
+    [ 1
+    ] {- multi
+   second row -}
+
+
+oneFieldRecord =
+    { a = 1
+    } {- multi
+   second row -}
+
+
+oneItemArrayAsCallArg =
+    fn a [ 1
+         ] {- multi
+   second row -}
+           last
+
+
+-- THE BOUNDARY. A container the author genuinely broke BETWEEN items keeps its
+-- `AlwaysVertical` box, renders across rows, and its closing bracket is a row a
+-- trailing comment still glues onto.
+
+
+twoItemArrayStillGlues =
+    [ 1
+    , 2
+    ] {- multi
+   second row -}
+
+
+twoFieldRecordStillGlues =
+    { a = 1
+    , b = 2
+    } {- multi
+   second row -}
+
+
+-- An author-written paren carries `forceVertical` of its own, so it is unmoved
+-- either way: broken across rows it renders its `)` on its own line and the
+-- comment glues onto that row.
+
+
+brokenParenStillGlues =
+    (one
+    ) {- multi
+   second row -}
