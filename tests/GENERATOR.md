@@ -1727,3 +1727,43 @@ seeds: 10000 default (4000000..4009999), 6000 `--comment-rate 0.6`
 (4100000..4105999), 4000 `--max-depth 8 --comment-rate 0.6`
 (4200000..4203999) — the first sweep at depth 8 (prior ceiling was 7). All
 clean (0 quarantine, 0 findings).
+
+### Lambda comment slots
+
+**v1.32 (implemented 2026-08-05):** the two comment positions a lambda has that
+no other node offers — in FRONT of the lambda (`{- c -} \q -> q`) and between
+its `->` and its body (`\q -> {- c -} q`).
+
+Both were **unreachable before**. `maybe_inline_comment` only ever sets `.pre` on
+a single-line ATOM (`Int`/`Str`/`Var`/`Qual`/`Ctor`/`Chr`/`MultilineStr`), and
+`mk_lambda` had no comment slot of its own, so neither shape could be generated
+at any seed, depth or comment rate.
+
+That gap is not hypothetical: **three formatter non-idempotency bugs fixed on
+2026-08-05 lived in exactly these two positions** — a `{- -}` leading a lambda
+that is a `<|` operand (`86ef9d7`), the same comment leading a lambda operand of
+a `|>` step, and a `{- -}` between a lambda's `->` and its body inside a record
+field (`1af273a`, where `Array.popLast` mistook the comment for the lambda head).
+Every one was found by `fuzz-idempotency.py` sweeping the fixture corpus, because
+this generator could not reach them.
+
+**Scoped to a single-line body.** `E.pre`'s docstring restricts leading comments
+to atoms because "a comment with continuation lines would misalign children"; a
+lambda whose body is single-line renders on one row, so no child's column moves
+and the restriction is met by construction rather than by node kind. The
+multi-line branch of `emit_lambda` therefore never sees either slot set, and says
+so — a leading comment there would move the `\` off `col` while `own_line` keeps
+the body at `col + INDENT`.
+
+**Verify the shapes actually emit before trusting a clean sweep.** A grammar
+addition that generates nothing new is indistinguishable from a clean run:
+replay a few seeds at `--comment-rate 0.9` and grep for the shape
+(`{- k[0-9]+ -\} \\` and `-> {- k[0-9]+ -\}`) — note the second also matches a
+type arrow's comment, so check the context is a lambda.
+
+**Sweep after this addition:** 8000 fresh seeds — 3000 `--comment-rate 0.6`
+(7000000..7002999), 2500 `--max-depth 7 --comment-rate 0.6` (7100000..7102499),
+2500 default (7200000..7202499) — all clean, **0 quarantine** in all three runs.
+No formatter bug surfaced; the three bugs the addition was written for were
+already fixed.
+

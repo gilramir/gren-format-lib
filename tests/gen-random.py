@@ -166,7 +166,14 @@ class LetBind:
         self.lead, self.trailing = lead, trailing
 
 class Lambda(E):
-    def __init__(self, params, body): self.params, self.body = params, body
+    # `pre` (inherited from E) is a single-line block comment leading the whole
+    # lambda (`{- c -} \q -> q`); `body_pre` is one between the `->` and the
+    # body (`\q -> {- c -} q`). Both are set ONLY when the body is single-line
+    # (see `mk_lambda`), which keeps the whole lambda on one row and so leaves
+    # every child's column unchanged — the restriction `E.pre`'s docstring
+    # states for atoms, met here by construction rather than by node kind.
+    def __init__(self, params, body, body_pre=None):
+        self.params, self.body, self.body_pre = params, body, body_pre
 
 class Record(E):
     def __init__(self, fields, broken=False):  # fields: [(name, val)]
@@ -579,11 +586,17 @@ def emit_binding(b, col):
 
 
 def emit_lambda(n, col):
-    prefix = "\\" + " ".join(emit_param(p) for p in n.params) + " -> "
     if multiline(n.body):
+        # `mk_lambda` only attaches the two comments to a single-line body, so
+        # neither can be set here — a leading comment would move the `\` off
+        # `col` while `own_line` keeps the body at `col + INDENT`, which is the
+        # child-misalignment `E.pre`'s docstring rules out.
         out = ["\\" + " ".join(emit_param(p) for p in n.params) + " ->"]
         out += own_line(n.body, col + INDENT)
         return out
+    lead = ("{- " + n.pre + " -} ") if n.pre else ""
+    body_lead = ("{- " + n.body_pre + " -} ") if n.body_pre else ""
+    prefix = lead + "\\" + " ".join(emit_param(p) for p in n.params) + " -> " + body_lead
     bl = emit(n.body, col + len(prefix))
     return [prefix + bl[0]] + bl[1:]
 
@@ -1761,7 +1774,28 @@ class Gen:
 
     def mk_lambda(self, d):
         k = self.rng.randint(1, 2)
-        return Lambda([self.pattern_base(d) for _ in range(k)], self.value(d))
+        body = self.value(d)
+        lam = Lambda([self.pattern_base(d) for _ in range(k)], body)
+        # v1.32: the two comment slots a lambda has that no other node offers —
+        # in FRONT of the lambda, and between its `->` and its body. Both were
+        # unreachable before: `maybe_inline_comment` only ever sets `.pre` on a
+        # single-line ATOM, and `mk_lambda` had no slot of its own, so the
+        # generator could not produce `{- c -} \q -> q` or `\q -> {- c -} q` at
+        # all. Three formatter non-idempotency bugs fixed on 2026-08-05 lived in
+        # exactly those two positions, every one of them found by the corpus
+        # fuzzer instead, because this generator could not reach them.
+        #
+        # Single-line bodies only: that keeps the lambda on one row, so no
+        # child's column moves and the emitted layout stays legal without any
+        # new indentation reasoning.
+        if not multiline(body):
+            c = self.comment(kinds=("block",))
+            if c:
+                lam.pre = c[1]
+            c = self.comment(kinds=("block",))
+            if c:
+                lam.body_pre = c[1]
+        return lam
 
     # -- multi-line (triple-quoted) strings ---------------------------------
     # Content-line legality, verified directly against the built app: a row
