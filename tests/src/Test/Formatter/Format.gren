@@ -681,6 +681,7 @@ pipelineCommentsSuite fsPerm =
             , assertPrettyIn fsPerm "PipelineComments" "a long author-broken binop chain breaks every operator onto its own line; a trailing comment stays inline on the last operand" "BinopChainTrailingComment"
             , assertPrettyIn fsPerm "PipelineComments" "trailing comments below a pipeline's last step stay at the step indent" "PipelineTrailingComment"
             , assertPrettyIn fsPerm "PipelineComments" "a multi-line block comment trailing a `|>` step renders at the step column, not the operand flow's +4 -- it lands above the next `|>`, which is the only thing a reparse can read it as; a run written after it comes down with it, and single-line ones still glue" "PipelineStepTrailingMultilineComment"
+            , assertPrettyIn fsPerm "PipelineComments" "a `|>` step's trailing own-line comment run is OWNED by the next step, not just rendered there -- the owner decides `glueLeading`, so a split run made the two formats disagree about whether a ridable comment rides its operator's row" "PipelineStepTrailerRehomed"
             -- Regression guard for the Cluster B fix: a *multi-line* block comment
             -- glued same-row onto a preceding construct's last line (previously
             -- crashed; now padded under its start via B.addSuffixBox).

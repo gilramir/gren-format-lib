@@ -199,7 +199,126 @@ lptAddComments ctx root =
                 |> Builder.append final.rest
                 |> Builder.toArray
     in
-    lpnReplaceChildren root (Array.mapAndFlatten detachOwnLineTrailer finalChildren)
+    lpnReplaceChildren root
+        (Array.mapAndFlatten detachOwnLineTrailer finalChildren
+            |> Array.map rehomePipelineStepTrailers
+        )
+
+
+{-| Move each pipeline step's trailing OWN-LINE comment run onto the front of
+the step that follows it.
+
+Such a run renders below its step, which puts it above the next `|>` — and a
+comment on a row of its own before an operator is, to a reparse, that operator's
+step's LEADING comment. There is no other reading available. So the first format
+has to own it there too, or the two formats disagree about something neither of
+them renders differently.
+
+`Render/MakeRenderBox`'s step renderer already made the two owners produce the
+same BYTES for the run itself (`ea1c2ab`). That was not enough: the run's owner
+also decides `glueLeading`, which asks `commentTextCanRide` of the whole leading
+run all-or-nothing. With the run split across two steps the first format saw
+only the ridable `{- c -}` and glued it onto the `|>`'s row; the reparse, seeing
+both comments in one run, refused — because one of them is a multi-line
+`{- … -}` that cannot ride — and stacked it instead. Same comment, same role,
+same rendering rule, different answer, for ever
+(`KitchenComments.formatted.gren[multi]@2121`).
+
+The LAST step keeps its own trailing run: there is no following step to give it
+to, and what happens to it there is `detachOwnLineTrailer`'s question, already
+answered above.
+
+Applied after `detachOwnLineTrailer` so a run that leaves the declaration
+entirely is already gone, and recursively, since a pipeline can sit anywhere. -}
+rehomePipelineStepTrailers : LPNode -> LPNode
+rehomePipelineStepTrailers node =
+    let
+        withRebuiltChildren =
+            lpnReplaceChildren node
+                (Array.map rehomePipelineStepTrailers (lpnChildren node))
+    in
+    when lpnBox withRebuiltChildren is
+        Pipeline _ ->
+            lpnReplaceChildren withRebuiltChildren
+                (movePipelineStepTrailers (lpnChildren withRebuiltChildren))
+
+        _ ->
+            withRebuiltChildren
+
+
+{-| The left-to-right sweep `rehomePipelineStepTrailers` runs over one
+pipeline's children: each step takes the run the previous step handed it, then
+hands its own trailing own-line run to the next. A run left over at the end
+belongs to the last step, which keeps it. -}
+movePipelineStepTrailers : Array LPNode -> Array LPNode
+movePipelineStepTrailers children =
+    let
+        step acc child =
+            when lpnBox child is
+                PipelineStep ->
+                    let
+                        kids =
+                            acc.pending ++ lpnChildren child
+
+                        split =
+                            spanTrailingOwnLineNodes kids
+                    in
+                    { pending = split.trailing
+                    , out = Array.pushLast (lpnReplaceChildren child split.body) acc.out
+                    , lastStep = Just (Array.length acc.out)
+                    }
+
+                _ ->
+                    { acc | out = Array.pushLast child acc.out }
+
+        final =
+            Array.foldl (\child acc -> step acc child)
+                { pending = [], out = [], lastStep = Nothing }
+                children
+    in
+    if Array.isEmpty final.pending then
+        final.out
+
+    else
+        -- Nothing followed the last step, so it keeps the run it was going to
+        -- hand on.
+        when final.lastStep is
+            Just i ->
+                Array.indexedMap
+                    (\j n ->
+                        if j == i then
+                            lpnReplaceChildren n (lpnChildren n ++ final.pending)
+
+                        else
+                            n
+                    )
+                    final.out
+
+            Nothing ->
+                -- No step at all took the pending run, so there is no step in
+                -- this pipeline; put it back where it was rather than drop it.
+                final.out ++ final.pending
+
+
+{-| The trailing run of comments the author gave a line of their own. Mirrors
+`Render/CommentBox.spanTrailingOwnLine`, which this module cannot import
+(`Render` depends on `Logical`, not the other way round). -}
+spanTrailingOwnLineNodes : Array LPNode -> { body : Array LPNode, trailing : Array LPNode }
+spanTrailingOwnLineNodes nodes =
+    let
+        go remaining acc =
+            when Array.popLast remaining is
+                Just { last, initial } ->
+                    if isCommentNode last && commentRole (lpnBox last) == Just LeadsOwnLine then
+                        go initial (Array.pushFirst last acc)
+
+                    else
+                        { body = remaining, trailing = acc }
+
+                Nothing ->
+                    { body = [], trailing = acc }
+    in
+    go nodes []
 
 
 {-| The top-level trailing-comment boundary rule, asked of the TREE instead of

@@ -1,0 +1,66 @@
+module PipelineStepTrailerRehomed exposing (..)
+
+-- A comment run the author left on its own line after a `|>` step renders below
+-- that step -- which puts it above the NEXT `|>`, where a reparse can read it
+-- only as that step's LEADING comment. So the first format has to OWN it there
+-- too, not merely render it in the same place.
+--
+-- Rendering alone was not enough. The owner also decides `glueLeading`, which
+-- asks `commentTextCanRide` of the whole leading run all-or-nothing. Split
+-- across two steps, the first format saw only the ridable `{- c -}` and glued it
+-- onto the operator's row; the reparse saw both comments in one run, refused
+-- because the multi-line one cannot ride, and stacked it. Same comment, same
+-- role, same rule, different answer.
+
+
+ridableAfterAMultiline =
+    items
+        |> Array.map (\{ q, u } -> q * u) {- multi
+   second row -}
+        {- ridable, written on the operator's row -} |> Array.foldl (+) 0
+        |> identity
+
+
+-- After a plain TOKEN the multi-line comment has a recorded row to glue to and
+-- keeps it (`prevBlockGlueRow`'s `UnbreakableText` arm) -- only a single-line
+-- paren leaves it own-line, which is what puts it in the run at all.
+
+
+afterAPlainToken =
+    items
+        |> Array.map fn {- multi
+   second row -}
+        {- ridable, written on the operator's row -} |> Array.foldl (+) 0
+        |> identity
+
+
+-- With nothing above it the same ridable comment still rides its operator's
+-- row -- the run rule is unchanged, only which step owns the run.
+
+
+ridableAlone =
+    items
+        |> Array.map fn
+        {- ridable, written on the operator's row -} |> Array.foldl (+) 0
+        |> identity
+
+
+-- The comment-free twin: the run adds its own rows and moves nothing else.
+
+
+noComments =
+    items
+        |> Array.map fn
+        |> Array.foldl (+) 0
+        |> identity
+
+
+-- A trailing run on the LAST step has no following step to be given to, so it
+-- stays where it is and `detachOwnLineTrailer` decides its fate as before.
+
+
+lastStepKeepsItsRun =
+    items
+        |> Array.map fn
+        |> Array.foldl (\a b -> a + b) 0 {- multi
+   second row -}
