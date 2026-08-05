@@ -1,0 +1,76 @@
+module PipelineOperandLeadingComment exposing (..)
+
+-- A comment on its own row between a pipeline operator and its operand keeps
+-- both rows: the operator alone, the comment leading the operand below it. Every
+-- operand answers the same way -- including a lambda, which is the one that
+-- arrives wrapped in a `BodyBlock`. That wrapper hid the comment from the peel,
+-- so a lambda operand alone got the comment on a row of its own with the lambda
+-- pushed below it -- and under a `<|` that shape then oscillated, because the
+-- operator glued onto the comment's row and the reparse read it as riding.
+
+
+forwardAtom =
+    seed
+        |>
+        {- leads the operand -} one
+
+
+forwardCall =
+    seed
+        |>
+        {- leads the operand -} gn arg
+
+
+forwardRecord =
+    seed
+        |>
+        {- leads the operand -} { a = 1 }
+
+
+forwardLambda =
+    seed
+        |>
+        {- leads the operand -} \q -> q + one
+
+
+-- The same four under a `<|` whose operator was pushed onto its own row by the
+-- `--` above it.
+
+
+backwardAtom =
+    fn
+        -- trails the seed
+        <|
+        {- leads the operand -} one
+
+
+backwardCall =
+    fn
+        -- trails the seed
+        <|
+        {- leads the operand -} gn arg
+
+
+backwardRecord =
+    fn
+        -- trails the seed
+        <|
+        {- leads the operand -} { a = 1 }
+
+
+backwardLambda =
+    fn
+        -- trails the seed
+        <|
+        {- leads the operand -} \q -> q + one
+
+
+-- Written on the operator's row instead, the comment rides it and the operand
+-- comes with it -- the shape `LambdaLeadingBlockCommentRides` pins, and the one
+-- these must not collapse into.
+
+
+backwardLambdaRiding =
+    fn
+        -- trails the seed
+        <| {- rides the operator -} \q -> q + one

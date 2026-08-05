@@ -273,6 +273,49 @@ trailing an earlier branch keeps its place, which the fixture pins along with th
 bare-literal body that still rides its own row
 (`WhenLastBranchTrailingMultiline`).
 
+**The `Comment.role` group (4 probes) was TWO bugs sharing one symptom**, and
+telling them apart cost nothing only because the repro made each one's own
+smallest shape obvious. In both, a comment the author put on one side of a
+pipeline operator came back on the other side, and the reparse then moved it
+again. **38 → 34**, 4 fixed and 0 new, no corpus fixture's output changed.
+
+The first is a helper used at a base it was not written for. When a `<|` drops to
+a row of its own — because the body above it ends in a `--` — `backwardMultiStep`
+glues the run written *in front of* the operator with `stepLeadBoxes`, which
+appends to the **end** of the line it is handed. That is right when the line is
+the previous body (the operator is appended after it, giving `body {- c -} <|`)
+and wrong when the line **is** the operator: it emitted `<| {- c -}`, which the
+reparse reads as a comment leading the OPERAND and renders somewhere else again.
+The code's own comment there already said what it meant to do — *"a comment
+written in front of it goes on that row"* — so this is a helper whose contract is
+"glue onto the end of this line" being called where the contract needed was "glue
+onto the front of it". `stepLeadPrefixBoxes` is that mirror, and `{- c -} <|` is
+its own fixed point.
+
+The second is the `BodyBlock` wrapper hiding a comment from a peel, which is the
+same shape as `16a9b2e` and worth recognising on sight: **a lambda is the operand
+that arrives wrapped**, because `insertBinops` wraps every multi-node step body
+in a `BodyBlock`. `operatorPrefixedOperandBox` peels the leading comment run off
+its operand with `spanLeadingComments`, which looks only at the nodes it is
+handed — so a comment leading `one` / `{ a = 1 }` / `gn arg` was peeled and a
+comment leading a lambda was not, and the lambda alone got the comment stranded
+on a row of its own. `spanOperandLeadingComments` looks inside a lone `BodyBlock`
+and rebuilds it around what is left (`lpnReplaceChildren`), so the operand's own
+rendering is untouched and only the comment moves.
+
+**Its other half was stable, and therefore invisible to every gate here.** The
+peel is shared by the forward and backward pipeline renderers on purpose ("so the
+two cannot drift"), and under `|>` the same wrapper produced the same stranded
+comment — but as a fixed point, so no fuzzer, no stability gate and no
+`--comments` cell ever objected. It was only findable by asking what the
+comment-free twin and the *sibling operand kinds* do, which is the C4 test. The
+oscillation under `<|` is what dragged a plain inconsistency into the light;
+fixing the shared helper fixed both. Fixtures `BackwardPipeOperatorRowComment`
+(which also pins that the two sides of the operator are *not* interchangeable —
+a comment written after the `<|` still leads the operand) and
+`PipelineOperandLeadingComment` (four operand kinds × both operators). Both add
+**0** findings of their own, and both fail against a pre-fix binary.
+
 **The next group down — 11 probes, `commentBreaksFlowRow` + `forceVertical`,
 every one a `--` — is not a formatter bug at all.** It is a parser one: a binary
 `-` whose right operand starts on a later row **at the operator's own column** is
@@ -307,9 +350,12 @@ some other reason stays unlabelled and gets investigated.
 histogram put the family in `commentBreaksFlowRow + forceVertical`, but the same
 bug also reaches `commentBreaksFlowRow` alone and
 `… + IfCondition.forceVertical` — a decision set is a symptom, not a cause, so a
-family can straddle several. Treat the residual as **80 with 17 attributed = 63
-formatter-side**; when the fix ships and the dependency is bumped they stop being
-reported on their own, with no baseline entry to retire.
+family can straddle several. The residual was **80 with 17 attributed = 63
+formatter-side** when the label was written, and is **34 with the same 17
+attributed = 17 formatter-side** as of 2026-08-05 — the upstream count does not
+move, so it is a growing share of a shrinking number. When the fix ships and the
+dependency is bumped they stop being reported on their own, with no baseline
+entry to retire.
 
 **The first characterisation of it was wrong, and reading the parser is what
 corrected it.** Three repros, then a grid over operand *kinds*, said "only a

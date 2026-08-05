@@ -485,6 +485,8 @@ binopsAndPipelinesSuite fsPerm =
             , assertPrettyIn fsPerm "BinopsAndPipelines" "a binop chain with several multi-line bracket operands breaks fully vertical" "BinopMultipleBracketOperands"
             , assertPrettyIn fsPerm "BinopsAndPipelines" "a bracket operand whose comment rides its flat line keeps the binop chain inline, stably across reformats" "BinopCommentFlatBracketOperand"
             , assertPrettyIn fsPerm "BinopsAndPipelines" "a parenthesized multi-line operand breaks the binop chain vertically (matches elm-format)" "BinopMultilineParenOperand"
+            , assertPrettyIn fsPerm "BinopsAndPipelines" "a `{- -}` in front of a `<|` that has dropped to a row of its own stays in front of the operator; one written after it leads the operand instead" "BackwardPipeOperatorRowComment"
+            , assertPrettyIn fsPerm "BinopsAndPipelines" "a comment on its own row between a pipeline operator and its operand leads that operand, for a lambda exactly as for every other operand kind" "PipelineOperandLeadingComment"
             ]
         }
 

@@ -1,0 +1,50 @@
+module BackwardPipeOperatorRowComment exposing (..)
+
+-- A `{- -}` written in front of a `<|` rides the operator's row (rule C3). When
+-- the previous body ends in a `--`, that operator drops to a row of its own --
+-- and the comment must come with it, still IN FRONT of it. Gluing it onto the
+-- end of the line the operator sits on put it on the far side (`<| {- c -}`),
+-- which the reparse reads as leading the OPERAND and moves again.
+
+
+midChainBlockComment =
+    alpha <|
+        beta -- trails the second body
+        {- rides the operator -} <|
+            gamma
+
+
+-- The comment-free twin: the `<|` drops for the `--` alone, so the comment
+-- changes nothing but its own presence on that row (rule C4).
+
+
+midChainNoComment =
+    alpha <|
+        beta -- trails the second body
+        <|
+            gamma
+
+
+-- A run of them, and a chain long enough that the step below still nests one
+-- tab stop deeper than the one above it.
+
+
+midChainCommentRun =
+    alpha <|
+        beta -- trails the second body
+        {- one -} {- two -} <|
+            gamma <|
+                delta
+
+
+-- One the author wrote AFTER the operator leads the operand instead, and so
+-- travels down to the operand's row. The two sides of the gap are the one thing
+-- about a comment here that is NOT interchangeable, and erasing the difference
+-- is what made the shape above oscillate.
+
+
+afterTheOperator =
+    alpha <|
+        beta -- trails the second body
+        <|
+            {- follows the operator -} gamma

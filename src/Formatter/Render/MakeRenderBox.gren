@@ -12,7 +12,7 @@ signatures, and comments — each laid out to match elm-format.
 -}
 
 import Formatter.Logical.BinopPrecedence exposing (binopMinPrecedence, binopPrecedence)
-import Formatter.Logical.LogicalPrintingTree exposing (CommentRole(..), LPBox(..), LPNode, ListBrackets(..), SyntaxType(..), commentGluesToPrevious, commentRole, firstRowInSubtree, lpnBox, lpnChildren, lpnLastBracketEnd, lpnLastPos, lpnMaxRow, prefixGlyph)
+import Formatter.Logical.LogicalPrintingTree exposing (CommentRole(..), LPBox(..), LPNode, ListBrackets(..), SyntaxType(..), commentGluesToPrevious, commentRole, firstRowInSubtree, lpnBox, lpnChildren, lpnLastBracketEnd, lpnLastPos, lpnMaxRow, lpnReplaceChildren, prefixGlyph)
 import Formatter.Render.BinopLayout exposing (assembleBinopBox, commentBreaksBinopChain, flattenBinopNodes, isChainBreakingOperandBox, opText)
 import Formatter.Render.Box as B exposing (Box(..))
 import Formatter.Render.BoxOps exposing (applyIndent, blockIndentSpaces, boxLine, glueCommentSuffix, glueLeadingCommentPrefix, grenIndent, isBlockNode, isSingleLine, joinInline, prefixOperator, spaceJoinLines, stackWithBlanks, traverseResult, wrapParenVerticalPadded)
@@ -1376,6 +1376,60 @@ stepBodyBox children =
             stepOperandBox children
 
 
+{-| `spanLeadingComments`, but able to look inside the single-node `BodyBlock`
+wrapper a multi-node operand arrives in. A lambda is that operand — `insertBinops`
+wraps every multi-node step body in a `BodyBlock` — so a comment leading a lambda
+was invisible to the peel in `operatorPrefixedOperandBox` while the same comment
+leading `one` / `{ a = 1 }` / `gn arg` was not, and the two authorings got
+different layouts:
+
+    seed              seed                seed
+        |>                |>                  |>
+        {- c -} one       {- c -}             {- c -} gn arg
+                          \q -> q + one
+
+The middle one is also where the `<|` chain oscillated: with the comment left
+inside the wrapper, `prefixOperator` glued `<| ` onto the comment's own row, and
+the reparse — now seeing the comment on the operator's row — read it as
+`RidesInline` and pulled the lambda up beside it.
+
+Rebuilding the wrapper around what is left (`lpnReplaceChildren`) keeps the
+operand's own rendering exactly what it was; only the comment is taken out. -}
+spanOperandLeadingComments : Array LPNode -> { leading : Array LPNode, rest : Array LPNode }
+spanOperandLeadingComments operandNodes =
+    let
+        top =
+            spanLeadingComments operandNodes
+    in
+    if not (Array.isEmpty top.leading) then
+        top
+
+    else
+        when operandNodes is
+            [ only ] ->
+                when lpnBox only is
+                    BodyBlock ->
+                        let
+                            inner =
+                                spanLeadingComments (lpnChildren only)
+                        in
+                        -- A wrapper holding nothing but comments has no operand
+                        -- for them to lead; leave it whole.
+                        if Array.isEmpty inner.leading || Array.isEmpty inner.rest then
+                            top
+
+                        else
+                            { leading = inner.leading
+                            , rest = [ lpnReplaceChildren only inner.rest ]
+                            }
+
+                    _ ->
+                        top
+
+            _ ->
+                top
+
+
 {-| `op ` glued in front of the operand that follows it, with any comment run
 written between the two glued onto the operand's front — the same treatment
 `makeOpAndRhsBox` gives a binop's right-hand side, and the same run rule
@@ -1398,7 +1452,7 @@ operatorPrefixedOperandBox : (Array LPNode -> Result String Box) -> String -> Ar
 operatorPrefixedOperandBox renderOperand op operandNodes =
     let
         { leading, rest } =
-            spanLeadingComments operandNodes
+            spanOperandLeadingComments operandNodes
     in
     if Array.isEmpty leading || Array.isEmpty rest then
         renderOperand operandNodes
@@ -2028,6 +2082,17 @@ stepLeadBoxes leadGlued base =
         |> Result.map (Array.foldl glueCommentSuffix base)
 
 
+{-| The same run glued onto the FRONT of `base` — used when `base` is the `<|`
+itself, sitting alone on a row, so that `{- c -} <|` keeps the comment on the
+side of the operator the author wrote it on. Gluing it as a suffix there gives
+`<| {- c -}`, which the reparse reads as a comment leading the OPERAND and
+renders somewhere else again. -}
+stepLeadPrefixBoxes : Array LPNode -> Box -> Result String Box
+stepLeadPrefixBoxes leadGlued base =
+    traverseResult commentNodeBox leadGlued
+        |> Result.map (\boxes -> Array.foldr glueLeadingCommentPrefix base boxes)
+
+
 assembleBackwardPipeline : Bool -> Box -> Array { leadGlued : Array LPNode, leadOwnRow : Array LPNode, glued : Array LPNode, rest : Array LPNode } -> Result String Box
 assembleBackwardPipeline forceVertical seedBox stepBodies =
     when stepBodies is
@@ -2355,6 +2420,22 @@ backwardMultiStep forceVertical seedBox stepBodies =
                             Nothing ->
                                 Ok base
 
+                    -- The same run, when the `<|` has dropped to a row of its
+                    -- own. `leadGluedOnto` glues onto the END of the line it is
+                    -- given, which is right when that line is the PREVIOUS BODY
+                    -- (the operator is appended after it) and wrong when it is
+                    -- the operator itself — it would put the comment on the far
+                    -- side of the `<|` from where the author wrote it, and the
+                    -- reparse then reads it as leading the operand and moves it
+                    -- again.
+                    leadGluedBefore i base =
+                        when Array.get i stepBodies is
+                            Just step ->
+                                stepLeadPrefixBoxes step.leadGlued base
+
+                            Nothing ->
+                                Ok base
+
                     -- Comments in front of step i's `<|` that cannot share its
                     -- row. They take rows of their own between the previous body
                     -- and the operator, which drops to a row of its own below
@@ -2454,13 +2535,15 @@ backwardMultiStep forceVertical seedBox stepBodies =
                                                 -- The `<|` is on a row of its own,
                                                 -- so a comment written in front of
                                                 -- it goes on that row, not this
-                                                -- body's last one — and one that
+                                                -- body's last one — IN FRONT of the
+                                                -- operator, which is the side the
+                                                -- author wrote it on — and one that
                                                 -- cannot ride at all goes on rows
                                                 -- above it.
                                                 Result.map2
                                                     (\ownRows opRow -> B.stack1 ([ bodyBox ] ++ ownRows ++ [ opRow ]))
                                                     (traverseResult commentNodeBox nextLeadOwnRow)
-                                                    (leadGluedOnto (i + 1) (B.line (B.literal "<|")))
+                                                    (leadGluedBefore (i + 1) (B.line (B.literal "<|")))
 
                                             else if i < n - 1 then
                                                 leadGluedOnto (i + 1) bodyBox
