@@ -14,20 +14,32 @@ import Formatter.Render.NodeClassify exposing (isColonLeaf, isEmptyLine, isTypeR
 -- line. Vertical list: header on line 1, list indented +4 beneath it. The
 -- header is pre-rendered by the caller: a plain leaf line for a `module` /
 -- `import` header, or the flowed `effect module … where { … } exposing` line for
--- an effect module. It must be a single line — a header that rendered multi-line
--- (e.g. a broken effect-module `where` block) errors so the caller falls back to
--- the generic flow.
+-- an effect module.
+--
+-- Only the INLINE form needs the header to be one line, because there the list
+-- has to join the header's own row. The vertical form merely stacks. Refusing a
+-- multi-line header there was not a safeguard: the caller's fallback is the
+-- generic flow, which glues the list's FIRST ITEM onto the header's last row,
+-- and for a one-item list that erases the only evidence a reparse has that the
+-- list was vertical (`MakeLogical.exposedStartsBelowHeader` has nothing below
+-- the header to see). The derived `)` then collapses back onto that row and a
+-- comment pinned above it falls outside the list and detaches to column 1.
+--
+-- The hoist branch in `makeExposingLineBox` applies the same relaxation, and
+-- must: the two are reachable from each other's output, so while both refused a
+-- multi-line header they agreed by falling back together, and relaxing one alone
+-- makes a header comment alternate between the two layouts for ever.
 gluedExposingBox : Bool -> Box -> Box -> Result String Box
 gluedExposingBox forceVertical headerBox listBox =
-    when B.isLine headerBox is
-        Err _ ->
-            Err "box: exposing header rendered multi-line"
+    if forceVertical then
+        Ok (B.stack1 [ headerBox, B.indent listBox ])
 
-        Ok headerLine ->
-            if forceVertical then
-                Ok (B.stack1 [ B.line headerLine, B.indent listBox ])
+    else
+        when B.isLine headerBox is
+            Err _ ->
+                Err "box: exposing header rendered multi-line"
 
-            else
+            Ok headerLine ->
                 when B.isLine listBox is
                     Ok listLine ->
                         Ok (B.line (B.row [ headerLine, B.space, listLine ]))

@@ -2002,6 +2002,26 @@ lastRealPosition node =
 -- True for the bracket container box kinds whose interior comments render via
 -- the bracket-list path: a comment that is a child of one of these is classified
 -- by `classifyCommentKind`'s bracket branch (its permissive same-row rule).
+{-| The module line's `exposing ( … )` list. `ListParen` is exclusively an
+exposing list (see `SortSymbols.gren`), so this identifies it exactly.
+
+Used by `headerTailGlue` to tell the header's position-less TAIL from its middle.
+The module line is built as `[ keyword, name, where…, exposing, exports ]`
+(`MakeLogical.processModuleLine`), so a comment with nothing but the `exposing`
+keyword and this list after it is on the tail — whatever rows anything is on. -}
+isExposingListNode : LPNode -> Bool
+isExposingListNode node =
+    when lpnBox node is
+        AllAcrossOrAllVertical ListParen ->
+            True
+
+        AlwaysVertical ListParen ->
+            True
+
+        _ ->
+            False
+
+
 isBracketContainerBox : LPBox -> Bool
 isBracketContainerBox box =
     when box is
@@ -2702,13 +2722,48 @@ classifyCommentKind containerBox commentNode before after row =
         --   - the container is the module line. `info.last` grows past `refRow`
         --     only where a synthesized tail or an elastic close put it there,
         --     which is a module-line fact.
-        --   - nothing recorded follows the comment. Otherwise a comment the
-        --     author wrote *before* the `where { … }` block — on a row of its
-        --     own, with the whole header still to come — would read as the tail
-        --     and glue onto the name above it.
+        --   - nothing recorded follows the comment EXCEPT the `exposing` list.
+        --     Otherwise a comment the author wrote *before* the `where { … }`
+        --     block — on a row of its own, with the whole header still to
+        --     come — would read as the tail and glue onto the name above it.
+        --     The exposing list is the exception because it is the LAST child
+        --     (`[ keyword, name, where…, exposing, exports ]`), so a comment
+        --     with only it and the position-less `exposing` keyword after it is
+        --     on the tail by construction, whatever rows anything is on. Rows
+        --     cannot make that call: both the comment-before-`where` case and
+        --     the tail case have recorded content BELOW the comment, so a
+        --     row test reads them the same. Without the exception a `{- c -}`
+        --     written after a wrapped `where { … }` block's `}` reads as
+        --     own-line while the format that produced that row had glued it.
         --   - the row is at or past the last recorded content, and inside the
         --     declaration. Below the header's last row the comment never gets
         --     here: `findOrCreateOrigRow` detaches it to column 1.
+        -- The comment sits past an `exposing` keyword that carries NO position —
+        -- which `MakeLogical.processModuleLine` emits for an effect module and
+        -- only for one: a plain module anchors `exposing` at the end of its
+        -- name, an effect module cannot, because the real column depends on the
+        -- untracked width of the `where { … }` block.
+        --
+        -- This is what separates the header's position-less tail from the two
+        -- shapes that look identical to it. A `SortSymbols` hoist puts a
+        -- sort-to-first comment between `exposing` and `(` with only the list
+        -- after it, exactly like a tail comment — but on a PLAIN module, where
+        -- the keyword is positioned, so this is False and the hoist keeps its
+        -- own line (`ExposingSortCommentToFront`, `SortingCommentZoo`,
+        -- `ModuleExposingInlineAndHoistedComment`, `KitchenComments` — all four
+        -- broke when the exposing-list exception was added without this).
+        pastSynthesizedExposing =
+            Array.any
+                (\n ->
+                    when lpnBox n is
+                        SynthesizedText v ->
+                            v == "exposing"
+
+                        _ ->
+                            False
+                )
+                before
+
         headerTailGlue =
             when containerBox is
                 OriginalRows info ->
@@ -2720,7 +2775,12 @@ classifyCommentKind containerBox commentNode before after row =
                         >= refRow
                         && row
                         <= info.last
-                        && Array.all (\n -> firstRealPosition n == Nothing) after
+                        && Array.all
+                            (\n ->
+                                firstRealPosition n == Nothing
+                                    || (isExposingListNode n && pastSynthesizedExposing)
+                            )
+                            after
 
                 _ ->
                     False

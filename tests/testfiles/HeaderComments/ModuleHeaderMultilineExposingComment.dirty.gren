@@ -1,0 +1,24 @@
+module -- pushes the name onto the next row
+    ModuleHeaderMultilineExposingComment exposing
+    ( value
+    {- pinned above the list's derived close -}
+    )
+
+-- The module header's `)` has no position in the AST: it is derived from the
+-- items, one row below the last for a VERTICAL list and on the item's own row
+-- for a flat one. A comment pinned above that `)` therefore survives a reparse
+-- only while the output still reads as vertical, and for a ONE-item list the
+-- only evidence of that is the item starting BELOW the header row.
+--
+-- A comment in the header makes the header box multi-line, and the coupled
+-- layout used to refuse a multi-line header outright and fall back to the
+-- generic flow -- which glues the list's first item onto the header's last row.
+-- That erases the evidence, the derived `)` collapses back onto that row, and
+-- the comment falls outside the list and detaches to column 1. Both the coupled
+-- form and the `SortSymbols` hoist form only STACK, so neither ever needed a
+-- one-line header; they had to be relaxed together, because each is reachable
+-- from the other's output.
+
+
+value =
+    1

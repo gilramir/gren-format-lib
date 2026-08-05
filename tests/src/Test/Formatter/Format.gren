@@ -622,6 +622,7 @@ headerCommentsSuite fsPerm =
             , assertPrettyIn fsPerm "HeaderComments" "module/import header keyword-gap comments" "ModuleHeaderComments"
             , assertPrettyIn fsPerm "HeaderComments" "block comment past a flat module exposing list is pinned above the ) instead of riding the last-written name" "ModuleExposingTrailingComment"
             , assertPrettyIn fsPerm "HeaderComments" "block comment past a single-name flat module exposing list is pinned above the )" "ModuleLineFloatingComment"
+            , assertPrettyIn fsPerm "HeaderComments" "a comment that makes the module header multi-line still gets the coupled vertical `exposing` layout, so the list's derived `)` stays below its item and a comment pinned above it does not escape" "ModuleHeaderMultilineExposingComment"
             , assertPrettyIn fsPerm "HeaderComments" "comments past a name in a vertical module exposing list stay inside the list however far right they start, and travel with their name through the sort" "ModuleExposingCloseComment"
             , assertPrettyIn fsPerm "HeaderComments" "a comment written past a vertical module exposing list's closing paren moves inside the list (the `)` has no AST position, and rendering it below oscillated)" "ModuleExposingClosePastParen"
             , assertPrettyIn fsPerm "HeaderComments" "a comment past a vertical module exposing list's `)` is pinned above the `)` rather than riding the last-written name, so the output does not depend on the order the names were authored in" "ModuleExposingClosePinned"

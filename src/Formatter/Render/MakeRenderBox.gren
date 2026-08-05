@@ -3716,11 +3716,22 @@ makeExposingLineBox stype children =
                 -- A header comment the author wrote on the header's own row
                 -- (`module M exposing {- c -}`, `module {- c -} M exposing`) is
                 -- rendered by the flow *within* the header line and does not
-                -- stop the coupled layout — only an OWN-LINE one does, since
-                -- that has to sit between the header and the `(` at +4, which
-                -- is the `SortSymbols` hoist's shape (handled below).
+                -- stop the coupled layout — only an own-line one that sits
+                -- between the header and the `(` does, which is the
+                -- `SortSymbols` hoist's shape (handled below).
+                --
+                -- The test is on the TRAILING run, not on any own-line comment
+                -- anywhere in the header, which is what it used to ask. A `--`
+                -- written INSIDE the header (`module -- c` ⏎ `M exposing`) puts
+                -- a later token on its own row, so it reads as own-line without
+                -- being between the header and the `(` — and it sent the whole
+                -- line to the generic flow, which glues the list's first item
+                -- onto the header's last row and lets a comment pinned above the
+                -- list's derived `)` escape. The hoist branch below needs a
+                -- trailing run to do anything at all, so a header without one
+                -- belongs on the coupled path.
                 headerHasOwnLineComment =
-                    Array.any (\n -> commentRole (lpnBox n) == Just LeadsOwnLine) headerNodes
+                    not (Array.isEmpty (spanTrailingOwnLineComments headerNodes).trailing)
 
                 headerBoxResult =
                     if headerAllLeaves then
@@ -3816,27 +3827,28 @@ makeExposingLineBox stype children =
                                         -- comment among its leaf tokens (`module
                                         -- {- x -} Foo exposing`), which is not a
                                         -- leaf — flow it, exactly as the coupled
-                                        -- branch above does. This shape needs the
-                                        -- header on ONE row (own-line comments at +4
-                                        -- beneath it, list at +4 below those), so
-                                        -- apply the same single-line test
-                                        -- `gluedExposingBox` applies and fall back to
-                                        -- the generic flow only if it fails.
+                                        -- branch above does.
+                                        --
+                                        -- A multi-line header is fine here for the
+                                        -- same reason it is in `gluedExposingBox`:
+                                        -- this shape only STACKS (own-line comments
+                                        -- at +4 beneath the header, list at +4 below
+                                        -- those). The two must agree, and they are
+                                        -- reachable from each other's output — this
+                                        -- branch puts a comment on its own row, which
+                                        -- the reparse reads back as own-line, while a
+                                        -- comment it left inline sends the next format
+                                        -- to the coupled branch. While both refused a
+                                        -- multi-line header they agreed by falling
+                                        -- back to the same generic flow; relaxing one
+                                        -- alone made a header comment alternate
+                                        -- between the two layouts for ever.
                                         hoistHeaderBoxResult =
                                             if Array.all (\n -> leafValue n /= Nothing) leafHeader then
                                                 Ok (B.line (leafLineRow leafHeader))
 
                                             else
                                                 buildFlowBox grenIndent leafHeader
-                                                    |> Result.andThen
-                                                        (\hb ->
-                                                            when B.isLine hb is
-                                                                Ok headerLine ->
-                                                                    Ok (B.line headerLine)
-
-                                                                Err _ ->
-                                                                    Err "box: exposing header rendered multi-line"
-                                                        )
                                     in
                                     when hoistHeaderBoxResult is
                                         Err _ ->
