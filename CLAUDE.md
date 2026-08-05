@@ -273,7 +273,21 @@ trailing an earlier branch keeps its place, which the fixture pins along with th
 bare-literal body that still rides its own row
 (`WhenLastBranchTrailingMultiline`).
 
-**The long tail: 3 probes, 3 causes, and only ONE of them landed.** Past this
+**THE FORMATTER-SIDE RESIDUAL IS ZERO (2026-08-05).** `fuzz-idempotency.py`
+reports **17** findings and all 17 are `[known: compiler-common#35]`. The gate is
+red on purpose and stays red until that parser fix ships and the dependency is
+bumped; nothing in it is this formatter's to fix. `check-decision-stability.py`
+PASSes 0 over 343 fixtures, and its `--gaps -v` total matches the fuzzer.
+
+Two of the last three probes needed **attachment** changes, not renderer ones,
+and both had already had a renderer half written and reverted. The lesson is in
+that pairing: a renderer fix that makes two owners *render* the same is not the
+same as making the owner not matter — the owner also decides what else it is
+grouped with. `ea1c2ab` equalised the bytes of a pipeline step's trailing comment
+run and left `glueLeading` reading a different run in each format; `ebfb33e`
+moved the run to the owner the reparse derives and closed it.
+
+**The long tail: 3 probes, 3 causes, and only ONE of them landed at first.** Past this
 point the histogram stops naming families and starts naming individuals, and the
 useful lesson is about knowing which of them to stop working on. **20 → 19.**
 
@@ -450,8 +464,8 @@ histogram put the family in `commentBreaksFlowRow + forceVertical`, but the same
 bug also reaches `commentBreaksFlowRow` alone and
 `… + IfCondition.forceVertical` — a decision set is a symptom, not a cause, so a
 family can straddle several. The residual was **80 with 17 attributed = 63
-formatter-side** when the label was written, and is **19 with the same 17
-attributed = 2 formatter-side** as of 2026-08-05 — the upstream count does not
+formatter-side** when the label was written, and is **17 with the same 17
+attributed = 0 formatter-side** as of 2026-08-05 — the upstream count does not
 move, so it is now almost all of what is left. When the fix ships and the
 dependency is bumped they stop being reported on their own, with no baseline
 entry to retire.
