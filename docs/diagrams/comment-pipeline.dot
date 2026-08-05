@@ -1,0 +1,71 @@
+digraph CommentPipeline {
+    rankdir=TB;
+    bgcolor="white";
+    fontname="Helvetica,Arial,sans-serif";
+    fontsize=12;
+    ranksep=0.40;
+    nodesep=0.45;
+    compound=true;
+
+    node [fontname="Helvetica,Arial,sans-serif", fontsize=11];
+    edge [fontname="Helvetica,Arial,sans-serif", fontsize=9, color="#555555"];
+
+    // ── Data nodes ───────────────────────────────────────────────
+    node [shape=box, style="rounded,filled", fillcolor="#eef2f7", color="#7a95b8", fontcolor="#1c2b3a"];
+    source    [label="your source code\n(text)"];
+    ast       [label="AST (Src.Module)\nNO comments in it"];
+    ctx       [label="Context\nthe comment stream:\nlocated Line / Block strings"];
+    lptCode   [label="LPT — code only\n(row ranges still pristine)"];
+    lptRoles  [label="LPT — every comment placed,\neach carrying a CommentRole"];
+    boxTree   [label="Box tree\n(render plan)"];
+    formatted [label="formatted code\n(text)"];
+
+    // ── Process nodes ────────────────────────────────────────────
+    node [shape=box, style="rounded,filled", fillcolor="#dbe9f7", color="#3f6fa8", fontcolor="#1c2b3a"];
+    parse    [label="parse\n(compiler-common — throws comments\nout of the AST)"];
+    mkLogical[label="MakeLogical.lptFromAst"];
+    repairs  [label="repairs that need the finished tree\ndetachOwnLineTrailer\nrehomePipelineStepTrailers"];
+    sortSyms [label="SortSymbols\ncomments travel with the name they own"];
+    vspace   [label="VerticalSpace\nblank lines around comment runs"];
+    render   [label="Render / MakeRenderBox\nplacement comes from FlowPolicy.decide\nand containerCommentSlot"];
+    toText   [label="Box.render\n(cannot fail)"];
+
+    // ── The per-comment fold ─────────────────────────────────────
+    subgraph cluster_attach {
+        label="Comments.lptAddComments — one pass, each comment in source order";
+        labeljust="l";
+        fontsize=11;
+        fontcolor="#1c2b3a";
+        style="rounded,filled";
+        fillcolor="#f3f7fb";
+        color="#7a95b8";
+
+        node [shape=box, style="rounded,filled", fillcolor="#dbe9f7", color="#3f6fa8", fontcolor="#1c2b3a"];
+        p1 [label="1. which declaration?\nfindOrCreateOrigRow\n(no match ⇒ detach to column 1)"];
+        p2 [label="2. how deep?\ninsertCommentIntoSubtree\n(trailing-comment boundary rule)"];
+        p3 [label="3. which gap?\ninsertAmongChildren\n(skip synthesized tokens;\nredirect into block wrappers)"];
+        p4 [label="4. which role?\nclassifyCommentKind\n⇒ CommentRole, stored on the leaf"];
+
+        p1 -> p2 -> p3 -> p4;
+    }
+
+    // ── The barrier ──────────────────────────────────────────────
+    node [shape=box, style="filled", fillcolor="#fffbe6", color="#c9a227", fontcolor="#4a3b06", fontsize=10];
+    barrier [label="SOURCE ROWS END HERE\nNo Render/* code may read a row or a position to decide placement.\nEnforced by tests/check-render-invariant.py."];
+
+    // ── Flow ─────────────────────────────────────────────────────
+    source -> parse;
+    parse  -> ast;
+    parse  -> ctx;
+    ast    -> mkLogical;
+    mkLogical -> lptCode;
+    lptCode -> p1  [lhead=cluster_attach];
+    ctx     -> p1  [lhead=cluster_attach, label="  one comment at a time"];
+    p4      -> repairs [ltail=cluster_attach];
+    repairs -> sortSyms -> vspace -> lptRoles;
+    lptRoles -> barrier [arrowhead=none, style=bold, color="#c9a227"];
+    barrier  -> render  [style=bold, color="#c9a227"];
+    render   -> boxTree -> toText -> formatted;
+
+    { rank=same; ast; ctx }
+}

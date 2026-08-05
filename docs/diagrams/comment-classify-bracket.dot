@@ -1,0 +1,59 @@
+digraph ClassifyBracket {
+    rankdir=TB;
+    bgcolor="white";
+    dpi=130;
+    fontname="Helvetica,Arial,sans-serif";
+    ranksep=0.38;
+    nodesep=0.40;
+
+    node [fontname="Helvetica,Arial,sans-serif", fontsize=12];
+    edge [fontname="Helvetica,Arial,sans-serif", fontsize=11, color="#555555"];
+
+    node [shape=box, style="rounded,filled", fillcolor="#f0e6f5", color="#8a5fa8", fontcolor="#3a1c4a"];
+    entry [label="the bracket branch\n[ … ]   { … }   { r | … }   exposing ( … )"];
+
+    node [shape=diamond, style="filled", fillcolor="#dbe9f7", color="#3f6fa8", fontcolor="#1c2b3a", fontsize=11];
+    dUpdate [label="in a record update's\nbase…first-field region?"];
+
+    uBase [label="before the\nbase name?"];
+    uSep  [label="beside the\n| separator?"];
+    uRow  [label="on the\nbase's row?"];
+
+    lSep [label="in the\n, gap?"];
+    lOwn [label="on a row\nof its own?"];
+    lStr [label="opener slot before\na \"\"\"…\"\"\" item?"];
+
+    kKind [label="can its text\nshare a line?"];
+
+    node [shape=box, style="rounded,filled", fillcolor="#e4f3e4", color="#4b8b4b", fontcolor="#14401b", fontsize=12];
+    r1 [label="LeadsNext"];
+    r2 [label="TrailsHead"];
+    r3 [label="LeadsOwnLine"];
+    r4 [label="LeadsNext"];
+    r5 [label="LeadsOwnLine"];
+    r6 [label="LeadsOwnLine"];
+    r7 [label="RidesInline"];
+    r8 [label="TrailsPrevious"];
+
+    entry -> dUpdate;
+
+    dUpdate -> uBase [label=" yes "];
+    dUpdate -> lSep  [label=" no: an\l item list\l"];
+
+    uBase -> kKind [label=" yes: the\l opener slot\l"];
+    uBase -> uSep  [label=" no "];
+    uSep  -> r1    [label=" yes (C2) "];
+    uSep  -> uRow  [label=" no "];
+    uRow  -> r2    [label=" yes "];
+    uRow  -> r3    [label=" no "];
+
+    lSep -> r4   [label=" yes (C2) "];
+    lSep -> lOwn [label=" no "];
+    lOwn -> r5   [label=" yes "];
+    lOwn -> lStr [label=" no "];
+    lStr -> r6   [label=" yes "];
+    lStr -> kKind [label=" no "];
+
+    kKind -> r7 [label=" yes "];
+    kKind -> r8 [label=" no "];
+}

@@ -1,0 +1,61 @@
+digraph ClassifyFlow {
+    rankdir=TB;
+    bgcolor="white";
+    dpi=130;
+    fontname="Helvetica,Arial,sans-serif";
+    ranksep=0.38;
+    nodesep=0.40;
+
+    node [fontname="Helvetica,Arial,sans-serif", fontsize=12];
+    edge [fontname="Helvetica,Arial,sans-serif", fontsize=11, color="#555555"];
+
+    node [shape=box, style="rounded,filled", fillcolor="#eef2f7", color="#7a95b8", fontcolor="#1c2b3a"];
+    entry [label="classifyCommentKind"];
+
+    node [shape=box, style="rounded,filled", fillcolor="#f0e6f5", color="#8a5fa8", fontcolor="#3a1c4a"];
+    toBracket [label="the bracket branch\n(next diagram)"];
+
+    node [shape=diamond, style="filled", fillcolor="#dbe9f7", color="#3f6fa8", fontcolor="#1c2b3a", fontsize=11];
+    dBracket [label="bracket\ncontainer?"];
+    dBinop   [label="binop\nchain?"];
+    bRow     [label="past the\noperand's row?"];
+    gPrev    [label="anything\nbefore it?"];
+    gKind    [label="which kind?"];
+    gLine    [label="on the\nglue row?"];
+    gBlock   [label="on the\nglue row?"];
+    gMulti   [label="multi-line?"];
+
+    node [shape=box, style="rounded,filled", fillcolor="#e4f3e4", color="#4b8b4b", fontcolor="#14401b", fontsize=12];
+    r1 [label="LeadsOwnLine"];
+    r2 [label="TrailsPrevious"];
+    r3 [label="LeadsOwnLine"];
+    r4 [label="TrailsPrevious"];
+    r5 [label="LeadsOwnLine"];
+    r6 [label="TrailsPrevious"];
+    r7 [label="RidesInline"];
+
+    entry -> dBracket;
+    dBracket -> toBracket [label=" yes "];
+    dBracket -> dBinop    [label=" no "];
+
+    dBinop -> bRow  [label=" yes "];
+    dBinop -> gPrev [label=" no: the\l generic flow\l"];
+
+    bRow -> r1 [label=" yes "];
+    bRow -> r2 [label=" no "];
+
+    gPrev -> r3    [label=" nothing "];
+    gPrev -> gKind [label=" yes "];
+
+    gKind -> gLine  [label="  --  "];
+    gKind -> gBlock [label="  {- -}  "];
+
+    gLine -> r4 [label=" yes "];
+    gLine -> r5 [label=" no "];
+
+    gBlock -> gMulti [label=" yes "];
+    gBlock -> r5     [label=" no "];
+
+    gMulti -> r6 [label=" yes "];
+    gMulti -> r7 [label=" no "];
+}
