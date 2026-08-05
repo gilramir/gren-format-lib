@@ -1,0 +1,72 @@
+module PipelineStepTrailingMultilineComment exposing (..)
+
+-- A multi-line `{- ... -}` cannot be glued onto the end of a step's line -- it
+-- breaks whatever line it lands on -- so it renders BELOW the step, which puts
+-- it above the next `|>`. That is the only thing a reparse can read it as: the
+-- NEXT step's leading comment. It therefore has to render at the step column,
+-- and it did not: left inside the step's operand flow it took that flow's
+-- continuation indent, which is +4 so a broken call's ARGUMENTS land under the
+-- operand. A comment is not an argument of the call it follows, and the two
+-- formats disagreed about it for ever.
+
+
+trailsAStep =
+    sinks
+        |> Array.map (\c -> c.kind)
+        {- multi
+           second row -}
+        |> Array.first
+
+
+-- The comment-free twin: the comment adds its own rows and moves nothing else
+-- (rule C4).
+
+
+trailsAStepNoComment =
+    sinks |> Array.map (\c -> c.kind) |> Array.first
+
+
+-- The same comment written on its own row already landed here, and is what the
+-- reparse of the shape above re-derives. Both spellings are fixed points.
+
+
+authorWroteItBelow =
+    sinks
+        |> Array.map (\c -> c.kind)
+        {- multi
+           second row -}
+        |> Array.first
+
+
+-- After a plain token the comment has a recorded row to glue to, so it keeps
+-- the line the author gave it (`prevBlockGlueRow`'s `UnbreakableText` arm). Only
+-- the paren case has no glue row and drops.
+
+
+afterAPlainToken =
+    sinks
+        |> Array.map fn {- multi
+                           second row -}
+        |> Array.first
+
+
+-- Anything written after it comes down with it, in the order the author wrote
+-- them: once the multi-line comment leaves the step's last line there is no
+-- line left for the one after it either.
+
+
+runAfterTheMultiline =
+    sinks
+        |> Array.map (\c -> c.kind)
+        {- multi
+           second row -}
+        {- tail -}
+        |> Array.first
+
+
+-- A run of single-line ones still glues -- they fit on the step's line, so
+-- nothing about the row changes and `PipelineTrailingComment`'s rule holds.
+
+
+singleLineRunStillGlues =
+    sinks |> Array.map (\c -> c.kind) {- first -} {- second -} |> Array.first

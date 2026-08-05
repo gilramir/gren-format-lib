@@ -273,6 +273,49 @@ trailing an earlier branch keeps its place, which the fixture pins along with th
 bare-literal body that still rides its own row
 (`WhenLastBranchTrailingMultiline`).
 
+**The UNEXPLAINED bucket (14 probes) was 13 probes of ONE shape plus one
+mislabelled #35** — and it is the answer to "what do I do when the instrument
+names nothing". Not, as expected, a decision missing from
+`Formatter.Audit.DecisionTrace`: reading the probes' *bytes* was enough, because
+14 diffs that all move the same construct by the same 4 columns are a family
+whatever the trace says. **34 → 20**, 14 fixed and 0 new, no corpus fixture's
+output changed. The formatter-side residual is now **3**.
+
+A multi-line `{- … -}` trailing a `|>` step came out at the operand flow's +4 on
+one format and at the `|>` column on the next. The reason the trace was blind to
+it is worth keeping: the comment **changes owner** between the passes — last
+child of step N, then first child of step N+1 — with the **same role string**
+(`LeadsOwnLine`) both times. There is a traced decision for a comment's role and
+none for which node owns it, so nothing flipped. A decision set names a symptom;
+absence of one names nothing at all.
+
+`LeadsOwnLine` is correct there and deliberately so, which is what ruled out
+fixing the classifier: `prevBlockGlueRow`'s `ParenBlock` arm gives no glue row
+after a *single-line* paren, so `|> Array.map (\c -> c.kind) {- … -}` is own-line
+while `|> Array.map fn {- … -}` glues — a distinction its own docstring defends
+and a `KitchenSink` record-pattern fixture pins.
+
+So the fix is in the renderer, and its shape is "make ownership stop mattering":
+a trailing comment the glue peel **stopped at** is peeled out of the operand flow
+and stacked at the step's own indent — the `|>` column, which is where the
+reparse re-derives it either way. The +4 was the flow's continuation indent,
+which exists so a broken call's ARGUMENTS land under the operand. A comment is
+not an argument of the call it follows — the same sentence as the second family
+(`f7c0c54`), which fixed the *stacking* of this construct; this fixes its
+*indent*. Fixture `PipelineStepTrailingMultilineComment`, 0 findings of its own.
+
+**Two fixtures corrected the fix, in the order they were written to.** Peeling
+before the glue peel stole comments that used to glue (`KitchenSink`'s
+`{-c99-}`); the glue peel has to run first. Then keying the peel on the *role*
+broke `PipelineTrailingComment`, whose test name **is** the rule — single-line
+`{- -}`s trailing a step keep that line whatever their role says. Role was the
+wrong question twice; the right discriminator is "the glue peel could not take
+it", i.e. the comment breaks the line wherever it lands. It also surfaced an
+adjacent two-comment shape (`{- multi⏎line -} {- c -}`) that was already
+non-idempotent and that no gate here reaches — `--comments` injects one comment
+per cell and the fuzzers one per gap — so the whole trailing run comes down
+together, in source order.
+
 **The `Comment.role` group (4 probes) was TWO bugs sharing one symptom**, and
 telling them apart cost nothing only because the repro made each one's own
 smallest shape obvious. In both, a comment the author put on one side of a
@@ -351,9 +394,9 @@ histogram put the family in `commentBreaksFlowRow + forceVertical`, but the same
 bug also reaches `commentBreaksFlowRow` alone and
 `… + IfCondition.forceVertical` — a decision set is a symptom, not a cause, so a
 family can straddle several. The residual was **80 with 17 attributed = 63
-formatter-side** when the label was written, and is **34 with the same 17
-attributed = 17 formatter-side** as of 2026-08-05 — the upstream count does not
-move, so it is a growing share of a shrinking number. When the fix ships and the
+formatter-side** when the label was written, and is **20 with the same 17
+attributed = 3 formatter-side** as of 2026-08-05 — the upstream count does not
+move, so it is now almost all of what is left. When the fix ships and the
 dependency is bumped they stop being reported on their own, with no baseline
 entry to retire.
 

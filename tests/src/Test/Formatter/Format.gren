@@ -679,6 +679,7 @@ pipelineCommentsSuite fsPerm =
             -- Regression guards for the 2026-06-06 column-attachment fixes.
             , assertPrettyIn fsPerm "PipelineComments" "a long author-broken binop chain breaks every operator onto its own line; a trailing comment stays inline on the last operand" "BinopChainTrailingComment"
             , assertPrettyIn fsPerm "PipelineComments" "trailing comments below a pipeline's last step stay at the step indent" "PipelineTrailingComment"
+            , assertPrettyIn fsPerm "PipelineComments" "a multi-line block comment trailing a `|>` step renders at the step column, not the operand flow's +4 -- it lands above the next `|>`, which is the only thing a reparse can read it as; a run written after it comes down with it, and single-line ones still glue" "PipelineStepTrailingMultilineComment"
             -- Regression guard for the Cluster B fix: a *multi-line* block comment
             -- glued same-row onto a preceding construct's last line (previously
             -- crashed; now padded under its start via B.addSuffixBox).

@@ -1316,12 +1316,52 @@ renderPipelineStepChildrenWith glueLeading allChildren =
         { leading, rest } =
             spanLeadingComments allChildren
 
-        { bodyNodes, trailing } =
+        -- The inline-gluable tail first, exactly as before: single-line
+        -- `{- -}`s and at most one `--`, glued onto the step's last line. Those
+        -- keep that line whatever their stored role says — `PipelineComments`'
+        -- "trailing comments below a pipeline's last step stay at the step
+        -- indent" pins it, and role is the wrong question for them: after a
+        -- single-line paren `prevBlockGlueRow` yields no glue row, so a `{- c -}`
+        -- the author wrote right there is `LeadsOwnLine` and still glues.
+        glued =
             peelTrailingCommentNodes rest
+
+        -- What the glue peel STOPPED at — in practice a multi-line `{- … -}`,
+        -- which it refuses because that comment breaks the line wherever it
+        -- lands. It therefore renders BELOW this step, which puts it above the
+        -- next `|>`, where a reparse can only read it as that step's LEADING
+        -- comment. Left in the body it goes through the operand flow instead,
+        -- whose continuation indent is +4 so a broken call's ARGUMENTS land
+        -- under the operand — so it came out one tab stop right of where the
+        -- reparse re-derives it, and the two formats disagreed for ever.
+        -- Stacking it at the step's own indent makes both owners render the same
+        -- bytes, so the re-homing stops mattering: a comment is not an argument
+        -- of the call it follows.
+        --
+        -- Anything the glue peel already took comes down WITH it, in source
+        -- order. Once the multi-line comment leaves the body's last line there
+        -- is no line left for a `{- c -}` written after it either, and the
+        -- reparse reads both as leading the next step. Leaving that one glued
+        -- put it *above* the comment the author wrote it after.
+        stopped =
+            spanTrailingOwnLineComments glued.bodyNodes
+
+        { bodyNodes, trailing, ownLineTrailing } =
+            if Array.isEmpty stopped.trailing then
+                { bodyNodes = glued.bodyNodes, trailing = glued.trailing, ownLineTrailing = [] }
+
+            else
+                { bodyNodes = stopped.body
+                , trailing = []
+                , ownLineTrailing = stopped.trailing ++ glued.trailing
+                }
     in
-    traverseResult commentNodeBox leading
+    Result.map2
+        (\leadingBoxes ownLineBoxes -> { leadingBoxes = leadingBoxes, ownLineBoxes = ownLineBoxes })
+        (traverseResult commentNodeBox leading)
+        (traverseResult commentNodeBox ownLineTrailing)
         |> Result.andThen
-            (\leadingBoxes ->
+            (\{ leadingBoxes, ownLineBoxes } ->
                 stepBodyBox bodyNodes
                     |> Result.andThen (\bodyBox -> glueTrailingComments bodyBox trailing)
                     |> Result.map
@@ -1329,13 +1369,20 @@ renderPipelineStepChildrenWith glueLeading allChildren =
                             let
                                 boxes =
                                     leadingBoxes ++ [ withTrailing ]
+
+                                joined =
+                                    if glueLeading then
+                                        joinInline boxes
+                                            |> Maybe.withDefault (B.stack1 boxes)
+
+                                    else
+                                        B.stack1 boxes
                             in
-                            if glueLeading then
-                                joinInline boxes
-                                    |> Maybe.withDefault (B.stack1 boxes)
+                            if Array.isEmpty ownLineBoxes then
+                                joined
 
                             else
-                                B.stack1 boxes
+                                B.stack1 ([ joined ] ++ ownLineBoxes)
                         )
             )
 
