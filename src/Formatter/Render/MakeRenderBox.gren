@@ -1232,29 +1232,47 @@ directOperandLambdaSplit item =
     else
         when Array.popFirst (lpnChildren node) is
             Just { first = headNode, rest = afterHead } ->
+                -- "The child after the head is the body" is a fixed-arity read,
+                -- and a comment written between the `->` and a body the author
+                -- kept on that row is a child of the paren sitting exactly
+                -- there: `(\q -> {- c -} q + one` ⏎ `)` gives the paren
+                -- `[ head, comment, SoftIndentedBlock ]`. Splitting on it would
+                -- render the head and the *comment's* (empty) content and drop
+                -- the body — the class `splitOffLambdaHead` was written for.
+                --
+                -- Today that shape already falls back, but only by accident:
+                -- `lambdaBodyBox` is `Nothing` because it reads index 1 too, and
+                -- `buildFlowBox 0 []` on the comment's children happens to be
+                -- `Err "box: empty flow"`. Bailing out explicitly keeps the same
+                -- output while making it a decision rather than a side effect of
+                -- an unrelated error path.
                 when Array.first afterHead is
                     Just bodyNode ->
-                        when
-                            { h = buildFlowBoxInline 0 (lpnChildren headNode)
-                            , b =
-                                when item.lambdaBodyBox is
-                                    Just b ->
-                                        Ok b
+                        if nodeIsComment bodyNode then
+                            Nothing
 
-                                    Nothing ->
-                                        buildFlowBox 0 (lpnChildren bodyNode)
-                            }
-                        is
-                            { h = Ok headBox, b = Ok bodyBox } ->
-                                when B.isLine headBox is
-                                    Ok headLine ->
-                                        Just { headLine = headLine, bodyBox = bodyBox }
+                        else
+                            when
+                                { h = buildFlowBoxInline 0 (lpnChildren headNode)
+                                , b =
+                                    when item.lambdaBodyBox is
+                                        Just b ->
+                                            Ok b
 
-                                    Err _ ->
-                                        Nothing
+                                        Nothing ->
+                                            buildFlowBox 0 (lpnChildren bodyNode)
+                                }
+                            is
+                                { h = Ok headBox, b = Ok bodyBox } ->
+                                    when B.isLine headBox is
+                                        Ok headLine ->
+                                            Just { headLine = headLine, bodyBox = bodyBox }
 
-                            _ ->
-                                Nothing
+                                        Err _ ->
+                                            Nothing
+
+                                _ ->
+                                    Nothing
 
                     Nothing ->
                         Nothing
