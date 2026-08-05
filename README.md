@@ -163,9 +163,11 @@ The four core rules:
 
 4. **Formatting is stable.** Running the formatter on already-formatted code
    produces the same code back. Format once or ten times — same result. A
-   torture test inserts a block comment into every inter-token gap of every
-   fixture file, formats twice, and requires byte-identical output; it
-   currently finds **zero** non-idempotent gaps across the whole test corpus.
+   torture test inserts a comment into every inter-token gap of every fixture
+   file, formats twice, and requires byte-identical output. It is red today:
+   **38** gaps out of some 55,000 still shift, 17 of them on an upstream parser
+   bug (see [knownLimitations.md](docs/knownLimitations.md)), and the rest are
+   being worked down.
 
 A few things are **always fixed**, regardless of how you wrote them:
 

@@ -642,6 +642,8 @@ headerCommentsSuite fsPerm =
             , assertPrettyIn fsPerm "HeaderComments" "a comment trailing the module header's own `exposing (..)` glues onto the header line" "ModuleExposingOpenTrailingComment"
             , assertPrettyIn fsPerm "HeaderComments" "a multi-line block comment past a multi-row effect-module header detaches to column 1" "EffectHeaderTrailingMultilineComment"
             , assertPrettyIn fsPerm "HeaderComments" "the same comment past a one-row header still glues onto it" "HeaderTrailingMultilineCommentGlue"
+            , assertPrettyIn fsPerm "HeaderComments" "a `--` on the close row of a where block the renderer flattens glues onto the one-row header (it used to oscillate indent-4 / column-1)" "EffectHeaderCloseRowComment"
+            , assertPrettyIn fsPerm "HeaderComments" "a comment ABOVE the where block keeps its own row: the header's tail glue needs nothing recorded after the comment" "EffectHeaderCommentAboveWhere"
             , assertPrettyIn fsPerm "HeaderComments" "an exposing-list comment whose name sorts to first place is hoisted onto its own line above `(` (import site)" "ExposingSortCommentToFront"
             , assertPrettyIn fsPerm "HeaderComments" "an exposing-list comment whose name sorts to first place is hoisted onto its own line above `(` (module-header site)" "ModuleExposingSortCommentToFront"
             , assertPrettyIn fsPerm "HeaderComments" "an inline block comment on the last name of a flat module exposing list pins above the ); on an import's list it still travels with its name" "ExposingInlineComment"

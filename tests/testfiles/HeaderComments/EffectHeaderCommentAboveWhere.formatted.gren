@@ -1,0 +1,13 @@
+effect module EffectHeaderCommentAboveWhere where
+    -- a note above the where block
+    { command = AboveCmd, subscription = AboveSub } exposing (..)
+
+import Task
+
+
+type AboveCmd msg
+    = AboveCmd (Task.Task Never msg)
+
+
+type AboveSub msg
+    = AboveSub Never

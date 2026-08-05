@@ -551,9 +551,16 @@ applyCommentToOrigRow locComment baseCommentNode created origRowNode =
     in
     when lpnBox updatedOrigRow is
         OriginalRows rowInfo ->
-            if coveredRow > rowInfo.last then
+            let
+                -- The header's other derived close moves for the same reason,
+                -- and is recomputed rather than grown because it is derived from
+                -- the block's contents, which this comment has just changed.
+                covered =
+                    max coveredRow (moduleWhereCloseRow rowInfo.stype updatedOrigRow)
+            in
+            if covered > rowInfo.last then
                 lpnNode
-                    (OriginalRows { rowInfo | last = coveredRow })
+                    (OriginalRows { rowInfo | last = covered })
                     (lpnChildren updatedOrigRow)
 
             else
@@ -561,6 +568,54 @@ applyCommentToOrigRow locComment baseCommentNode created origRowNode =
 
         _ ->
             updatedOrigRow
+
+
+{-| The row an effect module's wrapped `where { … }` block renders its `}` on:
+one below everything the block now holds, or `-1` when there is no such block or
+it still fits on one row.
+
+Both that `}` and the `exposing` after it are position-less, so nothing in the
+header records this row. `MakeLogical.moduleLineClosesBelow` bumps the header's
+`OriginalRows` range by it at build time — from the FIELD rows alone, because
+that is all there is before comments are placed. A comment landing inside the
+block pushes the block's contents down and the `}` with them, so the bump has to
+move too; otherwise a comment the author wrote on the `}` row falls past the
+header's range, detaches to column 1, and disagrees with the format that
+produced that row and glued it there.
+
+Exactly the job `elasticEnd` does for the `exposing ( … )` list's derived `)`,
+asked of the header's one other derived close. It is *recomputed* rather than
+grown, because it is derived from the block's contents — which the comment just
+being placed may have changed. The block is deliberately **not** an
+`lpnElasticBracketNode`: that says "anything reaching this container is inside
+it", which is true of the exposing list (nothing follows it) and false here —
+`exposing (..)` does.
+-}
+moduleWhereCloseRow : SyntaxType -> LPNode -> Int
+moduleWhereCloseRow stype node =
+    if stype /= StModule then
+        -1
+
+    else
+        Array.foldl
+            (\child acc ->
+                when lpnBox child is
+                    AllAcrossOrAllVertical ListCurly ->
+                        let
+                            lastRow =
+                                lastRowInSubtree child
+                        in
+                        if lastRow > firstRowInSubtree child then
+                            max acc (lastRow + 1)
+
+                        else
+                            acc
+
+                    _ ->
+                        acc
+            )
+            -1
+            (lpnChildren node)
 
 
 addCommentGeneric : Located Ctx.Comment -> CommentState -> CommentState
@@ -2510,6 +2565,47 @@ classifyCommentKind containerBox commentNode before after row =
         -- the line (`refRow`) so it glues onto the header row (`TrailsPrevious`)
         -- instead. (A block trailer already renders inline from `LeadsOwnLine`,
         -- so this only needs to cover the `--` case.)
+        --
+        -- That tail is position-less over a RANGE of rows, not just one.
+        -- `refRow` is the last row the parser recorded anywhere in the header,
+        -- and when an effect module's `where { … }` block wraps, the `}` — and
+        -- the `exposing (..)` after it — render on the row *below* that, a row
+        -- `MakeLogical.moduleLineClosesBelow` puts in the header's
+        -- `OriginalRows` range precisely because nothing else records it. A `--`
+        -- the author wrote there has no recorded token anywhere on its row, so
+        -- `refRow` alone reads it as own-line — and the two formats then
+        -- disagree, because the FIRST format's input still had the block's last
+        -- field on that row and glued it. Every row from the last recorded
+        -- content through the header's last row is the same position-less tail,
+        -- so a comment on any of them trails the header. Three conditions, and
+        -- each is load-bearing:
+        --
+        --   - the container is the module line. `info.last` grows past `refRow`
+        --     only where a synthesized tail or an elastic close put it there,
+        --     which is a module-line fact.
+        --   - nothing recorded follows the comment. Otherwise a comment the
+        --     author wrote *before* the `where { … }` block — on a row of its
+        --     own, with the whole header still to come — would read as the tail
+        --     and glue onto the name above it.
+        --   - the row is at or past the last recorded content, and inside the
+        --     declaration. Below the header's last row the comment never gets
+        --     here: `findOrCreateOrigRow` detaches it to column 1.
+        headerTailGlue =
+            when containerBox is
+                OriginalRows info ->
+                    info.stype
+                        == StModule
+                        && refRow
+                        >= 0
+                        && row
+                        >= refRow
+                        && row
+                        <= info.last
+                        && Array.all (\n -> firstRealPosition n == Nothing) after
+
+                _ ->
+                    False
+
         classifyLine p =
             let
                 g =
@@ -2527,7 +2623,7 @@ classifyCommentKind containerBox commentNode before after row =
                             _ ->
                                 g
             in
-            if nodeIsElided p || (glueRow >= 0 && row == glueRow) then
+            if nodeIsElided p || headerTailGlue || (glueRow >= 0 && row == glueRow) then
                 TrailsPrevious
 
             else
@@ -2555,6 +2651,13 @@ classifyCommentKind containerBox commentNode before after row =
         -- lands, so the fallback would merely move it from its own row onto the
         -- keyword's: `KitchenSink`'s fixture-verified `effect module M where` ⏎
         -- `{- a⏎b⏎c -}` ⏎ `{ command = … }` keeps it own-line.
+        --
+        -- `headerTailGlue` widens that same fallback from the one row `refRow`
+        -- names to the header's whole position-less tail, for the same reason
+        -- and under the same single-line scope: a `{- c -}` past a wrapped
+        -- `where { … }` block's `}` is on a row nothing records, so `refRow`
+        -- alone reads it as own-line while the format that produced that row
+        -- had glued it.
         classifyBlock p multiline =
             let
                 g =
@@ -2573,7 +2676,9 @@ classifyCommentKind containerBox commentNode before after row =
                                 g
 
                 sameRowPrev =
-                    nodeIsElided p || (glueRow >= 0 && row == glueRow)
+                    nodeIsElided p
+                        || (not multiline && headerTailGlue)
+                        || (glueRow >= 0 && row == glueRow)
             in
             if not sameRowPrev then
                 LeadsOwnLine

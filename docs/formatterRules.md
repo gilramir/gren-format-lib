@@ -83,9 +83,11 @@ The four core rules:
 
 4. **Formatting is stable.** Running the formatter on already-formatted code
    produces the same code back. Format once or ten times — same result. A
-   torture test inserts a block comment into every inter-token gap of every
-   fixture file, formats twice, and requires byte-identical output; it
-   currently finds **zero** non-idempotent gaps across the whole test corpus.
+   torture test inserts a comment into every inter-token gap of every fixture
+   file, formats twice, and requires byte-identical output. It is red today:
+   **38** gaps out of some 55,000 still shift, 17 of them on an upstream parser
+   bug (see [knownLimitations.md](knownLimitations.md)), and the rest are
+   being worked down.
 
 A few things are **always fixed**, regardless of how you wrote them:
 
@@ -2054,6 +2056,21 @@ effect module MyModule where { command = MyCmd {- a longer
 effect module MyModule where { command = MyCmd {- a longer
                                                   note -}
                              } exposing (..)
+```
+
+Once the block is open like that, the `}` and the `exposing (..)` after it sit
+on a row of their own that the parser records nothing about. A comment written
+on that row still belongs to the module line and stays on it:
+
+```gren
+-- you wrote:
+effect module MyModule where { command = MyCmd {- a longer
+                                                  note -} } exposing (..) -- trailing note
+
+-- formats to:
+effect module MyModule where { command = MyCmd {- a longer
+                                                  note -}
+                             } exposing (..) -- trailing note
 ```
 
 Concretely, "close enough" means within a couple of columns of where the

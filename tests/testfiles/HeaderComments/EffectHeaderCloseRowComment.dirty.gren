@@ -1,0 +1,15 @@
+effect module EffectHeaderCloseRowComment where
+    { command = CloseCmd
+    , subscription = CloseSub
+    } -- note on the close row
+    exposing (..)
+
+import Task
+
+
+type CloseCmd msg
+    = CloseCmd (Task.Task Never msg)
+
+
+type CloseSub msg
+    = CloseSub Never

@@ -305,9 +305,11 @@ effect module MyModule where { command = MyCmd
                              -- line note
                              } exposing (..)
 
--- formats to (the comment is no longer inside the block):
+-- formats to (the comment is no longer inside the block; it is a top-level
+-- comment now, at column 1):
 effect module MyModule where { command = MyCmd } exposing (..)
-    -- line note
+
+-- line note
 ```
 
 The comment survives — nothing is deleted — but it no longer sits beside the
