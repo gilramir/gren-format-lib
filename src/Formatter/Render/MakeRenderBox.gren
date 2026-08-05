@@ -2773,6 +2773,35 @@ isGluedLambdaField field valueNode =
             False
 
 
+{-| Split a glued-lambda field's head nodes at the lambda's own `\q ->` head —
+the LAST node that is not a comment. What precedes it is the field head
+(`fld =`), what follows is the lambda head and any comment written between it and
+the body, which drops with it. `Nothing` when there is no non-comment node at
+all, which the container's shape rules out. -}
+splitOffLambdaHead : Array LPNode -> Maybe { fieldHead : Array LPNode, lambdaNodes : Array LPNode }
+splitOffLambdaHead nodes =
+    Array.foldl
+        (\node acc ->
+            { i = acc.i + 1
+            , found =
+                if nodeIsComment node then
+                    acc.found
+
+                else
+                    Just acc.i
+            }
+        )
+        { i = 0, found = Nothing }
+        nodes
+        |> .found
+        |> Maybe.map
+            (\i ->
+                { fieldHead = Array.takeFirst i nodes
+                , lambdaNodes = Array.dropFirst i nodes
+                }
+            )
+
+
 {-| The glued-lambda field, decided from the lambda body's OWN rendered box.
 
 Single-line body → the lambda fits on the `= ` line, so render the field as one
@@ -2814,12 +2843,25 @@ renderGluedLambdaField headNodes bodyNode =
                             (\headItems -> assembleFlow FP.OwnStart grenIndent (Array.pushLast bodyItem headItems))
 
                 else
-                    -- `headNodes` is `[ name, =, lambdaHead ]`; the lambda drops as
-                    -- a unit, so split the field head off and rebuild the lambda
-                    -- (its own `\q ->` head plus the body) as the dropped value.
-                    when Array.popLast headNodes is
-                        Just { last = lambdaHead, initial = fieldHead } ->
-                            renderFlowItems [ lambdaHead ]
+                    -- `headNodes` is `[ name, =, lambdaHead ]` plus any comments
+                    -- the author wrote among them; the lambda drops as a unit, so
+                    -- split the field head off and rebuild the lambda (its own
+                    -- `\q ->` head plus the body) as the dropped value.
+                    --
+                    -- The split is at the LAST NON-COMMENT node, not simply the
+                    -- last one. A comment written between `->` and the body
+                    -- (`{ fld = \q -> {- c -} body }`) is a child of the field, so
+                    -- `Array.popLast` took the COMMENT for the lambda head: the
+                    -- comment dropped below `fld = \q ->` on its own and the
+                    -- lambda stayed glued, which is neither shape and is not a
+                    -- fixed point — the reparse sees the body on a later row and
+                    -- flips to the drop form, which is the oscillation this
+                    -- function exists to settle. Comments after the head travel
+                    -- down with it, since that is where the author wrote them
+                    -- relative to the body.
+                    when splitOffLambdaHead headNodes is
+                        Just { fieldHead, lambdaNodes } ->
+                            renderFlowItems lambdaNodes
                                 |> Result.andThen
                                     (\lambdaHeadItems ->
                                         assembleFlow FP.OwnStart 0 (Array.pushLast bodyItem lambdaHeadItems)
@@ -2829,7 +2871,7 @@ renderGluedLambdaField headNodes bodyNode =
                         Nothing ->
                             -- Unreachable: the container is built as
                             -- `[ name, =, lambdaHead, body ]`, so popping the body
-                            -- always leaves three nodes.
+                            -- always leaves a non-comment lambda head behind.
                             Err "box: glued lambda field has no head"
             )
 

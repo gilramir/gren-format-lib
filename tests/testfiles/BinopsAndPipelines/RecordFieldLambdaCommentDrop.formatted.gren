@@ -1,0 +1,73 @@
+module RecordFieldLambdaCommentDrop exposing (..)
+
+-- A record field holding a lambda keeps the lambda glued to the `= ` line only
+-- while the body renders on one line; a multi-line body drops the whole lambda
+-- below `field =`. A comment written between the lambda's `->` and its body is a
+-- child of the FIELD, so the drop must not mistake it for the lambda's head --
+-- `Array.popLast` did, dropping the comment on its own and leaving `\q ->`
+-- glued, which is neither shape and is not a fixed point.
+
+
+commentBeforeBody =
+    { fld =
+        \q ->
+            {- c -}
+            q {- multi
+                 second row -}
+    }
+
+
+-- The same field with no comment before the body: the drop the one above must
+-- agree with.
+
+
+noCommentBeforeBody =
+    { fld =
+        \q ->
+            q {- multi
+                 second row -}
+    }
+
+
+-- A comment before the lambda HEAD drops with it too, and stays above it.
+
+
+commentBeforeHead =
+    { fld =
+        {- c -}
+        \q ->
+            q {- multi
+                 second row -}
+    }
+
+
+-- Comments on both sides of the head keep their sides.
+
+
+commentsBothSides =
+    { fld =
+        {- a -}
+        \q ->
+            {- b -}
+            q {- multi
+                 second row -}
+    }
+
+
+-- A `--` before the body reaches the same split.
+
+
+lineCommentBeforeBody =
+    { fld =
+        \q ->
+            -- c
+            q
+    }
+
+
+-- The body still fits on one line, so the lambda stays glued and the comment
+-- rides it (rule C3) -- the comment must not force the drop by itself.
+
+
+singleLineBodyStaysGlued =
+    { fld = \q -> {- c -} q }

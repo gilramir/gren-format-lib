@@ -273,6 +273,62 @@ trailing an earlier branch keeps its place, which the fixture pins along with th
 bare-literal body that still rides its own row
 (`WhenLastBranchTrailingMultiline`).
 
+**The long tail: 3 probes, 3 causes, and only ONE of them landed.** Past this
+point the histogram stops naming families and starts naming individuals, and the
+useful lesson is about knowing which of them to stop working on. **20 → 19.**
+
+*Fixed.* `renderGluedLambdaField` splits a record field's head with
+`Array.popLast` on the documented assumption that it is exactly
+`[ name, =, lambdaHead ]`. A comment written between the lambda's `->` and its
+body is **also a child of the field**, so the pop took the COMMENT for the lambda
+head: the comment dropped alone below `fld = \q ->` and the lambda stayed glued —
+neither shape, and not a fixed point, since the reparse sees the body on a later
+row and flips to the drop form. The split is now at the last NON-comment node.
+Fixture `RecordFieldLambdaCommentDrop`, 0 findings of its own. Note the class:
+*a fixed-arity assumption about a node's children, in a formatter where comments
+are children.* `renderPipelineStepChildrenWith` and `spanOperandLeadingComments`
+are the same class, two commits earlier.
+
+*Diagnosed, attempted, BACKED OUT — `ModuleLineFloatingComment[line]@6`.*
+`gluedExposingBox` refuses a multi-line header, but only its INLINE branch needs
+one line; the vertical branch merely stacks. So a comment in the header forced
+the fallback to the generic flow, which glues the list's first item onto the
+header's last row — for a ONE-item list that erases the only evidence a reparse
+has that the list was vertical (`MakeLogical.exposedStartsBelowHeader`), the
+derived `)` collapses onto that row, and the comment pinned above it escapes to
+column 1. The one-line diagnosis is right and the one-line fix works.
+
+**It also cost four existing fixtures, and the repair chain is the point.** The
+hoist branch (an own-line comment between the header and the `(`) applies the
+same single-line test *on purpose* — its own code comment says so — and the two
+agreed only by both falling back to the same generic flow. Relaxing one alone
+made a header comment alternate between the two layouts for ever
+(`SortingCommentZoo`, `ModuleExposingInlineAndHoistedComment`,
+`ModuleExposingSortCommentToFront`). Relaxing both fixed those. Then
+`headerHasOwnLineComment` turned out to mean "a trailing own-line run", not "an
+own-line comment anywhere", because a `--` inside the header puts a later token
+on its own row; fixing that fixed the next one. Then a THIRD finding appeared, in
+`EffectModuleHeaderInlineComment`: an effect header's `} exposing` tail is
+position-less, so a `{- c -}` rendered there reads as own-line on reparse and
+moves — the ninth family's territory (`headerTailGlue`, `396be16`), which
+`classifyBlock` scopes to single-line comments over the one row `refRow` names.
+
+Three expanding changes to comment classification in one sitting, none of them
+gated over the whole corpus, is how a session ships a regression. **The attempt
+was reverted whole.** Anyone picking it up should start at `headerTailGlue`'s row
+range for the effect-module tail and only then relax `gluedExposingBox` — the
+renderer change is the easy half and it is not the half that is wrong.
+
+*Diagnosed, not attempted — `KitchenComments[multi]@2121`.* Both passes agree on
+every comment's role; they differ only in `glueLeading`, which asks
+`commentTextCanRide` of the WHOLE leading run. On reparse the multi-line comment
+above joins that run and drags a ridable `{- c -}` off the `|>`'s row. Splitting
+the run per comment converges the probe and the ride-form is the correct fixed
+point (verified) — but from the *authored* spelling both comments start out owned
+by the previous step, where the renderer cannot reach the next `|>`. Completing
+it needs the ridable tail ATTACHED to the next step, which is the `5acae7f`
+pattern (renderer first, then attachment) with the attachment half still to do.
+
 **The UNEXPLAINED bucket (14 probes) was 13 probes of ONE shape plus one
 mislabelled #35** — and it is the answer to "what do I do when the instrument
 names nothing". Not, as expected, a decision missing from
@@ -394,8 +450,8 @@ histogram put the family in `commentBreaksFlowRow + forceVertical`, but the same
 bug also reaches `commentBreaksFlowRow` alone and
 `… + IfCondition.forceVertical` — a decision set is a symptom, not a cause, so a
 family can straddle several. The residual was **80 with 17 attributed = 63
-formatter-side** when the label was written, and is **20 with the same 17
-attributed = 3 formatter-side** as of 2026-08-05 — the upstream count does not
+formatter-side** when the label was written, and is **19 with the same 17
+attributed = 2 formatter-side** as of 2026-08-05 — the upstream count does not
 move, so it is now almost all of what is left. When the fix ships and the
 dependency is bumped they stop being reported on their own, with no baseline
 entry to retire.
