@@ -295,6 +295,60 @@ a comment's placement near the `where { … }` block is determined by proximity
 to the handler name. Changing the spacing can change where the comment ends up.
 This stays as-is until the parser records positions for the missing tokens.
 
+Concretely, the boundary is a two-column slack past the handler name's end
+(`Formatter.Logical.Comments.commentInsideTrailingBracket`), so a couple of
+extra spaces moves a comment out of the block:
+
+```gren
+-- inside the block (one space after the name):
+effect module MyModule where { command = MyCmd {- note -} } exposing (..)
+
+-- outside it (a few more spaces — same comment, same braces):
+effect module MyModule where { command = MyCmd      {- note -} } exposing (..)
+-- formats to:
+effect module MyModule where { command = MyCmd } exposing (..) {- note -}
+```
+
+That is a guess, not a reading of the source, and the section below explains why
+it has to be one. It is also the one limitation here that can change the
+**layout** of the header rather than only a comment's home: a multi-line
+`{- … -}` kept inside the block forces the block open across rows, and the same
+comment moved out leaves it on one row.
+
+```gren
+effect module MyModule where { subscription = MySub {- forces the block to wrap
+   second row -}
+    } exposing {- tail -}
+    ( a
+    )
+```
+
+keeps the block open:
+
+```gren
+effect module MyModule where { subscription = MySub {- forces the block to wrap
+                                                       second row -}
+                             } exposing {- tail -}
+    ( a
+    )
+```
+
+while widening that one gap by three spaces collapses it:
+
+```gren
+effect module MyModule where { subscription = MySub } exposing
+    {- forces the block to wrap
+       second row -} {- tail -}
+    ( a
+    )
+```
+
+Both outputs are stable — each is its own fixed point and each preserves the
+AST — so neither the idempotency checks nor the AST comparison objects. Only
+`tests/fuzz-whitespace.py --mode stretch` can see it, and only if a corpus
+fixture carries the shape; none does, because such a fixture would fail that
+gate for as long as this limitation stands.
+
 The sharpest form of this: a `--` comment written **inside** the braces, on its
 own line, does not stay there. It is moved out of the block, below the module
 line:
@@ -334,9 +388,51 @@ hand the formatter *byte-identical* information — same tree, same single
 comment at row 2, column 30. There is no fact available to tell them apart, so
 they format the same way. A `--` comment inside the braces has to be on a line
 of its own (it would otherwise comment out the rest of the header), which is
-exactly the case that needs the missing `}` position to place. Fixing it means
-the parser recording positions for those tokens; until then a `{- … -}` comment
-is the one that stays put.
+exactly the case that needs the missing `}` position to place.
+
+**A `{- … -}` is no better off** — it only looks better off because the two-column
+slack usually guesses right for it. Line these two up so the comment starts at
+the same column in both, and they are byte-identical too:
+
+```gren
+effect module MyModule where { subscription = MySub   {- c -} } exposing (..)
+```
+
+```gren
+effect module MyModule where { subscription = MySub } {- c -} exposing (..)
+```
+
+`--pre-ast` on the two files produces the same bytes: the comment is at row 1,
+column 49 in both, and the `}` that separates them is recorded nowhere. Whatever
+the formatter answers, it answers for both — which is why the answer has to come
+from the comment's column, and why widening a gap changes it.
+
+**The fix used for the module's own `exposing ( … )` list does not transfer.**
+There, `MakeLogical.moduleExposingClose` retires the same slack guess by
+synthesizing a closing position and marking it elastic
+(`lpnElasticBracketNode`), which says "anything that reaches this container is
+inside it". That works because nothing follows the exposing list inside the
+declaration. The `where { … }` block is not last — `exposing ( … )` follows it —
+and comments genuinely belong out there. Giving the block an elastic close was
+tried and measured: it fixes the whitespace flip above and then swallows
+comments that were written past the block, including a `--` after
+`exposing (..)`, which forces the block open across rows:
+
+```gren
+-- with an elastic where-block close, this fixture
+effect module M where { command = CloseCmd, subscription = CloseSub } exposing (..) -- note
+
+-- became
+effect module M where { command = CloseCmd
+                      , subscription = CloseSub -- note
+                      } exposing (..)
+```
+
+Three fixtures moved that way (`EffectHeaderCloseRowComment`,
+`EffectModuleOpenLineTrailer`, `EffectModuleFxWhereComment`), so the approach is
+recorded here as disproven rather than left as an idea to retry.
+
+Fixing this means the parser recording positions for the block's own tokens.
 
 ## A comment right after `exposing` doesn't sort with the first name
 
