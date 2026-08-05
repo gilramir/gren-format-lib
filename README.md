@@ -165,9 +165,10 @@ The four core rules:
    produces the same code back. Format once or ten times — same result. A
    torture test inserts a comment into every inter-token gap of every fixture
    file, formats twice, and requires byte-identical output. It is red today:
-   **38** gaps out of some 55,000 still shift, 17 of them on an upstream parser
-   bug (see [knownLimitations.md](docs/knownLimitations.md)), and the rest are
-   being worked down.
+   **17** gaps out of some 56,000 still shift, and all 17 are the same upstream
+   parser bug (see [knownLimitations.md](docs/knownLimitations.md)). Nothing
+   left in it is the formatter's to fix; it goes green when that parser fix
+   ships.
 
 A few things are **always fixed**, regardless of how you wrote them:
 
