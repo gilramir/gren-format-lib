@@ -6,14 +6,20 @@ module RecordFieldLambdaCommentDrop exposing (..)
 -- child of the FIELD, so the drop must not mistake it for the lambda's head --
 -- `Array.popLast` did, dropping the comment on its own and leaving `\q ->`
 -- glued, which is neither shape and is not a fixed point.
+--
+-- A comment TRAILING the body is not part of it, whatever its kind. All four
+-- fields below are authored flat and stay flat: the multi-line comment adds its
+-- own second row and nothing else, which is `singleLineBodyStaysGlued`'s rule
+-- (rule C3, "the comment must not force the drop by itself") reached with the
+-- other comment kind. Until 2026-08-05 a multi-line one DID force it, because it
+-- was attached inside the lambda body -- where it rendered at the body's indent
+-- and the reparse, seeing it past the field, handed it to the record and moved
+-- it. `containerTailKeepsCommentOutside`.
 
 
 commentBeforeBody =
-    { fld =
-        \q ->
-            {- c -}
-            q {- multi
-                 second row -}
+    { fld = \q -> {- c -} q {- multi
+                               second row -}
     }
 
 
@@ -22,10 +28,8 @@ commentBeforeBody =
 
 
 noCommentBeforeBody =
-    { fld =
-        \q ->
-            q {- multi
-                 second row -}
+    { fld = \q -> q {- multi
+                       second row -}
     }
 
 
@@ -33,11 +37,8 @@ noCommentBeforeBody =
 
 
 commentBeforeHead =
-    { fld =
-        {- c -}
-        \q ->
-            q {- multi
-                 second row -}
+    { fld = {- c -} \q -> q {- multi
+                               second row -}
     }
 
 
@@ -45,12 +46,8 @@ commentBeforeHead =
 
 
 commentsBothSides =
-    { fld =
-        {- a -}
-        \q ->
-            {- b -}
-            q {- multi
-                 second row -}
+    { fld = {- a -} \q -> {- b -} q {- multi
+                                       second row -}
     }
 
 

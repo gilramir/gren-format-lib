@@ -1,0 +1,72 @@
+module ContainerTailMultilineComment exposing (..)
+
+-- A multi-line `{- .. -}` written past an ITEM of a bracketed container belongs
+-- to the CONTAINER, not to whatever that item's last token happens to be.
+--
+-- The item here is a lambda, which is the shape that made it visible: a lambda
+-- body is a `SoftIndentedBlock`, and nothing stopped the comment descending into
+-- it. Rendered at the body's indent, the reparse -- seeing a comment on its own
+-- row past the field -- handed it to the record and moved it, for ever.
+-- `AcrossOrVertical` was already on `boxKeepsTrailingCommentOutside`, which is
+-- why the same shape with no lambda has always been stable; the fix
+-- (`containerTailKeepsCommentOutside`) makes the container itself refuse the
+-- descent, so the lambda form lands on the non-lambda form's own output.
+--
+-- Found by `matrix-syntax.py --comments` once it swept the multi-line kind
+-- (2026-08-05); 16 cells across `lambdaRecord` / `lambdaLiteral` x record field,
+-- record-update field and array item.
+
+
+lastField =
+    { fld = \q -> fn q {- multi
+   second row -} }
+
+
+-- A NON-last item oscillated the same way, so the rule is not scoped to the last
+-- one: at the container level the comment simply sits between the two items,
+-- which is what the reparse derives.
+
+
+midField =
+    { fld = \q -> fn q {- multi
+   second row -}
+    , other = 1 }
+
+
+midArrayItem =
+    [ \q -> fn q {- multi
+   second row -}
+    , other ]
+
+
+updateField =
+    { rec | fld = \q -> fn q {- multi
+   second row -} }
+
+
+-- THE BOUNDARY, and it is the whole scope of the rule: only a comment that
+-- brings its own rows renders below the item whatever owns it. A `--` and a
+-- single-line `{- -}` both ride the item's last row, so they stay the item's and
+-- must not be pulled out -- pulling them out would put them on a row of their
+-- own, changing a shape that was never broken.
+
+
+lineCommentStays =
+    { fld = \q -> fn q -- c
+    }
+
+
+singleLineBlockStays =
+    { fld = \q -> fn q {- c -} }
+
+
+-- A comment inside a NESTED container's own brackets still descends: its `]` is
+-- recorded, so `commentInsideTrailingBracket` can tell "before the close" from
+-- "past it", and the guard defers to that.
+
+
+nestedKeepsItsOwn =
+    [ [ 1
+      , 2 {- multi
+   second row -} ]
+    , 3 ]

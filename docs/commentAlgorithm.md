@@ -552,7 +552,7 @@ Three tests make a comment stay outside:
 |---|---|
 | `boxKeepsTrailingCommentOutside child` | box kinds that must never swallow a trailing comment |
 | `nextSiblingIsBoundary` | the next sibling starts a new flow item — `in`, `else`, the next `let` binding (`IndentedBlock`), the next `when` branch (`WhenBranch`) |
-| `parenTailKeepsCommentOutside` | a multi-line comment past the last thing a paren wraps: it belongs to the paren, not to that last thing |
+| `containerTailKeepsCommentOutside` | a multi-line comment past the last thing a paren wraps, or past any item of a bracketed container: it belongs to the container, not to that item |
 
 `boxKeepsTrailingCommentOutside` is **the single declared list** of such box
 kinds. If you add a construct that needs this rule, add it there rather than
@@ -1358,7 +1358,7 @@ argument, gate by gate. The important column is the last one — what each gate
 | **`fuzz-idempotency.py`** | inserts `{- ¤ -}` into **every** inter-token gap of every fixture, formats twice | the fixed point, over ~56,000 comment positions | one comment at a time; only says *whether* something moved |
 | **`check-decision-stability.py`** | same gaps, but diffs the *decisions* | **which** decision was unstable, as named branches with no positions in them | a decision nobody traced |
 | **`fuzz-whitespace.py`** | inter-token whitespace | `format(perturbed) == format(original)` — placement must not depend on your spacing | comments |
-| **`matrix-syntax.py --comments`** (45,948 cells) | 41 expression × 25 contexts + 11 type × 15 contexts, × comment kind × position, each diffed against **elm-format** | placement *divergence* — a stable, idempotent, AST-preserving wrong answer | more than one comment per cell |
+| **`matrix-syntax.py --comments`** (68,922 cells) | 41 expression × 25 contexts + 11 type × 15 contexts, × 3 comment kinds × 2 positions, each diffed against **elm-format** | placement *divergence* — a stable, idempotent, AST-preserving wrong answer | more than one comment per cell |
 | **`gen-random.py`** | random-but-legal modules, structure **and** comments | comment **multiset** preservation (drop / duplication / kind change), and **author-order invariance** | shapes outside its grammar |
 | **`audit-predicates.py`** | the corpus | that a "does this break?" predicate agrees with the renderer | under-approximation (deliberate) |
 | **`check-render-invariant.py`** | — | the barrier of §2.2 | nothing structural |
@@ -1389,13 +1389,24 @@ Two of those deserve emphasis, because they cover holes that look covered:
   subtracted**: the gate stays red on purpose until the parser fix ships,
   because hiding a finding is how a gate starts lying about its coverage. The
   **formatter-side residual is zero.**
-- `matrix-syntax.py --comments`: 45,948 cells, **0 failing**, 0 UNREVIEWED
-  divergences — every difference from elm-format names a numbered entry in the
-  [divergence catalogue](elmFormatComparison.md).
+- `matrix-syntax.py --comments`: 68,922 cells, **54 failing**, and that number is
+  the point of the entry. The axis swept only two of the three comment kinds
+  until 2026-08-05; adding the multi-line block found 70 non-idempotencies the
+  same afternoon. 16 are fixed (`containerTailKeepsCommentOutside`); the other 54
+  are one open cause — `bracketRendersMultiline` deriving a glue row from the
+  author's rows for a container the format then collapses. Details and the
+  work-list are in [`commentRunTesting.md`](commentRunTesting.md).
 
-That last line is the one to quote to a sceptic. Every place `gren format` and
-`elm-format` put a comment differently is a *decision on record with a reason*,
-not an unexamined difference.
+For the two kinds that had been swept, that last line is the one to quote to a
+sceptic: every place `gren format` and `elm-format` put a `--` or a single-line
+`{- -}` differently is a *decision on record with a reason*, not an unexamined
+difference. The multi-line kind is a day old here and its divergences are freshly
+registered debt, not yet reviewed.
+
+**Read the red as a feature.** A gate that runs green over the wrong axis reads
+exactly like a gate that runs green — which is what this one did for months. The
+54 are visible, attributed and counted; narrowing the sweep to recover the green
+is the mistake that produced them.
 
 The honest caveats, stated so nobody has to discover them:
 

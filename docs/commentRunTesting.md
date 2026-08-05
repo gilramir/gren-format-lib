@@ -286,7 +286,13 @@ is the shape elm-format produces.
 
 ### The residual, and why this gate ships red
 
-As of 2026-08-04 the corpus sweep stands at **118 findings — 0 regressions, all
+> **Superseded 2026-08-05.** The formatter-side residual is **zero**; the sweep
+> reports 17 findings and all 17 are `[known: compiler-common#35]`, a parser bug.
+> The gate still ships red, but for that reason alone. What follows is the record
+> of how the residual came down, kept because the *method* is the reusable part —
+> every family named below turned out to be one rule.
+
+As of 2026-08-04 the corpus sweep stood at **118 findings — 0 regressions, all
 pre-existing**: 67 multi-line block, 51 `--`, 0 single-line block. (424 → 347
 when `45f7269` took 77 at once; 347 → 172 when the decision-stability histogram
 below named the largest family and it turned out to be one rule, missing;
@@ -371,8 +377,10 @@ non-zero.
 
 Two consequences worth stating:
 
-- **Do not add this pass to `run-tests.sh`** until the residual is worked down.
-  It is a deliberate gate, run by hand, like `matrix-syntax.py --comments`.
+- **Do not add this pass to `run-tests.sh`** until it can exit zero. That was
+  blocked on the residual; since 2026-08-05 it is blocked on
+  `compiler-common#35` alone. It is a deliberate gate, run by hand, like
+  `matrix-syntax.py --comments`.
 - **Attribute before you blame.** With a non-zero baseline, "the fuzzer fails"
   says nothing on its own. Build the previous commit to a second binary and
   re-probe the failures; the question is always *which* of these are new.
@@ -679,25 +687,26 @@ makes the mistake cheap to find, but not making it is better.
 ## Order of work
 
 1. ~~per-gap pass sweeps all three comment kinds~~ *(done 2026-08-03)*
-2. **work the residual (118 as of 2026-08-04) down to zero**, then wire the pass
-   into `run-tests.sh`. Until then it is a hand-run gate with a known baseline.
-   (It was ~420 until `45f7269`, which took 77 of them at once: `VerticalSpace`
-   inserted a blank line and then asked a *source-row* question about the gap it
-   had just created. Worth knowing before picking off the rest one at a time —
-   the residual is not 118 separate bugs.) **Step 5 below says how many it
-   is**: the first family (238 probes) was a comment changing which declaration
-   owns it, `LeadsOwnLine` under one becoming `Standalone` above the next, which
-   is `45f7269`'s class again (`43a9cd9`, 347 → 172); the second (67 probes)
-   was the same *placement* reached with the `TrailsPrevious` role, via a
-   pipeline step stacking a trailing comment as though it were an argument
-   (`f7c0c54`, 172 → 140); the third (43 probes) was that same first shape again,
-   on the one top-level node `detachOwnLineTrailer`'s gate excluded — the module
-   header (148 → 118). **All three families were one rule each, and two of the
-   three were the *same* rule asked of a node or a role it had not been asked
-   of.** Re-run `./check-decision-stability.py -j 12 --gaps -v` for the current
-   histogram before picking the next — and group its probes by **fixture** as
-   well as by decision set, which is how the third family was spotted: it
-   straddled the top two decision groups and was invisible in either alone.
+2. ~~**work the residual down to zero**~~ *(done 2026-08-05)*. It went
+   **424 → 0 formatter-side** in eleven families over three days. What remains is
+   **17 findings, all `[known: compiler-common#35]`** — a parser bug, labelled and
+   counted but not ours — and `check-decision-stability.py` PASSes 0 over the
+   corpus.
+
+   **The gate still cannot go into `run-tests.sh`,** and the reason has changed:
+   it is not our debt any more, it is that those 17 make it exit non-zero. That
+   is blocked on the upstream fix shipping and the dependency being bumped, at
+   which point the findings disappear with no baseline entry to retire.
+
+   The durable lesson, since the numbers are now history: **the residual was
+   never N separate bugs.** Each family was *one rule*, and four of the eleven
+   were the *same* rule asked of a node, a role or a container it had not been
+   asked of before. Work a histogram, not a byte diff — and group its probes by
+   **fixture** as well as by decision set, which is how the third family was
+   spotted: it straddled the top two decision groups and was invisible in either
+   alone. Full family-by-family record in
+   [the residual section](#the-residual-and-why-this-gate-ships-red) and in
+   `CLAUDE.md`.
 3. ~~declaration contexts in `matrix-syntax.py`~~ *(done 2026-08-03: 11 type
    constructs × 15 declaration contexts, +341 syntax cells, +4,930 comment
    cells)*. This was the n=1 base case, and nothing above it meant much until it
@@ -737,11 +746,90 @@ makes the mistake cheap to find, but not making it is better.
    reduced step 2's 347 findings to **about five named families**, 320 of them
    attributed, 20 unexplained. **Step 2 should now be worked from that
    histogram, largest family first**, not from the byte diffs.
-6. run-classification refactor — makes C1 and C3 structural
-7. the deletion-invariance oracle
-8. n=2 class-pairs, with elm-format parity
+6. **the multi-line block kind in `matrix-syntax.py --comments`** — *in progress
+   2026-08-05*. `COMMENT_KINDS` is `{"block", "line"}`; `fuzz-idempotency.py`'s
+   `KINDS` is `{"block", "multi", "line"}`. **This is the same one-kind-per-gap
+   hole recorded above, still open on the one axis that has an elm-format
+   oracle**, and it has already cost us: `detachOwnLineTrailer` (347 → 172) was
+   invisible here, so the axis's "0 failing" was evidence of no regression and no
+   evidence of the fix. Finish the n=1 base case before building anything on top
+   of it.
+
+   Not a one-line dict change. Four helpers assume a marker is single-line —
+   `comment_stripped_matches`, `marker_role`, `_marker_slot`, `_canon_lines` —
+   each with a `\{-\s*¤\s*-\}` regex applied *per line*. Against a multi-line
+   marker every one silently fails to strip, leaving the comment's own words in
+   the text being compared. The failure is mostly *safe* (a cell that will not
+   classify books UNREVIEWED rather than being swept into a family), except
+   `marker_role`, which is what the "gren stranded it alone — never
+   auto-classify" guard reads. Make the strippers span-aware first, then add the
+   kind.
+
+   **First run: 68,922 cells (up from 45,948) and 70 hard failures, every one a
+   non-idempotency on the new kind.** They are three shapes with two causes, and
+   the hole had been hiding both:
+
+   - **16 — a multi-line comment past a bracketed container's ITEM** descended
+     into that item's lambda body, rendered at the body's indent, and the reparse
+     handed it to the container. The 8th family's paren rule
+     (`parenTailKeepsCommentOutside`) asked of a container it had not been asked
+     of; `containerTailKeepsCommentOutside` now covers both. **Fixed** —
+     70 → 54, 0 new. Fixture `BracketComments/ContainerTailMultilineComment`.
+     Only a lambda item exposed it: `AcrossOrVertical` was already on
+     `boxKeepsTrailingCommentOutside`, so the same shape with no lambda had
+     always been stable, which is also the output the fix lands on.
+   - **54 — a glue row derived from source rows that the format then
+     collapses.** `bracketRendersMultiline` uses `range.maxRow > range.minRow`
+     as its proxy for "does this render multi-line", and a single-item container
+     collapses ([#21](elmFormatComparison.md#divergence-21)), so a comment after
+     an author-broken `(Int` ⏎ `-> Int)` or `[ 1` ⏎ `]` glues on the first format
+     and takes its own row on the second. Its docstring already names the shape
+     of the problem — *"it is a logical-stage predicate, so it cannot observe the
+     rendered box"* — which makes it the same class as `commentSplitsType`.
+     **Open.** It touches every comment-after-a-bracket placement, so it wants
+     its own change and its own measurement.
+7. run-classification refactor — makes C1 and C3 structural. **Before any n=2
+   baseline**, or the baseline is built against ownership the refactor changes.
+   The unit of work is that "what is a run" is implemented at **six sites that
+   must agree**: `spanTrailingOwnLineNodes` (`Comments`), `spanTrailingOwnLine`
+   (`CommentBox`), `takeSameRowTrailing` (`SortSymbols`), and the three
+   reference-row chainers (`prevLineGlueRow` / `prevBlockGlueRow` last-row
+   keying, `bracketItemRow`, `chainedRefRow`). The first two are a **mirror pair
+   by necessity** — `Comments.gren` cannot import `Render`, and its docstring
+   says so — so the shared span helper has to land somewhere both can reach
+   (`LogicalPrintingTree`, or a new leaf module) before "one role per run" can be
+   structural rather than asserted.
+8. the deletion-invariance oracle. **Build it in `gen-random.py` first**, not in
+   the gap fuzzer: the generator emits from a tree, so the n and n−1 variants
+   come from the *same* tree deterministically — the mechanism the `sort-order`
+   oracle already uses to emit two author orders. Splicing text to delete a
+   comment from a corpus file cannot guarantee nothing else moved. The
+   comparison is a **code skeleton**: blank every comment span in both outputs,
+   drop lines that were wholly comment, require byte-equality of the rest — C4
+   stated directly, and no span-boundary judgement.
+9. n=2 class-pairs, with elm-format parity. Last, because it is the only step
+   that costs review time.
+
+Two expansions feed steps 8 and 9 and can proceed in parallel with either:
+
+- **`gen-random.py`'s runs are the wrong shape, not merely too few.**
+  `comment_chain` already emits 1–3 links, but only *trailing* and only
+  *same-row*. There is no own-line run anywhere in the grammar — and own-line
+  runs are exactly where `detachOwnLineTrailer`, `rehomePipelineStepTrailers` and
+  `computeDetachedBelow` each carry run-cohesion logic.
+- **The probe machinery needs a run concept in one place.**
+  `fuzz-idempotency.py` owns `KINDS` and the gap enumeration;
+  `check-decision-stability.py` and `repro.py` import them *by path* precisely so
+  they cannot drift. A run generator belongs there too, and the finding ID has to
+  grow from `<fixture>[<kind>]@<gap>` to carry the sequence — otherwise a finding
+  is not reproducible, and `repro.py` is what makes one investigable.
+
+Still uncovered by any elm-format oracle, and worth listing so it is not
+mistaken for coverage: an `import`'s own syntax, and the module header. The
+corpus fuzzers reach both; nothing asks elm-format about either, and the header
+is where the position-less-tail logic (`headerTailGlue`) lives.
 
 Steps 4 and 5 were the systemic pair and 4 came first: the gate makes the
-mistake cheap to find, but not making it is better. Steps 2, 6 and 7 come before
-8 — an induction is only as good as its base case, and a law is cheaper to hold
+mistake cheap to find, but not making it is better. Steps 6, 7 and 8 come before
+9 — an induction is only as good as its base case, and a law is cheaper to hold
 by construction than to check.

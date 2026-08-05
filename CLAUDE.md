@@ -879,9 +879,39 @@ commits:
   That last one also fixed a comment-free instance of the same bug
   (`{ fld = \q -> { a = 1` / `, b = 2 } }` oscillated with no comment anywhere).
 
-The axis runs **45,948 cells with 0 failing**. It was 0 until the type axis was
-added on 2026-08-03, then 58 for a day — one family, a comment-bearing signature
-whose type carries a multi-line record:
+**The axis runs 68,922 cells and ships RED, with 54 known findings** (2026-08-05).
+It ran 45,948 cells with 0 failing until the **multi-line block kind** was added
+that day — `COMMENT_KINDS` was `{block, line}` while `fuzz-idempotency.py`'s
+`KINDS` was `{block, multi, line}`, the same one-kind-per-gap hole this file
+records costing 401 regressions, left open on the one axis with an elm-format
+oracle. It found **70 non-idempotencies immediately**, in two causes:
+
+- **16 — fixed** (`containerTailKeepsCommentOutside`): a multi-line `{- … -}`
+  past a bracketed container's ITEM descended into that item's lambda body,
+  rendered at the body's indent, and the reparse handed it to the container. The
+  8th family's paren rule asked of a container it had not been asked of. Only a
+  lambda item exposed it — `AcrossOrVertical` was already on
+  `boxKeepsTrailingCommentOutside`, so the no-lambda form was always stable, and
+  that stable form is what the fix lands on. Fixture
+  `BracketComments/ContainerTailMultilineComment`; `RecordFieldLambdaCommentDrop`
+  gained the same rule for its four flat-authored fields, which stop being broken
+  open by a trailing comment (its own `singleLineBodyStaysGlued` said so for the
+  other comment kind).
+- **54 — open**: `bracketRendersMultiline` derives a glue row from
+  `range.maxRow > range.minRow`, the AUTHOR's rows, and a single-item container
+  collapses (#21) — so a comment after `(Int` ⏎ `-> Int)` glues on format¹ and
+  takes its own row on format². Its docstring already says why it is the wrong
+  shape: *"it is a logical-stage predicate, so it cannot observe the rendered
+  box."* Same class as `commentSplitsType`. It reaches every
+  comment-after-a-bracket placement, so it wants its own change.
+
+**Do not narrow the sweep to make it green** — that is exactly the mistake that
+hid these. Per-kind counts print on every run; a number moving the wrong way is a
+regression signal while the absolute figure is non-zero.
+
+Before the multi kind, the axis had been 0-failing since the type axis was
+added on 2026-08-03, which itself cost 58 for a day — one family, a
+comment-bearing signature whose type carries a multi-line record:
 
 ```gren
 foo : Int -> {- ¤ -} { a : Int
@@ -1068,8 +1098,10 @@ section of `comment-parity-triage.md`.
 interactively; there is no in-place edit, and the superseded rows are the record
 of what was thought before.
 
-**Current state (2026-08-03), after the type axis landed, its debt was read down
-and `commentSplitsType` was deleted.** 45,948 cells, **0 failing**, 20,111
+**State as of 2026-08-03** (superseded by the multi-kind expansion above, which
+took the axis to 68,922 cells / 54 failing and re-opened the parity debt for the
+new kind — see there), after the type axis landed, its debt was read down and
+`commentSplitsType` was deleted: 45,948 cells, **0 failing**, 20,111
 byte-identical to elm-format, 25,575 registered divergences, **0 UNREVIEWED and
 0 BUG** — every divergence names a catalogue entry. The type axis
 arrived with 1,436 UNREVIEWED, all type-context cells; the fix below cleared 139

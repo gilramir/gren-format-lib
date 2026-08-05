@@ -832,6 +832,14 @@ bracketCommentsSuite fsPerm =
             , assertPrettyIn fsPerm "BracketComments" "multi-line comment trailing a dropped list under a call glues onto its `]`" "CallListMultilineTrailingComment"
             , assertPrettyIn fsPerm "BracketComments" "multi-line comment trailing a dropped record under a call glues onto its `}`" "CallRecordMultilineTrailingComment"
             , assertPrettyIn fsPerm "BracketComments" "multi-line comment trailing a list-body glues onto its `]`" "ListBodyMultilineTrailingComment"
+            -- matrix-syntax.py --comments, first run that swept the multi-line
+            -- kind (2026-08-05): a multi-line `{- .. -}` past a bracketed
+            -- container's ITEM belongs to the container, not to the item's last
+            -- token. Visible only through a lambda item, whose `SoftIndentedBlock`
+            -- body nothing was guarding; pins the boundary too (a `--` and a
+            -- single-line `{- -}` ride the item's row and stay its own, and a
+            -- nested container's own brackets still take their comment).
+            , assertPrettyIn fsPerm "BracketComments" "multi-line comment past a container item belongs to the container, not to the item's lambda body" "ContainerTailMultilineComment"
             -- gen-random.py seed 108 (comment-rate 0.6, v1.6's new Neg/unary-minus
             -- grammar): a `--` trailing a unary-minus (`-expr`) body glues onto
             -- that row and stays put (was non-idempotent: prevLineGlueRow/

@@ -1393,11 +1393,46 @@ insertCommentIntoSubtree commentNode row col node =
                             -- the paren's. `(\a ->` ⏎ `body {- c` ⏎ `second -}` ⏎
                             -- `)` oscillated exactly that way, between the lambda
                             -- body's indent and the paren's.
-                            parenTailKeepsCommentOutside =
-                                hasNoFollowingSibling
-                                    && commentBringsOwnRows
+                            -- A bracketed container answers the same way, and for
+                            -- the same reason: its `}`/`]`/`)` renders after every
+                            -- item, so a comment that brings its own rows renders
+                            -- BELOW the item it trails and the reparse reads it as
+                            -- the container's, not that item's.
+                            --
+                            --     { fld = \q -> fn q {- c        first format:
+                            --        second -}                       fn q
+                            --     }                                  {- c            <- item's indent
+                            --                                           second -}
+                            --
+                            -- and the reparse, seeing a comment on its own row past
+                            -- the field, hands it to the record. `AcrossOrVertical`
+                            -- is already on `boxKeepsTrailingCommentOutside`, which
+                            -- is why the identical shape with NO lambda
+                            -- (`{ fld = fn q {- c` ⏎ `second -} }`) has always been
+                            -- stable: a lambda is what makes the field render as an
+                            -- `IndentedBlock`, and nothing was guarding that.
+                            -- **Look for the container that already agrees**: this
+                            -- lands the lambda form on the non-lambda form's own
+                            -- output, glued after the item's last row.
+                            --
+                            -- No `hasNoFollowingSibling` here, unlike the paren arm:
+                            -- a comment past a NON-last item oscillates the same way
+                            -- (`[ \q -> fn q {- c` ⏎ `second -}` ⏎ `, other ]`), and
+                            -- at the container level it simply sits between the two
+                            -- items, which is what the reparse derives.
+                            containerTailKeepsCommentOutside =
+                                commentBringsOwnRows
                                     && (when lpnBox node is
                                             ParenBlock _ ->
+                                                hasNoFollowingSibling
+
+                                            AllAcrossOrAllVertical _ ->
+                                                True
+
+                                            AlwaysVertical _ ->
+                                                True
+
+                                            RecordUpdate _ ->
                                                 True
 
                                             _ ->
@@ -1423,7 +1458,7 @@ insertCommentIntoSubtree commentNode row col node =
                             trailingCommentEscapes =
                                 (boxKeepsTrailingCommentOutside child
                                     || nextSiblingIsBoundary
-                                    || parenTailKeepsCommentOutside
+                                    || containerTailKeepsCommentOutside
                                 )
                                     && subtreeEndsBefore child row col
                                     && not (commentInsideTrailingBracket child row col)

@@ -246,15 +246,30 @@ def parens_only_difference(gren_out, elm_out):
 # `--comments` crosses the syntax axis with the comment axis (module docstring).
 # One comment per cell, injected into an inter-token gap of the generated source.
 #
-# PLACEMENTS. Each gap yields four cells: {`{- ¤ -}`, `-- ¤`} x {trail, lead}.
+# PLACEMENTS. Each gap yields six cells:
+# {`{- ¤ -}`, `-- ¤`, `{- ¤` .. `-}`} x {trail, lead}.
 # `trail` puts the comment immediately after the previous token (keeping the
 # gap's whitespace after it), `lead` immediately before the next token. That
 # distinction is the point: `CommentRole` classification is exactly the
 # trailing-vs-leading decision, and gren diverges from elm-format on purpose in
 # one direction (#13) while a divergence in the other has been a real bug twice.
+#
+# THE THREE KINDS ARE THE AXIS, not a detail of it. Almost every placement rule
+# branches on "can this comment share a line", and the three kinds are exactly
+# the three answers: a single-line `{- -}` can, a `--` cannot (it runs to
+# end-of-line), a multi-line `{- .. -}` cannot (it brings its own newlines).
+# `multi` was missing here until 2026-08-05 while `fuzz-idempotency.py` swept all
+# three -- the same one-kind-per-gap hole that file's own history records costing
+# 401 regressions, left open on the ONE axis with an elm-format oracle. It is not
+# hypothetical debt: `detachOwnLineTrailer` (fuzz-idempotency 347 -> 172) is a
+# multi-line-block fix, so this axis's "0 failing" across that change was
+# evidence of no regression and no evidence of the fix.
+#
 # A `-- ¤` needs a newline after it, so the lead/trail forms re-indent the next
 # token to the column it already had -- the offside structure is unchanged, which
-# keeps the cell parseable.
+# keeps the cell parseable. A multi-line `{- .. -}` needs the same treatment for
+# the same reason: whatever follows its `-}` would otherwise land on the closing
+# row at a column the author never wrote.
 #
 # GAP SCOPING. Sweeping every gap of every cell is ~4x the cells for little
 # gain: a gap in the CONTEXT template (`when sel is Just w -> {x}`) does not
@@ -272,8 +287,53 @@ def parens_only_difference(gren_out, elm_out):
 # a formatter can drop or duplicate a comment and still be a stable fixed point,
 # which no diff-against-itself check can see.
 MARKER_CH = "¤"
-COMMENT_KINDS = {"block": "{- ¤ -}", "line": "-- ¤"}
+# `multi`'s text is `fuzz-idempotency.py`'s MARKER_MULTI verbatim. The two gates
+# probe different things and cannot share code here (that one splices into a
+# fixture, this one into a generated cell), but a marker that differs between
+# them makes two findings of the same shape look unrelated.
+#
+# A marker's text must never contain `when` or `is`: `to_elm` replaces those two
+# words wherever they appear, and its exactness rests on them occurring nowhere
+# in this file's vocabulary but as the keywords. A marker body is part of that
+# vocabulary.
+COMMENT_KINDS = {
+    "block": "{- ¤ -}",
+    "line": "-- ¤",
+    "multi": "{- ¤\n   second row -}",
+}
 COMMENT_POSITIONS = ["trail", "lead"]
+
+# The marker comment as a SPAN, which is the only form that survives a multi-line
+# `{- ¤ .. -}`. Every helper below that deletes or locates the marker uses this;
+# the per-line `\{-\s*¤\s*-\}` it replaced silently matched nothing on a
+# multi-line marker and left the comment's own words in the text being compared.
+# Non-greedy to the first `-}`, DOTALL so the body may cross rows.
+_MARKER_SPAN_RE = re.compile(
+    r"\{-\s*" + MARKER_CH + r".*?-\}|--[ \t]*" + MARKER_CH + r"[^\n]*",
+    re.S,
+)
+
+
+def strip_marker(text, repl=""):
+    """`text` with the marker's whole comment replaced by `repl`.
+
+    **Line count is preserved** -- a multi-line marker's own newlines are kept,
+    so deleting it can never merge two code lines together. Every caller then
+    drops the lines that are left blank, which is the same normalization they
+    applied before multi-line markers existed. Without this, `foo {- ¤` / `x -}
+    bar` would canonicalize to `foo bar` on one row and compare equal to a
+    genuinely different layout.
+    """
+    def sub(m):
+        return repl + "\n" * m.group(0).count("\n")
+
+    return _MARKER_SPAN_RE.sub(sub, text)
+
+
+def marker_span(text):
+    """`(start, end)` offsets of the marker's comment, or None."""
+    m = _MARKER_SPAN_RE.search(text)
+    return (m.start(), m.end()) if m else None
 
 # Auto-classified comment-parity family, the counterpart of REASON_PARENS.
 # Reasons here are SHORT TAGS, not prose: the syntax baseline has 571 entries and
@@ -303,12 +363,15 @@ def comment_stripped_matches(gren_out, elm_out, collapse_interior=False):
     places, which is the comment's position showing through, not a code
     difference. Indentation is still compared exactly, so a cell whose code
     lands at a different column still differs.
+
+    A multi-line marker is deleted as a span but keeps its own newlines
+    (`strip_marker`), so the two sides stay comparable line-for-line however
+    each formatter chose to lay the comment's rows out -- which is the point,
+    since elm-format re-spaces a multi-line comment's body and gren does not.
     """
     def canon(s):
         out = []
-        for ln in s.split("\n"):
-            if MARKER_CH in ln:
-                ln = re.sub(r"\{-\s*" + MARKER_CH + r"\s*-\}|--\s*" + MARKER_CH + r"\s*$", "", ln)
+        for ln in strip_marker(s).split("\n"):
             ln = ln.rstrip()
             if collapse_interior and ln.strip():
                 ln = " " * (len(ln) - len(ln.lstrip())) + re.sub(r" +", " ", ln.strip())
@@ -319,20 +382,34 @@ def comment_stripped_matches(gren_out, elm_out, collapse_interior=False):
 
 
 def marker_role(out):
-    """Where the marker sits on its line: alone | leading | trailing | inner."""
-    for ln in out.split("\n"):
-        if MARKER_CH not in ln:
-            continue
-        stripped = ln.strip()
-        body = re.sub(r"\{-\s*" + MARKER_CH + r"\s*-\}|--\s*" + MARKER_CH + r"\s*$", "", stripped).strip()
-        if not body:
-            return "alone"
-        if stripped.startswith(("{-", "--")):
-            return "leading"
-        if stripped.endswith(("-}",)) or re.search(r"--\s*" + MARKER_CH + r"\s*$", stripped):
-            return "trailing"
-        return "inner"
-    return None
+    """Where the marker sits relative to the code around it:
+    alone | leading | trailing | inner.
+
+    Asked of the marker's SPAN rather than of "the line containing ¤", so a
+    multi-line `{- ¤ .. -}` is judged by what precedes its `{-` and what follows
+    its `-}` -- which is the question -- instead of by whatever happens to share
+    the opening row. For a single-line marker the two are the same thing, and
+    this returns exactly what the per-line version did.
+
+    `alone` is load-bearing: the "gren stranded the comment alone and elm-format
+    did not" shape is never auto-classified, because that is the shape of both
+    pairing bugs. Getting it wrong for one comment kind would quietly re-open
+    that door for that kind.
+    """
+    span = marker_span(out)
+    if span is None:
+        return None
+    start, end = span
+    before = out[out.rfind("\n", 0, start) + 1:start].strip()
+    nl = out.find("\n", end)
+    after = (out[end:] if nl < 0 else out[end:nl]).strip()
+    if not before and not after:
+        return "alone"
+    if not before:
+        return "leading"
+    if not after:
+        return "trailing"
+    return "inner"
 
 
 REASON_INHERITED = "INHERITED"  # prefix: "INHERITED: <the syntax cell's own reason>"
@@ -380,7 +457,7 @@ def _marker_slot(out):
     stream. Both formatters emit the same code tokens, so the marker is the only
     thing that can occupy a different slot."""
     body = "\n".join(out.split("\n")[3:])
-    body = re.sub(r"\{-\s*" + MARKER_CH + r"\s*-\}|--\s*" + MARKER_CH + r"[ \t]*", " @C ", body)
+    body = strip_marker(body, " @C ")
     toks = [t for t in _TOKEN_RE.findall(body) if t not in ("(", ")")]
     return (toks.index("@C") if "@C" in toks else None), [t for t in toks if t != "@C"]
 
@@ -425,9 +502,7 @@ def _canon_lines(text, drop_marker=False):
     occupied, and an own-line comment leaves a blank line. Indentation is kept
     exact -- a cell whose code lands at a different column must still differ."""
     out = []
-    for ln in text.split("\n"):
-        if drop_marker and MARKER_CH in ln:
-            ln = re.sub(r"\{-\s*" + MARKER_CH + r"\s*-\}|--\s*" + MARKER_CH + r"\s*$", "", ln)
+    for ln in (strip_marker(text) if drop_marker else text).split("\n"):
         ln = ln.rstrip()
         if ln.strip():
             out.append(" " * (len(ln) - len(ln.lstrip())) + re.sub(r" +", " ", ln.strip()))
@@ -542,6 +617,12 @@ def comment_variant(src, gap, kind, position):
     For `-- ¤` a newline must follow the comment, and the next token is
     re-indented to the column it already occupied, so the offside structure --
     and therefore the parse -- is unchanged.
+
+    A multi-line `{- ¤ .. -}` needs the same break for a different reason: it is
+    self-delimiting, so nothing is *swallowed*, but its `-}` closes on a row the
+    author never wrote, and gluing the next token onto that row puts it at a
+    column that decides the offside structure. Both kinds therefore share
+    `broken_tail`, and both leave the next token exactly where it was.
     """
     end = gap
     while end < len(src) and src[end] in " \t\r\n":
@@ -551,18 +632,24 @@ def comment_variant(src, gap, kind, position):
     ws = src[gap:end]
     text = COMMENT_KINDS[kind]
     col = line_col_of(src, end)
+    # Whether the next token has to start a fresh row after the comment. True for
+    # a `--` (it eats the rest of its row) and for a multi-line block (its `-}`
+    # closes on a row the source never had). A single-line `{- ¤ -}` is the one
+    # kind that can leave the gap's own whitespace alone -- which is exactly the
+    # property `commentTextCanRide` names, so the injector and the formatter are
+    # branching on the same fact.
+    breaks_row = "\n" in text or kind == "line"
 
     if position == "trail":
-        if kind == "line":
-            # `-- ¤` must end its line; anything after it on that row would be
-            # swallowed. Keep the original whitespace only if it already broke
-            # the line, else synthesize the break at the next token's column.
+        if breaks_row:
+            # Keep the original whitespace only if it already broke the line,
+            # else synthesize the break at the next token's column.
             tail = ws if "\n" in ws else "\n" + " " * col
             return src[:gap] + " " + text + tail + src[end:]
         return src[:gap] + " " + text + ws + src[end:]
 
     # lead: the comment goes immediately before the next token.
-    if kind == "line":
+    if breaks_row:
         return src[:gap] + ws + text + "\n" + " " * col + src[end:]
     return src[:gap] + ws + text + " " + src[end:]
 
@@ -1524,6 +1611,20 @@ def main():
         PARITY = False
     if args.update_baseline and not PARITY:
         sys.exit("--update-baseline needs the parity oracle")
+    # `write_baseline` / `write_comment_baseline` write exactly the cells THIS
+    # run produced, so a filtered update silently deletes every entry it did not
+    # re-derive -- tens of thousands of reviewed reasons, replaced by the handful
+    # a `--construct` run happens to cover. Nothing in the file said so until a
+    # `--comment-kind multi` run was one keystroke away from doing it.
+    selectors = [n for n, v in (("--construct", args.construct),
+                                ("--context", args.context),
+                                ("--variant", args.variant),
+                                ("--comment-kind", args.comment_kind),
+                                ("--comment-pos", args.comment_pos)) if v]
+    if args.update_baseline and selectors:
+        sys.exit(f"--update-baseline rewrites the WHOLE baseline from this run's cells, so "
+                 f"a filtered run deletes every entry it did not re-derive.\n"
+                 f"Drop {', '.join(selectors)}, or update a copy and merge by hand.")
 
     all_constructs = CONSTRUCTS + TYPE_CONSTRUCTS
     all_contexts = CONTEXTS + TYPE_CONTEXTS
