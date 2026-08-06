@@ -304,7 +304,34 @@ def known_upstream_issue(workdir, source):
     instead of being re-investigated. Narrowing the gate would be the other
     thing, and is not what this is.
 
-    Today there is one:
+    Today there are two.
+
+    **compiler-common#25** — a top-level declaration's `Located.start` is built
+    as `{row = name.start.row, col = 1}`, so when the keyword and the name are on
+    different rows the recorded "start of the declaration" is neither the keyword
+    nor the name. A comment run spliced into a `type ⟨here⟩ alias` /
+    `port ⟨here⟩ name` gap pushes the name onto the next row and does exactly
+    that; the run is then partitioned by that fabricated point, one member
+    hoisted out of the declaration and one kept inside, and the blank-line count
+    above the torn run differs between the two formats. Not fixable here — the
+    keyword's true row is simply not in the AST. Write-up in
+    `../../COMPILER_COMMON_BUG_decl_start_row.md`.
+
+    Its two signals:
+
+      1. some top-level `import` / `type alias` / `type` / `port` has a recorded
+         start row whose source line **does not contain that declaration's
+         keyword at all**. In any file where the bug is dormant the keyword sits
+         at column 1 of that very row, so its absence is the fabricated position
+         showing. Deliberately "appears anywhere on the row" rather than "starts
+         the row": a comment glued in front (`{- c -} type alias P =`) leaves the
+         row correct, and testing the row's *first* token would label that as a
+         bug. A keyword that only *looks* present because a comment quotes the
+         word leaves the finding unlabelled, which is the safe direction.
+      2. the two formats differ **only in whitespace-only lines**. That is how
+         this bug surfaces — a blank line appears or disappears above the torn
+         run — and it is what separates it from a probe that merely happens to
+         contain a keyword/name split while failing for some other reason.
 
     **compiler-common#35** — a binary `-` whose right operand starts on a later
     row at the operator's own column is parsed as a unary negation, so `10 -` ⏎
@@ -361,12 +388,73 @@ def known_upstream_issue(workdir, source):
                 walk(v)
 
     walk(ast)
-    if not found:
-        return None
     shown = run_show(workdir, source)
-    if "AST MISMATCH" not in shown.stdout + shown.stderr:
-        return None
-    return "compiler-common#35"
+    blob = shown.stdout + shown.stderr
+
+    if found and "AST MISMATCH" in blob:
+        return "compiler-common#35"
+
+    lines = source.split("\n")
+    keyword_row_wrong = any(
+        isinstance(decl.get("start"), dict)
+        and isinstance(decl["start"].get("row"), int)
+        and 1 <= decl["start"]["row"] <= len(lines)
+        and keyword not in lines[decl["start"]["row"] - 1]
+        for keyword, decl in keyword_declarations(ast)
+    )
+    if keyword_row_wrong and diff_is_whitespace_only(blob):
+        return "compiler-common#25"
+
+    return None
+
+
+def keyword_declarations(ast):
+    """Yield `(keyword, declaration)` for every top-level declaration that is
+    introduced by one — the four compiler-common#25 names.
+
+    `type alias` and a union both lead with `type`, which is all the caller
+    needs: it asks only whether the recorded row holds the keyword, never which
+    one it is.
+
+    **A port is not `module["ports"]`** — it lives under `module["effects"]`,
+    whose own `type` says whether this module has ports at all. Reading it off
+    the top level silently yielded nothing, so the one `port` finding stayed
+    unlabelled while the seven `type` ones were named."""
+    module = ast.get("module", ast)
+    for field, keyword in (("imports", "import"), ("aliases", "type"), ("unions", "type")):
+        for decl in module.get(field) or []:
+            if isinstance(decl, dict):
+                yield keyword, decl
+    effects = module.get("effects")
+    if isinstance(effects, dict):
+        for decl in effects.get("ports") or []:
+            if isinstance(decl, dict):
+                yield "port", decl
+
+
+def diff_is_whitespace_only(blob):
+    """True when every line the two formats differ by is whitespace-only.
+
+    Reads the unified diff `--show` prints when it finds the format not
+    idempotent. Requires at least one changed line, so a blob carrying no diff
+    at all cannot answer yes.
+
+    **Scanning starts at the first `@@` hunk header, and that is load-bearing**:
+    the report opens with a `-- FORMATTER NOT IDEMPOTENT ---------- <path>`
+    banner, which begins with `-` and is not part of the diff at all. Counting it
+    made every answer `False`, because a path is not whitespace."""
+    if "FORMATTER NOT IDEMPOTENT" not in blob:
+        return False
+    lines = blob.split("\n")
+    hunk = next((i for i, ln in enumerate(lines) if ln.startswith("@@")), None)
+    if hunk is None:
+        return False
+    changed = [
+        ln
+        for ln in lines[hunk:]
+        if ln[:1] in ("-", "+") and not ln.startswith(("---", "+++"))
+    ]
+    return bool(changed) and all(not ln[1:].strip() for ln in changed)
 
 
 def splice_block(src, g, text):

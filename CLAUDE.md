@@ -186,11 +186,13 @@ evidence the fixes cost no elm-format parity):
   the body's shape decides whether they may share ITS line, not each other's — so
   they stay together. Fixture `BracketComments/OpenerRunStaysOneRow`.
 
-**The 14 that remain are 8 + 5 + 1, and the list is exact** (from
-`--gaps --mix-pairs` on `b83cdfa`): **8 are
-[compiler-common#25](https://github.com/gren-lang/compiler-common/issues/25)**
-(`TypeAlias`×2, `RecordUpdateComplexBase`×2, `TypeComments`,
-`RecordFieldAsPattern`, `PortModuleKeywordAdded`, `DocCommentWithEmoji`);
+**The residual is now 48 total / 42 known / 6 formatter-side, and the list is
+exact.** The 8 that were
+[compiler-common#25](https://github.com/gren-lang/compiler-common/issues/25) are
+**labelled** as of 2026-08-06 (`TypeAlias`×2, `RecordUpdateComplexBase`×2,
+`TypeComments`, `RecordFieldAsPattern`, `PortModuleKeywordAdded`,
+`DocCommentWithEmoji`) — they still count and the run still fails, exactly as the
+34 #35 ones do. What is left to FIX is 6:
 **5 are the effect-module header tail** (`EffectHeaderCloseRowComment`,
 `EffectModuleFxWhereComment`, `EffectModuleOpenLineTrailer`,
 `EffectModuleWideSpacingComment`, `TrickyComments` — a `--` after `exposing (..)`
@@ -205,8 +207,26 @@ the next row) makes the recorded start a point that is neither keyword nor name;
 comments are partitioned by it, one hoisted out as `Standalone` and one kept
 inside, and the blank-line count above the torn run then differs between passes.
 Already filed and **not fixable here** — the keyword's row is simply not in the
-AST. See `../COMPILER_COMMON_BUG_decl_start_row.md`. They are not yet labelled by
-`known_upstream_issue`, so they still count as formatter-side in the summary.
+AST. See `../COMPILER_COMMON_BUG_decl_start_row.md`.
+
+`known_upstream_issue` names them, on two agreeing signals: some top-level
+`import`/`type alias`/`type`/`port` has a recorded start row whose source line
+**does not contain that keyword at all**, and the two formats differ **only in
+whitespace-only lines**. Two things about writing that detector are worth
+keeping, because each failed silently rather than loudly:
+
+  - **The report's own banner starts with `-`.** `-- FORMATTER NOT IDEMPOTENT
+    ---------- <path>` reads as a removed diff line, so the whitespace test said
+    no every time and nothing was labelled. It happened to fail *safe*; had the
+    banner been blank it would have labelled indiscriminately. The scan starts at
+    the first `@@` hunk header for that reason.
+  - **A port is not `module["ports"]`** — it hangs off `module["effects"]`. The
+    top-level lookup returned an empty list, which looks exactly like "no ports
+    here", so seven findings labelled and the one `port` finding did not.
+
+Verified by sweep, not by argument: `--mix-pairs` reads 48 / 42 known / **6
+formatter-side**, the #25 label appears on exactly those six fixtures and nowhere
+else, and n=1 / `--run 2` / `--run 3` are unmoved at 17-all-#35.
 
 **Those 16 are fixed too** (`b953853`), and what they were is worth recording
 because the first reading of them was wrong. They looked like an *owner* split —
