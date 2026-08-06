@@ -844,6 +844,7 @@ bracketCommentsSuite fsPerm =
             -- nested container's own brackets still take their comment).
             , assertPrettyIn fsPerm "BracketComments" "multi-line comment past a container item belongs to the container, not to the item's lambda body" "ContainerTailMultilineComment"
             , assertPrettyIn fsPerm "BracketComments" "a multi-line comment run past an IndentedBlock that something FOLLOWS stays outside the block, where the reparse puts it, so the run does not half-glue -- a block closes with a dedent, not a delimiter" "BlockTailCommentRunEscapes"
+            , assertPrettyIn fsPerm "BracketComments" "a lambda field of a comment-opened record update takes renderRecordFieldBox's glued-lambda arm too: a multi-line body drops the whole lambda, a single-line one keeps its head on the `= ` line" "RecordUpdateVerticalLambdaField"
             -- The other half of the same sweep: "does this container render
             -- multi-line" is its stored box type, not its source row span. The
             -- two disagree exactly where the container COLLAPSES (a single item

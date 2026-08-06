@@ -1,0 +1,40 @@
+module RecordUpdateVerticalLambdaField exposing (dropped, glued)
+
+-- A lambda-valued field of a record update that a comment has forced VERTICAL.
+--
+-- `makeRecordUpdateVerticalBox` renders its fields with a hand-written copy of
+-- `renderRecordFieldBox`, and the copy was missing that function's FIRST arm,
+-- `isGluedLambdaField`. So a glued-lambda field fell through to the generic
+-- `isSingleLine valueBox` arm, which drops the BODY and leaves the `\q ->` head
+-- glued to `fld = ` -- "neither shape", in `renderGluedLambdaField`'s own words,
+-- and not a fixed point: the reparse sees the body on a later row, builds the
+-- dropped container instead, and the file changes on the second format.
+--
+-- It took two multi-line comments to reach, one in each of two positions, which
+-- is why only `fuzz-idempotency.py --run 2` ever saw it. Each alone is stable:
+-- the one in the body makes the lambda drop and never forces the update open,
+-- and the one trailing the field forces the update open but leaves the body
+-- single-line so the head is genuinely meant to stay glued. Only together do
+-- they need the arm that was missing.
+
+
+dropped rec fn =
+    { rec
+        | fld =
+            \q ->
+                fn {- in the lambda's body
+                      second row -}
+                    q {- trailing the field, which is what forces the update open
+                         second row -}
+    }
+
+
+-- THE OTHER SIDE OF THE SAME ARM, and the reason it is pinned here: routing
+-- this path through `renderGluedLambdaField` also decides the GLUE case. A
+-- single-line lambda body still keeps its `\q ->` head on the `= ` line, even
+-- though the update around it is open.
+glued rec fn =
+    { rec
+        | fld = \q -> fn q {- trailing the field
+                              second row -}
+    }

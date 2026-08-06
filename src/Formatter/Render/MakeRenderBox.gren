@@ -3229,6 +3229,29 @@ makeRecordUpdateVerticalBox baseBox children =
                             -- old `recordFieldValueDrops` call) and then re-rendering
                             -- made nesting depth `d` cost O(2^d) — the same failure
                             -- class as the nested record-literal hang.
+                            --
+                            -- **This IS a second copy of `renderRecordFieldBox`, and
+                            -- "mirrors" was doing too much work in this comment.** It
+                            -- claimed correspondence while silently missing that
+                            -- function's FIRST arm, `isGluedLambdaField`, for as long
+                            -- as the arm has existed; the shape that needs it in a
+                            -- vertical update takes two multi-line comments, so
+                            -- nothing sampled it. The correspondence, stated so it can
+                            -- be checked rather than assumed:
+                            --
+                            --   * `isGluedLambdaField` → `renderGluedLambdaField`
+                            --     — SHARED, and must stay first in both.
+                            --   * `valueNodeIsHardBlock` → `makePBox` the whole field
+                            --     — SHARED.
+                            --   * otherwise render the value once, and drop it when
+                            --     the box is multi-line — SHARED.
+                            --   * `fieldValueDropsToOwnLine` → `buildFlowBox` at
+                            --     `fieldFlowIndent` — EXTRA here, and the reason this
+                            --     cannot simply call `renderRecordFieldBox`: a field
+                            --     carrying a comment gets a `| `/`, ` prefix that only
+                            --     the vertical form applies.
+                            --
+                            -- Anything added to one of the shared arms belongs in both.
                             let
                                 fieldFlowIndent =
                                     when lpnBox node is
@@ -3244,7 +3267,26 @@ makeRecordUpdateVerticalBox baseBox children =
                                             makePBox (lpnBox node) (lpnChildren node)
 
                                         Just { last = valueNode, initial = headNodes } ->
-                                            if valueNodeIsHardBlock valueNode then
+                                            if isGluedLambdaField node valueNode then
+                                                -- FIRST, exactly as in
+                                                -- `renderRecordFieldBox`. Without it a
+                                                -- glued-lambda field reached the
+                                                -- `isSingleLine valueBox` arm below,
+                                                -- which drops the BODY and leaves the
+                                                -- `\q ->` head glued — "neither shape",
+                                                -- in `renderGluedLambdaField`'s own
+                                                -- words, and not a fixed point.
+                                                --
+                                                -- Only this path was missing it, so the
+                                                -- bug needed something to force the
+                                                -- update vertical *as well as* a lambda
+                                                -- field: a multi-line `{- … -}` trailing
+                                                -- the field does both at once, which is
+                                                -- why it took a comment RUN to reach and
+                                                -- why the flat path's fixtures are green.
+                                                renderGluedLambdaField headNodes valueNode
+
+                                            else if valueNodeIsHardBlock valueNode then
                                                 if fieldValueDropsToOwnLine node then
                                                     buildFlowBox fieldFlowIndent (lpnChildren node)
 
