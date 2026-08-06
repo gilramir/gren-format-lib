@@ -1310,6 +1310,37 @@ documentation instead of quietly outliving it.
                                                  }
     ```
 
+    **And with a multi-line comment it re-lays-out the body too**, putting the
+    closing `-}` on a row of its own at the container's indent. gren-format
+    leaves the delimiters where you wrote them and only re-indents the
+    continuation rows:
+
+    ```gren
+    -- you wrote (and gren-format keeps):
+    v =
+        [ 1
+        {- note
+           second row -}
+        , 2
+        ]
+
+    -- elm-format (blank row added above, and `-}` given its own row):
+    v =
+        [ 1
+
+        {- note
+           second row
+        -}
+        , 2
+        ]
+    ```
+
+    This is the same rule as the blank line above, not a second one — both are
+    "what elm-format does to the comment's own rows". It is listed separately
+    only because the comment matrix could not reach it until it swept the
+    multi-line kind (2026-08-05), at which point it became **the single largest
+    family in the comment-parity baseline**.
+
     **Removing the row break below a comment that leads an operator used to be
     the other half of this entry. It no longer is** — `b1beb72` (2026-08-02) made
     a single-line `{- -}` in front of an operator ride that operator's row, the

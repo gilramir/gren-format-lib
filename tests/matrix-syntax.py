@@ -435,6 +435,7 @@ def reason_is_stale(reason):
     return reason == REASON_UNREVIEWED or f"{REASON_INHERITED}:{REASON_UNREVIEWED}" in reason
 REASON_UNRECORDED = "#22"  # comment snapped to a canonical side of an unrecorded token
 REASON_ELM_REFLOWS = "#23"  # gren kept its comment-free layout; elm-format re-flowed
+REASON_COMMENT_ROWS = "#25"  # comment did not move; elm re-spaced its OWN rows
 
 # Tokenizer for the "which tokens did the comment cross" test below. `@C` stands
 # in for the marker's comment so it takes a slot in the stream.
@@ -535,6 +536,27 @@ def only_elm_reflowed(gren_out, elm_out, base_pair):
             and _canon_lines(elm_out, drop_marker=True) != _canon_lines(base_elm))
 
 
+def marker_did_not_move(gren_out, elm_out):
+    """True when the marker occupies the SAME slot in both outputs -- the same
+    index in the same paren-free code-token stream -- so neither formatter put
+    the comment anywhere the other did not.
+
+    This is a strictly stronger statement than "the roles match".
+    `marker_role` compares what shares the comment's line; two formatters can
+    agree on that while attaching the comment between different tokens. Slot
+    equality leaves nothing about *placement* to differ, which is what makes it
+    safe to attribute the whole remaining difference to the comment's own rows.
+
+    Sound in the direction that matters: `_marker_slot` returns None when it
+    cannot find the marker, and any disagreement about the code tokens
+    themselves (`gcode != ecode`) fails it too, so an unexplained difference
+    still books UNREVIEWED debt.
+    """
+    gi, gcode = _marker_slot(gren_out)
+    ei, ecode = _marker_slot(elm_out)
+    return gi is not None and gi == ei and gcode == ecode
+
+
 def comment_family(gren_out, elm_out, base_reason, base_pair=None):
     """Auto-classify a comment-parity divergence, or None to leave it UNREVIEWED.
 
@@ -583,8 +605,10 @@ def comment_family(gren_out, elm_out, base_reason, base_pair=None):
         # A comment move we have no reviewed family for. Review it.
         return None
 
+    stripped_matches = comment_stripped_matches(gren_out, elm_out, collapse_interior=unrecorded)
+
     parts = []
-    if not comment_stripped_matches(gren_out, elm_out, collapse_interior=unrecorded):
+    if not stripped_matches:
         # The outputs differ by more than where the comment sits. Either the
         # underlying cell already diverges (INHERITED), or gren emitted its
         # comment-free layout and the extra structure is elm's alone (#23). With
@@ -599,6 +623,25 @@ def comment_family(gren_out, elm_out, base_reason, base_pair=None):
         parts.append(REASON_ELM_REFLOWS)
     elif moved:
         parts.append(REASON_TRAILING)
+    elif stripped_matches and marker_did_not_move(gren_out, elm_out):
+        # Nothing about the PLACEMENT differs -- same slot, same code tokens, and
+        # the code is byte-identical once the comment is deleted. What is left is
+        # what elm-format does to the comment's OWN rows: a blank line above an
+        # own-row comment in a container, and -- with a multi-line `{- .. -}` --
+        # its closing `-}` moved to a row of its own. #25 states exactly that
+        # ("what elm-format does to the comment's own rows"); the multi-line half
+        # was unreachable until the axis swept that kind on 2026-08-05, and is
+        # now the largest family in this baseline.
+        #
+        # This arm cannot swallow a placement bug: it is reached only when
+        # `moved` is False AND the slot is identical, and either of the two
+        # `return None` guards above fires first on any comment that moved.
+        #
+        # `stripped_matches` is required, not incidental: without it the arm
+        # would append `#25` to an INHERITED cell whose real difference is the
+        # base divergence, attributing to the comment's rows a difference that is
+        # not in them.
+        parts.append(REASON_COMMENT_ROWS)
     return "+".join(parts) if parts else None
 
 

@@ -946,6 +946,41 @@ was `{block, line}` while `fuzz-idempotency.py`'s `KINDS` was
 hid these. Per-kind counts print on every run; a number moving the wrong way is a
 regression signal while the absolute figure is non-zero.
 
+**The parity debt the kind arrived with: 22,770 new cells, every one diverging**
+— elm-format re-lays-out a multi-line comment's own body (`-}` onto a row of its
+own) where gren keeps the delimiters the author wrote. 11,109 auto-classified on
+arrival and 11,661 booked UNREVIEWED; **a `#25` rule then took it to 3,407**.
+
+That rule is `marker_did_not_move` — the marker occupies the same index in the
+same paren-free code-token stream in both outputs. It is deliberately stronger
+than "the roles agree": two formatters can agree on what shares the comment's
+line while attaching it between different tokens, and only slot equality leaves
+*nothing about placement* to differ, which is what makes it safe to attribute the
+remaining difference to the comment's own rows. It also requires
+`stripped_matches` — without that it appended `#25` to `INHERITED:` cells whose
+real difference was the base divergence, attributing to the comment's rows a
+difference not in them. Registering it was a **documentation** decision, not a
+keystroke: [#25](docs/elmFormatComparison.md#divergence-25) already said "what
+elm-format does to the comment's own rows" and carried only single-line examples
+because the axis could not reach a multi-line comment; the entry and the `D25`
+fixture gained that case rather than a new number being invented.
+
+**The remaining 3,407 are real review debt and were left alone.** Sampled, they
+are compounds — a comment crossing a record update's `|` (#22) *while*
+elm-format also re-flows the code around it, which `only_elm_reflowed`'s
+deliberate asymmetry refuses to sweep. They want an `--interview` verdict, not a
+wider classifier. Widening one until the counter reads zero is how a baseline
+starts freezing bugs as expected output.
+
+**The axis also exits non-zero on 73 `[untranslatable]` cells, and they are a
+coverage hole rather than a divergence**: their Gren-with-comment source
+translates to Elm that Elm's own parser rejects, so elm-format never sees them
+and their parity is *not being checked at all*. Enumerated 2026-08-05: **73, every
+one `block`-kind**, concentrated in type contexts (`tyApp/sigSole`,
+`tyVar/letSig`, …) — the multi-line kind added none. Pre-existing, unattributed,
+and worth a `to_elm` session of its own; the count is the thing to watch, since a
+rise means fewer cells are being checked, not more.
+
 Before the multi kind, the axis had been 0-failing since the type axis was
 added on 2026-08-03, which itself cost 58 for a day — one family, a
 comment-bearing signature whose type carries a multi-line record:

@@ -1400,9 +1400,13 @@ Two of those deserve emphasis, because they cover holes that look covered:
 For the two kinds that had been swept, that last line is the one to quote to a
 sceptic: every place `gren format` and `elm-format` put a `--` or a single-line
 `{- -}` differently is a *decision on record with a reason*, not an unexamined
-difference. The multi-line kind is a day old here, and its divergences are
-registered debt that has not been reviewed yet — counted and visible, not
-audited.
+difference. The multi-line kind is a day old here, and most of its divergences
+are one family — elm-format re-lays-out a multi-line comment's own body, `-}`
+onto a row of its own, where gren keeps the delimiters you wrote
+([#25](elmFormatComparison.md#divergence-25)). **3,407 cells out of 48,345 are
+still unreviewed**, counted and printed on every run; sampled, they are compounds
+of a comment crossing an unrecorded `|` *and* elm re-flowing the code around it,
+which wants a human verdict rather than a wider auto-classifier.
 
 **And note what a green gate is worth.** This axis ran green for months over two
 of the three comment kinds; adding the third found 70 non-idempotencies the same

@@ -5,6 +5,14 @@ module D25CommentKeepsItsRows exposing (..)
 -- comment inside a container, and it REMOVES the row break below one that leads
 -- an operator, pulling the comment up onto the previous row. gren-format does
 -- neither. (#23 is the other half — elm-format breaking the CODE open.)
+--
+-- The entry says "what elm-format does to the comment's own rows", and a
+-- MULTI-LINE comment is the clearest case of it: elm-format re-lays-out the body
+-- as well, putting the closing `-}` on a row of its own at the container's
+-- indent. gren-format keeps the delimiters where they were written and only
+-- re-indents the continuation rows. Unreachable by the comment matrix until it
+-- swept the multi-line kind on 2026-08-05, which is why the entry carried only
+-- the single-line examples above.
 
 
 v =
@@ -17,3 +25,11 @@ v =
 w =
     fn {- note -} <|
         one
+
+
+multiLineBody =
+    [ 1
+    {- note
+       second row -}
+    , 2
+    ]
