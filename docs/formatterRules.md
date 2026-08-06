@@ -2091,6 +2091,33 @@ effect module MyModule where { command = MyCmd      {- note -} } exposing (..)
 effect module MyModule where { command = MyCmd } exposing (..) {- note -}
 ```
 
+Everything *left* of the handler name goes the other way. The `where`, the `{`,
+the field name and the `=` all have no position, and neither does anything
+before them, so there is no token to measure a comment against — every comment
+written left of the name collapses to the one slot between `where` and `{`,
+whichever of those gaps you wrote it in. A run of them travels there together
+and keeps its order:
+
+```gren
+-- all of these:
+effect module MyModule where {- a -} { command = MyCmd } exposing (..)
+effect module MyModule where { {- a -} command = MyCmd } exposing (..)
+effect module MyModule where { command {- a -} = MyCmd } exposing (..)
+effect module MyModule where { command = {- a -} MyCmd } exposing (..)
+
+-- format to:
+effect module MyModule where {- a -} { command = MyCmd } exposing (..)
+```
+
+A comment past the *first* handler's name in a two-field block still has a
+position to sort against — the name it follows — so it stays inside the block,
+between the two fields:
+
+```gren
+-- you wrote (and the formatter keeps):
+effect module MyModule where { command = MyCmd, {- b -} subscription = MySub } exposing (..)
+```
+
 Whatever follows the module line always gets exactly one blank line before
 it, regardless of how tight or loose the original spacing was — otherwise the
 same file could format differently depending on how close together the

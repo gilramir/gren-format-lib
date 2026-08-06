@@ -655,6 +655,7 @@ headerCommentsSuite fsPerm =
             , assertPrettyIn fsPerm "HeaderComments" "comment between a vertical module exposing list and the first declaration" "ModuleVerticalExposingComment"
             , assertPrettyIn fsPerm "HeaderComments" "canonical rendering of comments at elided-token positions" "Ambiguous"
             , assertPrettyIn fsPerm "HeaderComments" "canonical rendering of a comment in an effect-module where block" "AmbiguousEffectModule"
+            , assertPrettyIn fsPerm "HeaderComments" "a RUN of comments left of an effect-module handler's constructor travels together to the one slot between `where` and `{`" "EffectWhereCommentRun"
             , assertPrettyIn fsPerm "HeaderComments" "trailing comment below a wrapped import stays at the continuation indent" "ImportTrailingComment"
             ]
         }

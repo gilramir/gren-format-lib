@@ -1,0 +1,25 @@
+effect module EffectWhereCommentRun where { command = {- one -} {- two -} MyCmd, subscription {- three -} = MySub } exposing (..)
+
+-- A RUN of comments written inside an effect module's `where { ... }` block,
+-- left of a handler's constructor. The `where`, the `{`, the label keyword and
+-- the `=` all carry no position in the AST, so there is no honest anchor for
+-- any of them (see `mkZeroWidthText`'s anchoring policy) and every such comment
+-- collapses to the one slot between `where` and `{` — the same canonical
+-- rendering AmbiguousEffectModule pins for a single comment.
+--
+-- The run is what this fixture is for: the labels used to be anchored by
+-- counting backwards from the constructor's column, which lands inside the
+-- comments' own text once a comment sits in that gap, so a run of two was torn
+-- across the `{` — one member outside it, one inside — and the reparse put them
+-- back together. `{- three -}` pins the boundary: it is past the first
+-- binding's constructor, so it stays inside the block, between the bindings.
+
+import Task
+
+
+type MyCmd msg
+    = MyCmd (Task.Task Never msg)
+
+
+type MySub msg
+    = MySub Never

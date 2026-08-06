@@ -283,37 +283,34 @@ buildWhereBlock effects =
                 -- joins items with commas, not the inner tokens.
                 --
                 -- The label keyword ("command" / "subscription") and
-                -- the `=` are not separate tokens in the AST, so we
-                -- synthesize them with positions derived from the
-                -- constructor's location: the label sits at the
-                -- constructor's column minus 3 (for " = ") minus its
-                -- own length, and the `=` sits two columns before
-                -- the constructor. Positioning these makes the
-                -- subtree row/col ranges precise enough for
-                -- Formatter.Logical.Comments to place inter-token comments.
+                -- the `=` are not separate tokens in the AST, and
+                -- nothing before them is either — the `where`, the
+                -- `{` and the comma carry no position — so there is
+                -- no real token to anchor them to. They are therefore
+                -- position-less `SynthesizedText`, which is what
+                -- `mkZeroWidthText`'s anchoring policy prescribes for
+                -- exactly this case.
+                --
+                -- They used to be anchored by counting BACKWARDS from
+                -- the constructor (`ctorCol - 3 - String.count label`),
+                -- which is the one thing that policy forbids: it is an
+                -- anchor derived from the token that FOLLOWS, so it is
+                -- only correct when the author wrote `label = Ctor`
+                -- with single spaces. Put a comment in that gap and the
+                -- derived columns land *inside the comment's own text*,
+                -- which handed a comment run one member on each side of
+                -- the `{` and made the header non-idempotent (a run of
+                -- two block comments in the `=` gap of every effect
+                -- header in the corpus). Without positions, every
+                -- comment written left of the constructor sorts before
+                -- the block and collapses to the one slot between
+                -- `where` and `{`, which is the rendering
+                -- `AmbiguousEffectModule` already documents as
+                -- canonical for this header.
                 binding label locName =
-                    let
-                        ctorCol =
-                            locName.start.col
-
-                        labelLen =
-                            String.count label
-
-                        labelCol =
-                            ctorCol - 3 - labelLen
-
-                        eqCol =
-                            ctorCol - 2
-
-                        labelStart =
-                            { row = locName.start.row, col = labelCol }
-
-                        eqStart =
-                            { row = locName.start.row, col = eqCol }
-                    in
                     plainAcross
-                        [ lpnLeaf (mkZeroWidthText labelStart label)
-                        , lpnLeaf (mkZeroWidthText eqStart "=")
+                        [ lpnLeaf (SynthesizedText label)
+                        , lpnLeaf (SynthesizedText "=")
                         , lpnLeaf (mkTextFromLocString locName)
                         ]
 
