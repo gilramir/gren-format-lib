@@ -143,6 +143,7 @@ import Formatter.Logical.LogicalPrintingTree exposing
     , lpnNode
     , lpnReplaceChildren
     , lpnSetCommentRole
+    , commentRendersOwnLine
     , spanTrailingOwnLine
     , subtreeRowRange
     )
@@ -267,6 +268,7 @@ movePipelineStepTrailers children =
                     { pending = split.trailing
                     , out = Array.pushLast (lpnReplaceChildren child split.body) acc.out
                     , lastStep = Just (Array.length acc.out)
+                    , lastKids = kids
                     }
 
                 _ ->
@@ -274,7 +276,7 @@ movePipelineStepTrailers children =
 
         final =
             Array.foldl (\child acc -> step acc child)
-                { pending = [], out = [], lastStep = Nothing }
+                { pending = [], out = [], lastStep = Nothing, lastKids = [] }
                 children
     in
     if Array.isEmpty final.pending then
@@ -282,13 +284,23 @@ movePipelineStepTrailers children =
 
     else
         -- Nothing followed the last step, so it keeps the run it was going to
-        -- hand on.
+        -- hand on — and keeps it EXACTLY WHERE IT WAS, which is what `lastKids`
+        -- (this step's children before its own peel) restores.
+        --
+        -- Appending the run to the step's children instead is not the same
+        -- thing, and the difference is a real bug: the peel descends no further
+        -- than the step's own child list, but a trailing run can be nested
+        -- deeper — inside the operand flow — and re-appending LIFTS it out of
+        -- there. That changes what `detachOwnLineTrailer` then sees, and a run
+        -- past a declaration's last token stopped being detached to column 1,
+        -- where the reparse puts it (`KitchenComments`, a `{-c99-}` after the
+        -- final `|>` step). Nothing is handed on, so nothing should move.
         when final.lastStep is
             Just i ->
                 Array.indexedMap
                     (\j n ->
                         if j == i then
-                            lpnReplaceChildren n (lpnChildren n ++ final.pending)
+                            lpnReplaceChildren n final.lastKids
 
                         else
                             n
@@ -465,15 +477,11 @@ detach is a separate question with its own fixtures, not a free rider on this
 one. -}
 runRendersBelowDeclaration : LPNode -> Bool
 runRendersBelowDeclaration node =
-    commentRole (lpnBox node)
-        == Just LeadsOwnLine
-        && (when lpnBox node is
-                BlockComment c ->
-                    String.contains "\n" c.loc.value
-
-                _ ->
-                    False
-           )
+    -- The one spelling of "does this comment render on a line of its own",
+    -- which `spanTrailingOwnLine`'s run extension needs too and therefore lives
+    -- beside `CommentRole` (same reason as `roleGlues`). This function is the
+    -- boundary rule; the predicate under it is not its own.
+    commentRendersOwnLine node
 
 
 {-| Which `OriginalRows` kinds `detachOwnLineTrailer` applies to.

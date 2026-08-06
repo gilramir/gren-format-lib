@@ -7,6 +7,7 @@ module Formatter.Logical.LogicalPrintingTree exposing
     , SyntaxType(..)
     , bracketsToString
     , commentGluesToPrevious
+    , commentRendersOwnLine
     , commentRole
     , firstRowInSubtree
     , gluesTrailingComment
@@ -646,13 +647,30 @@ commentGluesToPrevious node =
             False
 
 
-{-| Split off the trailing run of comments the author gave a line of their own
-(`LeadsOwnLine`): `{ body, trailing }`, where `trailing` is the maximal suffix of
-such comments and `body` is everything before it.
+{-| Split off the trailing run of comments the author gave a line of their own:
+`{ body, trailing }`, where `trailing` is the trailing comment run **that starts
+at an own-line member** and `body` is everything before it.
 
 A comment that RIDES the previous token's line (`module Foo {- c -} exposing`)
 stays in the body, where the caller's flow renders it on that line — peeling it
-would move it below.
+would move it below. That is why the run has to *start* at a `LeadsOwnLine`
+comment rather than merely contain one.
+
+**But a comment that glues onto another COMMENT of the run travels with it**,
+and until 2026-08-06 it did not: this asked for the maximal suffix of
+`LeadsOwnLine` comments, so a run whose last member glues (`{- multi… -}
+{- multi… -}`, the second classified `TrailsPrevious` against the first) peeled
+**nothing at all** and the whole run stayed behind. That is rule C1 — one gap is
+one attachment, and the run moves together — and `Comments.detachOwnLineTrailer`
+had already written it down: *"the whole run moves together and only the first
+member becomes `Standalone`; a `-- c` glued behind it keeps `TrailsPrevious`,
+which is the tree the reparse produces."* The two callers that most needed it are
+the pipeline-step pair, whose halves must agree
+(`Comments.movePipelineStepTrailers` and `renderPipelineStepChildrenWith`'s
+`stopped` peel); with one comment each behaved, with two neither did.
+
+So: scan back over comments, and split at the EARLIEST own-line one. A run with
+no own-line member at all peels nothing, exactly as before.
 
 Polymorphic in the element so the pre-rendered `FlowItem` path shares it: pass
 `identity` for a plain node array, `.node` for flow items.
@@ -670,19 +688,91 @@ already, so the necessity was in the placement, not in the rule.
 spanTrailingOwnLine : (a -> LPNode) -> Array a -> { body : Array a, trailing : Array a }
 spanTrailingOwnLine toNode items =
     let
-        go remaining acc =
+        -- The original rule, unchanged: the maximal suffix of `LeadsOwnLine`
+        -- comments.
+        plain remaining acc =
             when Array.popLast remaining is
                 Just { last, initial } ->
                     if commentRole (lpnBox (toNode last)) == Just LeadsOwnLine then
-                        go initial (Array.pushFirst last acc)
+                        plain initial (Array.pushFirst last acc)
 
                     else
                         { body = remaining, trailing = acc }
 
                 Nothing ->
                     { body = [], trailing = acc }
+
+        -- Reached only when the suffix ends in a comment that GLUES, where the
+        -- rule above peels nothing at all. Walk back over the trailing comment
+        -- run and split at the earliest member that genuinely renders on a line
+        -- of its own; the gluing comments after it come with it (rule C1).
+        --
+        -- `commentRendersOwnLine`, not the role: a single-line `{- c -}` tagged
+        -- `LeadsOwnLine` is still rendered inline by the layer below, so
+        -- starting a run at one MOVES it — `KitchenComments`' `{-c99-}` glued
+        -- onto its pipeline step's line, and peeling it stacked the run below
+        -- the step where the reparse detaches it to column 1.
+        extended remaining acc best =
+            when Array.popLast remaining is
+                Just { last, initial } ->
+                    when commentRole (lpnBox (toNode last)) is
+                        Just _ ->
+                            let
+                                grown =
+                                    Array.pushFirst last acc
+                            in
+                            if commentRendersOwnLine (toNode last) then
+                                extended initial grown (Just { body = initial, trailing = grown })
+
+                            else
+                                extended initial grown best
+
+                        Nothing ->
+                            best
+
+                Nothing ->
+                    best
+
+        first =
+            plain items []
     in
-    go items []
+    if not (Array.isEmpty first.trailing) then
+        first
+
+    else
+        when extended items [] Nothing is
+            Just split ->
+                split
+
+            Nothing ->
+                { body = items, trailing = [] }
+
+
+{-| Does this comment actually RENDER on a line of its own?
+
+**Not the same question as `commentRole == Just LeadsOwnLine`**, and the
+difference has cost this repo twice. The render layer keeps a *single-line*
+block comment inline whatever its role says — which is why `[ 1 ] {- one -}
+{- two -}` stays on its row — so "renders own-line" needs the comment's SHAPE as
+well: it must bring its own rows. `Comments.runRendersBelowDeclaration` learned
+that first (lifting on the role alone broke nine fixtures), and
+`spanTrailingOwnLine`'s run extension learned it again on 2026-08-06.
+
+A `--` also ends its row and is deliberately excluded, for the reason
+`runRendersBelowDeclaration` gives: several fixtures pin an own-line `--`
+staying at its construct's indent, and whether those should move is a separate
+question with its own fixtures. -}
+commentRendersOwnLine : LPNode -> Bool
+commentRendersOwnLine node =
+    commentRole (lpnBox node)
+        == Just LeadsOwnLine
+        && (when lpnBox node is
+                BlockComment c ->
+                    String.contains "\n" c.loc.value
+
+                _ ->
+                    False
+           )
 
 
 {-| Rebuild a comment leaf carrying `role`. A no-op on any other node. Role

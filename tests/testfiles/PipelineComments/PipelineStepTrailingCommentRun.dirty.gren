@@ -1,0 +1,26 @@
+module PipelineStepTrailingCommentRun exposing (..)
+
+
+-- A RUN of multi-line comments trailing a step: the whole run moves to the step
+-- column, exactly as one comment already did.
+
+
+runTrailsAStep =
+    sinks
+        |> Array.map (\c -> c.kind) {- one
+   second row -} {- two
+   second row -}
+        |> Array.first
+
+
+-- The boundary: the run starts at a comment that RENDERS own-line. A single-line
+-- `{- c -}` does not -- it is rendered inline whatever its role says -- so it
+-- keeps the step's line and the multi-line comments written after it stay with
+-- it, glued, rather than being stacked below the step.
+
+
+singleLineLeadKeepsTheLine =
+    sinks
+        |> Array.map (\c -> c.kind) {- inline -} {- one
+   second row -}
+        |> Array.first

@@ -967,6 +967,67 @@ and it is not the accepted `where {}` limitation recorded in
 [`knownLimitations.md`](knownLimitations.md) — that one is column-sensitive and
 moves a comment with one comment present.
 
+### The 23 `multix2` findings: 21 fixed, and the peel that took nothing
+
+A run of multi-line `{- … -}` trailing a `|>` step rendered at the operand
+flow's +4 instead of the step column — the **11th family's bug again**, whose
+n=1 fix (`ea1c2ab`, then `ebfb33e` for the attachment half) both halves share
+through `spanTrailingOwnLine`:
+
+    |> Array.map (\c -> c.kind)         one comment: at the step column ✓
+        {- one                          two: at +4, and glued together ✗
+           second row -} {- two …
+
+`spanTrailingOwnLine` peeled *the maximal suffix of `LeadsOwnLine` comments*, and
+the second member of a run is classified `TrailsPrevious` **against the first** —
+so a run whose last member glues ended the suffix immediately and the peel took
+**nothing at all**. Both the attachment pass (`movePipelineStepTrailers`) and the
+renderer (`renderPipelineStepChildrenWith`'s `stopped`) then left the whole run
+in the operand flow. Rule C1 says the run travels together, and
+`detachOwnLineTrailer` had already written that down — *"the whole run moves
+together and only the first member becomes `Standalone`; a `-- c` glued behind it
+keeps `TrailsPrevious`"*. **Look for the container that already agrees.**
+
+**The first version of the fix over-reached, and the fixture that caught it is
+the same one the rule was borrowed from.** Splitting at the earliest own-line
+member peeled a run led by a *single-line* `{-c99-}`, which the render layer
+keeps **inline** whatever its role says — so the run stopped gluing onto its
+step's line and stacked below it, where the reparse detaches it to column 1
+(`KitchenComments`). That is exactly what `runRendersBelowDeclaration`'s
+docstring warns about (*"`LeadsOwnLine` alone is not renders-own-line ... lifting
+on the role alone broke nine fixtures"*), and the corrected rule uses that
+predicate. It now has **one spelling**, `commentRendersOwnLine`, beside
+`CommentRole` for the reason `roleGlues` lives there; `runRendersBelowDeclaration`
+delegates to it rather than keeping a copy.
+
+The peel is therefore unchanged wherever it used to take something, and only
+extends where it took nothing:
+
+| trailing run | before | after |
+|---|---|---|
+| `[own]`, `[own, own]` | peeled | unchanged |
+| `[own(multi), glues]` | **nothing** | the whole run |
+| `[own(single-line), glues]` | nothing | **nothing** (it renders inline) |
+| `[glues]` | nothing | unchanged |
+
+**23 → 2 on those eight files, 0 new**, no corpus fixture moved. Fixture
+`PipelineComments/PipelineStepTrailingCommentRun`, which pins the run *and* the
+single-line-lead boundary; only its first case moves against a pre-fix build,
+which is what says the second is a control rather than a claim.
+
+Also corrected while there: `movePipelineStepTrailers`' leftover branch appended
+the run to the last step's children instead of restoring them, which **lifts** a
+run that was nested deeper inside the operand out to the step level. Nothing is
+handed on, so nothing should move.
+
+**The two survivors are one known and one open.** The known one is the
+`ContainerTailMultilineComment` record-update field pair recorded above — a
+second comment flips `renderGluedLambdaField`'s glue-vs-drop decision, attributed
+by rebuild across three commits and not caused here. The open one is
+`KitchenSink[multix2]@16534`: a run between a function and its argument in a
+broken call glues member 2 onto member 1's `-}` row on the first format and
+splits them on the second.
+
 Still uncovered by any elm-format oracle, and worth listing so it is not
 mistaken for coverage: an `import`'s own syntax, and the module header. The
 corpus fuzzers reach both; nothing asks elm-format about either, and the header
