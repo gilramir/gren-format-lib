@@ -152,10 +152,32 @@ closer at all. Both scopes are load-bearing: without the second, the two
 `when`-last-branch fixtures fail. Fixture
 `BracketComments/BlockTailCommentRunEscapes`.
 
-**The formatter-side `--run 2` residual is now 2**, and both are the
-pre-existing `ContainerTailMultilineComment` `renderGluedLambdaField`
-glue-vs-drop pair, attributed by rebuild across three commits before either of
-these fixes.
+**And the last two went with a restored arm** (`c48bad4`), taking `--run 2` to
+**17, all 17 `[known: compiler-common#35]` — the formatter-side residual of BOTH
+fuzz-idempotency modes is 0.** `makeRecordUpdateVerticalBox` renders a field with
+a hand-written **copy** of `renderRecordFieldBox` whose comment claimed it
+"mirrors" the original; it was missing that function's FIRST arm,
+`isGluedLambdaField` → `renderGluedLambdaField`. In a record update a comment has
+forced open, a lambda field therefore fell through to the generic
+`isSingleLine valueBox` arm, which drops the *body* and leaves the `\q ->` head
+glued — the exact "neither shape" that `renderGluedLambdaField` was written to
+prevent, and not a fixed point. It could not settle it either, because the
+reparse builds the *other* container and `isGluedLambdaField` only recognises the
+one it did not build.
+
+Two things about how it was found are worth keeping. **The recorded diagnosis had
+been wrong for two sessions** — filed as "`renderGluedLambdaField`'s glue-vs-drop
+decision", which names the function whose *absence* was the bug and sends the
+reader inside it. What settled it was `--lpt` of **both** passes plus the
+observation that deleting the record-level comment, leaving the field's subtree
+**byte-identical**, changed how the field rendered: *when two inputs with
+identical subtrees render differently, the bug is in the parent's dispatch.* And
+**it needs two multi-line comments doing two different jobs** — one in the lambda
+body (makes it render multi-line, never opens the update) and one trailing the
+field (opens the update, leaves the body single-line). All six combinations were
+formatted; only that one moves. The site now enumerates which arms are shared
+with `renderRecordFieldBox` and which are deliberately extra, since "mirrors" is
+what went stale. Fixture `BracketComments/RecordUpdateVerticalLambdaField`.
 
 A finding whose cause is a **known upstream parser bug** is reported with its
 issue number (`[known: compiler-common#35]`) and counted in the summary line.

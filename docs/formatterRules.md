@@ -89,6 +89,10 @@ The four core rules:
    parser bug (see [knownLimitations.md](knownLimitations.md)). Nothing left in
    it is the formatter's to fix; it goes green when that parser fix ships.
 
+   The same test run with a **run of two** comments in every gap — a comment
+   whose neighbour is another comment, which is where the rules are hardest —
+   reports those same 17 and nothing else.
+
 A few things are **always fixed**, regardless of how you wrote them:
 
 - A binding's value always starts on its own line (see
