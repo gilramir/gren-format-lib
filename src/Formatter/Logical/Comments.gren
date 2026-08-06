@@ -143,6 +143,7 @@ import Formatter.Logical.LogicalPrintingTree exposing
     , lpnNode
     , lpnReplaceChildren
     , lpnSetCommentRole
+    , spanTrailingOwnLine
     , subtreeRowRange
     )
 import Formatter.Strings exposing (countNewlines)
@@ -261,7 +262,7 @@ movePipelineStepTrailers children =
                             acc.pending ++ lpnChildren child
 
                         split =
-                            spanTrailingOwnLineNodes kids
+                            spanTrailingOwnLine (\n -> n) kids
                     in
                     { pending = split.trailing
                     , out = Array.pushLast (lpnReplaceChildren child split.body) acc.out
@@ -298,27 +299,6 @@ movePipelineStepTrailers children =
                 -- No step at all took the pending run, so there is no step in
                 -- this pipeline; put it back where it was rather than drop it.
                 final.out ++ final.pending
-
-
-{-| The trailing run of comments the author gave a line of their own. Mirrors
-`Render/CommentBox.spanTrailingOwnLine`, which this module cannot import
-(`Render` depends on `Logical`, not the other way round). -}
-spanTrailingOwnLineNodes : Array LPNode -> { body : Array LPNode, trailing : Array LPNode }
-spanTrailingOwnLineNodes nodes =
-    let
-        go remaining acc =
-            when Array.popLast remaining is
-                Just { last, initial } ->
-                    if isCommentNode last && commentRole (lpnBox last) == Just LeadsOwnLine then
-                        go initial (Array.pushFirst last acc)
-
-                    else
-                        { body = remaining, trailing = acc }
-
-                Nothing ->
-                    { body = [], trailing = acc }
-    in
-    go nodes []
 
 
 {-| The top-level trailing-comment boundary rule, asked of the TREE instead of
@@ -3023,6 +3003,29 @@ classifyCommentKind containerBox commentNode before after row =
                 -1
                 nextItems
 
+        -- The comment is somewhere in the container's OPENER RUN: the leading
+        -- comments, with no item yet before them (`[ {- a -} {- b -} 1`). Rule
+        -- **C1** says one gap is one attachment, so the whole run is one thing
+        -- and gets one role -- `before` being all comments, rather than empty, is
+        -- what says the second member is still in the same slot as the first.
+        --
+        -- The record update's arm has read it that way since `b544d53` (its own
+        -- comment: "`before` being all comments (rather than empty) is what keeps
+        -- a SECOND comment here in the same region as the first"); the item list
+        -- asked `Array.isEmpty before` and so split its runs, giving the first
+        -- member `RidesInline` and every later one `LeadsNext` or `LeadsOwnLine`.
+        -- Look for the container that already agrees.
+        --
+        -- Nothing rendered differently, because at this slot the renderer does
+        -- not read the role: `commentBracketListBox` takes `atOpener` from its
+        -- own fold and the comment's SHAPE from `commentTextCanRide`. That is
+        -- exactly how the split drifted in unnoticed -- a stored fact nobody
+        -- consults is a stored fact free to be wrong -- and it is why
+        -- `commentRidesInline`'s docstring has to warn that a shape-ridable
+        -- comment may not be role-ridable. It no longer can be.
+        inOpenerRun =
+            Array.all isCommentNode before
+
         -- A comment that glues to whatever precedes it inside a bracket, by its
         -- own shape: a single-line `{- -}` rides the line (`RidesInline`, the
         -- only kind `literalCommentsRideFlatLine` keeps flat); a `--` or a
@@ -3099,13 +3102,13 @@ classifyCommentKind containerBox commentNode before after row =
         -- flat); a `--` or a multi-line `{- … -}` glues but breaks the line
         -- (`TrailsPrevious`).
 
-        else if leadsAcrossItemSeparator then
+        else if leadsAcrossItemSeparator && not inOpenerRun then
             LeadsNext
 
-        else if not (Array.isEmpty before) && (bracketPrevRow < 0 || row /= bracketPrevRow) then
+        else if not (Array.isEmpty before) && not inOpenerRun && (bracketPrevRow < 0 || row /= bracketPrevRow) then
             LeadsOwnLine
 
-        else if Array.isEmpty before && nextItemBlocksFrontGlue then
+        else if inOpenerRun && nextItemBlocksFrontGlue then
             -- The opener slot (`[ {- c -} item`), where the first item holds a
             -- `"""…"""`. Same reason a `LeadsNext` comment gives way there: the
             -- front glue shifts the item's first row by the comment's width

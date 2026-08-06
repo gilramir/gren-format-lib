@@ -1,9 +1,9 @@
-module Formatter.Render.CommentBox exposing (commentNodeBox, emptyBracketedCommentLine, glueTrailingComments, makeCommentLineBox, multiLineBlockCommentBox, peelTrailingCommentNodes, spanLeadingComments, spanOperatorRowComments, spanTrailingComments, spanTrailingOwnLine, spanTrailingOwnLineComments)
+module Formatter.Render.CommentBox exposing (commentNodeBox, emptyBracketedCommentLine, glueTrailingComments, makeCommentLineBox, multiLineBlockCommentBox, peelTrailingCommentNodes, spanLeadingComments, spanOperatorRowComments, spanTrailingComments, spanTrailingOwnLineComments)
 
 {-| Rendering of comment nodes (line, block, doc) to `Box`.
 -}
 
-import Formatter.Logical.LogicalPrintingTree exposing (CommentRole(..), LPBox(..), LPNode, commentGluesToPrevious, commentRole, lpnBox)
+import Formatter.Logical.LogicalPrintingTree exposing (CommentRole(..), LPBox(..), LPNode, commentGluesToPrevious, commentRole, lpnBox, spanTrailingOwnLine)
 import Formatter.Render.Box as B exposing (Box(..))
 import Formatter.Render.BoxOps exposing (glueCommentSuffix)
 import Formatter.Render.NodeClassify exposing (nodeIsComment)
@@ -283,32 +283,12 @@ spanTrailingComments nodes =
     go nodes []
 
 
-{-| Split off only the trailing run of comments the author put on their OWN line
-(`LeadsOwnLine`). Unlike `spanTrailingComments`, a comment that rides the
-previous token's line (`module Foo {- c -} exposing`) stays in the body, where
-the caller's flow renders it on that line — peeling it would move it below.
+{-| `spanTrailingOwnLine` at `LPNode`, the shape most callers here want.
 
-Polymorphic in the element so the pre-rendered `FlowItem` path shares it: pass
-`identity` for a plain node array, `.node` for flow items. This is the only
-implementation of the peel; keep it that way. -}
-spanTrailingOwnLine : (a -> LPNode) -> Array a -> { body : Array a, trailing : Array a }
-spanTrailingOwnLine toNode items =
-    let
-        go remaining acc =
-            when Array.popLast remaining is
-                Just { last, initial } ->
-                    if commentRole (lpnBox (toNode last)) == Just LeadsOwnLine then
-                        go initial ([ last ] ++ acc)
-
-                    else
-                        { body = remaining, trailing = acc }
-
-                Nothing ->
-                    { body = [], trailing = acc }
-    in
-    go items []
-
-
+The peel itself lives in `Formatter.Logical.LogicalPrintingTree`, beside
+`CommentRole` and `roleGlues`: which comments form a trailing own-line run is a
+property of the role and of nothing else, and `Formatter.Logical.Comments` needs
+the same answer while being unable to import this module. -}
 spanTrailingOwnLineComments : Array LPNode -> { body : Array LPNode, trailing : Array LPNode }
 spanTrailingOwnLineComments nodes =
     spanTrailingOwnLine (\n -> n) nodes

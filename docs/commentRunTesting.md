@@ -808,15 +808,46 @@ makes the mistake cheap to find, but not making it is better.
    flag already answered.
 7. run-classification refactor — makes C1 and C3 structural. **Before any n=2
    baseline**, or the baseline is built against ownership the refactor changes.
-   The unit of work is that "what is a run" is implemented at **six sites that
-   must agree**: `spanTrailingOwnLineNodes` (`Comments`), `spanTrailingOwnLine`
-   (`CommentBox`), `takeSameRowTrailing` (`SortSymbols`), and the three
-   reference-row chainers (`prevLineGlueRow` / `prevBlockGlueRow` last-row
-   keying, `bracketItemRow`, `chainedRefRow`). The first two are a **mirror pair
-   by necessity** — `Comments.gren` cannot import `Render`, and its docstring
-   says so — so the shared span helper has to land somewhere both can reach
-   (`LogicalPrintingTree`, or a new leaf module) before "one role per run" can be
-   structural rather than asserted.
+   **Half done (2026-08-05).**
+
+   *Done — sub-step 1, "identify the run once".* The **mirror pair is gone**:
+   `spanTrailingOwnLine` lives in `LogicalPrintingTree`, beside `CommentRole` and
+   `roleGlues`, for that module's stated reason — the answer is a property of the
+   role and of nothing else. `Comments.spanTrailingOwnLineNodes` is deleted. Its
+   docstring had called itself a mirror and blamed the import direction
+   (`Render` depends on `Logical`, not the reverse), but both modules already
+   import `LogicalPrintingTree`: **the necessity was in the placement, not in the
+   rule.**
+
+   *Done — the one place C1's "one gap is one attachment, one role" was false.*
+   Measured before changing anything: runs in four of five gaps already got a
+   single role. The violator was the item list's **opener slot** —
+   `[ {- a -} {- b -} 1 ]` gave `RidesInline | LeadsNext`, and an own-row opener
+   run gave `RidesInline | LeadsOwnLine`. The fix is the **record update's own
+   formulation**, `Array.all isCommentNode before` rather than
+   `Array.isEmpty before` (`inOpenerRun`); that arm has read the opener region
+   that way since `b544d53`, with a comment saying why. No output moved — the
+   whole comment axis is byte-identical before and after.
+
+   *Why it drifted, and what it implies for the rest.* At the opener slot **the
+   renderer does not read the role**: `commentBracketListBox` takes `atOpener`
+   from its own fold and the comment's SHAPE from `commentTextCanRide`. A stored
+   fact nobody consults is free to be wrong — which is also why
+   `commentRidesInline`'s docstring has to warn that a shape-ridable comment may
+   not be role-ridable. **Sub-steps 2–3 are only worth doing if the renderer then
+   trusts the role**; otherwise they tidy a vestigial field. Decide that first.
+
+   *Left, and the six-site list corrected.* It was partly a conceptual count.
+   `prevLineGlueRow` / `prevBlockGlueRow` / `bracketItemRow` keying a comment by
+   `lastRowInSubtree` are three **call sites of one shared function**, not three
+   implementations. What is genuinely two formulations is `chainedRefRow`
+   (backward fold over `before`, `firstRow <= acc`, returns a ROW) against
+   `SortSymbols.takeSameRowTrailingFrom` (forward walk, `firstRow == prevLast`,
+   returns the NODES) — unifying them picks one comparison over the other and
+   changes behaviour at the margin, so it needs its own measurement rather than
+   riding along with another change. And `spanTrailingComments` (every trailing
+   comment) and `peelTrailingCommentNodes` (only inline-gluable, at most one
+   `--`) are **not** the same rule despite the names; do not unify them.
 8. the deletion-invariance oracle. **Build it in `gen-random.py` first**, not in
    the gap fuzzer: the generator emits from a tree, so the n and n−1 variants
    come from the *same* tree deterministically — the mechanism the `sort-order`

@@ -32,6 +32,7 @@ module Formatter.Logical.LogicalPrintingTree exposing
     , prefixGlyph
     , roleGlues
     , roleToString
+    , spanTrailingOwnLine
     , stypeToString
     , subtreeRowRange
     )
@@ -643,6 +644,45 @@ commentGluesToPrevious node =
 
         Nothing ->
             False
+
+
+{-| Split off the trailing run of comments the author gave a line of their own
+(`LeadsOwnLine`): `{ body, trailing }`, where `trailing` is the maximal suffix of
+such comments and `body` is everything before it.
+
+A comment that RIDES the previous token's line (`module Foo {- c -} exposing`)
+stays in the body, where the caller's flow renders it on that line — peeling it
+would move it below.
+
+Polymorphic in the element so the pre-rendered `FlowItem` path shares it: pass
+`identity` for a plain node array, `.node` for flow items.
+
+**Lives here, beside `CommentRole`, for the reason `roleGlues` does**: which
+comments form a trailing own-line run is a property of the role and of nothing
+else. It had two implementations — this one and `Comments.spanTrailingOwnLineNodes`
+— and the second existed only because `Formatter.Logical.Comments` cannot import
+`Formatter.Render.CommentBox` (`Render` depends on `Logical`, not the reverse).
+Its docstring said as much and called itself a mirror. A rule that both the
+attachment pass and the renderer must agree on, implemented twice by necessity,
+is the shape this module exists to dissolve: both import `LogicalPrintingTree`
+already, so the necessity was in the placement, not in the rule.
+-}
+spanTrailingOwnLine : (a -> LPNode) -> Array a -> { body : Array a, trailing : Array a }
+spanTrailingOwnLine toNode items =
+    let
+        go remaining acc =
+            when Array.popLast remaining is
+                Just { last, initial } ->
+                    if commentRole (lpnBox (toNode last)) == Just LeadsOwnLine then
+                        go initial (Array.pushFirst last acc)
+
+                    else
+                        { body = remaining, trailing = acc }
+
+                Nothing ->
+                    { body = [], trailing = acc }
+    in
+    go items []
 
 
 {-| Rebuild a comment leaf carrying `role`. A no-op on any other node. Role
