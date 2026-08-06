@@ -133,6 +133,30 @@ as canonical. `--run 2` went **36 → 20**, i.e. 19 → **3** formatter-side, wi
 the n=1 sweep and both parity matrices unmoved. Fixture
 `HeaderComments/EffectWhereCommentRun`.
 
+**The next one down was `nextSiblingIsBoundary` asked of the child** (`27b73ad`,
+`--run 2` **20 → 19**, i.e. 3 → **2** formatter-side). That guard already refuses
+descent into a non-last `let` binding / `when` branch / `if` branch, because the
+first format renders the comment own-line at the child's deep indent and the
+reparse — past the child's rows — re-attaches it at the enclosing level. It asks
+the question of the NEXT sibling; asked of `child` itself it has one more answer.
+An `IndentedBlock` closes with a **dedent** rather than a delimiter, so a comment
+that brings its own rows has nothing after it to stay inside of, and the
+enclosing flow is where the reparse puts it. Both passes agreed on the run's
+roles and differed only in its OWNER, so `--decisions` could name nothing but the
+consequence — and **one comment alone is stable here**, rendering identically
+whichever flow owns it, so only `--run 2` could see it at all. Scoped to a
+multi-line comment (as `containerTailKeepsCommentOutside` is) *and* to a block
+something follows — the `ParenBlock` arm's `hasNoFollowingSibling` with the sign
+reversed, since a paren's `)` renders after the comment while a block has no
+closer at all. Both scopes are load-bearing: without the second, the two
+`when`-last-branch fixtures fail. Fixture
+`BracketComments/BlockTailCommentRunEscapes`.
+
+**The formatter-side `--run 2` residual is now 2**, and both are the
+pre-existing `ContainerTailMultilineComment` `renderGluedLambdaField`
+glue-vs-drop pair, attributed by rebuild across three commits before either of
+these fixes.
+
 A finding whose cause is a **known upstream parser bug** is reported with its
 issue number (`[known: compiler-common#35]`) and counted in the summary line.
 `known_upstream_issue` is where those live; it labels and never subtracts, so
