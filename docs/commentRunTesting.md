@@ -869,9 +869,19 @@ makes the mistake cheap to find, but not making it is better.
      of them in an effect module's header.
    - **None of the n=2 bugs came from the split.** Of 20 non-idempotent n=2
      probes, the four that were this formatter's to fix had **one** role for the
-     run (`RidesInline` twice) and a flow-state bug underneath; the other 16 are
-     the effect-header owner split. So the refactor buys structure — C1 and C3
+     run (`RidesInline` twice) and a flow-state bug underneath; the other 16
+     were in an effect module's header. So the refactor buys structure — C1 and C3
      holding by construction — and not, on this evidence, bugs.
+   - **The 16 confirmed that, and not by being the owner split they looked
+     like.** Fixed in `b953853` as a *position* bug: the `where` block's elided
+     `command` / `=` were anchored by counting **backwards from the
+     constructor**, so a comment in that gap put the derived columns inside the
+     comment's own text and carved a phantom slot for the run's second member to
+     fall into. The two owners were the symptom. Both labels are now
+     position-less `SynthesizedText`, per `mkZeroWidthText`'s stated policy —
+     which forbids a following-token anchor and names this very site as having
+     no honest one. Nothing about per-member roles was involved, which is one
+     more reason to leave sub-steps 2–3 where they are.
 
    The cheap axis pays first: `--run 2` costs no review time and found a
    comment run that dragged the following token onto its row. Do that, then the

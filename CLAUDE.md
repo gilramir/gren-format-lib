@@ -112,8 +112,26 @@ it), and the kind's label grows to `blockx2` so a finding is still
 default run is exactly what it was. First whole-corpus run: **20 findings in
 19,081 gaps**, one family fixed the same day (a run gluing the following TOKEN
 onto its row — unparseable for a `let` binding, and invisible with one comment),
-the rest an effect-header owner split. Write-up in
+the rest in an effect module's header. Write-up in
 [`docs/commentRunTesting.md`](docs/commentRunTesting.md#the-run-axis-what---run-2-found).
+
+**Those 16 are fixed too** (`b953853`), and what they were is worth recording
+because the first reading of them was wrong. They looked like an *owner* split —
+one member of the run outside the `where { … }` block, one inside — and were
+described that way here for a day. They were a **position** bug, and the owner
+split was its consequence: `MakeLogical.buildWhereBlock` derived the block's
+elided `command` / `=` columns by counting **backwards from the constructor**
+(`ctorCol - 3 - String.count label`), which is only correct for canonically
+spaced input. Put a comment in that gap and the derived columns land *inside the
+comment's own text*, carving a phantom slot between the label and the `=` for
+the second member to fall into. `LPTHelpers.mkZeroWidthText`'s anchoring policy
+forbids a following-token anchor in so many words **and already named this
+site** as one with no honest anchor at all; both labels are now position-less
+`SynthesizedText`, so every comment left of the constructor collapses to the one
+slot between `where` and `{` that `AmbiguousEffectModule` has always documented
+as canonical. `--run 2` went **36 → 20**, i.e. 19 → **3** formatter-side, with
+the n=1 sweep and both parity matrices unmoved. Fixture
+`HeaderComments/EffectWhereCommentRun`.
 
 A finding whose cause is a **known upstream parser bug** is reported with its
 issue number (`[known: compiler-common#35]`) and counted in the summary line.
