@@ -134,8 +134,15 @@ def main(argv):
             f"{k}x{n}"
             for n in range(2, FI.MAX_RUN + 1)
             for (k, _, _, _) in FI.KINDS
+        ]
+        + [
+            f"{a}+{b}"
+            for (a, _, _, _) in FI.KINDS
+            for (b, _, _, _) in FI.KINDS
+            if a != b
         ],
-        help="comment kind, or a RUN of them (`blockx2` — see fuzz-idempotency's --run)",
+        help="comment kind, a RUN of them (`blockx2` — fuzz-idempotency's --run), "
+        "or a MIXED run (`block+multi` — its --mix)",
     )
     ap.add_argument("gap", type=int, help="byte offset the gate reported")
     mode = ap.add_mutually_exclusive_group()
@@ -161,9 +168,12 @@ def main(argv):
 
     path = resolve_fixture(args.fixture)
     src = path.read_text()
-    base_kind, _, n = args.kind.partition("x")
-    kind = next(k for k in FI.KINDS if k[0] == base_kind)
-    _, text, splice, _ = FI.run_kind(kind, int(n) if n else 1)
+    if "+" in args.kind:
+        _, text, splice, _ = FI.mixed_kind(args.kind.split("+"))
+    else:
+        base_kind, _, n = args.kind.partition("x")
+        kind = next(k for k in FI.KINDS if k[0] == base_kind)
+        _, text, splice, _ = FI.run_kind(kind, int(n) if n else 1)
     probe = splice(src, args.gap, text)
 
     if args.input:

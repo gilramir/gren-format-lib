@@ -455,6 +455,56 @@ def run_kind(kind, n):
     return (f"{label}x{n}", run_text(label, text, n), splice, can_fast)
 
 
+def mixed_kind(labels):
+    """A run whose members are DIFFERENT kinds, in the order given.
+
+    **Run LENGTH and run COMPOSITION are two axes, and `--run` only varies the
+    first.** Its members are `n` copies of one kind, so every member's
+    neighbours have the same shape it does — which is why `--run 3` (2026-08-06)
+    found nothing over `--run 2`: going from two members to three adds a
+    *second* identical neighbour, where going from one to two had added the
+    first neighbour of any sort. The rules a run can break are written about a
+    neighbour's SHAPE, not its count: `commentRendersOwnLine` distinguishes a
+    multi-line `{- … -}` from a single-line one and from a `--`,
+    `FlowPolicy`'s inline arm asks whether the previous comment *glued*, and
+    `spanTrailingOwnLine` peels a suffix that mixes both. A homogeneous run
+    cannot put those on either side of each other; only this can.
+
+    It is not a hypothetical: `PipelineStepTrailingMultilineComment`'s notes
+    record `{- multi⏎line -} {- c -}` as already non-idempotent and reachable by
+    no gate here.
+
+    Two things follow from the members differing, both forced rather than
+    chosen:
+
+      - **A `--` swallows the rest of its row**, so whatever follows one must
+        start a new row, while a block-to-anything boundary joins with a space.
+        The joiner is therefore per-boundary, keyed on the member to its LEFT —
+        `run_text`'s single joiner is the homogeneous special case of this.
+      - **One `--` anywhere forces the whole run onto `splice_line`** (the
+        gap's tail has to move below the run) and off the all-at-once fast
+        path, exactly as the pure `line` kind is.
+
+    Returns the same 4-tuple `KINDS` holds, labelled `a+b`, so every consumer —
+    `report_slow_path`, `fast_check`, `marker_check`, and `repro.py` /
+    `check-decision-stability.py` importing this module by path — takes a mixed
+    run without knowing there is such a thing."""
+    by_label = {k[0]: k for k in KINDS}
+    members = [by_label[l] for l in labels]
+    parts = []
+    for i, (label, text, _splice, _fast) in enumerate(members):
+        parts.append(text.replace("¤", f"¤{i + 1}"))
+        if i + 1 < len(members):
+            parts.append("\n" if label == "line" else " ")
+    has_line = any(m[0] == "line" for m in members)
+    return (
+        "+".join(labels),
+        "".join(parts),
+        splice_line if has_line else splice_block,
+        not has_line,
+    )
+
+
 def marker_check(out, n):
     """None if the run came through the format intact, else what went wrong.
 
@@ -638,15 +688,42 @@ def main(argv):
     ap.add_argument("--run", type=int, default=1, metavar="N",
                     help=f"inject a RUN of N comments per gap instead of one (1-{MAX_RUN}); "
                          "the per-gap pass only")
+    ap.add_argument("--mix", action="append", metavar="A,B[,C]",
+                    help="inject a run of DIFFERENT kinds per gap, in the order given "
+                         "(e.g. --mix multi,block). Repeatable; --mix-pairs is the "
+                         "whole ordered cross-product. Replaces the default kind list, "
+                         "and spells its own length, so it takes neither --kind nor --run")
+    ap.add_argument("--mix-pairs", action="store_true",
+                    help="every ordered pair of two DIFFERENT kinds (6 sequences)")
     ap.add_argument("files", nargs="*")
     args = ap.parse_args(argv[1:])
     if not 1 <= args.run <= MAX_RUN:
         ap.error(f"--run must be between 1 and {MAX_RUN}")
+    mixes = list(args.mix or [])
+    if args.mix_pairs:
+        mixes += [
+            f"{a},{b}" for a in (k[0] for k in KINDS) for b in (k[0] for k in KINDS)
+            if a != b
+        ]
+    if mixes and (args.kind or args.run != 1):
+        ap.error("--mix/--mix-pairs replaces the kind list and spells its own "
+                 "run length; it cannot be combined with --kind or --run")
     run_gaps = not args.decl_ends
     run_decl_ends = not args.gaps
-    kinds = [
-        run_kind(k, args.run) for k in KINDS if not args.kind or k[0] in args.kind
-    ]
+    if mixes:
+        seqs = []
+        for spec in mixes:
+            labels = [s.strip() for s in spec.split(",")]
+            bad = [l for l in labels if l not in {k[0] for k in KINDS}]
+            if bad or len(labels) < 2:
+                ap.error(f"--mix {spec!r}: want two or more of "
+                         f"{', '.join(k[0] for k in KINDS)}")
+            seqs.append(labels)
+        kinds = [mixed_kind(labels) for labels in seqs]
+    else:
+        kinds = [
+            run_kind(k, args.run) for k in KINDS if not args.kind or k[0] in args.kind
+        ]
 
     files = args.files
     if not files:
