@@ -843,6 +843,7 @@ bracketCommentsSuite fsPerm =
             -- single-line `{- -}` ride the item's row and stay its own, and a
             -- nested container's own brackets still take their comment).
             , assertPrettyIn fsPerm "BracketComments" "multi-line comment past a container item belongs to the container, not to the item's lambda body" "ContainerTailMultilineComment"
+            , assertPrettyIn fsPerm "BracketComments" "a multi-line comment run past an IndentedBlock that something FOLLOWS stays outside the block, where the reparse puts it, so the run does not half-glue -- a block closes with a dedent, not a delimiter" "BlockTailCommentRunEscapes"
             -- The other half of the same sweep: "does this container render
             -- multi-line" is its stored box type, not its source row span. The
             -- two disagree exactly where the container COLLAPSES (a single item

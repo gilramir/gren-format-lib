@@ -1443,10 +1443,59 @@ insertCommentIntoSubtree commentNode row col node =
                                     _ ->
                                         False
 
+                            -- `nextSiblingIsBoundary` asked of `child` itself. An
+                            -- `IndentedBlock` closes with a DEDENT, not a
+                            -- delimiter, so a comment that brings its own rows has
+                            -- nothing after it to stay inside of: it renders below
+                            -- the block's content at the block's own indent, while
+                            -- the reparse — the comment's row now being past the
+                            -- block's — hands it to the enclosing flow. That is the
+                            -- oscillation `nextSiblingIsBoundary`'s comment
+                            -- describes, reached from the other side.
+                            --
+                            --     else                       first format:
+                            --         String.join " " {- c        String.join " "
+                            --    second -} [ a, b ]              {- c              <- block's indent
+                            --                                       second -}
+                            --                                    [ a, b ]
+                            --
+                            -- and the reparse, seeing the comment on its own row
+                            -- past the `else` body and before the array, hands it to
+                            -- the call flow they are both items of.
+                            --
+                            -- Scoped by `commentBringsOwnRows` for the same reason
+                            -- `containerTailKeepsCommentOutside` is: a single-line
+                            -- `{- c -}` and a `--` both ride the content's last row,
+                            -- so they are genuinely the block's and pulling them out
+                            -- would give them a row of their own — a change to
+                            -- shapes that are not broken.
+                            --
+                            -- And scoped to a block that something FOLLOWS, which is
+                            -- the `ParenBlock` arm above with the sign reversed. A
+                            -- paren's comment escapes only when nothing follows it,
+                            -- because the `)` is then what renders after the comment;
+                            -- a block has no closer at all, so when nothing follows
+                            -- it there is nothing to render below the comment, the
+                            -- reparse re-derives the same owner, and gluing is
+                            -- already the stable answer — `WhenLastBranchTrailingMultiline`
+                            -- and `WhenBranchBracketBodyTrailingComment` are exactly
+                            -- that shape and both say so.
+                            blockTailKeepsCommentOutside =
+                                commentBringsOwnRows
+                                    && not hasNoFollowingSibling
+                                    && (when lpnBox child is
+                                            IndentedBlock ->
+                                                True
+
+                                            _ ->
+                                                False
+                                       )
+
                             trailingCommentEscapes =
                                 (boxKeepsTrailingCommentOutside child
                                     || nextSiblingIsBoundary
                                     || containerTailKeepsCommentOutside
+                                    || blockTailKeepsCommentOutside
                                 )
                                     && subtreeEndsBefore child row col
                                     && not (commentInsideTrailingBracket child row col)
@@ -1807,7 +1856,20 @@ insertAmongChildren containerBox commentNode row col children =
 --
 -- This is the single declared list of "never swallow a trailing comment" box
 -- kinds — to teach a new construct the same rule, add it here rather than
--- threading another predicate into the guard. Per kind:
+-- threading another predicate into the guard.
+--
+-- The exception is a kind that keeps the comment out only for SOME comments or
+-- only in some positions, which this list cannot express: it is asked of every
+-- comment kind, in every position, and answers with the box alone. The descent
+-- guard therefore has two scoped siblings, and a new rule belongs in one of
+-- them only if it needs a scope this list cannot carry —
+-- `containerTailKeepsCommentOutside` (a bracketed container, but only for a
+-- comment that brings its own rows) and `blockTailKeepsCommentOutside` (an
+-- `IndentedBlock`, and then only when something follows it). Adding either kind
+-- here unscoped was tried: `IndentedBlock` alone breaks the two `when`-last-branch
+-- fixtures, whose trailing comment must stay glued.
+--
+-- Per kind:
 --   AcrossOrVertical                       — function-call / argument flow
 --   IfCondition                            — `if` / `else if` condition
 --   PrefixGlue                             — `\`-glued lambda head or unary `-`;

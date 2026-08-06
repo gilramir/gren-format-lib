@@ -1,0 +1,37 @@
+module BlockTailCommentRunEscapes exposing (deep)
+
+-- A run of multi-line `{- … -}`s trailing an `IndentedBlock` that something
+-- FOLLOWS. Here the block is an `if`'s `else` body and what follows is a call
+-- argument, because the array is written left of the body's own column and so
+-- applies to the whole `if` rather than to `String.join`.
+--
+-- An `IndentedBlock` closes with a dedent, not a delimiter, so a comment that
+-- brings its own rows renders below the block's content at the block's indent
+-- while the reparse — the comment's row now being past the block's — hands it
+-- to the enclosing flow. Descending into the block therefore glued the run's
+-- second member onto the first's `-}` row on one format and split them on the
+-- next. The run now stays outside the block, where the reparse puts it, and
+-- both members get their own row.
+--
+-- One comment alone was stable here: a single one renders identically whichever
+-- of the two flows owns it. It takes a RUN to make the owner observable, which
+-- is why only `fuzz-idempotency.py --run 2` could see it.
+--
+-- The `else` and its body sitting at the same column is the pre-existing
+-- rendering of an `if` in a call's function position and is not what this
+-- fixture is about.
+
+
+deep flag names =
+    let
+        inner =
+            \x ->
+                if flag then
+                    "a"
+
+                else
+                    String.join " " {- one
+   second row -} {- two
+   second row -} [ x, names ]
+    in
+    inner "z"
