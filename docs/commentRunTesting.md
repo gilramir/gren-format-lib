@@ -162,6 +162,17 @@ The change that makes C1 and C3 hold by construction rather than by testing:
 After that, "the run gets one role" and "the run rides iff all members ride"
 are not properties to test — they are the shape of the code.
 
+**2 and 3 are one change, not two** (measured 2026-08-06; the numbering above is
+older than the reading that produced this paragraph). The per-member role *is*
+the chaining mechanism: `prevLineGlueRow` / `prevBlockGlueRow` / `bracketItemRow`
+all key a comment by its LAST row on purpose (`a5d948c`, "comments chain"), so
+the second member of a run comes back `TrailsPrevious` / `RidesInline` **against
+the first member**, and that is exactly what tells the renderer to glue it onto
+the first's line instead of dropping it to its own. Decide one role for the run
+without the fold in place and that information is simply gone — the run stops
+chaining, and `MultilineCommentTrailedByComment` is the fixture that says so.
+Do them together or not at all.
+
 ---
 
 ## What each gate actually covers
@@ -172,7 +183,7 @@ drawn, and it hid a real class of bug for a long time.
 | gate | varies | does **not** vary |
 |---|---|---|
 | fixtures | whatever someone wrote by hand | — |
-| `fuzz-idempotency.py` per-gap pass | every inter-token gap × **all three kinds** (since 2026-08-03) | more than one comment |
+| `fuzz-idempotency.py` per-gap pass | every inter-token gap × **all three kinds** (since 2026-08-03) × **a run of N** (`--run`, since 2026-08-06) | nothing about run length any more — but `--run` is opt-in, so a default run still varies one comment |
 | `fuzz-idempotency.py` decl-end pass | own-line trailing comment, block and line form | more than one comment |
 | `fuzz-whitespace.py` | inter-token whitespace | comments, syntax |
 | `matrix-syntax.py` | every expression form × 25 expression contexts, **and every type form × 15 declaration contexts**, × 4 layout variants | comments |
@@ -833,9 +844,38 @@ makes the mistake cheap to find, but not making it is better.
    renderer does not read the role**: `commentBracketListBox` takes `atOpener`
    from its own fold and the comment's SHAPE from `commentTextCanRide`. A stored
    fact nobody consults is free to be wrong — which is also why
-   `commentRidesInline`'s docstring has to warn that a shape-ridable comment may
+   `commentRidesInline`'s docstring had to warn that a shape-ridable comment may
    not be role-ridable. **Sub-steps 2–3 are only worth doing if the renderer then
-   trusts the role**; otherwise they tidy a vestigial field. Decide that first.
+   trusts the role**; otherwise they tidy a vestigial field.
+
+   ***Decided 2026-08-06, by measuring rather than by reading: not vestigial, but
+   not the bug source either — so they wait.*** Three findings, in the order they
+   settle the question:
+
+   - **The renderer does trust the role**, nearly everywhere except the slot
+     where the drift happened. `FlowPolicy.containerCommentSlot` reads it twice
+     (`LeadsNext` → `LeadsFollowing`; `roleGlues` → `GluesPrevious`),
+     `commentPlacement` turns it into the glue/own-line call for every flow,
+     `NodeClassify.literalCommentsRideFlatLine` reads it per child, and
+     `MakeRenderBox` has four predicates over it. The field is load-bearing.
+   - **The split is real and it is one shape.** A run of two spliced into every
+     gap of the corpus (19,081 gaps, single-line block kind) comes back with two
+     roles at **6,531** of them — and every single one is
+     `LeadsOwnLine` + `RidesInline`, the generic flow's own chaining answer. It
+     is also **inert**: the second member's separator state is
+     `AlreadyTerminated` / `HardNl` by then, where `commentPlacement` ignores the
+     role, and the bytes are identical to elm-format's for the same input. A
+     further 52 gaps split the run across two OWNERS rather than two roles, all
+     of them in an effect module's header.
+   - **None of the n=2 bugs came from the split.** Of 20 non-idempotent n=2
+     probes, the four that were this formatter's to fix had **one** role for the
+     run (`RidesInline` twice) and a flow-state bug underneath; the other 16 are
+     the effect-header owner split. So the refactor buys structure — C1 and C3
+     holding by construction — and not, on this evidence, bugs.
+
+   The cheap axis pays first: `--run 2` costs no review time and found a
+   comment run that dragged the following token onto its row. Do that, then the
+   refactor, and treat 2 and 3 as the single change they are.
 
    *Left, and the six-site list corrected.* It was partly a conceptual count.
    `prevLineGlueRow` / `prevBlockGlueRow` / `bracketItemRow` keying a comment by
@@ -859,6 +899,14 @@ makes the mistake cheap to find, but not making it is better.
 9. n=2 class-pairs, with elm-format parity. Last, because it is the only step
    that costs review time.
 
+   **Its stability half needs none of that review, and it is done (2026-08-06).**
+   `fuzz-idempotency.py --run N` splices a RUN of N comments into each gap
+   instead of one; `--show` still buys no-crash + AST-equivalence + idempotency +
+   reparses, and the marker check gains a **reordering** arm, since the members
+   are marked `¤1 … ¤N` rather than repeated. Only the *parity* half of this step
+   is expensive, and separating them turned out to be worth a fix on the first
+   run. See "the run axis" below.
+
 Two expansions feed steps 8 and 9 and can proceed in parallel with either:
 
 - **`gen-random.py`'s runs are the wrong shape, not merely too few.**
@@ -866,12 +914,58 @@ Two expansions feed steps 8 and 9 and can proceed in parallel with either:
   *same-row*. There is no own-line run anywhere in the grammar — and own-line
   runs are exactly where `detachOwnLineTrailer`, `rehomePipelineStepTrailers` and
   `computeDetachedBelow` each carry run-cohesion logic.
-- **The probe machinery needs a run concept in one place.**
-  `fuzz-idempotency.py` owns `KINDS` and the gap enumeration;
+- ~~**The probe machinery needs a run concept in one place.**~~ *(done
+  2026-08-06.)* `fuzz-idempotency.py` owns `KINDS` and the gap enumeration;
   `check-decision-stability.py` and `repro.py` import them *by path* precisely so
-  they cannot drift. A run generator belongs there too, and the finding ID has to
-  grow from `<fixture>[<kind>]@<gap>` to carry the sequence — otherwise a finding
-  is not reproducible, and `repro.py` is what makes one investigable.
+  they cannot drift. The run generator lives there too — `run_text` / `run_kind`
+  widen a kind's text and its label together, so a run is still one entry of the
+  same 4-tuple table and every consumer takes one without knowing there is such a
+  thing. The finding ID grew by growing the LABEL (`blockx2`) rather than the
+  format, so `<fixture>[<kind>]@<gap>` is unchanged and `repro.py` reproduces a
+  run finding by splitting the suffix back off.
+
+## The run axis: what `--run 2` found
+
+First whole-corpus run, single-line block kind, 19,081 gaps: **20
+non-idempotent, 19,052 clean, 9 skipped by the parser.** Two families.
+
+**Four were one bug, now fixed, and it is a bug only a run can reach.** A run of
+single-line `{- … -}`s glued onto a multi-line comment's `-}` row pulled the
+NEXT TOKEN up onto that row — with one comment the token already went below:
+
+    {- standalone            with ONE comment `second` goes below;
+       multi-line            with TWO it came back up onto the row
+       comment -} {- a -} {- b -} second =
+
+For a `let` binding that is not merely wrong, it does not **parse** — a binding
+must start at the block's column — so the finding arrived as
+`COULD NOT PARSE FORMATTED OUTPUT`, which no amount of idempotency checking on a
+single comment would have produced. `FlowPolicy`'s `BlockCommentItem` inline arm
+answered `FlowSep` for what follows a glued comment, and `FlowSep` *is* the
+space-join; the arm above it had already worked out that a comment gluing onto a
+hard-broken line must leave `HardNl`. A comment that glues inherits the line's
+own rule. Fixture `PatternComments/CommentRunAfterBlockComment`.
+
+**The scope of that fix is the whole lesson, and the first attempt got it
+wrong.** Preserving `HardNl` across *any* comment in that arm also stopped an
+own-line run from merging onto one row — and elm-format merges it, from either
+authoring, which `PipelineLambdaArgTrailingComment` pins. The rule is narrower:
+`HardNl` survives a comment that **glued** (placement `GlueSpace`), not one that
+opened its own line. One fixture caught it in the ten minutes between writing
+the fix and believing it.
+
+**The other 16 are the effect-module header, and they are an OWNER split rather
+than a role one** — the run is torn in half across the `where { … }` block's
+`{`, one member landing outside it and one inside, after which the reparse puts
+them back together:
+
+    effect module M where { command = {- ¤1 -} {- ¤2 -} MyCmd } exposing (..)
+    effect module M where {- ¤1 -} { command {- ¤2 -} = MyCmd } exposing (..)
+
+Each member ALONE is stable at the same gap. This is the next family to work,
+and it is not the accepted `where {}` limitation recorded in
+[`knownLimitations.md`](knownLimitations.md) — that one is column-sensitive and
+moves a comment with one comment present.
 
 Still uncovered by any elm-format oracle, and worth listing so it is not
 mistaken for coverage: an `import`'s own syntax, and the module header. The

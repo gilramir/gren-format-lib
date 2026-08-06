@@ -29,8 +29,10 @@ Usage:
     ./repro.py <fixture> <kind> <gap> --decisions  # which decisions differed
 
 `<kind>` is one of `block` / `multi` / `line` (the three the formatter
-distinguishes; see `fuzz-idempotency.py`). `<fixture>` may be a path or a bare
-basename, which is searched for under `testfiles/`.
+distinguishes; see `fuzz-idempotency.py`), or one of those with an `xN` suffix
+(`blockx2`) for a finding from that gate's `--run N` pass — a RUN of N comments
+spliced into the one gap. `<fixture>` may be a path or a bare basename, which is
+searched for under `testfiles/`.
 
     # a finding reported as  TrickyComments.formatted.gren[multi]@100
     ./repro.py TrickyComments.formatted.gren multi 100
@@ -126,7 +128,14 @@ def main(argv):
     )
     ap.add_argument("fixture", help="path, or a bare basename under testfiles/")
     ap.add_argument(
-        "kind", choices=[k for (k, _, _, _) in FI.KINDS], help="comment kind"
+        "kind",
+        choices=[k for (k, _, _, _) in FI.KINDS]
+        + [
+            f"{k}x{n}"
+            for n in range(2, FI.MAX_RUN + 1)
+            for (k, _, _, _) in FI.KINDS
+        ],
+        help="comment kind, or a RUN of them (`blockx2` — see fuzz-idempotency's --run)",
     )
     ap.add_argument("gap", type=int, help="byte offset the gate reported")
     mode = ap.add_mutually_exclusive_group()
@@ -152,9 +161,9 @@ def main(argv):
 
     path = resolve_fixture(args.fixture)
     src = path.read_text()
-    text, splice = next(
-        (t, s) for (k, t, s, _) in FI.KINDS if k == args.kind
-    )
+    base_kind, _, n = args.kind.partition("x")
+    kind = next(k for k in FI.KINDS if k[0] == base_kind)
+    _, text, splice, _ = FI.run_kind(kind, int(n) if n else 1)
     probe = splice(src, args.gap, text)
 
     if args.input:

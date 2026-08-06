@@ -372,24 +372,60 @@ decide config state facts =
                 -- comment and detaches (a +4 ↔ col-0 oscillation). For an
                 -- inline previous item the `SoftSep` join already renders a
                 -- space, so this is a no-op there.
-                { placement =
-                    -- Glue onto the current line only when there IS one: at
-                    -- `FirstItem` nothing precedes, so fall through to
-                    -- `joinPlacement` (which yields `AsFirst`).
-                    if roleGlues f.role && state.separator /= FirstItem then
-                        GlueSpace
+                let
+                    placement =
+                        -- Glue onto the current line only when there IS one: at
+                        -- `FirstItem` nothing precedes, so fall through to
+                        -- `joinPlacement` (which yields `AsFirst`).
+                        if roleGlues f.role && state.separator /= FirstItem then
+                            GlueSpace
 
-                    else
-                        joinPlacement state.separator
+                        else
+                            joinPlacement state.separator
+                in
+                { placement = placement
                 , next =
                     -- Carry this comment's row forward (not -1) so a FURTHER
                     -- same-row trailing comment glues onto the same line too — a
                     -- run like `] {- a -} {- b -}` keeps all of them on the `]`
                     -- line instead of dropping the second to its own line (which
-                    -- would detach on reparse). Only following comments read
-                    -- `prevRowBlock`; plain items join by separator, so this is inert
-                    -- for them.
-                    { separator = FlowSep }
+                    -- would detach on reparse).
+                    --
+                    -- A comment that GLUES onto a hard-broken line does not undo
+                    -- the break: `HardNl` survives it. The arm above leaves
+                    -- `HardNl` for a comment that glued onto a line a following
+                    -- TOKEN must not join (`joinPlacement HardNl == OwnLine`),
+                    -- and the SECOND member of a run reaches this arm instead —
+                    -- `standaloneLeading` does not list `HardNl` — so answering
+                    -- `FlowSep` there space-joined the next token onto the run:
+                    --
+                    --     {- standalone        the `-}` row already forces a
+                    --        multi-line          break before a token, so with
+                    --        comment -} {- a -}  ONE comment `second` goes below
+                    --     second =                — and with TWO it came back up
+                    --
+                    -- which for a `let` binding is not merely wrong but
+                    -- unparseable: a binding must start at the block's column.
+                    -- An older note here said a following plain item was
+                    -- unaffected because "plain items join by separator"; that is
+                    -- the mechanism, not an exemption — `FlowSep` IS the
+                    -- space-join.
+                    --
+                    -- Scoped to a comment that GLUED, and that scope is the whole
+                    -- rule. A comment that OPENED its own line (placement
+                    -- `OwnLine`) starts a fresh comment line, and a following
+                    -- own-line comment merges up onto it — a run the author wrote
+                    -- on separate rows comes out on one, which is what
+                    -- elm-format does with either spelling
+                    -- (`PipelineLambdaArgTrailingComment`). Keeping `HardNl`
+                    -- across that one stopped the merge and diverged.
+                    { separator =
+                        if state.separator == HardNl && placement == GlueSpace then
+                            HardNl
+
+                        else
+                            FlowSep
+                    }
                 }
 
         BracketLiteralItem f ->

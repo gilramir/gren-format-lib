@@ -4646,9 +4646,15 @@ glueLeadBoxes mayRide lead box =
 **Not the same question as `commentTextCanRide`**, which asks the comment's
 SHAPE (is it a single-line `{- … -}`). Every `RidesInline` comment is a
 single-line block comment, but not every single-line block comment is
-`RidesInline` — the second comment of a run just inside an opening bracket
-(`[ {- a -} {- b -} 1`) is classified `LeadsNext`, so it is shape-ridable but
-not role-ridable.
+`RidesInline` — one written across a list's unrecorded `,` (`[ 1, {- c -} 2 ]`)
+is classified `LeadsNext` by rule C2, so it is shape-ridable but not
+role-ridable.
+
+The example this used to give — the second comment of a run just inside an
+opening bracket, `[ {- a -} {- b -} 1` — is no longer one: since `f05a4cc` the
+whole opener run is one attachment and every member is `RidesInline` (rule C1;
+`Comments.inOpenerRun`). It was the split that made a run of two ride
+differently from a run of one.
 
 Three stale comments sat on this function until 2026-08-02, one of them
 describing `commentTextCanRide`'s rule and asserting that the classifier tags
@@ -4768,12 +4774,16 @@ commentBracketListBox bracket nodes =
                                 when FP.containerCommentSlot { atOpener = atOpener acc, canGlue = True } node is
                                     FP.LeadsOpener ->
                                         -- `commentTextCanRide` (SHAPE), not
-                                        -- `commentRidesInline` (ROLE). Only the FIRST
-                                        -- comment of an opener run is classified
-                                        -- `RidesInline`; a second is `LeadsNext`, so
-                                        -- the role test made a run of two always break
-                                        -- after the first while the identical run in a
-                                        -- `,` gap rode — and elm-format rides both.
+                                        -- `commentRidesInline` (ROLE). The role test
+                                        -- made a run of two always break after the
+                                        -- first while the identical run in a `,` gap
+                                        -- rode — and elm-format rides both. (Back then
+                                        -- only the FIRST comment of an opener run was
+                                        -- `RidesInline` and a second was `LeadsNext`;
+                                        -- `f05a4cc` gave the whole run one role, so the
+                                        -- two tests now agree here. The SHAPE question
+                                        -- is still the one this slot is asking — see
+                                        -- rule C3's fold in `glueLeadingCommentRun`.)
                                         Ok
                                             { acc
                                                 | lead =

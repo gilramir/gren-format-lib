@@ -1,0 +1,24 @@
+module CommentRunAfterBlockComment exposing (multi, top)
+
+
+multi x =
+    let
+        first =
+            x + 1
+
+        {- standalone
+           multi-line
+           block comment -} {- a -} {- b -}
+        second =
+            first + 1
+    in
+    second
+
+
+top =
+    { field =
+        {- standalone
+           multi-line
+           block comment -} {- a -} {- b -}
+        1
+    }

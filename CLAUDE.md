@@ -93,12 +93,27 @@ and requires byte-identical output. The safety net for comment-shift bugs.
 cd gren-format-lib/tests
 python3 fuzz-idempotency.py -j 12                                      # whole corpus
 python3 fuzz-idempotency.py -v testfiles/<SuiteDir>/Foo.formatted.gren  # one file
+python3 fuzz-idempotency.py --gaps --run 2 -j 12                       # a RUN of two per gap
 ```
 
 **Rebuild the `gren-format` app first** (`cd ../../gren-format && ./build.sh`) —
 fuzzers invoke `../../gren-format/gren-format.sh` as a subprocess, so they
 require an up-to-date binary. Run after any change to comment handling, and
 after adding any comment-bearing fixture.
+
+**`--run N` is the second axis, added 2026-08-06.** Until then every gate here
+varied *where* a comment goes and none varied *how many*, so a rule that only
+misbehaves once a comment's neighbour is another comment had no probe anywhere —
+and inside a run the neighbour a role is classified against IS another comment.
+The members are marked `¤1 … ¤N`, which also buys a **reordering** check (a run
+torn across a separator is a stable fixed point, so nothing else here can see
+it), and the kind's label grows to `blockx2` so a finding is still
+`<fixture>[<kind>]@<gap>` and `repro.py` still reproduces it. It is opt-in, so a
+default run is exactly what it was. First whole-corpus run: **20 findings in
+19,081 gaps**, one family fixed the same day (a run gluing the following TOKEN
+onto its row — unparseable for a `let` binding, and invisible with one comment),
+the rest an effect-header owner split. Write-up in
+[`docs/commentRunTesting.md`](docs/commentRunTesting.md#the-run-axis-what---run-2-found).
 
 A finding whose cause is a **known upstream parser bug** is reported with its
 issue number (`[known: compiler-common#35]`) and counted in the summary line.
