@@ -4673,14 +4673,46 @@ its item, is free to stack.
 
 The question only arose once a comment could reach a multi-node ITEM at all: such
 an item is wrapped in a `BodyBlock`, and `Comments.gren` used to redirect every
-comment before one INSIDE it. -}
+comment before one INSIDE it.
+
+**When the body cannot take them, the run still stays on ONE row.** Every
+comment here can share a line (see above), so the only thing the body's shape
+decides is whether they may share the body's line — not whether they may share
+each other's. Stacking them one-per-row instead is what
+`commentBracketListBox`'s counterpart does not do, and the two paths render
+format 1 and format 2 of the same file:
+
+    [ {- lambda -} {- a -} {- b       flat path, format 1   comment path, format 2
+         second row -} \q -> …
+                                      [ {- lambda -}        [ {- lambda -} {- a -}
+                                        {- a -}               {- b
+                                        {- b                     second row -}
+                                           second row -}         \q -> q + one
+                                        \q -> q + one
+
+The fork is invisible in the roles, which is why nothing else could see it: the
+multi-line `{- b -}` is a child of the ITEM, not of the list, so the list's own
+comment children are two `RidesInline` ones and `literalCommentsRideFlatLine`
+answers True — the author's inline spelling takes this path and its own output,
+now `AlwaysVertical`, takes the other. `commentBracketListBox`'s docstring named
+that oscillation ("one riding while the other stacks is an oscillation with no
+role to blame") and this is the half that was wrong. Found 2026-08-06 by
+`fuzz-idempotency.py --gaps --mix`. -}
 glueLeadBoxes : (Box -> Bool) -> Array Box -> Box -> Box
 glueLeadBoxes mayRide lead box =
     if Array.isEmpty lead || mayRide box then
         Array.foldr glueLeadingCommentPrefix box lead
 
     else
-        B.stack1 (lead ++ [ box ])
+        -- The same shape `glueLeadingCommentRun` builds when its body cannot
+        -- ride: the run glued onto its own last box, that row stacked above the
+        -- body. Keep the two literally parallel.
+        when Array.popLast lead is
+            Just { last, initial } ->
+                B.stack1 [ Array.foldr glueLeadingCommentPrefix last initial, box ]
+
+            Nothing ->
+                box
 
 
 {-| True when this comment's stored role is exactly `RidesInline`.

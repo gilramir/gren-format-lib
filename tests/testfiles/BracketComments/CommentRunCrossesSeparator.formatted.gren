@@ -1,0 +1,76 @@
+module CommentRunCrossesSeparator exposing (..)
+
+-- Rule C1 -- one gap is one attachment, and the run moves together -- asked of
+-- the unrecorded `,` / `|` that rule C2 sends a comment ACROSS.
+--
+-- A single-line `{- -}` written in a list's comma gap leads the item BELOW it
+-- (C2); a `--` and a multi-line `{- .. -}` both stay with the item above (C2's
+-- line-leading exception, and "a comment that brings its own rows stays put").
+-- Each of those is right on its own, and `leadsAcrossItemSeparator` asked the
+-- question per COMMENT -- so a gap holding one of each tore in half, the two
+-- comments ending up on opposite sides of a separator the author wrote them on
+-- one side of.
+--
+-- `[ 1 {- a -} -- b` came out as `[ 1 -- b` / `, {- a -} 2`: the run REVERSED.
+-- The movability test is now asked of the whole run (`gapRunCrossesTogether`),
+-- which is the same all-or-nothing C3 already applies to riding.
+--
+-- Found 2026-08-06 by `fuzz-idempotency.py --mix`, the run-COMPOSITION axis.
+-- `--run N` splices N copies of one kind and can never build a mixed run, so it
+-- swept clean at n=1, 2 and 3 over the same gaps.
+
+
+crossedUnderLineComment =
+    [ 1 {- a -} -- b
+    , 2
+    ]
+
+
+crossedUnderMultiline =
+    [ 1 {- a -} {- b
+                   two -}
+    , 2
+    ]
+
+
+-- The same gap in a record update, whose separator is the unrecorded `|` and
+-- whose "previous item" is the base name.
+
+
+crossedInUpdate =
+    { rec {- a -} -- b
+        | fld = 1
+    }
+
+
+-- THE BOUNDARY, and it is what keeps the fix from being "comments never move".
+-- A run whose members ALL cross still crosses together, exactly as before -- the
+-- rule is unanimity, not the presence of a second comment.
+
+
+homogeneousRunStillCrosses =
+    [ 1
+    , {- a -} {- b -} 2
+    ]
+
+
+-- And one comment alone is untouched: plain C2, the rule this fixture exists to
+-- leave standing.
+
+
+singleCommentStillCrosses =
+    [ 1
+    , {- a -} 2
+    ]
+
+
+-- The mirror of the first case: the stayer written FIRST. The output is in
+-- source order either way, so the reordering oracle is blind here -- this half
+-- was found by reading the grid, not by a gate.
+
+
+tornWithoutCrossing =
+    [ 1 {- a
+           two -} {- b -}
+    , 2
+    ]

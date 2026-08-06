@@ -1,0 +1,67 @@
+module OwnLineCommentBreaksBeforeToken exposing (..)
+
+-- A comment that opened a row of its own must not have the NEXT TOKEN
+-- space-joined onto it. Here that was not merely ugly -- it changed the AST.
+--
+-- `FlowPolicy`'s comment arm left `FlowSep` after such a comment, and `FlowSep`
+-- IS the space-join, so the lambda body's call came up onto the comment's row:
+--
+--     \item ->                        \item ->
+--         {- x                            {- x
+--            second row -} {- y -}           second row -} {- y -}
+--         {- lead -}              ->      {- lead -} someFunction
+--         someFunction                        firstArgument
+--             firstArgument
+--
+-- A call's arguments must be indented past the FUNCTION TOKEN's column, and
+-- gluing the comment shifted `someFunction` right while `firstArgument` kept its
+-- column. So the call ended at `someFunction` and the two arguments were applied
+-- to the LAMBDA instead: `lambda(var, call(..))` reparsed as `call(lambda, ..)`.
+-- `--show`'s AST comparison is what catches that; it is a stable fixed point, so
+-- no idempotency or decision-stability check can see it.
+--
+-- The state before the own-line comment has to be `HardNl` for it to reach that
+-- arm at all, which is why it takes a preceding run: `{- x .. -}` is multi-line
+-- (leaving `TerminatedByBlockComment`) and `{- y -}` glues onto its `-}` row
+-- (leaving `HardNl`). Found 2026-08-06 by `fuzz-idempotency.py --mix`.
+--
+-- The fix is a separator of its own, `TerminatedByOwnLineComment`: a following
+-- TOKEN starts a fresh row, while a following COMMENT may still merge up --
+-- which `AlreadyTerminated` and `HardNl` both forbid, and which
+-- `PipelineLambdaArgTrailingComment` pins.
+
+
+multilineCallBody _ =
+    \item ->
+        {- x
+           second row -} {- y -}
+        {- lead -}
+        someFunction
+            firstArgument
+            secondArgument
+
+
+-- The same run written after the `->` rather than before it.
+
+
+afterArrow _ =
+    \item ->
+        {- x
+           second row -} {- y -}
+        {- lead -}
+        someFunction
+            firstArgument
+            secondArgument
+
+
+-- THE BOUNDARY: a call whose arguments are NOT broken below it has nothing to
+-- slide out from under, and a single-line body still shares the comment's row
+-- wherever the policy already let it.
+
+
+flatBodyUnaffected _ =
+    \item ->
+        {- x
+           second row -} {- y -}
+        {- lead -}
+        someFunction firstArgument

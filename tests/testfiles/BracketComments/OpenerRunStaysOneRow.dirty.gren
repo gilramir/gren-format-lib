@@ -1,0 +1,55 @@
+module OpenerRunStaysOneRow exposing (..)
+
+-- A run of ridable comments after a bracket's opener stays on ONE row when the
+-- item below cannot join them.
+--
+-- Two paths render a bracketed literal's opener run, and they disagreed:
+--
+--   * the FLAT path (`glueLeadBoxes`), taken when no direct comment child forces
+--     the bracket open -- it stacked each comment on a row of its own;
+--   * the comment path (`glueLeadingCommentRun`), taken when one does -- it glues
+--     the run onto one row above the body.
+--
+-- Which path runs is decided by the container constructor, so the author's
+-- inline spelling took the first and its own output -- now `AlwaysVertical`,
+-- because the items came to span rows -- took the second. The file never
+-- settled.
+--
+-- What hid it is that the two trees are IDENTICAL apart from that constructor,
+-- every comment role included. The multi-line `{- b -}` is a child of the ITEM,
+-- not of the list, so the list's own comment children are two `RidesInline` ones
+-- and `literalCommentsRideFlatLine` answers True.
+-- `commentBracketListBox` had already named the hazard in so many words -- "one
+-- riding while the other stacks is an oscillation with no role to blame".
+--
+-- Every comment here can share a line; only the BODY cannot join them. The
+-- body's shape decides whether they may share ITS line, not whether they may
+-- share each other's -- so they stay together. Found 2026-08-06 by
+-- `fuzz-idempotency.py --gaps --mix`.
+
+
+writtenInline =
+    [ {- lambda -} {- a -} {- b
+         second row -} \q -> q + one, other ]
+
+
+-- The same content authored across rows, which is what the first one formats to.
+-- Both must land on the same bytes; that they did not IS the bug.
+
+
+writtenAcrossRows =
+    [ {- lambda -}
+      {- a -}
+      {- b
+         second row -}
+      \q -> q + one
+    , other
+    ]
+
+
+-- THE BOUNDARY: when the item can take the run on its own line, it still does --
+-- the run rides the item rather than sitting above it.
+
+
+itemTakesTheRun =
+    [ {- lambda -} {- a -} plainItem, other ]

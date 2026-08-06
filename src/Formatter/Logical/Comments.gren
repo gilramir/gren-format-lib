@@ -1583,7 +1583,67 @@ insertCommentIntoSubtree commentNode row col node =
 
     else
         -- No matching child found; insert at this level
-        grown (lpnReplaceChildren node (insertAmongChildren (lpnBox node) commentNode row col children))
+        grown
+            (lpnReplaceChildren node
+                (insertAmongChildren (lpnBox node) commentNode row col children
+                    |> repairTornGapRun (lpnBox node)
+                )
+            )
+
+
+{-| Re-decide any `LeadsNext` sibling now that the comment after it exists.
+
+**Comments are attached one at a time, in source order, so a comment is
+classified before the rest of its gap-run has been inserted.**
+`gapRunCrossesTogether` — rule C1's "the run moves together", asked of the
+unrecorded `,` / `|` that rule C2 sends a comment across — therefore sees only
+the members written EARLIER. That half works on its own; the other half cannot,
+and it is the one that reverses the author's order:
+
+    [ 1 {- a -} -- b        `{- a -}` crosses (nothing follows it yet), then
+    , 2                     `-- b` stays, and the two come out CROSSED as
+                            `[ 1 -- b` / `, {- a -} 2`.
+
+So the moment a comment lands next to an earlier one that crossed, that earlier
+decision is re-taken — by `classifyCommentKind` itself, over the children array
+it is being spliced into, which now holds the whole run. Only comments still
+holding `LeadsNext` are re-asked, so this cannot disturb a role that was already
+final, and re-running it on an unchanged neighbourhood returns what it returned
+before.
+
+**Re-classifying rather than rewriting the role is the point.** The fallback a
+blocked crossing takes is not one role: `{- a -}` becomes `RidesInline` where it
+can share the previous item's line and `TrailsPrevious` where it cannot, and
+that choice is made by the branch above `leadsAcrossItemSeparator`. Naming a
+replacement here would be a second copy of it — the failure mode
+`feedback_fallback_layout_consistency` records, where a fallback that is not
+literally the same call silently diverges from the path it stands in for. -}
+repairTornGapRun : LPBox -> Array LPNode -> Array LPNode
+repairTornGapRun containerBox children =
+    let
+        reclassifyAt index child =
+            if commentRole (lpnBox child) /= Just LeadsNext then
+                child
+
+            else
+                let
+                    before =
+                        Array.slice 0 index children
+
+                    after =
+                        Array.slice (index + 1) (Array.length children) children
+                in
+                lpnSetCommentRole
+                    (classifyCommentKind
+                        containerBox
+                        child
+                        before
+                        after
+                        (firstRowInSubtree child)
+                    )
+                    child
+    in
+    Array.indexedMap reclassifyAt children
 
 
 {-
@@ -2203,6 +2263,60 @@ commentIsSingleLineBlock node =
 
         _ ->
             False
+
+
+{-| Would every comment sharing this gap cross the separator too?
+
+**Rule C1 — one gap is one attachment, and the run moves together.** The two
+`leadsAcross*Separator` tests below send a comment past an unrecorded `,` / `|`
+to the item AFTER it (rule C2), and both ask `commentIsSingleLineBlock` of the
+ONE comment being classified. A gap holds a *run*, and the other members answer
+that question differently: a `--` and a multi-line `{- … -}` both stay with the
+item above. Applying the rule per member therefore tears the run across the
+separator — `[ 1 {- a -} -- b` ⏎ `, 2` came out as `[ 1 -- b` ⏎ `, {- a -} 2`,
+with the two comments **crossed**, the author's order reversed.
+
+So the movability test is asked of the whole run: it crosses only if every
+member would. This is the same all-or-nothing C3 already applies to *riding*
+(«the run rides iff every member rides») — the missing half is *moving*. It can
+only make a comment stay where it was written, never move one that did not move
+before, so a gap holding one comment (and a homogeneous run, which already moved
+together) is unaffected.
+
+**Only a mixed run can reach it, which is why nothing here saw it until
+2026-08-06.** A run of single-line `{- -}`s all move; a run of `--`s all stay;
+`fuzz-idempotency.py --run N` splices N copies of ONE kind and so produces
+neither tear. It needed that gate's `--mix` axis. Worse, the reordering oracle
+catches only the half where the mover was written FIRST — `{- a\ntwo -} {- b -}`
+tears with the output still in source order, and no gate in this repo can see
+that at all.
+
+`before` / `after` are the comment's siblings in source order, so the run is the
+contiguous comment suffix of the first and the contiguous comment prefix of the
+second — a real item between two comments means a different gap. -}
+gapRunCrossesTogether : Array LPNode -> Array LPNode -> Bool
+gapRunCrossesTogether before after =
+    let
+        -- `Array.any (not ...)` rather than an `all`: the comment being
+        -- classified is excluded from both arrays and tested by the caller.
+        anyStays nodes =
+            Array.any (\n -> not (commentIsSingleLineBlock n)) nodes
+
+        contiguousComments nodes =
+            Array.foldl
+                (\n acc ->
+                    if acc.stopped || not (isCommentNode n) then
+                        { acc | stopped = True }
+
+                    else
+                        { acc | run = Array.pushLast n acc.run }
+                )
+                { run = [], stopped = False }
+                nodes
+                |> .run
+    in
+    not (anyStays (contiguousComments (Array.reverse before)))
+        && not (anyStays (contiguousComments after))
 
 
 {-| True when this comment was written BEFORE a record update's base name — the
@@ -3023,6 +3137,7 @@ classifyCommentKind containerBox commentNode before after row =
             not (Array.isEmpty before)
                 && not (isExposingListBox containerBox)
                 && commentIsSingleLineBlock commentNode
+                && gapRunCrossesTogether before after
                 && bracketNextItemRow >= 0
                 && (row == bracketPrevRow || row == bracketNextItemRow)
                 && not nextItemBlocksFrontGlue
@@ -3042,6 +3157,7 @@ classifyCommentKind containerBox commentNode before after row =
 
         leadsAcrossUpdateSeparator =
             commentIsSingleLineBlock commentNode
+                && gapRunCrossesTogether before after
                 && bracketNextItemRow >= 0
                 && (row == updateBaseRow || row == bracketNextItemRow)
                 && not nextItemBlocksFrontGlue

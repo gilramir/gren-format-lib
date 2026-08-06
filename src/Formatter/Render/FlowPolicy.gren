@@ -69,6 +69,29 @@ import Formatter.Logical.LogicalPrintingTree exposing
     delimiter line rather than dropping to its own. Kept distinct from
     `AlreadyTerminated` so a comment after a `--` / single-line comment still
     never glues.
+  - `TerminatedByOwnLineComment` — after a single-line `{- … -}` that OPENED its
+    own line inside a flow that was already hard-broken. The line holds nothing
+    but comments, so a following **token** must start a fresh row
+    (`joinPlacement` gives `OwnLine`) — while a following **comment** may still
+    merge up onto it, which is the one thing `AlreadyTerminated` will not allow.
+
+    That split is the whole reason it exists, and each half is load-bearing:
+
+      - Answering `FlowSep` (what this arm did until 2026-08-06) space-joins the
+        next TOKEN onto the comment's row. Where that token is a call whose
+        arguments are already broken below it, gluing shifts the function right
+        while its arguments keep their column — and a call's arguments must be
+        indented past the function token, so `\item ->` ⏎ `{- c -} fn` ⏎ `arg`
+        REPARSES as `(\item -> fn) arg`: an AST change, caught by `--show`'s AST
+        comparison rather than by any idempotency check.
+      - Answering `AlreadyTerminated` or `HardNl` instead stops a following
+        own-line comment merging up, so a run the author wrote on separate rows
+        stays on separate rows where elm-format joins it
+        (`PipelineLambdaArgTrailingComment` pins that, and it is why this is a
+        new state rather than a reuse of either).
+
+    It propagates through a merge: once the row is a comment row, it stays one
+    until something opens a new line.
 
 -}
 type NextSeparator
@@ -77,6 +100,7 @@ type NextSeparator
     | HardNl
     | AlreadyTerminated
     | TerminatedByBlockComment
+    | TerminatedByOwnLineComment
 
 
 {-| The decision state threaded through a flow fold.
@@ -380,6 +404,13 @@ decide config state facts =
                         if roleGlues f.role && state.separator /= FirstItem then
                             GlueSpace
 
+                        else if state.separator == TerminatedByOwnLineComment then
+                            -- A COMMENT may still merge up onto a comments-only
+                            -- row; only a token may not. `joinPlacement` answers
+                            -- the token's question (`OwnLine`), so ask it the
+                            -- flow question instead.
+                            joinPlacement FlowSep
+
                         else
                             joinPlacement state.separator
                 in
@@ -422,6 +453,19 @@ decide config state facts =
                     { separator =
                         if state.separator == HardNl && placement == GlueSpace then
                             HardNl
+
+                        else if
+                            placement
+                                == OwnLine
+                                || state.separator
+                                == TerminatedByOwnLineComment
+                        then
+                            -- This comment opened a row of its own (or merged
+                            -- onto one that did). The row is comments-only, and
+                            -- stays so through any further merge — a following
+                            -- TOKEN must not space-join onto it, which is what
+                            -- `FlowSep` here used to do.
+                            TerminatedByOwnLineComment
 
                         else
                             FlowSep
@@ -594,6 +638,12 @@ joinPlacement sep =
         -- two states differently — see `commentPlacement`).
         TerminatedByBlockComment ->
             GlueNoSep
+
+        -- The row holds only comments, so a TOKEN starts a fresh one. (A
+        -- following comment does not come through here — the comment arm treats
+        -- this state as `FlowSep` so the run can still merge.)
+        TerminatedByOwnLineComment ->
+            OwnLine
 
 
 {-| A comment glues onto the previous item's line when the classifier tagged it

@@ -94,6 +94,8 @@ cd gren-format-lib/tests
 python3 fuzz-idempotency.py -j 12                                      # whole corpus
 python3 fuzz-idempotency.py -v testfiles/<SuiteDir>/Foo.formatted.gren  # one file
 python3 fuzz-idempotency.py --gaps --run 2 -j 12                       # a RUN of two per gap
+python3 fuzz-idempotency.py --gaps --mix-pairs -j 12                   # runs of MIXED kinds
+python3 fuzz-idempotency.py --gaps --mix multi,block -j 12             # one such sequence
 ```
 
 **Rebuild the `gren-format` app first** (`cd ../../gren-format && ./build.sh`) —
@@ -114,6 +116,85 @@ default run is exactly what it was. First whole-corpus run: **20 findings in
 onto its row — unparseable for a `let` binding, and invisible with one comment),
 the rest in an effect module's header. Write-up in
 [`docs/commentRunTesting.md`](docs/commentRunTesting.md#the-run-axis-what---run-2-found).
+
+**`--run 3` swept CLEAN (2026-08-06) and the length axis is done.** 57,885 gaps,
+17 findings, all 17 `[known: compiler-common#35]` — byte-identical to the n=1 and
+n=2 residual. Do not sweep n=4; sweep **composition** instead.
+
+**`--mix A,B` / `--mix-pairs` is the THIRD axis, and it is the one that paid.**
+`--run N` splices N copies of ONE kind, so every member's neighbours have the
+same shape it does — going 2→3 merely adds a second *identical* neighbour, which
+is why n=3 found nothing. But the rules a run can break are written about a
+neighbour's **shape**, not its count: `commentRendersOwnLine` separates a
+multi-line `{- … -}` from a single-line one and from a `--`, `FlowPolicy`'s
+inline arm asks whether the previous comment *glued*, and `spanTrailingOwnLine`
+peels a suffix that mixes both. Only a mixed run puts those on either side of
+each other. Two consequences are forced rather than chosen: a `--` swallows its
+row, so the joiner is per-boundary keyed on the member to its LEFT (`run_text`'s
+single joiner is the homogeneous special case), and one `--` anywhere puts the
+whole run on `splice_line` and off the all-at-once fast path. A mixed kind is the
+same 4-tuple `KINDS` holds, labelled `a+b`, so `repro.py` and
+`check-decision-stability.py` take one by path without knowing there is such a
+thing.
+
+First whole-corpus sweep: **1,752 findings in 115,770 gaps — 1,718
+formatter-side**, in three bugs, all fixed the same day, taking it to **50 / 16**
+with every other gate unmoved (n=1, run 2, run 3 all still 17-all-known;
+decision-stability PASS 0; both parity matrices byte-identical, which is the
+evidence the fixes cost no elm-format parity):
+
+- **1,696 were ONE C1 violation** — a comment run torn across a separator. Rule
+  C2 sends a single-line `{- -}` in a list's `,` gap to the item below; a `--`
+  and a multi-line `{- … -}` both stay above. Each is right alone, and
+  `leadsAcrossItemSeparator` asked the question per COMMENT, so a gap holding one
+  of each split in half — and when the mover was written first the output
+  **reversed the author's order**: `[ 1 {- a -} -- b` came out `[ 1 -- b` ⏎
+  `, {- a -} 2`. The test is now unanimous over the run
+  (`Comments.gapRunCrossesTogether`), which is the same all-or-nothing C3 already
+  applies to *riding*. Because comments attach one at a time in source order, a
+  comment can only see the members written EARLIER, so `repairTornGapRun` re-takes
+  the earlier decision — by calling `classifyCommentKind` again over the children
+  array now holding the whole run — rather than naming a replacement role, since
+  the fallback is `RidesInline` or `TrailsPrevious` depending on a branch above.
+  Fixture `BracketComments/CommentRunCrossesSeparator`.
+
+  **The reordering oracle sees only half of this class.** A run torn with the
+  mover written SECOND comes out in source order (`{- a⏎two -} {- b -}`), and
+  nothing in this repo can see that at all; it is pinned as that fixture's
+  `tornWithoutCrossing` and was found by enumerating the grid, not by a gate.
+
+- **2 changed the AST**, which no idempotency check can see because the output is
+  a stable fixed point. `FlowPolicy` left `FlowSep` after a comment that opened
+  its own line, and `FlowSep` IS the space-join, so the next token came up onto
+  the comment's row — shifting a broken call's function name right while its
+  arguments kept their column. A call's arguments must be indented past the
+  function token, so `\item ->` ⏎ `{- c -} fn` ⏎ `arg` reparsed as
+  `(\item -> fn) arg`. It needed a separator of its own,
+  `TerminatedByOwnLineComment`: a following TOKEN starts a fresh row while a
+  following COMMENT may still merge up — `AlreadyTerminated` and `HardNl` both
+  forbid the merge, which is what `PipelineLambdaArgTrailingComment` pins.
+  Fixture `PipelineComments/OwnLineCommentBreaksBeforeToken`.
+
+- **The bracket opener's two paths disagreed.** Two LPTs identical apart from the
+  container constructor rendered a leading run differently — `glueLeadBoxes`
+  (flat path) stacked each comment on its own row, `glueLeadingCommentRun`
+  (comment path) merged them onto one. Format¹ emits the shape that reparses as
+  the other constructor, so the file never settled. What hid it: the multi-line
+  comment is a child of the ITEM, not the list, so the list's own comment
+  children are two `RidesInline` ones and `literalCommentsRideFlatLine` answers
+  True. Every comment there can share a line and only the BODY cannot join them —
+  the body's shape decides whether they may share ITS line, not each other's — so
+  they stay together. Fixture `BracketComments/OpenerRunStaysOneRow`.
+
+**7 of the 16 that remain are [compiler-common#25](https://github.com/gren-lang/compiler-common/issues/25)**
+— a top-level declaration's `Located.start` is `{name row, col 1}`, so splicing a
+run into a `type ⟨here⟩ alias` / `port ⟨here⟩ name` gap (which pushes the name to
+the next row) makes the recorded start a point that is neither keyword nor name;
+comments are partitioned by it, one hoisted out as `Standalone` and one kept
+inside, and the blank-line count above the torn run then differs between passes.
+Already filed and **not fixable here** — the keyword's row is simply not in the
+AST. See `../COMPILER_COMMON_BUG_decl_start_row.md`. They are not yet labelled by
+`known_upstream_issue`, so they still count as formatter-side in the summary.
 
 **Those 16 are fixed too** (`b953853`), and what they were is worth recording
 because the first reading of them was wrong. They looked like an *owner* split —
