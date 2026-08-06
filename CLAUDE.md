@@ -138,7 +138,7 @@ same 4-tuple `KINDS` holds, labelled `a+b`, so `repro.py` and
 thing.
 
 First whole-corpus sweep: **1,752 findings in 115,770 gaps — 1,718
-formatter-side**, in three bugs, all fixed the same day, taking it to **50 / 16**
+formatter-side**, in three bugs, all fixed the same day, taking it to **48 / 14**
 with every other gate unmoved (n=1, run 2, run 3 all still 17-all-known;
 decision-stability PASS 0; both parity matrices byte-identical, which is the
 evidence the fixes cost no elm-format parity):
@@ -186,8 +186,20 @@ evidence the fixes cost no elm-format parity):
   the body's shape decides whether they may share ITS line, not each other's — so
   they stay together. Fixture `BracketComments/OpenerRunStaysOneRow`.
 
-**7 of the 16 that remain are [compiler-common#25](https://github.com/gren-lang/compiler-common/issues/25)**
-— a top-level declaration's `Located.start` is `{name row, col 1}`, so splicing a
+**The 14 that remain are 8 + 5 + 1, and the list is exact** (from
+`--gaps --mix-pairs` on `b83cdfa`): **8 are
+[compiler-common#25](https://github.com/gren-lang/compiler-common/issues/25)**
+(`TypeAlias`×2, `RecordUpdateComplexBase`×2, `TypeComments`,
+`RecordFieldAsPattern`, `PortModuleKeywordAdded`, `DocCommentWithEmoji`);
+**5 are the effect-module header tail** (`EffectHeaderCloseRowComment`,
+`EffectModuleFxWhereComment`, `EffectModuleOpenLineTrailer`,
+`EffectModuleWideSpacingComment`, `TrickyComments` — a `--` after `exposing (..)`
+makes the next comment oscillate between indent 4 and a detached column 1); and
+**1 is a comment run between a call's function and its argument**
+(`KitchenSink` line 156 — format¹ glues the multi-line comment onto `not`'s row
+and rides the second on its `-}`, format² breaks all three onto their own rows).
+
+On the 8: a top-level declaration's `Located.start` is `{name row, col 1}`, so splicing a
 run into a `type ⟨here⟩ alias` / `port ⟨here⟩ name` gap (which pushes the name to
 the next row) makes the recorded start a point that is neither keyword nor name;
 comments are partitioned by it, one hoisted out as `Standalone` and one kept
