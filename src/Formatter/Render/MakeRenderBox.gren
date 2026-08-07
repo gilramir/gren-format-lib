@@ -1968,13 +1968,6 @@ makeBackwardPipelineBox forceVertical children =
                 && not (literalCommentsRideFlatLine seedNodes)
             )
                 || Array.any (\b -> b) (Array.indexedMap (\i n -> stepLeadsWithComment (i == 0) n) stepNodes)
-                -- A `--` line comment buried at the end of the seed's own
-                -- subtree (e.g. a nested binop's `"""…""" -- c` operand) is
-                -- invisible to the shallow `nodeIsComment seedNodes` scan above,
-                -- but the trailing-operator path would `B.addSuffix " <|"` onto
-                -- the seed's `-- c` line and swallow the `<|`. Route to the
-                -- comment-aware layout, which stacks `<| body` on its own line.
-                || Array.any subtreeEndsWithLineComment seedNodes
 
         -- The operator is the first NON-comment child (a step may lead with an
         -- own-line comment before `<|`).
@@ -1996,70 +1989,85 @@ makeBackwardPipelineBox forceVertical children =
         -- `not allStepsBackward` case.
         buildFlowBox 0 children
 
-    else if hasBoundaryComment then
-        -- A comment at a step boundary (own-line leading comment before `<|`, or a
-        -- trailing comment after a step body) switches to operator-LEADING layout:
-        -- seed on its own line, then each step at +4 as `<| body` with leading
-        -- comments own-line above it and trailing comments glued to the body's
-        -- last line.
-        makeBackwardCommentedPipeline seedNodes stepNodes
-
     else
+        -- The seed is rendered ONCE, before the two layouts are chosen between,
+        -- because the choice is partly a question about the rendered seed and
+        -- both layouts want the same box. (`makeBackwardCommentedPipeline` used
+        -- to render it again with this very call.)
         buildFlowBox 0 seedNodes
             |> Result.andThen
                 (\seedBox ->
-                    -- The seed is kept as a Box (not collapsed to a Line): a
-                    -- multi-line seed (a broken record/array/parenthesized binop)
-                    -- glues ` <|` onto its LAST line via `B.addSuffix`, so the
-                    -- trailing-operator style extends to a multi-line seed the
-                    -- same way it works for a single-line one.
-                    traverseResult
-                        (\stepNode ->
-                            let
-                                -- Comments before the `<|`, split by whether they
-                                -- can share its row. A ridable run glues onto the
-                                -- operator's row IN FRONT of it (`fn {- c -} <|`);
-                                -- one that cannot takes rows of its own above the
-                                -- operator, which then drops to a row of its own
-                                -- too. Only a LATER step can carry the second kind
-                                -- — on the first step it is a whole-chain trigger,
-                                -- since that operator sits on the seed's row.
-                                { leading, rest = afterLead } =
-                                    spanLeadingComments (lpnChildren stepNode)
+                    if
+                        hasBoundaryComment
+                            -- The seed's last line ends in an open `--` (a `--`
+                            -- buried at the end of its subtree, e.g. a nested
+                            -- binop's `"""…""" -- c` operand — invisible to the
+                            -- shallow `nodeIsComment seedNodes` scan above). The
+                            -- trailing-operator path would `B.addSuffix " <|"`
+                            -- onto that line and swallow the `<|`.
+                            || B.endsOpen seedBox
+                    then
+                        -- A comment at a step boundary (own-line leading comment
+                        -- before `<|`, or a trailing comment after a step body)
+                        -- switches to operator-LEADING layout: seed on its own
+                        -- line, then each step at +4 as `<| body` with leading
+                        -- comments own-line above it and trailing comments glued
+                        -- to the body's last line.
+                        makeBackwardCommentedPipeline seedBox stepNodes
 
-                                canRide =
-                                    Array.all commentTextCanRide leading
-                            in
-                            when Array.popFirst afterLead is
-                                Just { rest = bodyNodes } ->
-                                    -- The comments the author wrote on the `<|`'s
-                                    -- own row travel with the operator, not with
-                                    -- the body below it.
-                                    spanOperatorRowComments bodyNodes
-                                        |> (\split ->
-                                                Ok
-                                                    { leadGlued =
-                                                        if canRide then
-                                                            leading
+                    else
+                        -- The seed is kept as a Box (not collapsed to a Line): a
+                        -- multi-line seed (a broken record/array/parenthesized binop)
+                        -- glues ` <|` onto its LAST line via `B.addSuffix`, so the
+                        -- trailing-operator style extends to a multi-line seed the
+                        -- same way it works for a single-line one.
+                        traverseResult
+                            (\stepNode ->
+                                let
+                                    -- Comments before the `<|`, split by whether they
+                                    -- can share its row. A ridable run glues onto the
+                                    -- operator's row IN FRONT of it (`fn {- c -} <|`);
+                                    -- one that cannot takes rows of its own above the
+                                    -- operator, which then drops to a row of its own
+                                    -- too. Only a LATER step can carry the second kind
+                                    -- — on the first step it is a whole-chain trigger,
+                                    -- since that operator sits on the seed's row.
+                                    { leading, rest = afterLead } =
+                                        spanLeadingComments (lpnChildren stepNode)
 
-                                                        else
-                                                            []
-                                                    , leadOwnRow =
-                                                        if canRide then
-                                                            []
+                                    canRide =
+                                        Array.all commentTextCanRide leading
+                                in
+                                when Array.popFirst afterLead is
+                                    Just { rest = bodyNodes } ->
+                                        -- The comments the author wrote on the `<|`'s
+                                        -- own row travel with the operator, not with
+                                        -- the body below it.
+                                        spanOperatorRowComments bodyNodes
+                                            |> (\split ->
+                                                    Ok
+                                                        { leadGlued =
+                                                            if canRide then
+                                                                leading
 
-                                                        else
-                                                            leading
-                                                    , glued = split.glued
-                                                    , rest = split.rest
-                                                    }
-                                           )
+                                                            else
+                                                                []
+                                                        , leadOwnRow =
+                                                            if canRide then
+                                                                []
 
-                                Nothing ->
-                                    Err "box: backward pipeline step has no children"
-                        )
-                        stepNodes
-                        |> Result.andThen (assembleBackwardPipeline forceVertical seedBox)
+                                                            else
+                                                                leading
+                                                        , glued = split.glued
+                                                        , rest = split.rest
+                                                        }
+                                               )
+
+                                    Nothing ->
+                                        Err "box: backward pipeline step has no children"
+                            )
+                            stepNodes
+                            |> Result.andThen (assembleBackwardPipeline forceVertical seedBox)
                 )
 
 
@@ -2075,25 +2083,21 @@ silently reflows every step below it. (It did: this path applied a uniform
 `grenIndent` to every step and was not updated when `6f06b66` made the plain path
 cumulative, so `a <| b <| c <| d` was a staircase until you wrote a comment in
 it, then went flat.) -}
-makeBackwardCommentedPipeline : Array LPNode -> Array LPNode -> Result String Box
-makeBackwardCommentedPipeline seedNodes stepNodes =
-    buildFlowBox 0 seedNodes
-        |> Result.andThen
-            (\seedBox ->
-                traverseResult renderCommentedBackwardStep stepNodes
-                    |> Result.map
-                        (\stepBoxLists ->
-                            B.stack1
-                                ([ seedBox ]
-                                    ++ Array.flatten
-                                        (Array.indexedMap
-                                            (\i boxes ->
-                                                Array.map (applyIndent ((i + 1) * grenIndent)) boxes
-                                            )
-                                            stepBoxLists
-                                        )
+makeBackwardCommentedPipeline : Box -> Array LPNode -> Result String Box
+makeBackwardCommentedPipeline seedBox stepNodes =
+    traverseResult renderCommentedBackwardStep stepNodes
+        |> Result.map
+            (\stepBoxLists ->
+                B.stack1
+                    ([ seedBox ]
+                        ++ Array.flatten
+                            (Array.indexedMap
+                                (\i boxes ->
+                                    Array.map (applyIndent ((i + 1) * grenIndent)) boxes
                                 )
-                        )
+                                stepBoxLists
+                            )
+                    )
             )
 
 
