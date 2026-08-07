@@ -138,6 +138,10 @@ def box_line_condensed_text(node):
     t = node["type"]
     if t == "Text":
         return quote(node["text"])
+    if t == "NoTrim":
+        return "NoTrim" + quote(node["text"])
+    if t == "LineComment":
+        return "Open" + quote(node["text"])
     if t in ("Space", "Tab"):
         return t
     if t == "Row":

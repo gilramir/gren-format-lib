@@ -359,7 +359,7 @@ commentNodeBox : LPNode -> Result String Box
 commentNodeBox node =
     when lpnBox node is
         SingleLineComment { loc } ->
-            Ok (B.line (B.literal ("--" ++ loc.value)))
+            Ok (B.line (B.lineComment ("--" ++ loc.value)))
 
         BlockComment { loc } ->
             if String.contains "\n" loc.value then

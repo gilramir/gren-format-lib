@@ -5067,7 +5067,7 @@ renderFlowItem node =
                 { node = node
                 , box = B.blankLine
                 , isBlock = False
-                , comment = Just { box = B.line (B.literal ("--" ++ loc.value)), isLineComment = True, multiLine = False }
+                , comment = Just { box = B.line (B.lineComment ("--" ++ loc.value)), isLineComment = True, multiLine = False }
                 , lambdaBodyBox = Nothing
                 }
 

@@ -7,6 +7,7 @@ module Formatter.Render.Box exposing
     , andThen
     , blankLine
     , destructure
+    , endsOpen
     , freezeTabs
     , height
     , identifier
@@ -14,6 +15,7 @@ module Formatter.Render.Box exposing
     , isLine
     , keyword
     , line
+    , lineComment
     , lineLength
     , literal
     , mapFirstLine
@@ -43,17 +45,29 @@ import Json.Encode as Json
 
 
 {-| A `Line` is always exactly one line. `Tab` aligns to the nearest multiple
-of 4 spaces; `Row` joins elements onto one line. `NoTrim` is literal text whose
-trailing whitespace is *significant* (the content of a `"""…"""` string): when
-it is the rightmost leaf of a rendered line, `render` skips its usual per-line
-right-trim so the trailing spaces survive. It renders and measures exactly like
-`Text` — the two differ only in that trim exemption. -}
+of 4 spaces; `Row` joins elements onto one line.
+
+Two of the five constructors are `Text` carrying one extra fact about its own
+right edge, and both facts are read the same way — by walking a line's rightmost
+leaf (`endsNoTrim`, `lineEndsOpen`):
+
+  - `NoTrim` is literal text whose trailing whitespace is *significant* (the
+    content of a `"""…"""` string): when it is the rightmost leaf of a rendered
+    line, `render` skips its usual per-line right-trim so the trailing spaces
+    survive.
+  - `LineComment` is a `--` comment's text, which runs to the end of its row:
+    when it is the rightmost leaf, nothing may be appended to that line. See
+    `endsOpen`.
+
+Both render and measure exactly like `Text`; they differ from it only in the one
+question each answers about the right edge. -}
 type Line
     = Text String
     | Row (Array Line)
     | Space
     | Tab
     | NoTrim String
+    | LineComment String
 
 
 {-| A `Box` holds at least one line. `SingleLine` can appear mid-line; `Stack`
@@ -90,6 +104,15 @@ content line of a `"""…"""` string. See the `NoTrim` `Line` constructor. -}
 noTrim : String -> Line
 noTrim =
     NoTrim
+
+
+{-| The text of a `--` line comment, delimiter included. Renders and measures as
+`literal` does; the constructor is what makes the resulting box answer True to
+`endsOpen` for as long as the comment stays its rightmost leaf. Every `--` a box
+can contain must be built with this, or `endsOpen` under-reports. -}
+lineComment : String -> Line
+lineComment =
+    LineComment
 
 
 row : Array Line -> Line
@@ -281,6 +304,9 @@ blankLike l =
         NoTrim t ->
             Text (String.repeat (String.count t) " ")
 
+        LineComment t ->
+            Text (String.repeat (String.count t) " ")
+
         Space ->
             Space
 
@@ -310,6 +336,9 @@ freezeLine startColumn line_ =
             { line = line_, endColumn = startColumn + String.count t }
 
         NoTrim t ->
+            { line = line_, endColumn = startColumn + String.count t }
+
+        LineComment t ->
             { line = line_, endColumn = startColumn + String.count t }
 
         Space ->
@@ -403,6 +432,9 @@ renderLine startColumn line_ =
         NoTrim text ->
             text
 
+        LineComment text ->
+            text
+
         Space ->
             " "
 
@@ -421,6 +453,9 @@ lineLength startColumn line_ =
                 String.count s
 
             NoTrim s ->
+                String.count s
+
+            LineComment s ->
                 String.count s
 
             Space ->
@@ -446,6 +481,9 @@ renderLineState startColumn line_ =
             { string = text, endColumn = startColumn + String.count text }
 
         NoTrim text ->
+            { string = text, endColumn = startColumn + String.count text }
+
+        LineComment text ->
             { string = text, endColumn = startColumn + String.count text }
 
         Space ->
@@ -502,6 +540,61 @@ endsNoTrim line_ =
             when Array.last lines_ is
                 Just l ->
                     endsNoTrim l
+
+                Nothing ->
+                    False
+
+        _ ->
+            False
+
+
+{-| Does this box's LAST line end in an open `--`, so that nothing may be glued
+onto it? A `--` runs to the end of its row: append a `)`, a `, `, an operator or
+any other token after one and the token is inside the comment, and the output no
+longer parses to the AST it was rendered from.
+
+The renderer's glue operations (`addSuffix` / `addSuffixBox` and the flow
+assemblers that build on them) all land on the last line, so this is the question
+each of them has to ask before gluing. It replaced a hand-written walk down the
+LPT's right spine that had to enumerate which container constructors render a
+closing delimiter after their last child — a mirror of the renderer that nothing
+forced to stay in step with it. A box knows: `[ x -- c` ⏎ `]` ends in `]`, and
+`x -- c` ends in the comment, and neither answer has to be predicted.
+
+`Line`-level, not `Box`-level, and that is what makes it survive composition. The
+fact rides the comment's own leaf, so `prefix`, `indent`, `addSuffixBox`,
+`stack1` and `row` all preserve it for free: they only ever prepend to the left
+or stack above, so a `LineComment` that is a line's rightmost leaf stays its
+rightmost leaf. Exactly the argument `endsNoTrim` already relies on.
+-}
+endsOpen : Box -> Bool
+endsOpen box_ =
+    when box_ is
+        SingleLine l ->
+            lineEndsOpen l
+
+        MustBreakBox l ->
+            lineEndsOpen l
+
+        Stack s ->
+            when Array.last s.rest is
+                Just l ->
+                    lineEndsOpen l
+
+                Nothing ->
+                    lineEndsOpen s.second
+
+
+lineEndsOpen : Line -> Bool
+lineEndsOpen line_ =
+    when line_ is
+        LineComment _ ->
+            True
+
+        Row lines_ ->
+            when Array.last lines_ is
+                Just l ->
+                    lineEndsOpen l
 
                 Nothing ->
                     False
@@ -571,6 +664,12 @@ lineToJson line_ =
         NoTrim s ->
             Json.object
                 [ { key = "type", value = Json.string "NoTrim" }
+                , { key = "text", value = Json.string s }
+                ]
+
+        LineComment s ->
+            Json.object
+                [ { key = "type", value = Json.string "LineComment" }
                 , { key = "text", value = Json.string s }
                 ]
 
