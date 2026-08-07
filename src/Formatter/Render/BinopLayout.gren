@@ -130,7 +130,7 @@ chain on one line). `ops[k]` sits between `operandBoxes[k]` and
 `operandBoxes[k+1]`. Groups break at operators whose precedence == `minPrec`;
 tighter operators join inline within a group — the grouping only matters for the
 trailing-operand case. A forced-vertical chain never comes here (it renders
-one-operator-per-line via `verticalBinopChainBox`). -}
+precedence-grouped via `verticalBinopChainBox`). -}
 assembleBinopBox : Int -> Array Box -> Array String -> Result String Box
 assembleBinopBox minPrec operandBoxes ops =
     let
