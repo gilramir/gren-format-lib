@@ -2433,7 +2433,7 @@ buildBackwardBodyBox bodyNodes =
 --     ARGUMENT, where elm-format breaks for a multi-line application
 --     (`isBrokenCall`);
 --   * one ending in a `--`, which would swallow the operator outright
---     (`subtreeEndsWithLineComment`). This is the C4-preserving alternative to
+--     (`B.endsOpen`). This is the C4-preserving alternative to
 --     sending the whole chain operator-leading, which used to move the seed's own
 --     `<|` off its row over a comment two steps away — see
 --     `makeBackwardPipelineBox`.
@@ -2443,27 +2443,6 @@ backwardMultiStep forceVertical seedBox stepBodies =
         |> Result.andThen
             (\bodyBoxes ->
                 let
-                    -- True when a step body ends in an open `--`, so the next
-                    -- step's ` <|` cannot be glued onto its last line. The body's
-                    -- LAST node, not any of them: a `--` in the middle of a body
-                    -- is followed by more of that body, so the ` <|` still lands
-                    -- on a row it cannot swallow.
-                    endsInLineComment step =
-                        when Array.last step.rest is
-                            Just lastNode ->
-                                subtreeEndsWithLineComment lastNode
-
-                            Nothing ->
-                                False
-
-                    bodyEndsInLineComment i =
-                        when Array.get i stepBodies is
-                            Just step ->
-                                endsInLineComment step
-
-                            Nothing ->
-                                False
-
                     -- The comments the author wrote on step i's `<|` row. They
                     -- glue onto the line that introduces that step: step 0's onto
                     -- the seed's `<|`, step i's onto step i-1's body.
@@ -2523,7 +2502,7 @@ backwardMultiStep forceVertical seedBox stepBodies =
                             -- Same for a `--` ending a body: it is still a
                             -- single-line box, but the ` <| ` of the step after it
                             -- cannot share that row.
-                            || Array.any endsInLineComment stepBodies
+                            || Array.any (\b -> B.endsOpen b.box) bodyBoxes
                             -- An own-row comment before an operator needs rows,
                             -- so the chain cannot stay on one.
                             || Array.any (\step -> not (Array.isEmpty step.leadOwnRow)) stepBodies
@@ -2593,7 +2572,12 @@ backwardMultiStep forceVertical seedBox stepBodies =
                                                     < n
                                                     - 1
                                                     && (isBrokenCall
-                                                            || bodyEndsInLineComment i
+                                                            -- This body ends in an
+                                                            -- open `--`, so the next
+                                                            -- step's ` <|` cannot be
+                                                            -- glued onto its last
+                                                            -- line.
+                                                            || B.endsOpen bodyBox
                                                             || not (Array.isEmpty nextLeadOwnRow)
                                                        )
                                             then
@@ -4415,17 +4399,13 @@ parenGenericFallbackBox flags children =
                                 -- paren whose content ENDS in one cannot use the
                                 -- inline form -- its `)` would be glued after the
                                 -- comment and swallowed (`(Int -> Int -- c)`,
-                                -- which does not reparse). The rendered box does
-                                -- not say so on its own: a trailing line comment
-                                -- glues onto the running row and leaves a
-                                -- one-row box, so `isSingleLine` is True.
+                                -- which does not reparse). It is a separate
+                                -- question from `contentForcesVertical`: a
+                                -- trailing line comment glues onto the running row
+                                -- and leaves a ONE-row box, so `isSingleLine` is
+                                -- True and only the right edge says otherwise.
                                 contentEndsWithLineComment =
-                                    when Array.last children is
-                                        Just lastChild ->
-                                            subtreeEndsWithLineComment lastChild
-
-                                        Nothing ->
-                                            False
+                                    B.endsOpen innerBox
 
                                 goVertical =
                                     flags.forceVertical
@@ -5924,12 +5904,22 @@ assembleFlowImpl measure flowStart flowIndent items =
                 item =
                     paired.item
 
+                -- A comment item carries its text in `comment.box`; its own `box`
+                -- is a blank line placeholder (`renderFlowItem`).
+                itemBox =
+                    when item.comment is
+                        Just c ->
+                            c.box
+
+                        Nothing ->
+                            item.box
+
                 decision =
                     let
                         base =
                             FP.decide config acc.state (factsFor item)
                     in
-                    if subtreeEndsWithLineComment item.node then
+                    if B.endsOpen itemBox then
                         -- This item's rendered box ends its last line in an open
                         -- `--` (a `--` buried at the end of a multi-line operand's
                         -- subtree — e.g. a `<|`-pipeline operand whose last step is
