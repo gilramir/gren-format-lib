@@ -241,7 +241,19 @@ pairableCommentLine c =
 
 
 {-| Assemble a broken flow (head at base, each following item at +`indent`) that
-may carry comments. A comment trailing the preceding item on the same source row
+may carry comments.
+
+**This is the comment-placement policy for a flow the caller has already
+committed to breaking**, and it is the second such policy in `Render/` —
+`FlowPolicy.decide` is the one for a flow that may still glue, and nothing here
+calls it. Its `pending` / `poisoned` / `lastRow` accumulator plays the part
+`decide`'s separator states play there. The two agree on how a comment is
+*classified* (the stored `CommentRole`, `commentGluesToPrevious`,
+`pairableCommentLine` are shared) and differ on assembly, which is the finding
+that stopped the migration between them. See `FlowPolicy`'s module doc for the
+division.
+
+A comment trailing the preceding item on the same source row
 glues onto that item's last line — for a single-line item, its line plus a space
 is prepended onto the comment box (`B.prefix`), so a multi-line comment's body
 reindents under it (`f {- multi… -}`, `+ b {- multi… -}`). A single-line block

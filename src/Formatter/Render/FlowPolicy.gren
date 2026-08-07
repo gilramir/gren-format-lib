@@ -13,23 +13,44 @@ module Formatter.Render.FlowPolicy exposing
     , initialFlowState
     )
 
-{-| The flow fold's decision layer, consumed by the Box renderer.
+{-| The **gluing** flow's decision layer, consumed by the Box renderer.
 
 The Box renderer's flow fold (`assembleFlow`) walks a sequence of sibling
 LPNodes and joins every item onto the flow built so far. *How* an item joins
 — glued with a space, dropped to its own line, wrapped as an indented block,
 … — is a layout decision whose reparse fixed-point-ness the idempotency and
 whitespace fuzzers have proven. This module holds that decision procedure,
-kept out of the renderer so every join decision lives in one place (matching
+kept out of the renderer so those decisions live in one place (matching
 elm-format's ElmStructure layout rules) instead of being scattered through
 the renderer's own state machine.
 
 The invariant: **the renderer has no layout policy of its own.** Any decision
 input richer than what `ItemFacts` carries (real source rows where this layer
 tracks `-1`, rendered-box shape where it dispatches on box type) is not extra
-precision — it is a divergence generator. All join decisions go through
-`decide`; the renderer keeps only *materialization* (turning a `Placement`
-into a `Box`).
+precision — it is a divergence generator. A gluing flow's join decisions go
+through `decide`; the renderer keeps only *materialization* (turning a
+`Placement` into a `Box`).
+
+**This is not the only policy layer, and reading it as one will send you to the
+wrong file.** A flow the caller has already committed to breaking does not come
+through here at all: `FlowAssembly.assembleBrokenWithComments` is the policy for
+that case — where a comment glues backward onto the previous item's last line,
+where it rides the next term's row, and the all-or-nothing run poisoning that
+keeps a run from half-jumping ahead of itself. Broken calls, comment-bearing
+binop chains and a pipeline step's stacked trailer route through it, and it
+never calls `decide`. The two carry the same *classification* of a comment (the
+stored `CommentRole`, `commentGluesToPrevious`, `pairableCommentLine`) and
+deliberately differ in assembly; the migration that would have unified them was
+stopped, and its dead `FlowConfig.brokenFlow` flag deleted, on the finding that
+the assemblies need to differ. If a comment is landing in the wrong place, first
+work out which of the two placed it.
+
+One mirror of this module lives outside it and is stated here so it can be found
+from this end: `NodeClassify.commentBreaksFlowRow` predicts, before anything is
+rendered, which comments `decide` will let a following item share a row with. It
+exists because `forceVertical` is derived from AST rows that have no comments in
+them. Its own docstring says it must track `decide`, and today nothing checks
+that it still does.
 
 `decide` is total: the one error case in this area — a paired "comment" that
 is not actually a block comment — is a caller-side classification error,
