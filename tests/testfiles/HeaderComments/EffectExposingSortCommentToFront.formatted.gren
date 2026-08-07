@@ -1,0 +1,19 @@
+effect module Foo where { subscription = MySub } exposing {- describes apple -}
+    {- and this one
+       spans rows -}
+    ( apple
+    , mango
+    , zebra
+    )
+
+
+zebra =
+    0
+
+
+apple =
+    1
+
+
+mango =
+    2

@@ -1624,6 +1624,41 @@ only then are its crash/non-idempotent finds trustworthy). Note current-Gren
 **constructor patterns take at most one argument** (`Ctor a b` does not parse;
 multi-field variants carry a record) — a fact the generator encodes.
 
+**The hoisted-comment family it found, 5 seeds → 0 (2026-08-07).** `-n 3000`
+reported five non-idempotent seeds (407, 1920, 2285, 2331, 2992) and they were
+**one bug**, pre-existing — confirmed by rebuilding `47e5e39` and re-running
+`--seeds … --json` before assuming a fresh finding was this session's. The gate
+had not been run for three sessions, which is why it went unnoticed.
+
+A comment inside an **effect module's** `exposing` list whose owning name sorts
+to first place is hoisted to the `exposing ⟨here⟩ (` slot (`docs/sorting.md`).
+Format¹ put it on its own row and format² glued it onto the `exposing` row, with
+format² the fixed point. **Both spellings are stable on their own** — a plain
+module keeps a hoisted comment own-row, an effect module glues it — so what was
+wrong was that the hoist emitted the *plain*-module shape for an effect header.
+
+The two trees are byte-identical apart from **one field**: the comment's role,
+`LeadsOwnLine` in pass 1 and `RidesInline` in pass 2. That is the whole bug and
+it names its own fix. `SortSymbols.hoistBracketLeadingComments` moves a comment
+out of the bracket it was classified inside and into the header, and it kept the
+old slot's role. On a plain module that role is already what a reparse assigns
+(the keyword is anchored at the module name's end, so `Comments.headerTailGlue`
+is False); on an effect module `exposing` is a position-less `SynthesizedText` —
+emitted for `Src.Manager` and nothing else — so everything past it is the
+header's position-less tail, which glues a **single-line** comment and leaves a
+multi-line `{- … -}` alone. `hoistedTailRole` re-takes the role for the new slot
+under exactly that discriminator; a run keeps working because the renderer
+already knows a `--` ends its row. Fixtures
+`HeaderComments/EffectExposingSortCommentToFront` and
+`…ToFrontLine`; `-n 3000` goes 5 → **0** with all 365 fixtures unmoved.
+
+The earlier attempt in this area — relaxing `gluedExposingBox`'s single-line test
+— cost four fixtures and was reverted whole (see the "Diagnosed, attempted,
+BACKED OUT" note above). It was aimed at the **renderer**, and the renderer is
+not what was wrong: both shapes render correctly, and only one of them is the
+role the reparse computes. **When two passes differ in exactly one stored field,
+fix the pass that computes it, not the code that consumes it.**
+
 Two flags exist for unattended use: `--max-shrinks N` caps how many failures a
 run minimizes (one bug can hit hundreds of seeds, and shrinking each one can eat
 the whole run — the skipped count is printed and stored, never silent), and

@@ -702,20 +702,43 @@ comment above `(`, which reparses back out). Hoisting it here makes the sorted
 tree byte-identical to what a reparse yields, so the two agree by construction.
 `ListParen` is exclusively exposing lists, so this only ever fires on them.
 
+The hoisted comment lands in a slot `Comments.gren` classifies differently from
+the one it came out of, so its stored role has to be re-taken for the new
+position — see `hoistedTailRole`.
+
 Threads an `Array.Builder` accumulator rather than `Array.pushLast`/`++`: this
 runs on every node's children in the whole tree (`sortExposingLists`'s walk),
 including the root's — up to thousands of top-level declarations — so an
 O(n)-per-call accumulation here is O(n^2) over the whole file. -}
 hoistBracketLeadingComments : Array LPNode -> Array LPNode
 hoistBracketLeadingComments children =
+    let
+        -- The one place a hoisted comment's role has to change: an effect
+        -- module's header. `MakeLogical.processModuleLine` emits a
+        -- position-less `SynthesizedText "exposing"` for `Src.Manager` and for
+        -- nothing else (a plain module anchors the keyword at the end of its
+        -- name), so this is exactly the same discriminator
+        -- `Comments.pastSynthesizedExposing` uses one layer down.
+        intoEffectHeaderTail =
+            Array.any
+                (\n ->
+                    when lpnBox n is
+                        SynthesizedText v ->
+                            v == "exposing"
+
+                        _ ->
+                            False
+                )
+                children
+    in
     Array.foldl
         (\child acc ->
             when lpnBox child is
                 AllAcrossOrAllVertical ListParen ->
-                    Builder.append (hoistOne child) acc
+                    Builder.append (hoistOne intoEffectHeaderTail child) acc
 
                 AlwaysVertical ListParen ->
-                    Builder.append (hoistOne child) acc
+                    Builder.append (hoistOne intoEffectHeaderTail child) acc
 
                 _ ->
                     Builder.pushLast child acc
@@ -727,8 +750,8 @@ hoistBracketLeadingComments children =
 
 {-| Split a sorted exposing-list bracket into its leading comment sibling(s)
 followed by the bracket stripped of them (unchanged if it has none). -}
-hoistOne : LPNode -> Array LPNode
-hoistOne bracket =
+hoistOne : Bool -> LPNode -> Array LPNode
+hoistOne intoEffectHeaderTail bracket =
     let
         { pending, afterPending } =
             takeLeadingComments (lpnChildren bracket)
@@ -737,7 +760,44 @@ hoistOne bracket =
         [ bracket ]
 
     else
-        Array.pushLast (lpnReplaceChildren bracket afterPending) pending
+        Array.pushLast
+            (lpnReplaceChildren bracket afterPending)
+            (if intoEffectHeaderTail then
+                Array.map hoistedTailRole pending
+
+             else
+                pending
+            )
+
+
+{-| Re-take a hoisted comment's role for the slot it has just been moved into.
+
+The comment was classified inside the bracket, where it led an item; out here it
+sits between the header's `exposing` and the `(`, and on an **effect** module
+that is the header's position-less tail — the territory `Comments.headerTailGlue`
+owns. That rule glues a single-line comment onto the header row and leaves a
+multi-line `{- … -}` on its own, so a hoisted comment keeping `LeadsOwnLine`
+emitted the *plain*-module shape for an effect header and every later format
+re-glued it: not a fixed point.
+
+A plain module's `exposing` is positioned, so `headerTailGlue` is False there and
+`LeadsOwnLine` is already what a reparse assigns — nothing to re-take, which is
+why the caller only asks for an effect header. -}
+hoistedTailRole : LPNode -> LPNode
+hoistedTailRole node =
+    when lpnBox node is
+        SingleLineComment _ ->
+            lpnSetCommentRole TrailsPrevious node
+
+        BlockComment c ->
+            if String.contains "\n" c.loc.value then
+                node
+
+            else
+                lpnSetCommentRole RidesInline node
+
+        _ ->
+            node
 
 
 {-| Sort one exposing list's children. Every child here is already "inside the

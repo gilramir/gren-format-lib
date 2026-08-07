@@ -146,6 +146,26 @@ moves. Which name a comment belongs to is decided by **where the comment starts*
   `tbd.md`. A comment leading a name that sorts to any
   *non-first* slot stays inside the bracket, on its own line above that name.
 
+  **On an `effect module` header a single-line hoisted comment glues onto the
+  `exposing` row instead**, and this is forced rather than chosen. That header's
+  `exposing` keyword carries no position — its real column depends on the
+  untracked width of the `where { … }` block — so everything past it is the
+  header's position-less tail, which `Comments.gren` glues a single-line comment
+  onto (`headerTailGlue`). Emitting the own-line shape there is not a fixed
+  point: the reparse re-glues it. A multi-line `{- … -}` breaks its line wherever
+  it lands and keeps its own row on both spellings.
+
+  ```gren
+  effect module Foo where { subscription = MySub } exposing {- describes apple -}
+      ( apple
+      , mango
+      , zebra
+      )
+  ```
+
+  Fixtures `EffectExposingSortCommentToFront` (both block kinds) and
+  `EffectExposingSortCommentToFrontLine` (`--`).
+
 - **A comment written before the first name** (`( -- describes zebra` ⏎
   `zebra`): this one does **not** travel with a name at all. Because the opening
   `(` has no position in the AST, a comment ahead of the first item is attached

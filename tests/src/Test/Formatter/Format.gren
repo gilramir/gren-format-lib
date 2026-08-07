@@ -651,6 +651,8 @@ headerCommentsSuite fsPerm =
             , assertPrettyIn fsPerm "HeaderComments" "a `--` moved to the header's tail pushes the comment written after `exposing (..)` onto a row of its own, so that one detaches to column 1 while the `--` keeps the header's last row" "EffectHeaderLineCommentPushesTrailer"
             , assertPrettyIn fsPerm "HeaderComments" "an exposing-list comment whose name sorts to first place is hoisted onto its own line above `(` (import site)" "ExposingSortCommentToFront"
             , assertPrettyIn fsPerm "HeaderComments" "an exposing-list comment whose name sorts to first place is hoisted onto its own line above `(` (module-header site)" "ModuleExposingSortCommentToFront"
+            , assertPrettyIn fsPerm "HeaderComments" "a hoisted comment glues onto an EFFECT header's position-less `exposing` tail, where a plain module keeps it own-line; a multi-line one still takes its own row" "EffectExposingSortCommentToFront"
+            , assertPrettyIn fsPerm "HeaderComments" "a hoisted `--` glues onto an effect header's `exposing` tail too" "EffectExposingSortCommentToFrontLine"
             , assertPrettyIn fsPerm "HeaderComments" "an inline block comment on the last name of a flat module exposing list pins above the ); on an import's list it still travels with its name" "ExposingInlineComment"
             , assertPrettyIn fsPerm "HeaderComments" "multi-line module-header comment that wraps the module name to a continuation row" "HeaderCommentNameWrap"
             , assertPrettyIn fsPerm "HeaderComments" "comment between a vertical module exposing list and the first declaration" "ModuleVerticalExposingComment"
