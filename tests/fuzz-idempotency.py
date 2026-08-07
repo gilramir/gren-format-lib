@@ -304,7 +304,34 @@ def known_upstream_issue(workdir, source):
     instead of being re-investigated. Narrowing the gate would be the other
     thing, and is not what this is.
 
-    Today there are two.
+    Today there are three.
+
+    **compiler-common#14** — an expression's argument-indent scope is bumped to
+    the *line start* of the row its first term sits on, but only when that term
+    is a `Var`/`VarQual` (`Expression.parser`'s `indentationBumped`). A lambda,
+    `if`, `when` or `let` skips the bump, so it keeps whatever looser indent the
+    enclosing scope had — and a token in between the two columns is refused by
+    the inner scope and then swallowed by the outer one as an ARGUMENT of the
+    block term itself. `\\q ->` ⏎ `fn one` ⏎ `two` comes out as
+    `(\\q -> fn one) two`. Splicing a multi-line comment run into a deeply
+    indented call is a way to reach it, because the comment's own continuation
+    row is what puts the following token at the in-between column; the same
+    layout without the comment is a hard parse error rather than a misparse. The
+    real Gren compiler reads it the other way (verified with `gren make`), so the
+    tree is simply wrong and no rendering of it can be right. This is the half
+    the issue's own text does not cover, already added there as a comment — **do
+    not file a new ticket**; see `../../parser-same-column-continuation-bug.md`.
+
+    Its two signals, both read off the parser's own output:
+
+      1. a `call` whose `fn` is a **bare** `lambda` / `if` / `when` / `let`.
+         There is no way to write that: a parenthesized lambda arrives as a
+         `parens` node wrapping it, so an unwrapped one as a call's function can
+         only have been assembled by this bug.
+      2. that call's first argument starts on a **different row** than its `fn`
+         ends on. This bug is a continuation-row bug, so the spurious argument is
+         always on a later row; a same-row shape would be some other failure and
+         stays unlabelled.
 
     **compiler-common#25** — a top-level declaration's `Located.start` is built
     as `{row = name.start.row, col = 1}`, so when the keyword and the name are on
@@ -368,10 +395,25 @@ def known_upstream_issue(workdir, source):
         return None
 
     found = []
+    block_call = []
 
     def walk(node):
         if isinstance(node, dict):
             value = node.get("value")
+            if isinstance(value, dict) and value.get("type") == "call":
+                fn = value.get("fn")
+                args = value.get("args") or []
+                if (
+                    isinstance(fn, dict)
+                    and isinstance(fn.get("value"), dict)
+                    and fn["value"].get("type") in ("lambda", "if", "when", "let")
+                    and isinstance(fn.get("end"), dict)
+                    and args
+                    and isinstance(args[0], dict)
+                    and isinstance(args[0].get("start"), dict)
+                    and fn["end"]["row"] != args[0]["start"]["row"]
+                ):
+                    block_call.append(True)
             if (
                 isinstance(value, dict)
                 and value.get("type") == "negate"
@@ -393,6 +435,9 @@ def known_upstream_issue(workdir, source):
 
     if found and "AST MISMATCH" in blob:
         return "compiler-common#35"
+
+    if block_call:
+        return "compiler-common#14"
 
     lines = source.split("\n")
     keyword_row_wrong = any(

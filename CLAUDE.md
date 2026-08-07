@@ -186,20 +186,73 @@ evidence the fixes cost no elm-format parity):
   the body's shape decides whether they may share ITS line, not each other's — so
   they stay together. Fixture `BracketComments/OpenerRunStaysOneRow`.
 
-**The residual is now 48 total / 42 known / 6 formatter-side, and the list is
-exact.** The 8 that were
-[compiler-common#25](https://github.com/gren-lang/compiler-common/issues/25) are
-**labelled** as of 2026-08-06 (`TypeAlias`×2, `RecordUpdateComplexBase`×2,
-`TypeComments`, `RecordFieldAsPattern`, `PortModuleKeywordAdded`,
-`DocCommentWithEmoji`) — they still count and the run still fails, exactly as the
-34 #35 ones do. What is left to FIX is 6:
-**5 are the effect-module header tail** (`EffectHeaderCloseRowComment`,
-`EffectModuleFxWhereComment`, `EffectModuleOpenLineTrailer`,
-`EffectModuleWideSpacingComment`, `TrickyComments` — a `--` after `exposing (..)`
-makes the next comment oscillate between indent 4 and a detached column 1); and
-**1 is a comment run between a call's function and its argument**
-(`KitchenSink` line 156 — format¹ glues the multi-line comment onto `not`'s row
-and rides the second on its `-}`, format² breaks all three onto their own rows).
+**THE MIXED-KIND RESIDUAL WENT TO ZERO TOO (2026-08-06).** `--mix-pairs` reads
+**43 total, 43 known upstream — 0 formatter-side** (34 #35, 8 #25, 1 #14), with
+n=1 and `--run 2` unmoved at 17-all-#35, decision-stability PASS 0, the predicate
+audit 0, `fuzz-whitespace` PASS 0, and both parity matrices byte-identical
+(2079 / 0 failing / 1358 identical; 68,922 / 0 failing / 20,111 identical /
+3,407 UNREVIEWED). Every mode of every gate here is now formatter-clean; what
+remains is upstream. It took one fix and one label.
+
+**The five effect-header findings were `detachOwnLineTrailer` asking an
+all-or-nothing question.** `peelOwnLineTrailingRun` peeled a declaration's whole
+trailing comment run and the caller then asked "does the *leader* render below
+the declaration?" — so a run whose leader glues kept every later member glued
+too. A `--` written past the two-column slack of an effect module's `where { … }`
+block is moved to the header's own tail, after `exposing (..)`, and **a `--`
+takes the rest of its line**: the `{- four -}` the author wrote after
+`exposing (..)` — on a row the header still covers, so it is attached to the
+header — is pushed onto a fresh row underneath it, which the reparse then re-homes
+to a column-1 `Standalone`. The same first-family disagreement, reached through a
+member that the run's leader hides.
+
+The peel now returns the **suffix** that renders below and leaves the members in
+front of it where they are, splitting at the earliest member that either brings
+its own rows (`runRendersBelowDeclaration`, the old test) or has a `--` in front
+of it (`firstRowOfItsOwn` / `endsItsRow`). The split has to live in the peel
+rather than in the caller: the run is collected by descending through each node's
+last child, so a kept prefix could not be put back without re-nesting comments the
+descent had already lifted out. A new `tailComment` field carries "this level's
+tail is a `--`" up to the level above, which is what the first member of an outer
+run has to know.
+
+**Its fixture had to be reshaped, and the reason is a standing constraint.** The
+shape the fuzzer found reaches the header's tail with a multi-line `{- … -}` in
+the `MyCmd ⟨here⟩ }` gap — which is the whitespace knife-edge
+`docs/knownLimitations.md` describes, two columns from collapsing the block, so
+that `.dirty` file failed `fuzz-whitespace.py --mode stretch` on its first sweep.
+A second authoring reaches the same rule with **no multi-line comment at all** —
+two handlers written across rows and the `--` past the slack — and is
+whitespace-clean. Fixture `HeaderComments/EffectHeaderLineCommentPushesTrailer`,
+0 findings of its own in every mode, and it fails against a pre-fix binary.
+
+**The `KitchenSink` one is not a formatter bug: it is
+[compiler-common#14](https://github.com/gren-lang/compiler-common/issues/14).**
+`Expression.parser` bumps an expression's argument-indent scope to the *line
+start* of its first term's row, but only when that term is a `Var`/`VarQual`; a
+lambda, `if`, `when` or `let` skips the bump and keeps the enclosing scope's
+looser indent. A token whose column falls **between the two** is refused by the
+body and then absorbed by the outer scope as an argument of the block term
+itself. The spliced run puts `(String.isEmpty endpoint)` at column 27 — past the
+`let` binding's scope (21), short of the `|>` row's `lineStart` (29) — so the
+tree is `(\{ kind, endpoint } -> not) (isEmpty endpoint) && …`. `gren make`
+accepts the file, which settles that the real compiler reads it the other way.
+This is the "spurious arguments" half already added as a comment on #14 — **do
+not file a new ticket**.
+
+`known_upstream_issue` labels it on two signals: a `call` whose `fn` is a **bare**
+`lambda` / `if` / `when` / `let` (a parenthesized one arrives wrapped in a
+`parens` node, so an unwrapped one cannot have been written), and that call's
+first argument starting on a **different row** than its `fn` ends on.
+
+**What was tried and backed out**: adding `SoftIndentedBlock` beside
+`IndentedBlock` on `blockTailKeepsCommentOutside`, so that a lambda body written
+on the `->` row and the same body written below it treat a trailing comment
+alike. It converges the probe's *first* difference and it cannot be motivated:
+in a correctly-parsed lambda the body block is the node's last child, so
+`hasNoFollowingSibling` vetoes the arm, and the only tree that reaches it is the
+misparsed one. Its whole effect was to turn that probe's non-idempotency into an
+AST-mismatch refusal.
 
 On the 8: a top-level declaration's `Located.start` is `{name row, col 1}`, so splicing a
 run into a `type ⟨here⟩ alias` / `port ⟨here⟩ name` gap (which pushes the name to
@@ -224,9 +277,10 @@ keeping, because each failed silently rather than loudly:
     top-level lookup returned an empty list, which looks exactly like "no ports
     here", so seven findings labelled and the one `port` finding did not.
 
-Verified by sweep, not by argument: `--mix-pairs` reads 48 / 42 known / **6
-formatter-side**, the #25 label appears on exactly those six fixtures and nowhere
-else, and n=1 / `--run 2` / `--run 3` are unmoved at 17-all-#35.
+Verified by sweep, not by argument: when the label was written `--mix-pairs` read
+48 / 42 known / **6 formatter-side**, the #25 label appeared on exactly those six
+fixtures and nowhere else, and n=1 / `--run 2` / `--run 3` were unmoved at
+17-all-#35.
 
 **Those 16 are fixed too** (`b953853`), and what they were is worth recording
 because the first reading of them was wrong. They looked like an *owner* split —
@@ -294,9 +348,12 @@ what went stale. Fixture `BracketComments/RecordUpdateVerticalLambdaField`.
 
 A finding whose cause is a **known upstream parser bug** is reported with its
 issue number (`[known: compiler-common#35]`) and counted in the summary line.
-`known_upstream_issue` is where those live; it labels and never subtracts, so
-the count and the exit status are exactly what they were. Adding one means
-naming two agreeing signals — see that function's doc.
+`known_upstream_issue` is where those live — today
+[#14](https://github.com/gren-lang/compiler-common/issues/14),
+[#25](https://github.com/gren-lang/compiler-common/issues/25) and
+[#35](https://github.com/gren-lang/compiler-common/issues/35) — and it labels and
+never subtracts, so the count and the exit status are exactly what they were.
+Adding one means naming two agreeing signals — see that function's doc.
 
 ### Decision-stability gate (`check-decision-stability.py`)
 
