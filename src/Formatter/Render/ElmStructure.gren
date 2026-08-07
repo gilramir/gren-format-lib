@@ -24,10 +24,17 @@ not forced and every child fits on one line; otherwise the expanded
     }
 
 `innerSpaces` controls the space just inside the brackets on the flat form.
+
+The flat form emits something after EVERY child — a `, ` between them and the
+closing `right` after the last — so no child may be left open by a `--`
+(`B.allJoinable`, not `B.allSingles`). A `--` buried at the end of an item is
+one line tall, so without that the group stayed flat and put the `]` inside the
+comment. The expanded form has nothing to fear: `verticalGroup` gives the close
+a row of its own.
 -}
 groupBox : Bool -> String -> String -> String -> Bool -> Array Box -> Box
 groupBox innerSpaces left sep right forceMultiline children =
-    when { fm = forceMultiline, cs = B.allSingles children } is
+    when { fm = forceMultiline, cs = B.allJoinable children } is
         { cs = Ok singles } ->
             if Array.isEmpty singles then
                 B.line (B.row [ B.punc left, B.punc right ])
@@ -85,10 +92,12 @@ not forced and every field fits on one line; otherwise the expanded
     }
 
 Each field box is an already-rendered `name = value`. Mirrors
-`ElmStructure.extensionGroup`. -}
+`ElmStructure.extensionGroup`. The base and every field are followed by
+something on the flat form (` | `, `, `, or the closing ` }`), so all of them go
+through `B.asJoinable` / `B.allJoinable` — see `groupBox`. -}
 extensionGroup : Bool -> Box -> Box -> Array Box -> Box
 extensionGroup multiline base first rest =
-    when { m = multiline, b = B.isLine base, fs = B.allSingles ([ first ] ++ rest) } is
+    when { m = multiline, b = B.asJoinable base, fs = B.allJoinable ([ first ] ++ rest) } is
         { m = False, b = Ok base_, fs = Ok fields_ } ->
             B.line
                 (B.row

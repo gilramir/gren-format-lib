@@ -691,7 +691,7 @@ pipelineCommentsSuite fsPerm =
             -- crashed; now padded under its start via B.addSuffixBox).
             , assertPrettyIn fsPerm "PipelineComments" "multi-line block comment trailing a backward-pipeline step glues onto its last line" "BackwardPipeMultilineTrailingComment"
             -- Regression guards for the multiline-string `--`-swallow fix
-            -- (subtreeEndsWithLineComment). A `--` comment buried at the end of a
+            -- (now `B.endsOpen`). A `--` comment buried at the end of a
             -- multi-line-string operand's subtree must NOT let the following
             -- operator/step glue onto its line (a `--` runs to EOL, swallowing the
             -- operator into the comment — an ast-mismatch). Two code paths:

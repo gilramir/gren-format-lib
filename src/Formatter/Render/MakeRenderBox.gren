@@ -20,7 +20,7 @@ import Formatter.Render.CommentBox exposing (commentNodeBox, emptyBracketedComme
 import Formatter.Render.ElmStructure as E
 import Formatter.Render.FlowAssembly exposing (FlowItem, FlowMeasure, SoftGlueAlignment(..), assembleBrokenCall, assembleBrokenWithComments, bracketPunc, gluedExposingBox, isCommentItem, pairLeadingComments, pairableCommentLine, parenInnerIsAlignCarrying, softBlockChildForcesVerticalBox, softGlueAlignment, trySoftGlueFlow, typeContentSpansRows, verticalExposingBox)
 import Formatter.Render.FlowPolicy as FP
-import Formatter.Render.NodeClassify exposing (commentBreaksFlowRow, commentTextCanRide, fieldValueDropsToOwnLine, isColonLeaf, isDroppingSignatureRecordNode, isMultilineLambdaParenBlockBox, isOpAndRhsNode, isTypeRecordLiteral, isPipelineStepNode, leafLineRow, leafValue, literalCommentsRideFlatLine, nodeIsComment, parenContentIsLambdaHead, rowsSpanMultiple, signatureForceVertical, splitSignatureSegments, subtreeEndsWithLineComment, subtreeHasComment)
+import Formatter.Render.NodeClassify exposing (commentBreaksFlowRow, commentTextCanRide, fieldValueDropsToOwnLine, isColonLeaf, isDroppingSignatureRecordNode, isMultilineLambdaParenBlockBox, isOpAndRhsNode, isTypeRecordLiteral, isPipelineStepNode, leafLineRow, leafValue, literalCommentsRideFlatLine, nodeIsComment, parenContentIsLambdaHead, rowsSpanMultiple, signatureForceVertical, splitSignatureSegments, subtreeHasComment)
 
 
 {-| Entry point: render one top-level root child to a Box, or `Err` if it
@@ -934,8 +934,12 @@ is the only flow item with no inline placement — so a comment reaching the fol
 below could never come back inline, and adding one silently reflowed the whole
 pipeline.
 
-A `--` line comment renders as a `MustBreakBox`, so `joinInline` rejects it and
-the chain still breaks — which it must, or the `--` would swallow the rest of it.
+A `--` breaks the chain unless it is the very last thing on it: nothing may
+follow one on its row, so `people |> f -- c` ⏎ `|> g` has to break while
+`people |> f |> g -- c` stays flat. That is the comment placement rules' doing,
+not `joinInline`'s — the join sees a `--`-ended box as the one-line box it is,
+which is right for the trailing case. (It is NOT a `MustBreakBox`; nothing in
+this port constructs one. See `B.asJoinable`.)
 
 When the chain does break, a comment-bearing one still routes through the generic
 fold, where the per-step comment handling (leading peel, trailing glue,
@@ -1303,10 +1307,13 @@ of the same thing, and the second used to float the comment onto a row the autho
 did not put it on — rule C5.
 
 **`joinInline` alone cannot decide it.** A `--`'s box is an ordinary single
-`Line` here, so `B.allSingles` accepts it and the join emits `-- c |> fn`, with
-the operator swallowed inside the comment — output that no longer parses to the
-same AST. The all-or-nothing `commentTextCanRide` run is the real test, the one
-`splitPairingCommentItems` and `assembleBrokenWithComments` also use. -}
+`Line` here — one line tall, and rightly so, since a `--` may perfectly well END
+a joined row (`B.asJoinable` is the test for a position with something after it,
+and a `joinInline` element is not always one). So `B.allSingles` accepts it and
+the join emits `-- c |> fn`, with the operator swallowed inside the comment —
+output that no longer parses to the same AST. The all-or-nothing
+`commentTextCanRide` run is the real test, the one `splitPairingCommentItems`
+and `assembleBrokenWithComments` also use. -}
 renderPipelineStepChildren : Array LPNode -> Result String Box
 renderPipelineStepChildren allChildren =
     let
@@ -4516,33 +4523,30 @@ makeLiteralBox forceMultiline bracket children =
 
 {-| True when a comment among a bracketed construct's children forces it open.
 
-Three ways that happens. Some *direct* comment child cannot ride a flat line
+Two ways that happens. Some *direct* comment child cannot ride a flat line
 (see `literalCommentsRideFlatLine`); or the author already broke the construct
 across rows, in which case the comment-aware vertical path owns comment
-placement and the flat path never runs; or some item's own subtree ENDS in a
-`--`, which is the nested case the first two miss.
+placement and the flat path never runs.
 
-That third clause is not a refinement — without it the formatter emitted source
-that does not parse. The first two clauses look only at direct children, so a
-`--` buried inside an item (`[ lower + margin -- inclusive` / `]`: the comment
-is a `TrailsPrevious` child of the item's `OpAndRhs`, not of the list) left the
-list on the flat path, which renders `[ item ]` on one line — putting the
-synthesized `]` after a `--` that runs to end of line, so it was swallowed and
-the output failed to reparse. `subtreeEndsWithLineComment` is the same predicate
-the binop/pipeline assemblers consult before gluing onto an operand's last line,
-and it already stops at bracket/paren containers (whose own last line is a
-closing delimiter, safe to glue after) so it does not over-trigger on a nested
-list that merely contains a `--`.
-
-`Array.any`, not "the last child": a `--` in a MIDDLE item swallows the `, ` and
-everything after it just as surely as one in the last item swallows the close.
+There used to be a third way, and knowing why it is gone is worth a paragraph.
+Both clauses here look only at DIRECT children, so a `--` buried inside an item
+(`[ lower + margin -- inclusive` / `]`: the comment is a `TrailsPrevious` child
+of the item's `OpAndRhs`, not of the list) left the list on the flat path, which
+renders `[ item ]` on one line — putting the synthesized `]` after a `--` that
+runs to end of line, so it was swallowed and the output failed to reparse. The
+guard for that was a walk down each child's right spine
+(`subtreeEndsWithLineComment`) predicting where the renderer would put the
+comment. `ElmStructure.groupBox` now refuses to lay out a flat row whose
+children are not all closed (`B.allJoinable`) and expands instead, so the
+construct that cannot be flat says so itself, at the point where the `]` is
+actually about to be emitted, for every caller and every future one.
+`BracketLineCommentClose` is the fixture, and it still passes with this clause
+deleted.
 -}
 commentForcesBracketOpen : Bool -> Array LPNode -> Bool
 commentForcesBracketOpen forceVertical children =
-    (Array.any nodeIsComment children
+    Array.any nodeIsComment children
         && (forceVertical || not (literalCommentsRideFlatLine children))
-    )
-        || Array.any subtreeEndsWithLineComment children
 
 
 {-| Render a bracketed construct's children with `renderItem`, gluing each

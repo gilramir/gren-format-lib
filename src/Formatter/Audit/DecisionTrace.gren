@@ -78,7 +78,7 @@ import Formatter.Logical.LogicalPrintingTree exposing (LPBox(..), LPNode, Syntax
 import Formatter.Render as Render
 import Formatter.Render.BoxOps exposing (isSingleLine)
 import Formatter.Render.MakeRenderBox exposing (makePBox)
-import Formatter.Render.NodeClassify exposing (commentBreaksFlowRow, commentEndsItsLine, commentTextCanRide, literalCommentsRideFlatLine, signatureForceVertical, splitSignatureSegments, subtreeEndsWithLineComment)
+import Formatter.Render.NodeClassify exposing (commentBreaksFlowRow, commentEndsItsLine, commentTextCanRide, literalCommentsRideFlatLine, signatureForceVertical, splitSignatureSegments)
 import Json.Encode as Json
 
 
@@ -341,14 +341,12 @@ nodeDecisions decl node =
         AllAcrossOrAllVertical brackets ->
             [ say "BracketContainer.shape" ("allAcrossOrAllVertical:" ++ bracketsToString brackets)
             , flag "BracketContainer.literalCommentsRideFlatLine" (literalCommentsRideFlatLine children)
-            , flag "BracketContainer.endsWithLineComment" (Array.any subtreeEndsWithLineComment children)
             ]
                 ++ shape "BracketContainer"
 
         AlwaysVertical brackets ->
             [ say "BracketContainer.shape" ("alwaysVertical:" ++ bracketsToString brackets)
             , flag "BracketContainer.literalCommentsRideFlatLine" (literalCommentsRideFlatLine children)
-            , flag "BracketContainer.endsWithLineComment" (Array.any subtreeEndsWithLineComment children)
             ]
 
         EmptyBracketed brackets ->

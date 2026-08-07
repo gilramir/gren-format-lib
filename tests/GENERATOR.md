@@ -1711,9 +1711,11 @@ fixed first in `6428cbf`.)
 
 **Post-fix re-sweep (2026-07-22, after `ada1dd8`):** the multiline-string
 `--`-swallow bug documented in `tbd.md` (binop/pipeline operator gluing onto a
-`"""…""" -- c` operand's comment line) is fixed — `subtreeEndsWithLineComment`
-in `Render/NodeClassify.gren`, consulted at the pipeline `hasBoundaryComment`
-gate and the binop-group `AlreadyTerminated` override. A further 9000 fresh
+`"""…""" -- c` operand's comment line) is fixed — at the time by
+`subtreeEndsWithLineComment` in `Render/NodeClassify.gren`, consulted at the
+pipeline `hasBoundaryComment` gate and the binop-group `AlreadyTerminated`
+override; since 2026-08-07 by `B.endsOpen`, read off the rendered box at those
+same two places. A further 9000 fresh
 seeds against the fixed formatter — 4000 default (3000000..3003999), 3000
 `--comment-rate 0.6` (3100000..3102999), 2000 `--max-depth 7 --comment-rate
 0.6` (3200000..3201999) — all clean (0 quarantine, 0 findings), confirming no

@@ -248,8 +248,10 @@ class above.
 Where a renderer *does* need to know something structural about a comment, it
 asks a predicate that reads LPT shape and comment text only —
 `NodeClassify.commentEndsItsLine`, `commentTextCanRide`,
-`subtreeEndsWithLineComment`. Each of those docstrings says explicitly that it
-reads no rows, because that is the property that lets it live in `Render/`.
+`subtreeEndsWithMultilineBlockComment`. Each of those docstrings says explicitly
+that it reads no rows, because that is the property that lets it live in
+`Render/`. Better still is a fact the *rendered box* carries, which no predicate
+has to mirror: see `B.endsOpen` in §5.2.
 
 ---
 
@@ -1159,13 +1161,17 @@ The predicates that ask it, all in `Render/NodeClassify.gren`:
   sibling on a later row and renders broken. Folding this predicate into the
   same decision makes format¹ commit to the shape format² will agree with.
 - `literalCommentsRideFlatLine` — may a bracketed literal stay on one line?
-- `subtreeEndsWithLineComment` — would gluing onto this box's last line land
-  *inside* a `--` and be silently swallowed? It stops at bracket/paren
-  containers, whose rendered last line is a synthesized closing delimiter and is
-  safe to glue after.
+And one fact that is **not** a predicate at all, because the rendered box
+carries it: `B.endsOpen` — would gluing onto this box's last line land *inside*
+a `--` and be silently swallowed? A `--` renders as a `Line.LineComment` leaf,
+which survives every combinator that builds a line (all of them only prepend to
+the left or stack above), so the box answers for itself. This used to be
+`NodeClassify.subtreeEndsWithLineComment`, a walk down the LPT's right spine
+that had to enumerate which container constructors emit a closing delimiter
+after their last child — a mirror of the renderer, of the kind §5.2 exists to
+warn about. A box needs no such list: `[ x -- c` / `]` ends in `]`.
 
-That last one, combined with `commentForcesBracketOpen`, is what stops the
-formatter from emitting source that does not parse:
+It is what stops the formatter from emitting source that does not parse:
 
 ```gren
 -- you write, and gren-format keeps (it may NOT collapse to one line —
@@ -1175,8 +1181,13 @@ c =
     ]
 ```
 
-Note the `Array.any`, not "the last child": a `--` in a *middle* item swallows
-the following `, ` just as surely.
+The check lives in `ElmStructure.groupBox` / `extensionGroup`, which lay out the
+flat form only if every child is `B.asJoinable` — and it is *every* child, not
+just the last: a `--` in a middle item swallows the following `, ` just as
+surely. Note the asymmetry that scopes it. A `--` may perfectly well END a
+joined row (`people |> Array.sort -- note` is flat and correct), so the strict
+test belongs only where something follows, which on a flat group is every child
+and on a `joinInline` is not.
 
 ### 5.3 The glue primitives
 
@@ -1466,7 +1477,7 @@ has a large blast radius. The right-hand column is what breaks when it is wrong
 | `FlowPolicy.containerCommentSlot` | the comment slot in a vertical container | four containers classifying differently by accident |
 | `NodeClassify.commentEndsItsLine` / `commentTextCanRide` | the shape table (§5.2) | using the role where the shape was meant, or vice versa |
 | `NodeClassify.commentBreaksFlowRow` | a comment-aware `forceVertical` | flat-then-broken oscillation |
-| `NodeClassify.subtreeEndsWithLineComment` | is gluing here safe? | **output that does not parse** — a `]` swallowed by a `--` |
+| `Box.endsOpen` / `asJoinable` | is gluing here safe? | **output that does not parse** — a `]` swallowed by a `--` |
 | `NodeClassify.subtreeEndsWithMultilineBlockComment` | is the box align-carrying? | a comment's continuation row off by a few columns |
 | `MakeRenderBox.commentForcesBracketOpen` | may a literal stay flat? | as above, or a needless break |
 | `MakeRenderBox.glueLeadingCommentRun` / `glueLeadBoxes` | run cohesion (R2) | a run that half-rides and never settles |
