@@ -1,0 +1,17 @@
+effect module Foo where { subscription = MySub } exposing {- on the exposing row -}
+    {- this one
+       spans rows -}
+    {- written on its closing row -}
+    {- and this one
+       spans rows too -}
+    ( apple
+    , mango
+    )
+
+
+apple =
+    1
+
+
+mango =
+    2

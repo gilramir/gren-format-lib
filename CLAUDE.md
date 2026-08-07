@@ -1659,6 +1659,34 @@ not what was wrong: both shapes render correctly, and only one of them is the
 role the reparse computes. **When two passes differ in exactly one stored field,
 fix the pass that computes it, not the code that consumes it.**
 
+**Its fixture then exposed a second, unrelated bug — which is the standing
+warning working exactly as written.** The `--mix-pairs` sweep, run once the fix
+was in, read **45 / 43 known → 2 formatter-side**, both of them in the *new*
+fixture and both **byte-identical against a pre-fix binary**: pre-existing, and
+another instance of "adding a comment-bearing fixture is itself a probe".
+
+`headerTailGlue` is a fallback for the effect header's position-less **tokens**,
+and it was applied unconditionally. A comment is not one of those tokens — it
+carries an exact position, so `prevBlockGlueRow` / `prevLineGlueRow` already
+answer for it (`lastRowInSubtree`, the chaining rule of the fifth family). Firing
+anyway **overrode that answer** and glued a comment onto the closing row of a
+multi-line `{- … -}` it was written *below*. The same shape under a plain
+`module` and under an `import` splits and stays split — checked, and that is what
+identified the fallback rather than the chaining rule as the wrong half. Scoped
+with `not (isCommentNode p)`; a run written on ONE row is unaffected, because
+there the previous comment's last row *is* this comment's row and the ordinary
+`row == glueRow` test glues it without the fallback. `--mix-pairs` back to
+**43 / 43 known → 0**, no existing fixture moved. Fixture
+`HeaderComments/EffectHeaderTailCommentChain`, 0 findings of its own in every
+mode.
+
+Note what the discriminating input had to be. The fixture's `.formatted` is a
+fixed point on both binaries, and so is the *split* spelling of the shape — the
+oscillation only appears with a comment already glued on the `exposing` row, the
+multi-line, the single-line **and** a trailing multi-line after it. Reconstruct
+the fuzzer's spliced source rather than guessing a smaller shape; two smaller
+authorings looked like the bug and discriminated on neither binary.
+
 Two flags exist for unattended use: `--max-shrinks N` caps how many failures a
 run minimizes (one bug can hit hundreds of seeds, and shrinking each one can eat
 the whole run — the skipped count is printed and stored, never silent), and

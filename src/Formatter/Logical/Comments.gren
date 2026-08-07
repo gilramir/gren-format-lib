@@ -3071,11 +3071,23 @@ classifyCommentKind containerBox commentNode before after row =
                 )
                 before
 
-        headerTailGlue =
+        --   - the predecessor is not itself a COMMENT. This is a fallback for
+        --     the header's position-less *tokens*, and a comment is not one of
+        --     them: it carries an exact position, so `prevBlockGlueRow` /
+        --     `prevLineGlueRow` already answer honestly for it
+        --     (`lastRowInSubtree`, the chaining rule). Firing here anyway
+        --     overrode that answer and glued a comment onto the closing row of a
+        --     multi-line `{- … -}` it was written *below* — while the same
+        --     shape under a plain `module` and an `import` splits and stays
+        --     split. A run written on ONE row is unaffected: there the previous
+        --     comment's last row IS this comment's row, so the ordinary
+        --     `row == glueRow` test glues it without this fallback.
+        headerTailGlue p =
             when containerBox is
                 OriginalRows info ->
                     info.stype
                         == StModule
+                        && not (isCommentNode p)
                         && refRow
                         >= 0
                         && row
@@ -3109,7 +3121,7 @@ classifyCommentKind containerBox commentNode before after row =
                             _ ->
                                 g
             in
-            if nodeIsElided p || headerTailGlue || (glueRow >= 0 && row == glueRow) then
+            if nodeIsElided p || headerTailGlue p || (glueRow >= 0 && row == glueRow) then
                 TrailsPrevious
 
             else
@@ -3163,7 +3175,7 @@ classifyCommentKind containerBox commentNode before after row =
 
                 sameRowPrev =
                     nodeIsElided p
-                        || (not multiline && headerTailGlue)
+                        || (not multiline && headerTailGlue p)
                         || (glueRow >= 0 && row == glueRow)
             in
             if not sameRowPrev then
