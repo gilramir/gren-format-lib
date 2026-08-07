@@ -49,8 +49,9 @@ One mirror of this module lives outside it and is stated here so it can be found
 from this end: `NodeClassify.commentBreaksFlowRow` predicts, before anything is
 rendered, which comments `decide` will let a following item share a row with. It
 exists because `forceVertical` is derived from AST rows that have no comments in
-them. Its own docstring says it must track `decide`, and today nothing checks
-that it still does.
+them. Its own docstring says it must track `decide`;
+`tests/audit-predicates.py` is what checks that it still does, by comparing it
+against the flow this module actually assembles.
 
 `decide` is total: the one error case in this area — a paired "comment" that
 is not actually a block comment — is a caller-side classification error,

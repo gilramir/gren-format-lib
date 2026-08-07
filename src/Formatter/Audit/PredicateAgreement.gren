@@ -22,15 +22,19 @@ reported: these predicates only claim the breaks that are unconditional, and a
 node can still break for reasons they deliberately do not model -- most often
 the author's own row layout (`forceVertical`).
 
-**There is one predicate left under audit, and that is the point.** This module
-was written when `NodeClassify` carried a whole mirror layer --
+**Only one predicate is left under that property, and that is the point.** This
+module was written when `NodeClassify` carried a whole mirror layer --
 `subtreeHasVerticalBox`, `nodeSpansRows`, `bracketOpenGate` and friends, each
 predicting verticality from source rows. All of them are gone: verticality is now
 decided by rendering the child and asking `isSingleLine` / `B.allSingles`, which
 cannot disagree with the renderer because it *is* the renderer. What remains is
 `isMultilineLambdaParenBlockBox`, a structural query over box kinds rather than a
-shape prediction from rows -- so the audit is close to vacuous by construction,
-and shrinking it to that was the goal, not an accident.
+shape prediction from rows -- so that half of the audit is close to vacuous by
+construction, and shrinking it to that was the goal, not an accident.
+
+**`commentBreaksFlowRow` is audited separately and in BOTH directions**, because
+it is a different kind of mirror and its dangerous direction is the other one.
+See `flowCommentFindings`.
 
 @docs Finding, auditLpt, findingsToJson
 
@@ -39,8 +43,9 @@ and shrinking it to that was the goal, not an accident.
 import Formatter.Logical.LogicalPrintingTree exposing (LPBox(..), LPNode, lpnBox, lpnChildren, lpnFirstPos, stypeToString)
 import Formatter.Render.Box as B exposing (Box)
 import Formatter.Render.BoxOps exposing (isSingleLine)
-import Formatter.Render.MakeRenderBox exposing (makePBox)
-import Formatter.Render.NodeClassify exposing (isMultilineLambdaParenBlockBox)
+import Formatter.Render.FlowAssembly exposing (FlowMeasure, pairLeadingComments)
+import Formatter.Render.MakeRenderBox exposing (buildFlowBoxMeasured, makePBox, renderFlowItems)
+import Formatter.Render.NodeClassify exposing (commentEndsItsLine, isMultilineLambdaParenBlockBox, nodeIsComment)
 import Json.Encode as Json
 
 
@@ -54,10 +59,14 @@ and the callers reading them wrong in turn. A propagated finding is real but not
 separately fixable: it disappears when the node below it is fixed. Only
 `propagated == False` findings are a work-list.
 
-The one predicate under audit today is *not* recursive (see the module doc), so
-nothing it reports can be an echo and this flag should always be `False`. It is
+Neither predicate under audit today is recursive (see the module doc), so
+nothing they report can be an echo and this flag should always be `False`. It is
 kept because it is the shape any future recursive predicate would need, and
 because a `True` here would itself be news.
+
+`claim` is what the predicate answered. Every finding of the one-directional
+property has `claim == True` by construction; `flowCommentFindings` also reports
+`False`, and the two read as opposite complaints.
 -}
 type alias Finding =
     { predicate : String
@@ -66,6 +75,7 @@ type alias Finding =
     , col : Int
     , rendered : String
     , propagated : Bool
+    , claim : Bool
     }
 
 
@@ -115,8 +125,268 @@ walk node =
     }
 
 
+{-| The `commentBreaksFlowRow` audit: does the predicate still agree with
+`FlowPolicy.decide` about which comments stop a following item from sharing
+their row?
+
+That predicate is a different animal from the ones in `auditedPredicates`. It is
+not a shape prediction about one subtree; it is a hand-written summary of
+`decide`'s separator table -- "a `--` always breaks, a multi-line `{- … -}`
+always breaks, a single-line one MID-FLOW does not, and only when a real item
+follows" -- and its own docstring says in so many words that it **must track
+`decide`**. Nothing enforced that, and `decide` has grown a separator since it
+was written.
+
+It also fails the other way round from the shape predicates, so this audit is
+**bidirectional**. Over-approximating makes a caller break a flow that renders on
+one line. Under-approximating is the original bug this predicate was added to
+fix, and it is the worse one: `forceVertical` comes from AST rows that contain no
+comments, so the first format renders flat, the comment breaks the row anyway,
+and the reparse -- now seeing a later sibling on a later row -- renders broken.
+The file oscillates. That was 214 of the comment matrix's first 424 failures.
+
+The check is per COMMENT rather than per flow, because that is the grain the
+claim is made at: assemble the children, then for each comment ask whether the
+next real item started a row of its own, and compare that against
+`commentEndsItsLine` (the atom `commentBreaksFlowRow` folds). Answering from
+`decide`'s own assembly, rather than from a second prediction, is the whole
+point; every other reason a flow breaks moves both sides and cancels.
+
+**Only a comment with a real item on BOTH sides is checked, and the scope is
+load-bearing.** Two exclusions, each of them the predicate being deliberately
+narrower than `decide` rather than wrong:
+
+  - **A trailing comment** has nothing after it to push. `foo bar -- c` is one
+    line and is the long-standing fixed point for that shape; the predicate says
+    so in as many words.
+  - **A LEADING comment** is where the two genuinely disagree, and the first run
+    of this audit reported all 46 of them. `decide`'s `BlockCommentItem` arm
+    breaks a *standalone leading* block comment in a vertical context, so
+    `{- c -}` / `42` is what it assembles; the predicate's rule is scoped to
+    mid-flow and answers False. Nothing is misled by that, and the reason is
+    worth keeping because it is an argument nobody had written down: the
+    predicate exists to stop the *items* being re-read as author-broken on the
+    reparse, and rows a leading comment occupies above the whole construct are
+    attributed to the comment, not to a break between items. The flow also
+    breaks by itself there, so the caller's `else` branch produces the same
+    layout the `True` branch would have been reached for. Should either of those
+    stop holding, this exclusion is the thing to revisit first.
+
+Scoped to the box kinds whose children `makePBox` hands straight to the gluing
+flow assembler, so the assembly audited is the one the renderer performs. NOT
+covered: `BinopLayout.commentBreaksBinopChain`, which asks the same predicate of
+a chain with its operators interleaved back in -- reconstructing that here would
+be a third copy of the interleaving, which is the kind of thing this module
+exists to object to.
+-}
+flowCommentFindings : LPNode -> Bool -> Array Finding
+flowCommentFindings node liesBelow =
+    let
+        children =
+            lpnChildren node
+    in
+    if not (dispatchesToGluingFlow (lpnBox node)) || not (Array.any nodeIsComment children) then
+        []
+
+    else
+        children
+            |> Array.indexedMap (\i _ -> commentFinding node liesBelow children i)
+            |> Array.mapAndKeepJust identity
+
+
+{-| The finding, if any, for the child at `i` — `Nothing` when that child is not
+a comment this audit makes a claim about, or when either assembly has no render
+truth to offer. -}
+commentFinding : LPNode -> Bool -> Array LPNode -> Int -> Maybe Finding
+commentFinding node liesBelow children i =
+    when Array.get i children is
+        Nothing ->
+            Nothing
+
+        Just comment ->
+            let
+                -- How many real items precede this child: also its predecessor's
+                -- ordinal among the items, and its successor's, in EITHER
+                -- assembly. Removing a comment does not renumber them.
+                itemsBefore =
+                    Array.slice 0 i children
+                        |> Array.keepIf (\n -> not (nodeIsComment n))
+                        |> Array.length
+
+                itemsAfter =
+                    Array.dropFirst (i + 1) children
+                        |> Array.keepIf (\n -> not (nodeIsComment n))
+                        |> Array.length
+
+                without =
+                    Array.slice 0 i children ++ Array.dropFirst (i + 1) children
+            in
+            if
+                not (nodeIsComment comment)
+                    || itemsBefore
+                    < 1
+                    || itemsAfter
+                    < 1
+                    || pairsWithFollower children i
+            then
+                Nothing
+
+            else
+                when
+                    { withIt = itemGap itemsBefore children
+                    , withoutIt = itemGap itemsBefore without
+                    }
+                is
+                    { withIt = Just gapWith, withoutIt = Just gapWithout } ->
+                        let
+                            claim =
+                                commentEndsItsLine comment
+                        in
+                        if claim == (gapWith > gapWithout) then
+                            Nothing
+
+                        else
+                            Just
+                                { predicate = "commentEndsItsLine"
+                                , boxKind = boxKindName (lpnBox node) ++ " / " ++ boxKindName (lpnBox comment)
+                                , row = lpnFirstPos comment |> Maybe.map (\p -> p.row) |> Maybe.withDefault -1
+                                , col = lpnFirstPos comment |> Maybe.map (\p -> p.col) |> Maybe.withDefault -1
+                                , rendered = renderedFlow children
+                                , propagated = liesBelow
+                                , claim = claim
+                                }
+
+                    _ ->
+                        Nothing
+
+
+{-| Does the assembler PAIR this comment with the item after it
+(`FlowAssembly.pairLeadingComments`)? If so it is out of scope, and the reason is
+the difference between a separator and a layout.
+
+`decide` still leaves `FlowSep` after such a comment — it did not end anything.
+What moves the item is the item's OWN placement (a type record takes the
+`DropBlock` rule; a soft block that rendered multi-line drops to +4), and the
+pairing exists so the comment travels with it rather than being stranded on the
+row above. Measuring "did the next item move" therefore blames the comment for a
+drop it only accompanied, which is what the first scoped run of this audit did:
+its two remaining findings were both a single-line `{- … -}` in front of a
+multi-line type record.
+
+Asked of the renderer's own pairing function rather than re-derived, so this
+scope cannot drift from the thing it is scoping around.
+-}
+pairsWithFollower : Array LPNode -> Int -> Bool
+pairsWithFollower children i =
+    when renderFlowItems children is
+        Err _ ->
+            False
+
+        Ok items ->
+            pairLeadingComments items
+                |> Array.any
+                    (\pair ->
+                        when pair.leading is
+                            Just lead ->
+                                Array.get i children == Just lead.node
+
+                            Nothing ->
+                                False
+                    )
+
+
+{-| Assemble `nodes` as a gluing flow and return how many rows separate item
+`k - 1`'s last row from item `k`'s first — counting only the non-comment items,
+so `k` names the same pair whether or not a comment sits between them. `Nothing`
+if the flow will not render or has fewer than `k + 1` items. -}
+itemGap : Int -> Array LPNode -> Maybe Int
+itemGap k nodes =
+    when buildFlowBoxMeasured 0 nodes is
+        Err _ ->
+            Nothing
+
+        Ok assembled ->
+            let
+                items =
+                    placeRows assembled.measures
+                        |> Array.keepIf (\p -> not (nodeIsComment p.node))
+            in
+            when { prev = Array.get (k - 1) items, next = Array.get k items } is
+                { prev = Just prev, next = Just next } ->
+                    Just (next.firstRow - prev.lastRow)
+
+                _ ->
+                    Nothing
+
+
+renderedFlow : Array LPNode -> String
+renderedFlow nodes =
+    when buildFlowBoxMeasured 0 nodes is
+        Ok assembled ->
+            String.trim (B.render assembled.box)
+
+        Err e ->
+            e
+
+
+{-| Which box kinds hand their children straight to the gluing flow assembler
+(`buildFlowBox 0 children` / the `assembleFlow` arm of `makePBox`). A kind that
+routes its children somewhere else -- a bracket container, a binop chain, a
+`when` -- is not what this predicate is asked about.
+-}
+dispatchesToGluingFlow : LPBox -> Bool
+dispatchesToGluingFlow box =
+    when box is
+        AcrossOrVertical _ ->
+            True
+
+        BodyBlock ->
+            True
+
+        IndentedBlock ->
+            True
+
+        SoftIndentedBlock ->
+            True
+
+        _ ->
+            False
+
+
+{-| Each placed item with the rows it occupies in the assembled box. Row
+arithmetic as `FlowAssembly.typeContentSpansRows` does it: running the row
+additions up gives each item's last row, and its own height gives back its first.
+-}
+placeRows : Array FlowMeasure -> Array { node : LPNode, firstRow : Int, lastRow : Int }
+placeRows measures =
+    (Array.foldl
+        (\m acc ->
+            let
+                endRow =
+                    acc.total + m.rowsAdded - 1
+            in
+            { total = acc.total + m.rowsAdded
+            , out =
+                Array.pushLast
+                    { node = m.node
+                    , firstRow = endRow - (B.height m.box - 1)
+                    , lastRow = endRow
+                    }
+                    acc.out
+            }
+        )
+        { total = 0, out = [] }
+        measures
+    ).out
+
+
 checkNode : LPNode -> Bool -> Array Finding
 checkNode node liesBelow =
+    flowCommentFindings node liesBelow ++ checkShapePredicates node liesBelow
+
+
+checkShapePredicates : LPNode -> Bool -> Array Finding
+checkShapePredicates node liesBelow =
     when makePBox (lpnBox node) (lpnChildren node) is
         -- A node that cannot render on its own (RootBox, OriginalRows, or a
         -- construct whose builder needs context its parent holds) yields no
@@ -142,6 +412,7 @@ makeFinding name node box liesBelow =
     , col = lpnFirstPos node |> Maybe.map (\p -> p.col) |> Maybe.withDefault -1
     , rendered = String.trim (B.render box)
     , propagated = liesBelow
+    , claim = True
     }
 
 
@@ -258,6 +529,7 @@ findingsToJson findings =
                     , { key = "col", value = Json.int f.col }
                     , { key = "rendered", value = Json.string f.rendered }
                     , { key = "propagated", value = Json.bool f.propagated }
+                    , { key = "claim", value = Json.bool f.claim }
                     ]
             )
         |> Json.array identity

@@ -13,13 +13,27 @@ AST-equivalent, idempotent, and stable under both fuzzers; only the layout is
 wrong. This driver runs the `--audit-predicates` flag over the corpus and
 aggregates what it finds.
 
-The property checked, per LPT node:
+Two properties are checked. The shape predicates, per LPT node:
 
     predicate(node) == True   ==>   node's own box renders multi-line
 
-Under-approximation is not reported -- these predicates only claim the
-unconditional breaks, and a node can still break for reasons they deliberately
-do not model (most often the author's own row layout).
+one-directional, because those predicates only claim the unconditional breaks
+and a node can still break for reasons they deliberately do not model (most
+often the author's own row layout).
+
+And `commentEndsItsLine` -- the atom `commentBreaksFlowRow` folds -- per comment
+in a gluing flow, BOTH ways:
+
+    commentEndsItsLine(c) == True   <==>   deleting c lets the next item move
+                                           back up onto the previous item's row
+
+That one is a hand-written summary of `FlowPolicy.decide`'s separator table
+whose own docstring says it must track `decide`, and until 2026-08-07 nothing
+checked that it did. Under-approximation is its dangerous direction, not
+over-approximation: it is what puts a comment-broken construct on the flat path,
+so the reparse reads the break as the author's and the file oscillates.
+`Formatter.Audit.PredicateAgreement.flowCommentFindings` documents which
+comments are in scope and why the leading and paired ones are not.
 
 Usage:
     ./audit-predicates.py                       # all testfiles/*/*.formatted.gren
@@ -102,8 +116,15 @@ def main():
     if args.verbose:
         for path, f in findings:
             tag = "propagated" if f["propagated"] else "ROOT      "
-            print(f'{tag} {path.name}:{f["row"]}:{f["col"]}  {f["predicate"]} said {f["boxKind"]} '
-                  f'breaks, but it rendered: {f["rendered"]}')
+            # `claim` is what the predicate answered. False is only possible for
+            # a bidirectionally-audited predicate, and reads as the opposite
+            # complaint: it promised the flow would stay on one row and it did
+            # not.
+            said = "breaks" if f.get("claim", True) else "does NOT break"
+            print(f'{tag} {pathlib.Path(path).name}:{f["row"]}:{f["col"]}  {f["predicate"]} said '
+                  f'{f["boxKind"]} {said}, but it rendered:')
+            for line in f["rendered"].splitlines() or [""]:
+                print(f"    {line}")
         if findings:
             print()
 
@@ -135,11 +156,11 @@ def main():
         print()
 
     if findings:
-        print("Each finding is a predicate promising a break the renderer does not emit.")
+        print("Each finding is a predicate disagreeing with what the renderer does.")
         print("Callers laying out code around these nodes are working from a false answer.")
         return 1
 
-    print("No over-approximations: every predicate agrees with the renderer.")
+    print("Every predicate agrees with the renderer.")
     return 0
 
 
