@@ -1,0 +1,13 @@
+effect module EffectHeaderLineCommentPushesTrailer where { command = MyCmd
+    , subscription = MySub      -- three
+    } exposing (..) {- four -}
+
+import Task
+
+
+type MyCmd msg
+    = MyCmd (Task.Task Never msg)
+
+
+type MySub msg
+    = MySub (Task.Task Never msg)

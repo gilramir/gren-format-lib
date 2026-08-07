@@ -12,6 +12,7 @@ nothing is going wrong.
 - [A compiler bug with field access on a record-update base](#a-compiler-bug-with-field-access-on-a-record-update-base)
 - [An unparenthesized constructor pattern can't be aliased with `as`](#an-unparenthesized-constructor-pattern-cant-be-aliased-with-as)
 - [A continuation line at the same column as the body above it](#a-continuation-line-at-the-same-column-as-the-body-above-it)
+  - [The same misparse reached by a comment, where the columns are not equal](#the-same-misparse-reached-by-a-comment-where-the-columns-are-not-equal)
 - [A binary `-` whose right operand starts at the operator's own column](#a-binary---whose-right-operand-starts-at-the-operators-own-column)
 - [Wide `when` branch patterns](#wide-when-branch-patterns)
 - [Comment placement near invisible tokens](#comment-placement-near-invisible-tokens)
@@ -111,8 +112,38 @@ v =                       v =
 ```
 
 The output still means the same thing to the real compiler as the input did, so
-nothing is corrupted — the damage is layout, plus the outright refusal in the
-`let` / `when` cases.
+the damage is layout, plus the outright refusal in the `let` / `when` cases.
+
+### The same misparse reached by a comment, where the columns are not equal
+
+"Same column" is the shape that gets there without help; the general condition is
+**a column that falls between the two scopes**. The body's scope is
+`lineStart` — the first non-whitespace column of the row the body's first term
+sits on — while the enclosing scope keeps whatever looser indent it had, and a
+token in between is refused by the inner one and then absorbed by the outer one
+as an argument of the lambda itself. A multi-line comment is a way to land a
+token in that window, because the comment's own closing row occupies the columns
+in front of it:
+
+```gren
+                    chosenSink =
+                        sinks
+                            |> keepIf (\{ kind, endpoint } -> not {- ¤1
+   second row -} {- ¤2 -} (isEmpty endpoint) && kind /= "noop")
+```
+
+`(isEmpty endpoint)` starts at column 27: past the `let` binding's scope (21),
+short of the `|>` row's `lineStart` (29). So it is not an argument of `not` — the
+whole thing parses as `(\{ kind, endpoint } -> not) (isEmpty endpoint) && …`, and
+`gren make` accepts the file, which settles that the real compiler reads it the
+other way. Take the comment out and the same layout is a hard parse error rather
+than a misparse, so the comment is not incidental to reaching it.
+
+`tests/fuzz-idempotency.py`'s `known_upstream_issue` labels a finding
+`[known: compiler-common#14]` on this shape, on two signals: a `call` whose `fn`
+is a **bare** `lambda` / `if` / `when` / `let` (a parenthesized one arrives
+wrapped in a `parens` node, so an unwrapped one cannot have been written), and
+that call's first argument starting on a different row than its `fn` ends on.
 
 Not seen in practice: a sweep of the 288-file `gren-format-preview/pkgs` corpus
 finds no instance of any of these shapes, because real code indents the
@@ -368,6 +399,26 @@ effect module MyModule where { command = MyCmd } exposing (..)
 
 The comment survives — nothing is deleted — but it no longer sits beside the
 handler name it was written next to.
+
+Written past the two-column slack it does not go to column 1 either — it lands
+on the header's own tail, after `exposing (..)`. A comment the author wrote
+*after* `exposing (..)` then cannot stay on that row, because a `--` takes the
+rest of its line, so it detaches to column 1: the place the reparse gives it,
+and therefore the only placement that is a fixed point.
+
+```gren
+-- you wrote:
+effect module MyModule where { command = MyCmd
+    , subscription = MySub      -- three
+    } exposing (..) {- four -}
+
+-- formats to:
+effect module MyModule where { command = MyCmd, subscription = MySub } exposing (..) -- three
+
+{- four -}
+```
+
+Pinned by `HeaderComments/EffectHeaderLineCommentPushesTrailer`.
 
 **This one cannot be fixed here.** The parser records a position for the handler
 name and nothing else in the block: not the `where`, not the braces, not

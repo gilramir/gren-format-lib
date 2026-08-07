@@ -338,8 +338,9 @@ So once every comment is placed, lift any trailing comment run that renders
 own-line into the same column-1 `OriginalRows` the reparse would give it — the
 first format builds the tree the second one would.
 
-**Scoped to a run that renders own-line**, i.e. whose first member is
-`LeadsOwnLine`. A trailing comment that GLUES (`TrailsPrevious` / `RidesInline`)
+**Scoped to the part of the run that renders own-line** — `peelOwnLineTrailingRun`
+hands back exactly that suffix, and the members before it stay on the
+declaration's last row. A trailing comment that GLUES (`TrailsPrevious` / `RidesInline`)
 stays on the declaration's last row, is already a fixed point, and belongs to
 the code it was written next to (C1) — `[ 1` ⏎ `, 2` ⏎ `] {- c` ⏎ `second -}`
 keeps its comment on the `]` row. elm-format detaches that one too, and the
@@ -362,10 +363,6 @@ detachOwnLineTrailer child =
                 in
                 when Array.popFirst peeled.run is
                     Just { first = leadComment, rest = restOfRun } ->
-                        if not (runRendersBelowDeclaration leadComment) then
-                            [ child ]
-
-                        else
                         let
                             runNodes =
                                 Array.pushFirst (lpnSetCommentRole Standalone leadComment) restOfRun
@@ -402,18 +399,38 @@ detachOwnLineTrailer child =
             [ child ]
 
 
-{-| The maximal suffix of comment nodes that has no code after it anywhere in
-the subtree, removed from the node.
+{-| The suffix of the node's trailing comment run that renders *below* the
+declaration, removed from the node.
 
 Descends through the last non-comment child, because that is where the previous
 level's run continues: the order on the page is *code, inner run, outer
 trailers*, so the inner run is appended before this level's own trailing
 comments.
 
+**The suffix starts at the earliest member that renders below**, and the members
+before it stay where they are. That split is why the boundary rule lives here
+rather than in the caller: a run's leader can perfectly well glue onto the
+declaration's last row while a later member cannot, and only the peel knows
+where in the tree each member sits — putting a kept prefix back afterwards would
+have to re-nest comments the descent had already lifted out.
+
+Two things make a member render below, and `tailComment` is what carries the
+second across a level boundary:
+
+  - `runRendersBelowDeclaration` — the member brings its own rows.
+  - **the member before it is a `--`**, which swallows the rest of its row, so
+    everything after it is on a later one whatever its own kind says. That is
+    the effect-module header's shape: a `--` inside `where { … }` escapes to the
+    header's tail (see `docs/knownLimitations.md`), and the `{- note -}` the
+    author wrote after `exposing (..)` — on a row the header still covers, so it
+    is attached here — is pushed onto a fresh row below it. The reparse, seeing
+    it past the header's last row, gives it a column-1 `OriginalRows`; this is
+    the pass that builds that tree first.
+
 A container whose children are **all** comments is left alone (`front` empty),
 rather than emptied — an empty `BodyBlock` is not a declaration body, and no
 shape that reaches here needs it. -}
-peelOwnLineTrailingRun : LPNode -> { node : LPNode, run : Array LPNode }
+peelOwnLineTrailingRun : LPNode -> { node : LPNode, run : Array LPNode, tailComment : Maybe LPNode }
 peelOwnLineTrailingRun node =
     let
         children =
@@ -433,7 +450,7 @@ peelOwnLineTrailingRun node =
     in
     when Array.popLast split.front is
         Nothing ->
-            { node = node, run = [] }
+            { node = node, run = [], tailComment = Nothing }
 
         Just { last = lastCode, initial = front } ->
             let
@@ -442,22 +459,89 @@ peelOwnLineTrailingRun node =
                         peelOwnLineTrailingRun lastCode
 
                     else
-                        { node = lastCode, run = [] }
+                        { node = lastCode, run = [], tailComment = Nothing }
+
+                cut =
+                    if Array.isEmpty inner.run then
+                        firstRowOfItsOwn inner.tailComment split.trailing
+
+                    else
+                        -- The run is already open from a deeper level: every
+                        -- comment after it is below the declaration too.
+                        0
 
                 run =
-                    inner.run ++ split.trailing
+                    inner.run ++ Array.dropFirst cut split.trailing
             in
             if Array.isEmpty run then
-                { node = node, run = [] }
+                { node = node
+                , run = []
+                , tailComment =
+                    when Array.last split.trailing is
+                        Just c ->
+                            Just c
+
+                        Nothing ->
+                            inner.tailComment
+                }
 
             else
-                { node = lpnReplaceChildren node (Array.pushLast inner.node front)
+                { node =
+                    lpnReplaceChildren node
+                        (Array.pushLast inner.node front ++ Array.takeFirst cut split.trailing)
                 , run = run
+                , tailComment = Nothing
                 }
 
 
-{-| Whether this run leader is one that renders on a fresh row *below* the
-declaration's last token — the only case the lift is for.
+{-| The index in a trailing comment run at which the members stop sharing the
+declaration's last row. `before` is the comment that precedes the run on the
+page, if the node's own tail already ended in one.
+
+Returns the run's length when every member stays put, which is the "nothing to
+detach" answer. -}
+firstRowOfItsOwn : Maybe LPNode -> Array LPNode -> Int
+firstRowOfItsOwn before items =
+    let
+        scan =
+            Array.foldl
+                (\c acc ->
+                    if acc.found then
+                        acc
+
+                    else if runRendersBelowDeclaration c || endsItsRow acc.prev then
+                        { acc | found = True }
+
+                    else
+                        { index = acc.index + 1, prev = Just c, found = False }
+                )
+                { index = 0, prev = before, found = False }
+                items
+    in
+    scan.index
+
+
+{-| Whether this comment, if there is one, takes the rest of its row with it —
+true of a `--` and of nothing else. A `{- … -}` of any shape can be followed on
+its closing row. -}
+endsItsRow : Maybe LPNode -> Bool
+endsItsRow prev =
+    when prev is
+        Just node ->
+            when lpnBox node is
+                SingleLineComment _ ->
+                    True
+
+                _ ->
+                    False
+
+        Nothing ->
+            False
+
+
+{-| Whether this run member is one that renders on a fresh row *below* the
+declaration's last token by its own shape — the first of the two things the
+peel splits on (a `--` in front of it is the other).
 
 Two conditions, and both are needed:
 
