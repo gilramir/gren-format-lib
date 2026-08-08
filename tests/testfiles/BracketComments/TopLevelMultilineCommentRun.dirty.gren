@@ -1,0 +1,50 @@
+module TopLevelMultilineCommentRun exposing (..)
+
+foo : a
+{- 1
+   second row -} {- 2
+   second row -}
+foo =
+    one
+
+bar : a
+{- 1 -} {- 2
+   second row -}
+bar =
+    one
+
+baz : a
+{- 1
+   second row -} {- 2 -}
+baz =
+    one
+
+qux : a
+{- 1 -} {- 2 -}
+qux =
+    one
+
+quux : a
+{- 1
+   second row -} {- 2
+   second row -} {- 3
+   second row -}
+quux =
+    one
+
+corge : a
+{- 1
+   second row -} -- 2
+corge =
+    one
+
+grault =
+    one
+
+{- 1
+   second row -} {- 2
+   second row -}
+
+
+garply =
+    one

@@ -1195,6 +1195,76 @@ was `{block, line}` while `fuzz-idempotency.py`'s `KINDS` was
 hid these. Per-kind counts print on every run; a number moving the wrong way is a
 regression signal while the absolute figure is non-zero.
 
+##### The RUN axis (`--comment-runs`), added 2026-08-07
+
+`--comments` injects ONE comment per cell. A comment **run** — two in the same
+gap — is a third axis, and until now it had never met an oracle:
+`fuzz-idempotency.py --run N` / `--mix` vary runs over the *corpus* and ask only
+"is this a fixed point", while this matrix asks elm-format and injected one
+comment. The same shape of hole as the one-kind-per-gap sweep recorded above.
+
+```bash
+./matrix-syntax.py --comments --comment-runs -j 12        # all nine compositions
+./matrix-syntax.py --comments --comment-mix multi,line --construct binop -v
+```
+
+**Composition is the axis, not length.** `--run 3` swept dry over the corpus, so
+this stops at two members and sweeps all nine compositions (three homogeneous +
+six ordered mixed pairs). Member texts and the per-boundary joiner are asserted
+equal to `fuzz-idempotency.py`'s `run_kind` / `mixed_kind` at startup
+(`_assert_run_text_matches_fuzz`), and the labels are that gate's (`blockx2`,
+`block+line`) so a finding can be handed straight to `repro.py`. The marker
+oracle goes through `marker_check`, which for a run also requires `¤1 … ¤n` in
+source order — **a run torn across a separator and reassembled backwards is a
+stable fixed point**, invisible to everything else here.
+
+Run cells gate against **`matrix-comment-run-baseline.json`**, a file of their
+own: the single-comment baseline is a reviewed asset of ~25k entries and a run
+sweep would report every one of them stale.
+
+`trail` and `lead` **collapse** wherever the gap's own whitespace held no
+newline — 92,970 of 103,383 slots, so the sweep is 113,796 cells rather than
+206,766. Deduplicated for run kinds only and the dropped count is printed; the
+single-comment axis has the same redundancy and keeps it, since dropping half its
+keys would report them stale.
+
+**First sweep (2026-08-07): 8,842 failures in 113,796 cells**, three classes.
+
+- **284 `box: multi-line comment cannot space-join` — FIXED the same day, 284 →
+  0.** `CommentBox.makeCommentLineBox` glued a same-row comment with the
+  Line-valued `B.addSuffix` and `Err`ed when the box was multi-line, on a stated
+  assumption: *"A multi-line comment never trails another comment inline, so the
+  box is single-line."* True of every input any gate could reach until a run
+  could put two comments in one gap — `{- a … -} {- b … -}` is valid Gren the
+  formatter **refused outright**. The layout was never in doubt: the single-line
+  twin (`MultilineCommentTrailedByComment`) has always kept the author's row, and
+  `BoxOps.glueCommentSuffix` — already imported by that very file, and documented
+  as "the one operation every same-row trailing-comment site shares; a multi-line
+  comment no longer needs to fall back" — was the sibling wanted. The fix is a
+  deletion. **Two renderers implementing one rule, only one taught it**: the
+  expression path handled `multi+multi` all along, and only the standalone
+  top-level path (`makeCommentLineBox`) refused. Fixture
+  `BracketComments/TopLevelMultilineCommentRun`; every other gate byte-unmoved,
+  including both parity matrices.
+- **31 non-idempotent**, two families: 27 × `lambdaBody@broken|bareBroken#g7.
+  blockx2.trail` (one bug reached from 15 constructs) and 4 × `ifExpr/ifElse@
+  bareFlat#g10|g11.{block+line,block+multi}.trail`. **Open.**
+- **8,527 `predicate-lie`**, all `commentEndsItsLine`. **Open, and not yet shown
+  to be bugs.** Sampled: both claim directions (13 True / 6 False per 285 cells),
+  and every one from a composition containing a `--`; zero from `blockx2`,
+  `multix2`, `block+multi`, `multi+block`, `block+line`. `flowCommentFindings`
+  asks "does removing this comment close the gap between the surrounding ITEMS",
+  and its scoping (`itemsBefore >= 1 && itemsAfter >= 1`) was written when a
+  comment's neighbours were items. In the one case traced by hand the aggregate
+  decision was still correct (`commentBreaksFlowRow` folds with `any`), so the
+  per-comment attribution was wrong and the layout was not. **Settle the scope
+  before treating these as a work-list.**
+
+The elm-format half is **deliberately unmeasured** so far — booking parity debt
+for cells that do not format is backwards. `tests/_run_parity_sample.py` measures
+the distribution without committing to a baseline (`--update-baseline` refuses a
+filtered run, so there is otherwise no way to ask).
+
 **The parity debt the kind arrived with: 22,770 new cells, every one diverging**
 — elm-format re-lays-out a multi-line comment's own body (`-}` onto a row of its
 own) where gren keeps the delimiters the author wrote. 11,109 auto-classified on

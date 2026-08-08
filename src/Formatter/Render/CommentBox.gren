@@ -32,18 +32,34 @@ makeCommentLineBox children =
                                                 |> Result.andThen
                                                     (\box ->
                                                         if commentGluesToPrevious node then
-                                                            -- Same-row block comment: join
-                                                            -- with a space onto the last
-                                                            -- line. A multi-line comment
-                                                            -- never trails another comment
-                                                            -- inline, so the box is single-
-                                                            -- line.
-                                                            when B.isLine box is
-                                                                Ok l ->
-                                                                    Ok { box = B.addSuffix (B.row [ B.space, l ]) acc.box }
-
-                                                                Err _ ->
-                                                                    Err "box: multi-line comment cannot space-join"
+                                                            -- Same-row comment: join with a
+                                                            -- space onto the last line, via
+                                                            -- the shared glue so a
+                                                            -- MULTI-LINE one joins too --
+                                                            -- its continuation rows pad
+                                                            -- under its own `{-`.
+                                                            --
+                                                            -- This arm used to assume "a
+                                                            -- multi-line comment never
+                                                            -- trails another comment
+                                                            -- inline" and `Err` when it
+                                                            -- did. True of every input any
+                                                            -- gate could reach until
+                                                            -- `matrix-syntax.py
+                                                            -- --comment-runs` put two
+                                                            -- comments in one gap: `{- a
+                                                            -- .. -} {- b .. -}` is valid
+                                                            -- Gren the formatter refused
+                                                            -- outright (284 cells). The
+                                                            -- layout was never in doubt --
+                                                            -- the single-line twin
+                                                            -- (`MultilineCommentTrailedByComment`)
+                                                            -- has always kept the author's
+                                                            -- row -- only the Line-valued
+                                                            -- `addSuffix` was reached where
+                                                            -- its Box-valued sibling was
+                                                            -- wanted.
+                                                            Ok { box = glueCommentSuffix box acc.box }
 
                                                         else
                                                             -- New line: stack below.
