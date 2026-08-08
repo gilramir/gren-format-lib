@@ -20,13 +20,14 @@ where gren-format and elm-format disagree about comments, see the
 ## Table of contents
 
 - [The two kinds of comment](#the-two-kinds-of-comment)
-- [The six rules at a glance](#the-six-rules-at-a-glance)
+- [The seven rules at a glance](#the-seven-rules-at-a-glance)
 - [C1 — A comment belongs to the code you wrote it next to](#c1--a-comment-belongs-to-the-code-you-wrote-it-next-to)
 - [C2 — When the parser doesn't record the punctuation, the comment leads what follows](#c2--when-the-parser-doesnt-record-the-punctuation-the-comment-leads-what-follows)
 - [C3 — A comment never forces a break](#c3--a-comment-never-forces-a-break)
 - [C4 — A comment changes where the lines fall, and nothing else](#c4--a-comment-changes-where-the-lines-fall-and-nothing-else)
 - [C5 — gren-format adds nothing around a comment](#c5--gren-format-adds-nothing-around-a-comment)
 - [C6 — An own-line comment is indented to the code it leads](#c6--an-own-line-comment-is-indented-to-the-code-it-leads)
+- [C7 — A comment keeps the rows you gave it](#c7--a-comment-keeps-the-rows-you-gave-it)
 - [Where the rules run out](#where-the-rules-run-out)
 
 ---
@@ -70,7 +71,7 @@ sizes =
 
 ---
 
-## The six rules at a glance
+## The seven rules at a glance
 
 1. **C1** — A comment belongs to the code you wrote it next to.
 2. **C2** — Where the parser doesn't record the punctuation, the comment leads
@@ -79,9 +80,10 @@ sizes =
 4. **C4** — A comment changes where the lines fall, and nothing else.
 5. **C5** — gren-format adds nothing around a comment.
 6. **C6** — An own-line comment is indented to the code it leads.
+7. **C7** — A comment keeps the rows you gave it.
 
 The first two are about **which piece of code a comment is attached to**; the
-last four are about **how the attached comment is laid out**. They never trade
+last five are about **how the attached comment is laid out**. They never trade
 against each other: attachment is settled first, and the layout works with
 whatever it is given.
 
@@ -153,40 +155,6 @@ a =
 b =
     fn a [ 1, 2 ] {- c -} last
 ```
-
-### A run keeps the rows you wrote it on
-
-Two or more comments in one gap are a **run**, and the same principle decides
-their rows: gren-format never moves a member of a run between rows. Written on
-one row they stay on one row; written on separate rows they stay apart. It holds
-in every position — a lambda body, an `else` branch, a record field, a call's
-argument list, a `let` binding, a `when` branch — so you never have to know which
-one you are in.
-
-```gren
--- you write:                        -- gren-format:
-\q ->                                \q ->
-    {- a -} {- b -} { x = 1              {- a -} {- b -}
-    , y = 2 }                            { x = 1
-                                         , y = 2
-                                         }
-
-\q ->                                \q ->
-    {- a -}                              {- a -}
-    {- b -}                              {- b -}
-    { x = 1                              { x = 1
-    , y = 2 }                            , y = 2
-                                         }
-```
-
-A `--` counts as a member like any other: `{- a -} {- b -} -- c` written on one
-row stays on that row, with the code below it.
-
-This is a deliberate divergence from elm-format, which decides a run's rows from
-the context around it instead — stacking one-per-row after a lambda's `->` and a
-declaration's `=`, keeping them together in an `else` branch or a call argument,
-and joining a run you *did* split when it sits inside a paren. See
-[divergence #30](elmFormatComparison.md#divergence-30).
 
 ---
 
@@ -601,6 +569,10 @@ Something you wrote on one line stays on one line, as long as every comment
 inside it can share that line. A single-line `{- -}` can; a `--` and a
 multi-line `{- … -}` cannot.
 
+This is about the **code's** line. The same sentence applied to a *comment's* own
+line is [C7](#c7--a-comment-keeps-the-rows-you-gave-it): two comments you wrote
+on one row can share it, so they keep it.
+
 ```gren
 -- you write, and gren-format keeps all of these on one line:
 a =
@@ -925,6 +897,54 @@ next =
 The full treatment of that case, including the version where the comment
 introduces the *next* declaration instead, is in
 [A comment on its own line below a declaration](formatterRules.md#a-comment-on-its-own-line-below-a-declaration).
+
+---
+
+## C7 — A comment keeps the rows you gave it
+
+gren-format never joins rows you wrote apart, and never splits a row you wrote
+together. Where C3 is about the **code's** line, this is about the comment's own.
+
+Two or more comments in one gap are a **run**, and the same question decides
+their rows: gren-format never moves a member of a run between rows. Written on
+one row they stay on one row; written on separate rows they stay apart. It holds
+in every position — a lambda body, an `else` branch, a record field, a call's
+argument list, a `let` binding, a `when` branch — so you never have to know which
+one you are in.
+
+```gren
+-- you write:                        -- gren-format:
+\q ->                                \q ->
+    {- a -} {- b -} { x = 1              {- a -} {- b -}
+    , y = 2 }                            { x = 1
+                                         , y = 2
+                                         }
+
+\q ->                                \q ->
+    {- a -}                              {- a -}
+    {- b -}                              {- b -}
+    { x = 1                              { x = 1
+    , y = 2 }                            , y = 2
+                                         }
+```
+
+A `--` counts as a member like any other: `{- a -} {- b -} -- c` written on one
+row stays on that row, with the code below it.
+
+This is a deliberate divergence from elm-format, which decides a run's rows from
+the context around it instead — stacking one-per-row after a lambda's `->` and a
+declaration's `=`, keeping them together in an `else` branch or a call argument,
+and joining a run you *did* split when it sits inside a paren. See
+[divergence #30](elmFormatComparison.md#divergence-30).
+
+The two directions are not the same rule twice. Keeping a one-row run together is
+[C3](#c3--a-comment-never-forces-a-break) and
+[C5](#c5--gren-format-adds-nothing-around-a-comment) already — every member can
+share the line, and floating one out onto a row of its own to give it room is
+exactly what C5 forbids. Keeping a split run apart is the part neither covers:
+C3 says a comment never *forces* a break, not that a break you made survives, and
+C5 forbids *adding*, while joining two rows takes one away. C7 states both halves
+as one rule so there is a single sentence to check against.
 
 ---
 

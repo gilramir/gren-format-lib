@@ -1524,8 +1524,8 @@ documentation instead of quietly outliving it.
     elm-format re-decides them per context.** Two or more comments in one gap are
     a *run*, and gren-format never moves a member between rows: written on one
     row they stay on one row, written on separate rows they stay apart. That is
-    rule C1 taken to its conclusion — one gap is one attachment — and it holds in
-    every context.
+    rule [C7](commentHandling.md#c7--a-comment-keeps-the-rows-you-gave-it), and it
+    holds in every context.
 
     elm-format decides per context instead, and the two answers disagree in both
     directions. Measured, same run and same term, only the context changed:
