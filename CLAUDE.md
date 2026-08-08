@@ -95,6 +95,7 @@ python3 fuzz-idempotency.py -j 12                                      # whole c
 python3 fuzz-idempotency.py -v testfiles/<SuiteDir>/Foo.formatted.gren  # one file
 python3 fuzz-idempotency.py --gaps --run 2 -j 12                       # a RUN of two per gap
 python3 fuzz-idempotency.py --gaps --mix-pairs -j 12                   # runs of MIXED kinds
+python3 fuzz-idempotency.py --gaps --mix-triples -j 12                 # runs of THREE
 python3 fuzz-idempotency.py --gaps --mix multi,block -j 12             # one such sequence
 ```
 
@@ -136,6 +137,31 @@ whole run on `splice_line` and off the all-at-once fast path. A mixed kind is th
 same 4-tuple `KINDS` holds, labelled `a+b`, so `repro.py` and
 `check-decision-stability.py` take one by path without knowing there is such a
 thing.
+
+**`--mix-triples` is the same axis at length three, added 2026-08-08.** A pair
+gives every member exactly ONE neighbour, so `--mix-pairs` already sweeps every
+*boundary* two kinds can form and a triple adds no new boundary at all. What it
+adds is a member with a comment on **both** sides — which is the shape the rules
+are written about: `FlowPolicy`'s inline arm asks whether the PREVIOUS comment
+glued while the member's own kind decides what follows it, and
+`spanTrailingOwnLine` peels a **suffix**, so a middle member is the first one
+that can be inside a peel with a member left outside it. `mix_sequences(3)`
+enumerates the **24** ordered triples that are not all one kind — `a,b,a` kept
+for the same reason `--run 3` is not enough, since its middle member's two
+neighbours are a different kind from itself. Four times a `--mix-pairs` sweep, so
+run it in the background.
+
+**First whole-corpus sweep (2026-08-08): 475,824 gaps, 21,133 skipped by the
+parser, 154 findings — all 154 known upstream (136 #35, 16 #25, 2 #14), so 0
+formatter-side.** The composition axis stops paying at three, the way the length
+axis stopped at three: `--mix-pairs` already puts every ordered pair of kinds on
+either side of a boundary, and every rule a run can break is written about **one**
+neighbour, so a member with two of them reaches no arm that a member with one
+does not. Do not read that as "runs are finished" — it is length and composition
+that are, over the corpus. The findings are concentrated exactly where the
+upstream bugs are (every `line`-leading sequence reports the same 13 fixtures, a
+`--` in front of a `-` operand being #35's signature), which is also the evidence
+that the sweep reaches the formatter rather than skipping.
 
 First whole-corpus sweep: **1,752 findings in 115,770 gaps — 1,718
 formatter-side**, in three bugs, all fixed the same day, taking it to **48 / 14**
@@ -374,12 +400,43 @@ cd gren-format-lib/tests
 ./check-decision-stability.py -j 12            # the corpus as written — the gate proper
 ./check-decision-stability.py -j 12 --gaps     # a comment in every gap — the instrument
 ./check-decision-stability.py --gaps --kind line -v testfiles/<Dir>/Foo.formatted.gren
+./check-decision-stability.py --gaps --run 2 -j 12       # a RUN of two per gap
+./check-decision-stability.py --gaps --mix-pairs -j 12   # runs of MIXED kinds
 ```
 
 **Rebuild the app first** — it shells out to it. The `--gaps` mode imports
 `fuzz-idempotency.py`'s probe definitions by path rather than copying them, so
 the two gates cannot drift onto different gaps; it reuses that gate's all-gaps
 fast path too, which matters more here because `--decisions` formats twice.
+
+**`--run` / `--mix` / `--mix-pairs` / `--mix-triples` reached this gate on
+2026-08-08, and until then `--gaps` had only ever run at n=1.** That was the one
+axis this instrument could least afford to be missing: the comment RUN is where
+every finding since the sixteenth session has come from, and `fuzz-idempotency.py
+--run 2` / `--mix-pairs` can only say *that* the bytes moved. Naming the decision
+is this script's entire job. The kinds are built by calling that module's own
+`run_kind` / `mixed_kind` / `mix_sequences`, so only the flag names are spelled
+twice and the probe text cannot drift; a label is that gate's label, so a finding
+hands straight to `repro.py`. The all-gaps fast path is told the run length
+(`per_gap`), without which every file would fall to the slow path and cost four
+times as much to report the same zero.
+
+**Measured the day it landed, and the numbers are a cross-check rather than news:
+`--gaps --run 2` reports 17 probes moved and `--gaps --mix-pairs` 43 — the same
+counts `fuzz-idempotency.py` reports in those modes, with the same issue split
+(34 #35 + 8 #25 + 1 #14).** Two gates arriving at one number over 100k+ probes is
+what "imported by path, not reimplemented" is supposed to buy, and it had never
+actually been checked at n>1. Every moved probe is known upstream in both modes,
+so the run axis books this gate **no formatter-side debt**.
+
+**Its UNEXPLAINED counter rises with runs (1 and 10) and that is honest, not new
+trace debt.** Since moved == known in both modes, every unexplained probe is a
+known-upstream one; sampled (`TypeAlias`, `TypeComments`, `PortModuleKeywordAdded`,
+`DocCommentWithEmoji`, `RecordFieldAsPattern`, all `block+multi` in a
+`type ⟨here⟩ alias` / `port ⟨here⟩ name` gap) they are the #25 family, whose two
+formats differ **only in a blank-line count**. A blank-line count is not a layout
+decision and must not become one to shrink the counter — the rule
+`Formatter.Audit.DecisionTrace` states.
 
 **It paid for itself the same day.** Its first whole-corpus run landed on exactly
 the same 347 probes `fuzz-idempotency.py --gaps` reports and named 320 of them,

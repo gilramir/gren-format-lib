@@ -17,9 +17,19 @@ Two modes:
 
     ./check-decision-stability.py               # the corpus as written
     ./check-decision-stability.py --gaps        # a comment in every gap
+    ./check-decision-stability.py --gaps --run 2      # a RUN of two per gap
+    ./check-decision-stability.py --gaps --mix-pairs  # runs of MIXED kinds
 
 The first is the gate proper and should be green: every `.formatted.gren` is a
 fixed point, so nothing may move.
+
+**`--run` / `--mix` reach this gate 2026-08-08, and until then `--gaps` had
+never seen a comment RUN.** That is the hole this instrument is worst placed to
+have: `fuzz-idempotency.py --run 2` and `--mix-pairs` both *find* run findings
+and neither can name a cause, which is the entire job of this script. The kinds
+come from the same `run_kind` / `mixed_kind` / `mix_sequences` the fuzzer builds
+its probes from — imported, not reimplemented — so a run reported there is the
+run probed here and `repro.py` takes the label unchanged.
 
 The second is the instrument, and it is red for the same reason
 `fuzz-idempotency.py --gaps` is -- it runs that gate's probes, imported from it
@@ -300,8 +310,15 @@ def sweep_gaps(pool, base, file_data, kinds, findings, verbose):
     for label, text, splice, can_fast in kinds:
         print(f"== per-gap comment pass [{label}] ==")
         if can_fast:
+            # `per_gap` is the run length: the fast path counts markers over the
+            # whole file, so a run of two would look like twice as many comments
+            # as gaps and every file would fall to the slow path -- green, and
+            # four times the cost.
+            per_gap = text.count("¤")
             fast = list(
-                pool.map(lambda t: FI.fast_check(base, t[1], t[2], text), file_data)
+                pool.map(
+                    lambda t: FI.fast_check(base, t[1], t[2], text, per_gap), file_data
+                )
             )
         else:
             fast = ["slow"] * len(file_data)
@@ -339,6 +356,44 @@ def sweep_gaps(pool, base, file_data, kinds, findings, verbose):
             print(f"{status_word} {name} [{label}]: {len(gaps)} gaps, {moved_here} moved")
 
 
+def resolve_kinds(ap, args):
+    """The comment kinds one run probes with, as `fuzz-idempotency.py`'s own
+    4-tuples.
+
+    Only the *flags* are spelled twice; every probe's text, label and splice
+    function comes from that module (`run_kind`, `mixed_kind`,
+    `mix_sequences`), so the two gates cannot end up injecting different runs
+    into the same gap -- the reason `--gaps` imports it by path at all. A label
+    built here is that gate's label, so a finding still hands straight to
+    `repro.py`."""
+    if not 1 <= args.run <= FI.MAX_RUN:
+        ap.error(f"--run must be between 1 and {FI.MAX_RUN}")
+    mixes = list(args.mix or [])
+    if args.mix_pairs:
+        mixes += [",".join(s) for s in FI.mix_sequences(2)]
+    if args.mix_triples:
+        mixes += [",".join(s) for s in FI.mix_sequences(3)]
+    if mixes and (args.kind or args.run != 1):
+        ap.error(
+            "--mix/--mix-pairs/--mix-triples replaces the kind list and spells "
+            "its own run length; it cannot be combined with --kind or --run"
+        )
+    if not mixes:
+        return [
+            FI.run_kind(k, args.run)
+            for k in FI.KINDS
+            if not args.kind or k[0] in args.kind
+        ]
+    known = {k[0] for k in FI.KINDS}
+    seqs = []
+    for spec in mixes:
+        labels = [s.strip() for s in spec.split(",")]
+        if len(labels) < 2 or any(l not in known for l in labels):
+            ap.error(f"--mix {spec!r}: want two or more of {', '.join(sorted(known))}")
+        seqs.append(labels)
+    return [FI.mixed_kind(labels) for labels in seqs]
+
+
 def main(argv):
     ap = argparse.ArgumentParser()
     ap.add_argument("-v", action="store_true", help="list every probe the trace could not name")
@@ -354,6 +409,30 @@ def main(argv):
         choices=[k[0] for k in FI.KINDS],
         help="restrict --gaps to one comment kind (repeatable; default all three)",
     )
+    ap.add_argument(
+        "--run",
+        type=int,
+        default=1,
+        metavar="N",
+        help=f"inject a RUN of N comments per gap instead of one (1-{FI.MAX_RUN})",
+    )
+    ap.add_argument(
+        "--mix",
+        action="append",
+        metavar="A,B[,C]",
+        help="inject a run of DIFFERENT kinds per gap, in the order given; "
+        "replaces the kind list and spells its own length",
+    )
+    ap.add_argument(
+        "--mix-pairs",
+        action="store_true",
+        help="every ordered pair of two different kinds (6 sequences)",
+    )
+    ap.add_argument(
+        "--mix-triples",
+        action="store_true",
+        help="every ordered triple that is not all one kind (24 sequences)",
+    )
     ap.add_argument("files", nargs="*")
     args = ap.parse_args(argv[1:])
 
@@ -361,7 +440,7 @@ def main(argv):
         sys.exit(f"{APP} not found -- run (cd ../../gren-format && ./build.sh) first")
 
     files = args.files or corpus_files(".formatted.gren")
-    kinds = [k for k in FI.KINDS if not args.kind or k[0] in args.kind]
+    kinds = resolve_kinds(ap, args)
     findings = Findings()
 
     with tempfile.TemporaryDirectory() as base:

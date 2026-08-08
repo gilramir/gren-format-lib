@@ -187,13 +187,13 @@ drawn, and it hid a real class of bug for a long time.
 | gate | varies | does **not** vary |
 |---|---|---|
 | fixtures | whatever someone wrote by hand | — |
-| `fuzz-idempotency.py` per-gap pass | every inter-token gap × **all three kinds** (since 2026-08-03) × **a run of N** (`--run`, since 2026-08-06) | nothing about run length any more — but `--run` is opt-in, so a default run still varies one comment |
+| `fuzz-idempotency.py` per-gap pass | every inter-token gap × **all three kinds** (since 2026-08-03) × **a run of N** (`--run`, since 2026-08-06) × **its composition** (`--mix` / `--mix-pairs`, 2026-08-06; `--mix-triples`, 2026-08-08) | nothing about a run's length or composition any more — but all of it is opt-in, so a default run still varies one comment |
 | `fuzz-idempotency.py` decl-end pass | own-line trailing comment, block and line form | more than one comment |
 | `fuzz-whitespace.py` | inter-token whitespace | comments, syntax |
 | `matrix-syntax.py` | every expression form × 25 expression contexts, **and every type form × 15 declaration contexts**, × 4 layout variants | comments |
 | `matrix-syntax.py --comments` | the above × 1 comment × 4 placements | more than one comment, **and the multi-line `{- … -}` kind** — its kinds are the single-line block and the `--` only |
 | `audit-predicates.py` | corpus, predicate vs renderer | nothing new |
-| `check-decision-stability.py` | nothing — it re-probes the two above | it varies no input; it reports the formatter's *reason* for a diff the others found |
+| `check-decision-stability.py` | nothing of its own — it re-probes the per-gap pass, **runs included** (`--run` / `--mix*`, since 2026-08-08) | it varies no input; it reports the formatter's *reason* for a diff the others found |
 | `gen-random.py` | structure **and** comments, randomly | — (the only gate that generates runs at all, and it has no parity oracle) |
 
 Two holes were visible in that table until 2026-08-03, and they compounded:
@@ -1051,3 +1051,74 @@ Steps 4 and 5 were the systemic pair and 4 came first: the gate makes the
 mistake cheap to find, but not making it is better. Steps 6, 7 and 8 come before
 9 — an induction is only as good as its base case, and a law is cheaper to hold
 by construction than to check.
+
+---
+
+## The triple axis, and where the run axis stops paying (2026-08-08)
+
+Two gaps were closed on the same day, and between them they say the corpus side
+of the run axis is finished.
+
+### `check-decision-stability.py` had never seen a run
+
+The instrument that answers *which* decision moved only ever ran at n=1, while
+the two gates that find run findings — `--run N` and `--mix*` — can say only
+*that* the bytes moved. It now takes the same flags, building its kinds by
+calling `fuzz-idempotency.py`'s own `run_kind` / `mixed_kind` / `mix_sequences`,
+so only the flag names are spelled twice.
+
+| mode | probes moved | known upstream | named by an intent flip | UNEXPLAINED |
+|---|---|---|---|---|
+| `--gaps --run 2` | 17 | 17 (#35) | 16 | 1 |
+| `--gaps --mix-pairs` | 43 | 43 (34 #35, 8 #25, 1 #14) | 33 | 10 |
+
+**Both numbers equal `fuzz-idempotency.py`'s residual in the same mode, split by
+issue the same way.** That is what importing the probe definitions by path is
+*for*, and until now it had only ever been true at n=1. The run axis therefore
+books this gate no formatter-side debt at all.
+
+The UNEXPLAINED counter rises with runs, and it is honest. Because moved ==
+known in both modes, every unexplained probe is a known-upstream one; sampled,
+they are the **#25** family — a run spliced into a `type ⟨here⟩ alias` /
+`port ⟨here⟩ name` gap, where the two formats differ *only in a blank-line
+count*. There is no layout decision to trace, and inventing one to shrink the
+counter is exactly what `Formatter.Audit.DecisionTrace`'s rule forbids.
+
+### `--mix-triples`: 24 sequences, 0 formatter-side
+
+`--mix-pairs` gives every member exactly ONE neighbour, so it already sweeps
+every *boundary* two kinds can form. A triple adds no new boundary; what it adds
+is a member with a comment on **both** sides — the first probe that can sit
+inside a peel with a member left outside it (`spanTrailingOwnLine` takes a
+suffix), or be classified against a previous comment while a following one
+decides what may glue to it (`FlowPolicy`'s inline arm). `mix_sequences(3)`
+enumerates the 24 ordered triples that are not all one kind; `a,b,a` is kept,
+because its middle member's two neighbours are a kind it is not.
+
+**475,824 gaps, 21,133 skipped by the parser, 154 findings — all 154 known
+upstream** (136 [#35](https://github.com/gren-lang/compiler-common/issues/35),
+16 [#25](https://github.com/gren-lang/compiler-common/issues/25),
+2 [#14](https://github.com/gren-lang/compiler-common/issues/14)).
+
+So **composition stops paying at three, the way length stopped at three.** The
+reason is the same one that made `--run 3` dry, one level up: every rule a run
+can break is written about *one* neighbour, so a second neighbour reaches no arm
+the first did not. The claim is about the corpus, not about runs in general —
+`matrix-syntax.py --comment-runs` deliberately stops at two members and is the
+axis with the elm-format oracle.
+
+**Non-vacuity was checked rather than assumed**, in the two places it could hide:
+
+- The splice reaches the formatter with three comments in one gap, joined per
+  boundary — `./repro.py TypeAlias.formatted.gren block+multi+line 83 --input`
+  shows `type {- ¤1 -} {- ¤2 ⏎ second row -} -- ¤3 ⏎ alias Point =`.
+- The sweep still reports: the 154 findings are the upstream families, and every
+  `line`-leading sequence lands on the same 13 fixtures.
+
+`repro.py` could **not** take a triple label when the sweep started — its `kind`
+argument enumerated mixed labels pairwise, so the one tool whose job is to turn a
+gate's label back into an input rejected a label the gate had just printed. It
+now validates the spelling (`+`-joined, any length; `xN` up to `MAX_RUN`) instead
+of listing the labels that existed when it was written. **An enumeration of
+another module's vocabulary goes stale silently**, and the way it fails is a
+tool refusing its own output.

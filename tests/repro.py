@@ -31,8 +31,10 @@ Usage:
 `<kind>` is one of `block` / `multi` / `line` (the three the formatter
 distinguishes; see `fuzz-idempotency.py`), or one of those with an `xN` suffix
 (`blockx2`) for a finding from that gate's `--run N` pass — a RUN of N comments
-spliced into the one gap. `<fixture>` may be a path or a bare basename, which is
-searched for under `testfiles/`.
+spliced into the one gap — or two or more joined with `+` (`block+multi`,
+`block+multi+line`) for one of its `--mix` / `--mix-pairs` / `--mix-triples`
+passes, a run of DIFFERENT kinds in that order. `<fixture>` may be a path or a
+bare basename, which is searched for under `testfiles/`.
 
     # a finding reported as  TrickyComments.formatted.gren[multi]@100
     ./repro.py TrickyComments.formatted.gren multi 100
@@ -122,6 +124,31 @@ def format_once(workdir, source, label):
     raise Bail(f"{label} failed:\n\n{blob}")
 
 
+def kind_label(text):
+    """Validate a kind label the way the gates SPELL it, rather than against a
+    list of the ones that existed when this was written.
+
+    An enumeration went stale the day `--mix-triples` landed: it crossed the
+    three kinds pairwise, so `block+multi+line` -- a label a gate had just
+    printed -- was rejected by the one tool whose job is to take that label. A
+    mixed run is any `+`-joined sequence of two or more kinds, and `mixed_kind`
+    has always built one of any length."""
+    known = {k[0] for k in FI.KINDS}
+    if "+" in text:
+        labels = text.split("+")
+        if len(labels) >= 2 and all(l in known for l in labels):
+            return text
+    else:
+        base, _, n = text.partition("x")
+        if base in known and (not n or (n.isdigit() and 1 <= int(n) <= FI.MAX_RUN)):
+            return text
+    raise argparse.ArgumentTypeError(
+        f"{text!r}: want one of {', '.join(sorted(known))}, a run of one of them "
+        f"(`blockx2`, up to x{FI.MAX_RUN}), or two or more joined with `+` "
+        "(`block+multi+line`)"
+    )
+
+
 def main(argv):
     ap = argparse.ArgumentParser(
         description="Reproduce one fuzz-idempotency / decision-stability probe."
@@ -129,20 +156,10 @@ def main(argv):
     ap.add_argument("fixture", help="path, or a bare basename under testfiles/")
     ap.add_argument(
         "kind",
-        choices=[k for (k, _, _, _) in FI.KINDS]
-        + [
-            f"{k}x{n}"
-            for n in range(2, FI.MAX_RUN + 1)
-            for (k, _, _, _) in FI.KINDS
-        ]
-        + [
-            f"{a}+{b}"
-            for (a, _, _, _) in FI.KINDS
-            for (b, _, _, _) in FI.KINDS
-            if a != b
-        ],
+        type=kind_label,
         help="comment kind, a RUN of them (`blockx2` — fuzz-idempotency's --run), "
-        "or a MIXED run (`block+multi` — its --mix)",
+        "or a MIXED run of any length (`block+multi`, `block+multi+line` — its "
+        "--mix / --mix-pairs / --mix-triples)",
     )
     ap.add_argument("gap", type=int, help="byte offset the gate reported")
     mode = ap.add_mutually_exclusive_group()

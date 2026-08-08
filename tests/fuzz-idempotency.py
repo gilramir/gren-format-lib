@@ -38,6 +38,8 @@ Usage:
     ./fuzz-idempotency.py --gaps                 # only the per-gap pass
     ./fuzz-idempotency.py --kind line            # only one comment kind (block|multi|line)
     ./fuzz-idempotency.py --gaps --run 2         # a RUN of two comments per gap
+    ./fuzz-idempotency.py --gaps --mix-pairs     # every ordered PAIR of two kinds
+    ./fuzz-idempotency.py --gaps --mix-triples   # every non-homogeneous TRIPLE
 
 The gaps of each file are checked concurrently (default 2 jobs; `gren format`
 is a subprocess so threads scale with CPUs). Each worker thread gets its own
@@ -638,6 +640,41 @@ def mixed_kind(labels):
     )
 
 
+def mix_sequences(length):
+    """Every ordered sequence of `length` kinds that is not all one kind.
+
+    Homogeneous sequences are excluded because `--run N` already sweeps them,
+    and at n=3 it swept DRY (2026-08-06) — so this is the whole of what a run of
+    `length` members can be that `--run` cannot say.
+
+    **At length 3 the new shape is a member with a comment on BOTH sides.** A
+    pair gives every member exactly one neighbour; `--mix-pairs` therefore
+    sweeps every *boundary* that can exist, and a triple adds no new boundary at
+    all — what it adds is a member whose left and right neighbours are both
+    comments, which is what the rules are actually written about
+    (`commentRendersOwnLine` separates the three kinds, `FlowPolicy`'s inline arm
+    asks whether the PREVIOUS comment glued, `spanTrailingOwnLine` peels a
+    SUFFIX). `a,b,a` is kept for the same reason `--run 3` is not enough: its
+    middle member has two neighbours where a `--run 3` member's are the same kind
+    as itself.
+
+    24 sequences at length 3, against `--mix-pairs`' 6, so budget for four times
+    the sweep."""
+    seqs = []
+    labels = [k[0] for k in KINDS]
+
+    def build(prefix):
+        if len(prefix) == length:
+            if len(set(prefix)) > 1:
+                seqs.append(prefix)
+            return
+        for l in labels:
+            build(prefix + [l])
+
+    build([])
+    return seqs
+
+
 def marker_check(out, n):
     """None if the run came through the format intact, else what went wrong.
 
@@ -828,16 +865,19 @@ def main(argv):
                          "and spells its own length, so it takes neither --kind nor --run")
     ap.add_argument("--mix-pairs", action="store_true",
                     help="every ordered pair of two DIFFERENT kinds (6 sequences)")
+    ap.add_argument("--mix-triples", action="store_true",
+                    help="every ordered TRIPLE that is not all one kind (24 "
+                         "sequences) — the first shape where a member has a "
+                         "comment on BOTH sides of it")
     ap.add_argument("files", nargs="*")
     args = ap.parse_args(argv[1:])
     if not 1 <= args.run <= MAX_RUN:
         ap.error(f"--run must be between 1 and {MAX_RUN}")
     mixes = list(args.mix or [])
     if args.mix_pairs:
-        mixes += [
-            f"{a},{b}" for a in (k[0] for k in KINDS) for b in (k[0] for k in KINDS)
-            if a != b
-        ]
+        mixes += [",".join(s) for s in mix_sequences(2)]
+    if args.mix_triples:
+        mixes += [",".join(s) for s in mix_sequences(3)]
     if mixes and (args.kind or args.run != 1):
         ap.error("--mix/--mix-pairs replaces the kind list and spells its own "
                  "run length; it cannot be combined with --kind or --run")
