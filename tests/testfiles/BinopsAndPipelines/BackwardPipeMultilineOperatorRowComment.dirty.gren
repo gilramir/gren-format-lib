@@ -1,0 +1,53 @@
+module BackwardPipeMultilineOperatorRowComment exposing (..)
+
+-- A multi-line `{- … -}` written AFTER a `<|`, on the operator's own row, keeps
+-- the operator on the seed's row. Its own rows are not a reason to move the
+-- `<|`: the two controls below render the operator in exactly the same place.
+-- Until 2026-08-08 this kind alone sent the chain operator-leading
+-- (`fn` ⏎ `<| {- c` ⏎ … ⏎ `one`), which rule C4 and divergence #14 both refuse.
+
+
+afterTheOperator =
+    fn <| {- follows the operator
+   second row -}
+        one
+
+
+-- Control, the other kind that cannot ride: a `--` there has kept the operator
+-- since 2026-08-02, and this is the shape the multi-line one now matches.
+
+
+afterTheOperatorLine =
+    fn <| -- follows the operator
+        one
+
+
+-- Control, no comment at all: the operator sits in the same place again, which
+-- is what makes the two above C4-clean rather than merely consistent with each
+-- other.
+
+
+noComment =
+    fn
+        <| one
+
+
+-- Control, the ridable kind: a single-line `{- -}` needs no peel — it rides the
+-- body's line, so the whole step stays on one row.
+
+
+ridesTheBody =
+    fn <| {- rides -} one
+
+
+-- The boundary, and it is not the same question: written BEFORE the `<|`, a
+-- multi-line comment sits between the seed and the operator, so the seed cannot
+-- keep it and the chain really is operator-leading. Reviewed 2026-08-08 as
+-- divergence #14 + #25 and deliberately left alone.
+
+
+beforeTheOperator =
+    fn
+        {- precedes the operator
+   second row -}
+        <| one

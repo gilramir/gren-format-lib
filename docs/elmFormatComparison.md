@@ -1366,7 +1366,7 @@ documentation instead of quietly outliving it.
     air ([C5](commentHandling.md#c5--gren-format-adds-nothing-around-a-comment)),
     and nothing is pulled up to close a gap you left.
 
-26. <a id="divergence-26"></a>**A `--` trailing a `<|` rides that operator's row;
+26. <a id="divergence-26"></a>**A comment trailing a `<|` rides that operator's row;
     elm-format drops it below onto the body's rows.** gren-format's flat `<|`
     layout keeps the operator on the seed's line with the body after it
     (`fn <|` / `····body`). A `--` runs to end of line, so the body cannot follow
@@ -1386,6 +1386,29 @@ documentation instead of quietly outliving it.
     The trade is which of the two things moves: gren-format preserves the
     comment's attachment and pays for it with the body's row, elm-format
     preserves the body's row and pays for it with the attachment.
+
+    **A multi-line `{- … -}` there answers the same way** — it cannot ride the
+    body's line either, so it rides the operator's and the body drops below it:
+
+    ```gren
+    -- you wrote:            -- gren-format:          -- elm-format:
+    fn <| {- c               fn <| {- c               fn <|
+       second row -}                  second row -}       {- c
+        one                      one                         second row
+                                                          -}
+                                                          one
+    ```
+
+    Until 2026-08-08 it did **not**: this kind alone moved the operator onto a
+    row of its own (`fn` ⏎ `····<| {- c` ⏎ … ⏎ `···one`), the shape the
+    parenthetical below records as removed for the `--`. `spanOperatorRowComments`
+    peeled a `--` written on the operator's row and not a multi-line comment, on
+    the stated grounds that the latter "brings its own newlines" — but its own
+    rows are no reason to move the operator, and every other spelling of this
+    code (no comment, `--`, ridable single-line `{- -}`) put the `<|` on the
+    seed's row. Found in the comment axis's UNREVIEWED parity debt, 104 cells,
+    once the multi-line kind reached that axis on 2026-08-05. Fixture
+    `BinopsAndPipelines/BackwardPipeMultilineOperatorRowComment`.
 
     (This entry used to say gren-format moved the **operator** onto a row of its
     own — `[ fn` / `····<| -- c` / `········one`. That stopped being true at

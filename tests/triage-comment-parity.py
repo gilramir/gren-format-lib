@@ -137,8 +137,11 @@ def collect(jobs):
         mx.CONTEXTS + mx.TYPE_CONTEXTS,
         mx.VARIANTS,
     )
-    comment_cells, _, _ = mx.enumerate_comment_cells(
-        syntax_cells, list(mx.COMMENT_KINDS), mx.COMMENT_POSITIONS)
+    # `enumerate_comment_cells` grew a fourth return value (the trail/lead pairs
+    # that collapse to the same bytes) when the RUN axis landed on 2026-08-07,
+    # which broke `--collect` silently until it was next run -- 2026-08-08.
+    comment_cells = mx.enumerate_comment_cells(
+        syntax_cells, list(mx.COMMENT_KINDS), mx.COMMENT_POSITIONS)[0]
     todo = [c for c in comment_cells if mx.comment_key(c) in unreviewed]
     print(f"{len(todo)} UNREVIEWED cells, {len(syntax_cells)} base cells", file=sys.stderr)
 

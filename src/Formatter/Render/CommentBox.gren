@@ -246,12 +246,21 @@ the row. Without the peel the whole chain switched to the operator-LEADING
 layout (`fn` ⏎ `<| -- c` ⏎ body), a shape gren-format renders for no
 comment-free input — rule C4.
 
-Only a `--` is peeled, and only one the author put on the operator's row:
+Peeled: any comment the author put ON the operator's row that cannot ride the
+body's line — a `--`, or a multi-line `{- … -}`. Not peeled:
 
   - a single-line `{- -}` needs no peel — it already rides the body's line;
-  - a multi-line `{- … -}` brings its own newlines, so it keeps the
-    operator-leading layout;
   - a `LeadsOwnLine` comment belongs above the body, not on the operator's line.
+
+**The multi-line case was excluded until 2026-08-08**, on the stated grounds
+that "it brings its own newlines, so it keeps the operator-leading layout". Its
+own rows are not a reason to move the OPERATOR: gren-format renders `fn <|` ⏎
+`····1` for the same code with the comment deleted, and `fn <| -- c` ⏎ `····1`
+with the other non-riding kind, so the multi-line one was the only spelling in
+which a comment decided where the `<|` sits — the C4 violation `f330757` /
+`67e1b0a` removed for the `--` and could not reach here, because no oracle
+covered the multi-line kind until the comment axis gained it on 2026-08-05.
+Found as 104 cells of that axis's UNREVIEWED parity debt.
 
 -}
 spanOperatorRowComments : Array LPNode -> { glued : Array LPNode, rest : Array LPNode }
@@ -261,6 +270,9 @@ spanOperatorRowComments nodes =
             when lpnBox node is
                 SingleLineComment { role } ->
                     role /= LeadsOwnLine
+
+                BlockComment { loc, role } ->
+                    String.contains "\n" loc.value && role /= LeadsOwnLine
 
                 _ ->
                     False

@@ -489,6 +489,7 @@ binopsAndPipelinesSuite fsPerm =
             , assertPrettyIn fsPerm "BinopsAndPipelines" "a `{- -}` in front of a `<|` that has dropped to a row of its own stays in front of the operator; one written after it leads the operand instead" "BackwardPipeOperatorRowComment"
             , assertPrettyIn fsPerm "BinopsAndPipelines" "a record field's lambda drops below `fld =` as a unit when its body is multi-line, and a comment written between the `->` and the body is not mistaken for the lambda head" "RecordFieldLambdaCommentDrop"
             , assertPrettyIn fsPerm "BinopsAndPipelines" "a comment on its own row between a pipeline operator and its operand leads that operand, for a lambda exactly as for every other operand kind" "PipelineOperandLeadingComment"
+            , assertPrettyIn fsPerm "BinopsAndPipelines" "a multi-line `{- … -}` written after a `<|` keeps the operator on the seed's row, exactly as a `--` there and as the comment-free twin do -- its own rows are not a reason to move the operator; one written BEFORE the `<|` still sends the chain operator-leading" "BackwardPipeMultilineOperatorRowComment"
             ]
         }
 
