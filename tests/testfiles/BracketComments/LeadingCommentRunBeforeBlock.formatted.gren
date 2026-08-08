@@ -11,8 +11,7 @@ one =
 
 two =
     \q ->
-        {- a -}
-        {- b -}
+        {- a -} {- b -}
         (fn one
             two
         )
@@ -20,9 +19,7 @@ two =
 
 three =
     \q ->
-        {- a -}
-        {- b -}
-        {- c -}
+        {- a -} {- b -} {- c -}
         (fn one
             two
         )

@@ -5,7 +5,7 @@ module Formatter.Render.FlowAssembly exposing (FlowItem, FlowMeasure, SoftGlueAl
 
 import Formatter.Logical.LogicalPrintingTree exposing (CommentRole(..), LPBox(..), LPNode, ListBrackets(..), commentGluesToPrevious, commentRole, lpnBox, lpnChildren, lpnMaxRow, roleGlues)
 import Formatter.Render.Box as B exposing (Box(..))
-import Formatter.Render.BoxOps exposing (applyIndent, glueCommentSuffix, isSingleLine, joinInline, nodesShareStartRow, traverseResult)
+import Formatter.Render.BoxOps exposing (applyIndent, commentRunLine, glueCommentSuffix, isSingleLine, joinInline, nodesShareStartRow, traverseResult)
 import Formatter.Render.FlowPolicy as FP
 import Formatter.Render.NodeClassify exposing (isColonLeaf, isEmptyLine, isTypeRecordLiteral, nodeIsComment, subtreeEndsWithMultilineBlockComment)
 
@@ -271,11 +271,37 @@ there either. -}
 assembleBrokenWithComments : Int -> Array FlowItem -> Result String Box
 assembleBrokenWithComments indent items =
     let
-        -- `acc.pending` holds the lines of leading block comments waiting for
-        -- the term they ride; flushing drops each on its own row instead (next
-        -- term multi-line, or the flow ended).
+        -- `acc.pending` holds the leading comment run waiting for the term it
+        -- rides, grouped into the ROWS THE AUTHOR WROTE IT ON: a member whose
+        -- stored role glues (`RidesInline` / `TrailsPrevious`) joins the row
+        -- before it, one that leads its own row starts a new one. **gren never
+        -- moves a comment between rows**, so that grouping survives whatever
+        -- happens to the run afterwards -- riding the term, or stacking above it.
+        --
+        -- Flushing gives up on the ride and emits one row per AUTHORED row.
+        -- Emitting one row per MEMBER (as this did until 2026-08-08) split a run
+        -- written on one row and disagreed with the riding arm below, which has
+        -- always space-joined; joining every member into ONE row instead is the
+        -- opposite error and merges rows the author kept apart.
         flushPending acc =
-            { acc | entries = acc.entries ++ Array.map B.line acc.pending, pending = [] }
+            { acc
+                | entries = acc.entries ++ Array.map (\row -> B.line (commentRunLine row)) acc.pending
+                , pending = []
+            }
+
+        -- Add a pairable comment to the run, on the previous member's row when
+        -- the author wrote it there and on a row of its own otherwise.
+        addPending glues cl acc =
+            when Array.popLast acc.pending is
+                Just { last = row, initial } ->
+                    if glues then
+                        { acc | pending = Array.pushLast (Array.pushLast cl row) initial }
+
+                    else
+                        { acc | pending = Array.pushLast [ cl ] acc.pending }
+
+                Nothing ->
+                    { acc | pending = [ [ cl ] ] }
 
         -- Pairing is all-or-nothing over a comment RUN: once a comment in the
         -- current run has gone to its own row (a `--`, a multi-line `{- -}`),
@@ -283,16 +309,41 @@ assembleBrokenWithComments indent items =
         -- rather than jumping ahead of it onto the term. elm-format's rule,
         -- verified: `-- first` / `{- c -}` / `w` keeps both comments own-row.
         -- Reset by any real term, which ends the run.
-        ownRow c acc =
+        --
+        -- A member the author wrote ON the run's current row still stays there,
+        -- `--` included: `{- a -} {- b -} -- c` keeps all three on one row and
+        -- the term goes below. `poisoned` then says two things at once, both
+        -- true of that row — nothing further may join it, and it can no longer
+        -- ride a term (gluing onto a line ending in a `--` would land inside the
+        -- comment). Only a single-line box can join; a multi-line `{- .. -}`
+        -- brings rows of its own and takes the stacking path below.
+        ownRow glues c acc =
             let
-                flushed =
-                    flushPending acc
+                stacked =
+                    let
+                        flushed =
+                            flushPending acc
+                    in
+                    { flushed
+                        | entries = Array.pushLast c.box flushed.entries
+                        , lastRow = -1
+                        , poisoned = True
+                    }
             in
-            { flushed
-                | entries = Array.pushLast c.box flushed.entries
-                , lastRow = -1
-                , poisoned = True
-            }
+            when { rows = Array.popLast acc.pending, line = B.isLine c.box } is
+                { rows = Just { last = row, initial = rowsAbove }, line = Ok cl } ->
+                    if glues then
+                        { acc
+                            | pending = Array.pushLast (Array.pushLast cl row) rowsAbove
+                            , lastRow = -1
+                            , poisoned = True
+                        }
+
+                    else
+                        stacked
+
+                _ ->
+                    stacked
 
         step item accResult =
             accResult
@@ -318,10 +369,10 @@ assembleBrokenWithComments indent items =
                                             when pairableCommentLine c is
                                                 Just cl ->
                                                     if acc.poisoned then
-                                                        Ok (ownRow c acc)
+                                                        Ok (ownRow (commentGluesToPrevious item.node) c acc)
 
                                                     else
-                                                        Ok { acc | pending = Array.pushLast cl acc.pending }
+                                                        Ok (addPending (commentGluesToPrevious item.node) cl acc)
 
                                                 Nothing ->
                                                     -- Own row, with the next item
@@ -330,41 +381,54 @@ assembleBrokenWithComments indent items =
                                                     -- row-glues (the policy is
                                                     -- AlreadyTerminated), so
                                                     -- `lastRow` resets.
-                                                    Ok (ownRow c acc)
+                                                    Ok (ownRow (commentGluesToPrevious item.node) c acc)
 
                                     Nothing ->
                                         when pairableCommentLine c is
                                             Just cl ->
                                                 if acc.poisoned then
-                                                    Ok (ownRow c acc)
+                                                    Ok (ownRow (commentGluesToPrevious item.node) c acc)
 
                                                 else
-                                                    Ok { acc | pending = Array.pushLast cl acc.pending }
+                                                    Ok (addPending (commentGluesToPrevious item.node) cl acc)
 
                                             Nothing ->
                                                 -- First-position `--` / multi-line
                                                 -- comment: its own first entry.
-                                                Ok (ownRow c acc)
+                                                Ok (ownRow (commentGluesToPrevious item.node) c acc)
 
                             Nothing ->
-                                if not (Array.isEmpty acc.pending) && isSingleLine item.box then
+                                if not (Array.isEmpty acc.pending) && not acc.poisoned && isSingleLine item.box then
                                     -- The waiting comments ride this term's line:
                                     -- `{- c -} term`. `lastRow` advances like a
                                     -- plain term's — a comment trailing the term
                                     -- must still glue on, or its own-row form
                                     -- would re-pair FORWARD on reparse and
                                     -- oscillate.
-                                    let
-                                        prefixRow =
-                                            B.row (Array.flatten (Array.map (\cl -> [ cl, B.space ]) acc.pending))
-                                    in
-                                    Ok
-                                        { acc
-                                            | entries = Array.pushLast (B.prefix prefixRow item.box) acc.entries
-                                            , lastRow = lpnMaxRow item.node
-                                            , pending = []
-                                            , poisoned = False
-                                        }
+                                    --
+                                    -- Only the run's LAST authored row rides; any
+                                    -- row the author wrote above it stays above
+                                    -- it, since the ride must not pull a comment
+                                    -- up out of the row it was written on.
+                                    when Array.popLast acc.pending is
+                                        Nothing ->
+                                            Ok acc
+
+                                        Just { last = rideRow, initial = rowsAbove } ->
+                                            let
+                                                stacked =
+                                                    flushPending { acc | pending = rowsAbove }
+
+                                                prefixRow =
+                                                    B.row [ commentRunLine rideRow, B.space ]
+                                            in
+                                            Ok
+                                                { stacked
+                                                    | entries = Array.pushLast (B.prefix prefixRow item.box) stacked.entries
+                                                    , lastRow = lpnMaxRow item.node
+                                                    , pending = []
+                                                    , poisoned = False
+                                                }
 
                                 else
                                     flushPending acc

@@ -235,8 +235,7 @@ torturedComments primaryIntValue secondaryStringValue tertiaryBoolValue =
         {- block comment between `let` and the first binding -}
         -- and a regular comment too
         bumpedValue =
-            {- comment between binding name and `=` -}
-            {- comment between `=` and binding body -}
+            {- comment between binding name and `=` -} {- comment between `=` and binding body -}
             primaryIntValue {- inline block between binop operands -} + 1
 
         guardedString =
@@ -254,8 +253,7 @@ torturedComments primaryIntValue secondaryStringValue tertiaryBoolValue =
     when {- inline comment between `when` and the scrutinee -} bumpedValue is
         {- inline comment between scrutinee and `is` -}
         0 ->
-            {- inline block between pattern and arrow -}
-            {- inline block between arrow and body -}
+            {- inline block between pattern and arrow -} {- inline block between arrow and body -}
             "zero/" ++ guardedString
 
         -- a regular comment between branches
@@ -277,22 +275,18 @@ torturedComments primaryIntValue secondaryStringValue tertiaryBoolValue =
     into every whitespace position between tokens. -}
 extremelyCommented : {-c1-} {-c2-} { {-c3-} score : {-c4-} {-c5-} Int, {-c6-} {-c7-} label : {-c8-} {-c9-} String {-c10-} } -> {-c11-} {-c12-} { {-c13-} score : {-c14-} {-c15-} Int, {-c16-} {-c17-} label : {-c18-} {-c19-} String {-c20-} } {-c21-}
 extremelyCommented {-c22-} {-c23-} ({ {-c24-} score, {-c25-} {-c26-} label {-c27-} } {-c28-} {-c29-} as wholeRecord) =
-    {-c30-}
-    {-c31-}
-    {-c32-}
+    {-c30-} {-c31-} {-c32-}
     let
         {-c33-}
         {-c34-}
         bumpedScore =
-            {-c35-}
-            {-c36-}
+            {-c35-} {-c36-}
             score {-c37-} + {-c38-} 1
 
         {-c39-}
         {-c40-}
         expandedLabel =
-            {-c41-}
-            {-c42-}
+            {-c41-} {-c42-}
             label {-c43-} ++ {-c44-} "!"
     in
     {-c45-}
@@ -302,12 +296,10 @@ extremelyCommented {-c22-} {-c23-} ({ {-c24-} score, {-c25-} {-c26-} label {-c27
         {-c49-}
         |> {-c50-} {-c51-}
            (\{-c52-} r ->
-                {-c53-}
-                {-c54-}
+                {-c53-} {-c54-}
                 {-c55-}
                 if {-c56-} bumpedScore {-c57-} > {-c58-} 0 then
-                    {-c59-}
-                    {-c60-}
+                    {-c59-} {-c60-}
                     {-c61-}
                     { {-c62-} r | {-c63-} {-c64-} score = {-c65-} {-c66-} bumpedScore, {-c67-} {-c68-} label = {-c69-} {-c70-} expandedLabel {-c71-} }
 
@@ -320,15 +312,13 @@ extremelyCommented {-c22-} {-c23-} ({ {-c24-} score, {-c25-} {-c26-} label {-c27
                         {-c77-}
                         {-c78-}
                         0 ->
-                            {-c79-}
-                            {-c80-}
+                            {-c79-} {-c80-}
                             {-c81-}
                             { {-c82-} r | {-c83-} {-c84-} label = {-c85-} {-c86-} "zero" {-c87-} } {-c88-}
 
                         {-c89-}
                         _ ->
-                            {-c90-}
-                            {-c91-}
+                            {-c90-} {-c91-}
                             r {-c92-}
            ) {-c93-}
         {-c94-} |> {-c95-} (\finalRecord -> {-c96-} {-c97-} finalRecord {-c98-}) {-c99-}

@@ -222,6 +222,43 @@ type alias BinopChainSegment =
     { op : String, operandBox : Box, ownLine : Array FlowItem }
 
 
+{-| A paired leading comment RUN as one box per row THE AUTHOR WROTE IT ON: a
+member whose stored role glues joins the row before it, one that leads its own
+row starts a new box.
+
+**gren never moves a comment between rows**, so the run that travels down with a
+dropping block keeps its own shape while it travels. Emitting one box per member
+(as this did until 2026-08-08) split `{- a -} {- b -}` onto two rows in exactly
+the shapes where the block drops -- a lambda body, a multi-line record value --
+while the same run in a flow that does not drop stayed on one row.
+
+`glueCommentSuffix` does the joining, so a multi-line member glues onto the row's
+last line with its body padded under itself, the same as every other same-row
+trailing-comment site. -}
+leadingRunRowBoxes : Array FlowItem -> Array Box
+leadingRunRowBoxes items =
+    Array.foldl
+        (\li acc ->
+            when li.comment is
+                Nothing ->
+                    acc
+
+                Just lc ->
+                    when Array.popLast acc is
+                        Just { last = prevRow, initial } ->
+                            if commentGluesToPrevious li.node then
+                                Array.pushLast (glueCommentSuffix lc.box prevRow) initial
+
+                            else
+                                Array.pushLast lc.box acc
+
+                        Nothing ->
+                            [ lc.box ]
+        )
+        []
+        items
+
+
 {-| The line of a single-line block-comment item — the only comment kind that
 can ride the operator line that follows it. Literally the `pairableCommentLine`
 rule `assembleBrokenWithComments` uses for a broken call, over the same
@@ -5795,7 +5832,7 @@ assembleFlowImpl measure flowStart flowIndent items =
                         if dropsTogether then
                             placeNonComment acc
                                 decision
-                                (Array.mapAndKeepJust (\li -> li.comment |> Maybe.map (\lc -> lc.box)) paired.leading)
+                                (leadingRunRowBoxes paired.leading)
                                 item
 
                         else

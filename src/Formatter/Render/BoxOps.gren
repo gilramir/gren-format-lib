@@ -1,4 +1,4 @@
-module Formatter.Render.BoxOps exposing (applyIndent, blockIndentSpaces, boxLine, glueCommentSuffix, glueLeadingCommentPrefix, grenIndent, isBlockNode, isSingleLine, joinInline, nodesShareStartRow, prefixOperator, spaceJoinLines, stackWithBlanks, traverseResult, wrapParenVerticalPadded)
+module Formatter.Render.BoxOps exposing (applyIndent, blockIndentSpaces, boxLine, commentRunLine, glueCommentSuffix, glueLeadingCommentPrefix, grenIndent, isBlockNode, isSingleLine, joinInline, nodesShareStartRow, prefixOperator, spaceJoinLines, stackWithBlanks, traverseResult, wrapParenVerticalPadded)
 
 {-| Low-level `Box`/`Line` manipulation helpers shared by the renderer.
 -}
@@ -23,6 +23,22 @@ prefixOperator op box =
 
         Err _ ->
             B.prefix (B.row [ B.literal op, B.space ]) box
+
+
+{-| A comment RUN as one rendered row: the members space-separated, in source
+order.
+
+A run the author wrote in one gap shares one row wherever that row ends up --
+riding the term it leads (`{- a -} {- b -} term`) or standing above a term that
+came back multi-line. Both spellings go through this, so the two cannot drift
+into "joined when it rides, stacked when it does not", which is what split a
+one-row run into one row per member until 2026-08-08. Splitting IS right when the
+run holds a member that can ride nothing (a `--`, a multi-line `{- .. -}`), and
+that is decided by the caller -- such a member never reaches this function's
+input, since it is not `pairableCommentLine`. -}
+commentRunLine : Array B.Line -> B.Line
+commentRunLine members =
+    B.row (spaceJoinLines members)
 
 
 {-| Join `Line`s with a single space between each (`[a, b, c]` → `a b c`). -}

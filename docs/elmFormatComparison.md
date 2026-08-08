@@ -47,6 +47,7 @@ code, and why the places they *don't* look the way they do.
   - [#27 A parenthesized function type flattens](#divergence-27)
   - [#28 A type break gren-format doesn't record](#divergence-28)
   - [#29 A `let` annotation doesn't lift a broken type below the `:`](#divergence-29)
+  - [#30 A comment run keeps the rows you wrote it on](#divergence-30)
 - [Out of scope for comparison](#out-of-scope-for-comparison)
 
 ---
@@ -1517,6 +1518,50 @@ documentation instead of quietly outliving it.
     top-level `foo :` does lift. Lifting it here means either routing a `let`
     annotation through `makeSignatureBox` or giving a multi-line `ParenBlock`
     the same drop behaviour a record has, and both reach well beyond `let`.
+
+
+30. <a id="divergence-30"></a>**A comment RUN keeps the rows you wrote it on;
+    elm-format re-decides them per context.** Two or more comments in one gap are
+    a *run*, and gren-format never moves a member between rows: written on one
+    row they stay on one row, written on separate rows they stay apart. That is
+    rule C1 taken to its conclusion — one gap is one attachment — and it holds in
+    every context.
+
+    elm-format decides per context instead, and the two answers disagree in both
+    directions. Measured, same run and same term, only the context changed:
+
+    ```gren
+    -- you write (one row):        -- gren-format:          -- elm-format:
+    \q ->                          \q ->                    \q ->
+        {- a -} {- b -} { x = 1        {- a -} {- b -}          {- a -}
+        , y = 2 }                      { x = 1                  {- b -}
+                                       , y = 2                  { x = 1
+                                       }                        , y = 2
+                                                                }
+    ```
+
+    ```gren
+    -- you write (separate rows):  -- gren-format:          -- elm-format:
+    fn                             fn                       fn
+        (\a ->                        (\a ->                   (\a ->
+            g a                            g a                      g a
+            {- one -}                   {- one -}                {- one -} {- two -}
+            {- two -}                   {- two -}               )
+        )                              )
+    ```
+
+    elm-format stacks a leading run one-per-row after a lambda's `->`, a
+    declaration's `=`, a `let` binding's `=` and a `when` branch's `->`, and keeps
+    it on one row in an `else` branch, a record field value, a `<|` body and a
+    call's argument list — while joining a run the author *did* split, in the
+    second shape above. gren-format asks one question in all eight positions:
+    what did you write?
+
+    **The trade was made deliberately** (2026-08-08). The rule is simpler to state
+    and to predict than elm-format's, and it is the only one under which the
+    formatter never invents or destroys a row break inside a run. It costs
+    agreement in the four stacking contexts and gains it in the other four; the
+    single-comment axis is unaffected, since a run needs two.
 
 
 ## Out of scope for comparison

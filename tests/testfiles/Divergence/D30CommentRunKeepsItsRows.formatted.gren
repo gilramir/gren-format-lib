@@ -1,0 +1,18 @@
+module D30CommentRunKeepsItsRows exposing (..)
+
+
+writtenOnOneRow =
+    \q ->
+        {- a -} {- b -}
+        { x = 1
+        , y = 2
+        }
+
+
+writtenOnSeparateRows =
+    fn
+        (\a ->
+            g a
+         {- one -}
+         {- two -}
+        )

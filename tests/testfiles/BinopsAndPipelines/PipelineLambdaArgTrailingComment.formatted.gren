@@ -37,7 +37,8 @@ commentRun =
         |> fn
             (\a ->
                 g a
-             {- one -} {- two -}
+             {- one -}
+             {- two -}
             )
 
 

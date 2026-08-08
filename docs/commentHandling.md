@@ -154,6 +154,40 @@ b =
     fn a [ 1, 2 ] {- c -} last
 ```
 
+### A run keeps the rows you wrote it on
+
+Two or more comments in one gap are a **run**, and the same principle decides
+their rows: gren-format never moves a member of a run between rows. Written on
+one row they stay on one row; written on separate rows they stay apart. It holds
+in every position — a lambda body, an `else` branch, a record field, a call's
+argument list, a `let` binding, a `when` branch — so you never have to know which
+one you are in.
+
+```gren
+-- you write:                        -- gren-format:
+\q ->                                \q ->
+    {- a -} {- b -} { x = 1              {- a -} {- b -}
+    , y = 2 }                            { x = 1
+                                         , y = 2
+                                         }
+
+\q ->                                \q ->
+    {- a -}                              {- a -}
+    {- b -}                              {- b -}
+    { x = 1                              { x = 1
+    , y = 2 }                            , y = 2
+                                         }
+```
+
+A `--` counts as a member like any other: `{- a -} {- b -} -- c` written on one
+row stays on that row, with the code below it.
+
+This is a deliberate divergence from elm-format, which decides a run's rows from
+the context around it instead — stacking one-per-row after a lambda's `->` and a
+declaration's `=`, keeping them together in an `else` branch or a call argument,
+and joining a run you *did* split when it sits inside a paren. See
+[divergence #30](elmFormatComparison.md#divergence-30).
+
 ---
 
 ## C2 — When the parser doesn't record the punctuation, the comment leads what follows

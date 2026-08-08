@@ -82,9 +82,10 @@ import Formatter.Logical.LogicalPrintingTree exposing
   - `FlowSep` — normal flow: space or newline (a groupable soft break).
   - `HardNl` — after an `IndentedBlock`: forced newline.
   - `AlreadyTerminated` — after a `--`, or a single-line own-line comment, has
-    ended its own line: no extra separator, and a following comment can NOT glue
-    back onto that line (a `--` runs to EOL; a single-line own-line comment is
-    its own line).
+    ended its own line: no extra separator for a following TOKEN. A following
+    COMMENT glues back onto that line iff its role says the author wrote it
+    there, which after a `--` it never can (a `--` runs to EOL, so a comment
+    written after one on the same row is inside its text).
   - `TerminatedByBlockComment` — after a *multi-line* block comment has ended
     its line: like `AlreadyTerminated`, except a same-row trailing comment (role
     `TrailsPrevious`/`RidesInline`) DOES glue onto that comment's closing
@@ -94,10 +95,13 @@ import Formatter.Logical.LogicalPrintingTree exposing
   - `TerminatedByOwnLineComment` — after a single-line `{- … -}` that OPENED its
     own line inside a flow that was already hard-broken. The line holds nothing
     but comments, so a following **token** must start a fresh row
-    (`joinPlacement` gives `OwnLine`) — while a following **comment** may still
-    merge up onto it, which is the one thing `AlreadyTerminated` will not allow.
+    (`joinPlacement` gives `OwnLine`).
 
-    That split is the whole reason it exists, and each half is load-bearing:
+    A following **comment** used to be allowed to merge up onto it, which was
+    this state's original reason to exist. It no longer does: **gren never moves
+    a comment between rows**, so a run the author wrote on separate rows keeps
+    them (2026-08-08, a deliberate divergence — elm-format joins such a run).
+    What survives is the TOKEN half, and it is load-bearing:
 
       - Answering `FlowSep` (what this arm did until 2026-08-06) space-joins the
         next TOKEN onto the comment's row. Where that token is a call whose
@@ -106,14 +110,12 @@ import Formatter.Logical.LogicalPrintingTree exposing
         indented past the function token, so `\item ->` ⏎ `{- c -} fn` ⏎ `arg`
         REPARSES as `(\item -> fn) arg`: an AST change, caught by `--show`'s AST
         comparison rather than by any idempotency check.
-      - Answering `AlreadyTerminated` or `HardNl` instead stops a following
-        own-line comment merging up, so a run the author wrote on separate rows
-        stays on separate rows where elm-format joins it
-        (`PipelineLambdaArgTrailingComment` pins that, and it is why this is a
-        new state rather than a reuse of either).
+      - `AlreadyTerminated` would answer `GlueNoSep` for that token instead, and
+        `HardNl` is what a real block leaves; neither says "the row above holds
+        only comments", which is the fact this state carries.
 
-    It propagates through a merge: once the row is a comment row, it stays one
-    until something opens a new line.
+    It propagates: once the row is a comment row, it stays one until something
+    opens a new line.
 
 -}
 type NextSeparator
@@ -426,14 +428,18 @@ decide config state facts =
                         if roleGlues f.role && state.separator /= FirstItem then
                             GlueSpace
 
-                        else if state.separator == TerminatedByOwnLineComment then
-                            -- A COMMENT may still merge up onto a comments-only
-                            -- row; only a token may not. `joinPlacement` answers
-                            -- the token's question (`OwnLine`), so ask it the
-                            -- flow question instead.
-                            joinPlacement FlowSep
-
                         else
+                            -- A comment the author gave its own row keeps it,
+                            -- including above a row that holds only comments:
+                            -- `joinPlacement TerminatedByOwnLineComment` is
+                            -- `OwnLine` and that is the answer for a comment as
+                            -- well as for a token. Merging it up (this arm
+                            -- answered `joinPlacement FlowSep` until 2026-08-08,
+                            -- to match elm-format, which joins such a run) is
+                            -- the one way gren moved a comment between rows that
+                            -- the author had not asked for. The token half of
+                            -- that state is untouched and still load-bearing —
+                            -- see `NextSeparator`.
                             joinPlacement state.separator
                 in
                 { placement = placement
@@ -466,12 +472,13 @@ decide config state facts =
                     --
                     -- Scoped to a comment that GLUED, and that scope is the whole
                     -- rule. A comment that OPENED its own line (placement
-                    -- `OwnLine`) starts a fresh comment line, and a following
-                    -- own-line comment merges up onto it — a run the author wrote
-                    -- on separate rows comes out on one, which is what
-                    -- elm-format does with either spelling
-                    -- (`PipelineLambdaArgTrailingComment`). Keeping `HardNl`
-                    -- across that one stopped the merge and diverged.
+                    -- `OwnLine`) starts a fresh comment line and KEEPS it: a run
+                    -- the author wrote on separate rows stays on separate rows.
+                    -- Until 2026-08-08 a following own-line comment merged up
+                    -- onto it, to match elm-format, which joins such a run
+                    -- (`PipelineLambdaArgTrailingComment` pinned the merged
+                    -- form). That is a deliberate divergence now: gren never
+                    -- moves a comment between rows.
                     { separator =
                         if state.separator == HardNl && placement == GlueSpace then
                             HardNl
@@ -684,8 +691,24 @@ commentPlacement _ state role =
         FirstItem ->
             AsFirst
 
+        -- After a `--`, or a single-line comment that took its own line: a
+        -- same-row trailing comment glues onto it, an own-line one stays
+        -- own-line. Role-aware for the same reason the arm below is — **gren
+        -- never moves a comment between rows**, so a member the author wrote on
+        -- the previous member's row shares that row here too. Answering
+        -- `GlueNoSep` unconditionally (as this did until 2026-08-08) split every
+        -- authored one-row run into one row per member.
+        --
+        -- A `--` also reaches this state, and needs no exception: it runs to end
+        -- of line, so a comment written after one on the SAME row is inside its
+        -- text and never becomes a node. Anything the classifier can hand us
+        -- after a `--` was written on a later row, and its role says so.
         AlreadyTerminated ->
-            GlueNoSep
+            if roleGlues role then
+                GlueSpace
+
+            else
+                GlueNoSep
 
         -- After a multi-line block comment: a same-row trailing comment glues
         -- onto its `-}` line; an own-line one stays own-line (`GlueNoSep`
