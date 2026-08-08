@@ -1293,10 +1293,38 @@ keys would report them stale.
   run sites among them. Zero-because-nothing-is-checked reads exactly like
   zero-because-all-agree.
 
-The elm-format half is **deliberately unmeasured** so far — booking parity debt
-for cells that do not format is backwards. `tests/_run_parity_sample.py` measures
-the distribution without committing to a baseline (`--update-baseline` refuses a
-filtered run, so there is otherwise no way to ask).
+**DECIDED 2026-08-08: the run axis gets NO per-cell parity baseline.** It stays
+`--no-parity`, and its elm-format agreement is a *sampled* number rather than a
+gate. Do not re-open this by writing `matrix-comment-run-baseline.json`; the
+reasoning is below and the decision is the user's.
+
+Measured first, at `83eb22d`, with `tests/_run_parity_sample.py 100 -j 12` (1,137
+cells, seeded random — **not** a stride, which aliases against the kind axis):
+**12% byte-identical to elm-format, 46% auto-classified, 41% would book
+UNREVIEWED** — extrapolating to ~13,800 / ~52,700 / **~47,200 UNREVIEWED** over
+the axis. Every composition containing a multi-line `{- … -}` is 0% identical
+(elm re-lays out the comment's own body); `line+multi` classifies at 90% while
+`multi+line` classifies at 40%, i.e. order matters.
+
+Three reasons not to book it:
+
+  - **elm parity is not a goal for runs.** [Divergence #30](docs/elmFormatComparison.md#divergence-30)
+    / rule C7 says gren keeps the rows the author wrote; elm-format re-decides
+    them per context. A baseline's job is detecting drift from a target, and this
+    axis deliberately has a different target.
+  - **A 98k-entry asset with ~47k `UNREVIEWED` reads as reviewed.** The
+    single-comment baseline's own 3,407 has taken several `--interview` sittings;
+    this would be an order of magnitude more, and this file's standing warning is
+    that a baseline entry is the easiest place for a known bug to go quiet.
+  - **Nothing is lost that oracles 1–3 already cover.** Every one of the 113,796
+    cells still has to format, preserve its comment exactly once, be idempotent,
+    be AST-equivalent and tell no predicate lies — which is what found all
+    8,842 findings of the first sweep. Only *parity regression detection on runs*
+    is given up, and the single-comment axis (68,922 reviewed cells) still gates
+    every comment rule against elm.
+
+Re-sample when a comment-layout rule changes, and record the number rather than
+booking it.
 
 **The parity debt the kind arrived with: 22,770 new cells, every one diverging**
 — elm-format re-lays-out a multi-line comment's own body (`-}` onto a row of its
