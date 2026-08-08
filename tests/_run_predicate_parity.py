@@ -91,7 +91,11 @@ def main():
             cc, _, variant = head.partition("@")
             construct, _, context = cc.partition("__")
             variant = variant or "flat"
-            kind = (parity or {}).get("kind")
+            # `m.check_parity` returns None when the cell AGREES -- there is no
+            # `kind="identical"`. Testing for one filed every agreeing cell as
+            # "no verdict", which is how the 2026-08-07 reading of this
+            # instrument concluded "0 cells are byte-identical either way".
+            kind = "identical" if parity is None else parity.get("kind")
             if kind == "identical":
                 buckets["AGREES with elm-format (audit scope)"].append(out)
             elif kind == "divergence":
