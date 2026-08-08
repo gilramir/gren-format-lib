@@ -1225,8 +1225,70 @@ def run(app_args, path):
     )
 
 
-def check_parity(source, gren_out):
-    """Oracle 4. Returns None if the cell agrees with elm-format, else the diff."""
+def has_no_elm_twin(elm_source, base_source):
+    """True if the CELL, not the translation, is what Elm refuses.
+
+    Called only when elm-format has already rejected `elm_source`, to split two
+    very different things that arrive looking identical:
+
+      - a `to_elm` bug -- we handed Elm something malformed, and the cell's
+        parity is silently not being checked. A failure, loudly.
+      - a language ACCEPTANCE difference -- the Gren program in this cell has no
+        valid Elm counterpart at all, so there is nothing for `to_elm` to fix and
+        no elm-format output that could exist to compare against.
+
+    The whole class here is one difference: **gren lets a declaration start in
+    any column and Elm requires column 1.** Splicing a comment in front of a
+    declaration's name pushes the name right, and gren keeps a comment on the row
+    the author wrote it on, so the name stays there:
+
+        foo : a
+        {- ¤ -} foo =      gren: parses, formats, is a fixed point
+            one            elm : "Unable to parse file <STDIN>:5:10"
+
+    The same comment on its own row is accepted by both -- verified in both
+    directions. Note gren does NOT accept every such cell: when the annotation's
+    last token can take a type-application argument (`foo : Int`), gren swallows
+    the next line's name as one and rejects the cell itself. Those never reach
+    oracle 4, so the predicate below is only ever asked about the ones gren took.
+
+    The test is differential rather than a shape match: the SAME cell without the
+    injected comment must be fine for Elm. That is exactly the claim being made
+    ("the comment is what Elm refuses"), and it keeps a real `to_elm` bug loud --
+    if the uncommented cell is rejected too, the translation is what is broken.
+    The keyword guard covers the one `to_elm` bug this file has actually had: a
+    comment defeating the `when … is` pattern so `when` survived into the "Elm"
+    source, which is a translation fault a comment triggers and must not be
+    excused here.
+
+    REJECTED, explicitly, so nobody re-invents it: translating by moving the
+    comment onto its own row. `{- ¤ -} foo =` and `{- ¤ -}` ⏎ `foo =` are
+    DIFFERENT PROGRAMS. Asking elm-format about the second and diffing it against
+    gren's formatting of the first would manufacture a divergence out of nothing
+    -- the same dishonesty as regenerating a fixture to whatever the tool emits.
+    """
+    if base_source is None:
+        # The syntax axis: nothing was injected, so there is no "same cell
+        # without the comment" and this class cannot arise.
+        return False
+    if re.search(r"\b(when|is)\b", elm_source):
+        return False
+    try:
+        bare = subprocess.run([ELM_FORMAT, "--stdin"], input=to_elm(base_source),
+                              capture_output=True, text=True, timeout=120)
+    except subprocess.TimeoutExpired:
+        return False
+    return bare.returncode == 0
+
+
+def check_parity(source, gren_out, base_source=None):
+    """Oracle 4. Returns None if the cell agrees with elm-format, else the diff.
+
+    `base_source` is the cell as it was BEFORE a comment was injected (the
+    comment axis passes it; the syntax axis has none). It is used for one thing:
+    telling a `to_elm` bug from a cell Elm's own parser refuses -- see
+    `has_no_elm_twin`.
+    """
     elm_source = to_elm(source)
     try:
         elm = subprocess.run([ELM_FORMAT, "--stdin"], input=elm_source,
@@ -1235,9 +1297,14 @@ def check_parity(source, gren_out):
         return dict(kind="elm-format-timeout", gren="", elm="")
 
     if elm.returncode != 0:
+        detail = (elm.stderr + elm.stdout).strip()[:400]
+        if has_no_elm_twin(elm_source, base_source):
+            # Not a failure and not a divergence: oracle 4 has no question to ask
+            # here. Counted and printed apart from both.
+            return dict(kind="no-elm-twin", gren="", elm=detail)
         # Our translation produced something elm-format will not accept. That is
         # a to_elm bug, not a formatter bug -- surface it rather than skip it.
-        return dict(kind="untranslatable", gren="", elm=(elm.stderr + elm.stdout).strip()[:400])
+        return dict(kind="untranslatable", gren="", elm=detail)
 
     # Compare in Elm's token space: gren's output goes through the same
     # translation, so `when`/`case` is not itself reported as a divergence.
@@ -1437,6 +1504,11 @@ def enumerate_comment_cells(cells, kinds, positions):
                     out.append(dict(construct=construct.name, context=context.name,
                                     variant=variant, ordinal=ordinal, kind=kind,
                                     position=position, source=variant_src,
+                                    # The cell BEFORE the injection. Oracle 4
+                                    # needs it to tell a to_elm bug from a cell
+                                    # Elm's own parser refuses -- see
+                                    # `has_no_elm_twin`.
+                                    base_source=source,
                                     atom_local=atom_local))
                     if atom_local:
                         n_atom += 1
@@ -1507,7 +1579,7 @@ def check_comment_cell(cell):
             return result(kind_result="predicate-lie", output=formatted,
                           detail="; ".join(predicate_lie_detail(f) for f in roots[:3]))
 
-        parity = check_parity(source, formatted) if PARITY else None
+        parity = check_parity(source, formatted, cell["base_source"]) if PARITY else None
         return result(kind_result="ok", output=formatted, parity=parity)
 
 
@@ -1565,6 +1637,12 @@ def report_comment_parity(results, baseline, update, verbose=False, base_pairs=N
                  if (r.get("parity") or {}).get("kind") == "divergence"}
     broken = [r for r in results
               if (r.get("parity") or {}).get("kind") in ("untranslatable", "elm-format-timeout")]
+    # Cells oracle 4 has no question to ask about: the Gren program has no valid
+    # Elm counterpart, so elm-format never sees them. Not failures, and NOT
+    # silently folded into the byte-identical figure either -- they are held out
+    # of `ran` below so that number keeps meaning "compared, and agreed".
+    no_twin = [r for r in results
+               if (r.get("parity") or {}).get("kind") == "no-elm-twin"]
 
     if update:
         syntax_baseline = load_baseline()
@@ -1585,9 +1663,12 @@ def report_comment_parity(results, baseline, update, verbose=False, base_pairs=N
     failures = []
     for r in broken:
         failures.append((f'[{r["parity"]["kind"]}] {comment_key(r)}',
-                         f'to_elm produced source elm-format rejects: {r["parity"]["elm"]}'))
+                         "to_elm produced source elm-format rejects, and the SAME cell "
+                         "without the injected comment is not accepted either (or a Gren "
+                         "keyword survived translation) -- so this is the translator, not "
+                         f'a language difference: {r["parity"]["elm"]}'))
 
-    ran = {comment_key(r) for r in checked}
+    ran = {comment_key(r) for r in checked} - {comment_key(r) for r in no_twin}
     for key, r in sorted(diverging.items()):
         if key not in baseline:
             failures.append((f"[comment-parity-new-divergence] {key}",
@@ -1609,6 +1690,25 @@ def report_comment_parity(results, baseline, update, verbose=False, base_pairs=N
     # because the comment cell inherited it from its syntax cell.
     bugs = sorted(k for k, v in registered.items() if REASON_BUG + ":" in v)
     pending = sorted(k for k, v in registered.items() if REASON_PENDING + ":" in v)
+    if no_twin:
+        # Printed every run, never a bare number: a count labelled only
+        # "excluded" is how a coverage hole goes quiet. The breakdown is what
+        # would show a NEW class arriving under this heading -- today the whole
+        # of it is one shape, a comment in front of a declaration's name.
+        shapes = collections.Counter(f'{r["kind"]}.{r["position"]} in {r["context"]}'
+                                     for r in no_twin)
+        print(f"  {len(no_twin)} cells have NO ELM TWIN -- oracle 4 skipped, not a failure.\n"
+              f"     gren lets a declaration start in any column; Elm requires column 1, and\n"
+              f"     gren keeps a comment on the row it was written on, so the name stays\n"
+              f"     right of it. Elm's parser refuses the program, so no elm-format output\n"
+              f"     exists to compare against. Oracles 1-3 still ran on all {len(no_twin)}.\n"
+              f"     Rewriting them to put the comment on its own row would ask Elm about a\n"
+              f"     DIFFERENT program -- see `has_no_elm_twin`. Where they are:")
+        for shape, count in shapes.most_common(8):
+            print(f"       {count:5}  {shape}")
+        if len(shapes) > 8:
+            print(f"       ... and {len(shapes) - 8} more shapes")
+        print()
     if ran:
         print(f"comment parity: {len(ran) - len(diverging)}/{len(ran)} cells byte-identical to "
               f"elm-format, {len(registered)} registered divergences")
@@ -1726,7 +1826,8 @@ def run_comment_axis(cells, args):
         return 1
     print("Every comment cell formats, preserves its comment exactly once, is idempotent\n"
           "and AST-equivalent, tells no predicate lies, and sits where elm-format puts it\n"
-          "except where the comment baseline says otherwise.")
+          "except where the comment baseline says otherwise -- or, for the cells counted\n"
+          "above, where Elm has no way to express the program at all.")
     return 0
 
 

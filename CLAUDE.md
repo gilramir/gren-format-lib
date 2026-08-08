@@ -1214,11 +1214,15 @@ commits:
   That last one also fixed a comment-free instance of the same bug
   (`{ fld = \q -> { a = 1` / `, b = 2 } }` oscillated with no comment anywhere).
 
-**The axis runs 68,922 cells with 0 failing and, since 2026-08-08, 0
-UNREVIEWED** — 68,456 compared (466 skipped, their commented source does not
-parse), 20,111 byte-identical to elm-format, 48,345 registered divergences every
-one of which names a catalogue entry, 24 PENDING-UPSTREAM, and the pre-existing
-73 `[untranslatable]` cells (which is what the non-zero exit is). It ran 45,948 with 0
+**The axis runs 68,922 cells with 0 failing, 0 UNREVIEWED, and — since
+2026-08-08 — exit 0** — 68,456 formatted (466 skipped, their commented source
+does not parse), of which **68,383 reached oracle 4** and 20,038 are
+byte-identical to elm-format, 48,345 registered divergences every one of which
+names a catalogue entry, 24 PENDING-UPSTREAM, and **73 with no Elm twin**
+(skipped and counted, not failed — see below; they are what the non-zero exit
+used to be, and holding them out of the comparison is why the byte-identical
+figure reads 20,038 rather than the 20,111 recorded before, with nothing having
+moved). It ran 45,948 with 0
 failing until the **multi-line block kind** was added that day — `COMMENT_KINDS`
 was `{block, line}` while `fuzz-idempotency.py`'s `KINDS` was
 `{block, multi, line}`, the same one-kind-per-gap hole this file records costing
@@ -1440,14 +1444,85 @@ The rest were compounds of entries already on record — #5, #22, #23, #26, #27,
 debt: elm re-lays out a multi-line comment's own body and gren keeps the rows
 you wrote (rule C7). No new catalogue number was needed to reach zero.
 
-**The axis also exits non-zero on 73 `[untranslatable]` cells, and they are a
-coverage hole rather than a divergence**: their Gren-with-comment source
-translates to Elm that Elm's own parser rejects, so elm-format never sees them
-and their parity is *not being checked at all*. Enumerated 2026-08-05: **73, every
-one `block`-kind**, concentrated in type contexts (`tyApp/sigSole`,
-`tyVar/letSig`, …) — the multi-line kind added none. Pre-existing, unattributed,
-and worth a `to_elm` session of its own; the count is the thing to watch, since a
-rise means fewer cells are being checked, not more.
+##### The 73 `no-elm-twin` cells — a LANGUAGE difference, not a `to_elm` bug
+
+For months the axis exited non-zero on **73 `[untranslatable]` cells**, and this
+file called them "worth a `to_elm` session of its own". **That framing was
+wrong**, and the failure message said so out loud on every run: *"to_elm produced
+source elm-format rejects"*. `to_elm` is a two-word regex that touches neither
+comments nor columns; it had translated them perfectly. What Elm refuses is the
+**program**.
+
+    foo : a
+    {- ¤ -} foo =      gren: parses, formats, is a fixed point
+        one            elm : "Unable to parse file <STDIN>:5:10"
+
+Elm requires a declaration to start in **column 1**. Gren has no such rule at all
+— an indented `foo =` with **no comment anywhere** parses too, and formats back
+to column 1. The comment's only role is in the *output*: gren never moves a
+comment off the row it was written on, so the name stays right of it. So this is
+a syntax-**acceptance** difference, the same class as the effect-module
+`where { }` one, and there is nothing for `to_elm` to fix: the cell has no valid
+Elm twin, and rewriting it to put the comment on its own row would ask elm about
+a **different program** — manufacturing a guaranteed divergence, the same
+dishonesty as regenerating a fixture to whatever the tool emits. That option is
+recorded as rejected in `has_no_elm_twin`'s docstring rather than left to be
+re-invented.
+
+**Implemented 2026-08-08 as option (a): skip oracle 4 on them, count and print
+them apart, and let the axis exit 0.** Oracles 1–3 still run on all 73 — they are
+ordinary cells for everything gren-side; only the elm comparison is skipped,
+because there is no elm answer for it to compare against. The cost of the status
+quo was the exit status: red-forever for a cause nobody would ever fix means a
+real regression on this axis looks exactly like a clean run.
+
+The predicate is **differential, not a shape match** — the same cell *without*
+the injected comment must be accepted by Elm — plus a guard that no Gren keyword
+survived translation. Both are what keep a genuine `to_elm` bug loud, and the
+guard is not hypothetical: this file's one historical translator bug was a
+comment defeating the `when … is` pattern so `when` survived into the "Elm"
+source. Verified in all four directions (as shipped → `no-elm-twin`; no base
+source → `untranslatable`; a deliberately mangled `to_elm` → `untranslatable`; a
+surviving `when` → `untranslatable`), because a classifier that excuses
+everything reads exactly like one that excuses the right thing.
+
+**Gren does NOT accept all of them, and the exclusion rule must not say it
+does.** The elm-rejected set is **131**; gren rejects **58** of those itself, and
+only the remaining **73** reach oracle 4. The discriminator is the annotation's
+last token: if it can take a type-application argument (`foo : Int`,
+`foo : Int -> Int`) gren swallows the next line's declaration name as one and
+dies at the `=`; if it cannot (`foo : a`, `foo : { x : Int }`, `foo : (Int)`) the
+declaration parses. So the predicate is "elm rejected it **and** gren accepted
+it", which is exactly what asking it from inside oracle 4 buys — parity only runs
+on cells that formatted. The other 58 sit in the 466 `skipped`.
+
+Their count and their shape breakdown print on **every** run: a number labelled
+only "excluded" is how a coverage hole goes quiet, and the breakdown is what would
+show a *new* class arriving under the heading. Today the whole of it is one shape,
+`block`-kind `lead` position, in `sigSole` / `sigLastArg` / `sigBrokenLast` /
+`letSig`. Note they are held out of the byte-identical figure too — before this
+they were silently counted as agreeing with elm-format, which they had never been
+compared to.
+
+**Registered as [#31](docs/elmFormatComparison.md#divergence-31)**, the first
+catalogue entry with no elm-format output in it — every other entry compares two
+renderings and this one cannot, because elm-format never gets as far as
+formatting. Fixture `Divergence/D31DeclarationOffColumnOne`, whose own `.dirty`
+is rejected by the `elm-format` binary at 5:13 (checked, not assumed) and which
+adds **0** findings of its own at n=1, `--run 2`, `--mix-pairs`,
+`check-decision-stability` and both `fuzz-whitespace` modes. It pins the
+"the comment is not what gren permits" half too: a `deeplyIndentedBody` /
+`noCommentAnywhere` pair with no comment anywhere, which gren normalizes back to
+column 1.
+
+**Whether an indented declaration parses at all depends on what precedes it, not
+on a column rule** — which is the fact to know before writing a test for this.
+The declaration above absorbs the name as an application argument whenever it
+can, so `a =` ⏎ `    one` followed by an indented `b =` is refused, while the
+same `b =` after a body indented *past* it is accepted, and a comment-led
+declaration is accepted only where nothing above it can swallow the name. That is
+also why the 73 exist at all: the matrix's cells put the declaration directly
+under the module header.
 
 Before the multi kind, the axis had been 0-failing since the type axis was
 added on 2026-08-03, which itself cost 58 for a day — one family, a
@@ -1718,7 +1793,10 @@ Also pre-existing and worth knowing before the next run: the type axis ships
 Gren-with-comment source translates to Elm that Elm's own parser rejects, so
 their parity is not actually being checked. Identical on a pre-fix build. `to_elm`
 reports them rather than faking a divergence, which is right, but they are a
-hole in the day-old type axis, not a clean green.
+hole in the day-old type axis, not a clean green. (**Diagnosed and closed
+2026-08-08**: those 19 are part of the 73, and they are not a translation hole at
+all — Elm refuses the program, not the translation. See "The 73 `no-elm-twin`
+cells" above; they are now skipped and counted rather than reported as failures.)
 
 ### Predicate/renderer agreement audit
 

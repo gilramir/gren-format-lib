@@ -97,6 +97,7 @@ divergenceCatalogueSuite fsPerm =
             , entry "#28 a type break gren-format does not record is flattened (bare application, inside one record field, the outer application of a nested one)" "D28TypeBreakNotRecorded"
             , entry "#29 a `let` annotation keeps a broken type on the `name :` line; a dropping record type still lifts" "D29LetAnnotationHeadGlue"
             , entry "#30 a comment RUN keeps the rows the author wrote it on -- one row stays one row, separate rows stay apart -- where elm-format re-decides per context, stacking after a lambda's `->` and joining a split run inside a paren" "D30CommentRunKeepsItsRows"
+            , entry "#31 a declaration need not start in column 1: gren parses `{- lead -} foo =` (and keeps the comment's row, so the name stays right of it) where Elm's parser refuses the file outright -- an ACCEPTANCE difference, so there is no elm-format output to compare. The comment is not what gren permits: an indented declaration with no comment anywhere parses too and is normalized back to column 1" "D31DeclarationOffColumnOne"
             ]
         }
 

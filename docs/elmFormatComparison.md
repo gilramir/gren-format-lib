@@ -48,6 +48,7 @@ code, and why the places they *don't* look the way they do.
   - [#28 A type break gren-format doesn't record](#divergence-28)
   - [#29 A `let` annotation doesn't lift a broken type below the `:`](#divergence-29)
   - [#30 A comment run keeps the rows you wrote it on](#divergence-30)
+  - [#31 A declaration that doesn't start in column 1](#divergence-31)
 - [Out of scope for comparison](#out-of-scope-for-comparison)
 
 ---
@@ -1585,6 +1586,60 @@ documentation instead of quietly outliving it.
     formatter never invents or destroys a row break inside a run. It costs
     agreement in the four stacking contexts and gains it in the other four; the
     single-comment axis is unaffected, since a run needs two.
+
+
+31. <a id="divergence-31"></a>**gren-format accepts a declaration that doesn't
+    start in column 1; Elm's parser rejects the whole file.** Every other entry
+    here compares two outputs. This one cannot: elm-format never gets as far as
+    formatting, so there is no Elm rendering of the program to agree or disagree
+    with. It is a syntax-*acceptance* difference, the same class as
+    [#8](#divergence-8).
+
+    ```gren
+    foo : a
+    {- lead -} foo =      -- gren-format: parses, formats, is a fixed point
+        one               -- elm-format:  Unable to parse file <STDIN>:5:13
+    ```
+
+    Elm requires a top-level declaration to begin in column 1 (and a `let`
+    binding to hold its block's column). Gren has no such rule, so a comment
+    written in front of a declaration's name is legal — and because gren-format
+    never moves a comment off the row it was written on
+    ([C7](commentHandling.md#c7--a-comment-keeps-the-rows-you-gave-it), #25), the
+    name stays right of it in the output too.
+
+    **The comment is not what gren is permitting.** The same declaration
+    indented with no comment anywhere parses just as well, and there gren-format
+    normalizes the name back to column 1:
+
+    ```gren
+    -- you write:                     -- gren-format:
+    deeplyIndentedBody =              deeplyIndentedBody =
+                one                       one
+
+
+            noCommentAnywhere =       noCommentAnywhere =
+        two                               two
+    ```
+
+    So the divergence is about what the two *parsers* accept, and the comment is
+    only what makes the accepted shape survive into the output. In a `let` the
+    comment takes a row of its own, so the binding name normalizes and only the
+    input is un-Elm-able.
+
+    Whether an indented declaration parses at all depends on what precedes it
+    rather than on any column rule: a declaration above it absorbs the name as an
+    application argument whenever it can. `foo : Int` ⏎ `{- lead -} foo =` is
+    refused by **gren** too — `Int` takes `foo` as a type argument — which is why
+    the example above annotates `foo : a`.
+
+    Nothing here is fixable and nothing is being traded away: there is no Elm
+    program to agree with. `matrix-syntax.py --comments` generates 73 such cells,
+    skips oracle 4 on them and counts them apart as `no-elm-twin` rather than
+    blaming its translator. Translating them by moving the comment onto its own
+    row — which both languages accept — is deliberately **not** done: that would
+    ask elm-format about a different program and manufacture a divergence out of
+    nothing.
 
 
 ## Out of scope for comparison
