@@ -1,0 +1,38 @@
+module BackwardPipeBodyKeepsOperatorRow exposing (..)
+
+-- A `<|` body the author wrote on the operator's row stays there, and a comment
+-- ending that body does not change it. All four spellings below put `one` in
+-- the same place; before 2026-08-08 the multi-line `{- … -}` alone dropped it
+-- below the operator, because the body's box was multi-line and only the
+-- comment's own rows made it so (rule C4).
+
+
+noComment =
+    fn <| one
+        + two
+
+
+lineComment =
+    fn <| one -- c
+        + two
+
+
+singleLineBlock =
+    fn <| one {- c -}
+        + two
+
+
+multiLineBlock =
+    fn <| one {- c
+   second row -}
+        + two
+
+
+-- The boundary: a body that is multi-line in its own right -- code on more than
+-- one row, not a comment -- still drops below the operator, which is what
+-- divergence #14's flat layout means by a multi-line body.
+
+
+realMultilineBody =
+    fn <| [ 1
+          , 2 ]

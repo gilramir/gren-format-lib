@@ -2065,13 +2065,28 @@ backwardSingleStep forceVertical seedBox { leadGlued, glued, rest = bodyNodes } 
                     -- head/body split.
                     buildBackwardBodyBox bodyNodes
                         |> Result.andThen
-                            (\{ box = bodyBox, ridingLeading } ->
+                            (\{ box = bodyBox, ridingLeading, singleLineSansTrailingComment } ->
                                 -- A multi-line body drops to +4 under `seed <|`
                                 -- exactly as the author-broken (`forceVertical`)
                                 -- case does — elm-format breaks the pipeline the
                                 -- moment the body spans rows, even when the author
                                 -- kept `<|` glued to the seed row.
-                                if forceVertical || not (isSingleLine bodyBox) || glueForcesBreak then
+                                --
+                                -- A body that is multi-line ONLY because of the
+                                -- comment run it ends with does not count as
+                                -- spanning rows: the code in it is one row, and a
+                                -- comment moves rows, not code (rule C4). Without
+                                -- the exception `fn <| one {- c` ⏎ `… -}` dropped
+                                -- `one` below the operator while `fn <| one`,
+                                -- `fn <| one -- c` and `fn <| one {- c -}` all
+                                -- kept it — the multi-line kind alone deciding
+                                -- where the code sits, which is
+                                -- `spanOperatorRowComments`' bug one level out.
+                                -- **This costs elm-format parity and was taken
+                                -- anyway** (2026-08-08): elm drops the body in all
+                                -- four spellings, so gren's old odd-one-out was the
+                                -- single case that happened to agree with it.
+                                if forceVertical || (not (isSingleLine bodyBox) && not singleLineSansTrailingComment) || glueForcesBreak then
                                     -- The body leaves the `<|`'s row, so a comment
                                     -- written on that row has no row left to ride
                                     -- and stacks above the body — the shape the
@@ -2096,12 +2111,22 @@ backwardSingleStep forceVertical seedBox { leadGlued, glued, rest = bodyNodes } 
                                     -- the bare `seedBox` here is what silently
                                     -- DROPPED a comment written in front of the
                                     -- `<|` of a one-line chain.
-                                    Result.map2
-                                        (\seedWithLead bl ->
-                                            B.addSuffix (B.row [ B.literal " <| ", bl ]) seedWithLead
+                                    -- `glueCommentSuffix`, not `addSuffix`, because
+                                    -- the body reaching here may be multi-line
+                                    -- after all: one row of code plus the rows of
+                                    -- the comment it ends with. Both reduce to
+                                    -- appending a line when the body really is
+                                    -- single-line — the whole difference is that
+                                    -- the comment's continuation rows are padded
+                                    -- under where the body starts instead of
+                                    -- `boxLine` refusing the box outright.
+                                    Result.map
+                                        (\seedWithLead ->
+                                            glueCommentSuffix
+                                                (Array.foldr glueLeadingCommentPrefix bodyBox ridingLeading)
+                                                (B.addSuffix (B.literal " <|") seedWithLead)
                                         )
                                         (stepLeadBoxes leadGlued seedBox)
-                                        (boxLine (Array.foldr glueLeadingCommentPrefix bodyBox ridingLeading))
                             )
 
 
@@ -2128,7 +2153,7 @@ body's first line in the first case and stacks them above it in the second, and
 both are fixed points. Comments that already lead their own line are stacked in
 here as before and do not appear in `ridingLeading` — there is no decision to
 defer for them. -}
-buildBackwardBodyBox : Array LPNode -> Result String { box : Box, isBrokenCall : Bool, ridingLeading : Array Box }
+buildBackwardBodyBox : Array LPNode -> Result String { box : Box, isBrokenCall : Bool, ridingLeading : Array Box, singleLineSansTrailingComment : Bool }
 buildBackwardBodyBox bodyNodes =
     renderFlowItems bodyNodes
         |> Result.andThen
@@ -2212,11 +2237,61 @@ buildBackwardBodyBox bodyNodes =
 
                         else
                             []
+
+                    -- The body's items with the comment run it ENDS with taken
+                    -- off. A trailing comment's own rows are not a reason to move
+                    -- the BODY off the `<|`'s row -- the caller drops a multi-line
+                    -- body below `seed <|`, and without this it counted a body
+                    -- that is one row of code plus a multi-line `{- … -}` as
+                    -- multi-line. `fn <| one` and `fn <| one -- c` and
+                    -- `fn <| one {- c -}` all keep `one` on the operator's row, so
+                    -- a body ending in a MULTI-LINE comment was the only spelling
+                    -- in which the comment decided where the code sits (rule C4,
+                    -- and the same shape as `spanOperatorRowComments`' own).
+                    --
+                    -- It is measured by assembling again, not by predicting: the
+                    -- expensive half is `renderFlowItems`, which has already run,
+                    -- so this re-runs only the pure box assembly over items that
+                    -- are already boxes.
+                    nTrailingComments =
+                        Array.foldr
+                            (\item acc ->
+                                if acc.done then
+                                    acc
+
+                                else if isCommentItem item then
+                                    { acc | n = acc.n + 1 }
+
+                                else
+                                    { acc | done = True }
+                            )
+                            { n = 0, done = False }
+                            items
+                            |> .n
+
+                    itemsSansTrailingComments =
+                        Array.takeFirst (Array.length items - nTrailingComments) items
+
+                    singleLineSans assemble =
+                        if nTrailingComments == 0 || Array.isEmpty itemsSansTrailingComments then
+                            False
+
+                        else
+                            assemble itemsSansTrailingComments
+                                |> Result.map isSingleLine
+                                |> Result.withDefault False
                 in
                 if Array.isEmpty items then
                     -- Comments and nothing else: there is no body to align to.
                     assembleFlow FP.InlineStart 0 allItems
-                        |> Result.map (\box -> { box = box, isBrokenCall = False, ridingLeading = [] })
+                        |> Result.map
+                            (\box ->
+                                { box = box
+                                , isBrokenCall = False
+                                , ridingLeading = []
+                                , singleLineSansTrailingComment = False
+                                }
+                            )
 
                 else if Array.any .isBlock items then
                     assembleBrokenCall grenIndent items
@@ -2225,6 +2300,8 @@ buildBackwardBodyBox bodyNodes =
                                 { box = stackLeading box
                                 , isBrokenCall = True
                                 , ridingLeading = deferred
+                                , singleLineSansTrailingComment =
+                                    singleLineSans (assembleBrokenCall grenIndent)
                                 }
                             )
 
@@ -2260,7 +2337,23 @@ buildBackwardBodyBox bodyNodes =
                             0
                         )
                         allItems
-                        |> Result.map (\box -> { box = box, isBrokenCall = False, ridingLeading = [] })
+                        |> Result.map
+                            (\box ->
+                                { box = box
+                                , isBrokenCall = False
+                                , ridingLeading = []
+                                , singleLineSansTrailingComment =
+                                    singleLineSans
+                                        (assembleFlow FP.InlineStart
+                                            (if commentBreaksFlowRow bodyNodes then
+                                                grenIndent
+
+                                             else
+                                                0
+                                            )
+                                        )
+                                }
+                            )
             )
 
 
