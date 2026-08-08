@@ -217,8 +217,9 @@ evidence the fixes cost no elm-format parity):
 n=1 and `--run 2` unmoved at 17-all-#35, decision-stability PASS 0, the predicate
 audit 0, `fuzz-whitespace` PASS 0, and both parity matrices byte-identical
 (2079 / 0 failing / 1358 identical; 68,922 / 0 failing / 20,111 identical /
-3,407 UNREVIEWED). Every mode of every gate here is now formatter-clean; what
-remains is upstream. It took one fix and one label.
+3,407 UNREVIEWED at the time — **0 as of 2026-08-08**). Every mode of every gate
+here is now formatter-clean; what remains is upstream. It took one fix and one
+label.
 
 **The five effect-header findings were `detachOwnLineTrailer` asking an
 all-or-nothing question.** `peelOwnLineTrailingRun` peeled a declaration's whole
@@ -1213,7 +1214,11 @@ commits:
   That last one also fixed a comment-free instance of the same bug
   (`{ fld = \q -> { a = 1` / `, b = 2 } }` oscillated with no comment anywhere).
 
-**The axis runs 68,922 cells with 0 failing** (2026-08-05). It ran 45,948 with 0
+**The axis runs 68,922 cells with 0 failing and, since 2026-08-08, 0
+UNREVIEWED** — 68,456 compared (466 skipped, their commented source does not
+parse), 20,111 byte-identical to elm-format, 48,345 registered divergences every
+one of which names a catalogue entry, 24 PENDING-UPSTREAM, and the pre-existing
+73 `[untranslatable]` cells (which is what the non-zero exit is). It ran 45,948 with 0
 failing until the **multi-line block kind** was added that day — `COMMENT_KINDS`
 was `{block, line}` while `fuzz-idempotency.py`'s `KINDS` was
 `{block, multi, line}`, the same one-kind-per-gap hole this file records costing
@@ -1370,7 +1375,8 @@ Three reasons not to book it:
     them per context. A baseline's job is detecting drift from a target, and this
     axis deliberately has a different target.
   - **A 98k-entry asset with ~47k `UNREVIEWED` reads as reviewed.** The
-    single-comment baseline's own 3,407 has taken several `--interview` sittings;
+    single-comment baseline's own 3,407 took several `--interview` sittings to
+    clear (it reached 0 on 2026-08-08, and found two formatter bugs on the way);
     this would be an order of magnitude more, and this file's standing warning is
     that a baseline entry is the easiest place for a known bug to go quiet.
   - **Nothing is lost that oracles 1–3 already cover.** Every one of the 113,796
@@ -1402,12 +1408,37 @@ elm-format does to the comment's own rows" and carried only single-line examples
 because the axis could not reach a multi-line comment; the entry and the `D25`
 fixture gained that case rather than a new number being invented.
 
-**The remaining 3,407 are real review debt and were left alone.** Sampled, they
-are compounds — a comment crossing a record update's `|` (#22) *while*
-elm-format also re-flows the code around it, which `only_elm_reflowed`'s
-deliberate asymmetry refuses to sweep. They want an `--interview` verdict, not a
-wider classifier. Widening one until the counter reads zero is how a baseline
-starts freezing bugs as expected output.
+**Those 3,407 were read down to ZERO on 2026-08-08**, in one sitting of
+`--interview`, and reading them found **two formatter bugs** — which is the
+argument for reviewing debt rather than classifying it. Widening a classifier
+until the counter reads zero is how a baseline starts freezing bugs as expected
+output; both of these would have been swept up by any rule broad enough to close
+the number.
+
+- **A multi-line `{- … -}` written after a `<|` dragged the operator off its
+  seed's row** (104 cells). `spanOperatorRowComments` peeled a `--` written on
+  the operator's row and not a multi-line comment, **and said so in its
+  docstring** — "it brings its own newlines, so it keeps the operator-leading
+  layout". Its own rows are no reason to move the operator: the comment-free
+  twin, the `--` and the ridable single-line `{- -}` all keep `fn <|` on the
+  seed's row. It is the C4 violation `f330757` / `67e1b0a` removed for the `--`
+  on 2026-08-02, six days before the multi-line kind reached this axis at all.
+  Registered as [#26](docs/elmFormatComparison.md#divergence-26), whose entry and
+  `D26` fixture gained the kind.
+- **A multi-line `{- … -}` ENDING a `<|` body dropped the body below the
+  operator** (2 cells, but a corpus-wide shape). `backwardSingleStep` drops a
+  body whose box is multi-line, and the box was multi-line only because of the
+  comment's rows. The fix measures the body **without** its trailing comment run
+  by re-running the assembly over already-rendered `FlowItem`s — not by
+  predicting from the nodes, and not by re-rendering subtrees. **This one costs
+  elm-format parity and was taken anyway**: elm drops the body in all four
+  spellings, so gren's odd-one-out was the single case that agreed with it.
+  Fixture `PipelineComments/BackwardPipeBodyKeepsOperatorRow`.
+
+The rest were compounds of entries already on record — #5, #22, #23, #26, #27,
+#28, #29 — with **#25 on every single one**, which is the shape of the whole
+debt: elm re-lays out a multi-line comment's own body and gren keeps the rows
+you wrote (rule C7). No new catalogue number was needed to reach zero.
 
 **The axis also exits non-zero on 73 `[untranslatable]` cells, and they are a
 coverage hole rather than a divergence**: their Gren-with-comment source
