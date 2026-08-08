@@ -89,11 +89,11 @@ NOT COVERED (deliberate, stated rather than hidden):
     operator expression there reassociates into a different parse, so bare
     variants run only in value-position contexts; the paren-carrying flat/broken
     variants cover the atom positions.
-  - more than one comment per cell: a comment RUN (`{- a -} {- b -}`, or a `--`
-    followed by a `{- -}`) has its own rules -- all-or-nothing pairing -- and
-    this axis does not generate one. fuzz-idempotency.py's all-gaps-at-once pass
-    does, but without the elm-format oracle. Still a hole; smaller than the one
-    this closed.
+  - a run of more than TWO comments, and a run split across the gap (one comment
+    trailing the previous token, one leading the next). `--comment-runs` sweeps
+    every two-member composition, which is where the rules live -- see THE RUN
+    AXIS below for why length is not the axis -- and both of these are stated
+    here rather than hidden because neither is swept.
 
 Usage:
     ./matrix-syntax.py                 # whole matrix (all variants)
@@ -109,6 +109,9 @@ Usage:
     ./matrix-syntax.py --comments --construct binop --context top -v
     ./matrix-syntax.py --comments --comment-kind block --comment-pos lead
     ./matrix-syntax.py --comments --update-baseline   # rewrite the COMMENT baseline
+
+    ./matrix-syntax.py --comments --comment-runs -j 12   # the RUN axis (slower still)
+    ./matrix-syntax.py --comments --comment-mix multi,line --construct binop -v
 
 Requires an up-to-date ../../gren-format/app (cd ../../gren-format && ./build.sh).
 Oracle 4 additionally requires `elm-format` on PATH.
@@ -131,6 +134,12 @@ HERE = pathlib.Path(__file__).resolve().parent
 APP = HERE.parent.parent / "gren-format" / "app"
 BASELINE = HERE / "matrix-parity-baseline.json"
 COMMENT_BASELINE = HERE / "matrix-comment-baseline.json"
+COMMENT_RUN_BASELINE = HERE / "matrix-comment-run-baseline.json"
+# Which of the two the comment axis is gating against; set in main(). The run
+# axis gets a FILE OF ITS OWN rather than more keys in the existing one: that
+# baseline is a reviewed asset of ~25k entries, and a run sweep that is not
+# also a single-comment sweep would report every one of them stale.
+ACTIVE_COMMENT_BASELINE = COMMENT_BASELINE
 
 
 def _load_sibling(filename, name):
@@ -303,6 +312,101 @@ COMMENT_KINDS = {
 }
 COMMENT_POSITIONS = ["trail", "lead"]
 
+# ------------------------------------------------------------- THE RUN AXIS
+#
+# Everything above injects ONE comment per cell. A comment RUN -- two or more in
+# the same gap -- is a THIRD axis, and until 2026-08-07 it had never met an
+# oracle: `fuzz-idempotency.py --run N` / `--mix` vary it over the corpus and ask
+# only "is this a fixed point", and this matrix asks elm-format but injects one
+# comment. That is the same shape of hole as the one-kind-per-gap sweep this file
+# records costing 401 regressions -- a gate green over the wrong axis reads
+# exactly like a gate that is green.
+#
+# COMPOSITION IS THE AXIS, NOT LENGTH. `--run 3` swept clean over the corpus
+# (2026-08-06) because N copies of one kind give every member the same neighbour
+# it already had; the rules a run can break are written about a neighbour's
+# SHAPE. So `--comment-runs` sweeps all NINE two-member compositions -- the three
+# homogeneous ones and the six ordered mixed pairs -- and nothing longer.
+#
+# The member texts and the join rule are `fuzz-idempotency.py`'s, asserted equal
+# to what `run_kind` / `mixed_kind` produce (`_assert_run_text_matches_fuzz`)
+# rather than trusted to stay in step: a run spliced differently from the gate
+# that sweeps the corpus makes two findings of one shape look unrelated, and the
+# labels (`blockx2`, `block+line`) are what `repro.py` already takes.
+FUZZ_KINDS = {k[0]: k for k in _fuzz.KINDS}
+assert {label: k[1] for label, k in FUZZ_KINDS.items()} == COMMENT_KINDS, (
+    "the comment marker texts have drifted from fuzz-idempotency.py's KINDS; a "
+    "finding of the same shape would look unrelated between the two gates")
+
+# label -> the member kinds it splices, in order. The three single kinds map to
+# themselves, so every consumer takes a run without knowing there is such a thing.
+RUN_MEMBERS = {label: [label] for label in COMMENT_KINDS}
+
+
+def run_label(members):
+    """`fuzz-idempotency.py`'s labelling: `blockx2` homogeneous, `block+line`
+    mixed. Same strings that gate reports, so a finding here can be handed to
+    `repro.py` and to `--mix` without translation."""
+    if len(set(members)) == 1:
+        return f"{members[0]}x{len(members)}"
+    return "+".join(members)
+
+
+def run_text_at(members, col):
+    """One gap's worth of splice text: the members in order, marked `¤1 … ¤n`.
+
+    Two things are load-bearing and neither is a free choice:
+
+      * **The joiner is keyed on the member to its LEFT** -- a `--` swallows the
+        rest of its row, so whatever follows one must start a new row, while
+        every other boundary joins with a space. (`fuzz-idempotency.mixed_kind`
+        says the same thing; the assert below keeps them identical.)
+      * **Only the joins are re-indented to `col`, never a member's own body.**
+        A newline *between* members is real inter-token whitespace and its column
+        is part of the shape being tested; the newline inside `{- ¤\\n   second
+        row -}` is comment text, and re-indenting it would rewrite the 22,770
+        single-`multi` cells this baseline already holds.
+
+    A one-member run is returned unnumbered, so every existing cell's source --
+    and therefore its baseline key and its meaning -- is byte-identical to what
+    it was before this axis existed.
+    """
+    if len(members) == 1:
+        return COMMENT_KINDS[members[0]]
+    parts = []
+    for i, label in enumerate(members):
+        parts.append(COMMENT_KINDS[label].replace(MARKER_CH, f"{MARKER_CH}{i + 1}"))
+        if i + 1 < len(members):
+            parts.append("\n" + " " * col if label == "line" else " ")
+    return "".join(parts)
+
+
+def _assert_run_text_matches_fuzz(members):
+    """`run_text_at(members, 0)` is exactly what fuzz-idempotency splices, so the
+    two gates cannot drift onto different runs. Called once per composition when
+    the axis is selected -- a drift is a startup failure, not a silent one."""
+    if len(set(members)) == 1:
+        want = _fuzz.run_kind(FUZZ_KINDS[members[0]], len(members))[1]
+    else:
+        want = _fuzz.mixed_kind(members)[1]
+    got = run_text_at(members, 0)
+    assert got == want, (f"run text for {members} drifted from fuzz-idempotency:\n"
+                         f"  here:  {got!r}\n  there: {want!r}")
+
+
+def register_run(members):
+    """Make `run_label(members)` a usable comment kind. Returns the label."""
+    _assert_run_text_matches_fuzz(members)
+    label = run_label(members)
+    RUN_MEMBERS[label] = list(members)
+    return label
+
+
+# The whole run axis: every two-member composition. The six mixed pairs are
+# `--mix-pairs`; the three homogeneous ones are `--run 2`, which that flag
+# deliberately excludes and which have no oracle either.
+RUN_COMPOSITIONS = [[a, b] for a in COMMENT_KINDS for b in COMMENT_KINDS]
+
 # The marker comment as a SPAN, which is the only form that survives a multi-line
 # `{- ¤ .. -}`. Every helper below that deletes or locates the marker uses this;
 # the per-line `\{-\s*¤\s*-\}` it replaced silently matched nothing on a
@@ -334,6 +438,25 @@ def marker_span(text):
     """`(start, end)` offsets of the marker's comment, or None."""
     m = _MARKER_SPAN_RE.search(text)
     return (m.start(), m.end()) if m else None
+
+
+# A run's members are marked `¤1 … ¤n`; a lone comment is bare `¤` and counts as
+# member 1. Every helper below is keyed on that number rather than on the order
+# the markers appear in the OUTPUT, because "which member ended up where" is
+# exactly the question a run asks -- keying on output order would make a
+# reordered run look like an unmoved one.
+_MEMBER_RE = re.compile(re.escape(MARKER_CH) + r"(\d+)")
+
+
+def _member_of(comment_text):
+    m = _MEMBER_RE.search(comment_text)
+    return int(m.group(1)) if m else 1
+
+
+def marker_spans(text):
+    """`{member number: (start, end)}` for every marker comment in `text`."""
+    return {_member_of(m.group(0)): (m.start(), m.end())
+            for m in _MARKER_SPAN_RE.finditer(text)}
 
 # Auto-classified comment-parity family, the counterpart of REASON_PARENS.
 # Reasons here are SHORT TAGS, not prose: the syntax baseline has 571 entries and
@@ -381,9 +504,9 @@ def comment_stripped_matches(gren_out, elm_out, collapse_interior=False):
     return canon(gren_out) == canon(elm_out)
 
 
-def marker_role(out):
-    """Where the marker sits relative to the code around it:
-    alone | leading | trailing | inner.
+def marker_roles(out):
+    """`{member number: role}` -- where each marker sits relative to what shares
+    its line: alone | leading | trailing | inner.
 
     Asked of the marker's SPAN rather than of "the line containing ¤", so a
     multi-line `{- ¤ .. -}` is judged by what precedes its `{-` and what follows
@@ -395,21 +518,23 @@ def marker_role(out):
     did not" shape is never auto-classified, because that is the shape of both
     pairing bugs. Getting it wrong for one comment kind would quietly re-open
     that door for that kind.
+
+    **A sibling member counts as content, not as blank.** In a run, member 1 with
+    member 2 beside it reads `inline`/`inner`, not `alone`. That is deliberately
+    the conservative direction: a run the two formatters break apart differently
+    then shows up as a role disagreement and is refused, where treating a comment
+    neighbour as blank would make "both stranded together" and "both beside the
+    code" look alike.
     """
-    span = marker_span(out)
-    if span is None:
-        return None
-    start, end = span
-    before = out[out.rfind("\n", 0, start) + 1:start].strip()
-    nl = out.find("\n", end)
-    after = (out[end:] if nl < 0 else out[end:nl]).strip()
-    if not before and not after:
-        return "alone"
-    if not before:
-        return "leading"
-    if not after:
-        return "trailing"
-    return "inner"
+    roles = {}
+    for member, (start, end) in marker_spans(out).items():
+        before = out[out.rfind("\n", 0, start) + 1:start].strip()
+        nl = out.find("\n", end)
+        after = (out[end:] if nl < 0 else out[end:nl]).strip()
+        roles[member] = ("alone" if not before and not after else
+                         "leading" if not before else
+                         "trailing" if not after else "inner")
+    return roles
 
 
 REASON_INHERITED = "INHERITED"  # prefix: "INHERITED: <the syntax cell's own reason>"
@@ -437,10 +562,13 @@ REASON_UNRECORDED = "#22"  # comment snapped to a canonical side of an unrecorde
 REASON_ELM_REFLOWS = "#23"  # gren kept its comment-free layout; elm-format re-flowed
 REASON_COMMENT_ROWS = "#25"  # comment did not move; elm re-spaced its OWN rows
 
-# Tokenizer for the "which tokens did the comment cross" test below. `@C` stands
-# in for the marker's comment so it takes a slot in the stream.
+# Tokenizer for the "which tokens did the comment cross" test below. `@C<n>`
+# stands in for member n's comment so it takes a slot in the stream. The digits
+# are part of the token on purpose: matched separately they would be read as a
+# numeric literal and left in the CODE stream, where they would look like a code
+# difference between the two formatters at exactly the place the comment sits.
 _TOKEN_RE = re.compile(
-    r"@C|[A-Za-z_][A-Za-z0-9_.]*|\d+\.?\d*|'[^']*'|\"[^\"]*\"|[()\[\]{},]|[|<>+*/\\=:.-]+")
+    r"@C\d*|[A-Za-z_][A-Za-z0-9_.]*|\d+\.?\d*|'[^']*'|\"[^\"]*\"|[()\[\]{},]|[|<>+*/\\=:.-]+")
 
 # The punctuation the Gren parser records a source position for. A comment that
 # crossed one of these moved across a boundary the formatter can SEE, so the move
@@ -453,14 +581,24 @@ _UNRECORDED_OPS = {"=", ":", "|", "->"}
 _UNRECORDED_WORDS = {"if", "then", "else", "when", "case", "of", "is", "let", "in", "as"}
 
 
-def _marker_slot(out):
-    """The marker's index in the output's paren-free code-token stream, plus that
-    stream. Both formatters emit the same code tokens, so the marker is the only
-    thing that can occupy a different slot."""
+def _marker_slots(out):
+    """`({member: index in the paren-free code-token stream}, that stream)`.
+
+    Both formatters emit the same code tokens, so a marker is the only thing that
+    can occupy a different slot. For a run each member gets its own index, and
+    two members can land in the same slot (a run that stayed together)."""
     body = "\n".join(out.split("\n")[3:])
-    body = strip_marker(body, " @C ")
-    toks = [t for t in _TOKEN_RE.findall(body) if t not in ("(", ")")]
-    return (toks.index("@C") if "@C" in toks else None), [t for t in toks if t != "@C"]
+    body = _MARKER_SPAN_RE.sub(
+        lambda m: f" @C{_member_of(m.group(0))} " + "\n" * m.group(0).count("\n"), body)
+    slots, code = {}, []
+    for t in _TOKEN_RE.findall(body):
+        if t in ("(", ")"):
+            continue
+        if t.startswith("@C"):
+            slots[int(t[2:] or 1)] = len(code)
+        else:
+            code.append(t)
+    return slots, code
 
 
 def crossed_only_unrecorded_tokens(gren_out, elm_out):
@@ -476,22 +614,33 @@ def crossed_only_unrecorded_tokens(gren_out, elm_out):
     operator -- the only separators the parser DOES position -- gren had the fact
     it needed and a move across it is a real finding, so this returns False and
     the cell stays UNREVIEWED.
+
+    For a RUN every member must answer the same way: one that crossed a bracket
+    or an operator fails the whole cell, so a run the formatters tore apart at a
+    boundary gren CAN see is never swept in behind a sibling that only crossed
+    an `=`.
     """
-    gi, gcode = _marker_slot(gren_out)
-    ei, ecode = _marker_slot(elm_out)
-    if gi is None or ei is None or gi == ei or gcode != ecode:
+    gslots, gcode = _marker_slots(gren_out)
+    eslots, ecode = _marker_slots(elm_out)
+    if not gslots or gslots.keys() != eslots.keys() or gcode != ecode:
         return False
-    span = gcode[min(gi, ei):max(gi, ei)]
-    if not span:
-        return False
-    for t in span:
-        if t in _RECORDED:
+    moved = False
+    for member, gi in gslots.items():
+        ei = eslots[member]
+        if gi == ei:
+            continue
+        moved = True
+        span = gcode[min(gi, ei):max(gi, ei)]
+        if not span:
             return False
-        if _OPERATOR_RE.match(t) and t not in _UNRECORDED_OPS:
-            return False
-        if t.isidentifier() and t not in _UNRECORDED_WORDS:
-            return False
-    return True
+        for t in span:
+            if t in _RECORDED:
+                return False
+            if _OPERATOR_RE.match(t) and t not in _UNRECORDED_OPS:
+                return False
+            if t.isidentifier() and t not in _UNRECORDED_WORDS:
+                return False
+    return moved
 
 
 def _canon_lines(text, drop_marker=False):
@@ -542,19 +691,23 @@ def marker_did_not_move(gren_out, elm_out):
     the comment anywhere the other did not.
 
     This is a strictly stronger statement than "the roles match".
-    `marker_role` compares what shares the comment's line; two formatters can
+    `marker_roles` compares what shares each comment's line; two formatters can
     agree on that while attaching the comment between different tokens. Slot
     equality leaves nothing about *placement* to differ, which is what makes it
     safe to attribute the whole remaining difference to the comment's own rows.
 
-    Sound in the direction that matters: `_marker_slot` returns None when it
+    Sound in the direction that matters: `_marker_slots` finds no member when it
     cannot find the marker, and any disagreement about the code tokens
     themselves (`gcode != ecode`) fails it too, so an unexplained difference
     still books UNREVIEWED debt.
+
+    For a RUN it means EVERY member kept its slot -- including relative to its
+    siblings, since two members that swapped occupy each other's slots and the
+    dicts then differ.
     """
-    gi, gcode = _marker_slot(gren_out)
-    ei, ecode = _marker_slot(elm_out)
-    return gi is not None and gi == ei and gcode == ecode
+    gslots, gcode = _marker_slots(gren_out)
+    eslots, ecode = _marker_slots(elm_out)
+    return bool(gslots) and gslots == eslots and gcode == ecode
 
 
 def comment_family(gren_out, elm_out, base_reason, base_pair=None):
@@ -593,14 +746,31 @@ def comment_family(gren_out, elm_out, base_reason, base_pair=None):
     unrecorded = crossed_only_unrecorded_tokens(gren_out, elm_out)
     elm_only = only_elm_reflowed(gren_out, elm_out, base_pair)
 
-    gren_role, elm_role = marker_role(gren_out), marker_role(elm_out)
-    moved = gren_role != elm_role
-    if moved and gren_role == "alone" and not unrecorded:
+    # Every test below is PER MEMBER and unanimous over the run: a family is
+    # claimed for the cell only when it holds for each comment in it. One member
+    # doing something unreviewed keeps the whole cell UNREVIEWED, which is the
+    # only safe direction -- an auto-classification that reads member 1 and
+    # generalizes is exactly how a baseline starts freezing bugs as expected
+    # output, and a run is the case where the members can differ.
+    groles, eroles = marker_roles(gren_out), marker_roles(elm_out)
+    if not groles or groles.keys() != eroles.keys():
+        # One side is missing a member the other has. `check_comment_cell`'s
+        # marker oracle should have failed the cell before parity ran, so this is
+        # unreachable in a normal sweep -- but "no members" makes every unanimous
+        # test below vacuously true, and a vacuous pass is the one thing this
+        # classifier must never do.
+        return None
+    moved = groles != eroles
+    if moved and not unrecorded and any(
+        role == "alone" and eroles.get(member) != "alone" for member, role in groles.items()
+    ):
         # gren alone / elm beside code is the pairing-bug shape. Never swept,
         # not even when the base explains the code around it.
         return None
-    if moved and not unrecorded and not elm_only and not (
-        gren_role == "trailing" and elm_role in ("leading", "alone")
+    if moved and not unrecorded and not elm_only and not all(
+        role == eroles.get(member)
+        or (role == "trailing" and eroles.get(member) in ("leading", "alone"))
+        for member, role in groles.items()
     ):
         # A comment move we have no reviewed family for. Review it.
         return None
@@ -651,8 +821,9 @@ def line_col_of(src, idx):
 
 
 def comment_variant(src, gap, kind, position):
-    """`src` with one comment injected at `gap` (the first char of a whitespace
-    run). Returns the new source, or None if the placement is not expressible.
+    """`src` with `kind`'s comment -- or, for a run kind, its whole run --
+    injected at `gap` (the first char of a whitespace run). Returns the new
+    source, or None if the placement is not expressible.
 
     trail: `prev {- ¤ -}<original whitespace>next`
     lead:  `prev<original whitespace up to the last line>{- ¤ -}next`
@@ -673,15 +844,28 @@ def comment_variant(src, gap, kind, position):
     if end >= len(src):
         return None
     ws = src[gap:end]
-    text = COMMENT_KINDS[kind]
+    members = RUN_MEMBERS[kind]
     col = line_col_of(src, end)
+    # The column the run itself starts at, which is where its joins are
+    # re-indented to: a `trail` run begins one space past the gap, a `lead` run
+    # begins where the next token did. A single-comment kind never spans a join,
+    # so this changes nothing for the cells that existed before the run axis.
+    text = run_text_at(members, line_col_of(src, gap) + 1 if position == "trail" else col)
     # Whether the next token has to start a fresh row after the comment. True for
     # a `--` (it eats the rest of its row) and for a multi-line block (its `-}`
     # closes on a row the source never had). A single-line `{- ¤ -}` is the one
     # kind that can leave the gap's own whitespace alone -- which is exactly the
     # property `commentTextCanRide` names, so the injector and the formatter are
     # branching on the same fact.
-    breaks_row = "\n" in text or kind == "line"
+    #
+    # For a RUN the test is "did ANY member break a row", not "did the last one":
+    # a run ending in a single-line `{- ¤n -}` could in principle let the next
+    # token ride its closing row, but that row is one the source never had, so
+    # the token would land at a column nobody wrote and the offside structure --
+    # the thing this injector exists not to disturb -- would be decided by
+    # accident. Stated rather than hidden: the "token rides the run's last row"
+    # shape is not swept here.
+    breaks_row = "\n" in text or "line" in members
 
     if position == "trail":
         if breaks_row:
@@ -1176,7 +1360,9 @@ def enumerate_comment_cells(cells, kinds, positions):
     Atom-local gaps (those touching the construct's own span) run for every
     cell; context gaps run once per context, on the first selected construct's
     flat variant, because a gap in the context template does not depend on which
-    atom fills `{x}`. Returns (comment_cells, n_atom_gap_cells, n_ctx_gap_cells).
+    atom fills `{x}`. Returns (comment_cells, n_atom_gap_cells, n_ctx_gap_cells,
+    n_collapsed) -- the last being trail/lead pairs that came out the same bytes
+    (run kinds only; see the dedupe note below).
     """
     # The representative that carries the context gaps is fixed to the FIRST
     # construct of the full vocabulary in its flat variant, NOT to the first
@@ -1193,7 +1379,7 @@ def enumerate_comment_cells(cells, kinds, positions):
     # an expression construct with a type context.
     reps = {"expr": (CONSTRUCTS[0].name, "flat"),
             "type": (TYPE_CONSTRUCTS[0].name, "flat")}
-    out, n_atom, n_ctx = [], 0, 0
+    out, n_atom, n_ctx, n_collapsed = [], 0, 0, 0
     for construct, context, variant in cells:
         atom = variant_atom(construct, variant)
         source, (lo, hi) = source_and_atom_span(atom, context)
@@ -1216,10 +1402,28 @@ def enumerate_comment_cells(cells, kinds, positions):
             if not atom_local and not is_rep:
                 continue
             for kind in kinds:
+                seen = {}
                 for position in positions:
                     variant_src = comment_variant(source, gap, kind, position)
                     if variant_src is None:
                         continue
+                    # `trail` and `lead` COLLAPSE at most gaps: once the comment
+                    # forces a row break, "just after the previous token" and
+                    # "just before the next one" are the same bytes unless the
+                    # gap's own whitespace already held a newline. On the run
+                    # axis that is 90% of the sweep -- 186k of 207k cells --
+                    # formatted twice under two keys for one input.
+                    #
+                    # Deduplicated for RUN kinds only. The single-comment axis
+                    # has the same redundancy and keeps it: its keys are 25k
+                    # reviewed baseline entries, and dropping half of them to
+                    # save time would report every one stale. Coverage is
+                    # identical either way -- the same distinct sources -- and
+                    # the count of dropped cells is printed, never silent.
+                    if len(RUN_MEMBERS[kind]) > 1 and variant_src in seen:
+                        n_collapsed += 1
+                        continue
+                    seen[variant_src] = position
                     out.append(dict(construct=construct.name, context=context.name,
                                     variant=variant, ordinal=ordinal, kind=kind,
                                     position=position, source=variant_src,
@@ -1228,7 +1432,7 @@ def enumerate_comment_cells(cells, kinds, positions):
                         n_atom += 1
                     else:
                         n_ctx += 1
-    return out, n_atom, n_ctx
+    return out, n_atom, n_ctx, n_collapsed
 
 
 def comment_key(cell):
@@ -1273,13 +1477,15 @@ def check_comment_cell(cell):
             return result(kind_result="unknown-error", detail=out.strip()[:600])
 
         formatted = shown.stdout
-        seen = formatted.count(MARKER_CH)
-        if seen != 1:
-            # A dropped or duplicated comment survives every self-consistency
-            # check in the repo -- the duplicate reformats to itself. Only a
-            # count can see it.
-            return result(kind_result="comment-count", output=formatted,
-                          detail=f"exactly one comment went in, {seen} came out")
+        # A dropped or duplicated comment survives every self-consistency check
+        # in the repo -- the duplicate reformats to itself. Only a count can see
+        # it. For a RUN this is also the only reordering check anywhere on this
+        # axis: a run torn across a separator and put back in the wrong order is
+        # a stable fixed point, so `fuzz-idempotency.marker_check` (imported, not
+        # copied) additionally requires `¤1 … ¤n` to come out in source order.
+        bad = _fuzz.marker_check(formatted, len(RUN_MEMBERS[cell["kind"]]))
+        if bad:
+            return result(kind_result="comment-count", output=formatted, detail=bad)
 
         try:
             audited = run("--audit-predicates", path)
@@ -1303,13 +1509,13 @@ def load_baseline():
 
 
 def load_comment_baseline():
-    if not COMMENT_BASELINE.exists():
+    if not ACTIVE_COMMENT_BASELINE.exists():
         return {}
-    return json.loads(COMMENT_BASELINE.read_text())["cells"]
+    return json.loads(ACTIVE_COMMENT_BASELINE.read_text())["cells"]
 
 
 def write_comment_baseline(cells):
-    COMMENT_BASELINE.write_text(json.dumps({
+    ACTIVE_COMMENT_BASELINE.write_text(json.dumps({
         "_comment": [
             "Registered elm-format parity divergences on the COMMENT axis --",
             "see COMMENT_AXIS in matrix-syntax.py. Key is",
@@ -1364,7 +1570,7 @@ def report_comment_parity(results, baseline, update, verbose=False, base_pairs=N
                                     (base_pairs or {}).get(base_parity_key(r)))
             cells[key] = family or REASON_UNREVIEWED
         write_comment_baseline(cells)
-        print(f"wrote {len(cells)} registered divergences to {COMMENT_BASELINE.name}")
+        print(f"wrote {len(cells)} registered divergences to {ACTIVE_COMMENT_BASELINE.name}")
         return []
 
     failures = []
@@ -1377,14 +1583,14 @@ def report_comment_parity(results, baseline, update, verbose=False, base_pairs=N
         if key not in baseline:
             failures.append((f"[comment-parity-new-divergence] {key}",
                              "diverges from elm-format and is not registered in "
-                             f"{COMMENT_BASELINE.name}\n"
+                             f"{ACTIVE_COMMENT_BASELINE.name}\n"
                              + "  source:\n"
                              + "\n".join(f"    |{ln}" for ln in r["source"].strip().split("\n")[3:])
                              + "\n" + side_by_side(r["parity"])))
     for key in sorted(baseline):
         if key in ran and key not in diverging:
             failures.append((f"[comment-parity-baseline-stale] {key}",
-                             f'registered in {COMMENT_BASELINE.name} as "{baseline[key]}" but it '
+                             f'registered in {ACTIVE_COMMENT_BASELINE.name} as "{baseline[key]}" but it '
                              "now matches elm-format -- remove the entry"))
 
     registered = {k: v for k, v in baseline.items() if k in diverging}
@@ -1433,15 +1639,20 @@ def report_comment_parity(results, baseline, update, verbose=False, base_pairs=N
 
 def run_comment_axis(cells, args):
     """The `--comments` mode: enumerate comment cells, run oracles 2-4, report."""
-    kinds = [args.comment_kind] if args.comment_kind else list(COMMENT_KINDS)
+    kinds = (getattr(args, "comment_kinds", None)
+             or ([args.comment_kind] if args.comment_kind else list(COMMENT_KINDS)))
     positions = [args.comment_pos] if args.comment_pos else list(COMMENT_POSITIONS)
 
-    comment_cells, n_atom, n_ctx = enumerate_comment_cells(cells, kinds, positions)
+    comment_cells, n_atom, n_ctx, n_collapsed = enumerate_comment_cells(cells, kinds, positions)
     if not comment_cells:
         sys.exit("no comment cells selected -- check the filters")
     print(f"comment axis: {len(comment_cells)} cells over {len(cells)} syntax cells "
           f"({n_atom} at atom-local gaps, {n_ctx} at context gaps)")
-    print(f"  kinds: {', '.join(kinds)}   positions: {', '.join(positions)}\n")
+    print(f"  kinds: {', '.join(kinds)}   positions: {', '.join(positions)}")
+    if n_collapsed:
+        print(f"  {n_collapsed} trail/lead pairs collapsed (identical bytes -- the gap's own "
+              f"whitespace held no newline, so both placements write the same source)")
+    print()
 
     # The UNCOMMENTED cells' own output pairs. Only needed when writing the
     # baseline, where `explained_by_base` asks whether a comment changed
@@ -1639,7 +1850,39 @@ def main():
                     help="comment axis: only this comment kind (default both)")
     ap.add_argument("--comment-pos", choices=COMMENT_POSITIONS,
                     help="comment axis: only this placement (default both)")
+    ap.add_argument("--comment-runs", action="store_true",
+                    help="comment axis: inject a RUN of two comments per gap instead of one, "
+                         "in every one of the nine compositions. Gates against "
+                         f"{COMMENT_RUN_BASELINE.name}")
+    ap.add_argument("--comment-mix", action="append", metavar="A,B[,C]",
+                    help="comment axis: one explicit run composition (e.g. --comment-mix "
+                         "multi,block). Repeatable; a slice of --comment-runs, so it takes "
+                         "the same baseline and cannot update it")
     args = ap.parse_args()
+
+    # The run axis replaces the kind list rather than multiplying it: a run
+    # SPELLS its own members, so `--comment-kind` would have nothing to filter.
+    if (args.comment_runs or args.comment_mix) and args.comment_kind:
+        ap.error("--comment-runs/--comment-mix spell their own members; "
+                 "they cannot be combined with --comment-kind")
+    if (args.comment_runs or args.comment_mix) and not args.comments:
+        ap.error("--comment-runs/--comment-mix are part of the comment axis (--comments)")
+    if args.comment_runs and args.comment_mix:
+        ap.error("--comment-mix is a slice of --comment-runs; pass one or the other")
+    global ACTIVE_COMMENT_BASELINE
+    run_kinds = []
+    if args.comment_runs:
+        run_kinds = [register_run(m) for m in RUN_COMPOSITIONS]
+    for spec in args.comment_mix or []:
+        members = [s.strip() for s in spec.split(",")]
+        bad = [m for m in members if m not in COMMENT_KINDS]
+        if bad or len(members) < 2:
+            ap.error(f"--comment-mix {spec!r}: want two or more of "
+                     f"{', '.join(sorted(COMMENT_KINDS))}")
+        run_kinds.append(register_run(members))
+    if run_kinds:
+        ACTIVE_COMMENT_BASELINE = COMMENT_RUN_BASELINE
+    args.comment_kinds = run_kinds or None
 
     if not APP.exists():
         sys.exit(f"{APP} not found -- run (cd ../../gren-format && ./build.sh) first")
@@ -1663,6 +1906,7 @@ def main():
                                 ("--context", args.context),
                                 ("--variant", args.variant),
                                 ("--comment-kind", args.comment_kind),
+                                ("--comment-mix", args.comment_mix),
                                 ("--comment-pos", args.comment_pos)) if v]
     if args.update_baseline and selectors:
         sys.exit(f"--update-baseline rewrites the WHOLE baseline from this run's cells, so "
