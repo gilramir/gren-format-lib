@@ -1,0 +1,17 @@
+module LeadingCommentRunBeforeBlock exposing (..)
+
+one = \q -> {- a -} (fn one
+          two)
+
+two = \q -> {- a -} {- b -} (fn one
+          two)
+
+three = \q -> {- a -} {- b -} {- c -} (fn one
+          two)
+
+four = \q -> {- a -} {- b -} fn
+
+five =
+    { fld = {- a -} {- b -} { inner = 1
+      , other = 2 }
+    }

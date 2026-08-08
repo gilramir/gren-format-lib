@@ -778,7 +778,7 @@ Two followers pair:
 Only a non-gluing comment pairs with the soft block: a `TrailsPrevious` /
 `RidesInline` comment belongs to the token before it and must stay on that line.
 -}
-pairLeadingComments : Array FlowItem -> Array { item : FlowItem, leading : Maybe FlowItem }
+pairLeadingComments : Array FlowItem -> Array { item : FlowItem, leading : Array FlowItem }
 pairLeadingComments items =
     let
         pairableComment it =
@@ -799,9 +799,51 @@ pairLeadingComments items =
             else
                 Array.get i items
 
-        -- `items[i]` is a comment consumed by `items[i + 1]`. One predicate
-        -- answers both directions, so the "drop this entry" pass and the
-        -- "attach as leading" pass can never disagree and duplicate or lose it.
+        -- The first item at or after `i` that is not itself a pairable comment
+        -- — i.e. what a RUN of them leads. Looking only at `i + 1` (as this did
+        -- until 2026-08-07) can only ever see a run of ONE: put a second comment
+        -- in the gap and the first one's successor is a comment, no pairing
+        -- happens, and the whole run falls back into the flow and glues onto the
+        -- preceding row. `\q -> {- a -} {- b -} (fn one` ⏎ `two)` came out with
+        -- both comments on the `->` row on the first format and each on its own
+        -- row on the second, where a SINGLE comment there has always dropped to
+        -- its own row above the body. 27 cells of the run axis, one per
+        -- construct.
+        target i =
+            when at i is
+                Nothing ->
+                    Nothing
+
+                Just it ->
+                    if pairableComment it then
+                        target (i + 1)
+
+                    else
+                        Just it
+
+        -- The first member of the comment run `i` belongs to. The glue question
+        -- is asked of IT, not of `i`: a later member's role is `RidesInline`
+        -- *relative to the member before it*, which says nothing about whether
+        -- the run may stay on the preceding line. Only the leader answers that,
+        -- and C3 makes it the whole run's answer.
+        runLeader i =
+            if i > 0 && (when at (i - 1) is
+                            Just prev ->
+                                pairableComment prev
+
+                            Nothing ->
+                                False
+                        )
+            then
+                runLeader (i - 1)
+
+            else
+                i
+
+        -- `items[i]` is a comment consumed by the item its run leads. One
+        -- predicate answers both directions, so the "drop this entry" pass and
+        -- the "attach as leading" pass can never disagree and duplicate or lose
+        -- it.
         pairsAt i =
             when at i is
                 Nothing ->
@@ -809,33 +851,49 @@ pairLeadingComments items =
 
                 Just it ->
                     pairableComment it
-                        && (when at (i + 1) is
+                        && (when target (i + 1) is
                                 Nothing ->
                                     False
 
                                 Just next ->
                                     isTypeRecordLiteral next.node
-                                        || (commentDoesNotGlue it && softBlockDropsBox next)
+                                        || ((when at (runLeader i) is
+                                                Just leader ->
+                                                    commentDoesNotGlue leader
+
+                                                Nothing ->
+                                                    False
+                                            )
+                                                && softBlockDropsBox next
+                                           )
                            )
+
+        -- Every member of the run immediately before `i`, in source order.
+        leadingFor i =
+            Array.slice 0 i items
+                |> Array.indexedMap (\j _ -> j)
+                |> Array.foldr
+                    (\j acc ->
+                        if acc.done || not (pairsAt j) then
+                            { acc | done = True }
+
+                        else
+                            { acc | run = Array.pushFirst j acc.run }
+                    )
+                    { run = [], done = False }
+                |> .run
+                |> Array.mapAndKeepJust at
     in
     items
         |> Array.indexedMap (\i it -> { i = i, it = it })
         |> Array.mapAndKeepJust
             (\{ i, it } ->
                 if pairsAt i then
-                    -- Consumed: attached to the item that follows.
+                    -- Consumed: attached to the item its run leads.
                     Nothing
 
                 else
-                    Just
-                        { item = it
-                        , leading =
-                            if pairsAt (i - 1) then
-                                at (i - 1)
-
-                            else
-                                Nothing
-                        }
+                    Just { item = it, leading = leadingFor i }
             )
 
 

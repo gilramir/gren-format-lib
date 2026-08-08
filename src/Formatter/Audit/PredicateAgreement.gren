@@ -286,12 +286,9 @@ pairsWithFollower children i =
             pairLeadingComments items
                 |> Array.any
                     (\pair ->
-                        when pair.leading is
-                            Just lead ->
-                                Array.get i children == Just lead.node
-
-                            Nothing ->
-                                False
+                        -- `leading` is the whole RUN a paired item consumed, so
+                        -- ask whether THIS child is any member of it.
+                        Array.any (\lead -> Array.get i children == Just lead.node) pair.leading
                     )
 
 

@@ -1,0 +1,12 @@
+module IfConditionCommentRun exposing (..)
+
+one = if cond then other else {- a -} -- b
+                              if cond then one else two
+
+two = if {- a -} -- b
+         cond then one else two
+
+three = if {- a -} {- b -} cond then one else two
+
+four = if cond then other else {- a -} {- b -}
+                               if cond then one else two

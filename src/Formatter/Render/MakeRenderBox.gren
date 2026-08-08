@@ -2445,6 +2445,23 @@ makeIfConditionBox forceVertical children =
                     Err "box: if-condition missing then"
 
                 Just { initial = condNodes, last = thenNode } ->
+                    let
+                        -- `forceVertical` came from the AST's source rows, which
+                        -- cannot see a comment — the same gap `AcrossOrVertical`
+                        -- closes with this predicate, for the same reason. A
+                        -- comment that ends its line inside the condition breaks
+                        -- it whatever the author wrote, `joinInline` then fails
+                        -- and the inline arm falls through to the stacked
+                        -- fallback; but the CONDITION was already built by
+                        -- `buildFlowBoxInline`, so a leading comment sits on the
+                        -- condition's row rather than its own. The reparse reads
+                        -- the broken shape, takes the vertical arm, and splits
+                        -- the run — `else if` ⏎ `{- a -} -- b` ⏎ `cond` on the
+                        -- first format, `{- a -}` ⏎ `-- b` ⏎ `cond` on the
+                        -- second. Commit to broken now instead of flipping.
+                        renderVertical =
+                            forceVertical || commentBreaksFlowRow condNodes
+                    in
                     makePBox (lpnBox ifNode) (lpnChildren ifNode)
                         |> Result.andThen
                             (\ifBox ->
@@ -2453,7 +2470,7 @@ makeIfConditionBox forceVertical children =
                                 -- continues the `if `-line, so a leading
                                 -- single-line block comment stays inline
                                 -- (`if {- c -} tertiaryBoolValue then`).
-                                (if forceVertical then
+                                (if renderVertical then
                                     buildFlowBox 0 condNodes
 
                                  else
@@ -2464,7 +2481,7 @@ makeIfConditionBox forceVertical children =
                                             makePBox (lpnBox thenNode) (lpnChildren thenNode)
                                                 |> Result.andThen
                                                     (\thenBox ->
-                                                        if forceVertical then
+                                                        if renderVertical then
                                                             Ok (B.stack1 [ ifBox, B.indent condBox, thenBox ])
 
                                                         else
@@ -5568,12 +5585,14 @@ assembleFlowImpl measure flowStart flowIndent items =
                     -- `leading`: `stepUnwrapped` replays those unpaired.
                     let
                         withLeading box =
-                            when leading is
-                                Just commentBox ->
-                                    B.stack1 [ commentBox, box ]
+                            -- The whole leading RUN stacks above the block, each
+                            -- member on its own row, exactly as a single leading
+                            -- comment always has.
+                            if Array.isEmpty leading then
+                                box
 
-                                Nothing ->
-                                    box
+                            else
+                                B.stack1 (Array.pushLast box leading)
                     in
                     when rule is
                         FP.IndentedRule ->
@@ -5635,12 +5654,11 @@ assembleFlowImpl measure flowStart flowIndent items =
                                     0
 
                         droppedBox =
-                            when leading is
-                                Just commentBox ->
-                                    B.stack1 [ commentBox, item.box ]
+                            if Array.isEmpty leading then
+                                item.box
 
-                                Nothing ->
-                                    item.box
+                            else
+                                B.stack1 (Array.pushLast item.box leading)
                     in
                     Ok
                         { rows = Array.pushLast (applyIndent dropIndent droppedBox) (flushRow acc.curRow acc.rows)
@@ -5743,64 +5761,63 @@ assembleFlowImpl measure flowStart flowIndent items =
                     placeCommentItem acc decision c
 
                 Nothing ->
-                    when paired.leading is
-                        Nothing ->
-                            placeNonComment acc decision Nothing item
+                    if Array.isEmpty paired.leading then
+                        placeNonComment acc decision [] item
 
-                        Just leadItem ->
-                            -- A single-line block comment paired with the
-                            -- item that follows it (`pairLeadingComments`):
-                            -- a type record, or a soft block that rendered
-                            -- multi-line. When the placement drops that item
-                            -- to its own line, the comment drops WITH it;
-                            -- otherwise replay the exact unpaired steps
-                            -- (comment first, then re-decide the item against
-                            -- the state the comment left).
-                            let
-                                dropsTogether =
-                                    when decision.placement is
-                                        FP.DropBlock _ ->
-                                            True
+                    else
+                        -- The RUN of single-line block comments paired with the
+                        -- item it leads (`pairLeadingComments`): a type record,
+                        -- or a soft block that rendered multi-line. When the
+                        -- placement drops that item to its own line, the run
+                        -- drops WITH it; otherwise replay the exact unpaired
+                        -- steps (each comment in source order, then re-decide
+                        -- the item against the state they left).
+                        let
+                            dropsTogether =
+                                when decision.placement is
+                                    FP.DropBlock _ ->
+                                        True
 
-                                        FP.BlockJoin { rule = rule } ->
-                                            -- Every block rule puts the item on
-                                            -- its own line EXCEPT a soft block
-                                            -- that rendered single-line, which
-                                            -- glues onto the running row — its
-                                            -- comment has to be replayed inline
-                                            -- ahead of it instead.
-                                            rule
-                                                /= FP.SoftIndentedRule
-                                                || not (isSingleLine item.box)
+                                    FP.BlockJoin { rule = rule } ->
+                                        -- Every block rule puts the item on
+                                        -- its own line EXCEPT a soft block
+                                        -- that rendered single-line, which
+                                        -- glues onto the running row — its
+                                        -- comments have to be replayed inline
+                                        -- ahead of it instead.
+                                        rule
+                                            /= FP.SoftIndentedRule
+                                            || not (isSingleLine item.box)
 
-                                        _ ->
-                                            False
-                            in
-                            if dropsTogether then
-                                placeNonComment acc
-                                    decision
-                                    (leadItem.comment |> Maybe.map (\lc -> lc.box))
-                                    item
+                                    _ ->
+                                        False
+                        in
+                        if dropsTogether then
+                            placeNonComment acc
+                                decision
+                                (Array.mapAndKeepJust (\li -> li.comment |> Maybe.map (\lc -> lc.box)) paired.leading)
+                                item
 
-                            else
-                                when leadItem.comment is
-                                    Just lc ->
-                                        let
-                                            leadDecision =
-                                                FP.decide config acc.state (factsFor leadItem)
-                                        in
-                                        placeCommentItem acc leadDecision lc
-                                            |> Result.andThen
-                                                (\a ->
-                                                    let
-                                                        recDecision =
-                                                            FP.decide config a.state (factsFor item)
-                                                    in
-                                                    placeNonComment a recDecision Nothing item
-                                                )
+                        else
+                            Array.foldl
+                                (\leadItem accResult ->
+                                    accResult
+                                        |> Result.andThen
+                                            (\a ->
+                                                when leadItem.comment is
+                                                    Just lc ->
+                                                        placeCommentItem a (FP.decide config a.state (factsFor leadItem)) lc
 
-                                    Nothing ->
-                                        placeNonComment acc decision Nothing item
+                                                    Nothing ->
+                                                        Ok a
+                                            )
+                                )
+                                (Ok acc)
+                                paired.leading
+                                |> Result.andThen
+                                    (\a ->
+                                        placeNonComment a (FP.decide config a.state (factsFor item)) [] item
+                                    )
     in
     Array.foldl step
         (Ok
