@@ -1,11 +1,19 @@
 #!/usr/bin/env python3
-"""A full census of the run axis's `commentEndsItsLine` findings.
+"""A full census of a predicate class over the run axis, by claim direction.
 
-`--comment-runs` reports ~8,527 of them and they are 100% of what is left on
-that axis. `_run_predicate_sample.py` sampled 285 cells and said "one family,
-both claim directions, always a `--` in the run" — enough to refuse to call them
+**The class it was written for is closed** (2026-08-08): the 8,527
+`commentEndsItsLine` findings that were 100% of what `--comment-runs` reported
+went to 0 when the audit was re-grained from the comment to the RUN, and not one
+of them was a layout bug. This census is what settled that, and the shape of its
+answer is the transferable part: the claim direction turned out to be a **pure
+function of the run composition**, with no construct or context dependence — a
+grain mismatch looks like that, and a layout bug does not. Kept as the
+instrument for the next such class, not as a live work-list.
+
+`_run_predicate_sample.py` sampled 285 cells first and said "one family, both
+claim directions, always a `--` in the run" — enough to refuse to call them
 bugs, not enough to work from. This reads EVERY failing cell and tallies the
-whole space, so the next session starts from a work-list.
+whole space.
 
 Runs against the cells `matrix-syntax.py -k` wrote out, so it needs no sweep:
 

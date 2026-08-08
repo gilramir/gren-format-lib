@@ -43,9 +43,9 @@ See `flowCommentFindings`.
 import Formatter.Logical.LogicalPrintingTree exposing (LPBox(..), LPNode, lpnBox, lpnChildren, lpnFirstPos, stypeToString)
 import Formatter.Render.Box as B exposing (Box)
 import Formatter.Render.BoxOps exposing (isSingleLine)
-import Formatter.Render.FlowAssembly exposing (FlowMeasure, pairLeadingComments)
-import Formatter.Render.MakeRenderBox exposing (buildFlowBoxMeasured, makePBox, renderFlowItems)
-import Formatter.Render.NodeClassify exposing (commentEndsItsLine, isMultilineLambdaParenBlockBox, nodeIsComment)
+import Formatter.Render.FlowAssembly exposing (FlowMeasure)
+import Formatter.Render.MakeRenderBox exposing (buildFlowBoxMeasured, makePBox)
+import Formatter.Render.NodeClassify exposing (commentBreaksFlowRow, isMultilineLambdaParenBlockBox, nodeIsComment)
 import Json.Encode as Json
 
 
@@ -145,16 +145,32 @@ comments, so the first format renders flat, the comment breaks the row anyway,
 and the reparse -- now seeing a later sibling on a later row -- renders broken.
 The file oscillates. That was 214 of the comment matrix's first 424 failures.
 
-The check is per COMMENT rather than per flow, because that is the grain the
-claim is made at: assemble the children, then for each comment ask whether the
-next real item started a row of its own, and compare that against
-`commentEndsItsLine` (the atom `commentBreaksFlowRow` folds). Answering from
-`decide`'s own assembly, rather than from a second prediction, is the whole
-point; every other reason a flow breaks moves both sides and cancels.
+The check is per comment RUN rather than per flow or per comment, because that
+is the grain the claim is made at: assemble the children, then for each maximal
+run of comments in one gap ask whether the next real item started a row of its
+own, and compare that against `commentBreaksFlowRow` applied to that run plus
+the item after it. Answering from `decide`'s own assembly, rather than from a
+second prediction, is the whole point; every other reason a flow breaks moves
+both sides and cancels.
 
-**Only a comment with a real item on BOTH sides is checked, and the scope is
-load-bearing.** Two exclusions, each of them the predicate being deliberately
-narrower than `decide` rather than wrong:
+**The grain is the run, and asking it per COMMENT was wrong** — it reported
+8,527 cells of the `--comment-runs` matrix and not one of them was a layout bug.
+Removing one member of a run does not close the gap, because the other member
+breaks the row anyway, so a `--` in a run read as an over-claim; and removing a
+single-line `{- b -}` that merely OCCUPIES a row a `--` before it created does
+close one, so it read as an under-claim. Both directions are the same mistake:
+the audit measured a member's own contribution while the predicate claims what
+the *gap* does, and those coincide only when the member is the sole reason for
+the break. In a run there is always another reason. The claim is now taken from
+`commentBreaksFlowRow` itself over `[run … next item]` — the same fold the
+renderer performs, restricted to this gap — rather than from `commentEndsItsLine`
+per member, so the two sides finally ask one question. A run of one is the
+single-comment case unchanged.
+
+**Only a run with a real item on BOTH sides is checked, and the scope is
+load-bearing.** Three exclusions. The first two are the predicate being
+deliberately narrower than `decide` rather than wrong; the third is this
+measurement having nothing to say:
 
   - **A trailing comment** has nothing after it to push. `foo bar -- c` is one
     line and is the long-standing fixed point for that shape; the predicate says
@@ -171,6 +187,31 @@ narrower than `decide` rather than wrong:
     breaks by itself there, so the caller's `else` branch produces the same
     layout the `True` branch would have been reached for. Should either of those
     stop holding, this exclusion is the thing to revisit first.
+  - **A gap the two items do not share even without the run** (`gapWithout > 0`).
+    There the difference of the two gaps measures how many EXTRA rows the run
+    added, and the predicate does not claim that; it claims the following item
+    starts a fresh row, which is already true with the run deleted. Nothing is
+    misled either, because the caller ORs this predicate into a `forceVertical`
+    that the already-broken gap sets anyway — the two arms agree, so the
+    predicate's answer cannot reach the output. The dangerous direction is
+    untouched: an under-claim only oscillates when the flow WOULD have been flat
+    there, which is `gapWithout == 0`.
+
+    It is what the last two `--comment-runs` findings were: a `{- ¤1 -} -- ¤2`
+    in front of a record type that takes the `DropBlock` rule on its own account.
+
+    **It replaced a fourth exclusion, which it subsumes.** `runPairsWithFollower`
+    asked `FlowAssembly.pairLeadingComments` whether the assembler attaches the
+    comment to the item after it, the case being that the item's own placement
+    moved it (a type record's `DropBlock`; a soft block that rendered multi-line)
+    and the comment only travelled along. That is the same situation seen through
+    a prediction: an item that moves on its own account is an item the gap stays
+    open without, so `gapWithout > 0` states it in terms of the assembly instead.
+    It also covers what the pairing missed — `pairLeadingComments` walks past
+    *pairable* comments only, so a `--` in the run breaks the chain and nothing
+    pairs, which is why those two cells were reported at all. Deleted after
+    measuring, not by argument: disabled, it changed nothing over the corpus, the
+    68,922-cell single-comment axis, or the 113,796-cell run axis.
 
 Scoped to the box kinds whose children `makePBox` hands straight to the gluing
 flow assembler, so the assembly audited is the one the renderer performs. NOT
@@ -189,107 +230,119 @@ flowCommentFindings node liesBelow =
         []
 
     else
-        children
-            |> Array.indexedMap (\i _ -> commentFinding node liesBelow children i)
+        commentRuns children
+            |> Array.map (\run -> runFinding node liesBelow children run)
             |> Array.mapAndKeepJust identity
 
 
-{-| The finding, if any, for the child at `i` — `Nothing` when that child is not
-a comment this audit makes a claim about, or when either assembly has no render
-truth to offer. -}
-commentFinding : LPNode -> Bool -> Array LPNode -> Int -> Maybe Finding
-commentFinding node liesBelow children i =
-    when Array.get i children is
-        Nothing ->
-            Nothing
+{-| The maximal runs of consecutive comment children, as `{ start, end }` with
+`end` exclusive — one entry per GAP that holds comments, which is the grain the
+claim is made at. -}
+commentRuns : Array LPNode -> Array { start : Int, end : Int }
+commentRuns children =
+    children
+        |> Array.indexedMap
+            (\i _ ->
+                if isCommentAt i children && not (isCommentAt (i - 1) children) then
+                    Just { start = i, end = i + commentPrefixLength (Array.dropFirst i children) }
 
-        Just comment ->
-            let
-                -- How many real items precede this child: also its predecessor's
-                -- ordinal among the items, and its successor's, in EITHER
-                -- assembly. Removing a comment does not renumber them.
-                itemsBefore =
-                    Array.slice 0 i children
-                        |> Array.keepIf (\n -> not (nodeIsComment n))
-                        |> Array.length
+                else
+                    Nothing
+            )
+        |> Array.mapAndKeepJust identity
 
-                itemsAfter =
-                    Array.dropFirst (i + 1) children
-                        |> Array.keepIf (\n -> not (nodeIsComment n))
-                        |> Array.length
 
-                without =
-                    Array.slice 0 i children ++ Array.dropFirst (i + 1) children
-            in
-            if
-                not (nodeIsComment comment)
-                    || itemsBefore
-                    < 1
-                    || itemsAfter
-                    < 1
-                    || pairsWithFollower children i
-            then
-                Nothing
+{-| Is the child at `i` a comment? False when `i` is out of range. NB Gren's
+`Array.get -1` wraps to the LAST element, so index -1 must not reach it: a flow
+whose last child is a comment would otherwise report its first child as mid-run
+and lose that run. -}
+isCommentAt : Int -> Array LPNode -> Bool
+isCommentAt i children =
+    if i < 0 then
+        False
+
+    else
+        Array.get i children |> Maybe.map nodeIsComment |> Maybe.withDefault False
+
+
+{-| How many comments `nodes` starts with. -}
+commentPrefixLength : Array LPNode -> Int
+commentPrefixLength nodes =
+    (Array.foldl
+        (\n acc ->
+            if acc.stopped || not (nodeIsComment n) then
+                { acc | stopped = True }
 
             else
-                when
-                    { withIt = itemGap itemsBefore children
-                    , withoutIt = itemGap itemsBefore without
-                    }
-                is
-                    { withIt = Just gapWith, withoutIt = Just gapWithout } ->
-                        let
-                            claim =
-                                commentEndsItsLine comment
-                        in
-                        if claim == (gapWith > gapWithout) then
-                            Nothing
-
-                        else
-                            Just
-                                { predicate = "commentEndsItsLine"
-                                , boxKind = boxKindName (lpnBox node) ++ " / " ++ boxKindName (lpnBox comment)
-                                , row = lpnFirstPos comment |> Maybe.map (\p -> p.row) |> Maybe.withDefault -1
-                                , col = lpnFirstPos comment |> Maybe.map (\p -> p.col) |> Maybe.withDefault -1
-                                , rendered = renderedFlow children
-                                , propagated = liesBelow
-                                , claim = claim
-                                }
-
-                    _ ->
-                        Nothing
+                { acc | count = acc.count + 1 }
+        )
+        { count = 0, stopped = False }
+        nodes
+    ).count
 
 
-{-| Does the assembler PAIR this comment with the item after it
-(`FlowAssembly.pairLeadingComments`)? If so it is out of scope, and the reason is
-the difference between a separator and a layout.
+{-| The finding, if any, for the comment run in one gap — `Nothing` when the run
+is not one this audit makes a claim about, or when either assembly has no render
+truth to offer. -}
+runFinding : LPNode -> Bool -> Array LPNode -> { start : Int, end : Int } -> Maybe Finding
+runFinding node liesBelow children run =
+    let
+        members =
+            Array.slice run.start run.end children
 
-`decide` still leaves `FlowSep` after such a comment — it did not end anything.
-What moves the item is the item's OWN placement (a type record takes the
-`DropBlock` rule; a soft block that rendered multi-line drops to +4), and the
-pairing exists so the comment travels with it rather than being stranded on the
-row above. Measuring "did the next item move" therefore blames the comment for a
-drop it only accompanied, which is what the first scoped run of this audit did:
-its two remaining findings were both a single-line `{- … -}` in front of a
-multi-line type record.
+        -- How many real items precede this run: also its predecessor's ordinal
+        -- among the items, and its successor's, in EITHER assembly. Removing
+        -- comments does not renumber them.
+        itemsBefore =
+            Array.slice 0 run.start children
+                |> Array.keepIf (\n -> not (nodeIsComment n))
+                |> Array.length
 
-Asked of the renderer's own pairing function rather than re-derived, so this
-scope cannot drift from the thing it is scoping around.
--}
-pairsWithFollower : Array LPNode -> Int -> Bool
-pairsWithFollower children i =
-    when renderFlowItems children is
-        Err _ ->
-            False
+        itemsAfter =
+            Array.dropFirst run.end children
+                |> Array.keepIf (\n -> not (nodeIsComment n))
+                |> Array.length
 
-        Ok items ->
-            pairLeadingComments items
-                |> Array.any
-                    (\pair ->
-                        -- `leading` is the whole RUN a paired item consumed, so
-                        -- ask whether THIS child is any member of it.
-                        Array.any (\lead -> Array.get i children == Just lead.node) pair.leading
-                    )
+        without =
+            Array.slice 0 run.start children ++ Array.dropFirst run.end children
+    in
+    if itemsBefore < 1 || itemsAfter < 1 then
+        Nothing
+
+    else
+        when
+            { withIt = itemGap itemsBefore children
+            , withoutIt = itemGap itemsBefore without
+            }
+        is
+            { withIt = Just gapWith, withoutIt = Just gapWithout } ->
+                let
+                    -- The predicate's own fold, restricted to this gap: the run
+                    -- plus the one real item that follows it, which is all
+                    -- `commentBreaksFlowRow` needs to answer for this gap and is
+                    -- the only way to ask it rather than re-derive it.
+                    claim =
+                        commentBreaksFlowRow (Array.slice run.start (run.end + 1) children)
+                in
+                if gapWithout > 0 || claim == (gapWith > gapWithout) then
+                    Nothing
+
+                else
+                    Just
+                        { predicate = "commentBreaksFlowRow"
+                        , boxKind =
+                            boxKindName (lpnBox node)
+                                ++ " / "
+                                ++ String.join "+" (Array.map (\m -> boxKindName (lpnBox m)) members)
+                        , row = Array.first members |> Maybe.andThen lpnFirstPos |> Maybe.map (\p -> p.row) |> Maybe.withDefault -1
+                        , col = Array.first members |> Maybe.andThen lpnFirstPos |> Maybe.map (\p -> p.col) |> Maybe.withDefault -1
+                        , rendered = renderedFlow children
+                        , propagated = liesBelow
+                        , claim = claim
+                        }
+
+            _ ->
+                Nothing
 
 
 {-| Assemble `nodes` as a gluing flow and return how many rows separate item

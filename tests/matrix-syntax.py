@@ -1275,6 +1275,17 @@ def base_output_pair(cell):
     return key, (to_elm(shown.stdout).strip(), elm.stdout.strip())
 
 
+def predicate_lie_detail(f):
+    """One `--audit-predicates` finding, in the direction it was actually made.
+
+    The comment half of that audit is bidirectional -- `claim: false` is the
+    OPPOSITE complaint, and the audit's own doc calls it the worse direction --
+    so printing "said X breaks" for both read backwards on half of them.
+    """
+    claimed = "breaks" if f["claim"] else "does not break"
+    return f'{f["predicate"]} said {f["boxKind"]} {claimed}, rendered: {f["rendered"]}'
+
+
 def check_cell(cell):
     construct, context, variant = cell
     cname, xname = construct.name, context.name
@@ -1319,8 +1330,7 @@ def check_cell(cell):
             roots = [f for f in findings if not f["propagated"]]
             if roots:
                 return result(kind="predicate-lie", output=formatted,
-                              detail="; ".join(f'{f["predicate"]} said {f["boxKind"]} breaks, '
-                                               f'rendered: {f["rendered"]}' for f in roots[:3]))
+                              detail="; ".join(predicate_lie_detail(f) for f in roots[:3]))
 
         # Oracle 1 (the flat/break two-directional check) is a *flat-input*
         # truth, so it runs only on flat_input variants. An author-broken
@@ -1495,8 +1505,7 @@ def check_comment_cell(cell):
         roots = [f for f in findings if not f["propagated"]]
         if roots:
             return result(kind_result="predicate-lie", output=formatted,
-                          detail="; ".join(f'{f["predicate"]} said {f["boxKind"]} breaks, '
-                                           f'rendered: {f["rendered"]}' for f in roots[:3]))
+                          detail="; ".join(predicate_lie_detail(f) for f in roots[:3]))
 
         parity = check_parity(source, formatted) if PARITY else None
         return result(kind_result="ok", output=formatted, parity=parity)

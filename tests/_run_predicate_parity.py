@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Do the run axis's `commentEndsItsLine` cells actually LAY OUT wrong?
+"""Do the run axis's predicate-audit cells actually LAY OUT wrong?
+
+**Answered, for the class this was written for** (2026-08-08): no. The 8,527
+`commentEndsItsLine` cells were the AUDIT's grain, not the formatter's layout,
+and re-graining it from the comment to the RUN took them to 0. This is the
+instrument that refused to call them bugs, and the reason it could is the
+control: read `_run_parity_sample.py` alongside it, or the rate means nothing.
 
 The predicate audit is a self-consistency check: it asks whether
 `commentEndsItsLine` still agrees with `FlowPolicy.decide`'s own assembly.

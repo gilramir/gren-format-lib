@@ -1246,19 +1246,52 @@ keys would report them stale.
   top-level path (`makeCommentLineBox`) refused. Fixture
   `BracketComments/TopLevelMultilineCommentRun`; every other gate byte-unmoved,
   including both parity matrices.
-- **31 non-idempotent**, two families: 27 × `lambdaBody@broken|bareBroken#g7.
-  blockx2.trail` (one bug reached from 15 constructs) and 4 × `ifExpr/ifElse@
-  bareFlat#g10|g11.{block+line,block+multi}.trail`. **Open.**
-- **8,527 `predicate-lie`**, all `commentEndsItsLine`. **Open, and not yet shown
-  to be bugs.** Sampled: both claim directions (13 True / 6 False per 285 cells),
-  and every one from a composition containing a `--`; zero from `blockx2`,
-  `multix2`, `block+multi`, `multi+block`, `block+line`. `flowCommentFindings`
-  asks "does removing this comment close the gap between the surrounding ITEMS",
-  and its scoping (`itemsBefore >= 1 && itemsAfter >= 1`) was written when a
-  comment's neighbours were items. In the one case traced by hand the aggregate
-  decision was still correct (`commentBreaksFlowRow` folds with `any`), so the
-  per-comment attribution was wrong and the layout was not. **Settle the scope
-  before treating these as a work-list.**
+- **31 non-idempotent — FIXED the same day, 31 → 0** (`8fe5ee6`), two families:
+  27 × `lambdaBody@broken|bareBroken#g7.blockx2.trail` (one bug reached from 15
+  constructs — `pairLeadingComments` asked about `items[i + 1]`, which can only
+  ever see a run of ONE) and 4 × `ifExpr/ifElse@bareFlat#g10|g11.
+  {block+line,block+multi}.trail` (`makeIfConditionBox` picked its arm from
+  `forceVertical`, whose source rows hold no comments; `AcrossOrVertical` had
+  closed that gap already and said so in a comment). Fixtures
+  `BracketComments/LeadingCommentRunBeforeBlock` and
+  `BracketComments/IfConditionCommentRun`, each pinning the boundary that must
+  not move.
+- **8,527 `predicate-lie`, all `commentEndsItsLine` — FIXED 2026-08-08, 8,527 →
+  0, and not one of them was a layout bug.** The AUDIT was wrong, at its grain.
+  `flowCommentFindings` asked, per comment, "does removing this one close the gap
+  between the surrounding ITEMS" — a scoping written when a comment's neighbours
+  were items — while the predicate claims what the *gap* does. Those coincide
+  only when the member is the sole reason for the break, and **in a run there is
+  always another reason**: a `--` in a run does end its line, but deleting it
+  leaves the other member breaking the row (over-claim), and a single-line
+  `{- b -}` that merely OCCUPIES a row the `--` before it created does close a
+  row when deleted (under-claim). The census
+  (`tests/_run_predicate_census.py`) showed the claim direction is a **pure
+  function of the run composition** — no construct or context dependence — which
+  is what a grain mismatch looks like and a layout bug does not; and the
+  elm-format oracle, measured against its control, did not single these cells out
+  either (63% UNREVIEWED vs a 46% background rate, 0 byte-identical either way).
+
+  The audit now asks per comment RUN, and takes the claim by calling
+  `commentBreaksFlowRow` itself over `[run … the item after it]` rather than
+  folding `commentEndsItsLine` per member — so both sides ask one question. A run
+  of one is the single-comment case unchanged. A **third exclusion** came with it,
+  and it is a statement about the measurement rather than about the predicate: a
+  gap the two items do not share **even with the run deleted** (`gapWithout > 0`)
+  cannot show what the run contributed — the difference of the gaps measures extra
+  rows, not "the next item starts a fresh row", which is already true without it.
+  Nothing is misled there either, because the caller ORs this predicate into a
+  `forceVertical` the already-broken gap sets anyway. That was the last 2 cells:
+  a `{- ¤1 -} -- ¤2` in front of a record type that takes the `DropBlock` rule on
+  its own account — the documented `pairLeadingComments` exclusion reached through
+  a run whose `--` is not *pairable*, so the walk past pairable comments stops
+  short of the record.
+
+  **Proved non-vacuous by breaking what it watches**, in both directions: making
+  `commentEndsItsLine` answer `False` for a `--` takes the corpus audit 0 → **18**,
+  and making it answer `True` for a single-line `{- … -}` takes it 0 → **51**,
+  run sites among them. Zero-because-nothing-is-checked reads exactly like
+  zero-because-all-agree.
 
 The elm-format half is **deliberately unmeasured** so far — booking parity debt
 for cells that do not format is backwards. `tests/_run_parity_sample.py` measures

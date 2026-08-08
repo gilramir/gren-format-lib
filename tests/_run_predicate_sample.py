@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Which way does the run axis's `predicate-lie` pile actually point?
+"""Which way does a run-axis `predicate-lie` pile actually point?
+
+**The 8,527-cell pile this was written for is gone** (2026-08-08) -- it was the
+audit's grain, fixed by asking per RUN rather than per comment. The sampling
+shape is what to reuse: split by claim direction and by run composition FIRST,
+because a pile whose direction is a pure function of composition is a scope
+mismatch, not a layout bug.
 
 The first run-axis sweep reported 8,527 of them, which is 96% of its failures --
 far too many to read one at a time, and far too many to report as bugs without

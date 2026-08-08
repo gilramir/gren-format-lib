@@ -578,6 +578,44 @@ node can still break for reasons they intentionally do not model, most often the
 author's own row layout (`forceVertical`). Reporting those would flag every such
 case as a false positive, so the audit stays silent on them by design.
 
+### The second property: `commentBreaksFlowRow`, both ways
+
+One predicate is checked in **both** directions, because it is a different kind
+of mirror. `commentBreaksFlowRow` is not a shape prediction about a subtree; it
+is a hand-written summary of `FlowPolicy.decide`'s separator table — *a `--`
+always breaks, a multi-line `{- … -}` always breaks, a single-line one mid-flow
+does not, and only when a real item follows* — and its own docstring says it must
+track `decide`. Under-approximating there is the *worse* direction: it is what
+puts a comment-broken construct on the flat path, so format¹ renders flat, the
+comment breaks the row anyway, and format² reads the break as the author's. The
+file oscillates.
+
+The check is per comment **run** — every maximal group of comments in one gap —
+and it is asked of the assembly rather than of a second prediction:
+
+```
+commentBreaksFlowRow(run) == True  <==>  deleting the whole run lets the next
+                                         item move back up onto the previous
+                                         item's row
+```
+
+**The grain is the run, not the member**, and that distinction is worth knowing
+because getting it wrong is what the audit did until 2026-08-08. Asked per
+comment it reported 8,527 cells of `matrix-syntax.py --comment-runs`, none of
+them a layout bug: deleting one member of a run does not close the gap, because
+the other member breaks the row anyway. A member's own contribution and what the
+*gap* does coincide only when that member is the sole reason for the break, and
+in a run there is always another reason. A run of one is the single-comment case
+unchanged.
+
+Three things are out of scope, and `flowCommentFindings`' docstring argues each:
+a **trailing** run (nothing after it to push), a **leading** one (the rows it
+occupies above the construct are the comment's, not a break between items), and
+a gap the two items **do not share even with the run deleted** — there the
+difference of the gaps measures extra rows rather than "the next item starts a
+fresh row", which is already true without the run, and the caller's
+`forceVertical` is set by the broken gap either way.
+
 ### Root vs. propagated findings
 
 The audited predicates are recursive: their fallback arm is typically

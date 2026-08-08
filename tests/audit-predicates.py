@@ -21,15 +21,23 @@ one-directional, because those predicates only claim the unconditional breaks
 and a node can still break for reasons they deliberately do not model (most
 often the author's own row layout).
 
-And `commentEndsItsLine` -- the atom `commentBreaksFlowRow` folds -- per comment
-in a gluing flow, BOTH ways:
+And `commentBreaksFlowRow`, per comment RUN in a gluing flow, BOTH ways:
 
-    commentEndsItsLine(c) == True   <==>   deleting c lets the next item move
-                                           back up onto the previous item's row
+    commentBreaksFlowRow(run) == True  <==>  deleting the whole run lets the next
+                                             item move back up onto the previous
+                                             item's row
 
-That one is a hand-written summary of `FlowPolicy.decide`'s separator table
-whose own docstring says it must track `decide`, and until 2026-08-07 nothing
-checked that it did. Under-approximation is its dangerous direction, not
+The grain is the run, not the member. Asked per comment (as it was until
+2026-08-08) it reported 8,527 cells of `matrix-syntax.py --comment-runs` and not
+one of them was a layout bug: removing one member of a run does not close the
+gap, because the other member breaks the row anyway. A member's own contribution
+and what the gap does coincide only when that member is the sole reason for the
+break, and in a run there is always another reason. A run of one is the
+single-comment case unchanged.
+
+It is a hand-written summary of `FlowPolicy.decide`'s separator table whose own
+docstring says it must track `decide`, and until 2026-08-07 nothing checked that
+it did. Under-approximation is its dangerous direction, not
 over-approximation: it is what puts a comment-broken construct on the flat path,
 so the reparse reads the break as the author's and the file oscillates.
 `Formatter.Audit.PredicateAgreement.flowCommentFindings` documents which
