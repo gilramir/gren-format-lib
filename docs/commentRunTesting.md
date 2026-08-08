@@ -64,8 +64,10 @@ than the combinations.
 
 The laws are not new policy. Each of the six comment rules in
 [`commentHandling.md`](commentHandling.md), taken at its word, already says what
-a run must do — the single-comment statement generalises with no extra
-decisions:
+a run must do — for C1–C6 the single-comment statement generalises with no extra
+decisions. **C7 is the exception, and it was added because of a run** (2026-08-08):
+one half of it fell out of C3 + C5, and the other half — a run you wrote on
+separate rows stays on separate rows — is a statement neither of them makes:
 
 | rule | for one comment | the same rule, for a run |
 |---|---|---|
@@ -75,10 +77,12 @@ decisions:
 | **C4** a comment changes where the lines fall, and nothing else | — | **deletion invariance** — see below |
 | **C5** gren-format adds nothing around a comment | — | nothing is injected *between* members; source order is preserved |
 | **C6** an own-line comment is indented to the code it leads | which column | **run alignment** — every own-line member of one run sits at one column |
+| **C7** a comment keeps the rows you gave it | its own row | **row preservation** — members written on one row stay on one row, members written apart stay apart; the formatter neither joins nor splits a run's rows |
 
 C1 and C3 are the structural ones: together they say a run behaves like a
-single comment whose kind is the *worst* kind in it. C4 is the one that turns
-into a machine-checkable oracle.
+single comment whose kind is the *worst* kind in it. C7 is the row-level one, and
+it is what stops "behaves like a single comment" being read as "collapses to a
+single row". C4 is the one that turns into a machine-checkable oracle.
 
 ---
 
