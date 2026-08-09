@@ -1,0 +1,47 @@
+module LetBrokenPatternLeadingComment exposing (..)
+
+
+notFirstBinding y =
+    let
+        acc =
+            y
+
+        {- k -}
+        { kind
+        , value
+        } =
+            0
+    in
+    kind
+
+
+brokenArray y =
+    let
+        acc =
+            y
+
+        {- k -}
+        [ a
+        , b
+        ] =
+            0
+    in
+    a
+
+
+flatPatternStacksToo y =
+    let
+        acc =
+            y
+
+        {- k -}
+        { kind, value } =
+            0
+    in
+    kind
+
+
+softGlueStillApplies { alpha
+                     , beta
+                     } =
+    alpha

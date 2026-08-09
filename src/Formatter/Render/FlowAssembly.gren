@@ -718,6 +718,20 @@ record arg *drops* goes through `assembleBrokenCall` instead. -}
 -- trailing comment (`… exposing (..) {- c -}`) glues onto the soft literal's last
 -- line. A `--` line comment or a multi-line block comment can't glue inline, so it
 -- Errs — dropping the whole flow back to the general assembler.
+--
+-- **Shape is not enough: the comment's stored ROLE decides too.** This asked only
+-- `isLineComment || multiLine` until 2026-08-09, which is `commentTextCanRide`'s
+-- question (can these bytes share a row) and not this one (may this comment share
+-- a row). A `LeadsOwnLine` comment in front of a multi-line bracket PATTERN was
+-- glued onto the pattern's first row, and a `let` binding that is not the first
+-- cannot begin with a comment on its row at all — `{- k -} { kind` ⏎ `, value` ⏎
+-- `} = 0` is refused by compiler-common AND by `gren make`, so the formatter was
+-- turning a legal file into one that does not compile. The general assembler
+-- stacks the comment above, which is what the same comment in front of a
+-- single-line pattern has always got.
+--
+-- The docstring's own use case is untouched: a TRAILING comment glues, because
+-- `TrailsPrevious`/`RidesInline` are exactly the roles `roleGlues` admits.
 flowItemInlineLine : FlowItem -> Result String B.Line
 flowItemInlineLine item =
     let
@@ -731,7 +745,7 @@ flowItemInlineLine item =
     in
     when item.comment is
         Just c ->
-            if c.isLineComment || c.multiLine then
+            if c.isLineComment || c.multiLine || commentDoesNotGlue item then
                 Err "box: non-inline comment in soft-glue flow"
 
             else
