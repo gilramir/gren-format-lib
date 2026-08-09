@@ -98,6 +98,7 @@ divergenceCatalogueSuite fsPerm =
             , entry "#29 a `let` annotation keeps a broken type on the `name :` line; a dropping record type still lifts" "D29LetAnnotationHeadGlue"
             , entry "#30 a comment RUN keeps the rows the author wrote it on -- one row stays one row, separate rows stay apart -- where elm-format re-decides per context, stacking after a lambda's `->` and joining a split run inside a paren" "D30CommentRunKeepsItsRows"
             , entry "#31 a declaration need not start in column 1: gren parses `{- lead -} foo =` (and keeps the comment's row, so the name stays right of it) where Elm's parser refuses the file outright -- an ACCEPTANCE difference, so there is no elm-format output to compare. The comment is not what gren permits: an indented declaration with no comment anywhere parses too and is normalized back to column 1" "D31DeclarationOffColumnOne"
+            , entry "#32 a lambda head broken across rows keeps its `->` on the row of whatever precedes it; elm-format gives the arrow a row of its own. Only a comment can reach the shape -- layout is author-driven, so nothing else breaks a parameter list -- and it is the same rule a one-row head follows, where both formatters agree. The body's own position must not move the head" "D32LambdaHeadKeepsArrow"
             ]
         }
 

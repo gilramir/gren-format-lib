@@ -2074,13 +2074,42 @@ elm-format renders both authorings **identically**, at items `[`+2 and `]` under
 `PipelineComments/LambdaBrokenPatternHead`, which pins the align-level boundary
 too.
 
-**The vocabulary change itself is NOT in this commit.** It books **2,410
-`UNREVIEWED`** comment-parity cells (all from the five constructs; 1,200 `line`,
-1,200 `multi`, 10 `block` — the `#25`-shaped families' signature), and unread debt
-is not something to land alongside a fix. The constructs, both regenerated
-baselines and the patch are held for a review sitting of their own; note the
-triage tool's cache is stale and has to be regenerated before `--review` says
-anything about them.
+**The vocabulary change landed separately, after its debt was read.** It booked
+**2,410 `UNREVIEWED`** comment-parity cells, which is why it was held out of the
+fix commit — unread debt does not belong beside a fix. Reviewed the same day and
+registered to **0 UNREVIEWED**.
+
+The 2,410 fell into 251 review groups but only **four** questions, and every
+group's reason was **derived from its own outputs** rather than eyeballed — three
+independent mechanical facts per cell: does elm give the `->` its own row, does
+elm float the comment's `-}`, and does the marker's index in the paren-free code
+token stream differ. Most cells carry a compound, which is what makes 251 groups
+out of four questions:
+
+| cells | reason |
+|---|---|
+| 2,304 | **#32**, new — a broken lambda head keeps its `->` on the row before |
+| 1,200 | #25 — elm re-spaces the comment's own rows |
+| 480 | #22 — the comment sits beside punctuation the parser discards (`,`, `as`) |
+| 10 | #23 — elm opens the construct around the comment further |
+
+**#32 is a preference, decided by the user 2026-08-09: gren keeps the arrow.** It
+costs a uniform body indent (gren's body starts after `} -> `, elm's sits at a
+fixed offset under the `\`) and buys the comment staying on the row of the field
+it annotates, plus two fewer rows on the worked example. Only a comment can reach
+the shape at all — layout is author-driven, so nothing else breaks a parameter
+list. Fixture `Divergence/D32LambdaHeadKeepsArrow`.
+
+**Two things the reading turned up that a classifier would have buried.**
+[#16](docs/elmFormatComparison.md#divergence-16) *already stated* the rule the
+first bug above violated — "the comment cannot stay on the `->` row here:
+reparsed, it is no longer on the body's row, so it would move down on the next
+format and the file would never settle" — so that was a documented rule being
+broken, not an open question; #32 now cross-references it, since the two are
+about different rows of the same construct. And the triage tool's largest bucket,
+1,200 cells labelled **"marker missing from one side"**, is a *classifier
+artifact*, not comment loss: elm moving `-}` onto its own row desynchronises the
+token streams. The marker oracle reported 0 failing throughout.
 
 **Attributed by rebuild, not by argument**: the record-field bug moves identically
 on a stash-rebuild of `2eb2205`, so it is pre-existing and not the first fix's

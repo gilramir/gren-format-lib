@@ -49,6 +49,7 @@ code, and why the places they *don't* look the way they do.
   - [#29 A `let` annotation doesn't lift a broken type below the `:`](#divergence-29)
   - [#30 A comment run keeps the rows you wrote it on](#divergence-30)
   - [#31 A declaration that doesn't start in column 1](#divergence-31)
+  - [#32 A lambda head broken across rows keeps its `->`](#divergence-32)
 - [Out of scope for comparison](#out-of-scope-for-comparison)
 
 ---
@@ -1641,6 +1642,60 @@ documentation instead of quietly outliving it.
     ask elm-format about a different program and manufacture a divergence out of
     nothing.
 
+
+32. <a id="divergence-32"></a>**A lambda head broken across rows keeps its `->`
+    on the row of whatever precedes it; elm-format gives the `->` a row of its
+    own.** gren-format treats the arrow as trailing punctuation on the head's
+    last row, the same way it treats the `->` of a one-row head. elm-format
+    breaks a broken head into one part per row, and the arrow is a part.
+
+    ```gren
+    -- you write:
+    subtotal items =
+        items
+            |> Array.map (\{ quantity -- always >= 1, validated at the door
+                , unitPriceCents } -> quantity * unitPriceCents)
+            |> Array.foldl (+) 0
+    ```
+
+    ```gren
+    -- gren-format:                           -- elm-format:
+    subtotal items =                          subtotal items =
+        items                                     items
+            |> Array.map                              |> Array.map
+                (\{ quantity -- always >= 1               (\{ quantity
+                  , unitPriceCents                            -- always >= 1
+                  } -> quantity * unitPriceCents            , unitPriceCents
+                )                                           }
+            |> Array.foldl (+) 0                           ->
+                                                              quantity * unitPriceCents
+                                                        )
+                                                    |> Array.foldl (+) 0
+    ```
+
+    **Only a comment can reach this shape.** Layout here is author-driven with no
+    page-width fitter, so nothing else breaks a lambda's parameter list — a
+    pattern the author wrote on one row stays on one row however long it is. The
+    divergence is therefore confined to a head with a comment inside it, and it
+    is the same rule gren applies to a *one-row* head, where both formatters
+    agree on `\q -> body`.
+
+    Keeping the arrow buys two things. The comment stays on the row of the field
+    it annotates (C7), and the head costs fewer rows — six against eight above.
+    What it costs is a uniform body indent: gren's body starts after `} -> `, so
+    a wide closing row pushes it right, where elm's body always sits at a fixed
+    offset under the `\`. That trade was reviewed on 2026-08-09 and gren's side
+    kept.
+
+    Not to be confused with [#16](#divergence-16), which is about a comment
+    written *after* the arrow of a **one-row** head, and where the two formatters
+    agree as soon as the body wraps. This entry is about the arrow's own row when
+    the **head** breaks; the two are independent and can appear together.
+
+    `KitchenComments` has pinned this shape since long before it was catalogued
+    (`\{ basisPoints }` ⏎ `-- comment` ⏎ `accumulatingFactor ->`); it became
+    *visible* only when `matrix-syntax.py` gained lambdas whose pattern can
+    break, every lambda in it having been `\q ->` until then.
 
 ## Out of scope for comparison
 

@@ -1,0 +1,35 @@
+module D32LambdaHeadKeepsArrow exposing (..)
+
+
+-- Divergence #32. A lambda head broken across rows keeps its `->` on the row of
+-- whatever precedes it; elm-format gives the arrow a row of its own.
+--
+-- Only a comment can reach this shape: layout is author-driven with no
+-- page-width fitter, so nothing else breaks a parameter list.
+
+
+subtotal items =
+    items
+        |> Array.map (\{ quantity -- always >= 1, validated at the door
+            , unitPriceCents } -> quantity * unitPriceCents)
+        |> Array.foldl (+) 0
+
+
+-- The same rule on a broken ARRAY pattern, and with the body written below the
+-- arrow rather than on its row -- the body's position must not move the head.
+
+
+arrayPattern =
+    seed
+        |> gn
+            (\[ -- c
+                1
+              ] -> one)
+
+
+-- The one-row head both formatters agree on, which is the rule this entry is
+-- consistent with rather than an exception to.
+
+
+oneRowHead =
+    Array.map (\{ quantity, unitPriceCents } -> quantity * unitPriceCents) items

@@ -970,6 +970,39 @@ CONSTRUCTS = [
     Construct("lambda",        "(\\q -> q + one)",             True,  "(\\q ->\nq + one)",  True),
     Construct("lambdaRecord",  "(\\q -> { q | a = 1 })",       True,  "(\\q ->\n{ q | a = 1 })", True),
     Construct("lambdaLiteral", "(\\q -> { a = q })",           True,  "(\\q ->\n{ a = q })", True),
+    # Lambdas whose PARAMETER destructures. Every lambda above binds the bare
+    # var `q`, and until 2026-08-09 so did every lambda anywhere in this file --
+    # so the whole matrix, including the comment axis and its elm-format oracle,
+    # could not reach a lambda head that ends in a bracket. That is exactly what
+    # `08a8573` fixed: `prevBlockGlueRow` read the head's cached rightmost
+    # bracket (the PATTERN's `]`) as "this flow ends in a bracket", so a comment
+    # past the `->` glued to a row the output does not have. `\q ->` has no
+    # bracket to find and was a fixed point throughout, which is why no gate here
+    # ever objected -- a run of any length in the arrow gap of a `\q ->` still
+    # cannot produce a bracket pattern. It took a random seed from `fuzzrun.py`
+    # to find, and it belongs under an oracle instead.
+    #
+    # All four parse and round-trip byte-identically under `elm-format` (checked
+    # against the binary, not assumed), so `to_elm` needs no extension. The
+    # as-pattern is written parenthesized: the bare `Ctor args as name` spelling
+    # hits a known compiler-common parser bug, and parens are its documented
+    # workaround -- see `README.md`'s Known limitations.
+    Construct("lambdaArrayPat", "(\\[ 1 ] -> one)",            True,  "(\\[ 1 ] ->\none)",  True),
+    # The pattern alone is NOT enough, and finding that out is the reason this
+    # entry exists. `08a8573`'s bug needs a body that is written ON the `->` row
+    # (so it parses as a `SoftIndentedBlock`) yet RENDERS multi-line -- only then
+    # does a comment in the arrow gap glue to a row the output does not have. A
+    # one-row body (`one`, above) lets the comment ride and is stable either way,
+    # and a body the author put on the next row parses as an `IndentedBlock`,
+    # whose own arm already forces the comment own-line. So `broken` here breaks
+    # INSIDE the body rather than at the lambda's `->` -- the one variant that
+    # reaches the shape. Verified non-vacuous by rebuilding `08a8573~1`: this
+    # cell fails there and passes here; the four pattern constructs above pass on
+    # BOTH, which is what "the gate is green" would otherwise have hidden.
+    Construct("lambdaArrayPatBody", "(\\[ 1 ] -> [ 0, 1 ])",   True,  "(\\[ 1 ] -> [ 0\n, 1 ])", True),
+    Construct("lambdaRecordPat", "(\\{ a, b } -> a)",          True,  "(\\{ a, b } ->\na)", True),
+    Construct("lambdaCtorPat",  "(\\(Just q) -> q)",           True,  "(\\(Just q) ->\nq)", True),
+    Construct("lambdaAsPat",    "(\\({ a } as whole) -> a)",   True,  "(\\({ a } as whole) ->\na)", True),
     Construct("whenExpr",      "(when sel is Just w -> w)",    False, None,                 True),
     Construct("ifExpr",        "(if cond then one else two)",  False, None,                 True),
     Construct("letExpr",       "(let q = one in q)",           False, None,                 True),
