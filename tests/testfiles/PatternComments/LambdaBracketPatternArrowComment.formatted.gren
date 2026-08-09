@@ -1,0 +1,58 @@
+module LambdaBracketPatternArrowComment exposing (..)
+
+-- A `{- c -}` written past a lambda's `->`, where the lambda's PATTERN ends in a
+-- bracket. The pattern's `]` is the rightmost bracket in the head's subtree, but
+-- the `->` still renders after it, so the comment has no closing bracket to glue
+-- onto and leads the body from a row of its own once that body breaks.
+
+
+bracketPatternBrokenBody =
+    { node
+        | kind1 =
+            \[ 1 ] ->
+                {- c -}
+                [ 0
+                , {- k -} 1
+                ]
+    }
+
+
+-- The twin with a bare pattern, which never had a bracket to find and has always
+-- rendered this way. Both must agree — that they did not is the whole bug.
+
+
+barePatternBrokenBody =
+    { node
+        | kind1 =
+            \y ->
+                {- c -}
+                [ 0
+                , {- k -} 1
+                ]
+    }
+
+
+-- The boundary: a body that renders on ONE row still rides the `->`'s row, in
+-- both spellings. That is the comment's SHAPE deciding (a single-line `{- -}`
+-- rides a flat line), which no role overrides.
+
+
+bracketPatternInlineBody =
+    \[ 1 ] -> {- c -} 0
+
+
+barePatternInlineBody =
+    \y -> {- c -} 0
+
+
+-- A call flow that really does end in its bracket keeps its same-row comment,
+-- which is the rule the lambda head was borrowing by accident.
+
+
+callEndingInBracket x =
+    when x is
+        A ->
+            fn [ 1 ] {- c -}
+
+        _ ->
+            0

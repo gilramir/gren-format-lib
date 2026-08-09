@@ -1858,12 +1858,42 @@ insertAmongChildren containerBox commentNode row col children =
             Just { first = nextNode, rest = afterRest } ->
                 when lpnBox nextNode is
                     IndentedBlock ->
-                        -- Redirect into the IndentedBlock as its first child
-                        let
-                            newNextNode =
-                                lpnNode IndentedBlock (Array.pushFirst leadingComment (lpnChildren nextNode))
-                        in
-                        finalBefore ++ [ newNextNode ] ++ afterRest
+                        -- Redirect into the IndentedBlock as its first child,
+                        -- where it leads that body on a line of its own — a
+                        -- `let` binding's value, a `when` branch's body.
+                        --
+                        -- Not inside a BRACKET, where the same box is an ITEM:
+                        -- `folderInsertRecordField` builds a field holding a
+                        -- lambda as an `IndentedBlock`, and an item does not
+                        -- start its own line — it renders after the container's
+                        -- `, `. This is the `BodyBlock` arm's premise
+                        -- (`16a9b2e`) one constructor over: "the body always
+                        -- starts a line of its own" is a fact about the
+                        -- CONTAINER, not about the box. A comment in the `,` gap
+                        -- classifies `LeadsNext` and renders `, {- c -} fld =`
+                        -- for every other field shape; redirected inside a
+                        -- lambda field it became that field's first child, where
+                        -- nothing precedes it, so it stacked above `fld =` — and
+                        -- the reparse, seeing it alone on the row after the `,`,
+                        -- read it as own-line and moved it in front of the
+                        -- separator, for ever.
+                        --
+                        -- Unconditional inside a bracket, including
+                        -- `LeadsOwnLine`: there the comment renders at the
+                        -- BRACKET's column, above the `,` — which is what the
+                        -- same comment before a non-lambda field has always
+                        -- done. Redirected inside, it came out glued after the
+                        -- `, ` instead, and that shape reparses to the twin's,
+                        -- so this authoring oscillated too.
+                        if isBracketContainerBox containerBox then
+                            finalBefore ++ [ classifiedComment ] ++ finalAfter
+
+                        else
+                            let
+                                newNextNode =
+                                    lpnNode IndentedBlock (Array.pushFirst leadingComment (lpnChildren nextNode))
+                            in
+                            finalBefore ++ [ newNextNode ] ++ afterRest
 
                     PipelineStep ->
                         -- Redirect into the PipelineStep as its first child —
@@ -2544,6 +2574,72 @@ bracketClosingRow node =
             -1
 
 
+{-| True when the LAST thing a flow renders is a closing bracket — the question
+`prevBlockGlueRow`'s `AcrossOrVertical` arm means to ask, and one
+`lastBracketEnd` alone cannot answer.
+
+That cache keeps the RIGHTMOST bracket anywhere in the subtree, which for a
+lambda head (`\[ 1 ] ->`) is the *pattern's* `]`, with the `->` still to render
+after it. So a `{- c -}` written past the arrow found a glue row, classified
+`RidesInline`, and glued onto the arrow's row while a multi-line body dropped
+below it.
+
+**The reparse cannot read that shape back.** A body starting on a later row
+arrives as an `IndentedBlock`, not a `SoftIndentedBlock`, and
+`insertAmongChildren`'s `IndentedBlock` arm redirects a comment before one
+INSIDE it as `LeadsOwnLine` — so the second format stacked it above the body and
+the file never settled. That arm's `SoftIndentedBlock` neighbour already
+documents this exact trade for a `--`, which is redirected for the same reason;
+this is the single-line `{- -}` whose body turns out to render multi-line,
+reaching it one comment kind over. Holding the arrow's row is therefore not
+available without changing that redirect, and elm-format does not hold it
+either (it breaks a lambda body whenever a comment follows the `->`, even one
+that fits).
+
+`\y -> {- c -}`, with no bracket in the pattern, had no glue row and was a fixed
+point all along; this makes every lambda head agree with it, in every container
+(record field, record update field, `let` binding, list item, paren argument,
+declaration value — the whole family oscillated). A single-line body still rides
+the arrow's row either way: that is `literalCommentsRideFlatLine` reading the
+comment's SHAPE, which no role decides — so C3 holds, the comment forces no
+break, and C7 is untouched (it governs a run's rows against each other, and a
+run written on the arrow's row still stays on one row).
+
+Structural rather than positional because the token that follows the bracket is
+exactly the kind that carries no position (`SynthesizedText "->"`, `"="`), so
+comparing `lastBracketEnd` against the flow's last recorded position cannot see
+it. The zero-width signature `->` is skipped: it renders nothing, so a flow
+ending in it still ends at its bracket.
+-}
+flowEndsAtBracketClose : LPNode -> Bool
+flowEndsAtBracketClose node =
+    when lpnBox node is
+        AllAcrossOrAllVertical _ ->
+            True
+
+        AlwaysVertical _ ->
+            True
+
+        EmptyBracketed _ ->
+            True
+
+        -- A paren/record update closes with its own `)`/`}` (both are built via
+        -- `lpnBracketNode`), so reaching one is reaching a close too.
+        ParenBlock _ ->
+            True
+
+        RecordUpdate _ ->
+            True
+
+        _ ->
+            when Array.last (Array.keepIf (\c -> not (nodeIsElided c)) (lpnChildren node)) is
+                Just lastChild ->
+                    flowEndsAtBracketClose lastChild
+
+                Nothing ->
+                    False
+
+
 -- True if the subtree contains any line/block comment leaf.
 subtreeContainsComment : LPNode -> Bool
 subtreeContainsComment node =
@@ -2753,11 +2849,17 @@ prevBlockGlueRow commentIsMultiline node =
                 -- so the union stays flat. Distinguished by the `=`/`|` head.
                 lastRenderedRow node
 
-            else
+            else if flowEndsAtBracketClose node then
                 -- A call flow: only glue when it ends in a closing bracket
                 -- (`foo`⏎`  [ … ]`); after a plain-token call a block comment
-                -- stays own-line (`foo bar` ⟶ `{- c -}`).
+                -- stays own-line (`foo bar` ⟶ `{- c -}`). "Ends in" is asked of
+                -- the flow's last child, not of the cached rightmost bracket —
+                -- see `flowEndsAtBracketClose` for the lambda head that made
+                -- the two differ.
                 bracketClosingRow node
+
+            else
+                -1
 
         -- A same-row block comment glues onto a multi-line paren's closing `)`
         -- (`(bar baz) {- c -}`); after a single-line paren it stays own-line, as

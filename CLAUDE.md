@@ -1984,6 +1984,77 @@ multi-line, the single-line **and** a trailing multi-line after it. Reconstruct
 the fuzzer's spliced source rather than guessing a smaller shape; two smaller
 authorings looked like the bug and discriminated on neither binary.
 
+**The lambda-head family, one `fuzzrun` seed → two bugs (2026-08-09).** Session
+32 of `fuzzrun.py` swept 81,471 seeds and reported ONE failure, seed 10035748.
+It carried two independent non-idempotencies, and only one of them survived
+shrinking — **re-check the unminimized `input.gren` after fixing the minimized
+one**, which is what turned a one-bug session into a two-bug one.
+
+- **A lambda whose PATTERN ends in a bracket held a trailing comment on the `->`
+  row.** `prevBlockGlueRow`'s `AcrossOrVertical` arm means to ask "does this flow
+  end in a closing bracket?" and asked `lastBracketEnd`, which caches the
+  **rightmost bracket anywhere in the subtree**. For `\[ 1 ] ->` that is the
+  *pattern's* `]`, with the `->` still to render after it — so a `{- c -}` past
+  the arrow found a glue row that the output does not have, classified
+  `RidesInline`, and glued while a multi-line body dropped below it. The twin
+  `\y -> {- c -}` had no bracket to find and had always been a fixed point:
+  **two spellings of one construct disagreeing, with no fixture and no intent
+  behind the difference.** `flowEndsAtBracketClose` asks the flow's last child
+  instead. It has to be structural — the token after the bracket is exactly the
+  kind that carries no position (`SynthesizedText "->"`, `"="`), so no positional
+  comparison can see it. Fixture
+  `PatternComments/LambdaBracketPatternArrowComment`.
+
+  **The pass-2 half is the `IndentedBlock` redirect, not "the comment looks
+  own-line now"** — the first write-up said the latter and it is wrong. A body
+  starting on a later row reparses as an `IndentedBlock`, and
+  `insertAmongChildren`'s arm for that box redirects a comment before one inside
+  it as `LeadsOwnLine`. Its `SoftIndentedBlock` neighbour already documents the
+  identical trade for a `--`; this is the same shape one comment kind over. That
+  is also the answer to "why not just keep the author's row (C7)": **the
+  keep-the-row shape is not reachable as a fixed point** without changing that
+  redirect, and elm-format does not keep it either. C7 governs a run's rows
+  against each other and is untouched — a run written on the arrow's row still
+  comes out on one row.
+
+- **A comment in a record's `,` gap before a LAMBDA field.** The same premise
+  error as `16a9b2e`, one constructor over: `folderInsertRecordField` builds a
+  lambda-valued field as an `IndentedBlock`, and the redirect arm's premise —
+  "this body always starts a line of its own" — is a fact about the CONTAINER,
+  not the box. Inside a bracket that box is an **ITEM**, and an item renders
+  after the `, `. Redirected inside, the comment stacked above `fld =`; the
+  reparse read it as own-line and moved it in front of the separator. Skipping
+  the redirect for `isBracketContainerBox` makes both authorings match their
+  non-lambda twins. **Scope it to the whole predicate, not to a role**: the first
+  patch kept `LeadsOwnLine` redirecting, and that spelling oscillated too — an
+  own-line comment there renders at the BRACKET's column, which is what the
+  non-lambda field has always done. Fixture
+  `BracketComments/RecordLambdaFieldSeparatorComment`.
+
+  **This one costs elm-format parity and was taken anyway.** elm-format drops the
+  field below the comment (`, {- c -}` ⏎ `b =`) for a multi-line-valued field,
+  lambda or not; gren keeps `, {- c -} b =`. So the lambda field was the single
+  shape that happened to agree with elm — and it was the one that oscillated,
+  while the non-lambda field has diverged there all along. The fix joins an
+  existing divergence family rather than opening a new one.
+
+**Attributed by rebuild, not by argument**: the record-field bug moves identically
+on a stash-rebuild of `2eb2205`, so it is pre-existing and not the first fix's
+doing. Both new fixtures add **0** findings of their own in every mode. Every
+gate unmoved: 375 fixtures (373 + 2), `fuzz-idempotency` 17 / all known `#35` at
+n=1 and `--run 2`, `check-decision-stability` PASS 0, `audit-predicates` 0, both
+`fuzz-whitespace` modes PASS 0, the syntax axis 2079/2079 with 1358
+byte-identical, and the comment axis 68,456 ok / 0 failing / **0 UNREVIEWED** /
+20,038 byte-identical — every parity figure identical to the line above.
+
+**Read that parity zero for what it is.** The comment axis injects one comment
+per gap into *generated* cells, and the second bug's shape — a two-field record
+whose second field holds a lambda with a multi-line body — is not in that
+vocabulary, so the axis never reaches it. The divergence is real and was
+measured by hand against the `elm-format` binary (table above); it is simply not
+one this gate can see. A baseline that does not cover a shape reports zero for
+it exactly as it reports zero for a shape that agrees.
+
 Two flags exist for unattended use: `--max-shrinks N` caps how many failures a
 run minimizes (one bug can hit hundreds of seeds, and shrinking each one can eat
 the whole run — the skipped count is printed and stored, never silent), and

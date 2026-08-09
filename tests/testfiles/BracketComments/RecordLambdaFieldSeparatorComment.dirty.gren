@@ -1,0 +1,54 @@
+module RecordLambdaFieldSeparatorComment exposing (..)
+
+
+-- A `{- c -}` in a record's `,` gap leads the field after it (rule C2) and
+-- renders on that field's row. A field holding a LAMBDA is built as an
+-- `IndentedBlock`, and a comment landing before one used to be redirected inside
+-- it — where nothing precedes it, so it stacked above `fld =` instead. That is a
+-- fact about a `let` binding's value, not about the box: inside a bracket the
+-- same box is an ITEM, and an item renders after the `, `.
+
+
+lambdaField =
+    { a = 1
+    , {- c -} b = \q -> [ 0
+        , {- k -} 1
+        ]
+    }
+
+
+-- The twin whose field value is not a lambda, which has always rendered this
+-- way. Both must agree.
+
+
+listField =
+    { a = 1
+    , {- c -} b = [ 0
+        , {- k -} 1
+        ]
+    }
+
+
+-- The own-line authoring is the same rule, not an exception to it: the comment
+-- renders at the BRACKET's column above the `,`, which is what the list-field
+-- twin below it does. Redirected inside the lambda field it came out glued after
+-- the `, ` instead, and that shape reparses to the twin's — so this spelling
+-- oscillated too.
+
+
+ownLineBeforeLambdaField =
+    { a = 1
+    , {- c -}
+      b = \q -> [ 0
+        , {- k -} 1
+        ]
+    }
+
+
+ownLineBeforeListField =
+    { a = 1
+    , {- c -}
+      b = [ 0
+        , {- k -} 1
+        ]
+    }

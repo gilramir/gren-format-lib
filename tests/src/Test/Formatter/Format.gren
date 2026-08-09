@@ -793,6 +793,7 @@ patternCommentsSuite fsPerm =
             , assertPrettyIn fsPerm "PatternComments" "a multi-line call as an inline lambda body drops to its own line at +4" "LambdaMultilineCallBody"
             , assertPrettyIn fsPerm "PatternComments" "a multi-line triple-quoted string as an inline lambda body drops to its own line" "LambdaMultilineStringBody"
             , assertPrettyIn fsPerm "PatternComments" "a multi-line `{- … -}` past the LAST `when` branch's bracketed body detaches to column 1, as it already did past any other declaration tail -- rendering it at the branch indent left the reparse to re-home it, since a `when` has no closing delimiter after that body. A comment glued to a bare literal body still rides its row, and one past a NON-last branch stays where the author put it" "WhenLastBranchTrailingMultiline"
+            , assertPrettyIn fsPerm "PatternComments" "a `{- c -}` past a lambda's `->` leads the body own-line when the body breaks, whether or not the lambda's PATTERN ends in a bracket -- the pattern's `]` is the rightmost bracket in the head's subtree but the `->` still renders after it, so it is no closing bracket for the comment to glue onto. A one-row body still rides the arrow's row in both spellings, and a call flow that genuinely ends in its bracket still keeps its same-row comment" "LambdaBracketPatternArrowComment"
             ]
         }
 
@@ -857,6 +858,7 @@ bracketCommentsSuite fsPerm =
             , assertPrettyIn fsPerm "BracketComments" "multi-line comment past a container item belongs to the container, not to the item's lambda body" "ContainerTailMultilineComment"
             , assertPrettyIn fsPerm "BracketComments" "a multi-line comment run past an IndentedBlock that something FOLLOWS stays outside the block, where the reparse puts it, so the run does not half-glue -- a block closes with a dedent, not a delimiter" "BlockTailCommentRunEscapes"
             , assertPrettyIn fsPerm "BracketComments" "a lambda field of a comment-opened record update takes renderRecordFieldBox's glued-lambda arm too: a multi-line body drops the whole lambda, a single-line one keeps its head on the `= ` line" "RecordUpdateVerticalLambdaField"
+            , assertPrettyIn fsPerm "BracketComments" "a comment before a record field holding a LAMBDA stays a child of the record: the field is an `IndentedBlock`, but inside a bracket that box is an ITEM and renders after the `, ` -- redirected inside it, the comment stacked above `fld =` and the reparse moved it in front of the separator. Both the `,`-gap and the own-line authorings now match their non-lambda twins" "RecordLambdaFieldSeparatorComment"
             -- The other half of the same sweep: "does this container render
             -- multi-line" is its stored box type, not its source row span. The
             -- two disagree exactly where the container COLLAPSES (a single item
