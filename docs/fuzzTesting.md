@@ -171,7 +171,8 @@ single lane with `./fuzzrun.py reset --lane NAME`.
 ## What happens when it finds something
 
 Findings come from `gen-random.py`'s own oracles and keep its buckets: `crash`,
-`ast-mismatch`, `non-idempotent`, `comment-loss`, `sort-order`, `timeout`.
+`ast-mismatch`, `non-idempotent`, `comment-loss`, `sort-order`, `predicate-lie`,
+`timeout`.
 
 **Failures are deduplicated.** One formatter bug can fail hundreds of seeds; each
 distinct failure is one row with a hit count, keyed on its bucket plus its
@@ -264,6 +265,53 @@ Every session also writes a summary to `fuzzrun-out/sessions/session-NNNN.txt`.
 
 ---
 
+## Handing a failure to somebody else
+
+`fuzzrun-out/` is on the machine that swept. When the person who has to look at
+a bug cannot see that directory — another host, a colleague, an assistant —
+`export` bundles what they need into one text blob:
+
+```bash
+./fuzzrun.py export                 # every open failure, to stdout
+./fuzzrun.py export --id 7          # just one
+./fuzzrun.py export -o bugs.txt     # to a file
+./fuzzrun.py export --full          # + the unminimized input.gren and raw outputs
+```
+
+**Send the `.gren`, not the seed.** A seed reproduces only against the same
+`gen-random.py` *and* the same lane parameters — that is what the generation
+mechanism means, and it is why every `repro` line carries `--max-depth` and
+`--comment-rate`. A reader on another checkout gets nothing from it.
+`input.min.gren` is just a Gren file: no generator, no seed, no generation match,
+just `node ../../gren-format/app --show` it. The bundle still prints the repro
+command for a reader who does happen to have this generation.
+
+Each failure carries its bucket, message, hit count, seeds, the artifact's app
+build, `input.min.gren` and `report.txt` — which already holds the *precomputed*
+diff (format¹ vs format² for a non-idempotent find, the missing/extra comment
+list for comment-loss, both author orders for sort-order).
+
+Three details that make it usable rather than merely present:
+
+- **The `check` line is bucket-aware.** `--show` exits 0 on a **comment-loss**
+  find — a dropped comment is AST-equivalent and its output is its own fixed
+  point, which is the whole reason that oracle exists — so a bundle that said
+  "run `--show`" would read as *already fixed*. That bucket gets the
+  `--pre-context` comparison instead, `predicate-lie` gets `--audit-predicates`,
+  and `sort-order` says outright that it needs both inputs.
+- **Read the line count, not the delimiter.** Each section header is
+  `----- <name>  shown=N of M lines`, and exactly N lines follow. `--` opens a
+  comment in Gren, so a payload can legally contain a line starting with
+  `-----`; a reader that scanned for the next delimiter would cut the file
+  short. Verified by round-tripping a bundle back to files and diffing.
+- **`--full` includes the unminimized `input.gren`**, which is not redundant:
+  one seed can carry two bugs and the shrinker keeps only the one it was
+  minimizing towards (2026-08-09, seed 10035748), so a fix verified against the
+  minimized file alone can leave the second one live.
+
+Truncation is always marked in the header, never silent; raise `--lines` (default
+200 per section) to get the rest.
+
 ## Running it unattended
 
 ```bash
@@ -317,6 +365,19 @@ everything produces thousands of hits of one bug; the dedup keeps that readable,
 and the shrink cap keeps it from eating the budget.
 
 ---
+
+## Spreading a sweep across hosts
+
+Not implemented. The design for a master/worker mode — one coordinator handing
+seed ranges to workers on other machines over TCP, all of them sharing one NFS
+directory — is written up in
+[distributedFuzzing.md](distributedFuzzing.md), including the two things that
+have to change before it can be safe: the seed cursor becomes a low-water mark
+over in-flight chunks (a prefix with four workers is not free the way it is with
+one), and `SweepLock`'s bare-pid liveness check currently fails *open* across
+hosts. It also records the decision to keep the database in that shared
+directory and drop WAL, which SQLite does not support on a network filesystem —
+cheap here, since the db is written about once every ten minutes.
 
 ## Where the code lives
 

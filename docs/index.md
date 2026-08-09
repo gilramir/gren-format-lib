@@ -5,6 +5,7 @@
 * [Known limitations](knownLimitations.md)
 * [Testing gates](testing.md)
 * [Long fuzz sweeps (`fuzzrun.py`)](fuzzTesting.md)
+* [Distributed sweeps — design](distributedFuzzing.md) *(not implemented yet)*
 * [Required Formatting Shapes](requiredFormatting.md)
 * [Redundant parens: what each formatter strips](redundantParens.md)
 * [How gren-format places your comments](commentHandling.md)

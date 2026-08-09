@@ -62,6 +62,9 @@ The generator produces **input**; the formatter is under test. Per module:
 4. **Author-order invariance** (a 5th, likewise only possible here) — the same
    module rewritten with its sortable lists in a different order must format to
    the same bytes. See below.
+5. **Predicate/renderer agreement** — `app --audit-predicates file`. A layout
+   predicate that claims a node breaks must be telling the truth about that
+   node's own rendered box. See below.
 
 ### Comment-preservation oracle
 
@@ -154,6 +157,33 @@ non-idempotency that only the twin triggers — is bucketed as `sort-order`,
 because the artifact a human needs is the *pair* of inputs; the twin's own class
 is named in the report's message. The failure directory holds `input.gren`,
 `permuted.gren`, both formatted outputs, and the unified diff between them.
+
+### Predicate/renderer agreement oracle (`predicate-lie`)
+
+Oracles 1-4 are all **self-consistency** checks: they compare the formatter
+against itself or against its own input. Output that is wrongly laid out but
+deterministic, AST-equivalent, idempotent and comment-preserving passes every one
+of them. This is the one oracle here that is not.
+
+`audit-predicates.py` runs the same check over the fixture corpus and
+`matrix-syntax.py` over its generated cells; until 2026-08-09 nothing ran it over
+**random structure**, which is the only place a hand-written mirror predicate
+meets a conjunction of features nobody thought to type.
+
+Only **root** findings count — a recursive predicate's `Array.any … children`
+fallback makes one wrong leaf wrong at every ancestor too, so the propagated ones
+are the same bug counted again. An audit that cannot RUN is a `gen-error`, not a
+finding: the module already parsed and formatted by the time this runs, so a
+non-zero exit is this harness talking to the app wrongly.
+
+**Proved non-vacuous by breaking what it watches**: adding a `\_ -> True`
+predicate to `auditedPredicates` takes a 20-seed run from 20/20 clean to 20/20
+`predicate-lie`, each report naming the predicate, the box kind and the node.
+Zero-because-nothing-is-checked reads exactly like zero-because-all-agree.
+
+It costs about **18%** of throughput (17.1 → 14.1 seeds/s at `-j 12`,
+`--max-depth 5`), which is one extra app invocation on top of the five the other
+oracles already make.
 
 ## Legal-layout emission (the crux)
 
@@ -1802,3 +1832,81 @@ shape emits before trusting that: replaying seeds 100..180 at
 `--comment-rate 0.95` produces `<| {- k10 -} \{ name, count } acc -> {- k11 -} .v`,
 which is `86ef9d7`'s bug in generated form.
 
+
+### Author-broken patterns
+
+**v1.34 (implemented 2026-08-09):** an array/record pattern in a **parameter
+slot** may carry a baked author-break, rendering one item per row —
+`\{ alpha` ⏎ `, beta` ⏎ `} -> …`. Wired into all five slots that take one: a
+lambda parameter, a declaration parameter, a `let`-bound function's parameter, a
+`let` binding's LHS, and a `when` branch pattern.
+
+Until this, **every pattern this generator emits was one row**: `emit_pat`
+returns a `str` and has no multi-row path at all. Nor did anything else here have
+one — `matrix-syntax.py` wrote every lambda as `\q ->` until 2026-08-09, and the
+whole fixture corpus holds a single broken pattern
+(`CoreExpressions/PatternLayoutByAuthor`'s `multilineRecord { alpha` ⏎ `, beta` ⏎
+`} =`, a declaration parameter with no comment near it). Closing the same hole in
+the matrix immediately found the `makeMultilineLambdaArgBox` column-loss bug; this
+is that axis inside random nesting, and crossed with comments.
+
+`emit_pat_rows` is the multi-row renderer and `append_params` lays a parameter
+list out around one, both keyed on `_end_col`'s rule that **row 0 of an emitted
+group is headless** while every later row carries absolute padding. `emit_pat`
+is untouched and still renders every nested pattern, so only the outermost
+pattern of a slot can break — the same restriction `emit_type_multiline` puts on
+a signature's type.
+
+**The continuation column is nearly free, and the exception is what a first
+probe missed.** A pattern is not layout-sensitive the way an expression is:
+probing all five slots at every column from 0 to base+5 — comparing each broken
+authoring's parsed AST against the one-row authoring's with positions stripped,
+so a *silent misparse* would show as a different tree rather than a parse error —
+reported every column legal. It was wrong, because each probe slot held **one**
+`let` binding. With a second binding, a continuation row one column left of the
+binding column dedents out of the `let` and the module stops parsing; three of
+the first 300 seeds quarantined on exactly that. `cont_delta` is therefore never
+negative — deeper cannot terminate a block, and `>= 0` needs no knowledge of the
+enclosing column, since the pattern's own start column is already at or past it.
+
+The shrinker gets a step of its own (`variants`' step 5, over
+`broken_patterns`): unbreak one pattern. A find that survives every other
+reduction but not that one is a find **about** the break; one that survives it
+too never was.
+
+**First find, fixed the same day.** 4 of the first 400 seeds, one family: the
+formatter emitted a file that neither `compiler-common` nor `gren make` will
+parse. `trySoftGlueFlow`'s `flowItemInlineLine` — the fast path written for
+`multilineRecord { alpha` ⏎ `, beta` ⏎ `} =` — accepted **any** single-line block
+comment as a gluable prefix item, asking the comment's shape
+(`commentTextCanRide`'s question) instead of its stored role. So a `LeadsOwnLine`
+comment was glued onto a broken pattern's first row, and a `let` binding that is
+not the first cannot begin with a comment on its row at all. The same comment in
+front of a one-row pattern had always stacked above it. Scoped with
+`commentDoesNotGlue` (already defined in that file); a *trailing* comment, which
+is what the fast path's docstring is about, still glues. Fixture
+`PatternComments/LetBrokenPatternLeadingComment`, which fails against a pre-fix
+binary and pins the no-comment soft glue as the boundary.
+
+### Own-line comment RUNS at inner slots
+
+**v1.35 (implemented 2026-08-09):** the two inner own-line comment slots — a
+`when` branch's lead and a `let` binding's lead — take a **run** of one or two
+comments (`Gen.comment_run`), each on its own row, kinds mixed freely and a
+member optionally multi-row.
+
+Every other gate that varies run length varies it over the **fixed corpus**
+(`fuzz-idempotency.py --run N` / `--mix`) or over the matrix's own vocabulary
+(`--comments --comment-runs`). Neither reaches a run inside randomly generated
+structure, and a run is where the rules about a comment's *neighbour* live —
+`commentRendersOwnLine`, `spanTrailingOwnLine`, `FlowPolicy`'s inline arm all
+discriminate on what is next to a member, and in a run that neighbour is another
+comment.
+
+Distinct from `comment_chain`, which glues its links onto ONE row; here every
+member gets a row, so a `line` comment is legal in any position of the run.
+`comment_clearers` pops a member at a time before dropping the whole run, so a
+find needing two comments is not minimized straight past the shape it needs.
+
+Measured over seeds 1..500 (`--max-depth 5 --comment-rate 0.25`): **133 runs of
+two** against 390 of one — the axis is live, not nominally present.

@@ -188,7 +188,8 @@ class Array(E):
         self.items, self.broken = items, broken
 
 
-# Patterns (single line by construction)
+# Patterns. Single line by construction EXCEPT for an array/record pattern in
+# a parameter slot, which may carry a baked author-break — see `emit_pat_rows`.
 class PVar:
     def __init__(self, name): self.name = name
 class PWild:
@@ -217,9 +218,15 @@ class PCtor:
     # unqualified, and an applied one glues the same way (`Maybe.Just y`).
     def __init__(self, name, args, mod=None): self.name, self.args, self.mod = name, args, mod
 class PRecord:
-    def __init__(self, fields): self.fields = fields
+    # `broken` / `cont_delta` / `close_glued`: see `emit_pat_rows`. Only ever
+    # set on the OUTERMOST pattern of a parameter slot, by `Gen.break_pattern`.
+    def __init__(self, fields, broken=False, cont_delta=0, close_glued=False):
+        self.fields, self.broken = fields, broken
+        self.cont_delta, self.close_glued = cont_delta, close_glued
 class PArray:
-    def __init__(self, items): self.items = items
+    def __init__(self, items, broken=False, cont_delta=0, close_glued=False):
+        self.items, self.broken = items, broken
+        self.cont_delta, self.close_glued = cont_delta, close_glued
 class PAs:
     # `inner as name` — the parenthesization rule is verified empirically
     # (see Gen.pattern_base/pattern): bare `as` parses after PVar/PWild/PStr/
@@ -409,7 +416,11 @@ def multiline(n):
     if isinstance(n, (When, Let)):
         return True
     if isinstance(n, Lambda):
-        return multiline(n.body)
+        # A broken PARAMETER makes the lambda multi-row even when its body is
+        # one line — `\{ a` ⏎ `, b } -> 0`. Without this a parent asks
+        # `one_line` of it and the emitter asserts.
+        return multiline(n.body) or any(getattr(p, "broken", False)
+                                        for p in n.params)
     if isinstance(n, Record):
         return n.broken or any(multiline(v) for _, v in n.fields)
     if isinstance(n, Update):
@@ -540,7 +551,10 @@ def emit_when(n, col):
     for i, (pat, body, lead) in enumerate(n.branches):
         if lead is not None:
             out += comment_lines(lead, col + INDENT)
-        out.append(pad(col + INDENT) + emit_pat(pat) + " ->")
+        prows = emit_pat_rows(pat, col + INDENT)
+        prows[-1] = prows[-1] + " ->"
+        out.append(pad(col + INDENT) + prows[0])
+        out += prows[1:]
         out += own_line(body, col + 2 * INDENT)
         if i != len(n.branches) - 1:
             out.append("")
@@ -575,14 +589,14 @@ def emit_binding(b, col):
     binding (`b.params` non-empty) puts its parameters after the name, exactly
     like a top-level declaration. Block/multiline value drops to its own line
     indented +4; otherwise it hangs after `= `."""
-    head = emit_pat(b.lhs) + "".join(" " + emit_param(p) for p in b.params)
-    prefix = head + " = "
+    rows = append_params(emit_pat_rows(b.lhs, col), b.params, col)
     if multiline(b.val):
-        out = [head + " ="]
-        out += own_line(b.val, col + INDENT)
-        return out
-    vl = emit(b.val, col + len(prefix))
-    return [prefix + vl[0]] + vl[1:]
+        rows[-1] = rows[-1] + " ="
+        return rows + own_line(b.val, col + INDENT)
+    rows[-1] = rows[-1] + " = "
+    vl = emit(b.val, _end_col(rows, col))
+    rows[-1] = rows[-1] + vl[0]
+    return rows + vl[1:]
 
 
 def emit_lambda(n, col):
@@ -591,14 +605,16 @@ def emit_lambda(n, col):
         # neither can be set here — a leading comment would move the `\` off
         # `col` while `own_line` keeps the body at `col + INDENT`, which is the
         # child-misalignment `E.pre`'s docstring rules out.
-        out = ["\\" + " ".join(emit_param(p) for p in n.params) + " ->"]
-        out += own_line(n.body, col + INDENT)
-        return out
+        rows = append_params(["\\"], n.params, col, first_sep="")
+        rows[-1] = rows[-1] + " ->"
+        return rows + own_line(n.body, col + INDENT)
     lead = ("{- " + n.pre + " -} ") if n.pre else ""
     body_lead = ("{- " + n.body_pre + " -} ") if n.body_pre else ""
-    prefix = lead + "\\" + " ".join(emit_param(p) for p in n.params) + " -> " + body_lead
-    bl = emit(n.body, col + len(prefix))
-    return [prefix + bl[0]] + bl[1:]
+    rows = append_params([lead + "\\"], n.params, col, first_sep="")
+    rows[-1] = rows[-1] + " -> " + body_lead
+    bl = emit(n.body, _end_col(rows, col))
+    rows[-1] = rows[-1] + bl[0]
+    return rows + bl[1:]
 
 
 def emit_record(fields, base, broken, col):
@@ -750,7 +766,20 @@ def _append_own_line(out, ind, c):
 
 
 def comment_lines(c, ind):
-    return [pad(ind) + comment_text(c)]
+    """A leading comment — or a RUN of them, one per row — at column `ind`.
+
+    A run reaches the two INNER own-line slots (`when` branch, `let` binding)
+    since 2026-08-09. Every other gate that varies run length varies it over the
+    fixed corpus (`fuzz-idempotency.py --run`/`--mix`) or the matrix's own
+    vocabulary; neither reaches a run inside randomly generated structure, which
+    is where a rule about a comment's NEIGHBOUR meets a conjunction of features
+    nobody wrote by hand. A single comment still arrives as a bare tuple and
+    renders exactly as it did."""
+    run = c if isinstance(c, list) else [c]
+    out = []
+    for member in run:
+        out += [pad(ind) + row for row in comment_rows(member)]
+    return out
 
 
 def emit_doc_comment(doc):
@@ -842,6 +871,96 @@ def emit_param(p):
     if isinstance(p, PAs):
         s = "(" + s + ")"
     return s
+
+
+# ── author-broken (multi-row) patterns ─────────────────────────────────────
+# Every other gate in this repo renders a pattern on one row: `emit_pat` has no
+# multi-row path, and until 2026-08-09 `matrix-syntax.py` wrote every lambda as
+# `\q ->`. So a pattern the AUTHOR broke across rows had no case anywhere — the
+# axis that, closed in the matrix, immediately found the `makeMultilineLambdaArgBox`
+# column-loss bug. This is that axis inside random nesting.
+
+def _end_col(rows, col):
+    """The column just past the last row's text.
+
+    Row 0 of an emitted group is HEADLESS — its caller supplies the padding, so
+    it starts at `col` — while every later row already carries its own absolute
+    padding. Getting this backwards silently mis-columns only the multi-row
+    case, which is exactly the case with no prior coverage."""
+    return len(rows[-1]) + (col if len(rows) == 1 else 0)
+
+
+def emit_pat_rows(p, col, flat=emit_pat):
+    """A pattern as ROWS (row 0 headless, later rows self-padded).
+
+    Only a pattern carrying a baked `broken` flag renders across rows, and only
+    ever the OUTERMOST pattern of a parameter slot — `Gen.break_pattern` sets it
+    nowhere else. That is the same restriction `emit_type_multiline` puts on a
+    signature's type, and it keeps `emit_pat` the single-line renderer every
+    nested position still calls.
+
+    **The continuation column is free**, which is what makes this cheap to emit
+    legally. Verified against the app for all five slots (lambda / declaration /
+    let-binding param, `when` branch, `let` LHS) at every column from 0 to
+    base+5, comparing each broken authoring's parsed AST against the one-row
+    authoring's with positions stripped — so a *silent misparse* would have
+    shown up as a different tree rather than as a parse error (the probe's
+    detector was checked against a known such case, `fn Just n` vs
+    `fn (Just n)`). A pattern is simply not layout-sensitive the way an
+    expression is.
+
+    The baked delta is kept small anyway, and clamped away from column 0: an
+    item at column 0 reads as a new top-level declaration, and divergence #31
+    already owns that shape."""
+    if not getattr(p, "broken", False):
+        return [flat(p)]
+    cont = max(1, col + p.cont_delta)
+    if isinstance(p, PRecord):
+        parts = ["{ " + p.fields[0]] + [", " + f for f in p.fields[1:]]
+        close = "}"
+    else:
+        parts = ["[ " + emit_pat(p.items[0])] + [", " + emit_pat(i)
+                                                 for i in p.items[1:]]
+        close = "]"
+    if p.close_glued:
+        parts[-1] = parts[-1] + " " + close
+    else:
+        parts.append(close)
+    return [parts[0]] + [pad(cont) + s for s in parts[1:]]
+
+
+def append_params(rows, params, col, first_sep=" "):
+    """Append a parameter list to `rows`, any parameter of which may itself
+    render across rows. `col` is where row 0 of `rows` starts."""
+    for i, p in enumerate(params):
+        rows[-1] = rows[-1] + (first_sep if i == 0 else " ")
+        pr = emit_pat_rows(p, _end_col(rows, col), flat=emit_param)
+        rows[-1] = rows[-1] + pr[0]
+        rows = rows + pr[1:]
+    return rows
+
+
+def broken_patterns(m):
+    """Every pattern in `m` carrying a baked break, for the shrinker."""
+    for d in m.decls:
+        if not isinstance(d, Decl):
+            continue
+        for p in d.params:
+            if getattr(p, "broken", False):
+                yield p
+        for node in _all_nodes(d.body):
+            if isinstance(node, Lambda):
+                ps = node.params
+            elif isinstance(node, When):
+                ps = [br[0] for br in node.branches]
+            elif isinstance(node, Let):
+                ps = [b.lhs for b in node.binds] + [q for b in node.binds
+                                                    for q in b.params]
+            else:
+                continue
+            for p in ps:
+                if getattr(p, "broken", False):
+                    yield p
 
 
 # ───────────────────────────── type signatures ─────────────────────────────
@@ -1233,14 +1352,16 @@ def emit_function_decl(d):
                     for l in emit_type_multiline(d.sig, d.sig_broken, d.arrow_comment)]
         else:
             out.append(d.name + " : " + emit_type(d.sig))
-    prefix = d.name + "".join(" " + emit_param(p) for p in d.params) + " = "
+    rows = append_params([d.name], d.params, 0)
     if multiline(d.body):
-        out.append(d.name + "".join(" " + emit_param(p) for p in d.params) + " =")
+        rows[-1] = rows[-1] + " ="
+        out += rows
         out += own_line(d.body, INDENT)
     else:
-        bl = emit(d.body, len(prefix))
-        out.append(prefix + bl[0])
-        out += bl[1:]
+        rows[-1] = rows[-1] + " = "
+        bl = emit(d.body, _end_col(rows, 0))
+        rows[-1] = rows[-1] + bl[0]
+        out += rows + bl[1:]
     if d.trailing is not None:
         out[-1] = out[-1] + " " + comment_text(d.trailing)
     return out
@@ -1349,6 +1470,31 @@ class Gen:
             return None
         return self.comment(kinds) or (self.pick(list(kinds)),
                                        "k%d" % self.next_cid())
+
+    def comment_run(self, max_len=2):
+        """An own-line leading comment, sometimes a RUN of them.
+
+        Distinct from `comment_chain`, which builds a run GLUED onto one row
+        (each link starting on the row the previous one ends). Here every member
+        gets a row of its own, so a `line` comment is legal in any position and
+        the members may differ in kind — the composition axis
+        (`fuzz-idempotency.py --mix`) inside random structure.
+
+        Returns `None` or a non-empty list, so a caller that never wanted a run
+        keeps the same `is None` test. A member may be multi-row: a run whose
+        neighbour brings its own rows is a different question from one whose
+        members are single-row, and it is the shape `spanTrailingOwnLine` and
+        `commentRendersOwnLine` actually discriminate on."""
+        first = self.comment()
+        if first is None:
+            return None
+        run = [self.maybe_multirow(first, p=0.2)]
+        while len(run) < max_len and self.chance(0.25):
+            nxt = self.forced_comment()
+            if nxt is None:
+                break
+            run.append(self.maybe_multirow(nxt, p=0.2))
+        return run
 
     def forced_comments(self, n=1, kinds=("line", "block")):
         """`forced_comment` as a list — empty under `--no-comments`."""
@@ -1726,7 +1872,8 @@ class Gen:
         k = self.rng.randint(1, 3)
         branches = []
         for _ in range(k):
-            branches.append((self.pattern(d), self.value(d), self.comment()))
+            branches.append((self.break_pattern(self.pattern(d)),
+                             self.value(d), self.comment_run()))
         return When(self.inline(d), branches)
 
     def mk_let(self, d):
@@ -1747,17 +1894,18 @@ class Gen:
         if self.chance(0.30):
             name = PVar(self.pick(self.vars))
             nparams = self.rng.randint(1, 2)
-            params = [self.pattern_base(d) for _ in range(nparams)]
+            params = self.break_params([self.pattern_base(d)
+                                        for _ in range(nparams)])
             sig = ("arrow", [self.gen_type(2) for _ in range(nparams + 1)]) \
                 if self.chance(0.5) else None
             val, trailing = self.gen_body_with_trailing(lambda: self.value(d))
             return LetBind(name, val, params=params, sig=sig,
-                           lead=self.comment(), trailing=trailing)
-        lhs = self.let_pattern(d)
+                           lead=self.comment_run(), trailing=trailing)
+        lhs = self.break_pattern(self.let_pattern(d))
         sig = self.gen_type(2) if isinstance(lhs, PVar) and self.chance(0.3) else None
         val, trailing = self.gen_body_with_trailing(lambda: self.value(d))
         return LetBind(lhs, val, sig=sig,
-                       lead=self.comment(), trailing=trailing)
+                       lead=self.comment_run(), trailing=trailing)
 
     def let_pattern(self, depth):
         """A let-binding LHS: `PVar` most of the time, else a destructuring
@@ -1789,7 +1937,8 @@ class Gen:
     def mk_lambda(self, d):
         k = self.rng.randint(1, 2)
         body = self.value(d)
-        lam = Lambda([self.pattern_base(d) for _ in range(k)], body)
+        lam = Lambda(self.break_params([self.pattern_base(d)
+                                        for _ in range(k)]), body)
         # v1.32: the two comment slots a lambda has that no other node offers —
         # in FRONT of the lambda, and between its `->` and its body. Both were
         # unreachable before: `maybe_inline_comment` only ever sets `.pre` on a
@@ -1917,6 +2066,42 @@ class Gen:
         if not isinstance(base, PAs) and self.chance(0.08):
             return PAs(base, self.pick(self.vars))
         return base
+
+    def break_pattern(self, p):
+        """Sometimes bake an author-break into a destructuring pattern.
+
+        Called on the OUTERMOST pattern of a parameter slot only — a nested
+        pattern has no multi-row renderer (`emit_pat_rows`), so setting the flag
+        deeper would be a flag that lies about the emitted text. An empty
+        container has no item to break at and stays flat.
+
+        The rate is deliberately modest: a broken pattern is a rare authoring,
+        and every seed that spends its one destructuring slot on this is a seed
+        not spending it on the flat form the corpus is full of."""
+        if isinstance(p, (PArray, PRecord)) and self.chance(0.2):
+            items = p.fields if isinstance(p, PRecord) else p.items
+            if items:
+                p.broken = True
+                # NEVER negative. A continuation row that starts LEFT of the
+                # pattern's own column can dedent out of the enclosing block:
+                # inside a `let` with a second binding, `{ pa` ⏎ `, pb` one
+                # column short of the binding column ends the `let` and the
+                # module stops parsing. Deeper is always safe — it cannot
+                # terminate a block — and >= 0 needs no knowledge of the
+                # enclosing column, since the pattern's own start column is
+                # already at or past it.
+                #
+                # A single-binding `let` tolerates the dedent, which is what
+                # hid this: the first legality probe used one binding per slot
+                # and reported every column from 0 up as legal. Three of the
+                # first 300 seeds quarantined on it.
+                p.cont_delta = self.rng.randint(0, 3)
+                p.close_glued = self.chance(0.35)
+        return p
+
+    def break_params(self, params):
+        """`break_pattern` over a parameter list."""
+        return [self.break_pattern(p) for p in params]
 
     def wild(self):
         """A wildcard pattern `_`, occasionally NAMED (`_foo`) — see `PWild`."""
@@ -2080,7 +2265,8 @@ class Gen:
     def decl(self, i):
         name = "fn%d" % i
         nparams = self.rng.randint(0, 3)
-        params = [self.pattern_base(self.max_depth) for _ in range(nparams)]
+        params = self.break_params([self.pattern_base(self.max_depth)
+                                    for _ in range(nparams)])
         body, trailing = self.gen_body_with_trailing(lambda: self.value(self.max_depth))
         sig = None
         sig_broken = False
@@ -2708,7 +2894,58 @@ def check(src, tmpdir, m=None):
         if bucket is not None:
             return bucket, detail
 
+    # Oracle 5: predicate/renderer agreement.
+    bucket, detail = _check_predicates(inp)
+    if bucket is not None:
+        detail["formatted"] = formatted
+        return bucket, detail
+
     return "ok", {"formatted": formatted}
+
+
+def _check_predicates(path):
+    """`--audit-predicates`: every layout predicate that claims a node breaks
+    must be telling the truth about that node's own rendered box.
+
+    This is the ONE oracle here that is not a self-consistency check. Oracles
+    1-4 all compare the formatter against itself or against its own input, so
+    output that is wrongly laid out but deterministic, AST-equivalent, idempotent
+    and comment-preserving passes every one of them. `audit-predicates.py` runs
+    this over the corpus and `matrix-syntax.py` over its generated cells; until
+    2026-08-09 nothing ran it over RANDOM structure, which is the only place a
+    predicate meets a conjunction of features nobody wrote by hand.
+
+    Only ROOT findings count. A recursive predicate's `Array.any … children`
+    fallback makes one wrong leaf wrong at every ancestor too, so the propagated
+    ones are the same bug counted again — the same split `audit-predicates.py`
+    reports and for the same reason.
+
+    An audit that cannot run is not a finding: the file already parsed and
+    formatted by the time we get here, so a non-zero exit or unreadable JSON is
+    this harness talking to the app wrongly, and it is surfaced as `gen-error`
+    rather than blamed on the formatter."""
+    try:
+        proc = run_app(["--audit-predicates", path])
+    except subprocess.TimeoutExpired:
+        return "gen-error", {"msg": "predicate audit timed out"}
+    if proc.returncode != 0:
+        return "gen-error", {"msg": "predicate audit failed: %s"
+                                    % first_real_line(proc.stdout + proc.stderr)}
+    try:
+        findings = json.loads(proc.stdout)
+    except ValueError:
+        return "gen-error", {"msg": "predicate audit emitted no JSON"}
+    roots = [f for f in findings if not f.get("propagated")]
+    if not roots:
+        return None, None
+    return "predicate-lie", {
+        "msg": "%d predicate lie(s): %s" % (
+            len(roots),
+            ", ".join(sorted({"%s on %s" % (f.get("predicate"), f.get("boxKind"))
+                              for f in roots}))),
+        "findings": roots,
+        "propagated": len(findings) - len(roots),
+    }
 
 
 def _check_permutation(m, src, formatted, tmpdir):
@@ -2948,6 +3185,12 @@ def comment_clearers(m):
                 for b in node.binds:
                     if b.lead is not None:
                         yield clear_attr(b, "lead")
+                        # A RUN (`Gen.comment_run`) shrinks a member at a time
+                        # first: a find that needs two comments in the slot must
+                        # not be minimized straight past the run to no comment
+                        # at all, and one that needs only one should say so.
+                        if len(b.lead) > 1:
+                            yield chain_pop(b, "lead")
                     if b.trailing is not None:
                         yield clear_attr(b, "trailing")
             if isinstance(node, When):
@@ -2956,6 +3199,11 @@ def comment_clearers(m):
                         def clr(br=node.branches, idx=i):
                             br[idx] = (br[idx][0], br[idx][1], None)
                         yield clr
+                        if len(node.branches[i][2]) > 1:
+                            def pop(br=node.branches, idx=i):
+                                br[idx] = (br[idx][0], br[idx][1],
+                                           br[idx][2][:-1])
+                            yield pop
 
 
 def variants(m):
@@ -3020,6 +3268,16 @@ def variants(m):
     for k in range(len(clearers)):
         c = copy.deepcopy(m)
         list(comment_clearers(c))[k]()
+        yield c
+    # 5. unbreak an author-broken pattern. Worth its own step rather than being
+    # left to the item-drop: a find that survives every other reduction but not
+    # this one is a find ABOUT the break, and one that survives this too was
+    # never about it — which is the first question to ask of a repro from a
+    # newly-added axis.
+    brks = list(broken_patterns(m))
+    for k in range(len(brks)):
+        c = copy.deepcopy(m)
+        list(broken_patterns(c))[k].broken = False
         yield c
 
 
@@ -3171,6 +3429,29 @@ def write_report(fdir, seed, bucket, detail, src_full, src_min, tmpdir,
                                             "format1", "format2", lineterm="")
                 lines.append("format1 vs format2:")
                 lines += list(diff)
+    elif bucket == "predicate-lie":
+        # The finding names its own work-list: which predicate, on which box
+        # kind, at which node. The formatted output goes in too — a predicate
+        # lie is about the box the renderer built, so the reader wants to see it.
+        lines.append("A layout predicate claimed a node breaks; the node's own")
+        lines.append("box rendered on one line. Root findings only (a recursive")
+        lines.append("predicate propagates one wrong leaf to every ancestor).")
+        lines.append("")
+        for f in detail.get("findings", []):
+            lines.append("  %s on %s%s" % (
+                f.get("predicate"), f.get("boxKind"),
+                ("  " + json.dumps({k: v for k, v in f.items()
+                                    if k not in ("predicate", "boxKind",
+                                                 "propagated")}))
+                if len(f) > 3 else ""))
+        if detail.get("propagated"):
+            lines.append("")
+            lines.append("(+%d propagated finding(s) not listed)"
+                         % detail["propagated"])
+        fmt = detail.get("formatted")
+        if fmt is not None:
+            with open(os.path.join(fdir, "formatted.gren"), "w") as f:
+                f.write(fmt)
     else:
         lines.append("stderr:")
         lines.append(detail.get("stderr", detail.get("msg", "")))
@@ -3408,12 +3689,13 @@ def main():
 
     # summary
     order = ["crash", "ast-mismatch", "non-idempotent", "comment-loss",
-             "sort-order", "timeout", "gen-error", "quarantine"]
+             "sort-order", "predicate-lie", "timeout", "gen-error",
+             "quarantine"]
     counts = {b: len(v) for b, v in buckets.items()}
     ok = counts.get("ok", 0)
     finds = sum(counts.get(b, 0) for b in
                 ("crash", "ast-mismatch", "non-idempotent", "comment-loss",
-                 "sort-order", "timeout"))
+                 "sort-order", "predicate-lie", "timeout"))
     summary_lines = ["%d/%d clean" % (ok, len(seeds)),
                      "app build: %s" % app_build_id(), ""]
     for b in order:

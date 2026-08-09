@@ -1888,10 +1888,12 @@ AST-equiv + idempotent + reparses in one call); **comment preservation** (the
 multiset of `(type, normalizedText)` from `--pre-context` on the input vs. the
 formatted output — positions discarded, so a *moved* comment passes and only a
 drop / duplication / invention / kind-change trips it; AST-compare is blind to a
-dropped comment and idempotency only catches a *shift*); and **author-order
+dropped comment and idempotency only catches a *shift*); **author-order
 invariance** (`sort-order`) — the same module re-emitted with its import runs and
 `exposing` lists in reversed order, each comment still on the same owner, must
-format to the same bytes.
+format to the same bytes; and **predicate/renderer agreement**
+(`predicate-lie`, added 2026-08-09) — `--audit-predicates` on every generated
+module, root findings only.
 
 That last one is the only gate that sees a comment attached to the **wrong**
 name: the multiset oracle discards positions on purpose, and a wrong-but-stable
@@ -1903,6 +1905,29 @@ line and its section-header comment) and index 0 of an exposing list (a comment
 leading the first item is parsed as a header comment after `exposing`, so it does
 not travel, while the same comment at index ≥ 1 does). Ties bail out, because a
 stable sort makes author order observable there by design. See `GENERATOR.md`.
+
+**`predicate-lie` is the only oracle here that is not a self-consistency check.**
+The other four compare the formatter against itself or its own input, so output
+that is wrongly laid out but deterministic, AST-equivalent, idempotent and
+comment-preserving passes all of them. `audit-predicates.py` runs the same check
+over the corpus and `matrix-syntax.py` over its cells; nothing ran it over RANDOM
+structure until now. Proved non-vacuous by adding a `\_ -> True` predicate to
+`auditedPredicates`, which takes a 20-seed run from 20/20 clean to 20/20
+reporting. It costs ~18% of throughput.
+
+**Two grammar axes arrived with it (v1.34 / v1.35).** An array/record pattern in
+any of the five PARAMETER slots may now carry an author-break (`\{ alpha` ⏎
+`, beta` ⏎ `} -> …`) — until then `emit_pat` had no multi-row path at all, the
+matrix wrote every lambda as `\q ->`, and the whole fixture corpus held one
+broken pattern. It found a formatter bug in its first 400 seeds:
+`trySoftGlueFlow` glued a `LeadsOwnLine` comment onto a broken pattern's first
+row, producing a `let` binding that neither compiler-common nor `gren make` will
+parse (fixed; fixture `PatternComments/LetBrokenPatternLeadingComment`). And the
+two inner own-line comment slots (`when` branch lead, `let` binding lead) take a
+RUN of one or two — the run axis reaches the corpus and the matrix vocabulary,
+but had never reached random structure. Both verified live by counting the shapes
+they emit, not by assuming: 157 broken patterns and 133 two-member runs over
+seeds 1..500. Full write-ups in `GENERATOR.md`.
 
 Layout decisions are baked into the node tree, so emission is a pure function of
 the tree: `--seed` replays exactly, and the shrinker (tree-surgery + deterministic
@@ -2147,6 +2172,7 @@ cd gren-format-lib/tests
 ./fuzzrun.py status            # cursors, coverage, failure counts
 ./fuzzrun.py failures -v       # what was found, with the report head
 ./fuzzrun.py resweep           # re-test open failures against this build
+./fuzzrun.py export -o bugs.txt  # bundle failures + their .gren for another host
 ```
 
 Config is `fuzzrun.toml` (tracked); state is `fuzzrun.db` (sqlite) and
@@ -2179,6 +2205,16 @@ open failure and closes the ones that now pass.
 `run` refuses to start if the built app is older than the formatter sources —
 a two-hour sweep of a stale binary tests the wrong code. Override with
 `--allow-stale-app`.
+
+**`export` is how a find leaves the machine that swept.** It bundles each
+failure's bucket, message, seeds, `input.min.gren` and `report.txt` into one
+pasteable text blob (`--full` adds the unminimized `input.gren` and the raw
+outputs). **Send the `.gren`, not the seed** — a seed reproduces only against the
+same `gen-random.py` and the same lane parameters, so it is worthless to a reader
+on another checkout, while the minimized file needs nothing but the app. The
+`check` line is bucket-aware because `--show` exits 0 on a comment-loss find, and
+each section header states how many lines follow (a `.gren` payload can legally
+contain a line starting with `-----`, so a delimiter scan would truncate it).
 
 ## Inspecting formatter internals
 

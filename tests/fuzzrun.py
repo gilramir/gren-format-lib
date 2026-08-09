@@ -11,6 +11,7 @@ profile, and records every failure with enough to reproduce it.
     ./fuzzrun.py status               # cursors, coverage, open failures
     ./fuzzrun.py failures -v          # what has been found, and how to repro
     ./fuzzrun.py resweep              # re-test open failures against this build
+    ./fuzzrun.py export -o bugs.txt   # bundle failures + their .gren to send on
     ./fuzzrun.py reset --lane NAME    # restart one lane's coverage from base
 
 State lives in `fuzzrun.db` (sqlite); failure artifacts in `fuzzrun-out/`.
@@ -47,6 +48,7 @@ import os
 import re
 import shutil
 import signal
+import socket
 import sqlite3
 import subprocess
 import sys
@@ -104,7 +106,7 @@ weight = 1
 '''
 
 BUCKETS = ["crash", "ast-mismatch", "non-idempotent", "comment-loss",
-           "sort-order", "timeout", "gen-error"]
+           "sort-order", "predicate-lie", "timeout", "gen-error"]
 
 STOP = False        # set by SIGINT/SIGTERM; checked between and during chunks
 
@@ -991,6 +993,177 @@ def cmd_failures(args):
     return 0
 
 
+# Which artifact files a bucket's `--full` export carries beyond the two every
+# failure gets (`input.min.gren`, `report.txt`). `report.txt` already holds the
+# precomputed diff for the buckets that have one, so these are the raw sides of
+# it — bulk that is worth having only when the diff is not enough.
+EXPORT_EXTRAS = {
+    "non-idempotent": ["formatted.gren", "formatted2.gren"],
+    "sort-order": ["permuted.gren", "formatted.gren", "permuted.formatted.gren"],
+    "comment-loss": ["formatted.gren"],
+    "predicate-lie": ["formatted.gren"],
+}
+
+
+def check_hint(bucket):
+    """The command that re-tests THIS bucket against the current build.
+
+    Bucket-aware on purpose, because the obvious answer is wrong for two of
+    them. `--show` exits 0 on a **comment-loss** find — a dropped comment is
+    AST-equivalent and its output is its own fixed point, which is exactly why
+    `gen-random.py` needs a comment-multiset oracle at all — so a bundle that
+    said "run --show" would read as "already fixed". A **sort-order** find is
+    about a PAIR of inputs and cannot be re-tested from one file at all."""
+    if bucket == "predicate-lie":
+        return "node ../../gren-format/app --audit-predicates input.min.gren"
+    if bucket == "comment-loss":
+        return ("--show exits 0 on this class. Compare the comment multisets:\n"
+                "#          node ../../gren-format/app --pre-context input.min.gren\n"
+                "#          node ../../gren-format/app --show input.min.gren > f.gren\n"
+                "#          node ../../gren-format/app --pre-context f.gren\n"
+                "#          (report.txt already lists what went missing)")
+    if bucket == "sort-order":
+        return ("needs BOTH inputs — format input.min.gren and permuted.gren "
+                "and diff\n#          (export --full carries the permuted twin; "
+                "report.txt has the diff)")
+    return "node ../../gren-format/app --show input.min.gren"
+
+
+def _export_file(out, path, name, max_lines):
+    """One file section: a header naming exactly how many lines follow, then
+    those lines verbatim.
+
+    **The count is what makes the bundle parseable, not the delimiter.** `--`
+    opens a comment in Gren, so a `.gren` payload can legally contain a line
+    starting with `-----` and a reader that scanned for the next delimiter
+    would cut the file short. A reader takes the `shown=` number and reads
+    exactly that many lines."""
+    if not os.path.isfile(path):
+        out.append("----- %s  [MISSING from the artifact directory]" % name)
+        return
+    with open(path, errors="replace") as f:
+        body = f.read().splitlines()
+    shown = body[:max_lines]
+    out.append("----- %s  shown=%d of %d lines%s"
+               % (name, len(shown), len(body),
+                  "  TRUNCATED (raise --lines)" if len(body) > len(shown)
+                  else ""))
+    out.extend(shown)
+
+
+def cmd_export(args):
+    """Bundle failures into one self-contained text blob to hand to somebody
+    who cannot see this machine's `fuzzrun-out/`.
+
+    **The unit that travels is the `.gren` file, not the seed.** A seed
+    reproduces only against the same `gen-random.py` AND the same lane
+    parameters (`write_report` spells out why a bare `--seed` usually replays
+    clean), so it is useless to a reader on another checkout. `input.min.gren`
+    is just a Gren file: it needs no generator, no seed and no generation match
+    to reproduce. The repro command is still printed, for a reader who does have
+    this generation.
+
+    Plain text rather than a tarball so the bundle can be pasted into a chat or
+    an issue, and so a reader can reconstruct the sources from it by hand."""
+    db = open_db(args.db)
+    gen = current_generation(db)
+    if gen is None:
+        print("nothing recorded yet")
+        return 0
+    q = "SELECT f.*, l.name lane FROM failure f JOIN lane l ON l.id=f.lane_id"
+    where, params = [], []
+    if args.id:
+        where.append("f.id=?")
+        params.append(args.id)
+    else:
+        if not args.all_generations:
+            where.append("f.generation_id=?")
+            params.append(gen["id"])
+        if args.state != "all":
+            where.append("f.state=?")
+            params.append(args.state)
+        if args.bucket:
+            where.append("f.bucket=?")
+            params.append(args.bucket)
+    if where:
+        q += " WHERE " + " AND ".join(where)
+    q += " ORDER BY f.bucket, f.hits DESC"
+    rows = db.execute(q, params).fetchall()
+    if not rows:
+        print("no matching failures", file=sys.stderr)
+        return 0
+
+    out = [
+        "fuzzrun failure export",
+        "  exported     %s from %s" % (now_iso(), socket.gethostname()),
+        "  generation   %d  %s" % (gen["id"], gen["gen_hash"][:12]),
+        "  app build    %s" % app_build_id(),
+        "  failures     %d (%s)" % (len(rows),
+                                    "id %d" % args.id if args.id
+                                    else "state=%s" % args.state),
+        "",
+        "# Each failure below carries its own minimized Gren source. To look at",
+        "# one: save the `input.min.gren` section to a file and run the `check`",
+        "# command against it. No generator, seed or generation match needed --",
+        "# the .gren file IS the reproducer.",
+        "#",
+        "# Parsing this: a `----- <name>  shown=N of M lines` header is followed",
+        "# by EXACTLY N lines of that file, verbatim. Read the count; do not scan",
+        "# for the next delimiter -- `--` opens a comment in Gren, so a payload",
+        "# can legally contain a line starting with `-----`.",
+        "",
+    ]
+    truncated = 0
+    for r in rows:
+        adir = os.path.join(HERE, r["artifact_dir"] or "")
+        out.append("=" * 72)
+        out.append("===== FAILURE %d  %s  lane=%s  hits=%d  state=%s"
+                   % (r["id"], r["bucket"], r["lane"], r["hits"], r["state"]))
+        out.append("      first seed  %d" % r["first_seed"])
+        out.append("      message     %s" % (r["message"] or "").strip())
+        out.append("      repro       %s" % r["repro"])
+        out.append("      check       %s" % check_hint(r["bucket"]))
+        out.append("      app build   %s" % (r["first_app_build"] or "?"))
+        if not r["shrunk"]:
+            out.append("      NOT MINIMIZED (shrink cap was hit) --"
+                       " input.min.gren is the full module")
+        seeds = db.execute("SELECT seed FROM failure_seed WHERE failure_id=?"
+                           " ORDER BY seed LIMIT 8", (r["id"],)).fetchall()
+        if seeds:
+            out.append("      seeds       %s%s"
+                       % (", ".join(str(s["seed"]) for s in seeds),
+                          " …" if r["hits"] > len(seeds) else ""))
+        out.append("")
+        names = ["input.min.gren", "report.txt"]
+        if args.full:
+            # The UNMINIMIZED module is not redundant: one seed can carry two
+            # bugs and the shrinker keeps only the one it was minimizing
+            # towards, so a fix verified against input.min.gren alone can leave
+            # the second live (2026-08-09, fuzzrun seed 10035748).
+            names.insert(1, "input.gren")
+            names += EXPORT_EXTRAS.get(r["bucket"], [])
+        before = len(out)
+        for name in names:
+            _export_file(out, os.path.join(adir, name), name, args.lines)
+            out.append("")
+        truncated += sum(1 for ln in out[before:] if ln.startswith("----- …"))
+    out.append("=" * 72)
+    out.append("end of export -- %d failure(s)%s"
+               % (len(rows),
+                  ", %d file section(s) truncated" % truncated if truncated
+                  else ""))
+    text = "\n".join(out) + "\n"
+    if args.output:
+        with open(args.output, "w") as f:
+            f.write(text)
+        print("wrote %s (%d failure(s), %s)"
+              % (args.output, len(rows), human_int(len(text)) + " bytes"),
+              file=sys.stderr)
+    else:
+        sys.stdout.write(text)
+    return 0
+
+
 def cmd_resweep(args):
     """Re-test open failures against the current build and close the fixed."""
     db = open_db(args.db)
@@ -1156,6 +1329,23 @@ def main():
     f.add_argument("--lines", type=int, default=30,
                    help="report lines to show with -v (default 30)")
     f.set_defaults(func=cmd_failures)
+
+    e = sub.add_parser("export",
+                       help="bundle failures (with their .gren sources) as "
+                            "one text blob to send elsewhere")
+    e.add_argument("--id", type=int, help="export just this failure id")
+    e.add_argument("--state", default="open",
+                   choices=["open", "fixed", "stale-grammar", "all"])
+    e.add_argument("--bucket", choices=BUCKETS)
+    e.add_argument("--all-generations", action="store_true")
+    e.add_argument("--full", action="store_true",
+                   help="also include the unminimized input.gren and the "
+                        "bucket's raw output files")
+    e.add_argument("--lines", type=int, default=200,
+                   help="max lines per file section (default 200); "
+                        "truncation is always marked")
+    e.add_argument("-o", "--output", help="write here instead of stdout")
+    e.set_defaults(func=cmd_export)
 
     w = sub.add_parser("resweep",
                        help="re-test open failures against the current build")
