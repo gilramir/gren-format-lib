@@ -998,8 +998,48 @@ head and the body and discards anything after them. -}
 makeMultilineLambdaArgBox : Maybe Box -> Array LPNode -> Result String Box
 makeMultilineLambdaArgBox bodyBoxFromItem children =
     let
-        glueParen headBox =
-            B.mapFirstLine (\l -> B.row [ B.punc "(", l ]) identity headBox
+        -- Which of the two glues a head gets depends on WHERE its break comes
+        -- from, and the first version of this decided it once for both.
+        --
+        --   * a comment the author wrote BETWEEN the parameters is a child of
+        --     the head flow, and its row belongs at the align level — the `(`
+        --     column, one left of the head's first character. Padding by the
+        --     `(`'s width puts it one column deep (KitchenComments'
+        --     destructuring-lambda-head comment), so that row must stay at the
+        --     box origin: first-line-only glue.
+        --
+        --   * a break INSIDE one head child — a multi-line pattern literal,
+        --     `\[ -- c` ⏎ `1 ]` — carries padding from the head's own inner
+        --     fold, and that padding is relative to where the head box STARTS.
+        --     Gluing `(` in front moves the head's first character one right
+        --     and leaves those rows where they were, so the pattern's items and
+        --     its `]` land one column short of the `\` they hang off. The
+        --     docstring above used to claim this case "survives the first-line
+        --     glue untouched"; it does not, and the claim outlived the shape
+        --     that could disprove it because no gate here had a lambda whose
+        --     PATTERN breaks (`matrix-syntax.py`'s every lambda was `\q ->`).
+        --
+        -- The two are told apart by where the comment sits: a direct comment
+        -- child of the head flow is the first case, anything else the second.
+        -- Same shape as `softGlueAlignment`'s align-vs-nest override — a
+        -- per-construct default corrected by a structural fact about the node.
+        --
+        -- Verified against elm-format, which renders the multi-line-pattern
+        -- head IDENTICALLY whether the body was written on the `->` row or
+        -- below it: items at `[`+2 and `]` under `[`, i.e. hanging off the `\`.
+        -- Before this, gren's two authorings of that one lambda disagreed by a
+        -- column, each stable on its own — so only a shape that made the body
+        -- change container between passes (a pipeline step) turned the
+        -- inconsistency into an oscillation.
+        headBreaksAtAlignLevel headNode =
+            Array.any nodeIsComment (lpnChildren headNode)
+
+        glueParen headNode headBox =
+            if headBreaksAtAlignLevel headNode then
+                B.mapFirstLine (\l -> B.row [ B.punc "(", l ]) identity headBox
+
+            else
+                B.prefix (B.punc "(") headBox
     in
     when Array.popFirst children is
         Nothing ->
@@ -1011,7 +1051,7 @@ makeMultilineLambdaArgBox bodyBoxFromItem children =
                     (\headBox ->
                         when Array.first afterHead is
                             Nothing ->
-                                Ok (B.addSuffix (B.punc ")") (glueParen headBox))
+                                Ok (B.addSuffix (B.punc ")") (glueParen headNode headBox))
 
                             Just bodyNode ->
                                 (when bodyBoxFromItem is
@@ -1024,7 +1064,7 @@ makeMultilineLambdaArgBox bodyBoxFromItem children =
                                     |> Result.map
                                         (\bodyBox ->
                                             B.stack1
-                                                [ glueParen headBox
+                                                [ glueParen headNode headBox
                                                 , applyIndent grenIndent bodyBox
                                                 , B.line (B.punc ")")
                                                 ]

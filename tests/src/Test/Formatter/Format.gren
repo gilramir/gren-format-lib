@@ -734,6 +734,7 @@ pipelineCommentsSuite fsPerm =
             -- stays on one line keeps its comment glued to the `->`.
             , assertPrettyIn fsPerm "PipelineComments" "a leading comment on a lambda body that wraps drops to its own line WITH the body, whatever forced the wrap (a `--` inside a binop chain or array, an author-broken call) — leaving it glued to the `->` while the body drops below oscillates on reparse" "LambdaLeadingCommentDroppedBody"
             , assertPrettyIn fsPerm "PipelineComments" "a comment that opened a row of its own does not take the next TOKEN onto that row -- gluing a broken call's function name right, while its arguments keep their column, reparses the arguments as applied to the enclosing lambda (an AST change, not just a layout one)" "OwnLineCommentBreaksBeforeToken"
+            , assertPrettyIn fsPerm "PipelineComments" "a lambda whose PATTERN breaks, in a relocated `( … )` argument: the head box's own padding is relative to where the head STARTS, so gluing the `(` on the first line alone left the pattern's items and its `]` a column short of the `\\` they hang off. The two authorings differ only in where the BODY sits -- which changes its container and must not move the head -- and each was stable alone, so only a shape that flips the container between passes made it oscillate. A comment written BETWEEN the parameters still sits at the align level, which is what the first-line-only glue is for" "LambdaBrokenPatternHead"
             ]
         }
 

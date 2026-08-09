@@ -2038,6 +2038,50 @@ one**, which is what turned a one-bug session into a two-bug one.
   while the non-lambda field has diverged there all along. The fix joins an
   existing divergence family rather than opening a new one.
 
+**A third bug, found by widening `matrix-syntax.py`'s lambda vocabulary — and the
+widening is the lesson.** Every lambda in that file was `\q ->`, so no gate here
+had a lambda whose **pattern** breaks. Adding destructuring-pattern constructs
+(`\[ 1 ]`, `\{ a, b }`, `\(Just q)`, `\({ a } as whole)`) turned out to be **not
+enough on its own**: all four pass on the pre-fix binary too, because the arrow-gap
+bug also needs a body written ON the `->` row that RENDERS multi-line. A one-row
+body lets the comment ride; a body on the next row parses as an `IndentedBlock`,
+whose arm forces the comment own-line. Only `(\[ 1 ] -> [ 0, 1 ])` **broken inside
+the body** reaches the shape. **Verify a new probe against the binary that had the
+bug** — four of five constructs were vacuous, and "the gate is green" would have
+read identically either way.
+
+That construct immediately found a *different*, pre-existing bug (16 cells).
+`makeMultilineLambdaArgBox` glues its `(` onto the head's first line only, so a
+comment written BETWEEN the parameters keeps its row at the align level (the `(`
+column) — right, and pinned by `KitchenComments`. Its docstring then claimed the
+other case handles itself: *"align-carrying content INSIDE the head (a multi-line
+pattern literal) already carries its own prefix-padding from the head's inner
+fold, which survives the first-line glue untouched."* **False.** That padding is
+relative to where the head box STARTS; gluing `(` moves the head's first character
+one column right and leaves every continuation row behind, so a multi-line
+pattern's items and its `]` land a column short of the `\` they hang off. The glue
+now picks by where the break comes from — a direct comment child of the head flow
+keeps first-line-only, anything else gets `B.prefix` — the same shape as
+`softGlueAlignment`'s align-vs-nest override.
+
+**It was an inconsistency before it was an oscillation.** The two authorings of
+that lambda (body on the `->` row, body below) differ only in the body's
+container, and each was a stable fixed point on its own — they simply disagreed by
+one column. Only a shape that flips the container between passes (a pipeline step)
+turned it into a non-idempotency, which is why no stability gate had ever objected.
+elm-format renders both authorings **identically**, at items `[`+2 and `]` under
+`[`, and that is what gren now produces. Fixture
+`PipelineComments/LambdaBrokenPatternHead`, which pins the align-level boundary
+too.
+
+**The vocabulary change itself is NOT in this commit.** It books **2,410
+`UNREVIEWED`** comment-parity cells (all from the five constructs; 1,200 `line`,
+1,200 `multi`, 10 `block` — the `#25`-shaped families' signature), and unread debt
+is not something to land alongside a fix. The constructs, both regenerated
+baselines and the patch are held for a review sitting of their own; note the
+triage tool's cache is stale and has to be regenerated before `--review` says
+anything about them.
+
 **Attributed by rebuild, not by argument**: the record-field bug moves identically
 on a stash-rebuild of `2eb2205`, so it is pre-existing and not the first fix's
 doing. Both new fixtures add **0** findings of their own in every mode. Every

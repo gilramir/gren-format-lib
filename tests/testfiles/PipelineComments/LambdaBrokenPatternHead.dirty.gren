@@ -1,0 +1,44 @@
+module LambdaBrokenPatternHead exposing (..)
+
+
+-- A lambda whose PATTERN breaks, inside a relocated `( … )` argument. The head
+-- box carries its own padding for the pattern's rows, and that padding is
+-- relative to where the head STARTS -- so gluing the `(` on the first line alone
+-- left the items and the `]` a column short of the `\` they hang off.
+--
+-- The two authorings differ only in where the body sits, which changes the
+-- body's container (`SoftIndentedBlock` vs `IndentedBlock`) and must not move
+-- the head at all. Each was stable on its own before the fix; they simply
+-- disagreed by one column, so only a shape that flips the container between
+-- passes turned it into an oscillation.
+
+
+bodyOnArrowRow =
+    seed
+        |> gn
+            (\[ -- c
+                1
+              ] -> one)
+
+
+bodyBelowArrow =
+    seed
+        |> gn
+            (\[ -- c
+                1
+              ] ->
+                one)
+
+
+-- The boundary the first-line-only glue exists for, and which must NOT move: a
+-- comment written BETWEEN the parameters is a child of the head flow, and its
+-- row belongs at the align level -- the `(` column, one left of the head's first
+-- character. `KitchenComments` pins the same rule.
+
+
+commentBetweenParams =
+    seed
+        |> gn
+            (\{ a } -- c
+             b ->
+                one)
