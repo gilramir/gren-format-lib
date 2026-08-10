@@ -2175,6 +2175,36 @@ cd gren-format-lib/tests
 ./fuzzrun.py export -o bugs.txt  # bundle failures + their .gren for another host
 ```
 
+**Several hosts at once** (2026-08-09) — `coordinate` is the same runner with a
+second transport, not a second runner: `pick_lane`, `size_chunk`, `gen_cmd`,
+`run_child`, `ingest_chunk` and `finish_session` are shared, and only "how does
+a chunk get executed" differs. `run` is untouched.
+
+```bash
+./fuzzrun.py coordinate --for 12h --yes      # on whichever host is free
+./fuzzrun.py worker --master hostA:9999 -j 12  # on each of the others
+./fuzzrun.py status --master hostA:9999      # from anywhere
+```
+
+Every host runs out of the **same shared directory** (config, db, artifacts,
+generator, app), so a worker is stateless — no config, no database, no cursor —
+and artifacts never travel: the worker reports a path under the shared store and
+the master ingests it in place. The master does no sweeping of its own.
+
+The one invariant that is not free with several workers is the contiguous-prefix
+cursor: it advances only to the **low-water mark**, the first seed of the oldest
+in-flight chunk, so a chunk finishing ahead of a laggard is banked
+(`+N done ahead of cursor` in `status`) but not counted. Three guards land with
+the shared database, and all three are proved by making them fire in
+`tests/test-fuzzrun-distributed.py`: the lock is **hostname-aware** (the old
+bare-pid liveness check asked *this* kernel about *another* host's pid and so
+failed **open**, reaping a live master's lock), WAL is dropped for
+`journal_mode=TRUNCATE` **and the pragma is read back and asserted**, and
+`status`/`failures`/`export` on a non-coordinator host refuse to open the shared
+db and point at `--master`. Design and rationale in
+[`docs/distributedFuzzing.md`](docs/distributedFuzzing.md); the operating manual
+is [`docs/fuzzTesting.md`](docs/fuzzTesting.md).
+
 Config is `fuzzrun.toml` (tracked); state is `fuzzrun.db` (sqlite) and
 `fuzzrun-out/` (both gitignored). Ctrl-C stops cleanly.
 

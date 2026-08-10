@@ -2,6 +2,7 @@
 #
 #   ./fuzzrun.py run --for 2h        sweep, then stop
 #   ./fuzzrun.py status              cursors, coverage, failure counts
+#   ./fuzzrun.py coordinate --for 2h spread one sweep across several hosts
 #
 # Each [lanes.NAME] table is a lane with its own persistent seed cursor, swept
 # independently and resumed across sessions. `weight` is the lane's share of a
@@ -44,3 +45,21 @@ max_depth = 5
 comment_rate = 0.25
 base_seed = 10000000
 weight = 1
+
+# Multi-host sweeps: `./fuzzrun.py coordinate` reads this table, workers read
+# nothing at all (an assignment carries everything one needs). Only the lanes
+# above decide coverage, so anything here is free to change at any time.
+[distributed]
+port = 9999
+# Which address the coordinator listens on. "" means this host's own name,
+# deliberately rather than 0.0.0.0 — a port that accepts "here are my results"
+# should be reachable on purpose. On Debian/Ubuntu the hostname often resolves
+# to 127.0.1.1, which workers on other hosts cannot reach; the coordinator says
+# so loudly at startup. Put this host's LAN address here if that happens.
+bind = ""
+lease_seconds = 120         # no heartbeat for this long -> the chunk is
+                            # reissued and its range re-swept
+drain_grace_minutes = 35    # past the deadline, how long to wait for in-flight
+                            # chunks. A chunk is never killed to meet a
+                            # deadline; one still running when this expires is
+                            # simply not counted.

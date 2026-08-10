@@ -28,6 +28,9 @@ cd ../gren-format-lib/tests
 ./fuzzrun.py failures -v               # what was found, and how to reproduce it
 ```
 
+To spread one sweep over several machines, see [Spreading a sweep across
+hosts](#spreading-a-sweep-across-hosts).
+
 Stop a sweep early with Ctrl-C; it shuts the current chunk down and records
 where it got to. Start another whenever you like — `run` always resumes.
 
@@ -337,12 +340,23 @@ Two guards matter here, because both failure modes cost you the whole run:
   tests the wrong code. Rebuild, or pass `--allow-stale-app` if sweeping the old
   build is what you meant.
 - **A second sweep.** Two concurrent sweeps would hand out the same seeds and
-  double-count coverage, so `run` takes a lock (`fuzzrun-out/fuzzrun.lock`) and
-  refuses to start alongside a live one. A lock left by a killed process is
-  detected and reclaimed.
+  double-count coverage, so every command that writes — `run`, `coordinate`,
+  `resweep`, `reset` — takes a lock (`fuzzrun-out/fuzzrun.lock`) and refuses to
+  start alongside a live one. The lock records `hostname pid timestamp mode
+  port`. A lock left by a killed process **on this host** is detected and
+  reclaimed; one held by **another host** never is, because this machine cannot
+  ask another machine's kernel about its pids. Its owner heartbeats it every 30
+  seconds, so the message tells you how stale it is, and `--force-unlock` is the
+  explicit way through.
 
-You can run `status` and `failures` from another terminal while a sweep is going;
-the database is in WAL mode so readers do not block on the writer.
+You can run `status` and `failures` from another terminal while a sweep is going.
+The database is not in WAL mode — WAL needs shared memory that network
+filesystems do not provide, and the store is meant to be shareable — but it is
+written about once every ten minutes, for milliseconds, and `busy_timeout=30000`
+covers the collision. On a host that is *not* the one holding the sweep, those
+commands refuse to open the database at all and point you at
+`status --master`; see [Spreading a sweep across
+hosts](#spreading-a-sweep-across-hosts).
 
 ---
 
@@ -368,22 +382,81 @@ and the shrink cap keeps it from eating the budget.
 
 ## Spreading a sweep across hosts
 
-Not implemented. The design for a master/worker mode — one coordinator handing
-seed ranges to workers on other machines over TCP, all of them sharing one NFS
-directory — is written up in
-[distributedFuzzing.md](distributedFuzzing.md), including the two things that
-have to change before it can be safe: the seed cursor becomes a low-water mark
-over in-flight chunks (a prefix with four workers is not free the way it is with
-one), and `SweepLock`'s bare-pid liveness check currently fails *open* across
-hosts. It also records the decision to keep the database in that shared
-directory and drop WAL, which SQLite does not support on a network filesystem —
-cheap here, since the db is written about once every ten minutes.
+Seeds are embarrassingly parallel, so four hosts sweep about four times as many
+of them. One host coordinates and the others do the work:
+
+```bash
+# on whichever host is free — it coordinates and sweeps NOTHING itself
+cd /nfs/…/gren-format-lib/tests
+./fuzzrun.py coordinate --for 12h --yes
+
+# on each of the other hosts
+cd /nfs/…/gren-format-lib/tests
+./fuzzrun.py worker --master hostA:9999 -j 12
+
+# from anywhere, while it runs
+./fuzzrun.py status --master hostA:9999
+```
+
+**Every host runs out of the same shared directory**, so the config, the
+database, the artifacts, `gen-random.py` and the built `app` are the same by
+construction. That is what makes a worker stateless: it reads no config, opens
+no database, and holds no cursor — an assignment tells it everything, and it
+reports back a path under the shared store. Start the coordinator from whichever
+machine is free; coverage follows the directory, not the host.
+
+`-j` is per worker, so a laptop and a 32-core box need no coordination beyond
+their own numbers — chunk size is measured per (worker, lane), so each host gets
+as many seeds as it can sweep in `chunk_minutes`. Order does not matter either: a
+worker started before its coordinator waits for it.
+
+The coordinator prints both commands with its own hostname filled in as it
+starts. Settings live in `[distributed]` in `fuzzrun.toml` (port, bind address,
+lease timeout, drain grace).
+
+A few things worth knowing before the first run:
+
+- **The port is authenticated** by a shared token in
+  `fuzzrun-out/fuzzrun.token`, written when the coordinator starts. A worker in
+  the shared directory picks it up with no options; `--token` /
+  `$FUZZRUN_TOKEN` override it.
+- **It binds to this host's name, not `0.0.0.0`.** If that resolves to a
+  loopback address — the Debian/Ubuntu `/etc/hosts` default is `127.0.1.1` — no
+  worker elsewhere can reach it, so the coordinator says so loudly at startup.
+  Put the LAN address in `[distributed] bind` when that happens.
+- **A worker whose `gen-random.py` or `app` differs is refused**, by name, at
+  the handshake. Its seeds would mean different modules, or it would be testing
+  different code; either poisons the whole session's coverage claim.
+- **`status` and `failures` on a worker host refuse to open the database** and
+  tell you to use `--master`. That preserves the one-writer property the shared
+  database rests on — and the coordinator's answer is better anyway, since live
+  workers, their rates and the in-flight leases are not in the schema.
+
+Coverage stays a contiguous prefix, which with several workers is not free: the
+cursor advances only to the **low-water mark**, the first seed of the oldest
+chunk still in flight. A chunk that finishes ahead of a laggard is banked but not
+counted, and `status` reports it separately:
+
+```
+dense-comments    covered 71,835   next 10,071,835   +1,200 done ahead of cursor
+```
+
+Never add that second number to the first. If a worker dies, its range goes back
+on the queue and is handed out again before any new ground, so the prefix closes
+up rather than growing a hole.
+
+The design, the hazards a shared filesystem introduces, and what is deliberately
+left out are in [distributedFuzzing.md](distributedFuzzing.md).
 
 ## Where the code lives
 
 - **`tests/fuzzrun.py`** — the runner: config, scheduler, sqlite store,
-  `run` / `status` / `failures` / `resweep` / `reset` / `init`.
-- **`tests/fuzzrun.toml`** — the lane definitions.
+  `run` / `coordinate` / `worker` / `status` / `failures` / `export` /
+  `resweep` / `reset` / `init`.
+- **`tests/test-fuzzrun-distributed.py`** — the distributed mode's tests
+  (low-water mark, loopback, a killed worker, a refused handshake, two masters).
+  Not part of `run-tests.sh`: it binds sockets and spawns real sweeps.
+- **`tests/fuzzrun.toml`** — the lane definitions, and `[distributed]`.
 - **`tests/gen-random.py`** — the generator being driven. Two of its flags exist
   for this: `--max-shrinks N` caps minimization per run, and
   `--seeds 1,2,3 --json` re-checks an explicit seed list with no shrinking and no
