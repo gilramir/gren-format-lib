@@ -1929,6 +1929,22 @@ but had never reached random structure. Both verified live by counting the shape
 they emit, not by assuming: 157 broken patterns and 133 two-member runs over
 seeds 1..500. Full write-ups in `GENERATOR.md`.
 
+**A third arrived 2026-08-10 (v1.36): author layout for the BLOCK constructs.**
+The `broken` axis has covered every bracketed form since v1.2 — records, arrays,
+calls, binops, parens, patterns, types — and none of `when` / `if` / lambda /
+definition bodies, each of which this emitter wrote exactly one way. They now
+take a flag apiece: a branch body on the `->` row, `when` branches with no blank
+between them, a lambda's single-line body on the row BELOW the `->`, no blank
+above `else`, `else if` chaining, and a single-line definition value dropped
+under its `=`. **Two of them are a different tree, not a different spelling** —
+`else if` is one `If` with two branches (the nested `else` ⏎ `if` spelling is a
+different AST and the only one previously generated), and a lambda body on a
+later row reparses as an `IndentedBlock`, the container distinction the
+2026-08-09 `\[ 1 ] ->` bug turned on. Shrink step 6 (`layout_resetters`) puts
+each choice back toward the pre-v1.36 shape for the same reason step 5 unbreaks
+a pattern. Counted from the trees and from the emitted text over seeds 1..500;
+`-n 2000` clean with 0 quarantine.
+
 Layout decisions are baked into the node tree, so emission is a pure function of
 the tree: `--seed` replays exactly, and the shrinker (tree-surgery + deterministic
 re-emit) minimizes every failure to `input.min.gren`. Artifacts land in gitignored

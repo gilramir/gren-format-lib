@@ -142,25 +142,43 @@ class Binop(E):
         self.operands, self.ops, self.broken = operands, ops, broken
 
 class If(E):
-    def __init__(self, cond, then, els, broken=False):
+    # `no_blank` drops the blank line the emitter puts above `else`; `chain_else`
+    # writes an `If`-valued else branch as `else if c then` on the `else` row
+    # instead of nested on its own row. Both are AUTHOR layout choices this
+    # emitter used to make one way only — and `chain_else` is a different AST,
+    # not just a different spelling: `else if` is one `If` with two branches,
+    # while `else` ⏎ `if` is an `If` in another's else slot.
+    def __init__(self, cond, then, els, broken=False, no_blank=False,
+                 chain_else=False):
         self.cond, self.then, self.els, self.broken = cond, then, els, broken
+        self.no_blank, self.chain_else = no_blank, chain_else
 
 class When(E):
-    def __init__(self, scrut, branches):  # branches: [(pat, body, lead_comment)]
+    # branches: [(pat, body, lead_comment, body_glued)]. `body_glued` writes the
+    # body on the `->` row (`Just q -> q`) instead of below it — only ever set
+    # for a single-line body, so no child's column can move. `blanks` is the
+    # blank line between branches, which the emitter used to force.
+    def __init__(self, scrut, branches, blanks=True):
         self.scrut, self.branches = scrut, branches
+        self.blanks = blanks
 
 class Let(E):
     def __init__(self, binds, body):  # binds: [LetBind]
         self.binds, self.body = binds, body
 
 class LetBind:
-    def __init__(self, lhs, val, params=None, sig=None, lead=None, trailing=None):
+    def __init__(self, lhs, val, params=None, sig=None, lead=None,
+                 trailing=None, val_below=False):
         # `params` (list of patterns) makes this a local FUNCTION binding
         # (`f a b = ...`); when non-empty, `lhs` is a PVar (the function name).
         # `sig`, if set, is a gen_type IR emitted single-line as `name : Type`
         # on the line directly above the binding — only used when `lhs` is a
         # PVar (a signature needs a name, not a destructure).
         self.lhs, self.val = lhs, val
+        # `val_below` drops a SINGLE-LINE value onto its own row under the `=`
+        # (`x =` ⏎ `1`), the authoring the emitter could not produce — it
+        # hung every single-line value after `= `.
+        self.val_below = val_below
         self.params = params or []
         self.sig = sig
         self.lead, self.trailing = lead, trailing
@@ -172,8 +190,14 @@ class Lambda(E):
     # (see `mk_lambda`), which keeps the whole lambda on one row and so leaves
     # every child's column unchanged — the restriction `E.pre`'s docstring
     # states for atoms, met here by construction rather than by node kind.
-    def __init__(self, params, body, body_pre=None):
+    # `body_below` writes a SINGLE-LINE body on the row under the `->` rather
+    # than on it. Not cosmetic: a body starting on a later row reparses as an
+    # `IndentedBlock`, a different container with its own comment-redirect arm,
+    # so this is a distinct tree. Set only when neither comment slot is filled
+    # (see `mk_lambda`) — the same restriction the block path below documents.
+    def __init__(self, params, body, body_pre=None, body_below=False):
         self.params, self.body, self.body_pre = params, body, body_pre
+        self.body_below = body_below
 
 class Record(E):
     def __init__(self, fields, broken=False):  # fields: [(name, val)]
@@ -238,8 +262,11 @@ class PAs:
 
 class Decl:
     def __init__(self, name, params, body, sig=None, sig_broken=False,
-                 doc=None, lead=None, trailing=None, arrow_comment=None):
+                 doc=None, lead=None, trailing=None, arrow_comment=None,
+                 body_below=False):
         self.name, self.params, self.body = name, params, body
+        # As `LetBind.val_below`, for a top-level declaration's body.
+        self.body_below = body_below
         self.sig, self.sig_broken = sig, sig_broken
         self.doc, self.lead, self.trailing = doc, lead, trailing
         self.arrow_comment = arrow_comment  # (seg_idx, (kind, text)) | None
@@ -419,8 +446,8 @@ def multiline(n):
         # A broken PARAMETER makes the lambda multi-row even when its body is
         # one line — `\{ a` ⏎ `, b } -> 0`. Without this a parent asks
         # `one_line` of it and the emitter asserts.
-        return multiline(n.body) or any(getattr(p, "broken", False)
-                                        for p in n.params)
+        return (multiline(n.body) or n.body_below
+                or any(getattr(p, "broken", False) for p in n.params))
     if isinstance(n, Record):
         return n.broken or any(multiline(v) for _, v in n.fields)
     if isinstance(n, Update):
@@ -540,7 +567,21 @@ def emit_if(n, col):
     cond = one_line(n.cond)
     out = ["if " + cond + " then"]
     out += own_line(n.then, col + INDENT)
-    out.append("")
+    if not n.no_blank:
+        out.append("")
+    if n.chain_else and isinstance(n.els, If):
+        # `else if c then` — the else branch's own rows glued onto the `else`
+        # row. Its continuation rows are computed from `col`, so its branch
+        # bodies land at `col + INDENT` alongside this one's, and its own
+        # `else` lines up with this one. A chained inner `if` that emits INLINE
+        # glues as a single row (`else if c then 0 else 1`), which is legal and
+        # is what a partly-flat author writes. The `isinstance` guard is not
+        # decoration: the shrinker replaces expression slots with `Int(0)`, so
+        # the flag can outlive the `If` it was set for.
+        rows = emit(n.els, col)
+        out.append(pad(col) + "else " + rows[0])
+        out += rows[1:]
+        return out
     out.append(pad(col) + "else")
     out += own_line(n.els, col + INDENT)
     return out
@@ -548,15 +589,20 @@ def emit_if(n, col):
 
 def emit_when(n, col):
     out = ["when " + one_line(n.scrut) + " is"]
-    for i, (pat, body, lead) in enumerate(n.branches):
+    for i, (pat, body, lead, glued) in enumerate(n.branches):
         if lead is not None:
             out += comment_lines(lead, col + INDENT)
         prows = emit_pat_rows(pat, col + INDENT)
         prows[-1] = prows[-1] + " ->"
         out.append(pad(col + INDENT) + prows[0])
         out += prows[1:]
-        out += own_line(body, col + 2 * INDENT)
-        if i != len(n.branches) - 1:
+        if glued and not multiline(body):
+            # On the `->` row. The `not multiline` re-test is for the shrinker,
+            # which can swap the body out from under the flag.
+            out[-1] = out[-1] + " " + one_line(body)
+        else:
+            out += own_line(body, col + 2 * INDENT)
+        if i != len(n.branches) - 1 and n.blanks:
             out.append("")
     return out
 
@@ -587,10 +633,11 @@ def emit_let(n, col):
 def emit_binding(b, col):
     """`lhs <params> = val` at column `col` (headless line0). A local function
     binding (`b.params` non-empty) puts its parameters after the name, exactly
-    like a top-level declaration. Block/multiline value drops to its own line
-    indented +4; otherwise it hangs after `= `."""
+    like a top-level declaration. A block/multiline value — or a single-line one
+    the author chose to drop (`b.val_below`) — goes on its own line indented +4;
+    otherwise it hangs after `= `."""
     rows = append_params(emit_pat_rows(b.lhs, col), b.params, col)
-    if multiline(b.val):
+    if multiline(b.val) or b.val_below:
         rows[-1] = rows[-1] + " ="
         return rows + own_line(b.val, col + INDENT)
     rows[-1] = rows[-1] + " = "
@@ -600,11 +647,12 @@ def emit_binding(b, col):
 
 
 def emit_lambda(n, col):
-    if multiline(n.body):
-        # `mk_lambda` only attaches the two comments to a single-line body, so
-        # neither can be set here — a leading comment would move the `\` off
-        # `col` while `own_line` keeps the body at `col + INDENT`, which is the
-        # child-misalignment `E.pre`'s docstring rules out.
+    if multiline(n.body) or n.body_below:
+        # Neither comment can be set here: `mk_lambda` attaches them only to a
+        # single-line body, and sets `body_below` only when neither is attached.
+        # A leading comment would move the `\` off `col` while `own_line` keeps
+        # the body at `col + INDENT`, which is the child-misalignment `E.pre`'s
+        # docstring rules out.
         rows = append_params(["\\"], n.params, col, first_sep="")
         rows[-1] = rows[-1] + " ->"
         return rows + own_line(n.body, col + INDENT)
@@ -1353,7 +1401,7 @@ def emit_function_decl(d):
         else:
             out.append(d.name + " : " + emit_type(d.sig))
     rows = append_params([d.name], d.params, 0)
-    if multiline(d.body):
+    if multiline(d.body) or d.body_below:
         rows[-1] = rows[-1] + " ="
         out += rows
         out += own_line(d.body, INDENT)
@@ -1413,6 +1461,16 @@ class Gen:
         # the unions it declares, instead of only ever declaring them — see
         # GENERATOR.md's "Remaining expansion targets".
         self.declared_ctors = []
+
+    def value_below(self, val, p=0.35):
+        """Should this single-line definition body go on the row BELOW its `=`?
+
+        Both authorings are legal wherever they are offered, and they are
+        different trees: the row a value starts on is what the formatter's
+        author-driven layout and every comment glue-row test read. A
+        multi-line value already renders below and is left alone — the flag
+        would claim a choice that was not made."""
+        return not multiline(val) and self.chance(p)
 
     def chance(self, p): return self.rng.random() < p
     def pick(self, xs):  return self.rng.choice(xs)
@@ -1865,16 +1923,34 @@ class Gen:
         return Array([self.value(d) for _ in range(k)], broken=self.chance(0.5))
 
     def mk_if(self, d):
-        return If(self.inline(d), self.arg(d), self.value(d),
-                  broken=self.chance(0.6))
+        cond = self.inline(d)
+        then = self.arg(d)
+        # ~25% of the time the else branch is another `if`, CHAINED (`else if c
+        # then`). `value()` reaches a nested `if` in the else slot only ~3% of
+        # the time and never the chained spelling, which is a different AST —
+        # one `If` carrying two branches. Recurse on `d - 1` so a chain is
+        # bounded by the depth budget like every other nesting here.
+        if d > 0 and self.chance(0.25):
+            els, chain = self.mk_if(d - 1), True
+        else:
+            els, chain = self.value(d), False
+        return If(cond, then, els, broken=self.chance(0.6),
+                  no_blank=self.chance(0.3), chain_else=chain)
 
     def mk_when(self, d):
         k = self.rng.randint(1, 3)
         branches = []
         for _ in range(k):
-            branches.append((self.break_pattern(self.pattern(d)),
-                             self.value(d), self.comment_run()))
-        return When(self.inline(d), branches)
+            pat = self.break_pattern(self.pattern(d))
+            body = self.value(d)
+            lead = self.comment_run()
+            # Body on the `->` row. Legal with a BROKEN pattern too (the glue
+            # lands on the pattern's last row, which carries the `->`) —
+            # verified directly against the app, along with every other shape
+            # this axis emits, before wiring it in.
+            glued = not multiline(body) and self.chance(0.25)
+            branches.append((pat, body, lead, glued))
+        return When(self.inline(d), branches, blanks=not self.chance(0.3))
 
     def mk_let(self, d):
         k = self.rng.randint(1, 3)
@@ -1900,12 +1976,14 @@ class Gen:
                 if self.chance(0.5) else None
             val, trailing = self.gen_body_with_trailing(lambda: self.value(d))
             return LetBind(name, val, params=params, sig=sig,
-                           lead=self.comment_run(), trailing=trailing)
+                           lead=self.comment_run(), trailing=trailing,
+                           val_below=self.value_below(val))
         lhs = self.break_pattern(self.let_pattern(d))
         sig = self.gen_type(2) if isinstance(lhs, PVar) and self.chance(0.3) else None
         val, trailing = self.gen_body_with_trailing(lambda: self.value(d))
         return LetBind(lhs, val, sig=sig,
-                       lead=self.comment_run(), trailing=trailing)
+                       lead=self.comment_run(), trailing=trailing,
+                       val_below=self.value_below(val))
 
     def let_pattern(self, depth):
         """A let-binding LHS: `PVar` most of the time, else a destructuring
@@ -1958,6 +2036,12 @@ class Gen:
             c = self.comment(kinds=("block",))
             if c:
                 lam.body_pre = c[1]
+            # The body written on the row BELOW the `->`. Only with neither
+            # comment attached, for the reason `emit_lambda`'s block path
+            # states — and only for a single-line body, since a multi-line one
+            # already renders there and the flag would say nothing.
+            if lam.pre is None and lam.body_pre is None and self.chance(0.25):
+                lam.body_below = True
         return lam
 
     # -- multi-line (triple-quoted) strings ---------------------------------
@@ -2282,7 +2366,8 @@ class Gen:
             lead = [self.comment() or ("line", "k%d" % self.next_cid())]
         return Decl(name, params, body, sig=sig, sig_broken=sig_broken,
                     doc=doc, lead=lead, trailing=trailing,
-                    arrow_comment=arrow_comment)
+                    arrow_comment=arrow_comment,
+                    body_below=self.value_below(body, p=0.5))
 
     def type_params(self):
         if not self.chance(0.4):
@@ -3065,7 +3150,7 @@ def _field_setter(fields, i):
     return s
 
 def _branch_body_setter(branches, i):
-    def s(v): branches[i] = (branches[i][0], v, branches[i][2])
+    def s(v): branches[i] = (branches[i][0], v, branches[i][2], branches[i][3])
     return s
 
 
@@ -3197,13 +3282,55 @@ def comment_clearers(m):
                 for i in range(len(node.branches)):
                     if node.branches[i][2] is not None:
                         def clr(br=node.branches, idx=i):
-                            br[idx] = (br[idx][0], br[idx][1], None)
+                            br[idx] = (br[idx][0], br[idx][1], None,
+                                       br[idx][3])
                         yield clr
                         if len(node.branches[i][2]) > 1:
                             def pop(br=node.branches, idx=i):
                                 br[idx] = (br[idx][0], br[idx][1],
-                                           br[idx][2][:-1])
+                                           br[idx][2][:-1], br[idx][3])
                             yield pop
+
+
+def layout_resetters(m):
+    """Yield closures that put ONE baked block-layout choice back to the shape
+    this emitter produced before that axis existed (v1.36): body below the `=`
+    / `->`, branch body on its own row, blank lines in, `else if` unchained.
+
+    Same rationale as `broken_patterns`, one construct family over: a find that
+    survives every other reduction but not this one is a find ABOUT the
+    authored layout, and one that survives this too was never about it."""
+    def off(obj, attr):
+        return lambda: setattr(obj, attr, False)
+    def on(obj, attr):
+        return lambda: setattr(obj, attr, True)
+    for d in m.decls:
+        if not isinstance(d, Decl):
+            continue
+        if d.body_below:
+            yield off(d, "body_below")
+        for node in _all_nodes(d.body):
+            if isinstance(node, If):
+                if node.no_blank:
+                    yield off(node, "no_blank")
+                if node.chain_else:
+                    yield off(node, "chain_else")
+            elif isinstance(node, When):
+                if not node.blanks:
+                    yield on(node, "blanks")
+                for i in range(len(node.branches)):
+                    if node.branches[i][3]:
+                        def unglue(br=node.branches, idx=i):
+                            br[idx] = (br[idx][0], br[idx][1], br[idx][2],
+                                       False)
+                        yield unglue
+            elif isinstance(node, Lambda):
+                if node.body_below:
+                    yield off(node, "body_below")
+            elif isinstance(node, Let):
+                for b in node.binds:
+                    if b.val_below:
+                        yield off(b, "val_below")
 
 
 def variants(m):
@@ -3278,6 +3405,12 @@ def variants(m):
     for k in range(len(brks)):
         c = copy.deepcopy(m)
         list(broken_patterns(c))[k].broken = False
+        yield c
+    # 6. reset one baked block-layout choice (see `layout_resetters`).
+    lays = list(layout_resetters(m))
+    for k in range(len(lays)):
+        c = copy.deepcopy(m)
+        list(layout_resetters(c))[k]()
         yield c
 
 

@@ -1,6 +1,6 @@
 # Property-based random AST generator (`gen-random.py`)
 
-Status: **v1.31** — v1's core expression grammar (module header, imports,
+Status: **v1.36** — v1's core expression grammar (module header, imports,
 function declarations, binops, records, record updates, arrays, `let`, `when`,
 `if`, lambda, calls, field access, parens, atoms), plus line/block comment
 injection; v1.1 added top-level type aliases, custom types (unions), and ports;
@@ -27,7 +27,9 @@ exposing, hex and scientific-notation literals, infix declarations, effect
 modules, nested `as` patterns, import-statement comments, the import-run
 anchoring shapes with the author-order oracle, the module header's exposing
 list, named wildcard patterns, and a module keyword that disagrees with the
-body (`port module` with no ports, and the reverse). That section is also where the
+body (`port module` with no ports, and the reverse), broken parameter patterns, inner comment
+RUNs, and (v1.36) the author-layout flags for `when` / `if` / lambda /
+definition bodies. That section is also where the
 current expansion targets live. List patterns beyond fixed-length arrays are
 NOT a gap — Gren has none.
 
@@ -1910,3 +1912,73 @@ find needing two comments is not minimized straight past the shape it needs.
 
 Measured over seeds 1..500 (`--max-depth 5 --comment-rate 0.25`): **133 runs of
 two** against 390 of one — the axis is live, not nominally present.
+
+### Author layout for the BLOCK constructs
+
+**v1.36 (implemented 2026-08-10):** `when`, `if`, lambda and definition bodies
+each take an **author-layout flag**, the way containers have taken a `broken`
+flag since v1.2.
+
+Until now every one of those constructs had exactly one spelling in this
+emitter: a `when` branch body always went on its own row with a blank line
+between branches, a lambda body went on the `->` row iff it was single-line, an
+`if`'s `else` always got a blank line above it and always started a fresh row,
+and a single-line definition value always hung after `= `. Layout here is
+author-driven — the formatter reads the rows you wrote — so each of those was
+one of two legal authorings, and the other was unreachable:
+
+| flag | what it writes |
+|---|---|
+| `When` branch `body_glued` | `Just q -> q` — the body on the `->` row |
+| `When.blanks` | branches back-to-back, no blank between |
+| `Lambda.body_below` | a single-line body on the row *under* the `->` |
+| `If.no_blank` | no blank line above `else` |
+| `If.chain_else` | `else if c then` instead of `else` ⏎ `if c then` |
+| `LetBind.val_below` / `Decl.body_below` | a single-line value on its own row under the `=` |
+
+**Two of these are a different TREE, not a different spelling**, which is the
+reason the axis is worth more than a layout permutation:
+
+- `chain_else` — `else if` is **one** `If` carrying two branches; `else` ⏎ `if`
+  is an `If` sitting in another's else slot. `value()` reaches the nested
+  spelling ~3% of the time and the chained one never, so the multi-branch `If`
+  had no generated case at all. (`mk_if` now builds the chain deliberately,
+  ~25%, recursing on `d - 1` so the depth budget bounds it.)
+- `body_below` on a lambda — a body starting on a later row reparses as an
+  `IndentedBlock`, a different container with its own comment-redirect arm.
+  That distinction is exactly what the 2026-08-09 `\[ 1 ] ->` bug turned on,
+  and it was reachable here only through a body that was *already* multi-line.
+
+The container `broken` axis (v1.2, and the matrix's `broken`/`bareBroken`
+variants) found four real bugs for the same reason this one exists: pre-broken
+input reaches renderers that canonically-spaced input never does. It covered
+records, arrays, calls, binops, parens, patterns and types — every bracketed
+form — and none of the four block constructs.
+
+**Legality was verified against the app before wiring in**, including the
+combinations that are not obvious: a glued body behind a **broken** pattern
+(`{ alpha` ⏎ `, beta` ⏎ `} -> 0` — the glue lands on the pattern's last row,
+which is the row carrying the `->`), branches with no blank line and *non*-glued
+bodies, a lambda body dropped below the `->` in every position a lambda reaches
+(bare, paren'd call argument, array item, record field value), and an `else if`
+chain whose tail is itself inline (`else if c then 0 else 1`).
+
+Two guards are for the SHRINKER rather than the generator, which can swap a
+node out from under a flag: `emit_when` re-tests `not multiline(body)` before
+gluing, and `emit_if`'s chain arm re-tests `isinstance(n.els, If)` — expression
+slots are replaced with `Int(0)` by variant step 3, so a flag can outlive the
+node it was set for.
+
+`layout_resetters` is variant step **6**, and its rationale is
+`broken_patterns`' one construct family over: a find that survives every other
+reduction but not this one is a find ABOUT the authored layout, and one that
+survives this too was never about it. Every reset moves *toward* the pre-v1.36
+shape, so a shrunk repro reads as ordinary Gren.
+
+Measured over seeds 1..500 (`--max-depth 5 --comment-rate 0.25`), counted from
+the trees AND from the emitted text rather than assumed: 123 glued branch bodies
+(85 modules), 159 blank-less `when`s (114), 170 dropped `let` values (104), 61
+blank-less `if`s (53), 60 dropped declaration bodies (58), 34 `else if` chains
+(28), 27 dropped lambda bodies (25). `-n 2000` **clean**, 0 quarantine and 0
+emitter exceptions — the generator is still honest about what it emits, which is
+what makes its crash/non-idempotency finds trustworthy.
