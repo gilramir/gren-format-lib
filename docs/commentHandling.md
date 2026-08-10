@@ -4,10 +4,14 @@
 each comment sits relative to the code around it — which line it lands on, and
 how far it is indented.
 
-Six rules decide every comment in a Gren file. This document states each one in
+Seven rules decide every comment in a Gren file. This document states each one in
 plain language and shows what it does, with a "you write / gren-format writes"
 pair for every case. Every example on this page was produced by running the
 formatter.
+
+For *how* the formatter arrives at these placements — what the parser actually
+hands it, and why the rules are shaped this way — see
+[How gren-format handles comments](commentModel.md).
 
 For comment rules that belong to one particular construct (block-comment body
 re-indentation, doc comments, an effect module's `where` block), see the

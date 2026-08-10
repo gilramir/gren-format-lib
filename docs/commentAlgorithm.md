@@ -9,6 +9,12 @@ the formatter does (rules C1–C7, with a before/after for each). This document
 answers the next question: **how**, and — more to the point — **why we believe
 it handles every case**.
 
+**If you are not extending the formatter, read
+[How gren-format handles comments](commentModel.md) instead.** It is the same
+story at a tenth of the length: the problem, the one idea, the four questions,
+runs, and why they are covered — without the function names, the war stories or
+the gate numbers. This document is the full reference underneath it.
+
 It is written for someone who has never touched this codebase. It assumes you
 have read [How the formatter works](howItWorks.md) and know what the Logical
 Printing Tree (LPT) and the Box tree are. If you are adding a new construct,
