@@ -9,5 +9,5 @@
 * [Required Formatting Shapes](requiredFormatting.md)
 * [Redundant parens: what each formatter strips](redundantParens.md)
 * [How gren-format places your comments](commentHandling.md)
-* [The comment algorithm](commentAlgorithm.md)
+* [The comment algorithm](commentAlgorithm.md) — the implementation, its state machines, and why a run of any length and mix is covered
 * [Sorting: exposing lists and import statements](sorting.md)

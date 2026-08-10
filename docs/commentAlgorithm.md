@@ -5,7 +5,7 @@ the formatter.
 
 This is the companion to [How gren-format places your
 comments](commentHandling.md), which is the reader-facing statement of *what*
-the formatter does (rules C1–C6, with a before/after for each). This document
+the formatter does (rules C1–C7, with a before/after for each). This document
 answers the next question: **how**, and — more to the point — **why we believe
 it handles every case**.
 
@@ -39,12 +39,23 @@ document has the model behind it.
   - [5.1 The two decision functions](#51-the-two-decision-functions)
   - [5.2 The three shapes of comment](#52-the-three-shapes-of-comment)
   - [5.3 The glue primitives](#53-the-glue-primitives)
-- [6. Runs: any number, any kinds](#6-runs-any-number-any-kinds)
-- [7. A worked example](#7-a-worked-example)
-- [8. Why we believe it is complete](#8-why-we-believe-it-is-complete)
-- [9. The functions to be careful about](#9-the-functions-to-be-careful-about)
-- [10. Debugging a comment bug](#10-debugging-a-comment-bug)
-- [11. Where the rules genuinely run out](#11-where-the-rules-genuinely-run-out)
+- [6. The three state machines](#6-the-three-state-machines)
+  - [6.1 The attachment sweep — over the comment *stream*](#61-the-attachment-sweep--over-the-comment-stream)
+  - [6.2 The separator machine — over a flow's *items*](#62-the-separator-machine--over-a-flows-items)
+  - [6.3 The run scanner — over a *run*](#63-the-run-scanner--over-a-run)
+- [7. Runs: any number, any kinds](#7-runs-any-number-any-kinds)
+- [8. Why this covers every run — the argument, not the test suite](#8-why-this-covers-every-run--the-argument-not-the-test-suite)
+  - [8.1 Placement is prefix-determined, so *n* is never an input](#81-placement-is-prefix-determined-so-n-is-never-an-input)
+  - [8.2 The per-comment answer set is finite, and the classifier is total](#82-the-per-comment-answer-set-is-finite-and-the-classifier-is-total)
+  - [8.3 "Any kind" is a three-letter alphabet, not an open axis](#83-any-kind-is-a-three-letter-alphabet-not-an-open-axis)
+  - [8.4 Every local rule reads at most one neighbour](#84-every-local-rule-reads-at-most-one-neighbour)
+  - [8.5 Where one neighbour is *not* enough](#85-where-one-neighbour-is-not-enough--and-why-that-is-still-bounded)
+  - [8.6 The fixed point, restated for runs](#86-the-fixed-point-restated-for-runs)
+- [9. A worked example](#9-a-worked-example)
+- [10. Coverage: what each gate actually varies](#10-coverage-what-each-gate-actually-varies)
+- [11. The functions to be careful about](#11-the-functions-to-be-careful-about)
+- [12. Debugging a comment bug](#12-debugging-a-comment-bug)
+- [13. Where the rules genuinely run out](#13-where-the-rules-genuinely-run-out)
 
 ---
 
@@ -107,14 +118,14 @@ Re-attaching them is this algorithm.
 
 ### 1.2 What "correct" means here
 
-Three properties, and all three are gated (§8):
+Three properties, and all three are gated (§10):
 
 1. **Preservation.** Every comment in the input appears exactly once in the
    output, with its text unchanged and its kind unchanged. `gren format` never
    edits comment text. (It does re-*indent* the continuation lines of a
    multi-line `{- … -}`; that is layout, not text.)
 2. **Faithful placement.** The comment lands beside the code the author wrote it
-   beside — rules **C1–C6** in [commentHandling.md](commentHandling.md).
+   beside — rules **C1–C7** in [commentHandling.md](commentHandling.md).
 3. **Idempotency.** `format(format(x)) == format(x)`, byte for byte. Formatting
    is a fixed point.
 
@@ -268,7 +279,9 @@ In words:
    there are no comments in the tree, and every node's row range is exactly what
    the author wrote.
 2. `Comments.lptAddComments` folds over the comment stream in source order,
-   placing each one. Four phases per comment (§4.2–§4.5).
+   placing each one. Four phases per comment (§4.2–§4.5), plus one re-decision
+   for the neighbour a new comment has just joined in a gap
+   (`repairTornGapRun`, §7's R2).
 3. Two repairs run over the finished tree, for placements that only become
    wrong once you can see the whole thing (§4.6).
 4. `SortSymbols` reorders exposing lists and import groups — comments have to
@@ -545,7 +558,7 @@ formatter moved it in.
 
 So the boundary rule is not only an idempotency device. Half of what it protects
 is meaning, and that half is invisible to every gate that compares the formatter
-against itself — which is why §8's coverage argument leans on the elm-format
+against itself — which is why §10's coverage argument leans on the elm-format
 oracle and the generator's oracles, not just on the fuzzers.
 
 Three tests make a comment stay outside:
@@ -672,8 +685,8 @@ child, so it renders at the body's own column instead of gluing onto the head:
 
 | wrapper | redirected? |
 |---|---|
-| `IndentedBlock` (a `let` binding's value) | always |
-| `BodyBlock` **as a declaration's value** | always |
+| `IndentedBlock` (a `let` binding's value, a `when` branch's body) | always — **except inside a bracket container** |
+| `BodyBlock` **as a declaration's value** (`isDeclValueContainer`) | always |
 | `BodyBlock` elsewhere (an array item, a step body, a call argument) | only when the comment cannot ride the row |
 | `PipelineStep` | only when the comment cannot ride the row |
 | `SoftIndentedBlock` (a lambda body on the `->` row) | only a `--` |
@@ -690,6 +703,18 @@ emits a shape that reparses into the other structure and moves.
 
 Read those arms as one rule: **redirect exactly when the body cannot share the
 head's row anyway.**
+
+The bracket exception in the first row is that rule again, and it is worth
+reading because the arms state their premise as a fact about the *box* when it is
+really a fact about the *container*. "This body always starts a line of its own"
+is true of an `IndentedBlock` holding a `let` binding's value and false of the
+same box holding a **record field** — `folderInsertRecordField` builds a
+lambda-valued field as an `IndentedBlock`, and inside a bracket that box is an
+**item**, which renders after the container's `, `. Redirected inside, a comment
+written in the `,` gap stacked above `fld =`; the reparse read it as own-line and
+moved it in front of the separator, for ever. Every other field shape had always
+rendered it `, {- c -} fld =`. The same premise error one constructor over is
+what the `BodyBlock` row's `isDeclValueContainer` gate exists for.
 
 ### 4.5 Phase 4 — which role?
 
@@ -793,9 +818,9 @@ The diamonds, in code terms:
 |---|---|
 | in a record update's base…first-field region? | `isRecordUpdateBox containerBox && Array.all isCommentNode before` |
 | before the base name? | `commentPrecedesUpdateBase` — the base's start position is recorded, so this is a fact, not a guess |
-| beside the `\|` separator? | `leadsAcrossUpdateSeparator` — a single-line `{- -}` on the base's row or the first field's row |
+| beside the `\|` separator, and may the whole run cross? | `leadsAcrossUpdateSeparator` — a single-line `{- -}` on the base's row or the first field's row, **and** `gapRunCrossesTogether` |
 | on the base's row? | `row == updateBaseRow` |
-| in the `,` gap? | `leadsAcrossItemSeparator` — a single-line `{- -}` on the previous item's row or the next item's row; **never** in an exposing list |
+| in the `,` gap, and may the whole run cross? | `leadsAcrossItemSeparator` — a single-line `{- -}` on the previous item's row or the next item's row, **and** `gapRunCrossesTogether`; **never** in an exposing list |
 | on a row of its own? | `bracketPrevRow < 0 \|\| row /= bracketPrevRow` (`bracketItemRow` keys a previous comment by its *last* row) |
 | opener slot before a `"""…"""` item? | `Array.isEmpty before && nextItemBlocksFrontGlue` — front-gluing there would break the string's equal indentation and stop the output parsing |
 | can its text share a line? | `bracketKindRole` — a single-line `{- -}` can; a `--` or a multi-line `{- … -}` cannot |
@@ -808,11 +833,15 @@ comment glued in front of a declaration).
 *(Sources: `docs/diagrams/comment-classify-flow.dot` and
 `comment-classify-bracket.dot`.)*
 
-Three things to read off them:
+Four things to read off them:
 
 - **Every path ends in a role.** There is no fallback, no "unknown", and no
   branch that defers to the renderer. That totality is what §2.1's "decided
-  exactly once" means in practice.
+  exactly once" means in practice, and §8.2's half of the completeness argument.
+- **The two C2 diamonds are the only ones that ask about the comment's
+  neighbours rather than about the comment.** `gapRunCrossesTogether` is the
+  conjunct that makes them all-or-nothing over the run (§7's R2); everything else
+  on both diagrams reads this comment's own position, kind and text.
 - **Every row test in them is the same question** — *is the comment on the row the
   thing before it ends on?* — and the branches differ only in how that row is
   computed: `bracketItemRow` in a bracket list, `chainedRefRow` in a binop chain,
@@ -902,17 +931,36 @@ v =
 
 Its scoping is as important as its existence:
 
-- Only a run whose leader is `LeadsOwnLine` **and** brings its own rows (a
-  genuinely multi-line `{- … -}`). Role alone is not "renders own-line" — the
-  render layer keeps a single-line block comment inline regardless, which is why
-  `[ 1 ] {- one -} {- two -}` stays put. Lifting on the role alone broke nine
-  fixtures.
-- A `--` is deliberately excluded even though it also ends its row; several
-  fixtures pin an own-line `--` staying at the construct's indent, and whether
-  those should detach is a separate question with its own fixtures.
-- The whole run moves together, and only the leader becomes `Standalone` — a
-  `-- c` glued behind it keeps `TrailsPrevious`, because that is the tree the
-  reparse produces.
+- The lift is a **suffix**, not the whole run. `peelOwnLineTrailingRun` splits at
+  the earliest member that renders below the declaration and leaves everything in
+  front of it where it was written. A run's leader can perfectly well glue onto
+  the declaration's last row while a later member cannot, so asking the question
+  of the *leader* — which is what this did until 2026-08-06 — keeps a whole run
+  glued behind a leader that glues. (`firstRowOfItsOwn` is the scan that finds the
+  cut; it is one of the three run state machines in §6.)
+- The split has to live in the peel rather than in the caller, because the run is
+  collected by descending through each node's last child: a kept prefix could not
+  be put back afterwards without re-nesting comments the descent had already
+  lifted out.
+- **Two** things make a member render below, and they are different questions:
+  `runRendersBelowDeclaration` (the member brings its own rows — `LeadsOwnLine`
+  *and* a genuinely multi-line `{- … -}`), and **the member in front of it is a
+  `--`**, which swallows the rest of its row so everything after it is on a later
+  one whatever its own kind says. A `tailComment` field carries "this level's tail
+  is a `--`" up to the level above, which is what the first member of an outer run
+  has to know.
+- Role alone is not "renders own-line" — the render layer keeps a single-line
+  block comment inline regardless, which is why `[ 1 ] {- one -} {- two -}` stays
+  put. Lifting on the role alone broke nine fixtures.
+- A `--` is deliberately excluded from `runRendersBelowDeclaration` even though it
+  also ends its row; several fixtures pin an own-line `--` staying at the
+  construct's indent, and whether those should detach is a separate question with
+  its own fixtures. Note it still *causes* a cut for the member after it — being
+  a reason for somebody else to detach and being detachable are not the same
+  test.
+- The lifted suffix moves together, and only its first member becomes
+  `Standalone` — a `-- c` glued behind it keeps `TrailsPrevious`, because that is
+  the tree the reparse produces.
 - `descendsForTrailingRun` limits how deep the peel looks: only **flow
   wrappers**, ones that render their children and nothing after them. A
   container that renders a closing delimiter does not qualify — the delimiter is
@@ -1044,7 +1092,7 @@ matter**; the owner also decides what else the comment is grouped with.
 **`SortSymbols`** reorders exposing lists and import groups. A comment must
 travel with the name that owns it, or `(a {- c -}, b)` and `(b, a {- c -})` land
 on different bytes — and the same module written in two author orders must
-format identically (this is checked by an oracle; §8). `takeSameRowTrailing`
+format identically (this is checked by an oracle; §10). `takeSameRowTrailing`
 chains a whole trailing run onto its name; `unfoldLastTrailing` handles the
 closing-`)` pinning; `hoistBracketLeadingComments` handles a comment written
 before the first item.
@@ -1125,11 +1173,17 @@ type alias FlowState =
     { separator : NextSeparator }
 ```
 
-with `NextSeparator` distinguishing `AlreadyTerminated` (after a `--`, or a
-single-line own-line comment: nothing may glue back onto that line) from
-`TerminatedByBlockComment` (after a multi-line `{- … -}`: a same-row trailing
-comment *does* glue onto its `-}` line). The old two-row state machine that
-re-derived placement at render time is gone.
+`NextSeparator` has six values and is the machine §6.2 describes in full. The old
+two-row state machine that re-derived *placement* at render time
+(`prevRowBlock` / `prevRowLine` / `prevElided`) is gone; what is left carries only
+"what has the row in front of me got on it", which is not a placement and cannot
+be re-derived from rows.
+
+`decide` is **total** — it returns a `Decision`, not a `Result` — so there is no
+arm that can fail and no unhandled combination of item and state. The one item
+kind it cannot receive (`WhenBranchItem`, whose nodes route through a dedicated
+renderer) still carries a real policy rather than an error, so a routing change
+cannot turn into a crash.
 
 ### 5.2 The three shapes of comment
 
@@ -1160,6 +1214,13 @@ The predicates that ask it, all in `Render/NodeClassify.gren`:
   Format¹ renders flat, the break happens anyway, and format² sees the later
   sibling on a later row and renders broken. Folding this predicate into the
   same decision makes format¹ commit to the shape format² will agree with.
+  Note the **grain**: this is a question about a *gap*, so `audit-predicates.py`
+  asks it of a whole comment run and not of one member. Asked per member it
+  reported 8,527 lies that were not lies — in a run there is always another
+  reason for the break, so a `--` over-claims (delete it and the other member
+  still breaks the row) and a single-line `{- -}` that merely *occupies* a row
+  under-claims. A claim whose direction is a pure function of the run's
+  composition is a grain mismatch, not a layout bug.
 - `literalCommentsRideFlatLine` — may a bracketed literal stay on one line?
 And one fact that is **not** a predicate at all, because the rendered box
 carries it: `B.endsOpen` — would gluing onto this box's last line land *inside*
@@ -1214,12 +1275,155 @@ changes the emitted line.
 
 ---
 
-## 6. Runs: any number, any kinds
+## 6. The three state machines
+
+Nothing in this algorithm iterates over "a run" as a whole object with a length.
+Every part of it is a small machine that takes one thing at a time and carries a
+bounded amount of state forward. That is not a stylistic note — it is the reason
+§8's completeness argument works, so the three machines are worth naming
+individually. Each one has a state set you can write out on one line.
+
+### 6.1 The attachment sweep — over the comment *stream*
+
+`lptAddComments` folds `addOneComment` over the whole file's comments, in source
+order, carrying:
+
+```gren
+type alias CommentState =
+    { settled : Builder.Builder LPNode   -- root children no later comment can reach
+    , target  : Maybe LPNode             -- the one that might still receive comments
+    , rest    : Array LPNode             -- everything after `target`
+    }
+```
+
+The machine is a **monotone cursor**: comments arrive in row order and the root's
+children are already in sorted, non-overlapping row order, so once a comment's
+row passes a child, no *later* comment can reach that child again and it retires
+into `settled`.
+
+The performance argument for it is the obvious one — an `Array.Builder` push is
+amortized O(1), so the whole sweep is O(n + m) rather than O(n²) on a file that
+is mostly top-level comments. The *structural* consequence matters more, and §8
+leans on it directly:
+
+> When comment *k* is placed, comments *k+1 … n* are not in the tree yet.
+
+So a comment's role is a function of the code and of the comments **written
+before it**, and never of how many follow. A run of five is the same function
+applied five times.
+
+The price is that a decision genuinely needing a later member cannot be taken
+in the fold at all, and the algorithm pays it in exactly two ways, both of them
+named:
+
+- **Re-decide on arrival.** `repairTornGapRun` re-asks any still-`LeadsNext`
+  sibling the moment a comment lands next to it, by calling
+  `classifyCommentKind` again over the children array that now holds the whole
+  run. Only a role that is not yet final is re-asked, and re-running the
+  classifier on an unchanged neighbourhood returns what it returned before, so
+  this is idempotent by construction.
+- **Repair the finished tree.** `detachOwnLineTrailer` and
+  `rehomePipelineStepTrailers` (§4.6) run once, at the end, over everything.
+
+Anything else that needs the whole run is a quantifier rather than a decision,
+and there are three of those (§8.5).
+
+### 6.2 The separator machine — over a flow's *items*
+
+This is the one that materializes a run. `FlowPolicy.decide` is a transition
+function: it takes the current `NextSeparator`, one item's `ItemFacts`, and
+returns the item's `Placement` plus the next state. Six states:
+
+| state | what it means about the row in front of the next item |
+|---|---|
+| `FirstItem` | nothing precedes |
+| `FlowSep` | ordinary live content — the next item may share the row |
+| `HardNl` | a block ended, or a comment glued onto an already-broken line |
+| `AlreadyTerminated` | a `--` (or a single-line comment standing alone) ended the line |
+| `TerminatedByBlockComment` | a multi-line `{- … -}` ended the line, and its `-}` row is glueable |
+| `TerminatedByOwnLineComment` | the row holds **nothing but comments** |
+
+What each item kind leaves behind:
+
+| item | leaves |
+|---|---|
+| a plain token | `FlowSep` |
+| `--` | `AlreadyTerminated` |
+| multi-line `{- … -}` | `TerminatedByBlockComment` |
+| single-line `{- -}` riding a live row | `FlowSep` |
+| single-line `{- -}` that glued onto a hard-broken line | `HardNl` |
+| single-line `{- -}` that opened a row of its own | `TerminatedByOwnLineComment` |
+| single-line `{- -}` standing alone after a terminated line | `AlreadyTerminated` |
+| `IndentedBlock`, `PipelineStep` | `HardNl` |
+| `BodyBlock`, `SoftIndentedBlock` | `FlowSep` |
+
+And what each state does to what comes next — the two columns being genuinely
+different questions, which is the whole reason the state set is this size:
+
+| state | next **token** | next **comment** |
+|---|---|---|
+| `FirstItem` | `AsFirst` | `AsFirst` |
+| `FlowSep` | `SoftSep` | glues (`GlueSpace`) or takes its own row, by role |
+| `HardNl` | `OwnLine` | glues or takes its own row, by role |
+| `AlreadyTerminated` | `GlueNoSep` | glues if its role says the author wrote it there |
+| `TerminatedByBlockComment` | `GlueNoSep` | glues onto the `-}` row, by role |
+| `TerminatedByOwnLineComment` | `OwnLine` | glues or takes its own row, by role |
+
+Three of these six distinctions were each bought with a bug, and they are the
+reason this cannot be collapsed into "did something break the line":
+
+- `AlreadyTerminated` vs `TerminatedByBlockComment` — a comment written after a
+  `--` on the same row is *inside its text* and never becomes a node at all, so
+  nothing may ever glue back onto a `--`'s line. A multi-line `{- … -}` has a
+  closing row that a same-row trailing comment legitimately shares.
+- `TerminatedByOwnLineComment` vs both — a row holding only comments must not
+  space-join the next **token** onto it. Answering `FlowSep` there shifted a
+  broken call's function name right while its arguments kept their column, and a
+  call's arguments must be indented past the function token, so
+  `\item ->` ⏎ `{- c -} fn` ⏎ `arg` **reparsed as** `(\item -> fn) arg`. That is
+  an AST change, invisible to every idempotency check; `--show`'s AST comparison
+  is what caught it.
+- `HardNl` vs `FlowSep` after a comment that *glued* — a glued comment did not
+  terminate its line, so `FlowSep` would space-join the next token onto it. For a
+  `let` binding that is not merely wrong but unparseable: a binding must start at
+  the block's column.
+
+The `next comment` column is where rule **C7** lives at render time. Until
+2026-08-08 `AlreadyTerminated` answered `GlueNoSep` unconditionally, which split
+every authored one-row run into one row per member, and
+`TerminatedByOwnLineComment` let a following comment merge *up*, which joined a
+run the author had split. Both are now role-aware, which is to say: **gren never
+moves a comment between rows.**
+
+### 6.3 The run scanner — over a *run*
+
+`firstRowOfItsOwn` is the smallest of the three and the easiest to read as a
+machine. It walks a trailing comment run left to right looking for the first
+member that renders below the declaration, carrying `{ index, prev, found }`:
+
+```
+state: still-on-the-declaration's-row  ──┐
+                                         │  member brings its own rows
+                                         │  OR the member before it is a `--`
+                                         ▼
+       cut found (everything from here down detaches)
+```
+
+Two states, and the transition reads exactly **one** neighbour: the member in
+front of the one being examined. `endsItsRow` is that read, and it is true of a
+`--` and of nothing else.
+
+Note what is *not* here: no length, no lookahead, no "if the run has more than
+two members". That is the shape every rule in this algorithm has, and §8 is the
+argument that it is enough.
+
+---
+
+## 7. Runs: any number, any kinds
 
 The question this document is really here to answer: what happens with *n*
-comments of mixed kinds in one place?
-
-Three rules, applied consistently everywhere:
+comments of mixed kinds in one place? §8 argues *why* the answer is "the same
+thing that happens with one"; this section is the five rules that make it so.
 
 **R1 — The reference row grows through the run.** Whenever a placement asks
 "what row does the thing before me end on", the answer counts any comment run
@@ -1244,7 +1448,48 @@ was the last to learn it, and until it did, the second comment of a chain
 dropped to its own row below the chain — where the reparse re-homed it to column
 1.
 
-**R2 — Once a run breaks, it stays broken.** If any comment in a leading run
+R1 is also what keeps the *fixed-point* criterion true inside a run.
+`classifyCommentKind`'s rule is "the row it is decided from equals the row it
+renders on". For the first member that is the code's row; for the second it is
+the first member's **last rendered** row, which is what R1 computes and what the
+reparse will see. Drop R1 and the criterion still holds per comment and fails per
+run.
+
+**R2 — One gap is one attachment: the run crosses together or not at all.** Rule
+C2 sends a comment past an unrecorded `,` / `|` to the item *after* it, and that
+test (`leadsAcrossItemSeparator`) applies only to a single-line `{- -}` — a `--`
+and a multi-line `{- … -}` both stay with the item above. Asked per member, a
+mixed run in one gap therefore **tears in half**. So the question is asked of the
+whole run, by `gapRunCrossesTogether`: it crosses only if every member would.
+
+The two shapes below differ in nothing but the run's composition, and that is the
+whole of what decides where both members land:
+
+```gren
+-- both members can cross, so the run crosses:
+v =
+    [ 1
+    , {- a -} {- b -} 2
+    ]
+
+
+-- one member cannot, so neither does:
+w =
+    [ 1 {- a -} -- b
+    , 2
+    ]
+```
+
+Asked per member, the second one came out as `[ 1 -- b` ⏎ `, {- a -} 2` — the run
+torn, and the author's **order reversed**. `repairTornGapRun` is the other half:
+because comments attach one at a time (§6.1), a member can only see the ones
+written *earlier*, so the earlier decision has to be re-taken once the run is
+complete. It re-takes it by calling `classifyCommentKind` again over the children
+array now holding the whole run, rather than naming a replacement role — the
+fallback is `RidesInline` or `TrailsPrevious` depending on a branch above, and a
+second copy of that choice is exactly the kind of mirror this repo has paid for.
+
+**R3 — Once a run breaks, it stays broken.** If any comment in a leading run
 cannot share a line, then *every* comment of the run stands on its own row, and
 so does the body:
 
@@ -1272,20 +1517,268 @@ Letting later members jump onto the item's line is not a fixed point: on reparse
 `assembleBrokenWithComments` and `renderWhenBranchesBox` apply the same
 all-or-nothing rule. elm-format agrees here.
 
-**R3 — A run moves as a unit.** `detachOwnLineTrailer`, `SortSymbols`'
+**R4 — A run keeps the rows you gave it.** This is rule
+[C7](commentHandling.md#c7--a-comment-keeps-the-rows-you-gave-it), and it is the
+run's own layout as opposed to the code's: members written on one row stay on one
+row, members written apart stay apart. It is enforced in the two arms of §6.2's
+`next comment` column — `commentPlacement`'s `AlreadyTerminated` arm (which
+otherwise splits an authored one-row run) and the inline arm's
+`TerminatedByOwnLineComment` handling (which otherwise joins a split one). Both
+were unconditional until 2026-08-08, each in the direction that *lost* the
+author's rows, and each matched elm-format, which re-decides a run's rows from
+the context around it. Keeping them is a deliberate divergence
+([#30](elmFormatComparison.md#divergence-30)).
+
+R4 is what makes the answer to "what about a run?" independent of where the run
+sits. A rule that decided rows per context would need a case for every context a
+run can appear in; this one has none.
+
+**R5 — A run moves as a unit.** `detachOwnLineTrailer`, `SortSymbols`'
 `takeSameRowTrailing`, and `VerticalSpace`'s `computeDetachedBelow` all treat
 the run as the thing that has an owner, a sort position, and a blank line —
-never its first member alone.
+never its first member alone. (With one refinement that is not an exception to
+it: `detachOwnLineTrailer` moves a run's **suffix**, chosen by §6.3's scanner —
+the members in front of the cut are a run in their own right and they move as a
+unit too. See §4.6.)
 
-Between them these three cover the general case: any number of comments, in any
-mix of kinds, in any gap. The remaining per-comment question — can *this* text
-ride? — is answered per member by `commentTextCanRide`, which is why
-`[ 1 {- a -} {- b -} ]` stays on one line while adding a `--` anywhere in that
-run opens it up.
+The remaining per-comment question — can *this* text ride? — is answered per
+member by `commentTextCanRide`, which is why `[ 1 {- a -} {- b -} ]` stays on one
+line while adding a `--` anywhere in that run opens it up.
+
+Here are all five at once. Six comments, three kinds, one gap:
+
+```gren
+-- you write, and gren-format writes:
+v =
+    fn a {- 1 -} {- 2
+                    over two rows -} {- 3 -} {- 4
+                                                again -} {- 5 -} -- 6
+```
+
+Every member keeps the author's single logical row (R4); each multi-line member's
+continuation is re-indented under its own `{-`; member 3 glues after member 2's
+`-}` two rows down rather than leading anything, because the reference row grew
+through the run (R1); and the whole thing is a fixed point — `--show` exits 0.
+Nothing in producing it consulted the number six.
 
 ---
 
-## 7. A worked example
+## 8. Why this covers every run — the argument, not the test suite
+
+§10 is the coverage evidence: what each gate varies and what it found. This
+section is the part that does not depend on any of it — the reason to expect
+*n* comments in one gap to work given that one comment works, argued from the
+shape of the code rather than from a green suite. The claim:
+
+> For any *n* ≥ 0 comments of any kinds in one place, the algorithm assigns
+> exactly one placement to each; and a run of *n* reaches no decision that a run
+> of two does not.
+
+The second half is the interesting one, and note what it is **not**. It is not
+"the output is always right" — where two spellings arrive at the formatter as the
+same input, one of them has to move (§4.5), and §13 lists the three places the
+information genuinely is not there. It is not "always a fixed point" either:
+there are known non-idempotent inputs, all of them a parser bug upstream of here
+(§10). What it *is* is the statement that **length and mix are not a source of
+new cases** — so the correctness of a run reduces to the correctness of one
+comment and of its boundary with one neighbour, which is a finite thing to check.
+
+It rests on four properties of the code, plus one honest boundary.
+
+### 8.1 Placement is prefix-determined, so *n* is never an input
+
+The attachment sweep (§6.1) folds over comments in source order, and when comment
+*k* is placed, comments *k+1 … n* are not in the tree. Therefore
+
+```
+role(k) = f(code, comments 1 … k−1)
+```
+
+and `f` is the same function for every *k*. There is no branch anywhere in
+`Comments.gren` that asks how many comments a gap holds, because at the moment
+the question is asked the answer is not knowable. *n* enters the algorithm in
+exactly one way: as the number of times `f` is applied.
+
+This is why "does it handle a run of 40?" is not really a question about runs. It
+is the same question as "does it handle the 40th comment in a file", and the fold
+does not distinguish those two cases in the first place.
+
+### 8.2 The per-comment answer set is finite, and the classifier is total
+
+`classifyCommentKind` returns a `CommentRole` — not a `Maybe`, not a `Result`.
+Both decision diagrams in §4.5 have the property to check here: **every path ends
+in a role.** There is no fallback arm, no "unknown", and no branch that defers the
+question to the renderer.
+
+So after *n* comments the tree carries *n* independent annotations drawn from a
+**7-element set**. That is what rules out the failure mode people expect from a
+comment placer — a combinatorial case analysis over configurations, with the
+uncovered corner. There are no configurations; there are *n* leaves.
+
+The renderer inherits this: `FlowPolicy.decide` is total too, returning a
+`Decision` rather than a `Result`, so no combination of state and item can fail
+to produce a placement.
+
+### 8.3 "Any kind" is a three-letter alphabet, not an open axis
+
+Gren has two comment syntaxes, but every layout question about a comment's kind
+goes through one function, `commentEndsItsLine`, which reads the comment's own
+*text* and distinguishes three shapes:
+
+| | can code follow it on the same line? |
+|---|---|
+| `-- like this` | no |
+| `{- like this -}` on one row | yes |
+| `{- like this` ⏎ `and this -}` | no |
+
+Everything else about a comment — how long it is, what it says, how it is
+indented — is not read by any decision. So "any variety of comments" is not an
+unbounded space to cover. It is three letters, and the classifier's kind-sensitive
+branches are a case analysis over those three.
+
+(`commentTextCanRide` asks the same question of the same text; the pair exists so
+that no site re-derives the table. Confusing either with `commentRidesInline` —
+which asks the stored *role* — is a real and recurring mistake, and §5.2 says so
+at length.)
+
+### 8.4 Every local rule reads at most one neighbour
+
+This is the load-bearing one. Here is every place a run's members interact —
+every *local* one; §8.5 is the three that are deliberately not local:
+
+| rule | what it reads |
+|---|---|
+| R1 reference rows (`prevLineGlueRow` / `prevBlockGlueRow` / `bracketItemRow` / `chainedRefRow`) | the **previous** member's last row |
+| the render fold (§6.2) | a 6-value state summarising the row in front |
+| the peel scanner (§6.3) | the **previous** member's kind (`endsItsRow`) |
+| `commentTextCanRide` | the member's own text |
+
+Not one of them looks two members back, or two forward.
+
+#### What that implies about runs
+
+Think of a run as a chain of **boundaries** — each member and the one thing
+before it:
+
+```
+code │ A │ B │ C │ code
+     ↑   ↑   ↑   ↑
+     each rule above is a function of ONE of these
+```
+
+If every rule reads a single boundary, then a run's layout is decided entirely by
+*which boundaries it contains*, and neither its length nor a member's position in
+it is an input at all. Since §8.3's alphabet has three letters, there are exactly
+**nine possible comment→comment boundaries**, and a run of any size is built out
+of those nine.
+
+So a bigger run can only reach something new in one of two ways: by containing a
+boundary that a smaller one could not, or by putting a member at **two**
+boundaries at once. The first stops being possible once all nine have appeared;
+the second is only observable if some rule reads both sides, which by the table
+above none does.
+
+#### The prediction, and what the sweeps found
+
+That is a falsifiable claim about what a test varying run size will turn up. Read
+"**finds bugs**" as "this probe reaches something no earlier probe did" and
+"**finds nothing new**" as "everything it reports was already known":
+
+| probe | what it newly reaches | predicted | measured |
+|---|---|---|---|
+| one comment | nothing — every neighbour is *code* | (the baseline) | the state of every gate here until 2026-08-06 |
+| `--run 2` | the first comment→comment boundary ever tested | **finds bugs** | **20 findings** in 19,081 gaps; one real family, fixed the same day |
+| `--run 3` | nothing — `block│block` was already there at n=2 | **nothing new** | 17 findings in 57,885 gaps, **all 17 a known upstream parser bug** |
+| `--mix-pairs` | the other eight boundaries — a *different* kind on each side | **finds bugs** | **1,752 findings** in 115,770 gaps, **1,718 formatter-side**, in three bugs — one of them R2 above |
+| `--mix-triples` | nothing — every ordered pair already appeared | **nothing new** | 154 findings in 475,824 gaps, **all 154 known upstream** |
+
+Two axes, swept independently, each finding real bugs at exactly the size where a
+new boundary first becomes expressible and nothing beyond it. The two
+"nothing new" rows are the load-bearing ones: if any rule *had* been reading
+both sides of a member,
+`--mix-triples` was 475,824 chances to catch it, and it caught nothing
+formatter-side.
+
+That is the argument being **confirmed** rather than merely untested — it said in
+advance which sweeps would pay for themselves and which would not, and it was
+right both times. It is still corroboration and not proof: these sweeps vary runs
+over the positions the corpus happens to contain, so a rule that reads two
+neighbours *in a shape nothing here writes* would go unseen (§10's first caveat).
+
+### 8.5 Where one neighbour is *not* enough — and why that is still bounded
+
+Three rules genuinely cannot be decided from a neighbour, because they are about
+the run as a whole. Each is stated as a **quantifier over the run**, not as a case
+analysis over its length:
+
+| rule | the quantifier | §7 |
+|---|---|---|
+| may the run cross an unrecorded separator? | ∀ members: could this one cross? (`gapRunCrossesTogether`) | R2 |
+| may the run ride a flat line? | ∀ members: can this one ride? (`glueLeadingCommentRun`'s `firstBreak`, `literalCommentsRideFlatLine`) | R3 |
+| who owns the run — for detaching, sorting, blank lines? | the run is the unit (`detachOwnLineTrailer`, `takeSameRowTrailing`, `computeDetachedBelow`) | R5 |
+
+A `∀` over a set is still length-independent: `Array.any` does not care how many
+elements it folds over. The two boolean ones are also **monotone** — adding a
+member can only ever turn the answer off, never on — so they can only make a
+comment stay where it was written, never move one that was not already moving.
+That is what makes them safe to add to a rule that was previously per-member: a
+gap holding one comment, and a homogeneous run that already moved together, are
+unaffected by construction. So §8.1–8.4's conclusion survives these three intact.
+
+What does *not* survive is any comfort about there being only three. **Every one
+of them was written per-member first, and every one was found as a bug** — the
+torn gap reversing the author's order, the run half-riding and never settling,
+the blank line above a floating run alternating between one and two. The
+per-member version is the natural thing to write, it is correct for a run of one,
+and a corpus of hand-written fixtures will not contain the mixed run that breaks
+it.
+
+So the honest form of the completeness claim is:
+
+> Given that no rule reads more than one neighbour except the three that quantify
+> over the whole run, length and composition add nothing past two members.
+
+The premise is a property that has to be **maintained**, not one anything
+enforces. That is precisely what the run axes of §10 are for: they do not prove
+the argument, they test its premise. A fourth all-or-nothing rule discovered
+tomorrow would not break the reasoning — it would be added to the table above,
+and the reasoning would carry on unchanged.
+
+### 8.6 The fixed point, restated for runs
+
+Nothing above would matter if the *n* placements were individually stable and
+collectively not. They are not collectively anything: the roles are independent
+leaf annotations (§8.2), and each is chosen under `classifyCommentKind`'s stated
+criterion —
+
+> a `CommentRole` is a reparse fixed point: the row it is decided from equals the
+> row it renders on
+
+— with R1 supplying the row for members after the first. A reparse of the output
+runs the same fold over the same comments in the same order against code whose
+rows the first format already committed to, so it re-derives the same *n* roles.
+
+So idempotency for a run is not a separate property needing a separate argument:
+it is *n* instances of the per-comment one, and the only thing joining them is
+R1's reference row.
+
+Which is also the practical advice. When a run misbehaves, the three things that
+have actually been wrong are, in order of how often: a **stale reference row**
+(R1 not grown through the run — the binop chain, the bracket item), one of
+§8.5's three **quantifiers written per-member** (the torn gap, the half-riding
+run, the blank line), and a **missing state** in §6.2's machine (a row holding
+only comments, which had no state of its own until a run could produce one).
+Check those three before designing a rule.
+
+Where a role could not be made to satisfy that criterion in place, the fix is
+never a cleverer rule — it is to make **format¹ build the tree format² would
+build** (`detachOwnLineTrailer`, `rehomePipelineStepTrailers`, §4.6). Those are
+repairs precisely because they need the finished tree, which §6.1 says the fold
+cannot have.
+
+---
+
+## 9. A worked example
 
 Input:
 
@@ -1357,24 +1850,28 @@ node ../gren-format/app --show Ex1.gren  # parse → format → reparse → AST-
 
 ---
 
-## 8. Why we believe it is complete
+## 10. Coverage: what each gate actually varies
 
-"It handles every case" is a claim about coverage, so here is the coverage
-argument, gate by gate. The important column is the last one — what each gate
-**cannot** see — because that is what the next gate exists for.
+§8 is the argument. This is the evidence, gate by gate. The important column is
+the last one — what each gate **cannot** see — because that is what the next gate
+exists for.
 
 | gate | what it varies | what it proves | blind to |
 |---|---|---|---|
-| **Fixture suite** (`run-tests.sh`, 342 `.formatted.gren` across 12 suites) | hand-written cases | exact bytes, AST equivalence, idempotency, per fixture | anything nobody thought to write |
-| **`fuzz-idempotency.py`** | inserts `{- ¤ -}` into **every** inter-token gap of every fixture, formats twice | the fixed point, over ~56,000 comment positions | one comment at a time; only says *whether* something moved |
-| **`check-decision-stability.py`** | same gaps, but diffs the *decisions* | **which** decision was unstable, as named branches with no positions in them | a decision nobody traced |
+| **Fixture suite** (`run-tests.sh`, 368 `.formatted.gren` across 12 suites) | hand-written cases | exact bytes, AST equivalence, idempotency, per fixture | anything nobody thought to write |
+| **`fuzz-idempotency.py`** | inserts a comment into **every** inter-token gap of every fixture (and, in a second pass, past every declaration's end), formats twice | the fixed point, and — via a marker count — that the comment survives exactly once | only says *whether* something moved |
+| ⤷ `--run N` | the same, with a **run of N** in each gap | the rules whose neighbour is another comment (§8.4) | a run whose members are all one kind has one neighbour shape |
+| ⤷ `--mix-pairs` / `--mix-triples` | run **composition** — every ordered pair, then all 24 non-uniform triples | the boundaries between *different* kinds | — (triples found nothing pairs had not; §8.4) |
+| **`check-decision-stability.py`** | the same gaps and the same run axes, but diffs the *decisions* | **which** decision was unstable, as named branches with no positions in them | a decision nobody traced |
 | **`fuzz-whitespace.py`** | inter-token whitespace | `format(perturbed) == format(original)` — placement must not depend on your spacing | comments |
-| **`matrix-syntax.py --comments`** (68,922 cells) | 41 expression × 25 contexts + 11 type × 15 contexts, × 3 comment kinds × 2 positions, each diffed against **elm-format** | placement *divergence* — a stable, idempotent, AST-preserving wrong answer | more than one comment per cell |
-| **`gen-random.py`** | random-but-legal modules, structure **and** comments | comment **multiset** preservation (drop / duplication / kind change), and **author-order invariance** | shapes outside its grammar |
+| **`matrix-syntax.py --comments`** (68,922 cells) | 41 expression × 25 contexts + 11 type × 15 contexts, × 3 comment kinds × 2 positions, each diffed against **elm-format** | placement *divergence* — a stable, idempotent, AST-preserving wrong answer | shapes outside its vocabulary; it reports zero for those exactly as it does for agreement |
+| ⤷ `--comment-runs` (113,796 cells) | the same cells with a **two-member run**, all nine compositions | that a run is idempotent, AST-preserving and preserved *in order*, over generated syntax | elm-format parity (deliberately not baselined — see below) |
+| **`gen-random.py`** | random-but-legal modules, structure **and** comments | comment **multiset** preservation (drop / duplication / kind change), **author-order invariance**, and predicate/renderer agreement | shapes outside its grammar |
 | **`audit-predicates.py`** | the corpus | that a "does this break?" predicate agrees with the renderer | under-approximation (deliberate) |
 | **`check-render-invariant.py`** | — | the barrier of §2.2 | nothing structural |
+| **`fuzzrun.py`** | drives `gen-random.py` over days, across hosts, with a persistent seed cursor per profile | depth — the conjunctions of features nobody would write | the same as `gen-random.py` |
 
-Two of those deserve emphasis, because they cover holes that look covered:
+Three of those deserve emphasis, because they cover holes that look covered:
 
 - **A dropped comment passes almost everything.** Deleting a comment is
   AST-equivalent, and the output is its own fixed point, so `--show` passes and
@@ -1389,35 +1886,54 @@ Two of those deserve emphasis, because they cover holes that look covered:
   oracle**: emit the same module twice with its import runs and exposing lists in
   reversed author order, with each comment still on the same owner, and require
   byte-identical output. That is something only a generator can do.
+- **A run reassembled *backwards* is a perfectly good fixed point.** Tear a run
+  across a separator with the mover written first (§7's R2) and the output is
+  stable, AST-equivalent and comment-preserving — the multiset oracle discards
+  order along with position. The gates that see it are the marker oracles, which
+  for a run require `¤1 … ¤n` to appear **in source order**. Note the residual
+  hole, stated rather than papered over: torn with the mover written *second*, the
+  output comes out in source order and nothing in this repo can see it at all.
+  That case is pinned by a fixture and was found by enumerating the grid, not by a
+  gate.
 
-**Current state (2026-08-05):**
+**Current state (2026-08-09):**
 
+- Fixture suite: **378 tests, all passing** — 368 fixture cases across 12 suites,
+  plus 10 unit tests.
 - `check-decision-stability.py`: **PASS**, 0 unstable decisions over the corpus.
-- `fuzz-idempotency.py`: 17 findings, and **all 17 are a known upstream parser
-  bug** ([compiler-common#35](https://github.com/gren-lang/compiler-common/issues/35)
+- `fuzz-idempotency.py`: 17 findings at n=1, and **all 17 are a known upstream
+  parser bug**
+  ([compiler-common#35](https://github.com/gren-lang/compiler-common/issues/35)
   — a binary `-` whose right operand starts at the operator's own column parses
   as a negation). They are reported with that label, counted, and **not
   subtracted**: the gate stays red on purpose until the parser fix ships,
   because hiding a finding is how a gate starts lying about its coverage. The
   **formatter-side residual is zero.**
-- `matrix-syntax.py --comments`: 68,922 cells, **0 failing**. The axis swept only
-  two of the three comment kinds until 2026-08-05; adding the multi-line block
-  found 70 non-idempotencies the same afternoon, in two causes, both now fixed —
-  `containerTailKeepsCommentOutside` (16) and a glue row that
-  `bracketRendersMultiline` was deriving from the author's rows for a container
-  the format then collapses (54). Write-up in
-  [`commentRunTesting.md`](commentRunTesting.md).
+- The run axes agree with it and add nothing formatter-side: `--run 2` reads the
+  same 17-all-known; `--run 3` 17-all-known over 57,885 gaps; `--mix-pairs` 43,
+  all 43 known; `--mix-triples` 154 over 475,824 gaps, all 154 known (136 #35, 16
+  [#25](https://github.com/gren-lang/compiler-common/issues/25), 2
+  [#14](https://github.com/gren-lang/compiler-common/issues/14)).
+  `check-decision-stability.py` reports **the same counts with the same issue
+  split** in the `--run 2` and `--mix-pairs` modes — two gates arriving at one
+  number over 100k+ probes, which is what "imports the other's probe definitions
+  by path rather than copying them" is supposed to buy.
+- `matrix-syntax.py --comments`: 68,456 cells formatted, **0 failing, 0
+  UNREVIEWED** — every divergence from elm-format names a catalogue entry. 20,038
+  are byte-identical to elm-format; 73 have **no Elm twin at all** (Elm requires a
+  declaration to start in column 1 and Gren does not, so `elm-format` rejects the
+  *program*, not the translation — [#31](elmFormatComparison.md#divergence-31)),
+  and those are skipped from the comparison, counted, and printed with a shape
+  breakdown on every run.
+- `matrix-syntax.py --comments --comment-runs`: 113,796 cells over all nine
+  two-member compositions, run against oracles 1–3 only.
 
-For the two kinds that had been swept, that last line is the one to quote to a
-sceptic: every place `gren format` and `elm-format` put a `--` or a single-line
-`{- -}` differently is a *decision on record with a reason*, not an unexamined
-difference. The multi-line kind is a day old here, and most of its divergences
-are one family — elm-format re-lays-out a multi-line comment's own body, `-}`
-onto a row of its own, where gren keeps the delimiters you wrote
-([#25](elmFormatComparison.md#divergence-25)). **3,407 cells out of 48,345 are
-still unreviewed**, counted and printed on every run; sampled, they are compounds
-of a comment crossing an unrecorded `|` *and* elm re-flowing the code around it,
-which wants a human verdict rather than a wider auto-classifier.
+That parity zero is the line to quote to a sceptic: every place `gren format` and
+`elm-format` put a comment differently is a *decision on record with a reason*,
+not an unexamined difference. It took several `--interview` sittings to get there
+from 16,141, and the last 3,407 were read down in one — **finding two formatter
+bugs on the way**, which is the argument for reading debt rather than widening a
+classifier until the counter reaches zero.
 
 **And note what a green gate is worth.** This axis ran green for months over two
 of the three comment kinds; adding the third found 70 non-idempotencies the same
@@ -1426,10 +1942,20 @@ that runs green. Check what a gate *varies* before trusting what it reports.
 
 The honest caveats, stated so nobody has to discover them:
 
-- The all-gaps fuzzers inject **one** comment per run. Multi-comment runs are
-  covered by fixtures and by `gen-random.py`, not exhaustively. Two shapes have
-  been found this way that neither matrix could reach; the plan for closing the
-  gap systematically is [`commentRunTesting.md`](commentRunTesting.md).
+- **The run axes are exhaustive in length and composition, not in position.**
+  Both stopped finding anything new at three members (§8.4), over the corpus and
+  over the matrix's generated cells. Neither says anything about a run in a
+  syntactic position that neither the corpus nor the matrix vocabulary contains —
+  and one such shape (a two-field record whose second field holds a lambda with a
+  multi-line body) produced a real bug on 2026-08-09 that the comment axis reads
+  as zero, because it never reaches it. A baseline that does not cover a shape
+  reports zero for it exactly as it reports zero for a shape that agrees.
+- **The comment-run axis has no elm-format baseline, on purpose.** Sampled, it
+  would book ~47,000 UNREVIEWED cells, and a 98k-entry asset half of which reads
+  `UNREVIEWED` reads to a human as reviewed. Runs also *deliberately* diverge
+  (rule C7 / [#30](elmFormatComparison.md#divergence-30)), so a baseline would be
+  detecting drift from a target this axis does not have. Oracles 1–3 still run on
+  every cell. Re-sample when a comment-layout rule changes; do not book it.
 - `matrix-syntax.py` does not cover an `import`'s own syntax or the module
   header against elm-format; the corpus fuzzers reach them, no oracle does.
 - Multi-line string literals are excluded from the matrix by construction
@@ -1437,7 +1963,7 @@ The honest caveats, stated so nobody has to discover them:
 
 ---
 
-## 9. The functions to be careful about
+## 11. The functions to be careful about
 
 If you are changing comment behaviour, these are the places where a small change
 has a large blast radius. The right-hand column is what breaks when it is wrong
@@ -1454,8 +1980,11 @@ has a large blast radius. The right-hand column is what breaks when it is wrong
 | `insertAmongChildren` | the splice index, the synthesized-token skip, the wrapper redirects | a comment between a token and its generated `->`; a comment that forces a break C3 forbids |
 | `classifyCommentKind` | the `CommentRole` | everything downstream; a role that is not a reparse fixed point oscillates for ever |
 | `prevLineGlueRow` / `prevBlockGlueRow` | per-box-kind glue rows | a comment alternating between glued and own-line |
-| `chainedRefRow` / `bracketItemRow` | run chaining (R1) | the second comment of a run dropping below the construct |
-| `detachOwnLineTrailer` + `peelOwnLineTrailingRun` + `descendsForTrailingRun` + `hostsOwnLineTrailer` | lifting a run that renders below its declaration | §1.3's oscillation, exactly |
+| `flowEndsAtBracketClose` | does this flow end in a closing bracket, i.e. is there a glue row at all | a comment gluing onto a row the output does not have (a lambda whose *pattern* ends in a `]`) |
+| `headerTailGlue` | the effect header's position-less tail | a comment on a row with no recorded token on it; scoped away from comments, whose own positions already answer |
+| `chainedRefRow` / `bracketItemRow` | run chaining (§7 R1) | the second comment of a run dropping below the construct |
+| `gapRunCrossesTogether` + `repairTornGapRun` | whether a whole run crosses an unrecorded separator (§7 R2) | a mixed run torn in half, sometimes with the author's order reversed |
+| `detachOwnLineTrailer` + `peelOwnLineTrailingRun` + `firstRowOfItsOwn` + `descendsForTrailingRun` + `hostsOwnLineTrailer` | lifting the *suffix* of a run that renders below its declaration | §1.3's oscillation, exactly; and, if asked of the leader instead of per member, a run kept glued behind a leader that glues |
 | `rehomePipelineStepTrailers` | which step owns a trailing run | two owners that render alike but group differently |
 | `applyCommentToOrigRow` / `lpnExtendElasticBracket` / `moduleWhereCloseRow` | growing derived closes as comments land | the *next* comment of a run escapes the declaration |
 | `tryLeadingGluedAttach` | `LeadsInline` | a comment that fails to travel with its import, splitting an import run |
@@ -1466,7 +1995,7 @@ has a large blast radius. The right-hand column is what breaks when it is wrong
 |---|---|---|
 | `takeSameRowTrailing` / `takeSameRowTrailingIdx` | which name a run belongs to through a sort | two author orders, two outputs |
 | `unfoldLastTrailing` | the closing-`)` pinning | a comment attached to a list instead of to its last name |
-| `hoistBracketLeadingComments` | a comment before the first item | it sorts to the wrong place, or hoists when it should not |
+| `hoistBracketLeadingComments` + `hoistedTailRole` | a comment before the first item, and the role it gets in its **new** slot | it sorts to the wrong place, hoists when it should not, or keeps the old slot's role — which is a role the reparse does not assign |
 | `computeGroupStarts` / `computeDetachedBelow` | blank lines around runs | one blank vs two, alternating |
 
 ### Rendering — `Render/*`
@@ -1474,22 +2003,23 @@ has a large blast radius. The right-hand column is what breaks when it is wrong
 | function | decides | failure mode |
 |---|---|---|
 | `FlowPolicy.decide` | how any item joins a flow | any layout policy living outside it is a divergence generator |
+| `FlowPolicy.NextSeparator` | what the row in front of the next item has on it (§6.2) | collapsing two of the six states: a token space-joined onto a comments-only row (an **AST change**), or an authored one-row run split one-per-row |
 | `FlowPolicy.containerCommentSlot` | the comment slot in a vertical container | four containers classifying differently by accident |
 | `NodeClassify.commentEndsItsLine` / `commentTextCanRide` | the shape table (§5.2) | using the role where the shape was meant, or vice versa |
 | `NodeClassify.commentBreaksFlowRow` | a comment-aware `forceVertical` | flat-then-broken oscillation |
 | `Box.endsOpen` / `asJoinable` | is gluing here safe? | **output that does not parse** — a `]` swallowed by a `--` |
 | `NodeClassify.subtreeEndsWithMultilineBlockComment` | is the box align-carrying? | a comment's continuation row off by a few columns |
 | `MakeRenderBox.commentForcesBracketOpen` | may a literal stay flat? | as above, or a needless break |
-| `MakeRenderBox.glueLeadingCommentRun` / `glueLeadBoxes` | run cohesion (R2) | a run that half-rides and never settles |
+| `MakeRenderBox.glueLeadingCommentRun` / `glueLeadBoxes` | run cohesion (§7 R3) | a run that half-rides and never settles |
 | `MakeRenderBox.commentBracketListBox` | the comment-bearing bracket layout | the biggest single materializer; most bracket comment bugs land here |
 | `CommentBox.multiLineBlockCommentBox` | continuation-line reindent | comment bodies that walk right on every format |
 | `CommentBox.span*` / `peelTrailingCommentNodes` | which comments a renderer peels off | peeling a comment that was supposed to glue, and vice versa |
 | `FlowAssembly.softGlueAlignment` | first-line-only vs align-carrying glue | continuation rows short by the glued prefix's width |
 | `Box.prefix` / `Box.blankLike` | padding width under `Tab`s | drift proportional to the enclosing column |
 
-### The class of bug that keeps recurring
+### Two classes of bug that keep recurring
 
-> **A comment is a child.**
+> **1. A comment is a child.**
 
 Any code that reads a node's children **positionally** — `Array.popLast`,
 "element 0 is the name", "the head is exactly `[name, =, lambdaHead]`" — is
@@ -1504,9 +2034,26 @@ When you review such a site, do not stop at "this one is fine" — trace **why**
 it is fine. A whole-repo audit of these found one live instance and one that was
 **correct by accident**, and the accidental one is the more dangerous of the two.
 
+> **2. A premise about the box is really a premise about the container.**
+
+The redirect arms of §4.4c each rest on a sentence like *"this body always starts
+a line of its own"*, written while looking at one place the box appears. The same
+`LPBox` constructor is reused elsewhere — an `IndentedBlock` is a `let` binding's
+value **and** a record field holding a lambda; a `BodyBlock` is a declaration's
+value **and** an array item — and inside a bracket the box is an *item*, which
+renders after the container's `, `. The premise is false there, and the comment
+that acts on it stacks above a separator the reparse then moves it in front of.
+
+Both known instances are now gated on the container (`isBracketContainerBox`,
+`isDeclValueContainer`) rather than on the box. When you write such a premise,
+write down *which container you were looking at* — that is the fact that goes
+stale, and the code comment that records it is what lets the next reader spot it.
+The general form is the one §1.3 states: **a placement decided from a fact the
+formatting itself invalidates** — here the fact is not a row but a context.
+
 ---
 
-## 10. Debugging a comment bug
+## 12. Debugging a comment bug
 
 The recipe, in the order that wastes the least time:
 
@@ -1530,6 +2077,11 @@ cd gren-format-lib/tests
 ./repro.py <fixture> <kind> <gap> --input            # the spliced source
 ./repro.py <fixture> <kind> <gap> --lpt1             # the tree pass 1 rendered from
 ./repro.py <fixture> <kind> <gap> --lpt2             # …and pass 2
+
+# A run finding's kind is spelled `blockx2` (a run of two) or `block+line`
+# (a mixed run); `repro.py` takes those directly, so a label pasted off any
+# gate's findings list works unchanged.
+./repro.py <fixture> block+line <gap>
 ```
 
 Four hard-won habits:
@@ -1553,10 +2105,19 @@ Four hard-won habits:
   container, look for the container that already agrees. More than once the
   fixture that pins the *opposite* shape already had the answer in its
   description.
+- **For a run finding, reproduce the run — do not guess a smaller shape.** The
+  discriminating input is often larger than it looks: one effect-header finding
+  needed a comment already glued on the `exposing` row, a multi-line one, a
+  single-line one *and* a trailing multi-line after it, and two smaller
+  authorings that looked like the bug discriminated on neither binary. `repro.py`
+  reconstructs exactly what the gate spliced; start there. The same caution
+  applies in reverse to `gen-random.py`: **re-check the unminimized `input.gren`
+  after fixing the minimized one** — one seed has carried two independent bugs,
+  and shrinking kept only the first.
 
 ---
 
-## 11. Where the rules genuinely run out
+## 13. Where the rules genuinely run out
 
 Three places cannot be decided well, because the information is not there. All
 three are documented with worked examples in
@@ -1574,7 +2135,7 @@ three are documented with worked examples in
   recorded position to measure against. Write the list across several lines and
   the two are tellable apart again.
 
-Plus one that is not ours: `compiler-common#35`, §8.
+Plus one that is not ours: `compiler-common#35`, §10.
 
 Where `gren format` and `elm-format` place a comment differently on purpose —
 and there are several such places, each with a reason on record — the list is
@@ -1584,7 +2145,7 @@ and there are several such places, each with a reason on record — the list is
 
 ## See also
 
-- [How gren-format places your comments](commentHandling.md) — rules C1–C6, the
+- [How gren-format places your comments](commentHandling.md) — rules C1–C7, the
   normative statement of *behaviour*
 - [How the formatter works](howItWorks.md) — the pipeline, conceptually
 - [DEVELOPER.md](../DEVELOPER.md) — adding a construct; the position rules

@@ -16,10 +16,10 @@ digraph ClassifyBracket {
     dUpdate [label="in a record update's\nbase…first-field region?"];
 
     uBase [label="before the\nbase name?"];
-    uSep  [label="beside the\n| separator?"];
+    uSep  [label="beside the | separator,\nand may the whole run cross?"];
     uRow  [label="on the\nbase's row?"];
 
-    lSep [label="in the\n, gap?"];
+    lSep [label="in the , gap,\nand may the whole run cross?"];
     lOwn [label="on a row\nof its own?"];
     lStr [label="opener slot before\na \"\"\"…\"\"\" item?"];
 
