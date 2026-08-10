@@ -317,6 +317,7 @@ nodeDecisions decl node =
         ParenBlock r ->
             [ flag "ParenBlock.forceVertical" r.forceVertical
             , flag "ParenBlock.checkContentVertical" r.checkContentVertical
+            , flag "ParenBlock.contentAlwaysBreaks" r.contentAlwaysBreaks
             ]
                 ++ shape "ParenBlock"
 

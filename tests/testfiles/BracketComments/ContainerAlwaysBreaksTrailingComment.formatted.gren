@@ -1,0 +1,59 @@
+module Gen230 exposing (..)
+
+
+fn1 =
+    0 <|
+        [ if a then
+            b
+
+          else
+            c
+        ] {- k1 -}
+
+
+fn2 =
+    0 <|
+        [ 0
+            |> 0
+            <| 0
+        ] {- k2 -}
+
+
+fn3 =
+    0 <|
+        { x =
+            if a then
+                b
+
+            else
+                c
+        } {- k3 -}
+
+
+fn4 =
+    0 <|
+        { r
+            | x =
+                0
+                    |> 0
+                    <| 0
+        } {- k4 -}
+
+
+fn5 =
+    0 <|
+        { r
+            | x = 1
+            , y = 2
+        } {- k5 -}
+
+
+fn6 =
+    0 <|
+        f
+            [ if a then
+                b
+
+              else
+                c
+            ] {- k6 -}

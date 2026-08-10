@@ -514,9 +514,18 @@ documentation instead of quietly outliving it.
     is where it is most useful — the same reasoning as point 1. This holds
     wherever a comment follows code: after a value, after a variant of a custom
     type, after a step of a `|>`/`<|` pipeline, and after the closing bracket of
-    a list or record — whether that list or record is the whole definition or an
-    argument to a call. If you write two or more comments in a row at the same
-    spot, they all stay on that line together.
+    a list, a record, or a record *update* — whether that container is the whole
+    definition or an argument to a call. If you write two or more comments in a
+    row at the same spot, they all stay on that line together.
+
+    The record update reached this rule late. Its closing `}` was the one
+    container whose row a trailing `{- -}` could not glue onto, so the comment
+    dropped to a row of its own and matched elm-format here while the list, the
+    record literal and the paren all diverged. At the tail of a declaration that
+    row is past the declaration's last token, which a reparse re-homes to column
+    1 — so the update oscillated for ever, and the shape that agreed with
+    elm-format was the broken one. It now follows the same rule as its three
+    siblings.
 
 13. <a id="divergence-13"></a>**A comment between two operands of a binop chain**
     When a broken operator chain has a comment sitting between an

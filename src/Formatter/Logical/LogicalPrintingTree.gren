@@ -425,7 +425,17 @@ type LPBox
     -- paren-block shape (when/if/let, a multiline lambda), the closing `)`
     -- renders on its own line at the opening `(`'s column instead of
     -- trailing the last content token.
-    | ParenBlock { forceVertical : Bool, checkContentVertical : Bool }
+    --
+    -- `contentAlwaysBreaks` is `InsertExpressions.exprAlwaysBreaks` of the
+    -- parenthesized expression, recorded at construction: "this content
+    -- renders multi-line however the author laid it out", so the `)` gets a
+    -- row of its own even with `forceVertical = False`. It is the same
+    -- question `checkContentVertical` makes the RENDERER ask of the rendered
+    -- box, answered up front for the LOGICAL stage, which has no box to look
+    -- at — `Comments.prevBlockGlueRow` needs it to know whether a trailing
+    -- `{- -}` has a `)` row to glue onto. False for synthesized parens
+    -- (pattern/type wrapping), whose content is a bare flow of leaves.
+    | ParenBlock { forceVertical : Bool, checkContentVertical : Bool, contentAlwaysBreaks : Bool }
     -- One step of a non-pipeline binop chain: children are [op, ...rhsNodes].
     -- Renders the operator immediately adjacent (with a single space) to the
     -- rhs flow, so when the surrounding chain breaks, the operator starts the

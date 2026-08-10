@@ -143,10 +143,11 @@ lpBoxFields lpbox =
         WhenBranchPattern ->
             [ { key = "type", value = Json.string "WhenBranchPattern" } ]
 
-        ParenBlock { forceVertical, checkContentVertical } ->
+        ParenBlock { forceVertical, checkContentVertical, contentAlwaysBreaks } ->
             [ { key = "type", value = Json.string "ParenBlock" }
             , { key = "forceVertical", value = Json.bool forceVertical }
             , { key = "checkContentVertical", value = Json.bool checkContentVertical }
+            , { key = "contentAlwaysBreaks", value = Json.bool contentAlwaysBreaks }
             ]
 
         OpAndRhs ->

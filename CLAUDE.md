@@ -2153,6 +2153,93 @@ measured by hand against the `elm-format` binary (table above); it is simply not
 one this gate can see. A baseline that does not cover a shape reports zero for
 it exactly as it reports zero for a shape that agrees.
 
+**The always-breaking container family, one `fuzzrun` seed → four container
+kinds (2026-08-10).** Lane `dense-comments`, seed 10257116, minimized to
+
+```gren
+fn2 node Bravo12 { kind, count } = 0 << 0 + 0 && 0 <| ( ( 0 |> 0 |> 0 |> 0 <| 0 ) == 0 >= 0 ) {- k48 -}
+```
+
+Format¹ put `{- k48 -}` on its own row *below* the declaration's last token; the
+reparse cannot attribute that row to the declaration, so format² re-homed it to
+column 1. The first family's oscillation, reached through a container that had no
+way to know its own `)` would get a row.
+
+**One question, asked per container kind, and four of them answered from
+something narrower than the truth.** `Comments.prevBlockGlueRow` decides whether
+a trailing `{- -}` has a closing-bracket row to glue onto:
+
+- `ParenBlock` → `parenContentAlwaysBreaks` dispatched on the paren's **first
+  child box** (`WhenFlow` / `IfCondition` / a `let` head), which is only the
+  shape where the breaking construct IS the whole content. It misses a mixed
+  `|>`/`<|` chain — which breaks with no block construct anywhere, and is the
+  seed's own shape — and an `if` buried under a call, a binop, a nested paren or
+  a lambda.
+- `AllAcrossOrAllVertical` → `bracketRendersMultiline` reads the stored box,
+  which `authoredBracketList` picked from `itemsSpanRows` alone; an
+  always-breaking ITEM renders the list vertical without spanning any rows.
+- `RecordUpdate` → **there was no arm at all**, so it fell to the `_ -> -1`
+  default and `{ r | a = 1` ⏎ `, b = 2 } {- c -}` oscillated with no
+  always-breaking content involved. `prevLineGlueRow` has always had its arm.
+
+**The paren fix is the closed AST recursion that already existed.**
+`exprAlwaysBreaks` answers exactly this question and was already answering it for
+the lambda-body case (`insertLambda`'s `bodyAlwaysBreaksVertical`). `insertParens`
+stores `contentAlwaysBreaks = exprAlwaysBreaks expression` on the `ParenBlock` and
+the predicate reads the stored fact — one recursion subsuming every buried
+position, instead of one enumerated shape per bug.
+
+**For the bracket containers the fix was to pick the vertical BOX up front, not
+to teach the classifier a second predicate.** `itemsAlwaysBreak` /
+`fieldValuesAlwaysBreak` feed `authoredBracketList`'s `spans` and the record
+update's `forceVertical`, so `bracketRendersMultiline` needed no change at all.
+Render-neutral, and **verified before it was written rather than after**:
+`ElmStructure.groupBox` sends any list with a multi-line child to `verticalGroup`
+regardless of `forceMultiline` (single-item lists included, so #21 cannot move),
+and a flat-authored record update with a breaking field already rendered
+byte-identically to the row-authored one. Only the *stored* box changes, which is
+what the comment classifier reads. The syntax matrix confirms it: #21's count is
+still exactly 125.
+
+**Probe the sibling containers before calling a family fixed.** The paren fix was
+complete, gated and verified; probing `[ if … ] {- c -}`, `{ x = if … } {- c -}`
+and `{ r | … } {- c -}` found three more live oscillations of the same shape in
+about a minute. A bug of the form "container X's closing-row test is too narrow"
+has one instance per container kind and nothing makes them share code.
+
+**It cost 6 elm-format parity cells, and the sibling test is what said to take
+them.** The comment axis reported 6 new divergences, every one `recordUpdate2` at
+the gap past the `}` — the bracket-literal half booked none. Laying all four
+containers side by side settled it in one command:
+
+```gren
+-- gren-format (all four now agree)     -- elm-format (diverges on all four)
+    ] {- c -}                               ]
+        |> fn                                   {- c -} |> fn
+```
+
+So **before the fix the record update was the single container that agreed with
+elm-format — and it was the one that oscillated**, while the array literal, the
+record literal and the paren had diverged there all along and register those
+cells as [#13](docs/elmFormatComparison.md#divergence-13). Registering there was
+a documentation decision, not a keystroke: no new number, and
+[#12](docs/elmFormatComparison.md#divergence-12) (which owns the
+closing-bracket case) now names the record update, with the `D12` fixture
+carrying it. Elm's placement is not available to us either — at a declaration
+tail there is no following operator to lead, and deciding per context is exactly
+what [#30](docs/elmFormatComparison.md#divergence-30) says gren does not do.
+Same trade, and the same reasoning, as the 2026-08-09 lambda-field separator
+comment.
+
+Fixtures `PipelineComments/ParenAlwaysBreaksTrailingComment` and
+`BracketComments/ContainerAlwaysBreaksTrailingComment`, each adding **0**
+findings of its own in every mode. Every gate unmoved: 380 fixtures,
+`fuzz-idempotency` 17 / `--run 2` 17 / `--mix-pairs` 43 with every finding known
+upstream, `check-decision-stability` PASS 0, `audit-predicates` 0, both
+`fuzz-whitespace` modes PASS 0, `corpus-check` 0 in-scope, the syntax axis
+2459/2459 with 1598 byte-identical, the comment axis 83,144 ok / 0 failing / 0
+UNREVIEWED, and `gen-random -n 15000` clean.
+
 Two flags exist for unattended use: `--max-shrinks N` caps how many failures a
 run minimizes (one bug can hit hundreds of seeds, and shrinking each one can eat
 the whole run — the skipped count is printed and stored, never silent), and

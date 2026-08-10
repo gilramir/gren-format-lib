@@ -2683,10 +2683,8 @@ bracketRendersMultiline node =
             subtreeContainsComment node
 
 
-{-| True when a `ParenBlock`'s content is a block construct (`if` / `when` /
-`let`), which `makeParenBlockBox` ALWAYS renders multi-line — keyword on the
-`(`-line, body below, `)` on its own line — no matter how many source rows the
-author used. Mirrors that builder's dispatch on the paren's first child.
+{-| True when a `ParenBlock`'s content renders multi-line however the author laid
+it out, so the `)` gets a row of its own that a trailing comment can glue onto.
 
 `prevBlockGlueRow`'s `ParenBlock` arm used the source row span alone as its
 "does this paren close on a `)` row a comment can glue onto?" test. A paren the
@@ -2700,28 +2698,25 @@ indented ⟶ col 1 on the second format.
 Only the backward-pipeline path exposed it: `|>` peels and glues its step's
 trailing comments without consulting the role, a binop container classifies by
 row comparison instead of a glue row, and a call flow reaches the paren through
-`AcrossOrVertical`'s `bracketClosingRow` arm. -}
+`AcrossOrVertical`'s `bracketClosingRow` arm.
+
+This reads the flag `insertParens` stored, rather than re-deriving the answer
+here. It used to dispatch on the paren's FIRST CHILD box — `WhenFlow` /
+`IfCondition` / a `let` head — which is only the shape where the breaking
+construct is the whole content. It is not where the construct has to be:
+`0 <| ( f (if a then b else c) ) {- c -}` buries the `if` under a call, and
+`0 <| ( 0 |> 0 <| 0 ) {- c -}` breaks with no block construct at all — a mixed
+`|>`/`<|` chain always renders one step per line. Both moved indented ⟶ col 1
+on the second format, the same oscillation the first-child test was added to
+close; the second is what `fuzzrun.py` seed 10257116 found. `exprAlwaysBreaks`
+is the closed full-tree recursion (it already answers this question for a lambda
+body — see `insertLambda`'s `bodyAlwaysBreaksVertical`), so it subsumes every
+buried position instead of one enumerated shape per bug. -}
 parenContentAlwaysBreaks : LPNode -> Bool
 parenContentAlwaysBreaks node =
     when lpnBox node is
-        ParenBlock _ ->
-            when Array.first (lpnChildren node) is
-                Just first ->
-                    when lpnBox first is
-                        WhenFlow _ ->
-                            True
-
-                        IfCondition _ ->
-                            True
-
-                        UnbreakableText loc ->
-                            loc.value == "let"
-
-                        _ ->
-                            False
-
-                Nothing ->
-                    False
+        ParenBlock { contentAlwaysBreaks } ->
+            contentAlwaysBreaks
 
         _ ->
             False
@@ -2904,6 +2899,22 @@ prevBlockGlueRow commentIsMultiline node =
 
         AlwaysVertical _ ->
             bracketClosingRow node
+
+        -- A record update closes with its own `}` when it renders expanded, and
+        -- has no closing row of its own when it stays on one line — the same
+        -- multi-line-only rule as the bracket lists above, keyed on the same
+        -- stored flag `makeRecordUpdateBox` picks its layout from. There was no
+        -- arm here at all, so `{ r | a = 1` ⏎ `, b = 2 } {- c -}` fell to the
+        -- `-1` default and classified `LeadsOwnLine`: rendered a row below the
+        -- declaration's last token, which the reparse re-homes to column 1.
+        -- (`prevLineGlueRow` has always had its arm — a `--` is unambiguously
+        -- trailing, so it glues after the flat form too.)
+        RecordUpdate info ->
+            if info.forceVertical then
+                bracketClosingRow node
+
+            else
+                -1
 
         -- A when-branch: a same-row comment trails it (`renderWhenBranchesBox`
         -- glues onto the branch's `lpnMaxRow`).

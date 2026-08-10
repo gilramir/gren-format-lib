@@ -111,7 +111,7 @@ destructure LHS). Genuine `Src.Parens` and kept call-argument parens set the
 flags explicitly at their call sites. -}
 syntheticParens : Array LPNode -> LPNode
 syntheticParens children =
-    lpnNode (ParenBlock { forceVertical = False, checkContentVertical = False }) children
+    lpnNode (ParenBlock { forceVertical = False, checkContentVertical = False, contentAlwaysBreaks = False }) children
 
 
 {-| True when the author laid these located items out across more than one
@@ -254,7 +254,9 @@ fixupParensChildrenNodesAt spansRows closeEnd nodes =
             in
             Ok
                 [ lpnBracketNode
-                    (ParenBlock { forceVertical = spansRows, checkContentVertical = True })
+                    -- A parenthesized TYPE: its content is a bare flow of
+                    -- leaves, so nothing in it can force a break on its own.
+                    (ParenBlock { forceVertical = spansRows, checkContentVertical = True, contentAlwaysBreaks = False })
                     closeEnd
                     content
                 ]

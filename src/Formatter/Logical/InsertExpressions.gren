@@ -377,7 +377,10 @@ insertExpression locExpr =
 
         Src.ArrayLiteral exprArray ->
             -- The author's layout decides the list shape (see `authoredBracketList`):
-            -- items across rows stay one-per-line, items on one row stay inline.
+            -- items across rows stay one-per-line, items on one row stay inline —
+            -- unless an ITEM breaks on its own however it was written
+            -- (`itemsAlwaysBreak`), which renders the list vertical regardless, so
+            -- the vertical box is picked up front.
             -- `locExpr.end` is the `]`; the empty form is an `EmptyBracketed` `[]`.
             -- Built via `lpnBracketNode` (not plain `lpnLeaf`) so its close is
             -- marked EXACT: `loc.end` genuinely IS the `]`'s position (unlike a
@@ -390,15 +393,17 @@ insertExpression locExpr =
             resultFoldl folderInsertExprAsItem [] exprArray
                 |> Result.map
                     (\itemNodes ->
-                        [ authoredBracketList ListSquare (itemsSpanRows exprArray) locExpr.start locExpr.end (lpnBracketNode (EmptyBracketed { start = locExpr.start, end = locExpr.end, value = ListSquare }) locExpr.end []) itemNodes ]
+                        [ authoredBracketList ListSquare (itemsSpanRows exprArray || itemsAlwaysBreak exprArray) locExpr.start locExpr.end (lpnBracketNode (EmptyBracketed { start = locExpr.start, end = locExpr.end, value = ListSquare }) locExpr.end []) itemNodes ]
                     )
 
         Src.Record fieldArray ->
-            -- Like array literals; `locExpr.end` is the `}`, empty form `{}`.
+            -- Like array literals; `locExpr.end` is the `}`, empty form `{}`. A
+            -- field VALUE that always breaks opens the record the same way an
+            -- always-breaking item opens an array.
             resultFoldl folderInsertRecordField [] fieldArray
                 |> Result.map
                     (\fieldNodes ->
-                        [ authoredBracketList ListCurly (recordFieldsSpanRows fieldArray) locExpr.start locExpr.end (lpnBracketNode (EmptyBracketed { start = locExpr.start, end = locExpr.end, value = ListCurly }) locExpr.end []) fieldNodes ]
+                        [ authoredBracketList ListCurly (recordFieldsSpanRows fieldArray || fieldValuesAlwaysBreak fieldArray) locExpr.start locExpr.end (lpnBracketNode (EmptyBracketed { start = locExpr.start, end = locExpr.end, value = ListCurly }) locExpr.end []) fieldNodes ]
                     )
 
         Src.Update payload ->
@@ -480,7 +485,22 @@ insertParens locExpr expression =
                             forceVertical =
                                 locExpr.start.row /= locExpr.end.row
                         in
-                        Ok [ lpnBracketNode (ParenBlock { forceVertical = forceVertical, checkContentVertical = True }) locExpr.end nodes ]
+                        Ok
+                            [ lpnBracketNode
+                                (ParenBlock
+                                    { forceVertical = forceVertical
+                                    , checkContentVertical = True
+
+                                    -- Recorded here because only the AST can
+                                    -- answer it: the logical stage has no
+                                    -- rendered box, and the author's rows are
+                                    -- exactly the fact this must not depend on.
+                                    , contentAlwaysBreaks = exprAlwaysBreaks expression
+                                    }
+                                )
+                                locExpr.end
+                                nodes
+                            ]
             )
 
 
@@ -551,7 +571,14 @@ insertUpdate locExpr { record = record, newValues = newValues } =
                         [ lpnBracketNode
                             (RecordUpdate
                                 { name = recLoc
-                                , forceVertical = recordFieldsSpanRows newValues
+
+                                -- Author rows, OR a field value that breaks on
+                                -- its own — see `itemsAlwaysBreak`, the same
+                                -- commit-up-front reason and the same
+                                -- trailing-comment consequence.
+                                , forceVertical =
+                                    recordFieldsSpanRows newValues
+                                        || fieldValuesAlwaysBreak newValues
                                 }
                             )
                             locExpr.end
@@ -1373,6 +1400,34 @@ exprAlwaysBreaks expr =
 
         _ ->
             False
+
+
+{-| True when some ITEM of a bracketed literal breaks on its own — an `if`/
+`when`/`let` or a mixed `|>`/`<|` chain, at any depth inside the item.
+
+The container then renders one item per line with its `]`/`}` on a row of its
+own, exactly as if the author had written it across rows, so
+`authoredBracketList` is given the vertical box up front. Committing on the
+first format is the point: the alternative is emitting the inline box, letting
+the content break it open anyway, and having the reparse — which now sees items
+spanning rows — pick the vertical box on the second pass. Nothing about the
+BYTES differs between the two boxes here (verified: a flat-authored list with a
+breaking item renders identically to the same list authored across rows), but
+the box is what `Comments.bracketRendersMultiline` reads to decide whether a
+trailing `{- -}` has a closing-bracket row to glue onto — so with the inline box
+stored, the comment took a row BELOW the declaration's last token, which the
+reparse re-homes to column 1. -}
+itemsAlwaysBreak : Array Src.Expression -> Bool
+itemsAlwaysBreak items =
+    Array.any exprAlwaysBreaks items
+
+
+{-| `itemsAlwaysBreak` for a record literal's / record update's fields: a field
+VALUE that always breaks opens the record the same way an always-breaking item
+opens an array. The field NAME cannot break. -}
+fieldValuesAlwaysBreak : Array Src.RecordField -> Bool
+fieldValuesAlwaysBreak fields =
+    Array.any (\f -> exprAlwaysBreaks f.value) fields
 
 
 {-| Folder for `let` definitions.

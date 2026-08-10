@@ -17,3 +17,10 @@ afterCloser =
 
 afterVariant =
     [ 1 ] {- one -} {- two comments in a row stay together -}
+
+
+afterUpdateCloser =
+    { rec
+        | a = 1
+        , b = 2
+    } {- the update -}
