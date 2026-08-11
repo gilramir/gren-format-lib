@@ -13,6 +13,7 @@ nothing is going wrong.
 - [An unparenthesized constructor pattern can't be aliased with `as`](#an-unparenthesized-constructor-pattern-cant-be-aliased-with-as)
 - [A continuation line at the same column as the body above it](#a-continuation-line-at-the-same-column-as-the-body-above-it)
   - [The same misparse reached by a comment, where the columns are not equal](#the-same-misparse-reached-by-a-comment-where-the-columns-are-not-equal)
+- [Output today's compiler rejects, that the next one will accept](#output-todays-compiler-rejects-that-the-next-one-will-accept)
 - [A binary `-` whose right operand starts at the operator's own column](#a-binary---whose-right-operand-starts-at-the-operators-own-column)
 - [Wide `when` branch patterns](#wide-when-branch-patterns)
 - [Comment placement near invisible tokens](#comment-placement-near-invisible-tokens)
@@ -153,6 +154,81 @@ The full write-up, with both `--pre-ast` dumps and the `gren make` type error
 that pins down the real compiler's reading, is in
 `gren-format/parser-same-column-continuation-bug.md`; it was added to
 compiler-common#14 on 2026-08-01.
+
+## Output today's compiler rejects, that the next one will accept
+
+`gren format` is built on `compiler-common`, which is the parser the **next**
+Gren compiler will use. Today's released compiler is the Haskell one, and the
+two do not accept exactly the same language: `compiler-common` is deliberately
+more permissive about indentation. Where they differ, the formatter follows
+`compiler-common` — so it can hand you a file the compiler you are using right
+now refuses to build.
+
+A bracketed pattern is where this shows up. Write one broken across rows with
+its continuation indented, and today's compiler is happy:
+
+```gren
+f z =
+    let
+        { next
+          , count
+          } =
+            z
+    in
+    next
+```
+
+`gren format` moves the `,` and the `}` back to the `{`'s own column, which is
+also the column the binding starts at:
+
+```gren
+f z =
+    let
+        { next
+        , count
+        } =
+            z
+    in
+    next
+```
+
+That is the canonical form, and `compiler-common` parses it — so the formatter's
+own checks all pass: the AST is preserved and the output is a fixed point. The
+Haskell compiler stops at the first continuation row, because it requires every
+row inside a binding to be indented **past** the binding's start column:
+
+```
+-- UNFINISHED RECORD PATTERN ---------------------------------------- src/M.gren
+
+I was partway through parsing a record pattern, but I got stuck here:
+
+6|         { next
+                 ^
+I was expecting to see a closing curly brace next. Try adding a } here?
+```
+
+Elm rejects it too, with the same message — this is a place where Gren is
+departing from what it inherited, not a bug in either parser.
+
+The same applies to an array pattern, and in a `when` branch head as well as a
+`let` binding:
+
+```gren
+g z =
+    when z is
+        [ a
+        , b
+        ] ->
+            a
+```
+
+Parameter patterns are unaffected — a pattern in an argument position does not
+start its line, so its continuation still clears the declaration's column.
+
+**If you are on the released compiler**, the workaround is to keep such a
+pattern on one line; `{ next, count } =` is accepted by both. This limitation
+disappears when the `compiler-common`-based compiler ships, at which point the
+formatted output above compiles as written.
 
 ## A binary `-` whose right operand starts at the operator's own column
 

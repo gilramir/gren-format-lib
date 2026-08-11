@@ -221,7 +221,10 @@ around aliasing an unparenthesized constructor pattern with `as`, and one where
 a continuation line at the same column as the body above it ends that body
 early), a `when`
 pattern shape the Haskell-based compiler can reject even though the formatter
-produced it, several comment-placement choices forced by a token (`=`,
+produced it, a bracketed pattern broken across rows that the *released* compiler
+rejects and the next one will accept (`gren-format` follows `compiler-common`,
+which is deliberately more permissive about indentation than the Haskell
+compiler still in use today), several comment-placement choices forced by a token (`=`,
 `:`, `|`, `in`, a bracket's closing paren, an effect module's `where` block)
 that the parser doesn't record a position for, and a stack-depth limit on
 extreme lambda/unary-minus nesting (hundreds of levels deep, well past
