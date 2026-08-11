@@ -1167,7 +1167,7 @@ def enumerate_cells(constructs, contexts, variants):
 # (our fault); every other title is a formatter bug.
 GENERATOR_FAULT = "FAILED TO PARSE"
 BUG_TITLES = [
-    "Could not format this file",       # Box renderer returned Err
+    "FORMATTER INTERNAL ERROR",       # Box renderer returned Err
     "AST MISMATCH AFTER FORMATTING",    # format changed meaning
     "FORMATTER NOT IDEMPOTENT",         # format(format(x)) != format(x)
     "COULD NOT PARSE FORMATTED OUTPUT",  # emitted invalid Gren
