@@ -726,7 +726,7 @@ makes the mistake cheap to find, but not making it is better.
    spotted: it straddled the top two decision groups and was invisible in either
    alone. Full family-by-family record in
    [the residual section](#the-residual-and-why-this-gate-ships-red) and in
-   `CLAUDE.md`.
+   [`devHistory.md`](devHistory.md).
 3. ~~declaration contexts in `matrix-syntax.py`~~ *(done 2026-08-03: 11 type
    constructs × 15 declaration contexts, +341 syntax cells, +4,930 comment
    cells)*. This was the n=1 base case, and nothing above it meant much until it
