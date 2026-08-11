@@ -2950,13 +2950,7 @@ def check(src, tmpdir, m=None):
         return "timeout", {"msg": "format timed out (>60s)"}
     out = show.stdout + show.stderr
     if show.returncode != 0:
-        if "NOT IDEMPOTENT" in out:
-            bucket = "non-idempotent"
-        elif "Please report this" in out or "box:" in out or "unreachable" in out:
-            bucket = "crash"
-        else:
-            bucket = "ast-mismatch"
-        return bucket, {"msg": first_real_line(out), "stderr": out}
+        return show_failure_class(out), {"msg": first_real_line(out), "stderr": out}
 
     # Oracle 3: comment preservation (the 4th oracle the generator enables).
     formatted = show.stdout
@@ -2985,7 +2979,164 @@ def check(src, tmpdir, m=None):
         detail["formatted"] = formatted
         return bucket, detail
 
+    # Oracle 6: the --remove-unused-imports transform.
+    bucket, detail = _check_remove_unused_imports(src, formatted, inp, tmpdir)
+    if bucket is not None:
+        return bucket, detail
+
     return "ok", {"formatted": formatted}
+
+
+def show_failure_class(out):
+    """Which class a non-zero `--show` belongs to, read off its own message."""
+    if "NOT IDEMPOTENT" in out:
+        return "non-idempotent"
+    if "Please report this" in out or "box:" in out or "unreachable" in out:
+        return "crash"
+    return "ast-mismatch"
+
+
+def _check_remove_unused_imports(src, formatted, path, tmpdir):
+    """`--remove-unused-imports` is a whole second transform over the same AST
+    and comment stream: it deletes imports, trims exposing lists, invents
+    placeholder comments, and renumbers every row after a cut
+    (`ShiftPositions`). Until 2026-08-10 nothing but a fixture suite had ever
+    run it — no fuzzer, no matrix cell, no oracle — while the row-shifting it
+    does under comments is the exact shape that keeps producing comment bugs
+    on the ordinary path.
+
+    Three checks, in cost order:
+
+    1. `--show` with the flag buys the same four invariants it buys without
+       it, but about the POST-REMOVAL AST: no crash, the output reparses, its
+       AST matches what the transform produced, and formatting is a fixed
+       point. Reported under `rui-` names so a find is never confused with
+       one on the ordinary path — which cannot be at fault, because oracle 2
+       already passed on this very module.
+    2. Removal is itself a fixed point: running it on its own output must
+       change nothing. An import the first pass should have removed (or a
+       comment it should have settled) shows up here as a second diff.
+    3. **No pair of surviving comments swaps unless the author or the sort
+       asked for it.** Removal may legitimately delete a comment — one inside
+       a removed import, or trailing a trimmed name on its row — but never
+       invent, duplicate, or reorder one, and a comment that changes place
+       relative to its neighbours has moved to a different declaration.
+
+       Getting the baseline right took three tries, because TWO legitimate
+       reorderings exist and they point opposite ways. `SortSymbols` reorders
+       an import run and a comment riding an import travels with it, so
+       `import Qux {- a -}` above `import Baz {- b -}` comes back sorted, `b`
+       first (seed 40000033) — the FORMATTED order. But *removing* an import
+       takes its comment out of the run, and it falls back to where the
+       author wrote it (seed 40000085) — the AUTHORED order. Nor is it one or
+       the other per file: a module can do both at once, sorting the comments
+       on its surviving imports while a removed import's comment stays put
+       (seed 41000219), which fits neither sequence.
+
+       Per PAIR there are only two possible orders, so the two baselines
+       between them allow at most both — and when they AGREE on a pair, that
+       is the only order either mechanism can produce. So the check is: for
+       every pair of surviving comments whose authored and formatted order
+       agree, the output must agree too. It permits every rearrangement the
+       sort or the removal can explain and nothing else.
+
+       The generator's `kN` tokens make this exact; the
+       `-- removed import Foo` placeholders carry no `kN` and are correctly
+       invisible to it. What it gives up: a comment failing to travel with a
+       SURVIVING import reads as authored order and is accepted — that one is
+       oracle 4's (author-order invariance), and it reaches it through the
+       ordinary path where the same sort runs.
+
+    Skipped for a module with no imports, where the transform has nothing to
+    do at all."""
+    if "\nimport " not in formatted and not formatted.startswith("import "):
+        return None, None
+    try:
+        r1 = run_app(["--remove-unused-imports", "--show", path])
+    except subprocess.TimeoutExpired:
+        return "timeout", {"msg": "remove-unused-imports timed out (>60s)"}
+    out = r1.stdout + r1.stderr
+    if r1.returncode != 0:
+        return "rui-" + show_failure_class(out), {
+            "msg": first_real_line(out), "stderr": out}
+
+    removed = r1.stdout
+    second = os.path.join(tmpdir, "rui.gren")
+    with open(second, "w") as f:
+        f.write(removed)
+    try:
+        r2 = run_app(["--remove-unused-imports", "--show", second])
+    except subprocess.TimeoutExpired:
+        return "timeout", {"msg": "remove-unused-imports re-run timed out (>60s)"}
+    if r2.returncode != 0:
+        # The transform's own output no longer survives its own pipeline.
+        return "rui-" + show_failure_class(r2.stdout + r2.stderr), {
+            "msg": "on the transform's own output: %s"
+                   % first_real_line(r2.stdout + r2.stderr),
+            "stderr": r2.stdout + r2.stderr, "removed": removed}
+    if r2.stdout != removed:
+        return "rui-not-fixpoint", {
+            "msg": "a second removal pass changed the file",
+            "removed": removed, "removed2": r2.stdout}
+
+    after = re.findall(r"k\d+", removed)
+    authored = re.findall(r"k\d+", src)
+    sorted_ = re.findall(r"k\d+", formatted)
+    # A `-- removed import Foo` placeholder is a third legitimate way for a
+    # comment to move, and one this cannot model: the placeholder becomes the
+    # LEAD of the import below it and the pair travels together to that
+    # import's sorted position, carrying the author's own comment above it
+    # (fixture `GroupsSeparate` blesses exactly this). Its presence is the
+    # signal that comments were deliberately re-anchored, so the ordering
+    # check stands down for that module rather than reporting designed
+    # behaviour (seed 41000014). Every other module is still judged, the
+    # bug this check was added for among them — a glued lead makes no
+    # placeholder.
+    #
+    # It is not free, and the cost is measured rather than assumed: of the
+    # three seeds that caught the row-overlap bug before the gate went in
+    # (40000007/67/101), two now go quiet, because those modules make a
+    # placeholder somewhere else entirely. One in three still fires, which
+    # over a sweep of any size is plenty, and the alternative is a check
+    # that reports designed behaviour at three times the rate it reports
+    # bugs.
+    if "-- removed import " in removed:
+        return None, None
+    swap = _unexplained_swap(after, authored, sorted_)
+    if swap is not None:
+        a, b = swap
+        return "rui-comment-order", {
+            "msg": "%s and %s come back swapped, and neither the authored nor "
+                   "the formatted order puts them that way: %s vs authored %s "
+                   "vs formatted %s"
+                   % (a, b, " ".join(after), " ".join(authored),
+                      " ".join(sorted_)),
+            "removed": removed}
+    if len(set(after)) != len(after) or not set(after) <= set(authored):
+        # Duplicated or invented outright -- the ordering check above only
+        # looks at pairs it can find on both sides.
+        return "rui-comment-order", {
+            "msg": "comments duplicated or invented: %s vs authored %s"
+                   % (" ".join(after), " ".join(authored)),
+            "removed": removed}
+    return None, None
+
+
+def _unexplained_swap(after, authored, sorted_):
+    """The first pair of surviving comments whose order flipped even though
+    both baselines agreed on it, or None.
+
+    A pair the two baselines DISAGREE on is unconstrained: one mechanism puts
+    it each way, and a single file can use both (see the docstring above)."""
+    pos_a = {k: i for i, k in enumerate(authored)}
+    pos_s = {k: i for i, k in enumerate(sorted_)}
+    for i, x in enumerate(after):
+        for y in after[i + 1:]:
+            if x not in pos_a or y not in pos_a or x not in pos_s or y not in pos_s:
+                continue
+            if (pos_a[x] < pos_a[y]) == (pos_s[x] < pos_s[y]) and pos_a[y] < pos_a[x]:
+                return y, x
+    return None
 
 
 def _check_predicates(path):
@@ -3585,6 +3736,26 @@ def write_report(fdir, seed, bucket, detail, src_full, src_min, tmpdir,
         if fmt is not None:
             with open(os.path.join(fdir, "formatted.gren"), "w") as f:
                 f.write(fmt)
+    elif bucket.startswith("rui-"):
+        # Every one of these is about the SECOND transform, so the artifact a
+        # reader needs first is its output -- the input formats cleanly on the
+        # ordinary path by the time this oracle runs.
+        removed = detail.get("removed")
+        if removed is not None:
+            with open(os.path.join(fdir, "rui.gren"), "w") as f:
+                f.write(removed)
+        removed2 = detail.get("removed2")
+        if removed2 is not None:
+            with open(os.path.join(fdir, "rui2.gren"), "w") as f:
+                f.write(removed2)
+            import difflib
+            lines.append("removal pass 1 vs pass 2:")
+            lines += list(difflib.unified_diff(
+                removed.splitlines(), removed2.splitlines(),
+                "rui1", "rui2", lineterm=""))
+        else:
+            lines.append("stderr:")
+            lines.append(detail.get("stderr", detail.get("msg", "")))
     else:
         lines.append("stderr:")
         lines.append(detail.get("stderr", detail.get("msg", "")))
@@ -3639,10 +3810,13 @@ def process_seed(args_tuple):
         else:
             minm, minsrc = None, src
             detail = dict(detail, unshrunk=True)
-        if bucket == "sort-order" and minm is not None:
-            # The report's permuted twin and diff have to describe the SHRUNK
-            # module, not the one the find came in on — `detail` here still
-            # holds the unminimized pair.
+        if (bucket == "sort-order" or bucket.startswith("rui-")) and minm is not None:
+            # The report's artifacts have to describe the SHRUNK module, not
+            # the one the find came in on — `detail` here still holds the
+            # unminimized pair (`sort-order`'s permuted twin, a `rui-` bucket's
+            # transform output). A stale `rui.gren` is especially misleading:
+            # it is a whole different module from `input.min.gren`, and reads
+            # like one.
             b2, d2 = check(minsrc, tmp, minm)
             if b2 == bucket:
                 detail = d2
@@ -3822,13 +3996,16 @@ def main():
 
     # summary
     order = ["crash", "ast-mismatch", "non-idempotent", "comment-loss",
-             "sort-order", "predicate-lie", "timeout", "gen-error",
-             "quarantine"]
+             "sort-order", "predicate-lie", "rui-crash", "rui-ast-mismatch",
+             "rui-non-idempotent", "rui-not-fixpoint", "rui-comment-order",
+             "timeout", "gen-error", "quarantine"]
     counts = {b: len(v) for b, v in buckets.items()}
     ok = counts.get("ok", 0)
     finds = sum(counts.get(b, 0) for b in
                 ("crash", "ast-mismatch", "non-idempotent", "comment-loss",
-                 "sort-order", "predicate-lie", "timeout"))
+                 "sort-order", "predicate-lie", "rui-crash",
+                 "rui-ast-mismatch", "rui-non-idempotent", "rui-not-fixpoint",
+                 "rui-comment-order", "timeout"))
     summary_lines = ["%d/%d clean" % (ok, len(seeds)),
                      "app build: %s" % app_build_id(), ""]
     for b in order:

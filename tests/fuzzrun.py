@@ -136,7 +136,9 @@ drain_grace_minutes = 35    # after the deadline, how long to wait for
 '''
 
 BUCKETS = ["crash", "ast-mismatch", "non-idempotent", "comment-loss",
-           "sort-order", "predicate-lie", "timeout", "gen-error"]
+           "sort-order", "predicate-lie", "rui-crash", "rui-ast-mismatch",
+           "rui-non-idempotent", "rui-not-fixpoint", "rui-comment-order",
+           "timeout", "gen-error"]
 
 STOP = False        # set by SIGINT/SIGTERM; checked between and during chunks
 
@@ -2467,6 +2469,11 @@ EXPORT_EXTRAS = {
     "sort-order": ["permuted.gren", "formatted.gren", "permuted.formatted.gren"],
     "comment-loss": ["formatted.gren"],
     "predicate-lie": ["formatted.gren"],
+    "rui-not-fixpoint": ["rui.gren", "rui2.gren"],
+    "rui-crash": ["rui.gren"],
+    "rui-ast-mismatch": ["rui.gren"],
+    "rui-non-idempotent": ["rui.gren"],
+    "rui-comment-order": ["rui.gren"],
 }
 
 
@@ -2481,6 +2488,11 @@ def check_hint(bucket):
     about a PAIR of inputs and cannot be re-tested from one file at all."""
     if bucket == "predicate-lie":
         return "node ../../gren-format/app --audit-predicates input.min.gren"
+    if bucket.startswith("rui-"):
+        # Plain --show exits 0 on every one of these: the ordinary path passed
+        # before this oracle ran at all. The flag is the whole finding.
+        return ("node ../../gren-format/app --remove-unused-imports --show "
+                "input.min.gren")
     if bucket == "comment-loss":
         return ("--show exits 0 on this class. Compare the comment multisets:\n"
                 "#          node ../../gren-format/app --pre-context input.min.gren\n"

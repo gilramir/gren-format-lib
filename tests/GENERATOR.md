@@ -67,6 +67,93 @@ The generator produces **input**; the formatter is under test. Per module:
 5. **Predicate/renderer agreement** — `app --audit-predicates file`. A layout
    predicate that claims a node breaks must be telling the truth about that
    node's own rendered box. See below.
+6. **The `--remove-unused-imports` transform** — the CLI's *other* whole-file
+   transform, held to the same four invariants plus two of its own. See below.
+
+### Remove-unused-imports oracle
+
+**Added 2026-08-10.** `--remove-unused-imports` deletes imports, trims
+exposing lists, invents `-- removed import Foo` placeholders and renumbers
+every row after a cut (`ShiftPositions`). It is a second transform over the
+same AST and comment stream as the formatter, and until this oracle existed
+**nothing but a fixture suite had ever run it** — no fuzzer, no matrix cell,
+no gate — even though row-shifting underneath comments is the exact shape
+that keeps producing comment bugs on the ordinary path.
+
+Per module (skipped entirely when the module has no imports, where the
+transform has nothing to do):
+
+1. `--remove-unused-imports --show` buys the same four invariants `--show`
+   buys without it — no crash, reparses, AST-equivalent, idempotent — but
+   about the **post-removal** AST. Buckets are prefixed `rui-` so a find is
+   never confused with one on the ordinary path; that path cannot be at
+   fault, because oracle 2 already passed on this very module.
+2. **Removal is a fixed point**: running it again on its own output must
+   change nothing (`rui-not-fixpoint`).
+3. **No pair of surviving comments swaps unless the author or the sort asked
+   for it** (`rui-comment-order`). Removal may legitimately *delete* a
+   comment — one inside a removed import, or trailing a trimmed name on that
+   name's row — but never invent, duplicate, or reorder one, and a comment
+   that moves relative to its neighbours has changed which declaration it
+   belongs to. The generator's unique `kN` tokens make this exact, and the
+   placeholders carry no `kN`, so they are correctly invisible to it.
+
+   Getting the baseline right took three tries, and the false positives are
+   worth knowing about because each one is a legitimate mechanism: the import
+   run **sorts**, and a comment riding an import travels with it (so the
+   formatted order is right); *removing* an import takes its comment out of
+   the run and it falls back to where the author wrote it (so the authored
+   order is right); and a module can do both at once. Since a PAIR has only
+   two possible orders, the two baselines together allow at most both — so
+   when they agree on a pair, that is the only order either mechanism can
+   produce, and the check flags exactly the pairs that flip anyway. A third
+   mechanism it cannot model — a `-- removed import Foo` placeholder becomes
+   the lead of the import below it and the two travel to that import's sorted
+   position (fixture `GroupsSeparate`) — stands the check down for any module
+   whose output contains a placeholder. Measured cost of that gate: of the
+   three seeds that caught the row-overlap bug, two go quiet and one still
+   fires.
+
+**It found two real bugs on its first day**, both in the row bookkeeping the
+transform does under comments, and both invisible to every gate that existed
+before it.
+
+**The first**, at ~2.3% (28 finds in 1,200 modules across the three lane
+settings): *emptying* the import list re-homes a doc comment.
+`Compiler.Parse.Module` parses the module's docs slot **before** its imports,
+so a `{-| ... -}` above the first declaration is that declaration's doc only
+because an import stands between it and the header. Remove the last import
+and the same comment reparses as the MODULE's doc — the declaration silently
+loses its documentation. No output spelling avoids it: the parser skips line
+and block comments while looking for the docs slot, so the existing
+`-- removed import Foo` placeholder does not shield it. Fixed by giving the
+docs slot a `{-| removed import Foo -}` of its own
+(`RemoveUnusedImports.docShield`); six fixtures in the CLI suite pin the
+shape, including the three shapes that must NOT get one.
+
+**The second**, found by check 3 at ~4% once the first was fixed: a removed
+import frees a row that a surviving comment is still standing on. A block
+comment glued in front of an import (`{- a` / `b -} import Foo`) opens on an
+earlier row and closes on the import's own, and survives the removal because
+its START row is outside the import's range — while going on occupying every
+row it spans. Freeing those rows shifted the next comment UP INTO the middle
+of it, and the formatter then rendered the two in the order their collided
+rows implied: the comment written below came out on top. Fixed by charging
+each cut for the rows a surviving comment still covers
+(`RemoveUnusedImports.chargeOverlappingComments`), fixture
+`GluedLeadSpansRows`.
+
+Both were reachable only through the flag: `--show` alone exits 0 on the very
+same modules.
+
+`tests/test-oracle-rui.py` proves the oracle is not vacuous. Two of its three
+buckets are proven against the real app — stash either fix, rebuild, and the
+seeds above fire (`rui-ast-mismatch` on 30000030/43/52/83,
+`rui-comment-order` on 40000007/67/101) — and `rui-not-fixpoint`, which no
+live bug reaches, is proven by driving the oracle with a stubbed `run_app`.
+The same script pins the two shapes that must NOT fire: a comment legitimately
+*deleted* by the transform, and a module with no imports (which must not even
+invoke the app).
 
 ### Comment-preservation oracle
 
