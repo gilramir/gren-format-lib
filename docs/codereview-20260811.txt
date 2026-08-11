@@ -1,3 +1,48 @@
+● Code review(high · 10 findings)
+  ⎿  src/Formatter/Logical/LiteralFormat.gren
+       ●  231 [correctness] intToHex has no negative-number handling: negative n falls into
+                            hexDigit's wildcard arm and prints "F", so a negative hex pattern like
+                            -0x1 is emitted as 0xF (=15).
+       ●   85 [correctness] escapeMultilineContent emits carriage return (code 13) as a raw CR byte,
+                            so a \r escape adjacent to a newline in a triple-quoted string is folded
+                            into CRLF on reparse, changing the string's value.
+     src/Formatter/Render/MakeRenderBox.gren
+       ●  182 [efficiency]  makeBinopBox renders every operand up front, then the subtreeHasComment
+                            branch and both Result.onError fallbacks discard that render and
+                            re-render all children via buildFlowBox — reintroducing the O(2^depth)
+                            blowup the up-front render's own comment (lines 147-152) says it exists
+                            to prevent.
+       ● 4769 [correctness] glueLeadingCommentRun's broken path stacks one row per run member instead
+                            of one row per authored row, splitting a comment run the author wrote on
+                            a single row — inconsistent with its sibling assemblers, which group by
+                            commentGluesToPrevious.
+     src/Formatter/Logical/InsertExpressions.gren
+       ● 1620 [correctness] condForceVertical = branch.test.start.row > prevEnd.row + 2 hard-codes
+                            'exactly one blank line' before `else if`, so extra blank lines or a
+                            comment line make a flat-authored condition render stacked — and a
+                            comment in the gap is pulled inside the condition.
+     src/Formatter/Logical/SortSymbols.gren
+       ●  415 [correctness] takeGluedLeadingIdx treats any row-adjacent own-line comment as the next
+                            import's leading comment without checking its column, so an indented
+                            comment that trailed the previous import is re-homed onto a different
+                            import by the sort (C1 violation).
+       ●  912 [correctness] unfoldLastTrailing collects pinned closing comments in sorted order
+                            (`pinned = acc.pinned ++ c.trailing`), so when both the sorted-last and
+                            authored-last exposing entries carry trailing comments, the comments are
+                            emitted with their authored order reversed.
+     src/Formatter/Logical/MakeLogical.gren
+       ●  409 [correctness] moduleLineClosesBelow detects a wrapped effect-module where-block only
+                            via sub.start.row > cmd.start.row, so a block written subscription-first
+                            never gets the +1 row bump and the header's last row is under-reported.
+     src/Formatter/Logical/VerticalSpace.gren
+       ●  234 [correctness] A doc comment separated from its declaration by one author blank line is
+                            permanently detached (two blanks inserted) instead of the blank being
+                            removed, violating the documented 'no blank line within a unit' rule.
+       ●  484 [correctness] The 'no blank within a unit' rule is enforced only for an
+                            immediately-adjacent signature/definition pair; with a comment between
+                            signature and definition, an author blank inside the unit survives,
+                            contradicting classifyChildren's own 'separated only by comments' doc.
+
 ● Review complete — nothing was changed. I ran two passes: a correctness/cleanup review and a separate
   design/architecture review, both verified against the source, the tests app, and the CLI in
   ../gren-format/. The 10 confirmed bugs are in the findings list above (repro files for the top ones are
