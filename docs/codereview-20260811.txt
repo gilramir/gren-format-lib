@@ -1,0 +1,92 @@
+● Review complete — nothing was changed. I ran two passes: a correctness/cleanup review and a separate
+  design/architecture review, both verified against the source, the tests app, and the CLI in
+  ../gren-format/. The 10 confirmed bugs are in the findings list above (repro files for the top ones are
+  in the session scratchpad: NegHex.gren, Cr7.gren, Elif.gren, Fx2.gren/Fx3.gren). What follows is the
+  cleanup/design report you asked for, ranked by value.
+
+  Design & cleanup opportunities
+
+  1. Make LPNode opaque — free enforcement of your top documented invariant. LogicalPrintingTree.gren:4
+  exports LPNode(..), yet DEVELOPER.md's first "thing to worry about" is "never construct nodes via raw
+  record syntax" because a hand-built node silently gets wrong position caches. The review verified no
+  module outside the hub ever uses the raw constructor or pattern-matches it — everything already goes
+  through lpnLeaf/lpnNode/lpnBox/lpnFirstPos. Changing the export to LPNode turns the convention into a
+  compiler guarantee with zero other changes.
+
+  2. MakeRenderBox.gren (6,009 lines) can still shrink meaningfully. Two tiers:
+  - Free tier: a verified knot-free tranche was left behind by the five earlier extractions —
+  FlowItem-level predicates and comment-run helpers (pairableCommentItemLine, splitPairingCommentItems,
+  leadingRunRowBoxes, itemForcesFlowVertical, etc.) that depend only on FlowAssembly types and
+  already-extracted modules. They belong in FlowAssembly/NodeClassify.
+  - Deliberate refactor: the forward-pipeline (~930 lines) and backward-pipeline (~890 lines) clusters
+  touch the recursion through only a few entry points, and the module already breaks the knot elsewhere by
+  passing renderers as arguments (renderHeaderIndentedBody, literalItemRenderer). The same
+  callback-record move at module granularity would legally extract ~1,800 lines into e.g.
+  Render/BackwardPipeline.gren. Gate it with the full fuzzer sweep.
+
+  3. Documentation has drifted in load-bearing places — and both reviews found this independently. Since
+  your workflow is doc-driven, this is worth a single sync pass:
+  - DEVELOPER.md's module map names a nonexistent MakeRender.gren, omits five real Render modules and the
+  whole Formatter/Audit/ directory, describes the constructor AlignedFlow at length (it no longer exists
+  anywhere in src/), and teaches B.mustBreak/MustBreakBox as the -- comment mechanism when the live
+  mechanism is LineComment + endsOpen.
+  - Root CLAUDE.md shows Line with 4 constructors (real type has 6), omits StInfixDecl and eight LPBox
+  variants, and names functions that don't exist (processFunctions, tagGroupStarts); the package
+  CLAUDE.md's tree omits ElmStructure and the Audit modules.
+
+  4. Dead code (all grep-verified against src, tests, and the CLI). Box.MustBreakBox is never constructed
+  — the module's own comment at Box.gren:256 admits it — yet six pattern matches must still handle it;
+  mustBreak and the alias identifier are also unused. Since Line has already diverged from elm-format's
+  Box.hs, the port-fidelity argument for keeping it is weak. Also: MakeRenderBox.renderFlowItems is
+  exported but unreferenced, and Comments.firstRealPosition/lastRealPosition are pure aliases of
+  lpnFirstPos/lpnLastPos whose doc comments still describe a traversal that no longer happens.
+
+  5. Consolidate the Result-array helpers. Three modules own overlapping concepts:
+  Formatter.Strings.collectResults (used once, and a Result combinator has no business in a string-helpers
+  module), BoxOps.traverseResult (used ~40 times — collectResults is just traverseResult identity), and
+  hand-rolled equivalents in MakeRenderBox, FlowAssembly, and CommentBox. Bonus: traverseResult uses the
+  quadratic fold that collectResults' own doc warns against, so consolidating also picks the better
+  implementation. Formatter.Strings then shrinks to countNewlines, matching its name.
+
+  6. Efficiency cleanups adjacent to the confirmed blowup. Beyond the exponential makeBinopBox path in the
+  findings, the review flagged quadratic patterns in Box.stackPrime, flattenBinop,
+  Comments.insertCommentIntoSubtree's sibling scan, and FlowAssembly.leadingFor, plus the fact that
+  subtreeHasComment is recomputed rather than cached. None reproduced as user-visible hangs on their own,
+  but caching subtreeHasComment is part of the natural fix for the confirmed finding.
+
+  7. "Altitude" violations: downstream code re-deriving facts from rendered text. Several Render-layer
+  spots reconstruct information from strings that the LPT already knows upstream — paren-content kind,
+  exposing-entry kind, the pipeline operator, and type-vs-expression record detection. Each is a small
+  change (carry the fact as an LPT field), and each removes a class of "the string format changed and a
+  predicate silently broke" bugs — the same bug class your check-render-invariant.py gate exists to
+  prevent for comment placement.
+
+  8. Smaller consistency items.
+  - CommentRole predicates have three spellings in three modules: the hub exposes
+  roleGlues/commentGluesToPrevious/commentRendersOwnLine, while MakeRenderBox privately re-derives
+  commentTrailsHead/commentLeadsOwnLine/commentLeadsNext/commentRidesInline as one-liners. One home (a
+  roleIs in the hub, or move the one-liners to NodeClassify) — this is the vocabulary every comment bugfix
+  navigates by.
+  - Naming hazard in Comments.gren: posBefore (strict <) vs positionBefore (inclusive <=) — near-identical
+  names, different semantics, in the 3,546-line module where off-by-one row logic is the whole game.
+  Rename to encode the comparison (posStrictlyBefore/posAtOrBefore).
+  - SortSymbols.gren uses two idioms for one traversal: the exposing-list half peels leading/trailing
+  comments with array-slice helpers while the import half re-implements the same operations index+Builder
+  style — four extra functions; pick one representation. (Note the two confirmed sort bugs in the findings
+  live in exactly these functions, so this cleanup pairs well with those fixes.)
+  - Positional Bool flags in MakeRenderBox: makeParenBlockBox takes a named record { forceVertical,
+  checkContentVertical }, but siblings like makeBinopBox, makePipelineBox, makeLiteralBox take bare Bools
+  — call sites read makeLiteralBox True bracket children. Adopting the record convention uniformly is
+  cheap self-documentation.
+
+  Verified non-findings
+
+  For balance, things checked and found healthy: all 28 LPBox constructors, all 7 CommentRoles, and all 11
+  SyntaxTypes are live; the 10-module exposed-modules list is well curated; FlowPolicy's seemingly-unused
+  exports are used constructor-by-constructor; and the two giant modules Comments.gren and
+  InsertExpressions.gren are large but well-encapsulated single-export modules — size alone isn't a defect
+  there.
+
+  If I had to pick a starting order: the two LiteralFormat bugs and the makeBinopBox blowup first (real
+  input either refused or hanging), then the free wins (#1, #4, dead exports), then the doc sync (#3),
+  with the pipeline extraction (#2b) as a separate deliberate refactor gated by the fuzzers.
