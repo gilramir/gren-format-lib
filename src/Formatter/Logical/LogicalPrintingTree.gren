@@ -5,6 +5,7 @@ module Formatter.Logical.LogicalPrintingTree exposing
     , ListBrackets(..)
     , PrefixKind(..)
     , SyntaxType(..)
+    , boxIsComment
     , bracketsToString
     , commentFirstCol
     , commentGluesToPrevious
@@ -23,6 +24,7 @@ module Formatter.Logical.LogicalPrintingTree exposing
     , lpnExtendElasticBracket
     , lpnFirstPos
     , lpnLastBracketEnd
+    , lpnHasComment
     , lpnLastPos
     , lpnLeaf
     , lpnMaxRow
@@ -602,6 +604,7 @@ type LPNode
         , bracketEndExact : Bool
         , bracketEndElastic : Bool
         , bracketStart : Maybe Position
+        , hasComment : Bool
         }
 
 
@@ -940,6 +943,40 @@ lpnBracketEndElastic node =
             r.bracketEndElastic
 
 
+{-| True when this node or any descendant is a comment. O(1) — reads the cache
+`lpnNode` populates bottom-up, the same way the position bounds are read.
+
+The renderer asks this to route a comment-bearing construct to its
+comment-aware layout instead of a comment-oblivious one, so it is asked at
+several levels of one descent; recomputing it walked the same subtree once per
+level. Caching is safe for the reason the bounds are: `LPNode` is opaque, so
+every node in the tree — including the comment nodes `Formatter.Logical.Comments`
+splices in afterwards — is built by `lpnNode`, which recomputes this from its
+children. -}
+lpnHasComment : LPNode -> Bool
+lpnHasComment node =
+    when node is
+        LPNode r ->
+            r.hasComment
+
+
+{-| Whether a box is itself a comment (rather than merely containing one). -}
+boxIsComment : LPBox -> Bool
+boxIsComment box =
+    when box is
+        SingleLineComment _ ->
+            True
+
+        BlockComment _ ->
+            True
+
+        DocComment _ ->
+            True
+
+        _ ->
+            False
+
+
 {-| The exact source position of this container's *opening* bracket, when the
 builder recorded one (`lpnWithBracketStart`), or `Nothing`. Unlike the row/pos
 bounds this is a property of the node itself, not aggregated from children.
@@ -991,14 +1028,28 @@ lpnWithBracketStart openStart node =
                 }
 
 
-{-| Replace a node's box, keeping its children and cached bounds as-is. Used
-to tag an already-built node with context its constructor didn't have —
-e.g. shifting an `OriginalRows` node's cached row range after a reorder. -}
+{-| Replace a node's box, keeping its children and cached POSITION bounds
+as-is. Used to tag an already-built node with context its constructor didn't
+have — e.g. shifting an `OriginalRows` node's cached row range after a reorder.
+
+Leaving the position cache untouched is deliberate and load-bearing:
+`SortSymbols.rowSpan` documents that it reads a node's TRUE original position
+while `origRowsFirst`/`origRowsLast` read the shifted box, and conflating the
+two once produced silently-wrong deltas across a whole import group.
+
+`hasComment` is recomputed, because it is not a fact about where the node
+started: swap a comment box for a non-comment one and the old answer is simply
+wrong. Today's only caller swaps `OriginalRows` for `OriginalRows` and cannot
+trip it — which is exactly why it would be found late. -}
 lpnWithBox : LPBox -> LPNode -> LPNode
 lpnWithBox newBox node =
     when node is
         LPNode r ->
-            LPNode { r | box = newBox }
+            LPNode
+                { r
+                    | box = newBox
+                    , hasComment = boxIsComment newBox || Array.any lpnHasComment r.children
+                }
 
 
 lpnLeaf : LPBox -> LPNode
@@ -1072,12 +1123,14 @@ lpnNode box children =
 
                             Nothing ->
                                 acc.bracketEndElastic
+                    , hasComment = acc.hasComment || lpnHasComment child
                     }
                 )
                 { firstPos = self.firstPos
                 , lastPos = self.lastPos
                 , minRow = self.minRow
                 , maxRow = self.maxRow
+                , hasComment = boxIsComment box
                 , lastBracketEnd = Nothing
                 , bracketEndExact = False
                 , bracketEndElastic = False
@@ -1126,6 +1179,7 @@ lpnNode box children =
         , bracketEndExact = bracketExact
         , bracketEndElastic = bracketElastic
         , bracketStart = Nothing
+        , hasComment = merged.hasComment
         }
 
 

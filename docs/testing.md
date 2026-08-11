@@ -607,6 +607,46 @@ use `fuzzrun.py`, which drives this generator. See
   algorithm).
 - **`tests/fuzzrun.py`** — the long-sweep coordinator ([fuzzTesting.md](fuzzTesting.md)).
 
+## Scaling (`bench-scaling.py`, and how to check a suspected blowup)
+
+`bench-scaling.py` times the formatter against a rising comment count, with
+`--stage lpt` / `pex` / `show` to say which stage the time is in. It is a
+measuring instrument, not a gate — nothing fails on a slow number.
+
+Layout here is author-driven, so there is no search to blow up; the blowups
+this codebase has actually had came from *rendering the same subtree more than
+once*. `makeBinopBox` rendered every operand to decide a layout and then
+re-rendered it in the chosen one, which cost O(2^depth) on nested paren
+operands (`1 + (1 + (…))`) — the same shape as the earlier nested
+record-literal hang. Both were fixed by rendering once, up front, and having
+every path consume the same items. That is the pattern to look for: a
+suspected blowup is almost always a second render, not a slow function.
+
+**Measured 2026-08-11.** A code review flagged quadratic patterns in
+`Box.stackPrime`, `flattenBinopNodes`, `Comments.insertCommentIntoSubtree`'s
+sibling scan and `FlowAssembly.leadingFor`, and asked whether
+`subtreeHasComment` should be cached. Timing five structural shapes — binop
+chain, record literal, `let` bindings, top-level declarations, pipeline — at
+n = 50…3200, net of the ~57 ms node startup:
+
+| shape | n=400 | n=800 | n=1600 | n=3200 |
+|---|---|---|---|---|
+| `let` bindings | 204 ms | 490 ms | 1212 ms | 3345 ms |
+| binop chain | 124 ms | 254 ms | 566 ms | stack overflow |
+
+Doubling n multiplies time by 2.0–2.8, not by 4. Nothing is quadratic in
+practice at sizes several times larger than any real Gren module, and the
+binop chain hits the known stack-overflow limit before any quadratic term
+would surface. Those four spots are quadratic in the small — over one
+construct's children, not over the file — and are not worth restructuring.
+
+`subtreeHasComment` *is* cached now, on the node, beside the position bounds
+(`lpnHasComment`). That was worth doing for consistency — it is the one
+subtree fact that was answered by walking while the other seven were
+cached — but it is **not** a measured speedup: on comment-dense nested input
+the walk and the cache time the same to within noise. Do not cite it as a
+performance fix.
+
 ## Predicate/renderer agreement audit (`audit-predicates.py`)
 
 ### What it guards against

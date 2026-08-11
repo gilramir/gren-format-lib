@@ -35,32 +35,25 @@ module Formatter.Render.NodeClassify exposing
 {-| Boolean predicates and small structural queries over LPT nodes.
 -}
 
-import Formatter.Logical.LogicalPrintingTree exposing (CommentRole(..), LPBox(..), LPNode, ListBrackets(..), commentRole, firstRowInSubtree, lpnBox, lpnBracketStart, lpnChildren, lpnMaxRow)
+import Formatter.Logical.LogicalPrintingTree exposing (boxIsComment, commentRole, CommentRole(..), firstRowInSubtree, ListBrackets(..), LPBox(..), lpnBox, lpnBracketStart, lpnChildren, lpnHasComment, lpnMaxRow, LPNode)
 import Formatter.Render.Box as B
 
 
 nodeIsComment : LPNode -> Bool
 nodeIsComment node =
-    when lpnBox node is
-        SingleLineComment _ ->
-            True
-
-        BlockComment _ ->
-            True
-
-        DocComment _ ->
-            True
-
-        _ ->
-            False
+    boxIsComment (lpnBox node)
 
 
 -- True when `node` or any descendant is a comment. Used to route a
 -- comment-bearing construct to its comment-aware fallback rather than a
 -- comment-oblivious layout.
+--
+-- O(1): the answer is cached on the node by `lpnNode`, alongside the position
+-- bounds and for the same reason -- the renderer asks it at several levels of
+-- one descent, and walking the subtree per level made it O(size x depth).
 subtreeHasComment : LPNode -> Bool
-subtreeHasComment node =
-    nodeIsComment node || Array.any subtreeHasComment (lpnChildren node)
+subtreeHasComment =
+    lpnHasComment
 
 
 {-| True when the subtree's last descendant is a **multi-line** `{- … -}`.
