@@ -15,6 +15,9 @@ nothing is going wrong.
   - [The same misparse reached by a comment, where the columns are not equal](#the-same-misparse-reached-by-a-comment-where-the-columns-are-not-equal)
 - [Output today's compiler rejects, that the next one will accept](#output-todays-compiler-rejects-that-the-next-one-will-accept)
 - [A binary `-` whose right operand starts at the operator's own column](#a-binary---whose-right-operand-starts-at-the-operators-own-column)
+- [An integer literal just below 2^53 is silently rewritten](#an-integer-literal-just-below-253-is-silently-rewritten)
+  - [Two causes, one per spelling](#two-causes-one-per-spelling)
+  - [Where it showed up](#where-it-showed-up)
 - [Wide `when` branch patterns](#wide-when-branch-patterns)
 - [Comment placement near invisible tokens](#comment-placement-near-invisible-tokens)
 - [A line break inside a declaration's head](#a-line-break-inside-a-declarations-head)
@@ -302,6 +305,84 @@ residual drops by seventeen.
 
 Workaround for a file you need formatted today: keep the right operand on the
 operator's row, or parenthesize.
+
+## An integer literal just below 2^53 is silently rewritten
+
+36 integers near the top of the exactly-representable range come out of
+`gren format` as a *different number*. The file still parses, the AST check
+passes, the output is a fixed point — and the program no longer means what it
+did:
+
+```gren
+a =                             -- input               -- after gren format
+    9007199254740991                                       9007199254740992
+```
+
+This is the one entry here that **corrupts** rather than refusing or laying out
+awkwardly. The binary `-` bug above is caught by the AST check and the file is
+left alone; this one is not caught by anything, because the corruption happens
+in the *parser*, before the formatter sees a thing. Both parses agree on the
+wrong number, so parse → format → reparse → AST-compare compares two identical
+wrong trees, and re-formatting the corrupted output reproduces it exactly.
+Nothing in this repo's gates can see it.
+
+Nor can the formatter fix it: by the time `InsertExpressions` renders the
+literal it holds `Src.Int 9007199254740992` and the author's digits are gone.
+
+### Two causes, one per spelling
+
+Both are the same arithmetic slip — a digit added to the accumulator *before*
+being normalized, so the intermediate crosses 2^53 (where float64 spacing
+becomes 2) and rounds, and the later subtraction cannot undo the rounding.
+
+**Decimal** goes through `String.toInt`, whose kernel
+(`gren-lang/core`, `src/Gren/Kernel/String.js`) does
+`total = 10 * total + code - 0x30`, i.e. `(10 * total + code) - 0x30`. Tracked
+at [core#134](https://github.com/gren-lang/core/issues/134); the fix is one pair
+of parentheses. Affected: the **24 odd** values in
+`[9007199254740945, 9007199254740991]`.
+
+Both fixes are one-line parenthesizations, and neither can be worked around
+here — when both have shipped and the `core` / `compiler-common` dependencies
+are bumped, this whole entry can be deleted.
+
+**Hex** goes through `Compiler.Parse.Number.hexFolder` in `compiler-common`,
+which does `16 * acc + charCode - 48` (and `16 * acc + 10 + charCode - 65` for
+`A-F`). Tracked at
+[compiler-common#36](https://github.com/gren-lang/compiler-common/issues/36).
+Affected: the **27** values in `[0x1FFFFFFFFFFFCA, 0x1FFFFFFFFFFFFE]` whose last
+digit is `1 3 5 7 9 A C E`.
+
+Both hex branches are broken, but on **opposite parities** — the digit branch's
+intermediate is `value + 48` and the `A-F` branch's is `value + 65`, and only an
+odd intermediate rounds. That is why **`0x1FFFFFFFFFFFFF` (2^53 - 1) round-trips
+correctly** while 27 of its neighbours do not. It is the obvious value to probe
+with and it certifies a broken path: probe one value from each branch.
+
+The two sets overlap but neither contains the other: 9 values are broken only
+when written in decimal, 12 only in hex, and **15 are broken in both**, so
+"write it the other way" is not a general workaround. There is no workaround at
+all for those 15 short of keeping them out of source (compute them, or read them
+from data) until both fixes ship.
+
+### Where it showed up
+
+In this repo's own test suite. `tests/src/Test/Formatter/Format.gren` pins
+`intToHex` at the `2^53 - 1` boundary:
+
+```gren
+, hexCase "2^53 - 1 (max exact JS integer)" 9007199254740991 "1FFFFFFFFFFFFF"
+```
+
+Running `gren format` over `gren-format-lib` rewrites that `…991` to `…992` and
+the test then fails, because `intToHex` correctly reports `20000000000000` for
+the number it was actually given. **Formatting this repo will keep re-breaking
+that line** until core#134 ships and the dependency is bumped; repair it by hand
+after formatting, and do not "fix" the expectation string to match.
+
+No fuzzer here will ever reach the boundary on its own: `gen-random.py` draws
+decimal literals from `0..99` and hex literals from at most 44 bits, so its
+generated integers stop three orders of magnitude short.
 
 ## Wide `when` branch patterns
 
