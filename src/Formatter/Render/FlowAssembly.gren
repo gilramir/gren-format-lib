@@ -1,13 +1,45 @@
-module Formatter.Render.FlowAssembly exposing (FlowItem, FlowMeasure, SoftGlueAlignment(..), assembleBrokenCall, assembleBrokenWithComments, bracketPunc, gluedExposingBox, isCommentItem, pairLeadingComments, pairableCommentLine, parenInnerIsAlignCarrying, softBlockChildForcesVerticalBox, softGlueAlignment, trySoftGlueFlow, typeContentSpansRows, verticalExposingBox)
+module Formatter.Render.FlowAssembly exposing
+    ( assembleBrokenCall
+    , assembleBrokenWithComments
+    , BinopChainSegment
+    , bracketPunc
+    , FlowItem
+    , flowItemFromBox
+    , FlowMeasure
+    , gluedExposingBox
+    , groupBinopByPrecedence
+    , isCommentItem
+    , itemForcesFlowVertical
+    , itemIsMultilineBracketContainer
+    , itemIsMultilineParenBlock
+    , leadingRunRowBoxes
+    , operandItemsRenderMultiline
+    , pairableCommentItemLine
+    , pairableCommentLine
+    , pairLeadingComments
+    , parenInnerIsAlignCarrying
+    , parenLambdaMultilineItems
+    , softBlockChildForcesVerticalBox
+    , softGlueAlignment
+    , SoftGlueAlignment(..)
+    , splitAfterGluedOperand
+    , splitPairingCommentItems
+    , splitStepTriggerItems
+    , trySoftGlueFlow
+    , typeContentSpansRows
+    , verticalExposingBox
+    )
 
 {-| Flow-assembly support: the `FlowItem`/`SoftGlueAlignment` types and the pure helpers that lay pre-rendered flow items out into a `Box`.
 -}
 
+import Formatter.Logical.BinopPrecedence exposing (binopMinPrecedence, binopPrecedence)
 import Formatter.Logical.LogicalPrintingTree exposing (CommentRole(..), LPBox(..), LPNode, ListBrackets(..), commentGluesToPrevious, commentRole, lpnBox, lpnChildren, lpnMaxRow, roleGlues)
+import Formatter.Render.BinopLayout exposing (isChainBreakingOperandBox)
 import Formatter.Render.Box as B exposing (Box(..))
-import Formatter.Render.BoxOps exposing (applyIndent, commentRunLine, glueCommentSuffix, isSingleLine, joinInline, nodesShareStartRow, traverseResult)
+import Formatter.Render.BoxOps exposing (applyIndent, commentRunLine, glueCommentSuffix, isBlockNode, isSingleLine, joinInline, nodesShareStartRow, traverseResult)
 import Formatter.Render.FlowPolicy as FP
-import Formatter.Render.NodeClassify exposing (isColonLeaf, isEmptyLine, isTypeRecordLiteral, nodeIsComment, subtreeEndsWithMultilineBlockComment)
+import Formatter.Render.NodeClassify exposing (isColonLeaf, isEmptyLine, isMultilineLambdaParenBlockBox, isTypeRecordLiteral, nodeIsComment, subtreeEndsWithMultilineBlockComment)
 
 
 -- `exposing` stays glued to the header. Inline list: `header (a, b, c)` on one
@@ -981,7 +1013,7 @@ pairLeadingComments items =
 -- `CommentRole` is any of the non-gluing ones, so it leads its own line, leads
 -- the item after it, or stands alone.
 --
--- NOT the same test as `MakeRenderBox.commentLeadsOwnLine`, which is `role ==
+-- NOT the same test as `NodeClassify.commentLeadsOwnLine`, which is `role ==
 -- LeadsOwnLine` exactly. This one is the complement of `roleGlues`, so it also
 -- covers `LeadsNext` / `TrailsHead` / `LeadsInline` / `Standalone`. The two wore
 -- the same name until 2026-08-02.
@@ -1037,6 +1069,348 @@ softBlockChildForcesVerticalBox item =
                                 False
                 in
                 isBracketLiteral && not (isSingleLine item.box)
+
+        Nothing ->
+            False
+
+
+{-| The flow item for a node whose box the caller already has. The generic arm of
+`renderFlowItem`, minus the render — valid for any node kind that arm handles
+(everything but a comment and a `ParenBlock`, which carry extra parts). -}
+flowItemFromBox : LPNode -> Box -> FlowItem
+flowItemFromBox node box =
+    { node = node
+    , box = box
+    , isBlock = isBlockNode node box
+    , comment = Nothing
+    , lambdaBodyBox = Nothing
+    }
+
+
+{-| True when the operand is a single chain-breaking node (comments skipped)
+whose ALREADY-rendered box is multi-line, so the whole chain must break
+vertically — elm-format breaks a chain around any multi-line operand.
+
+Decided from the operand's own rendered box, which is a reparse-stable function
+of the operand subtree: an `if`/`when`/`let`, a multi-field record, an
+author-broken paren, or a `--` forcing the `)` down each renders multi-line in
+BOTH the flat and the re-broken input, so the chain breaks consistently. The
+pure `bracketOperandForcesVertical` predicate this replaced could only
+approximate it — it modelled neither `if`/`when`/`let` nor a paren's content, so
+a paren-wrapped multi-line operand (`0 ++ (if …)`) glued on the flat format and
+broke on reparse, oscillating for ever.
+
+Reads the box `makeBinopBox` rendered once, rather than re-rendering the
+subtree: deciding by throwaway render and then re-rendering in the chosen layout
+is what cost O(2^depth) on nested operands. -}
+operandItemsRenderMultiline : Array FlowItem -> Bool
+operandItemsRenderMultiline items =
+    when Array.popFirst (Array.keepIf (\it -> not (nodeIsComment it.node)) items) is
+        Just { first = it, rest = rest } ->
+            Array.isEmpty rest
+                && isChainBreakingOperandBox (lpnBox it.node)
+                && not (isSingleLine it.box)
+
+        Nothing ->
+            False
+
+
+{-| One group of a vertical binop chain past the first: the operator that leads
+it, the box its content rendered to, and the run of own-line comment items
+peeled off its end. -}
+type alias BinopChainSegment =
+    { op : String, operandBox : Box, ownLine : Array FlowItem }
+
+
+{-| A paired leading comment RUN as one box per row THE AUTHOR WROTE IT ON: a
+member whose stored role glues joins the row before it, one that leads its own
+row starts a new box.
+
+**gren never moves a comment between rows**, so the run that travels down with a
+dropping block keeps its own shape while it travels. Emitting one box per member
+(as this did until 2026-08-08) split `{- a -} {- b -}` onto two rows in exactly
+the shapes where the block drops -- a lambda body, a multi-line record value --
+while the same run in a flow that does not drop stayed on one row.
+
+`glueCommentSuffix` does the joining, so a multi-line member glues onto the row's
+last line with its body padded under itself, the same as every other same-row
+trailing-comment site. -}
+leadingRunRowBoxes : Array FlowItem -> Array Box
+leadingRunRowBoxes items =
+    Array.foldl
+        (\li acc ->
+            when li.comment is
+                Nothing ->
+                    acc
+
+                Just lc ->
+                    when Array.popLast acc is
+                        Just { last = prevRow, initial } ->
+                            if commentGluesToPrevious li.node then
+                                Array.pushLast (glueCommentSuffix lc.box prevRow) initial
+
+                            else
+                                Array.pushLast lc.box acc
+
+                        Nothing ->
+                            [ lc.box ]
+        )
+        []
+        items
+
+
+{-| The line of a single-line block-comment item — the only comment kind that
+can ride the operator line that follows it. Literally the `pairableCommentLine`
+rule `assembleBrokenWithComments` uses for a broken call, over the same
+`FlowItem.comment` record, so a broken call and a broken binop chain pair the
+same comments. A `--` can have nothing after it on its row and a multi-line
+`{- -}` has no single line to ride, so neither pairs. -}
+-- `FlowAssembly.pairableCommentLine` for a whole flow item: `Nothing` unless the
+-- item is a comment that can ride its neighbour's row.
+pairableCommentItemLine : FlowItem -> Maybe B.Line
+pairableCommentItemLine item =
+    Maybe.andThen pairableCommentLine item.comment
+
+
+{-| Decide a group's own-line comment run: either the WHOLE run rides the next
+group's operator line, or none of it does and every comment stands on its own
+row.
+
+All-or-nothing, not a trailing peel — that is elm-format's rule, verified
+directly: `-- first` / `{- c -}` / `+ b` keeps *both* comments on their own rows
+there, and so does a multi-line `{- -}` followed by a single-line one. Splitting
+the run instead (pair the pairable suffix, stack the rest) would leave the two
+halves of one authored run laid out differently. -}
+splitPairingCommentItems : Array FlowItem -> { stacked : Array FlowItem, pairing : Array B.Line }
+splitPairingCommentItems items =
+    let
+        pairable =
+            Array.mapAndKeepJust pairableCommentItemLine items
+    in
+    if not (Array.isEmpty items) && Array.length pairable == Array.length items then
+        { stacked = [], pairing = pairable }
+
+    else
+        { stacked = items, pairing = [] }
+
+
+{-| Group a flattened binop chain by precedence for the vertical layout: break
+at the chain's lowest-precedence operators, keeping tighter-binding operators
+(and their operands) glued inline within a group. Returns the first group's
+items (rendered at the flow base) and, for each following group, the
+min-precedence operator that leads it plus the group's items.
+
+Breaks at exactly the same `binopMinPrecedence` tier as
+`InsertExpressions.binopForceVertical`, so the render grouping and the
+force-vertical decision stay in lockstep. -}
+groupBinopByPrecedence :
+    Array (Array FlowItem)
+    -> Array { text : String, item : FlowItem }
+    -> { firstGroup : Array FlowItem, rest : Array { op : String, items : Array FlowItem } }
+groupBinopByPrecedence operands ops =
+    when Array.popFirst operands is
+        Nothing ->
+            { firstGroup = [], rest = [] }
+
+        Just { first = operand0, rest = restOperands } ->
+            let
+                minPrec =
+                    binopMinPrecedence (Array.map .text ops)
+
+                paired =
+                    Array.map2 (\op operandItems -> { op = op, operand = operandItems }) ops restOperands
+
+                final =
+                    Array.foldl
+                        (\pair acc ->
+                            if binopPrecedence pair.op.text == minPrec then
+                                -- A lowest-precedence operator: close the current group
+                                -- and start a new one led by this operator.
+                                { groups = Array.pushLast { op = acc.curOp, items = acc.curItems } acc.groups
+                                , curOp = pair.op.text
+                                , curItems = pair.operand
+                                }
+
+                            else
+                                -- A tighter operator: glue its leaf + operand inline
+                                -- into the current group.
+                                { acc | curItems = acc.curItems ++ [ pair.op.item ] ++ pair.operand }
+                        )
+                        { groups = [], curOp = "", curItems = operand0 }
+                        paired
+
+                allGroups =
+                    Array.pushLast { op = final.curOp, items = final.curItems } final.groups
+            in
+            when Array.popFirst allGroups is
+                Just { first = fg, rest = rg } ->
+                    { firstGroup = fg.items, rest = rg }
+
+                Nothing ->
+                    { firstGroup = operand0, rest = [] }
+
+
+{-| Split a pipeline step's ALREADY-RENDERED items at the step's *trigger* — the
+first node that breaks onto its own line: a multi-line lambda-argument paren, a
+multi-line content paren, or any other multi-line-forcing node such as a record
+argument. A left-to-right split matching elm-format, including the
+direct-operand-lambda exclusion (`|> (\x -> …)` stays glued to the operator).
+`Nothing` = no trigger.
+
+Every verticality question here is answered from `item.box`, the box the caller
+already rendered. Asking the node instead (`makePBox` just to test
+`isSingleLine`) meant the guard rendered a subtree that the preamble/trigger
+render then rendered again — two to four full renders of the same subtree per
+nesting level, which is why a nested `0 |> g ( 0 |> g ( … ))` cost 2^depth and a
+nested direct-operand pipeline lambda ~4^depth. -}
+splitStepTriggerItems : Array FlowItem -> Maybe { preamble : Array FlowItem, trigger : FlowItem, suffix : Array FlowItem }
+splitStepTriggerItems stepItems =
+    (Array.foldl
+        (\item acc ->
+            when acc.split is
+                Just s ->
+                    { acc | split = Just { s | suffix = Array.pushLast item s.suffix } }
+
+                Nothing ->
+                    let
+                        -- A multi-line paren block OR a multi-line bracket
+                        -- container (array / record / update) written directly
+                        -- after `|>` (nothing but the operator in the preamble)
+                        -- glues to the operator like elm-format's `|> (if …` /
+                        -- `|> [ 1`. Keeping it out of the trigger split leaves it
+                        -- in the preamble, where `buildFlowBoxInline` glues it;
+                        -- otherwise the relocation branch strands `|>` on its own
+                        -- line with the operand dropped +4 below.
+                        -- (`acc.preamble` holds the step's OPERANDS only — the
+                        -- operator is a prefix applied by `stepBodyBox`, not an
+                        -- item — so "nothing before it" is an empty preamble.)
+                        isDirectGluedOperand =
+                            Array.isEmpty acc.preamble
+                                && (itemIsMultilineParenBlock item
+                                        || itemIsMultilineBracketContainer item
+                                   )
+                    in
+                    if
+                        not isDirectGluedOperand
+                            && (isMultilineLambdaParenBlockBox item.node
+                                    || itemForcesFlowVertical item
+                               )
+                    then
+                        { acc | split = Just { preamble = acc.preamble, trigger = item, suffix = [] } }
+
+                    else
+                        { acc | preamble = Array.pushLast item acc.preamble }
+        )
+        { preamble = [], split = Nothing }
+        stepItems
+    ).split
+
+
+itemIsMultilineParenBlock : FlowItem -> Bool
+itemIsMultilineParenBlock item =
+    when lpnBox item.node is
+        ParenBlock _ ->
+            not (isSingleLine item.box)
+
+        _ ->
+            False
+
+
+itemIsMultilineBracketContainer : FlowItem -> Bool
+itemIsMultilineBracketContainer item =
+    (when lpnBox item.node is
+        AllAcrossOrAllVertical _ ->
+            True
+
+        AlwaysVertical _ ->
+            True
+
+        RecordUpdate _ ->
+            True
+
+        _ ->
+            False
+    )
+        && not (isSingleLine item.box)
+
+
+itemForcesFlowVertical : FlowItem -> Bool
+itemForcesFlowVertical item =
+    not (nodeIsComment item.node) && not (isSingleLine item.box)
+
+
+{-| Split a trigger-less step at its first multi-line item, when that item is not
+the last one: `|> (\y -> …) 5` — the paren is a direct-glued operand, so it never
+becomes a trigger, but `5` still follows something that broke.
+
+`Nothing` when nothing breaks, or when the breaking item is last (the common
+case, and the layout that was always right). A trailing comment run does not
+count as "after it" — the split's purpose is the one-argument-per-line rule, and
+a comment is not an argument (`stepSuffixBox`); left in the flow, it glues onto
+the operand's last row the way a plain call's does. -}
+splitAfterGluedOperand : Array FlowItem -> Maybe { glued : Array FlowItem, suffix : Array FlowItem }
+splitAfterGluedOperand items =
+    let
+        lastArgIndex =
+            (Array.foldl
+                (\item acc ->
+                    { i = acc.i + 1
+                    , found =
+                        if isCommentItem item then
+                            acc.found
+
+                        else
+                            acc.i
+                    }
+                )
+                { i = 0, found = -1 }
+                items
+            ).found
+
+        breakIndex =
+            (Array.foldl
+                (\item acc ->
+                    if acc.found /= -1 || isSingleLine item.box then
+                        { acc | i = acc.i + 1 }
+
+                    else
+                        { i = acc.i + 1, found = acc.i }
+                )
+                { i = 0, found = -1 }
+                items
+            ).found
+    in
+    if breakIndex < 0 || breakIndex >= lastArgIndex then
+        Nothing
+
+    else
+        Just
+            { glued = Array.slice 0 (breakIndex + 1) items
+            , suffix = Array.dropFirst (breakIndex + 1) items
+            }
+
+
+{-| The second direct child is an `IndentedBlock` (a lambda body on a separate
+row — always multi-line), or a `SoftIndentedBlock` whose sole child is a bracket
+literal that renders vertical.
+
+Both facts come from the item that was already rendered:
+`softBlockChildForcesVerticalBox` keeps the same structural test as before and
+reads verticality off `item.box` (a soft block is single-line exactly when its
+sole child is), rather than rendering that child a second time. -}
+parenLambdaMultilineItems : Array FlowItem -> Bool
+parenLambdaMultilineItems items =
+    when Array.get 1 items is
+        Just second ->
+            when lpnBox second.node is
+                IndentedBlock ->
+                    True
+
+                SoftIndentedBlock ->
+                    softBlockChildForcesVerticalBox second
+
+                _ ->
+                    False
 
         Nothing ->
             False

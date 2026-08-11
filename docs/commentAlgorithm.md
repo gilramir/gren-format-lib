@@ -2015,8 +2015,8 @@ has a large blast radius. The right-hand column is what breaks when it is wrong
 | `NodeClassify.commentBreaksFlowRow` | a comment-aware `forceVertical` | flat-then-broken oscillation |
 | `Box.endsOpen` / `asJoinable` | is gluing here safe? | **output that does not parse** — a `]` swallowed by a `--` |
 | `NodeClassify.subtreeEndsWithMultilineBlockComment` | is the box align-carrying? | a comment's continuation row off by a few columns |
-| `MakeRenderBox.commentForcesBracketOpen` | may a literal stay flat? | as above, or a needless break |
-| `MakeRenderBox.glueLeadingCommentRun` / `glueLeadBoxes` | run cohesion (§7 R3) | a run that half-rides and never settles |
+| `CommentBox.commentForcesBracketOpen` | may a literal stay flat? | as above, or a needless break |
+| `CommentBox.glueLeadingCommentRun` / `glueLeadBoxes` | run cohesion (§7 R3) | a run that half-rides and never settles |
 | `MakeRenderBox.commentBracketListBox` | the comment-bearing bracket layout | the biggest single materializer; most bracket comment bugs land here |
 | `CommentBox.multiLineBlockCommentBox` | continuation-line reindent | comment bodies that walk right on every format |
 | `CommentBox.span*` / `peelTrailingCommentNodes` | which comments a renderer peels off | peeling a comment that was supposed to glue, and vice versa |

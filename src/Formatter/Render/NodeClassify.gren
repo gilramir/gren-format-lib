@@ -2,15 +2,21 @@ module Formatter.Render.NodeClassify exposing
     ( commentBreaksFlowRow
     , commentBreaksFlowRowDeep
     , commentEndsItsLine
+    , commentLeadsNext
+    , commentLeadsOwnLine
+    , commentRidesInline
     , commentTextCanRide
+    , commentTrailsHead
     , fieldValueDropsToOwnLine
     , isColonLeaf
     , isDroppingSignatureRecordNode
     , isEmptyLine
+    , isGluedLambdaField
     , isMultilineLambdaParenBlockBox
     , isOpAndRhsNode
     , isPipelineStepNode
     , isTypeRecordLiteral
+    , lambdaParenIsHeadAndBodyOnly
     , leafLineRow
     , leafValue
     , literalCommentsRideFlatLine
@@ -18,9 +24,12 @@ module Formatter.Render.NodeClassify exposing
     , parenContentIsLambdaHead
     , rowsSpanMultiple
     , signatureForceVertical
+    , splitOffLambdaHead
     , splitSignatureSegments
+    , stepOperatorText
     , subtreeEndsWithMultilineBlockComment
     , subtreeHasComment
+    , valueNodeIsHardBlock
     )
 
 {-| Boolean predicates and small structural queries over LPT nodes.
@@ -605,3 +614,161 @@ isEmptyLine node =
 
         _ ->
             False
+
+
+{-| Whether a lambda `ParenBlock` holds nothing but its head and its body — the
+precondition `makeMultilineLambdaArgBox` is written to.
+
+That renderer reads the first child and the second and **silently discards the
+rest**, and a comment written past the lambda body's last token is exactly such a
+child: a `{- x -}` on its own row before the `)` of a pipeline step's lambda
+argument was lost outright. Nothing downstream could see it — a dropped comment
+leaves an AST-equivalent output that is its own fixed point, so `--show` passes;
+only a non-canonical *input* made a fuzzer notice, because the comment then
+survived the first format and vanished on the second.
+
+A paren with more children relocates through the generic paren box instead, which
+renders all of them — and puts the trailing comment one column past the `(`,
+which is both what gren already does for the identical paren in a plain call and
+what elm-format prints for both. -}
+lambdaParenIsHeadAndBodyOnly : LPNode -> Bool
+lambdaParenIsHeadAndBodyOnly node =
+    Array.length (lpnChildren node) <= 2
+
+
+-- The `|>` / `<|` leaf a pipeline step starts with. Anything else (a step whose
+-- children were rewritten, a leading comment left in place) is not an operator
+-- and keeps the whole child array on the flow path.
+stepOperatorText : LPNode -> Maybe String
+stepOperatorText node =
+    when leafValue node is
+        Just v ->
+            if v == "|>" || v == "<|" then
+                Just v
+
+            else
+                Nothing
+
+        Nothing ->
+            Nothing
+
+
+{-| True when a record field's value node is a hard block (`if`/`when`/`let`/
+lambda body, …). A hard-block value already drops after `=` through its own
+block box, so the soft-value drop rule (`dropFieldValueBoxWithBox`) never
+applies to it — callers short-circuit on this before rendering the value. -}
+valueNodeIsHardBlock : LPNode -> Bool
+valueNodeIsHardBlock valueNode =
+    when lpnBox valueNode is
+        BodyBlock ->
+            True
+
+        IndentedBlock ->
+            True
+
+        SoftIndentedBlock ->
+            True
+
+        WhenBranch ->
+            True
+
+        PipelineStep ->
+            True
+
+        EmptyLine ->
+            True
+
+        _ ->
+            False
+
+
+{-| A record field holding a lambda that `folderInsertRecordField` decided to
+keep GLUED on the `= ` line — the `IndentedBlock` container it builds in that one
+branch (`{ fld = \q -> body }`). Every other field shape is a `plainAcross`
+flow, so this identifies the glued-lambda case exactly.
+
+The glue is chosen when the lambda is expected to render on one line. That
+expectation is an AST-level guess (`lambdaValueNodesAreBroken || exprAlwaysBreaks`)
+and it is under-approximate in both directions that matter: it cannot see a
+comment (the AST has none), and it does not model an author-broken record body.
+Either makes the lambda render multi-line while still glued — and the reparse
+then sees the body on a later row, flips to the drop form, and the file
+oscillates. `renderGluedLambdaField` settles it by observing the rendered box
+instead of predicting it. -}
+isGluedLambdaField : LPNode -> LPNode -> Bool
+isGluedLambdaField field valueNode =
+    when { f = lpnBox field, v = lpnBox valueNode } is
+        { f = IndentedBlock, v = SoftIndentedBlock } ->
+            True
+
+        _ ->
+            False
+
+
+{-| Split a glued-lambda field's head nodes at the lambda's own `\q ->` head —
+the LAST node that is not a comment. What precedes it is the field head
+(`fld =`), what follows is the lambda head and any comment written between it and
+the body, which drops with it. `Nothing` when there is no non-comment node at
+all, which the container's shape rules out. -}
+splitOffLambdaHead : Array LPNode -> Maybe { fieldHead : Array LPNode, lambdaNodes : Array LPNode }
+splitOffLambdaHead nodes =
+    Array.foldl
+        (\node acc ->
+            { i = acc.i + 1
+            , found =
+                if nodeIsComment node then
+                    acc.found
+
+                else
+                    Just acc.i
+            }
+        )
+        { i = 0, found = Nothing }
+        nodes
+        |> .found
+        |> Maybe.map
+            (\i ->
+                { fieldHead = Array.takeFirst i nodes
+                , lambdaNodes = Array.dropFirst i nodes
+                }
+            )
+
+
+commentTrailsHead : LPNode -> Bool
+commentTrailsHead node =
+    commentRole (lpnBox node) == Just TrailsHead
+
+
+commentLeadsOwnLine : LPNode -> Bool
+commentLeadsOwnLine node =
+    commentRole (lpnBox node) == Just LeadsOwnLine
+
+
+commentLeadsNext : LPNode -> Bool
+commentLeadsNext node =
+    commentRole (lpnBox node) == Just LeadsNext
+
+
+{-| True when this comment's stored role is exactly `RidesInline`.
+
+**Not the same question as `commentTextCanRide`**, which asks the comment's
+SHAPE (is it a single-line `{- … -}`). Every `RidesInline` comment is a
+single-line block comment, but not every single-line block comment is
+`RidesInline` — one written across a list's unrecorded `,` (`[ 1, {- c -} 2 ]`)
+is classified `LeadsNext` by rule C2, so it is shape-ridable but not
+role-ridable.
+
+The example this used to give — the second comment of a run just inside an
+opening bracket, `[ {- a -} {- b -} 1` — is no longer one: since `f05a4cc` the
+whole opener run is one attachment and every member is `RidesInline` (rule C1;
+`Comments.inOpenerRun`). It was the split that made a run of two ride
+differently from a run of one.
+
+Three stale comments sat on this function until 2026-08-02, one of them
+describing `commentTextCanRide`'s rule and asserting that the classifier tags
+such a comment `RidesInline`. That conflation is not true of a run, and it is
+the likely origin of the two predicates being used in sibling arms of
+`commentBracketListBox`. -}
+commentRidesInline : LPNode -> Bool
+commentRidesInline node =
+    commentRole (lpnBox node) == Just RidesInline
