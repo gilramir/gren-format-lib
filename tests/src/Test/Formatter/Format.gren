@@ -8,10 +8,10 @@ import Task exposing (Task)
 import Test.Runner.UnitNode as U
 
 import Array.Builder as Builder
-import Compiler.Ast.Source as Src
-import Compiler.Parse.Module as PM
-import Compiler.Parse.Context as Context
 import Compiler.Ast.Compare as AstCompare
+import Compiler.Ast.Source as Src
+import Compiler.Parse.Context as Context
+import Compiler.Parse.Module as PM
 import Formatter as PPrint
 import Formatter.Logical.LiteralFormat as LiteralFormat
 import String.Parser.Advanced as Parser
@@ -210,14 +210,14 @@ assertPrettyIn fsPerm dir testDescription filenameBase =
                                         (\expectedFormatting ->
                                             Expect.all
                                                 [ \_ ->
-                                                        Expect.equal rendered expectedFormatting
-                                                            |> Expect.onFail (unifiedDiffStrings expectedFormatting rendered)
+                                                    Expect.equal rendered expectedFormatting
+                                                        |> Expect.onFail (unifiedDiffStrings expectedFormatting rendered)
                                                 , \_ ->
-                                                        checkAstEquivalence ast1 rendered
+                                                    checkAstEquivalence ast1 rendered
                                                 , \_ ->
-                                                        checkIdempotent expectedFormatting
+                                                    checkIdempotent expectedFormatting
                                                 , \_ ->
-                                                        checkCommentCountPreserved context1 rendered
+                                                    checkCommentCountPreserved context1 rendered
                                                 ]
                                                 {}
                                         )
@@ -274,7 +274,8 @@ checkCommentCountPreserved originalContext rendered =
                         ++ String.fromInt originalCount
                         ++ ", formatted output has "
                         ++ String.fromInt renderedCount
-                        ++ " (a dropped or duplicated comment)")
+                        ++ " (a dropped or duplicated comment)"
+                    )
 
 
 -- Parse a source string into its Module AST and parse Context, or an error.
@@ -361,7 +362,8 @@ checkIdempotent formatted =
                             ("Formatting is not idempotent ("
                                 ++ classification
                                 ++ ") — re-formatting the formatted output changed it:\n"
-                                ++ unifiedDiffStrings formatted reRendered)
+                                ++ unifiedDiffStrings formatted reRendered
+                            )
 
 
 importSuite : FileSystem.Permission -> U.Suite
@@ -372,7 +374,8 @@ importSuite fsPerm =
         , tearDownSuite = U.noTearDown
         , setUp = U.noFixture
         , tearDown = U.noTearDown
-        , tests = [ assertPrettyIn fsPerm "ImportStatements" "import with comments" "ImportWithComments"
+        , tests =
+            [ assertPrettyIn fsPerm "ImportStatements" "import with comments" "ImportWithComments"
             , assertPrettyIn fsPerm "ImportStatements" "exposed operators wrapped in parens" "ExposedOperator"
             , assertPrettyIn fsPerm "ImportStatements" "module line wraps exposing list to one indented line" "ModuleLineWrap"
             , assertPrettyIn fsPerm "ImportStatements" "module line wraps exposing list to one item per line" "ModuleLineVertical"
@@ -406,7 +409,8 @@ coreExpressionsSuite fsPerm =
         , tearDownSuite = U.noTearDown
         , setUp = U.noFixture
         , tearDown = U.noTearDown
-        , tests = [ assertPrettyIn fsPerm "CoreExpressions" "simple arithmetic" "SimpleArithmetic"
+        , tests =
+            [ assertPrettyIn fsPerm "CoreExpressions" "simple arithmetic" "SimpleArithmetic"
             , assertPrettyIn fsPerm "CoreExpressions" "when expression" "WhenExpression"
             , assertPrettyIn fsPerm "CoreExpressions" "if expression" "IfExpression"
             , assertPrettyIn fsPerm "CoreExpressions" "stacked if predicate wraps precedence-aware" "IfPredicate"
@@ -449,7 +453,8 @@ binopsAndPipelinesSuite fsPerm =
         , tearDownSuite = U.noTearDown
         , setUp = U.noFixture
         , tearDown = U.noTearDown
-        , tests = [ assertPrettyIn fsPerm "BinopsAndPipelines" "binop layout follows the author: a one-line chain stays inline no matter how long; an author-broken chain stays split" "BinopLayoutByAuthor"
+        , tests =
+            [ assertPrettyIn fsPerm "BinopsAndPipelines" "binop layout follows the author: a one-line chain stays inline no matter how long; an author-broken chain stays split" "BinopLayoutByAuthor"
             , assertPrettyIn fsPerm "BinopsAndPipelines" "an author-broken mixed-precedence binop chain breaks only at its lowest-precedence operators; tighter operators stay glued inline" "BinopMixedPrecedenceBroken"
             , assertPrettyIn fsPerm "BinopsAndPipelines" "a pipeline seeded by a binop, and a binop chain with a pipeline operand, flatten correctly (mixed |>/<| and +)" "BinopPipelineMix"
             , assertPrettyIn fsPerm "BinopsAndPipelines" "a binop whose operand is a multi-line bracket with a leading comment (comment re-homed onto the operator) drops the seed below and breaks stably instead of oscillating" "BinopCommentBracketOperand"
@@ -504,7 +509,8 @@ patternsAndLiteralsSuite fsPerm =
         , tearDownSuite = U.noTearDown
         , setUp = U.noFixture
         , tearDown = U.noTearDown
-        , tests = [ assertPrettyIn fsPerm "PatternsAndLiterals" "when branch body indentation" "WhenBranchBody"
+        , tests =
+            [ assertPrettyIn fsPerm "PatternsAndLiterals" "when branch body indentation" "WhenBranchBody"
             , assertPrettyIn fsPerm "PatternsAndLiterals" "when branch patterns" "WhenPatterns"
             , assertPrettyIn fsPerm "PatternsAndLiterals" "when-branch record-destructuring pattern written flat stays flat" "WhenRecordPatternFlat"
             , assertPrettyIn fsPerm "PatternsAndLiterals" "when-branch record-destructuring pattern written across rows aligns fields under the opening brace (regression guard for the nest/column mismatch fix)" "WhenRecordPatternVertical"
@@ -553,7 +559,8 @@ recordUpdatesSuite fsPerm =
         , tearDownSuite = U.noTearDown
         , setUp = U.noFixture
         , tearDown = U.noTearDown
-        , tests = [ assertPrettyIn fsPerm "RecordUpdates" "a record literal field whose value is a multi-line binop chain drops below `name =` like a record update (regression guard: literal path previously hit an unreachable flow-assembler arm)" "RecordLiteralBinopField"
+        , tests =
+            [ assertPrettyIn fsPerm "RecordUpdates" "a record literal field whose value is a multi-line binop chain drops below `name =` like a record update (regression guard: literal path previously hit an unreachable flow-assembler arm)" "RecordLiteralBinopField"
             , assertPrettyIn fsPerm "RecordUpdates" "as-pattern inside record-field destructure keeps its parens" "RecordFieldAsPattern"
             , assertPrettyIn fsPerm "RecordUpdates" "doc comment body with non-BMP code points round-trips" "DocCommentWithEmoji"
             , assertPrettyIn fsPerm "RecordUpdates" "record update base can be a parenthesized call" "RecordUpdateComplexBase"
@@ -590,7 +597,8 @@ declarationSuite fsPerm =
         , tearDownSuite = U.noTearDown
         , setUp = U.noFixture
         , tearDown = U.noTearDown
-        , tests = [ assertPrettyIn fsPerm "Declarations" "type aliases" "TypeAlias"
+        , tests =
+            [ assertPrettyIn fsPerm "Declarations" "type aliases" "TypeAlias"
             , assertPrettyIn fsPerm "Declarations" "a type alias whose body is a bare function type renders one `->` segment per row when the author broke it that way (even at only one boundary), with every segment -- including the first -- at the same column, since there's no \"name :\" header to glue it to" "TypeAliasFunctionType"
             , assertPrettyIn fsPerm "Declarations" "a type alias body whose function type carries a multi-line record type commits to the broken layout, so `-> Int` drops below the record's `}` instead of staying glued to it (the same trigger `makeSignatureBox` already had)" "TypeAliasDroppingRecord"
             , assertPrettyIn fsPerm "Declarations" "union types" "TypeUnion"
@@ -621,7 +629,8 @@ headerCommentsSuite fsPerm =
         , tearDownSuite = U.noTearDown
         , setUp = U.noFixture
         , tearDown = U.noTearDown
-        , tests = [ assertPrettyIn fsPerm "HeaderComments" "port declarations with comments in every header position" "PortComments"
+        , tests =
+            [ assertPrettyIn fsPerm "HeaderComments" "port declarations with comments in every header position" "PortComments"
             , assertPrettyIn fsPerm "HeaderComments" "effect module with comments around top-level decls" "EffectModuleComments"
             , assertPrettyIn fsPerm "HeaderComments" "module/import header keyword-gap comments" "ModuleHeaderComments"
             , assertPrettyIn fsPerm "HeaderComments" "block comment past a flat module exposing list is pinned above the ) instead of riding the last-written name" "ModuleExposingTrailingComment"
@@ -677,7 +686,8 @@ pipelineCommentsSuite fsPerm =
         , tearDownSuite = U.noTearDown
         , setUp = U.noFixture
         , tearDown = U.noTearDown
-        , tests = [ assertPrettyIn fsPerm "PipelineComments" "comments in pipeliens" "CommentsPipeline"
+        , tests =
+            [ assertPrettyIn fsPerm "PipelineComments" "comments in pipeliens" "CommentsPipeline"
             , assertPrettyIn fsPerm "PipelineComments" "backward pipeline and operator-rhs gap comments" "PipelineAndGlueComments"
             , assertPrettyIn fsPerm "PipelineComments" "an inline block comment rides a flat `|>` pipeline instead of reflowing it (as it already did in `++`/`&&`/`<|` chains); a `--` line comment, a multi-line block comment, an author-broken chain and a `when` step all still break" "PipelineInlineComment"
             , assertPrettyIn fsPerm "PipelineComments" "a `--` line comment trailing the last operand of a broken binop chain (`// acc -- c`) rides that operand's line instead of detaching at the operator indent and oscillating +N ↔ col-0" "TrailingLineCommentBinopOperand"
@@ -722,7 +732,6 @@ pipelineCommentsSuite fsPerm =
             -- picking IndentedBlock up front for a body that structurally always
             -- breaks, in InsertExpressions.gren.
             , assertPrettyIn fsPerm "PipelineComments" "a leading comment before a lambda body that is a mixed `|>`/`<|` pipeline (always multi-line) leads its own line even when written on the arrow's row" "LambdaMixedPipelineCommentBody"
-
             -- The same "structurally always breaks" question, asked of a PAREN
             -- rather than a lambda body: a trailing `{- -}` after a paren the
             -- author wrote on one row glues onto the `)` only if that `)` gets a
@@ -732,7 +741,6 @@ pipelineCommentsSuite fsPerm =
             -- there the comment took its own row BELOW the declaration's last
             -- token, which reparses as a top-level comment at column 1.
             , assertPrettyIn fsPerm "PipelineComments" "a trailing `{- -}` glues onto the `)` of a one-row paren whose content breaks anyway — a mixed `|>`/`<|` chain, or an `if` buried under a call or a lambda — not only when the paren's first child is the block construct" "ParenAlwaysBreaksTrailingComment"
-
             -- The same class as the three fixtures above, but the body wraps
             -- for a reason NO AST-level predicate can see: a comment inside it
             -- (a trailing `--` on the last operand / array item), or plain
@@ -758,7 +766,8 @@ patternCommentsSuite fsPerm =
         , tearDownSuite = U.noTearDown
         , setUp = U.noFixture
         , tearDown = U.noTearDown
-        , tests = [ assertPrettyIn fsPerm "PatternComments" "consecutive comments in when branch" "ConsecutiveCommentsInBranch"
+        , tests =
+            [ assertPrettyIn fsPerm "PatternComments" "consecutive comments in when branch" "ConsecutiveCommentsInBranch"
             , assertPrettyIn fsPerm "PatternComments" "type union variant comments and type-syntax positions in signatures" "TypeComments"
             , assertPrettyIn fsPerm "PatternComments" "array patterns, ctor patterns, and when-branch pattern comments" "PatternComments"
             , assertPrettyIn fsPerm "PatternComments" "standalone block comment before a non-first let binding" "LetBindingComments"
@@ -819,7 +828,8 @@ bracketCommentsSuite fsPerm =
         , tearDownSuite = U.noTearDown
         , setUp = U.noFixture
         , tearDown = U.noTearDown
-        , tests = [ assertPrettyIn fsPerm "BracketComments" "comments everywhere" "CommentsEverywhere"
+        , tests =
+            [ assertPrettyIn fsPerm "BracketComments" "comments everywhere" "CommentsEverywhere"
             , assertPrettyIn fsPerm "BracketComments" "when expressions as items in a commented array are preserved" "WhenInCommentedArray"
             , assertPrettyIn fsPerm "BracketComments" "doc/line/block adjacency and inter-declaration comments" "EdgeCaseComments"
             , assertPrettyIn fsPerm "BracketComments" "previously-mishandled comment placements (bugs A–K)" "TrickyComments"
@@ -895,7 +905,6 @@ bracketCommentsSuite fsPerm =
             , assertPrettyIn fsPerm "BracketComments" "a `{- -}` trailing a unary-minus expression glues onto that row unconditionally, bracket-free and call operand alike (a unary minus is a self-contained unit, unlike a call flow, which only glues after a bracket)" "NegateTrailingBlockComment"
             , assertPrettyIn fsPerm "BracketComments" "a comment run in a separator gap crosses that separator only if every member would -- a run mixing a single-line `{- -}` with a `--` or a multi-line `{- -}` used to tear in half and come out REVERSED" "CommentRunCrossesSeparator"
             , assertPrettyIn fsPerm "BracketComments" "a ridable comment run after a bracket opener stays on one row when the item cannot join it -- the flat and comment-bearing container paths stacked it differently, so the two spellings of the same list rendered each other's output for ever" "OpenerRunStaysOneRow"
-
             -- The bracket half of the same question. `bracketRendersMultiline`
             -- reads the stored box (`AlwaysVertical` vs `AllAcrossOrAllVertical`)
             -- and `prevBlockGlueRow` had no `RecordUpdate` arm at all, so a
@@ -916,7 +925,8 @@ kitchenSinkSuite fsPerm =
         , tearDownSuite = U.noTearDown
         , setUp = U.noFixture
         , tearDown = U.noTearDown
-        , tests = [ assertPrettyIn fsPerm "KitchenSink" "every AST construct in one file" "KitchenSink"
+        , tests =
+            [ assertPrettyIn fsPerm "KitchenSink" "every AST construct in one file" "KitchenSink"
             , assertPrettyIn fsPerm "KitchenSink" "comments at every position in one file" "KitchenComments"
             , assertPrettyIn fsPerm "KitchenSink" "3-line block comments at every round-tripping position" "MultilineBlockComments"
             , assertPrettyIn fsPerm "KitchenSink" "3-line block comment in an effect-module where block" "MultilineEffectModule"

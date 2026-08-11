@@ -1,4 +1,4 @@
-module Formatter.Render.NodeClassify exposing (commentEndsItsLine, commentBreaksFlowRow, commentTextCanRide, fieldValueDropsToOwnLine, isColonLeaf, isDroppingSignatureRecordNode, isEmptyLine, isMultilineLambdaParenBlockBox, isTypeRecordLiteral, isOpAndRhsNode, isPipelineStepNode, leafLineRow, leafValue, literalCommentsRideFlatLine, nodeIsComment, parenContentIsLambdaHead, rowsSpanMultiple, signatureForceVertical, splitSignatureSegments, subtreeEndsWithMultilineBlockComment, subtreeHasComment)
+module Formatter.Render.NodeClassify exposing (commentBreaksFlowRow, commentEndsItsLine, commentTextCanRide, fieldValueDropsToOwnLine, isColonLeaf, isDroppingSignatureRecordNode, isEmptyLine, isMultilineLambdaParenBlockBox, isOpAndRhsNode, isPipelineStepNode, isTypeRecordLiteral, leafLineRow, leafValue, literalCommentsRideFlatLine, nodeIsComment, parenContentIsLambdaHead, rowsSpanMultiple, signatureForceVertical, splitSignatureSegments, subtreeEndsWithMultilineBlockComment, subtreeHasComment)
 
 {-| Boolean predicates and small structural queries over LPT nodes.
 -}

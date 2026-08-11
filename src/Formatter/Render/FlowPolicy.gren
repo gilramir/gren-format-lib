@@ -336,8 +336,7 @@ decide config state facts =
     when facts is
         LeafItem ->
             { placement = joinPlacement state.separator
-            , next =
-                { separator = FlowSep }
+            , next = { separator = FlowSep }
             }
 
         LineCommentItem f ->
@@ -354,8 +353,7 @@ decide config state facts =
             -- matching elm-format). This is what makes `foo bar -- c` /
             -- `{} -- c` a reparse fixed point instead of a +4 ↔ col-0 oscillation.
             { placement = commentPlacement config state f.role
-            , next =
-                { separator = AlreadyTerminated }
+            , next = { separator = AlreadyTerminated }
             }
 
         BlockCommentItem f ->
@@ -484,10 +482,8 @@ decide config state facts =
                             HardNl
 
                         else if
-                            placement
-                                == OwnLine
-                                || state.separator
-                                == TerminatedByOwnLineComment
+                            placement == OwnLine
+                                || state.separator == TerminatedByOwnLineComment
                         then
                             -- This comment opened a row of its own (or merged
                             -- onto one that did). The row is comments-only, and
@@ -540,8 +536,7 @@ decide config state facts =
                 -- still breaks to its own line; only a same-row comment glues
                 -- (see the BlockCommentItem inline arm's same-row path).
                 { placement = DropBlock rule
-                , next =
-                    { separator = blockNextSep rule }
+                , next = { separator = blockNextSep rule }
                 }
 
             else if f.forcesVertical then
@@ -554,8 +549,7 @@ decide config state facts =
                 -- oscillation). A following non-comment item still breaks
                 -- (`separator = FlowSep`); only a same-row comment glues.
                 { placement = joinPlacement state.separator
-                , next =
-                    { separator = FlowSep }
+                , next = { separator = FlowSep }
                 }
 
             else
@@ -569,8 +563,7 @@ decide config state facts =
                 -- bracket (`{ x } {- … -}`) on its own line. A following
                 -- non-comment item still joins by separator.
                 { placement = joinPlacement state.separator
-                , next =
-                    { separator = FlowSep }
+                , next = { separator = FlowSep }
                 }
 
         IndentedBlockItem ->
@@ -616,8 +609,7 @@ decide config state facts =
 
                     _ ->
                         OwnLineAfterBlank
-            , next =
-                { separator = FlowSep }
+            , next = { separator = FlowSep }
             }
 
         PipelineStepItem ->
@@ -632,16 +624,14 @@ decide config state facts =
 
                     _ ->
                         BlockJoin { rule = IndentedRule }
-            , next =
-                { separator = HardNl }
+            , next = { separator = HardNl }
             }
 
         EmptyLineItem ->
             -- A blank-line marker between `let` bindings. Keep separator =
             -- HardNl so the following binding still wraps onto its own line.
             { placement = BlankLineOnly
-            , next =
-                { separator = HardNl }
+            , next = { separator = HardNl }
             }
 
 
@@ -757,8 +747,7 @@ blockDecision rule state =
 
             _ ->
                 BlockJoin { rule = rule }
-    , next =
-        { separator = blockNextSep rule }
+    , next = { separator = blockNextSep rule }
     }
 
 

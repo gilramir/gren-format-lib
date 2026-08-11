@@ -82,8 +82,7 @@ makeSignatureBranch locType =
                 -- that stays a registered divergence
                 -- (`docs/elmFormatComparison.md`, #27).
                 keepsBreak =
-                    inParenType.start.row
-                        < inParenType.end.row
+                    inParenType.start.row < inParenType.end.row
                         && (when inParenType.value is
                                 Src.TLambda _ ->
                                     False

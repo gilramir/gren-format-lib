@@ -191,4 +191,3 @@ lpBoxFields lpbox =
             , { key = "endRow", value = Json.int located.end.row }
             , { key = "endCol", value = Json.int located.end.col }
             ]
-

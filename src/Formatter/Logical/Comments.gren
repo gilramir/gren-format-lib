@@ -126,6 +126,7 @@ import Formatter.Logical.LogicalPrintingTree exposing
     , LPNode(..)
     , ListBrackets(..)
     , SyntaxType(..)
+    , commentRendersOwnLine
     , commentRole
     , firstRowInSubtree
     , gluesTrailingComment
@@ -143,7 +144,6 @@ import Formatter.Logical.LogicalPrintingTree exposing
     , lpnNode
     , lpnReplaceChildren
     , lpnSetCommentRole
-    , commentRendersOwnLine
     , spanTrailingOwnLine
     , subtreeRowRange
     )
@@ -1220,6 +1220,7 @@ findIndexed predicate arr =
         arr
         |> .found
 
+
 -- PHASE 1: FIND THE TOP-LEVEL SLOT
 --
 -- Pick the root-child OriginalRows whose row range covers the comment, or splice
@@ -1330,6 +1331,7 @@ findOrCreateOrigRow row stype nodes =
             , after = Builder.toArray insertResult.after
             , created = True
             }
+
 
 -- PHASE 2: DESCEND INTO THE OWNING SUBTREE
 --
@@ -2009,6 +2011,7 @@ insertAmongChildren containerBox commentNode row col children =
             Nothing ->
                 finalBefore ++ [ classifiedComment ]
 
+
 -- PREDICATES: POSITION & BOX-KIND TESTS
 --
 -- Shared by both phases. The position tests (subtreeContainsRow, subtreeEndsBefore,
@@ -2246,6 +2249,7 @@ subtreeStartsAfter node row col =
 lastRealPosition : LPNode -> Maybe Position
 lastRealPosition node =
     lpnLastPos node
+
 
 -- COMMENT-ROLE CLASSIFICATION
 --
@@ -3198,15 +3202,11 @@ classifyCommentKind containerBox commentNode before after row =
         headerTailGlue p =
             when containerBox is
                 OriginalRows info ->
-                    info.stype
-                        == StModule
+                    info.stype == StModule
                         && not (isCommentNode p)
-                        && refRow
-                        >= 0
-                        && row
-                        >= refRow
-                        && row
-                        <= info.last
+                        && refRow >= 0
+                        && row >= refRow
+                        && row <= info.last
                         && Array.all
                             (\n ->
                                 firstRealPosition n == Nothing
@@ -3484,20 +3484,22 @@ classifyCommentKind containerBox commentNode before after row =
 
             else
                 TrailsHead
-        -- Nothing before it inside an ITEM LIST → it trails the OPENING bracket
-        -- (`[ {- c -} 1, 2 ]`). The descent only lets a comment land here when it
-        -- was written past the recorded `{`/`[`, so "first child" IS "written
-        -- just after the opener"; it glues to the opener exactly as a same-row
-        -- comment glues to the item before it, and for the same reason a
-        -- single-line `{- -}` may still ride the flat line.
-        --
-        -- Otherwise: own-row → leads its own line at the bracket column. Same-row
-        -- as the previous item → glues: a single-line `{- -}` rides the flat line
-        -- (`RidesInline`, the only kind `literalCommentsRideFlatLine` keeps
-        -- flat); a `--` or a multi-line `{- … -}` glues but breaks the line
-        -- (`TrailsPrevious`).
 
-        else if leadsAcrossItemSeparator && not inOpenerRun then
+        else if
+            -- Nothing before it inside an ITEM LIST → it trails the OPENING bracket
+            -- (`[ {- c -} 1, 2 ]`). The descent only lets a comment land here when it
+            -- was written past the recorded `{`/`[`, so "first child" IS "written
+            -- just after the opener"; it glues to the opener exactly as a same-row
+            -- comment glues to the item before it, and for the same reason a
+            -- single-line `{- -}` may still ride the flat line.
+            --
+            -- Otherwise: own-row → leads its own line at the bracket column. Same-row
+            -- as the previous item → glues: a single-line `{- -}` rides the flat line
+            -- (`RidesInline`, the only kind `literalCommentsRideFlatLine` keeps
+            -- flat); a `--` or a multi-line `{- … -}` glues but breaks the line
+            -- (`TrailsPrevious`).
+            leadsAcrossItemSeparator && not inOpenerRun
+        then
             LeadsNext
 
         else if not (Array.isEmpty before) && not inOpenerRun && (bracketPrevRow < 0 || row /= bracketPrevRow) then

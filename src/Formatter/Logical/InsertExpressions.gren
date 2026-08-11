@@ -101,8 +101,7 @@ mixedPipelineBreaksVertical expr =
     when expr.value is
         Src.Binops { left = leftExpr, operator = op } ->
             if isPipelineOp op.value then
-                op.value
-                    == "<|"
+                op.value == "<|"
                     && not (Array.all (\s -> s.op.value == "<|") (flattenPipeline expr).steps)
 
             else
@@ -490,7 +489,6 @@ insertParens locExpr expression =
                                 (ParenBlock
                                     { forceVertical = forceVertical
                                     , checkContentVertical = True
-
                                     -- Recorded here because only the AST can
                                     -- answer it: the logical stage has no
                                     -- rendered box, and the author's rows are
@@ -571,7 +569,6 @@ insertUpdate locExpr { record = record, newValues = newValues } =
                         [ lpnBracketNode
                             (RecordUpdate
                                 { name = recLoc
-
                                 -- Author rows, OR a field value that breaks on
                                 -- its own — see `itemsAlwaysBreak`, the same
                                 -- commit-up-front reason and the same

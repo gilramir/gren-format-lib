@@ -20,7 +20,7 @@ import Formatter.Render.CommentBox exposing (commentNodeBox, emptyBracketedComme
 import Formatter.Render.ElmStructure as E
 import Formatter.Render.FlowAssembly exposing (FlowItem, FlowMeasure, SoftGlueAlignment(..), assembleBrokenCall, assembleBrokenWithComments, bracketPunc, gluedExposingBox, isCommentItem, pairLeadingComments, pairableCommentLine, parenInnerIsAlignCarrying, softBlockChildForcesVerticalBox, softGlueAlignment, trySoftGlueFlow, typeContentSpansRows, verticalExposingBox)
 import Formatter.Render.FlowPolicy as FP
-import Formatter.Render.NodeClassify exposing (commentBreaksFlowRow, commentTextCanRide, fieldValueDropsToOwnLine, isColonLeaf, isDroppingSignatureRecordNode, isMultilineLambdaParenBlockBox, isOpAndRhsNode, isTypeRecordLiteral, isPipelineStepNode, leafLineRow, leafValue, literalCommentsRideFlatLine, nodeIsComment, parenContentIsLambdaHead, rowsSpanMultiple, signatureForceVertical, splitSignatureSegments, subtreeHasComment)
+import Formatter.Render.NodeClassify exposing (commentBreaksFlowRow, commentTextCanRide, fieldValueDropsToOwnLine, isColonLeaf, isDroppingSignatureRecordNode, isMultilineLambdaParenBlockBox, isOpAndRhsNode, isPipelineStepNode, isTypeRecordLiteral, leafLineRow, leafValue, literalCommentsRideFlatLine, nodeIsComment, parenContentIsLambdaHead, rowsSpanMultiple, signatureForceVertical, splitSignatureSegments, subtreeHasComment)
 
 
 {-| Entry point: render one top-level root child to a Box, or `Err` if it
@@ -1661,8 +1661,7 @@ stepPreambleBox preamble =
             |> Result.andThen
                 (\headBox ->
                     stepSuffixBox (Array.dropFirst 1 preamble)
-                        |> Result.map
-                            (\argsBox -> B.stack1 [ headBox, applyIndent grenIndent argsBox ])
+                        |> Result.map (\argsBox -> B.stack1 [ headBox, applyIndent grenIndent argsBox ])
                 )
 
 
@@ -2340,8 +2339,7 @@ buildBackwardBodyBox bodyNodes =
                                 { box = stackLeading box
                                 , isBrokenCall = True
                                 , ridingLeading = deferred
-                                , singleLineSansTrailingComment =
-                                    singleLineSans (assembleBrokenCall grenIndent)
+                                , singleLineSansTrailingComment = singleLineSans (assembleBrokenCall grenIndent)
                                 }
                             )
 
@@ -2507,8 +2505,7 @@ backwardMultiStep forceVertical seedBox stepBodies =
                                 (boxLine (Array.foldr glueLeadingCommentPrefix b.box b.ridingLeading))
                         )
                         (Array.indexedMap (\i b -> { i = i, b = b }) bodyBoxes)
-                        |> Result.map
-                            (\rows -> B.addSuffix (B.row (Array.flatten rows)) seedBox)
+                        |> Result.map (\rows -> B.addSuffix (B.row (Array.flatten rows)) seedBox)
 
                 else
                     let
@@ -2545,9 +2542,7 @@ backwardMultiStep forceVertical seedBox stepBodies =
 
                                         withOperator =
                                             if
-                                                i
-                                                    < n
-                                                    - 1
+                                                i < n - 1
                                                     && (isBrokenCall
                                                             -- This body ends in an
                                                             -- open `--`, so the next
@@ -2835,8 +2830,7 @@ renderGluedLambdaField headNodes bodyNode =
                 in
                 if isSingleLine bodyBox then
                     renderFlowItems headNodes
-                        |> Result.andThen
-                            (\headItems -> assembleFlow FP.OwnStart grenIndent (Array.pushLast bodyItem headItems))
+                        |> Result.andThen (\headItems -> assembleFlow FP.OwnStart grenIndent (Array.pushLast bodyItem headItems))
 
                 else
                     -- `headNodes` is `[ name, =, lambdaHead ]` plus any comments
@@ -3098,8 +3092,7 @@ updateBaseBox baseName opener baseTrail =
 
             else
                 leadCommentRunBoxes opener
-                    |> Result.map
-                        (\lead -> glueLeadingCommentRun True lead (B.line (B.literal baseName)))
+                    |> Result.map (\lead -> glueLeadingCommentRun True lead (B.line (B.literal baseName)))
     in
     Array.foldl
         (\node acc ->
@@ -4885,9 +4878,7 @@ commentBracketListBox bracket nodes =
                                                 when Array.popLast acc.entries is
                                                     Just { last = e, initial } ->
                                                         Ok
-                                                            { acc
-                                                                | entries = Array.pushLast { e | box = glueCommentSuffix cbox e.box } initial
-                                                            }
+                                                            { acc | entries = Array.pushLast { e | box = glueCommentSuffix cbox e.box } initial }
 
                                                     Nothing ->
                                                         Ok
@@ -4918,7 +4909,7 @@ commentBracketListBox bracket nodes =
                                                 | entries = Array.pushLast { box = cbox, isComment = True } flushed
                                                 , pending = Nothing
                                             }
-                                )
+                            )
 
                 step node accResult =
                     when accResult is
@@ -5955,8 +5946,7 @@ assembleFlowImpl measure flowStart flowIndent items =
                                         -- glues onto the running row — its
                                         -- comments have to be replayed inline
                                         -- ahead of it instead.
-                                        rule
-                                            /= FP.SoftIndentedRule
+                                        rule /= FP.SoftIndentedRule
                                             || not (isSingleLine item.box)
 
                                     _ ->

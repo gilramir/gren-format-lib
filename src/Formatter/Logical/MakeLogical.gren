@@ -217,10 +217,10 @@ processModuleLine modAst root =
                                 modAst.name.start.row
                                 ([ nameNode ] ++ whereNodes)
                                 + (if moduleLineClosesBelow modAst then
-                                        1
+                                    1
 
                                    else
-                                        0
+                                    0
                                   )
 
                         vertical =

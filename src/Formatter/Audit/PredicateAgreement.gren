@@ -90,8 +90,7 @@ rendering the child and observing its box.
 -}
 auditedPredicates : Array { name : String, test : LPNode -> Bool }
 auditedPredicates =
-    [ { name = "isMultilineLambdaParenBlockBox", test = isMultilineLambdaParenBlockBox }
-    ]
+    [ { name = "isMultilineLambdaParenBlockBox", test = isMultilineLambdaParenBlockBox } ]
 
 
 {-| Walk every node of an LPT and report each predicate that promised a break

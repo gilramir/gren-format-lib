@@ -337,9 +337,7 @@ computeDetachedBelow groupStarts infos =
                         detached =
                             when acc.next is
                                 Just nx ->
-                                    nx.first
-                                        > info.last
-                                        + 1
+                                    nx.first > info.last + 1
                                         || (nx.isGroupStart && not isGroupStart)
                                         || (info.isComment
                                                 && nx.isComment

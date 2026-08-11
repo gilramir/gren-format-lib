@@ -905,13 +905,15 @@ pairLeadingComments items =
         -- the run may stay on the preceding line. Only the leader answers that,
         -- and C3 makes it the whole run's answer.
         runLeader i =
-            if i > 0 && (when at (i - 1) is
+            if
+                i > 0
+                    && (when at (i - 1) is
                             Just prev ->
                                 pairableComment prev
 
                             Nothing ->
                                 False
-                        )
+                       )
             then
                 runLeader (i - 1)
 

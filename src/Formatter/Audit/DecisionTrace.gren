@@ -1,4 +1,4 @@
-module Formatter.Audit.DecisionTrace exposing (Decision, DeclTrace, Flip, traceDeclarations, diffDeclarations, reportToJson)
+module Formatter.Audit.DecisionTrace exposing (Decision, DeclTrace, Flip, diffDeclarations, reportToJson, traceDeclarations)
 
 {-| What the formatter decided, and whether it decides the same thing again.
 
@@ -571,11 +571,15 @@ walkDecls before after i acc =
 
         { b = Just bd, a = Just ad } ->
             if bd.decl == ad.decl && bd.text == ad.text then
-                walkDecls before after (i + 1)
+                walkDecls before
+                    after
+                    (i + 1)
                     { acc | converged = acc.converged + Array.length (diffTraces bd.decisions ad.decisions) }
 
             else
-                walkDecls before after (i + 1)
+                walkDecls before
+                    after
+                    (i + 1)
                     { acc
                         | movedBefore = acc.movedBefore ++ bd.decisions
                         , movedAfter = acc.movedAfter ++ ad.decisions
@@ -591,14 +595,18 @@ walkDecls before after i acc =
                     }
 
         { b = Just bd, a = Nothing } ->
-            walkDecls before after (i + 1)
+            walkDecls before
+                after
+                (i + 1)
                 { acc
                     | movedBefore = acc.movedBefore ++ bd.decisions
                     , movedDecls = Array.pushLast (bd.decl ++ " (gone)") acc.movedDecls
                 }
 
         { b = Nothing, a = Just ad } ->
-            walkDecls before after (i + 1)
+            walkDecls before
+                after
+                (i + 1)
                 { acc
                     | movedAfter = acc.movedAfter ++ ad.decisions
                     , movedDecls = Array.pushLast (ad.decl ++ " (new)") acc.movedDecls

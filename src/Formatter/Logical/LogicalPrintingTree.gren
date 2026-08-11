@@ -774,8 +774,7 @@ staying at its construct's indent, and whether those should move is a separate
 question with its own fixtures. -}
 commentRendersOwnLine : LPNode -> Bool
 commentRendersOwnLine node =
-    commentRole (lpnBox node)
-        == Just LeadsOwnLine
+    commentRole (lpnBox node) == Just LeadsOwnLine
         && (when lpnBox node is
                 BlockComment c ->
                     String.contains "\n" c.loc.value
