@@ -137,9 +137,39 @@ and second format.
 
 ```bash
 cd gren-format-lib/tests
-python3 fuzz-idempotency.py -j 12                                      # whole corpus (exit≠0 if any gap fails)
+python3 fuzz-idempotency.py -j 12                                      # whole corpus
 python3 fuzz-idempotency.py -v testfiles/<SuiteDir>/Foo.formatted.gren  # one file, with the format¹/format² diff per gap
+python3 fuzz-idempotency.py --pairs -j 12                              # the PAIR axis (slow; see below)
+python3 fuzz-idempotency.py --update-known-baseline -j 12              # re-register the upstream findings
 ```
+
+### What the exit status means
+
+**Non-zero means an UNLABELLED finding, not any finding.** A finding whose
+cause the gate can diagnose as an upstream parser bug is printed with a
+`[known: …]` mark, counted, and registered in
+`idempotency-known-baseline.json` — keyed by the label `repro.py` takes, so a
+registered finding can be replayed from its key alone. Those do not fail the
+run.
+
+Two more things do fail it, and they are why the baseline is a *set* rather
+than a count:
+
+- an upstream-classifying finding that is **not registered** — a regression is
+  not allowed to hide behind an automatic classification;
+- a registered entry that **no longer reproduces** — a fix must not leave a
+  stale exemption behind.
+
+Only the default full sweep is gated this way. `--kind`, `--run`, `--mix*`,
+`--pairs` and a file argument each probe a different set of gaps, so their
+findings are reported but not held against the baseline.
+
+This distinction is not decoration. Until 2026-08-11 the gate exited non-zero
+on *any* finding, so it ran permanently red, and "27 findings, 19 of them
+known" read exactly like "19 findings, all known". Eight findings belonging to
+a real bug — an `if`/`when` header that could not see a comment nested in its
+condition — sat in that summary line looking like the upstream ones.
+
 
 **Rebuild the `gren-format` app first** (`cd ../../gren-format && ./build.sh`)
 — the fuzzer shells out to the built CLI as a subprocess, so it exercises
@@ -151,6 +181,48 @@ Run a full sweep after any change to comment handling, and especially after
 adding a comment-bearing fixture — a new comment shape can surface a latent
 gap no existing fixture exercised.
 
+### The pair axis (`--pairs`)
+
+Every other multi-comment mode puts its comments in **one gap**: `--run N`
+varies a run's length there, `--mix*` varies its composition, and the matrix's
+comment axis injects one comment per cell. `--pairs` is the only mode that
+places comments at **two different gaps**.
+
+That distinction is the reason it exists. The `if`/`when` header bug needed a
+riding comment in the header *and* a row-breaking one nested inside the
+condition — two gaps, not one. The gate found it only because a hand-written
+fixture already had the first half, so the single-gap pass supplied the second
+by accident. Nothing was sweeping for the shape.
+
+Pairs are scoped to **one declaration**, for two reasons: the whole corpus
+all-pairs is not a tractable sweep (20,874 gaps for one comment kind is ~2×10⁸
+pairs), and the bug class is local anyway — an outer construct whose row is
+broken by something nested inside it. Two comments in different declarations
+cannot interact.
+
+The default kind pairs are `block,multi` and `block,line`: a riding comment
+first, a row-breaking one after it, which is the recipe. `--pair-cap N`
+(default 400) subsamples a declaration with more pairs than that, seeded via
+`--pair-seed` so a run replays and a finding can be reproduced.
+
+```bash
+python3 fuzz-idempotency.py --pairs -j 12                       # both default kind pairs
+python3 fuzz-idempotency.py --pairs --pair-kinds multi,block -j 12   # breaker first
+python3 fuzz-idempotency.py --pairs --pair-cap 0 -j 12          # no cap (long)
+```
+
+**It is opt-in, not part of the routine sweep.** A whole-corpus run at the
+default cap is ~65 minutes at `-j 12` (~224,000 probes). Run it after a change
+to how a construct's own row interacts with its contents — a header, a
+container, anything whose layout a nested comment can decide.
+
+State as of 2026-08-11: **127 findings, all of them
+`[known: compiler-common#35]`**, so the axis is green on the corpus. Its
+non-vacuity is not inferred from that: with the `if`/`when` header fix reverted
+it reports 32 findings on `IfExpression.formatted.gren`, a fixture the
+single-gap pass calls clean in every kind.
+
+
 ### Where the code lives
 
 - **`tests/fuzz-idempotency.py`** — the driver: enumerates gaps, perturbs,
@@ -158,6 +230,9 @@ gap no existing fixture exercised.
   standalone CLI wrapper) as a subprocess — kept deliberately separate from
   `run-tests.sh` since it walks every gap in the corpus and is much slower
   than the fixture suite.
+- **`tests/idempotency-known-baseline.json`** — the registered upstream
+  findings the exit status forgives, keyed by `repro.py` label.
+
 
 ## Decision-stability gate (`check-decision-stability.py`)
 

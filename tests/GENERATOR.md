@@ -2069,3 +2069,55 @@ blank-less `if`s (53), 60 dropped declaration bodies (58), 34 `else if` chains
 (28), 27 dropped lambda bodies (25). `-n 2000` **clean**, 0 quarantine and 0
 emitter exceptions — the generator is still honest about what it emits, which is
 what makes its crash/non-idempotency finds trustworthy.
+
+### A row-breaking comment inside an `if`/`when` HEADER — v1.38
+
+`if <cond> then` and `when <subject> is` are each one logical row spanning the
+whole condition, so a comment nested inside the condition decides the header's
+shape. The generator could not write one. Both feed their condition from
+`inline()`, whose contract is a guaranteed single-line expression, and the only
+comment reaching it was `maybe_inline_comment`'s riding single-line `{- -}` —
+so the generator produced one half of the shape and never the other, however
+long a sweep ran.
+
+Three pieces, all of which have to be there:
+
+- **`Call.arg_break`** — one entry per argument, a comment written on the
+  argument's own row above it, of a kind that ENDS its row (a `--` or a
+  multi-row `{- -}`). It is the one comment slot here whose presence makes the
+  call multi-line by itself, which is why it is separate from an atom's `.pre`.
+  `emit_call` places it, and steps the argument column off the head row's first
+  REAL token rather than off `col`: a `{- c -}` riding in front of the function
+  pushes that token right, and an argument indented from `col` alone reads as a
+  DEDENT and ends the expression (`{- k7 -} item` ⏎ `····Ok` is not `item Ok` —
+  the parser stops at `item`). Getting that wrong is what the first sweep's
+  nine quarantines were.
+- **`If.flat_head` / `When.flat_head`** — the header form that keeps `if` and
+  `then` on one logical row and lets the condition WRAP it. This is the one
+  that matters: the other form (`if` ⏎ condition ⏎ `then`) tells the renderer
+  "vertical" through its source rows, so the header never has to work it out
+  from the comment, and the bug this axis exists for cannot fire.
+- **`Gen.break_header_cond`** — wires them together, on a `Call` condition with
+  arguments, which is the smallest shape that reproduces.
+
+Its continuation rows come from `multirow_block_lines`, the shape already
+verified against the app. A hand-rolled `text + "b"` was tried first and
+collides with the comment identity the RUI oracle extracts — `k7b` reads as a
+second `k7`, and six seeds reported a duplicate comment that was not there.
+
+**Verified non-vacuous against the bug it was built for.** With the `if`/`when`
+header fix reverted, seed 284 reduces to
+
+```gren
+fn3 =
+    if {- k8 -} y Maybe.y
+                    -- k7
+                    node then
+        0
+
+    else
+        0
+```
+
+which formats to output that does not reparse. With the fix in, `-n 300` is
+**300/300 clean**.

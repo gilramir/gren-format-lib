@@ -134,8 +134,21 @@ class Paren(E):
     def __init__(self, inner, broken=False): self.inner, self.broken = inner, broken
 
 class Call(E):
-    def __init__(self, fn, args, broken=False):
+    # `arg_break` is one entry per argument, each None or a (kind, text) comment
+    # written on the argument's OWN row above it, where the kind is one that
+    # ENDS its row -- a `--` or a multi-line `{- -}`. It is the one comment slot
+    # here whose presence makes the call multi-line by itself, which is why it
+    # is separate from an atom's `.pre` (a single-line `{- -}` that rides).
+    #
+    # It exists for the `if`/`when` HEADER: a row-breaking comment nested inside
+    # a condition is the shape those headers used to mishandle, and nothing
+    # could generate it. `inline()` feeds conditions under a guaranteed
+    # single-line contract, and the only comment reaching them was a riding
+    # single-line block -- exactly half the recipe, forever.
+    def __init__(self, fn, args, broken=False, arg_break=None):
         self.fn, self.args, self.broken = fn, args, broken
+        self.arg_break = arg_break or [None] * len(args)
+
 
 class Binop(E):
     def __init__(self, operands, ops, broken=False):
@@ -148,19 +161,27 @@ class If(E):
     # emitter used to make one way only — and `chain_else` is a different AST,
     # not just a different spelling: `else if` is one `If` with two branches,
     # while `else` ⏎ `if` is an `If` in another's else slot.
+    # `flat_head` keeps `if`/`then` on the header's own logical row when the
+    # CONDITION spans rows (a comment inside it), instead of stacking the
+    # condition under an `if` of its own. See `emit_if`.
     def __init__(self, cond, then, els, broken=False, no_blank=False,
-                 chain_else=False):
+                 chain_else=False, flat_head=False):
         self.cond, self.then, self.els, self.broken = cond, then, els, broken
         self.no_blank, self.chain_else = no_blank, chain_else
+        self.flat_head = flat_head
+
 
 class When(E):
     # branches: [(pat, body, lead_comment, body_glued)]. `body_glued` writes the
     # body on the `->` row (`Just q -> q`) instead of below it — only ever set
     # for a single-line body, so no child's column can move. `blanks` is the
     # blank line between branches, which the emitter used to force.
-    def __init__(self, scrut, branches, blanks=True):
+    # `flat_head`: as `If.flat_head`, for `when <subject> is`.
+    def __init__(self, scrut, branches, blanks=True, flat_head=False):
         self.scrut, self.branches = scrut, branches
         self.blanks = blanks
+        self.flat_head = flat_head
+
 
 class Let(E):
     def __init__(self, binds, body):  # binds: [LetBind]
@@ -435,7 +456,9 @@ def multiline(n):
     if isinstance(n, Paren):
         return n.broken or multiline(n.inner)
     if isinstance(n, Call):
-        return n.broken or any(multiline(a) for a in n.args)
+        return (n.broken or any(multiline(a) for a in n.args)
+                or any(getattr(n, "arg_break", None) or []))
+
     if isinstance(n, Binop):
         return n.broken or any(multiline(o) for o in n.operands)
     if isinstance(n, If):
@@ -525,19 +548,39 @@ def emit_paren(n, col):
 
 def emit_call(n, col):
     fn = one_line(n.fn)
-    if not n.broken and not any(multiline(a) for a in n.args):
+    breaks = getattr(n, "arg_break", None) or [None] * len(n.args)
+    if not n.broken and not any(multiline(a) for a in n.args) and not any(breaks):
         return [fn + "".join(" " + one_line(a) for a in n.args)]
     # broken: glue fn + first arg on the head line, rest own-line at col+4
     if not n.args:
         return [fn]
-    a0col = col + len(fn) + 1
-    a0 = emit(n.args[0], a0col)
-    out = [fn + " " + a0[0]] + a0[1:]
-    for a in n.args[1:]:
-        al = emit(a, col + INDENT)
-        out.append(pad(col + INDENT) + al[0])
+    # A continuation row's indent is measured from the head row's first REAL
+    # token, not from where the row starts: a `{- c -}` riding in front of `fn`
+    # pushes that token right, and an argument indented from `col` alone then
+    # reads as a DEDENT and ends the expression. (`{- k7 -} item` ⏎ `····Ok` is
+    # not `item Ok`; the parser stops at `item`.) So the argument column steps
+    # off the real token.
+    pre = getattr(n.fn, "pre", None)
+    argcol = col + (len("{- " + pre + " -} ") if pre else 0) + INDENT
+    if breaks[0]:
+        # A comment above the FIRST argument takes it off the head row too --
+        # there is nothing for `fn` to glue to.
+        out = [fn]
+        rest = list(zip(n.args, breaks))
+    else:
+        a0col = col + len(fn) + 1
+        a0 = emit(n.args[0], a0col)
+        out = [fn + " " + a0[0]] + a0[1:]
+        rest = list(zip(n.args[1:], breaks[1:]))
+    for a, brk in rest:
+        if brk:
+            out += comment_lines(brk, argcol)
+        al = emit(a, argcol)
+        out.append(pad(argcol) + al[0])
         out += al[1:]
     return out
+
+
 
 
 def emit_binop(n, col):
@@ -564,8 +607,37 @@ def emit_if(n, col):
     if inline:
         return ["if " + one_line(n.cond) + " then "
                 + one_line(n.then) + " else " + one_line(n.els)]
+    if multiline(n.cond):
+        # A condition that spans rows, in one of the two ways an author can
+        # write it. This emitter had NEITHER -- `one_line(n.cond)` below
+        # asserts -- so a condition could never carry anything that ends a row,
+        # and `if <cond> then` on one row was the only header ever generated.
+        #
+        # `flat_head` is the one that matters. It keeps `if` and `then` on the
+        # header's own logical row and lets the CONDITION wrap it, which is
+        # what an author writes when the break comes from a comment rather than
+        # from choosing to stack. It is also the only one of the two that
+        # reaches the header bug: the broken form below already tells the
+        # renderer "vertical" through the source rows, so the header never has
+        # to work it out from the comment.
+        if n.flat_head:
+            crows = emit(n.cond, col + 3)
+            out = ["if " + crows[0]] + crows[1:]
+            out[-1] = out[-1] + " then"
+        else:
+            out = ["if"]
+            out += own_line(n.cond, col + INDENT)
+            out.append(pad(col) + "then")
+
+        out += own_line(n.then, col + INDENT)
+        if not n.no_blank:
+            out.append("")
+        out.append(pad(col) + "else")
+        out += own_line(n.els, col + INDENT)
+        return out
     cond = one_line(n.cond)
     out = ["if " + cond + " then"]
+
     out += own_line(n.then, col + INDENT)
     if not n.no_blank:
         out.append("")
@@ -588,7 +660,20 @@ def emit_if(n, col):
 
 
 def emit_when(n, col):
-    out = ["when " + one_line(n.scrut) + " is"]
+    if multiline(n.scrut):
+        # The two header shapes `emit_if` grew, for the same reasons.
+        if n.flat_head:
+            srows = emit(n.scrut, col + 5)
+            out = ["when " + srows[0]] + srows[1:]
+            out[-1] = out[-1] + " is"
+        else:
+            out = ["when"]
+            out += own_line(n.scrut, col + INDENT)
+            out.append(pad(col) + "is")
+    else:
+
+        out = ["when " + one_line(n.scrut) + " is"]
+
     for i, (pat, body, lead, glued) in enumerate(n.branches):
         if lead is not None:
             out += comment_lines(lead, col + INDENT)
@@ -1922,9 +2007,49 @@ class Gen:
         k = self.rng.randint(0, 3)
         return Array([self.value(d) for _ in range(k)], broken=self.chance(0.5))
 
+    def break_header_cond(self, cond):
+        """Maybe put a ROW-BREAKING comment inside an `if`/`when` header's
+        condition, and a riding one in front of it.
+
+        The two together are the shape both headers used to get wrong: a
+        leading comment holds the header's first row while something nested
+        deeper breaks it. `inline()` guarantees a single-line expression and
+        `maybe_inline_comment` only ever offers a riding single-line `{- -}`,
+        so the breaking half was unreachable however long a sweep ran -- the
+        gate that found it did so only because a hand-written fixture happened
+        to have the riding half already.
+
+        Only a `Call` with arguments has a slot for it (a comment ABOVE an
+        argument), which is also the smallest shape that reproduces. Returns
+        the condition either way."""
+        if not isinstance(cond, Call) or not cond.args:
+            return cond
+        if not self.chance(0.5):
+            return cond
+        c = self.forced_comment(kinds=("line", "block"))
+        if c is None:
+            return cond
+        kind, text = c
+        if kind == "block":
+            # A run of rows is what makes a `{- -}` end its row; a one-row one
+            # rides instead, which is the case already covered.
+            # `multirow_block_lines` is the shape verified against the app, and
+            # draws its continuation words from `WORDS` -- a hand-rolled
+            # `text + "b"` collides with the comment-identity the RUI oracle
+            # extracts (`k7b` reads as a second `k7`) and reports a duplicate
+            # that is not there.
+            text = self.multirow_block_lines(text)
+
+        i = self.rng.randrange(len(cond.args))
+        cond.arg_break[i] = (kind, text)
+        # The riding half, in front of the whole condition.
+        self.maybe_inline_comment(cond.fn)
+        return cond
+
     def mk_if(self, d):
-        cond = self.inline(d)
+        cond = self.break_header_cond(self.inline(d))
         then = self.arg(d)
+
         # ~25% of the time the else branch is another `if`, CHAINED (`else if c
         # then`). `value()` reaches a nested `if` in the else slot only ~3% of
         # the time and never the chained spelling, which is a different AST —
@@ -1935,7 +2060,9 @@ class Gen:
         else:
             els, chain = self.value(d), False
         return If(cond, then, els, broken=self.chance(0.6),
-                  no_blank=self.chance(0.3), chain_else=chain)
+                  no_blank=self.chance(0.3), chain_else=chain,
+                  flat_head=self.chance(0.5))
+
 
     def mk_when(self, d):
         k = self.rng.randint(1, 3)
@@ -1950,7 +2077,10 @@ class Gen:
             # this axis emits, before wiring it in.
             glued = not multiline(body) and self.chance(0.25)
             branches.append((pat, body, lead, glued))
-        return When(self.inline(d), branches, blanks=not self.chance(0.3))
+        return When(self.break_header_cond(self.inline(d)), branches,
+                    blanks=not self.chance(0.3), flat_head=self.chance(0.5))
+
+
 
     def mk_let(self, d):
         k = self.rng.randint(1, 3)

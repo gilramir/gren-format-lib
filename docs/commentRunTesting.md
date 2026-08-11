@@ -1122,3 +1122,46 @@ now validates the spelling (`+`-joined, any length; `xN` up to `MAX_RUN`) instea
 of listing the labels that existed when it was written. **An enumeration of
 another module's vocabulary goes stale silently**, and the way it fails is a
 tool refusing its own output.
+
+## The axis all of this was NOT: two comments at two gaps (2026-08-11)
+
+Everything above varies a run **within one gap** — its length (`--run N`), its
+composition (`--mix*`), and what the neighbours inside it do to each other. The
+matrix's comment axis injects one comment per cell. So did the per-gap pass.
+Across every gate in the repo, no probe had ever placed two comments at two
+*different* gaps.
+
+The `if`/`when` header bug is what that cost. Its recipe is a riding comment in
+the header **and** a row-breaking one nested inside the condition — one comment
+at each of two gaps, which is a shape no run can express however long it gets.
+`fuzz-idempotency.py` reported it for weeks, but only because
+`KitchenComments.formatted.gren` happens to have the first half written into it
+by hand, so the single-gap pass supplied the second half by accident. Nothing
+was sweeping for the shape, and nothing would have found it in a fixture that
+did not already contain half of it.
+
+`--pairs` is that axis. Two comments, two gaps, both inside **one declaration**
+— scoped there for two reasons:
+
+- the whole corpus all-pairs is not a tractable sweep. 20,874 gaps for one
+  comment kind is ~2×10⁸ pairs, ×9 ordered kind pairs;
+- the bug class is local. An outer construct whose row is broken by something
+  nested inside it needs both comments in the same declaration to interact at
+  all.
+
+The default kind pairs are `block,multi` and `block,line` — a riding comment
+first, a row-breaking one after it, which is the recipe stated as a probe.
+`--pair-cap N` (default 400) subsamples a declaration with more pairs than
+that, seeded so a run replays and a finding reproduces.
+
+**Non-vacuity was measured, not assumed.** With the header fix reverted,
+`--pairs` reports **32 findings** on `IfExpression.formatted.gren` — a fixture
+the single-gap pass has always called clean, in every kind, for as long as the
+gate has existed. With the fix in, 0.
+
+The first whole-corpus run (2026-08-11, 224,166 probes, 65 minutes at `-j 12`)
+reports **127 findings, all of them `[known: compiler-common#35]`** — the same
+upstream family the single-gap pass carries, reached by more paths. No new
+formatter bug on this axis, which is the answer worth having only because the
+axis was shown able to find one first.
+

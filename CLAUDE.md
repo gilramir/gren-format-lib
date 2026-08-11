@@ -37,7 +37,7 @@ where its code lives):
 
 | Gate | What it covers |
 |---|---|
-| `fuzz-idempotency.py` | a comment in every inter-token gap; `--run N` / `--mix-pairs` for runs |
+| `fuzz-idempotency.py` | a comment in every inter-token gap; `--run N` / `--mix-pairs` for runs at ONE gap; `--pairs` for two comments at TWO gaps |
 | `check-decision-stability.py` | *which* layout decision moved between two formats (same flags) |
 | `repro.py <fixture> <kind> <gap>` | reproduce one finding from either gate's label |
 | `matrix-syntax.py` | construct × context matrix; `--comments` adds the comment axis |
@@ -57,6 +57,16 @@ A finding whose cause is a known upstream parser bug is labelled
 `[known: compiler-common#NN]` and still counted — gates label, never subtract.
 Editing a probe or narrowing coverage to recover a green is the one thing not to
 do here.
+
+`fuzz-idempotency.py` exits non-zero on an **unlabelled** finding, not on any
+finding: the labelled ones are registered in `tests/idempotency-known-baseline.json`
+(keyed by the label `repro.py` takes) and forgiven. An upstream-classifying
+finding that is *not* registered fails, and so does a registered one that has
+stopped reproducing — so a regression cannot hide behind the automatic
+classification, and a fix cannot leave a stale exemption. Re-register with
+`--update-known-baseline` after a deliberate change. Before this the gate failed
+on any finding, ran permanently red, and hid eight findings of a real bug among
+the upstream ones for weeks.
 
 ## Inspecting formatter internals
 

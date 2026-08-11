@@ -73,6 +73,8 @@ import argparse
 import concurrent.futures
 import json
 import os
+import pathlib
+
 import subprocess
 import sys
 import tempfile
@@ -736,7 +738,128 @@ def fast_check(base, src, gaps, text=MARKER, per_gap=1):
     return "ok"
 
 
+def decl_ranges(src):
+    """(start, end) char offsets of each top-level declaration — the same
+    "maximal run of lines starting at one whose first column holds code"
+    `decl_end_positions` uses, kept as spans so gaps can be bucketed by the
+    declaration they sit in."""
+    masked = mask_noncode(src)
+    mlines = masked.split("\n")
+    olines = src.split("\n")
+    starts, off = [], 0
+    for ln in olines:
+        starts.append(off)
+        off += len(ln) + 1
+    n = len(mlines)
+    tops = [i for i in range(n) if mlines[i][:1] not in ("", " ", "\t")]
+    out = []
+    for k, t in enumerate(tops):
+        stop = tops[k + 1] if k + 1 < len(tops) else n
+        end = starts[stop - 1] + len(olines[stop - 1]) if stop <= len(olines) else len(src)
+        out.append((starts[t], min(end, len(src))))
+    return out
+
+
+def splice_pair(src, ga, ka, gb, kb):
+    """Two comments at two DIFFERENT gaps, `ga` before `gb`.
+
+    The LATER one goes in first, so the earlier offset is still valid when the
+    second splice runs. (`splice_line` rewrites the tail of the row it breaks,
+    which is why this cannot be done in the other order.)
+
+    The two markers are NUMBERED `¤1`/`¤2` for the same reason a run's are:
+    `marker_check` can then tell a dropped comment from a swapped pair, and two
+    identical markers would make a swap invisible. `¤1` is the earlier gap, so
+    the output is required to keep them in source order."""
+    _la, ta, sa, _fa = ka
+    _lb, tb, sb, _fb = kb
+    return sa(sb(src, gb, tb.replace("¤", "¤2")), ga, ta.replace("¤", "¤1"))
+
+
+def check_pair(base, src, ga, ka, gb, kb):
+    """One PAIR probe: a comment at `ga` and another at `gb`, both inside one
+    declaration. Same classification as `check_gap`."""
+    workdir = worker_workdir(base)
+    markers = 2
+
+    r = run_show(workdir, splice_pair(src, ga, ka, gb, kb))
+    blob = r.stdout + r.stderr
+    if "FAILED TO PARSE" in blob or "Could not format" in blob:
+        return ("skip", (ga, gb), "")
+    if r.returncode != 0 or not r.stdout.strip():
+        return ("bug", (ga, gb), r.stderr.strip())
+    bad = marker_check(r.stdout, markers)
+    if bad:
+        return ("bug", (ga, gb), bad)
+    return ("ok", (ga, gb), "")
+
+
+def pair_probes(src, gaps, cap, rng):
+    """Every ordered pair of gaps WITHIN one declaration, capped per
+    declaration.
+
+    Scoped to a declaration because the whole corpus all-pairs is not a
+    tractable sweep — 20,874 gaps for one kind means ~2x10^8 pairs — and
+    because the bug class this axis exists for is local: an outer construct
+    whose own row is broken by something nested inside it. Both comments have
+    to land in the same declaration to interact at all.
+
+    `cap` subsamples a declaration whose pair count exceeds it, with a seeded
+    `rng` so a run is reproducible and a finding replays."""
+    out = []
+    for lo, hi in decl_ranges(src):
+        inside = [g for g in gaps if lo <= g < hi]
+        pairs = [(a, b) for i, a in enumerate(inside) for b in inside[i + 1:]]
+        if cap and len(pairs) > cap:
+            pairs = rng.sample(pairs, cap)
+            pairs.sort()
+        out += pairs
+    return out
+
+
+def report_pairs(base, pool, path, src, gaps, verbose, ka, kb, cap, rng, registry=None):
+    """Pair pass over one file for one ordered kind pair. Returns
+    (bug count, known-upstream count)."""
+    name = os.path.basename(path)
+    label = f"{ka[0]}+{kb[0]}"
+    probes = pair_probes(src, gaps, cap, rng)
+    results = list(pool.map(lambda p: check_pair(base, src, p[0], ka, p[1], kb), probes))
+    bugs, skipped = [], 0
+    for kind, gp, detail in results:
+        if kind == "skip":
+            skipped += 1
+        elif kind == "bug":
+            bugs.append((gp, detail))
+    known = list(
+        pool.map(
+            lambda gd: known_upstream_issue(
+                worker_workdir(base), splice_pair(src, gd[0][0], ka, gd[0][1], kb)
+            ),
+            bugs,
+        )
+    )
+    known_count = sum(1 for k in known if k)
+    if registry is not None:
+        for (gp, _d), issue in zip(bugs, known):
+            registry[f"{name}[pair:{label}]@{gp[0]},{gp[1]}"] = issue
+    tail = f", {known_count} known upstream" if known_count else ""
+    status = "OK " if not bugs else "BUG"
+    print(f"{status} {name} [pair {label}]: {len(probes)} pairs, {skipped} skipped (parser), {len(bugs)} non-idempotent{tail}")
+    for (gp, detail), issue in zip(bugs, known):
+        la = src.count("\n", 0, gp[0]) + 1
+        lb = src.count("\n", 0, gp[1]) + 1
+        mark = f"  [known: {issue}]" if issue else ""
+        print(f"      lines {la}+{lb} (gaps {gp[0]},{gp[1]})"
+              f": …{(src[max(0, gp[0]-14):gp[0]] + '⟨A⟩' + src[gp[0]:gp[0]+10]).replace(chr(10), '⏎')}…"
+              f" / …{(src[max(0, gp[1]-14):gp[1]] + '⟨B⟩' + src[gp[1]:gp[1]+10]).replace(chr(10), '⏎')}…{mark}")
+        if verbose and detail:
+            for dl in detail.splitlines()[:20]:
+                print("        " + dl)
+    return len(bugs), known_count
+
+
 def check_gap(base, src, g, splice=splice_block, text=MARKER, markers=1):
+
     """Insert one comment (or one RUN of them) at gap `g`, run --show, classify
     the outcome. Runs on a pool worker; uses that worker's isolated project
     dir."""
@@ -753,9 +876,13 @@ def check_gap(base, src, g, splice=splice_block, text=MARKER, markers=1):
     return ("ok", g, "")
 
 
-def report_slow_path(base, pool, path, src, gaps, verbose, kind=KINDS[0]):
+def report_slow_path(base, pool, path, src, gaps, verbose, kind=KINDS[0], registry=None):
     """Per-gap pass over one file for one comment kind. Returns
-    (bug count, known-upstream count)."""
+    (bug count, known-upstream count).
+
+    `registry` collects every finding as `{repro label: issue-or-None}` for the
+    known-upstream baseline — the label is exactly what `repro.py` takes."""
+
     label, text, splice, _fast = kind
     name = os.path.basename(path)
     markers = text.count("¤")
@@ -780,7 +907,11 @@ def report_slow_path(base, pool, path, src, gaps, verbose, kind=KINDS[0]):
         )
     )
     known_count = sum(1 for k in known if k)
+    if registry is not None:
+        for (g, _detail), issue in zip(bugs, known):
+            registry[f"{name}[{label}]@{g}"] = issue
     tail = f", {known_count} known upstream" if known_count else ""
+
     status = "OK " if not bugs else "BUG"
     print(f"{status} {name} [{label}]: {len(gaps)} gaps, {skipped} skipped (parser), {len(bugs)} non-idempotent{tail}")
     for (g, detail), issue in zip(bugs, known):
@@ -847,8 +978,82 @@ def report_decl_ends(base, pool, path, src, verbose):
     return len(bugs)
 
 
+KNOWN_BASELINE = pathlib.Path(__file__).resolve().parent / "idempotency-known-baseline.json"
+
+
+def check_known_baseline(registry, full_sweep, update):
+    """Gate the KNOWN-upstream findings against a registered set. Returns True
+    if the run should fail on drift.
+
+    An unlabelled finding already fails on its own count. This is the other
+    half: a finding that `known_upstream_issue` classifies as upstream is only
+    tolerated if it was registered as such, so a regression cannot hide behind
+    an automatic classification, and a registered finding that has stopped
+    reproducing is reported rather than silently kept.
+
+    That distinction is what this gate lacked. It exited non-zero on ANY
+    finding, so it ran permanently red and "27 findings, 19 of them known" read
+    exactly like "19 findings, all known" -- the eight that belonged to the
+    if/when header bug sat in the summary line for weeks looking like the
+    upstream ones. Only the default full sweep is gated: `--run`, `--mix*`,
+    `--kind` and a file subset each probe a different set of gaps, so their
+    findings are not this baseline's to hold.
+    """
+    if update:
+        if not full_sweep:
+            print("\nrefusing to write the baseline from a partial run "
+                  "(--kind/--run/--mix/file arguments): it would drop every "
+                  "finding those flags did not probe")
+            return True
+        KNOWN_BASELINE.write_text(json.dumps({
+            "_comment": [
+                "Findings this gate has diagnosed as an UPSTREAM parser bug, so",
+                "they fail nothing until it is fixed. Key is the label repro.py",
+                "takes: <fixture>[<kind>]@<byte offset>. Value is the issue.",
+                "",
+                "A finding that is NOT here fails the run even when it classifies",
+                "as upstream -- register it deliberately or fix it. An entry here",
+                "that no longer reproduces fails too, so a fix cannot leave a",
+                "stale exemption behind. Regenerate with",
+                "./fuzz-idempotency.py --update-known-baseline.",
+            ],
+            "findings": {k: v for k, v in sorted(registry.items()) if v},
+        }, indent=2) + "\n")
+        n = sum(1 for v in registry.values() if v)
+        print(f"\nwrote {n} registered upstream finding(s) to {KNOWN_BASELINE.name}")
+        return False
+
+    if not full_sweep:
+        return False
+
+    observed = {k: v for k, v in registry.items() if v}
+    registered = (
+        json.loads(KNOWN_BASELINE.read_text())["findings"]
+        if KNOWN_BASELINE.exists()
+        else {}
+    )
+    unregistered = sorted(set(observed) - set(registered))
+    stale = sorted(set(registered) - set(observed))
+    for key in unregistered:
+        print(f"\nUNREGISTERED upstream finding: {key}  [{observed[key]}]"
+              f"\n    It classifies as an upstream parser bug, but nothing says it is"
+              f"\n    expected. Reproduce it (`./repro.py {key.split('[')[0]} "
+              f"{key.split('[')[1].split(']')[0]} {key.split('@')[1]}`), then fix it"
+              f"\n    or register it with --update-known-baseline.")
+    for key in stale:
+        print(f"\nSTALE baseline entry: {key}  [{registered[key]}]"
+              f"\n    Registered as an upstream finding, but it no longer reproduces."
+              f"\n    Drop it with --update-known-baseline.")
+    if unregistered or stale:
+        print(f"\n{len(unregistered)} unregistered, {len(stale)} stale "
+              f"against {KNOWN_BASELINE.name}")
+        return True
+    return False
+
+
 def main(argv):
     ap = argparse.ArgumentParser()
+
     ap.add_argument("-v", action="store_true", help="show the format¹/format² diff per gap")
     ap.add_argument("-j", "--jobs", type=int, default=2, help="concurrent `gren format`s (default 2)")
     ap.add_argument("--gaps", action="store_true", help="run only the per-gap pass (skip the end-of-declaration pass)")
@@ -869,8 +1074,26 @@ def main(argv):
                     help="every ordered TRIPLE that is not all one kind (24 "
                          "sequences) — the first shape where a member has a "
                          "comment on BOTH sides of it")
+    ap.add_argument("--pairs", action="store_true",
+                    help="the PAIR pass: two comments at two DIFFERENT gaps of "
+                         "one declaration (every other multi-comment mode puts "
+                         "its comments in ONE gap). Replaces the per-gap and "
+                         "end-of-declaration passes")
+    ap.add_argument("--pair-kinds", action="append", metavar="A,B",
+                    help="ordered kind pair for --pairs (default block,multi "
+                         "and block,line — a riding comment first, a "
+                         "row-breaking one after it). Repeatable")
+    ap.add_argument("--pair-cap", type=int, default=400, metavar="N",
+                    help="max pairs probed per declaration (default 400; 0 = "
+                         "no cap). Sampling is seeded, so a run replays")
+    ap.add_argument("--pair-seed", type=int, default=1, help="seed for --pair-cap sampling")
+    ap.add_argument("--update-known-baseline", action="store_true",
+
+                    help=f"rewrite {KNOWN_BASELINE.name} from this run's findings "
+                         "(full sweep only)")
     ap.add_argument("files", nargs="*")
     args = ap.parse_args(argv[1:])
+
     if not 1 <= args.run <= MAX_RUN:
         ap.error(f"--run must be between 1 and {MAX_RUN}")
     mixes = list(args.mix or [])
@@ -881,8 +1104,21 @@ def main(argv):
     if mixes and (args.kind or args.run != 1):
         ap.error("--mix/--mix-pairs replaces the kind list and spells its own "
                  "run length; it cannot be combined with --kind or --run")
-    run_gaps = not args.decl_ends
-    run_decl_ends = not args.gaps
+    run_gaps = not args.decl_ends and not args.pairs
+    run_decl_ends = not args.gaps and not args.pairs
+    pair_kinds = []
+    if args.pairs:
+        by_label = {k[0]: k for k in KINDS}
+        specs = args.pair_kinds or ["block,multi", "block,line"]
+        for spec in specs:
+            labels = [s.strip() for s in spec.split(",")]
+            if len(labels) != 2 or any(l not in by_label for l in labels):
+                ap.error(f"--pair-kinds {spec!r}: want exactly two of "
+                         f"{', '.join(by_label)}")
+            pair_kinds.append((by_label[labels[0]], by_label[labels[1]]))
+    elif args.pair_kinds:
+        ap.error("--pair-kinds needs --pairs")
+
     if mixes:
         seqs = []
         for spec in mixes:
@@ -898,9 +1134,24 @@ def main(argv):
             run_kind(k, args.run) for k in KINDS if not args.kind or k[0] in args.kind
         ]
 
+    # The baseline holds the findings of the DEFAULT sweep and only those: any
+    # flag that narrows or changes which gaps are probed takes the run out of
+    # its scope. `-v` and `-j` do not, being output and concurrency only.
+    full_sweep = (
+        not args.files
+        and not args.kind
+        and args.run == 1
+        and not mixes
+        and not args.pairs
+        and run_gaps
+        and run_decl_ends
+    )
+
+
     files = args.files
     if not files:
         files = corpus_files(".formatted.gren")
+
 
     # Precompute gaps (pure Python, no subprocesses).
     file_data = [(path, open(path).read()) for path in files]
@@ -908,7 +1159,9 @@ def main(argv):
 
     total = 0
     known_total = 0
+    registry = {}
     with tempfile.TemporaryDirectory() as base:
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
             if run_gaps:
                 # Per-gap pass, once per comment kind. A kind that can be
@@ -931,11 +1184,25 @@ def main(argv):
                         if fast == "ok":
                             print(f"OK  {name} [{label}]: {len(gaps)} gaps, 0 skipped (parser), 0 non-idempotent")
                         else:
-                            bugs, known = report_slow_path(base, pool, path, src, gaps, args.v, kind)
+                            bugs, known = report_slow_path(base, pool, path, src, gaps, args.v, kind, registry)
+
                             total += bugs
                             known_total += known
 
+            if pair_kinds:
+                import random
+                for ka, kb in pair_kinds:
+                    print(f"== comment PAIR pass [{ka[0]}+{kb[0]}] ==")
+                    rng = random.Random(args.pair_seed)
+                    for path, src, gaps in file_data:
+                        bugs, known = report_pairs(
+                            base, pool, path, src, gaps, args.v, ka, kb,
+                            args.pair_cap, rng, registry)
+                        total += bugs
+                        known_total += known
+
             if run_decl_ends:
+
                 # End-of-declaration pass: inject an own-line trailing comment
                 # (block and line form) after every top-level declaration.
                 print("\n== end-of-declaration comment pass ==")
@@ -943,13 +1210,17 @@ def main(argv):
                     total += report_decl_ends(base, pool, path, src, args.v)
 
     # The known-upstream count is subtracted from nothing: those findings are
-    # real and still fail the run. Printing it separately is what stops a
-    # diagnosed, filed bug from being investigated a second time.
+    # real and still counted. What it changes is the EXIT STATUS, and that is
+    # the whole point of the baseline below -- see `check_known_baseline`.
+    unlabelled = total - known_total
     tail = ""
     if known_total:
-        tail = f" ({known_total} known upstream, waiting on a parser fix — see the `known: …` marks above)"
-    print(f"\n{'FAIL' if total else 'PASS'}: {total} non-idempotent finding(s){tail}")
-    return 1 if total else 0
+        tail = f" (+{known_total} known upstream, waiting on a parser fix — see the `known: …` marks above)"
+    print(f"\n{'FAIL' if unlabelled else 'PASS'}: {unlabelled} unlabelled finding(s){tail}")
+
+    drift = check_known_baseline(registry, full_sweep, args.update_known_baseline)
+    return 1 if (unlabelled or drift) else 0
+
 
 
 if __name__ == "__main__":
