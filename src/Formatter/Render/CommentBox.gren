@@ -27,10 +27,10 @@ module Formatter.Render.CommentBox exposing
 {-| Rendering of comment nodes (line, block, doc) to `Box`.
 -}
 
-import Formatter.Logical.LogicalPrintingTree exposing (commentGluesToPrevious, commentRole, CommentRole(..), LPBox(..), lpnBox, lpnChildren, LPNode, lpnReplaceChildren, spanTrailingOwnLine)
+import Formatter.Logical.LogicalPrintingTree exposing (commentGluesToPrevious, commentLeadsNext, commentLeadsOwnLine, commentRole, CommentRole(..), commentTrailsHead, LPBox(..), lpnBox, lpnChildren, LPNode, lpnReplaceChildren, roleIs, spanTrailingOwnLine)
 import Formatter.Render.Box as B exposing (Box(..))
 import Formatter.Render.BoxOps exposing (glueCommentSuffix, glueLeadingCommentPrefix, isSingleLine, prefixOperator)
-import Formatter.Render.NodeClassify exposing (commentLeadsNext, commentLeadsOwnLine, commentTextCanRide, commentTrailsHead, literalCommentsRideFlatLine, nodeIsComment)
+import Formatter.Render.NodeClassify exposing (commentTextCanRide, literalCommentsRideFlatLine, nodeIsComment)
 import Formatter.Results exposing (traverseResult)
 
 
@@ -437,7 +437,7 @@ peelLeadingInlineComments children =
             if acc.stopped then
                 { acc | rest = Array.pushLast child acc.rest }
 
-            else if commentRole (lpnBox child) == Just LeadsInline then
+            else if roleIs LeadsInline child then
                 { acc | leading = Array.pushLast child acc.leading }
 
             else
@@ -574,7 +574,7 @@ runStartsOnOperatorRow : Array LPNode -> Bool
 runStartsOnOperatorRow leading =
     when Array.first leading is
         Just node ->
-            commentRole (lpnBox node) /= Just LeadsOwnLine
+            not (commentLeadsOwnLine node)
 
         Nothing ->
             True

@@ -64,14 +64,15 @@ surfaced before facts are built.
 -}
 
 import Formatter.Logical.LogicalPrintingTree exposing
-    ( CommentRole(..)
-    , LPBox(..)
-    , LPNode
-    , ListBrackets(..)
-    , commentGluesToPrevious
+    ( commentGluesToPrevious
+    , commentLeadsNext
     , commentRole
+    , CommentRole(..)
+    , ListBrackets(..)
+    , LPBox(..)
     , lpnBox
     , lpnChildren
+    , LPNode
     , roleGlues
     )
 
@@ -308,7 +309,7 @@ containerCommentSlot facts node =
     if facts.atOpener then
         LeadsOpener
 
-    else if commentRole (lpnBox node) == Just LeadsNext then
+    else if commentLeadsNext node then
         -- Rule C2: written across a separator the parser records no position
         -- for, so it belongs to the item that FOLLOWS it.
         LeadsFollowing

@@ -1,20 +1,20 @@
 module Formatter.Logical.LogicalPrintingTree exposing
-    ( CommentRole(..)
-    , LPBox(..)
-    , LPNode
-    , ListBrackets(..)
-    , RecordKind(..)
-    , PrefixKind(..)
-    , SyntaxType(..)
-    , boxIsComment
+    ( boxIsComment
     , bracketsToString
     , commentFirstCol
     , commentGluesToPrevious
+    , commentLeadsNext
+    , commentLeadsOwnLine
     , commentRendersOwnLine
+    , commentRidesInline
     , commentRole
+    , CommentRole(..)
+    , commentTrailsHead
     , firstRowInSubtree
     , gluesTrailingComment
     , lastRowInSubtree
+    , ListBrackets(..)
+    , LPBox(..)
     , lpnBox
     , lpnBracketEndElastic
     , lpnBracketEndExact
@@ -24,23 +24,28 @@ module Formatter.Logical.LogicalPrintingTree exposing
     , lpnElasticBracketNode
     , lpnExtendElasticBracket
     , lpnFirstPos
-    , lpnLastBracketEnd
     , lpnHasComment
+    , lpnLastBracketEnd
     , lpnLastPos
     , lpnLeaf
     , lpnMaxRow
     , lpnNode
+    , LPNode
     , lpnReplaceChildren
     , lpnSetCommentRole
     , lpnWithBox
     , lpnWithBracketStart
     , prefixGlyph
+    , PrefixKind(..)
+    , RecordKind(..)
     , recordKindToString
     , roleGlues
+    , roleIs
     , roleToString
     , spanTrailingOwnLine
     , stypeToString
     , subtreeRowRange
+    , SyntaxType(..)
     )
 
 {-| The Logical Printing Tree (LPT): the intermediate representation between the
@@ -674,6 +679,63 @@ commentRole box =
             Nothing
 
 
+{-| Does this node carry exactly this `CommentRole`? `False` for a non-comment.
+
+The one spelling for the question "what role does this comment have". It used to
+have several: four named one-liners in the render layer
+(`commentTrailsHead`/`commentLeadsOwnLine`/`commentLeadsNext`/`commentRidesInline`)
+and the open-coded `commentRole (lpnBox n) == Just X` in four more modules, none
+of which could see the others. This is the vocabulary every comment bugfix
+navigates by, so it lives here, beside the type.
+
+Note the near-misses that are deliberately NOT this: `roleGlues` asks about a
+CLASS of roles, and `commentRendersOwnLine` is `roleIs LeadsOwnLine` **and** a
+shape test -- a role saying own-line is not the same as rendering on one. -}
+roleIs : CommentRole -> LPNode -> Bool
+roleIs role node =
+    commentRole (lpnBox node) == Just role
+
+
+commentTrailsHead : LPNode -> Bool
+commentTrailsHead =
+    roleIs TrailsHead
+
+
+commentLeadsOwnLine : LPNode -> Bool
+commentLeadsOwnLine =
+    roleIs LeadsOwnLine
+
+
+commentLeadsNext : LPNode -> Bool
+commentLeadsNext =
+    roleIs LeadsNext
+
+
+{-| True when this comment's stored role is exactly `RidesInline`.
+
+**Not the same question as `commentTextCanRide`**, which asks the comment's
+SHAPE (is it a single-line `{- … -}`). Every `RidesInline` comment is a
+single-line block comment, but not every single-line block comment is
+`RidesInline` — one written across a list's unrecorded `,` (`[ 1, {- c -} 2 ]`)
+is classified `LeadsNext` by rule C2, so it is shape-ridable but not
+role-ridable.
+
+The example this used to give — the second comment of a run just inside an
+opening bracket, `[ {- a -} {- b -} 1` — is no longer one: since `f05a4cc` the
+whole opener run is one attachment and every member is `RidesInline` (rule C1;
+`Comments.inOpenerRun`). It was the split that made a run of two ride
+differently from a run of one.
+
+Three stale comments sat on this function until 2026-08-02, one of them
+describing `commentTextCanRide`'s rule and asserting that the classifier tags
+such a comment `RidesInline`. That conflation is not true of a run, and it is
+the likely origin of the two predicates being used in sibling arms of
+`commentBracketListBox`. -}
+commentRidesInline : LPNode -> Bool
+commentRidesInline =
+    roleIs RidesInline
+
+
 {-| Does this role glue the comment onto the end of the previous item's last
 rendered line, rather than give it a line of its own?
 
@@ -746,7 +808,7 @@ spanTrailingOwnLine toNode items =
         plain remaining acc =
             when Array.popLast remaining is
                 Just { last, initial } ->
-                    if commentRole (lpnBox (toNode last)) == Just LeadsOwnLine then
+                    if commentLeadsOwnLine (toNode last) then
                         plain initial (Array.pushFirst last acc)
 
                     else
@@ -817,7 +879,7 @@ staying at its construct's indent, and whether those should move is a separate
 question with its own fixtures. -}
 commentRendersOwnLine : LPNode -> Bool
 commentRendersOwnLine node =
-    commentRole (lpnBox node) == Just LeadsOwnLine
+    commentLeadsOwnLine node
         && (when lpnBox node is
                 BlockComment c ->
                     String.contains "\n" c.loc.value

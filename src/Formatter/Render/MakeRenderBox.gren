@@ -12,7 +12,7 @@ signatures, and comments — each laid out to match elm-format.
 -}
 
 import Formatter.Logical.BinopPrecedence exposing (binopMinPrecedence, binopPrecedence)
-import Formatter.Logical.LogicalPrintingTree exposing (commentGluesToPrevious, commentRole, CommentRole(..), firstRowInSubtree, ListBrackets(..), LPBox(..), lpnBox, lpnChildren, lpnLastBracketEnd, lpnLastPos, lpnMaxRow, LPNode, lpnReplaceChildren, prefixGlyph, RecordKind(..), spanTrailingOwnLine, SyntaxType(..))
+import Formatter.Logical.LogicalPrintingTree exposing (commentGluesToPrevious, commentLeadsOwnLine, commentRole, CommentRole(..), firstRowInSubtree, ListBrackets(..), LPBox(..), lpnBox, lpnChildren, lpnLastBracketEnd, lpnLastPos, lpnMaxRow, LPNode, lpnReplaceChildren, prefixGlyph, RecordKind(..), spanTrailingOwnLine, SyntaxType(..))
 import Formatter.Render.BinopLayout exposing (assembleBinopBox, commentBreaksBinopChain, flattenBinopNodes, isChainBreakingOperandBox, opText)
 import Formatter.Render.Box as B exposing (Box(..))
 import Formatter.Render.BoxOps exposing (applyIndent, blockIndentSpaces, boxLine, glueCommentSuffix, glueLeadingCommentPrefix, grenIndent, isBlockNode, isSingleLine, joinInline, prefixOperator, spaceJoinLines, stackWithBlanks, wrapParenVerticalPadded)
@@ -23,7 +23,6 @@ import Formatter.Render.FlowPolicy as FP
 import Formatter.Render.NodeClassify exposing
     ( commentBreaksFlowRow
     , commentBreaksFlowRowDeep
-    , commentLeadsOwnLine
     , commentTextCanRide
     , fieldValueDropsToOwnLine
     , isColonLeaf
@@ -145,8 +144,8 @@ forced-vertical, one-group-per-line layout: its group is composed via
 operator width so they align under where the operand's first char lands. Any
 multi-line operand joined *inline* to a higher-precedence sibling, and any
 multi-line operand in a non-vertical chain, still returns Err. -}
-makeBinopBox : Bool -> Array LPNode -> Result String Box
-makeBinopBox forceVerticalArg children =
+makeBinopBox : { forceVertical : Bool } -> Array LPNode -> Result String Box
+makeBinopBox { forceVertical = forceVerticalArg } children =
     let
         flat =
             flattenBinopNodes children
@@ -711,8 +710,8 @@ fold, where the per-step comment handling (leading peel, trailing glue,
 blank-before-commented-step) lives. Everything is rendered ONCE and the layout
 chosen from the boxes: re-rendering to try a second shape would cost 2^depth on
 nested pipelines (see the Box.gren renderRowState hang). -}
-makePipelineBox : Bool -> String -> Array LPNode -> Result String Box
-makePipelineBox forceVertical op children =
+makePipelineBox : { forceVertical : Bool } -> String -> Array LPNode -> Result String Box
+makePipelineBox { forceVertical } op children =
     if op == "<|" then
         makeBackwardPipelineBox forceVertical children
 
@@ -3457,10 +3456,10 @@ makePBox box children =
                 |> Result.map (\inner -> B.prefix (B.literal (prefixGlyph prefix.value)) inner)
 
         AllAcrossOrAllVertical bracket ->
-            makeLiteralBox False bracket children
+            makeLiteralBox { forceMultiline = False } bracket children
 
         AlwaysVertical bracket ->
-            makeLiteralBox True bracket children
+            makeLiteralBox { forceMultiline = True } bracket children
 
         EmptyBracketed loc ->
             when bracketPunc loc.value is
@@ -3504,7 +3503,7 @@ makePBox box children =
                                         )
 
         Binop { forceVertical } ->
-            makeBinopBox forceVertical children
+            makeBinopBox { forceVertical = forceVertical } children
 
         OpAndRhs ->
             makeOpAndRhsBox children
@@ -3516,7 +3515,7 @@ makePBox box children =
             makeIfConditionBox forceVertical children
 
         Pipeline { forceVertical, op } ->
-            makePipelineBox forceVertical op children
+            makePipelineBox { forceVertical = forceVertical } op children
 
         EmptyLine ->
             Ok B.blankLine
@@ -3878,8 +3877,8 @@ parenGenericFallbackBox flags children =
 (author wrote it inline) passes `forceMultiline = False` — `group'` still
 expands if a child is multi-line; `AlwaysVertical` (2+-field record, or author
 across rows) passes `forceMultiline = True`. -}
-makeLiteralBox : Bool -> ListBrackets -> Array LPNode -> Result String Box
-makeLiteralBox forceMultiline bracket children =
+makeLiteralBox : { forceMultiline : Bool } -> ListBrackets -> Array LPNode -> Result String Box
+makeLiteralBox { forceMultiline } bracket children =
     if commentForcesBracketOpen forceMultiline children then
         commentBracketListBox bracket children
 

@@ -2,11 +2,7 @@ module Formatter.Render.NodeClassify exposing
     ( commentBreaksFlowRow
     , commentBreaksFlowRowDeep
     , commentEndsItsLine
-    , commentLeadsNext
-    , commentLeadsOwnLine
-    , commentRidesInline
     , commentTextCanRide
-    , commentTrailsHead
     , fieldValueDropsToOwnLine
     , isColonLeaf
     , isDroppingSignatureRecordNode
@@ -709,43 +705,3 @@ splitOffLambdaHead nodes =
                 , lambdaNodes = Array.dropFirst i nodes
                 }
             )
-
-
-commentTrailsHead : LPNode -> Bool
-commentTrailsHead node =
-    commentRole (lpnBox node) == Just TrailsHead
-
-
-commentLeadsOwnLine : LPNode -> Bool
-commentLeadsOwnLine node =
-    commentRole (lpnBox node) == Just LeadsOwnLine
-
-
-commentLeadsNext : LPNode -> Bool
-commentLeadsNext node =
-    commentRole (lpnBox node) == Just LeadsNext
-
-
-{-| True when this comment's stored role is exactly `RidesInline`.
-
-**Not the same question as `commentTextCanRide`**, which asks the comment's
-SHAPE (is it a single-line `{- … -}`). Every `RidesInline` comment is a
-single-line block comment, but not every single-line block comment is
-`RidesInline` — one written across a list's unrecorded `,` (`[ 1, {- c -} 2 ]`)
-is classified `LeadsNext` by rule C2, so it is shape-ridable but not
-role-ridable.
-
-The example this used to give — the second comment of a run just inside an
-opening bracket, `[ {- a -} {- b -} 1` — is no longer one: since `f05a4cc` the
-whole opener run is one attachment and every member is `RidesInline` (rule C1;
-`Comments.inOpenerRun`). It was the split that made a run of two ride
-differently from a run of one.
-
-Three stale comments sat on this function until 2026-08-02, one of them
-describing `commentTextCanRide`'s rule and asserting that the classifier tags
-such a comment `RidesInline`. That conflation is not true of a run, and it is
-the likely origin of the two predicates being used in sibling arms of
-`commentBracketListBox`. -}
-commentRidesInline : LPNode -> Bool
-commentRidesInline node =
-    commentRole (lpnBox node) == Just RidesInline

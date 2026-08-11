@@ -121,17 +121,15 @@ import Compiler.Parse.Context as Ctx
 import Compiler.SourcePosition exposing (Located, Position, at)
 
 import Formatter.Logical.LogicalPrintingTree exposing
-    ( CommentRole(..)
-    , LPBox(..)
-    , LPNode
-    , ListBrackets(..)
-    , RecordKind(..)
-    , SyntaxType(..)
+    ( commentLeadsNext
     , commentRendersOwnLine
     , commentRole
+    , CommentRole(..)
     , firstRowInSubtree
     , gluesTrailingComment
     , lastRowInSubtree
+    , ListBrackets(..)
+    , LPBox(..)
     , lpnBox
     , lpnBracketEndElastic
     , lpnBracketEndExact
@@ -143,10 +141,13 @@ import Formatter.Logical.LogicalPrintingTree exposing
     , lpnLastPos
     , lpnLeaf
     , lpnNode
+    , LPNode
     , lpnReplaceChildren
     , lpnSetCommentRole
+    , RecordKind(..)
     , spanTrailingOwnLine
     , subtreeRowRange
+    , SyntaxType(..)
     )
 import Formatter.Strings exposing (countNewlines)
 
@@ -1033,7 +1034,7 @@ attachLeadingChild startPos commentNode declNode =
                         isCommentNode child
                             && (when lpnFirstPos child is
                                     Just p ->
-                                        posBefore p startPos
+                                        posStrictlyBefore p startPos
 
                                     Nothing ->
                                         False
@@ -1083,7 +1084,7 @@ commentLeadsDecl stype child startPos =
             (startPos.col == 1 || hasCol1CommentChild child startPos.row)
                 && (when importModuleNamePos child is
                         Just namePos ->
-                            posBefore startPos namePos
+                            posStrictlyBefore startPos namePos
 
                         Nothing ->
                             False
@@ -1092,7 +1093,7 @@ commentLeadsDecl stype child startPos =
         _ ->
             when firstTokenPos child is
                 Just tokPos ->
-                    not (posBefore tokPos startPos)
+                    not (posStrictlyBefore tokPos startPos)
 
                 Nothing ->
                     False
@@ -1197,8 +1198,13 @@ isDeclStype st =
             False
 
 
-posBefore : Position -> Position -> Bool
-posBefore a b =
+{-| `a` is strictly before `b`: an earlier row, or the same row and a strictly
+earlier column. Compare `posAtOrBefore`, which is inclusive on the column and
+takes its position as a loose row/col pair -- the two differ in that one `=`,
+and this module is where off-by-one row logic is the whole game, so the names
+carry the comparison. -}
+posStrictlyBefore : Position -> Position -> Bool
+posStrictlyBefore a b =
     a.row < b.row || (a.row == b.row && a.col < b.col)
 
 
@@ -1622,7 +1628,7 @@ insertCommentIntoSubtree commentNode row col node =
                                         False
 
                                     Just open ->
-                                        positionBefore open row col
+                                        posAtOrBefore open row col
                                             && commentInsideTrailingBracket child row col
 
                             -- `child` owns the comment when its subtree covers the
@@ -1709,7 +1715,7 @@ repairTornGapRun : LPBox -> Array LPNode -> Array LPNode
 repairTornGapRun containerBox children =
     let
         reclassifyAt index child =
-            if commentRole (lpnBox child) /= Just LeadsNext then
+            if not (commentLeadsNext child) then
                 child
 
             else
@@ -2016,7 +2022,7 @@ insertAmongChildren containerBox commentNode row col children =
 -- PREDICATES: POSITION & BOX-KIND TESTS
 --
 -- Shared by both phases. The position tests (subtreeContainsRow, subtreeEndsBefore,
--- subtreeStartsAfter, positionBefore, lpnFirstPos/lpnLastPos)
+-- subtreeStartsAfter, posAtOrBefore, lpnFirstPos/lpnLastPos)
 -- read the O(1) bounds cache; the box classifiers (boxKeepsTrailingCommentOutside,
 -- commentInside*, isBracketContainerBox) decide whether a trailing comment stays
 -- outside a container or descends into it.
@@ -2182,11 +2188,12 @@ subtreeContainsRow node row =
 
 
 {-
-   positionBefore returns True if the position is on an earlier row, or on
-   the same row with an equal or earlier column.
+   posAtOrBefore returns True if the position is on an earlier row, or on
+   the same row with an equal or earlier column -- inclusive where
+   `posStrictlyBefore` is strict.
 -}
-positionBefore : Position -> Int -> Int -> Bool
-positionBefore pos row col =
+posAtOrBefore : Position -> Int -> Int -> Bool
+posAtOrBefore pos row col =
     pos.row < row || (pos.row == row && pos.col <= col)
 
 
@@ -2220,7 +2227,7 @@ subtreeEndsBefore node row col =
                         False
 
                     Just pos ->
-                        positionBefore pos row col
+                        posAtOrBefore pos row col
            )
 
 
@@ -2434,10 +2441,10 @@ commentPrecedesUpdateBase : LPBox -> LPNode -> Bool
 commentPrecedesUpdateBase containerBox commentNode =
     when { container = containerBox, comment = lpnBox commentNode } is
         { container = RecordUpdate { name }, comment = SingleLineComment { loc } } ->
-            positionBefore loc.start name.start.row name.start.col
+            posAtOrBefore loc.start name.start.row name.start.col
 
         { container = RecordUpdate { name }, comment = BlockComment { loc } } ->
-            positionBefore loc.start name.start.row name.start.col
+            posAtOrBefore loc.start name.start.row name.start.col
 
         _ ->
             False
