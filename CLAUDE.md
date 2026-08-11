@@ -99,7 +99,13 @@ Formatter                          entry point: prettyPrint
                                     NodeClassify / BoxOps — knot-free helpers only,
                                     since Gren forbids circular imports)
         …Box                       elm-format's Box IR (Line/Box, Tab tab stops, prefix)
+        …ElmStructure              port of the two ElmStructure.hs combinators we use
         …FlowPolicy                shared inline/break decision layer
+
+Formatter.Audit                    off to the side, not in the pipeline
+    …DecisionTrace                 --decisions: which layout decision moved
+    …PredicateAgreement            --audit-predicates: a predicate claiming a
+                                   break the renderer never emits
 ```
 
 Three things to hold onto:

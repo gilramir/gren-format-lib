@@ -87,7 +87,7 @@ Src.Module + Ctx.Context  ──►  LPT  ──►  Box  ──►  String
 
 Entry point: `Formatter.prettyPrint : Src.Module -> Ctx.Context ->
 Result String String`. It calls `MakeLogical.makeLogicalPrintingTree` (build the
-LPT) then `MakeRender.makePrettyResult` (render it). Every stage returns
+LPT) then `Render.makePrettyResult` (render it). Every stage returns
 `Result String _`; there are no silent fallbacks — an unhandled case is an
 `Err`, not a guess.
 
@@ -100,8 +100,10 @@ All formatter source lives in `src/Formatter/`:
 ```
 Formatter.gren                  entry: prettyPrint
 Formatter/Strings.gren          tiny string helpers (countNewlines)
-Formatter/Logical/              AST + comments → LPT
-  MakeLogical.gren                orchestrator: one process* per top-level decl kind
+Formatter/Logical.gren          AST + comments → LPT: runs lptFromAst, then the
+                                  finishing passes (Comments, SortSymbols, VerticalSpace)
+Formatter/Logical/
+  MakeLogical.gren                the AST walk: one process* per top-level decl kind
   InsertExpressions.gren          expression → LPT (one insert* per expression form)
   InsertPatterns.gren             pattern → LPT
   InsertTypes.gren                type → LPT (typeWithArgs shared by TType/TTypeQual)
@@ -114,18 +116,41 @@ Formatter/Logical/              AST + comments → LPT
   Comments.gren                   re-attach parse-context comments by position
   SortSymbols.gren                sort exposing lists + import groups
   VerticalSpace.gren              insert blank lines
-Formatter/Render/               LPT → String
-  MakeRender.gren                 thin orchestrator: maps RootBox children through MakeRenderBox, joins with "\n"
+Formatter/Render.gren           LPT → String: maps RootBox children through
+                                  MakeRenderBox, joins with "\n"
+Formatter/Render/
   MakeRenderBox.gren               LPT → Box, one builder per LPBox constructor
   Box.gren                         elm-format's Box IR (Line/Box, Tab tab-stops, prefix) + renderer
   FlowPolicy.gren                  shared inline/break decision layer for flow sequences
   ElmStructure.gren                faithful port of elm-format's ElmStructure.hs layout combinators
+  BoxOps.gren                      low-level Box/Line manipulation (prefixOperator, applyIndent, …)
+  NodeClassify.gren                predicates and structural queries over LPT nodes
+  CommentBox.gren                  render a comment node (line / block / doc) to a Box
+  BinopLayout.gren                 pure layout assembly for binop chains
+  FlowAssembly.gren                FlowItem / SoftGlueAlignment types + pure flow-layout helpers
+Formatter/Audit/                not in the pipeline — the two gates that need
+                                the formatter's own internals
+  DecisionTrace.gren               --decisions: which layout decision moved between two formats
+  PredicateAgreement.gren          --audit-predicates: a predicate claiming a break the renderer never emits
 ```
+
+`Formatter.gren` sits alongside `Formatter/`, `Logical.gren` alongside
+`Logical/`, `Render.gren` alongside `Render/` — the orchestrator of each stage
+is the file next to the directory, not inside it.
+
+The last five `Render/` modules were extracted out of `MakeRenderBox.gren` to
+shrink it. Gren forbids circular imports, so only helpers that never
+transitively reach the `makePBox`/`buildFlowBox` recursion could move; the
+mutually-recursive dispatch and the per-construct renderers stay behind. The
+import DAG is `MakeRenderBox` → all five; `BinopLayout`/`CommentBox`/
+`FlowAssembly` → `BoxOps`, `NodeClassify` (and `FlowAssembly` → `FlowPolicy`);
+`BoxOps`, `NodeClassify` and `FlowPolicy` import no other `Render` module.
 
 `LogicalPrintingTree.gren` is the hub every module depends on; its module doc
 opens with a categorised map of all ~30 `LPBox` constructors. `BinopPrecedence`
 is imported by both `InsertExpressions` (to decide the author's break tier) and
-`MakeRender` (to render it) — they must agree, so the fixity table has one home.
+`MakeRenderBox` (to render it) — they must agree, so the fixity table has one
+home.
 
 ---
 
@@ -336,7 +361,7 @@ Layout boxes (have children):
   [Author layout](#author-layout--the-forcevertical-flag) decides which one.
 
 - `WhenBranch`, `IfCondition { forceVertical }`, `WhenFlow { forceVertical }`,
-  `PipelineStep`, `ParenBlock`, `OpAndRhs`, `AlignedFlow`, `PrefixGlue`,
+  `PipelineStep`, `ParenBlock`, `OpAndRhs`, `PrefixGlue`, `Glue`,
   `RecordUpdate { forceVertical }`, `EmptyBracketed` — specialised shapes;
   read their doc comments in `LogicalPrintingTree.gren` before reusing. One
   concrete example each:
@@ -427,15 +452,6 @@ Layout boxes (have children):
     glues `\` directly onto the pattern `x` via `PrefixGlue "\\"` — the same
     box handles unary negation, as `PrefixGlue "-"`.
 
-  - **`AlignedFlow`** — worth naming honestly rather than faking an example
-    for: as of this writing, nothing in `InsertExpressions`/`MakeLogical`
-    actually constructs one, and `MakeRenderBox`'s dispatch for it is a stub
-    (`Err "box: construct not ported [AlignedFlow]"`). It's a real
-    constructor with some render-side scaffolding already in place, but it
-    isn't reachable from any current source — don't go looking for a live
-    example, and if you find yourself wanting this exact shape, expect to
-    build it out rather than reuse it.
-
 See `docs/formatterRules.md` for the rendered example of each rule these
 boxes implement, in user-facing terms rather than internal ones.
 
@@ -472,7 +488,7 @@ positions, not at render time from a column budget.
 
 The mechanism: some boxes carry `{ forceVertical : Bool }`. Set it `True` when
 the author's source has a line break inside that construct; set it `False` for
-flat intent. `MakeRender` then picks between a flat flow (`buildFlowDoc`) and a
+flat intent. `MakeRenderBox` then picks between a flat flow (`buildFlowDoc`) and a
 hard-breaking flow (`buildFlowDocBroken`) based on that flag.
 
 **Where to detect multiline intent** (in `InsertExpressions.gren`):
@@ -890,7 +906,7 @@ expresses the breaking behaviour you need; a new constructor means new arms in
 ### 7. Blank lines (top-level only)
 If you added a top-level `SyntaxType`, check `Formatter.Logical.VerticalSpace`: is your
 declaration a "function group" start (2 blank lines before) or an ordinary
-declaration (1)? Adjust `tagGroupStarts` if needed.
+declaration (1)? Adjust `computeGroupStarts` if needed.
 
 ---
 
@@ -1136,7 +1152,7 @@ comment-bearing fixture so the fuzzers exercise the reconstruction.
   "Adding support for a new construct" section; the body is banner-sectioned into
   phase 1 (top-level slot) and phase 2 (inner descent).
 - `Logical/BinopPrecedence.gren` — the operator fixity table and why its
-  `binopMinPrecedence` seam is shared by `InsertExpressions` and `MakeRender`.
+  `binopMinPrecedence` seam is shared by `InsertExpressions` and `MakeRenderBox`.
 - `Formatter.Render.Box` (`Render/Box.gren`) — the `Line`/`Box` types and
   renderer; small enough to read in full.
 - `Formatter.Render.MakeRenderBox` (`Render/MakeRenderBox.gren`) — the
