@@ -11,12 +11,13 @@ stage's entry point.
 import Array.Builder as Builder
 import Compiler.Ast.Source as Src
 import Compiler.SourcePosition exposing (Located, Position)
+import Formatter.Results exposing (resultFoldl)
 import Math exposing (maxSafeInteger)
 
 import Formatter.Logical.InsertExpressions exposing (insertExpression)
 import Formatter.Logical.InsertPatterns exposing (folderInsertPattern)
 import Formatter.Logical.InsertTypes exposing (makeSignatureBranch)
-import Formatter.Logical.LPTHelpers exposing (endOfToken, mkText, mkTextFromLocString, mkZeroWidthText, plainAcross, resultFoldl)
+import Formatter.Logical.LPTHelpers exposing (endOfToken, mkText, mkTextFromLocString, mkZeroWidthText, plainAcross)
 import Formatter.Logical.LogicalPrintingTree exposing
     ( LPBox(..)
     , LPNode

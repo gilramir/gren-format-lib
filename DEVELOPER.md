@@ -100,6 +100,8 @@ All formatter source lives in `src/Formatter/`:
 ```
 Formatter.gren                  entry: prettyPrint
 Formatter/Strings.gren          tiny string helpers (countNewlines)
+Formatter/Results.gren          Result-over-Array combinators shared by both
+                                  stages (traverseResult, resultFoldl)
 Formatter/Logical.gren          AST + comments → LPT: runs lptFromAst, then the
                                   finishing passes (Comments, SortSymbols, VerticalSpace)
 Formatter/Logical/
@@ -109,7 +111,7 @@ Formatter/Logical/
   InsertTypes.gren                type → LPT (typeWithArgs shared by TType/TTypeQual)
   LiteralFormat.gren              string / char / hex literal escaping
   LPTHelpers.gren                 LPT construction helpers: mkText*/plainAcross/
-                                    syntheticParens/authoredBracketList/resultFoldl/…
+                                    syntheticParens/authoredBracketList/…
   BinopPrecedence.gren            operator fixity table for binop-chain layout
   LogicalPrintingTree.gren        LPBox / LPNode types, smart constructors, bounds cache
   LPTJson.gren                    --lpt debug serialiser
@@ -811,7 +813,8 @@ Add/extend the right converter:
 Use the shared helpers in `Formatter.Logical.LPTHelpers`: `mkTextFromLocString` (a real
 token at its `Located` position), `mkText pos str` (text at an explicit
 position), `mkZeroWidthText pos str` (a synthesized token anchored at a real
-position but contributing zero width — see below), `resultFoldl`. For the two
+position but contributing zero width — see below), and `Formatter.Results`'
+`resultFoldl`. For the two
 most common container shapes there are smart constructors that fill in the
 default flags for you: `plainAcross children` (an `AcrossOrVertical` flow — a
 head-and-its-parts) and `syntheticParens children` (a formatter-synthesized

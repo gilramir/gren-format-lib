@@ -23,7 +23,6 @@ import Formatter.Logical.LPTHelpers exposing
     , mkTextFromLocString
     , mkZeroWidthText
     , plainAcross
-    , resultFoldl
     , syntheticParens
     , tryMapLastLeaf
     )
@@ -42,6 +41,7 @@ import Formatter.Logical.LogicalPrintingTree exposing
     , lpnNode
     , lpnWithBracketStart
     )
+import Formatter.Results exposing (resultFoldl)
 
 
 {-| Returns True for the pipeline operators `|>` and `<|`.

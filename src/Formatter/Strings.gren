@@ -1,7 +1,4 @@
-module Formatter.Strings exposing
-    ( collectResults
-    , countNewlines
-    )
+module Formatter.Strings exposing (countNewlines)
 
 
 {-|
@@ -20,51 +17,3 @@ countNewlines string =
         )
         0
         string
-
-
-{-
-   Turns an array of Results into a Result of an array: the first Err
-   (left-to-right, matching the short-circuit order a sequential
-   `Result.andThen` fold would give), or every Ok value in order.
-
-   Two whole-array passes rather than a fold that accumulates with
-   `Array.pushLast`. `Array.pushLast` is O(n) per call (it's `Array.toSpliced`
-   under the hood, a full-array copy), so building the result one element at a
-   time is O(n^2) on a file with many top-level declarations — and this runs
-   once per RootBox child. `Array.map` / `Array.findFirst` are each a single
-   native O(n) pass.
-
-   This replaced `joinResultStrings`, which collected exactly this way and then
-   joined the strings. Separating the collect from the join is what lets
-   `Formatter.Render.renderRootChildren` hand the rendered declarations out
-   individually, which the decision-stability audit needs; `makePrettyResult` is
-   now this followed by a `String.join`.
--}
-collectResults : Array (Result e a) -> Result e (Array a)
-collectResults array =
-    let
-        isErr item =
-            when item is
-                Err _ ->
-                    True
-
-                Ok _ ->
-                    False
-    in
-    when Array.findFirst isErr array is
-        Just { value = Err e } ->
-            Err e
-
-        _ ->
-            Ok
-                (Array.mapAndKeepJust
-                    (\item ->
-                        when item is
-                            Ok value ->
-                                Just value
-
-                            Err _ ->
-                                Nothing
-                    )
-                    array
-                )

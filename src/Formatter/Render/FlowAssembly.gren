@@ -37,9 +37,10 @@ import Formatter.Logical.BinopPrecedence exposing (binopMinPrecedence, binopPrec
 import Formatter.Logical.LogicalPrintingTree exposing (CommentRole(..), LPBox(..), LPNode, ListBrackets(..), commentGluesToPrevious, commentRole, lpnBox, lpnChildren, lpnMaxRow, roleGlues)
 import Formatter.Render.BinopLayout exposing (isChainBreakingOperandBox)
 import Formatter.Render.Box as B exposing (Box(..))
-import Formatter.Render.BoxOps exposing (applyIndent, commentRunLine, glueCommentSuffix, isBlockNode, isSingleLine, joinInline, nodesShareStartRow, traverseResult)
+import Formatter.Render.BoxOps exposing (applyIndent, commentRunLine, glueCommentSuffix, isBlockNode, isSingleLine, joinInline, nodesShareStartRow)
 import Formatter.Render.FlowPolicy as FP
 import Formatter.Render.NodeClassify exposing (isColonLeaf, isEmptyLine, isMultilineLambdaParenBlockBox, isTypeRecordLiteral, nodeIsComment, subtreeEndsWithMultilineBlockComment)
+import Formatter.Results exposing (traverseResult)
 
 
 -- `exposing` stays glued to the header. Inline list: `header (a, b, c)` on one

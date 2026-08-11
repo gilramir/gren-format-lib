@@ -16,7 +16,6 @@ import Formatter.Logical.LPTHelpers exposing
     , mkTextFromLocString
     , mkZeroWidthText
     , plainAcross
-    , resultFoldl
     )
 import Formatter.Logical.LogicalPrintingTree exposing
     ( LPBox(..)
@@ -29,6 +28,7 @@ import Formatter.Logical.LogicalPrintingTree exposing
     , lpnNode
     , lpnWithBracketStart
     )
+import Formatter.Results exposing (resultFoldl)
 
 
 folderMakeSignatureBranch : Src.Type -> Array LPNode -> Result String (Array LPNode)

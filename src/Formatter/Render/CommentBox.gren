@@ -29,8 +29,9 @@ module Formatter.Render.CommentBox exposing
 
 import Formatter.Logical.LogicalPrintingTree exposing (commentGluesToPrevious, commentRole, CommentRole(..), LPBox(..), lpnBox, lpnChildren, LPNode, lpnReplaceChildren, spanTrailingOwnLine)
 import Formatter.Render.Box as B exposing (Box(..))
-import Formatter.Render.BoxOps exposing (glueCommentSuffix, glueLeadingCommentPrefix, isSingleLine, prefixOperator, traverseResult)
+import Formatter.Render.BoxOps exposing (glueCommentSuffix, glueLeadingCommentPrefix, isSingleLine, prefixOperator)
 import Formatter.Render.NodeClassify exposing (commentLeadsNext, commentLeadsOwnLine, commentTextCanRide, commentTrailsHead, literalCommentsRideFlatLine, nodeIsComment)
+import Formatter.Results exposing (traverseResult)
 
 
 {-| Render a standalone top-level comment-line item. Same-row block comments

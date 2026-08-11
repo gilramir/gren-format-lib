@@ -21,7 +21,7 @@ import Formatter.Logical.LogicalPrintingTree exposing
     )
 import Formatter.Render.Box as RB
 import Formatter.Render.MakeRenderBox as MRB
-import Formatter.Strings exposing (collectResults)
+import Formatter.Results exposing (traverseResult)
 import Json.Encode as Json
 
 
@@ -46,11 +46,10 @@ output is unchanged did not cause anything, and reporting it alongside the ones
 that did is how a diagnostic turns back into noise. -}
 renderRootChildren : LPNode -> Result String (Array String)
 renderRootChildren root =
-    -- `collectResults` rather than a fold that pushes onto an accumulator: see
+    -- `traverseResult` rather than a fold that pushes onto an accumulator: see
     -- its own note on why that is O(n^2) here of all places.
     lpnChildren root
-        |> Array.map (\node -> Result.map String.trimRight (makePrettyLine node))
-        |> collectResults
+        |> traverseResult (\node -> Result.map String.trimRight (makePrettyLine node))
 
 
 {-| Render one top-level LPT child through the Box renderer. -}
@@ -65,20 +64,6 @@ entry per declaration), for the `--box` debug flag — the Box analogue of the
 `--lpt` LPT dump. An `Err` from any child (an unhandled construct) aborts. -}
 lptToBoxJson : LPNode -> Result String String
 lptToBoxJson root =
-    Array.foldl
-        (\child acc ->
-            when acc is
-                Err e ->
-                    Err e
-
-                Ok boxes ->
-                    when MRB.makePrettyLineBox child is
-                        Err e ->
-                            Err e
-
-                        Ok box ->
-                            Ok (Array.pushLast (RB.toJson box) boxes)
-        )
-        (Ok [])
-        (lpnChildren root)
+    lpnChildren root
+        |> traverseResult (\child -> Result.map RB.toJson (MRB.makePrettyLineBox child))
         |> Result.map (\values -> Json.encode 2 (Json.array identity values))

@@ -11,7 +11,7 @@ boxes.
 import Compiler.Ast.Source as Src
 import Compiler.SourcePosition exposing (Located, Position)
 
-import Formatter.Logical.LPTHelpers exposing (authoredBracketList, itemsSpanRows, mkText, mkTextFromLocString, mkZeroWidthText, plainAcross, resultFoldl, syntheticParens)
+import Formatter.Logical.LPTHelpers exposing (authoredBracketList, itemsSpanRows, mkText, mkTextFromLocString, mkZeroWidthText, plainAcross, syntheticParens)
 import Formatter.Logical.LiteralFormat exposing (charLiteralString, escapeStringContent, hexLiteral)
 import Formatter.Logical.LogicalPrintingTree exposing
     ( LPBox(..)
@@ -23,6 +23,7 @@ import Formatter.Logical.LogicalPrintingTree exposing
     , lpnLeaf
     , lpnNode
     )
+import Formatter.Results exposing (resultFoldl)
 
 
 insertPattern : Src.Pattern -> Result String (Array LPNode)

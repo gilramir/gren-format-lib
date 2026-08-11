@@ -1,4 +1,4 @@
-module Formatter.Render.BoxOps exposing (applyIndent, blockIndentSpaces, boxLine, commentRunLine, glueCommentSuffix, glueLeadingCommentPrefix, grenIndent, isBlockNode, isSingleLine, joinInline, nodesShareStartRow, prefixOperator, spaceJoinLines, stackWithBlanks, traverseResult, wrapParenVerticalPadded)
+module Formatter.Render.BoxOps exposing (applyIndent, blockIndentSpaces, boxLine, commentRunLine, glueCommentSuffix, glueLeadingCommentPrefix, grenIndent, isBlockNode, isSingleLine, joinInline, nodesShareStartRow, prefixOperator, spaceJoinLines, stackWithBlanks, wrapParenVerticalPadded)
 
 {-| Low-level `Box`/`Line` manipulation helpers shared by the renderer.
 -}
@@ -213,16 +213,3 @@ applyIndent indent box =
         applyIndent (indent - 4) (B.indent box)
 
 
--- Traverse an Array with a Result-returning function, short-circuiting on Err.
-traverseResult : (a -> Result e b) -> Array a -> Result e (Array b)
-traverseResult f items =
-    Array.foldl
-        (\item acc ->
-            acc
-                |> Result.andThen
-                    (\built ->
-                        f item |> Result.map (\b -> Array.pushLast b built)
-                    )
-        )
-        (Ok [])
-        items

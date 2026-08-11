@@ -7,7 +7,6 @@ module Formatter.Logical.LPTHelpers exposing
     , mkTextFromLocString
     , mkZeroWidthText
     , plainAcross
-    , resultFoldl
     , syntheticParens
     , tryMapLastLeaf
     )
@@ -176,12 +175,6 @@ authoredBracketList brackets spans openStart closeEnd empty itemNodes =
 
 -- Left-fold that threads a Result through the accumulator, short-circuiting
 -- on the first Err. Equivalent to Array.foldl + Result.andThen.
-resultFoldl : (i -> a -> Result e a) -> a -> Array i -> Result e a
-resultFoldl callback initialAcc items =
-    Array.foldl
-        (\item acc -> acc |> Result.andThen (callback item))
-        (Ok initialAcc)
-        items
 
 
 -- Walk to the deepest last UnbreakableText leaf and apply f to it.

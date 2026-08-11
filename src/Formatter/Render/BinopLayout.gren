@@ -6,8 +6,8 @@ module Formatter.Render.BinopLayout exposing (assembleBinopBox, commentBreaksBin
 import Formatter.Logical.BinopPrecedence exposing (binopPrecedence)
 import Formatter.Logical.LogicalPrintingTree exposing (CommentRole(..), LPBox(..), LPNode, commentRole, lpnBox, lpnChildren)
 import Formatter.Render.Box as B exposing (Box(..))
-import Formatter.Render.BoxOps exposing (traverseResult)
 import Formatter.Render.NodeClassify exposing (commentBreaksFlowRow, leafValue)
+import Formatter.Results exposing (traverseResult)
 
 
 {-| Flatten the nested `Binop`/`OpAndRhs` tree into a flat operand + operator
