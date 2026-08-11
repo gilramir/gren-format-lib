@@ -125,6 +125,7 @@ import Formatter.Logical.LogicalPrintingTree exposing
     , LPBox(..)
     , LPNode
     , ListBrackets(..)
+    , RecordKind(..)
     , SyntaxType(..)
     , commentRendersOwnLine
     , commentRole
@@ -791,7 +792,7 @@ moduleWhereCloseRow stype node =
         Array.foldl
             (\child acc ->
                 when lpnBox child is
-                    AllAcrossOrAllVertical ListCurly ->
+                    AllAcrossOrAllVertical (ListCurly _) ->
                         let
                             lastRow =
                                 lastRowInSubtree child

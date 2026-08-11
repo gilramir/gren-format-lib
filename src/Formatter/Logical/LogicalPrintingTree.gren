@@ -3,6 +3,7 @@ module Formatter.Logical.LogicalPrintingTree exposing
     , LPBox(..)
     , LPNode
     , ListBrackets(..)
+    , RecordKind(..)
     , PrefixKind(..)
     , SyntaxType(..)
     , boxIsComment
@@ -34,6 +35,7 @@ module Formatter.Logical.LogicalPrintingTree exposing
     , lpnWithBox
     , lpnWithBracketStart
     , prefixGlyph
+    , recordKindToString
     , roleGlues
     , roleToString
     , spanTrailingOwnLine
@@ -107,10 +109,41 @@ import Math exposing (maxSafeInteger)
 import Compiler.SourcePosition exposing (Located, Position)
 
 
+{-| Which brackets a bracketed list prints, and — for a curly one — whether it
+is a record TYPE (`{ a : Int }`) or a record VALUE (`{ a = 1 }`, and the record
+pattern, which separates the same way).
+
+The kind rides here because it is known exactly once, at construction, and by
+exactly one builder each: `InsertTypes` makes the type, `InsertExpressions` /
+`InsertPatterns` / `MakeLogical` make the value. The renderer used to recover it
+by scanning a field's children for a `SynthesizedText ":"` — asking the
+separator glyph what the construct is, one altitude below where the answer was
+already known. -}
 type ListBrackets
     = ListParen
-    | ListCurly
+    | ListCurly RecordKind
     | ListSquare
+
+
+{-| Whether a curly bracket list separates its fields with `:` or with `=`. -}
+type RecordKind
+    = RecordType
+    | RecordValue
+
+
+{-| The record kind for `--lpt` output. `Nothing` for a non-curly bracket, which
+has no kind. -}
+recordKindToString : ListBrackets -> Maybe String
+recordKindToString brackets =
+    when brackets is
+        ListCurly RecordType ->
+            Just "type"
+
+        ListCurly RecordValue ->
+            Just "value"
+
+        _ ->
+            Nothing
 
 
 type SyntaxType
@@ -174,7 +207,11 @@ bracketsToString brackets =
         ListParen ->
             "paren"
 
-        ListCurly ->
+        ListCurly _ ->
+            -- The GLYPH, so this stays stable for `--lpt`'s `brackets` field,
+            -- `show-tree.py`'s glyph table and `DecisionTrace`'s decision
+            -- labels. The record kind is a separate fact, reported separately
+            -- (`recordKindToString`).
             "curly"
 
         ListSquare ->

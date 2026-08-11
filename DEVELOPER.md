@@ -307,7 +307,10 @@ Layout boxes (have children):
   own row choice for `bar`'s arguments flips the flag.
 
 - `AllAcrossOrAllVertical ListBrackets` — bracketed list, all on one line *or*
-  one item per line (`ListParen`/`ListCurly`/`ListSquare`). Vertical when any
+  one item per line (`ListParen`/`ListCurly RecordKind`/`ListSquare`; a curly
+  one records whether it is a record TYPE, `{ a : Int }`, or a record VALUE,
+  `{ a = 1 }` — known at construction, so the renderer never has to infer it
+  from a separator glyph). Vertical when any
   item boundary spans rows.
 
   ```gren

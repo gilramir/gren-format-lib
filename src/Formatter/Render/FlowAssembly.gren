@@ -34,7 +34,7 @@ module Formatter.Render.FlowAssembly exposing
 -}
 
 import Formatter.Logical.BinopPrecedence exposing (binopMinPrecedence, binopPrecedence)
-import Formatter.Logical.LogicalPrintingTree exposing (CommentRole(..), LPBox(..), LPNode, ListBrackets(..), commentGluesToPrevious, commentRole, lpnBox, lpnChildren, lpnMaxRow, roleGlues)
+import Formatter.Logical.LogicalPrintingTree exposing (commentGluesToPrevious, commentRole, CommentRole(..), ListBrackets(..), LPBox(..), lpnBox, lpnChildren, lpnMaxRow, LPNode, RecordKind(..), roleGlues)
 import Formatter.Render.BinopLayout exposing (isChainBreakingOperandBox)
 import Formatter.Render.Box as B exposing (Box(..))
 import Formatter.Render.BoxOps exposing (applyIndent, commentRunLine, glueCommentSuffix, isBlockNode, isSingleLine, joinInline, nodesShareStartRow)
@@ -103,7 +103,7 @@ it could not happen. -}
 bracketPunc : ListBrackets -> { left : String, right : String }
 bracketPunc bracket =
     when bracket is
-        ListCurly ->
+        ListCurly _ ->
             { left = "{", right = "}" }
 
         ListSquare ->

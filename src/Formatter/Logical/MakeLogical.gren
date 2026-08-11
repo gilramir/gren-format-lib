@@ -22,6 +22,7 @@ import Formatter.Logical.LogicalPrintingTree exposing
     ( LPBox(..)
     , LPNode
     , ListBrackets(..)
+    , RecordKind(..)
     , SyntaxType(..)
     , lastRowInSubtree
     , lpnBox
@@ -329,7 +330,7 @@ buildWhereBlock effects =
                             ]
             in
             [ lpnLeaf (SynthesizedText "where")
-            , lpnNode (AllAcrossOrAllVertical ListCurly) fields
+            , lpnNode (AllAcrossOrAllVertical (ListCurly RecordValue)) fields
             ]
 
         _ ->

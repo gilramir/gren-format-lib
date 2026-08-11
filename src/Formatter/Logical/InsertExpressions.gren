@@ -31,6 +31,7 @@ import Formatter.Logical.LogicalPrintingTree exposing
     ( LPBox(..)
     , LPNode
     , ListBrackets(..)
+    , RecordKind(..)
     , PrefixKind(..)
     , lpnBox
     , lpnBracketNode
@@ -402,7 +403,7 @@ insertExpression locExpr =
             resultFoldl folderInsertRecordField [] fieldArray
                 |> Result.map
                     (\fieldNodes ->
-                        [ authoredBracketList ListCurly (recordFieldsSpanRows fieldArray || fieldValuesAlwaysBreak fieldArray) locExpr.start locExpr.end (lpnBracketNode (EmptyBracketed { start = locExpr.start, end = locExpr.end, value = ListCurly }) locExpr.end []) fieldNodes ]
+                        [ authoredBracketList (ListCurly RecordValue) (recordFieldsSpanRows fieldArray || fieldValuesAlwaysBreak fieldArray) locExpr.start locExpr.end (lpnBracketNode (EmptyBracketed { start = locExpr.start, end = locExpr.end, value = ListCurly RecordValue }) locExpr.end []) fieldNodes ]
                     )
 
         Src.Update payload ->

@@ -35,7 +35,7 @@ module Formatter.Render.NodeClassify exposing
 {-| Boolean predicates and small structural queries over LPT nodes.
 -}
 
-import Formatter.Logical.LogicalPrintingTree exposing (boxIsComment, commentRole, CommentRole(..), firstRowInSubtree, ListBrackets(..), LPBox(..), lpnBox, lpnBracketStart, lpnChildren, lpnHasComment, lpnMaxRow, LPNode)
+import Formatter.Logical.LogicalPrintingTree exposing (boxIsComment, commentRole, CommentRole(..), firstRowInSubtree, ListBrackets(..), LPBox(..), lpnBox, lpnBracketStart, lpnChildren, lpnHasComment, lpnMaxRow, LPNode, RecordKind(..))
 import Formatter.Render.Box as B
 
 
@@ -383,7 +383,19 @@ fieldValueDropsToOwnLine node =
 
 {-| The literal text of a leaf node (`UnbreakableText` / `SynthesizedText`), or
 Nothing for any structured node. Tranche-2 signatures handle only flat leaf
-signatures; a nested type (record/paren/…) yields Nothing and falls back. -}
+signatures; a nested type (record/paren/…) yields Nothing and falls back.
+
+Also what the predicates below use to ask what a token IS. Those predicates (`isColonLeaf`, `isArrowLeaf`, `stepOperatorText`, and
+`parenContentIsLambdaHead`'s `"let"` test) compare against **language syntax** —
+glyphs and keywords Gren's grammar fixes, which the formatter cannot choose and
+a future layout change cannot move. That is a different thing from asking a
+rendered string what a construct MEANS: `isTypeRecordLiteral` used to decide
+type-vs-value by scanning a record's fields for a `SynthesizedText ":"`, and
+that fact is now carried on the box (`ListCurly RecordKind`) because it is known
+at construction and nothing about the separator's spelling should be load-bearing
+for it. Comment PLACEMENT is the third case, and the strictest: it is decided
+once in `Comments.gren` and stored as a `CommentRole`, and
+`check-render-invariant.py` fails the build if anything here re-derives it. -}
 leafValue : LPNode -> Maybe String
 leafValue node =
     when lpnBox node is
@@ -498,43 +510,15 @@ keep their records/arrays/patterns inline.
 -}
 isTypeRecordLiteral : LPNode -> Bool
 isTypeRecordLiteral node =
-    let
-        isCurly =
-            when lpnBox node is
-                AlwaysVertical ListCurly ->
-                    True
+    when lpnBox node is
+        AlwaysVertical (ListCurly RecordType) ->
+            True
 
-                AllAcrossOrAllVertical ListCurly ->
-                    True
+        AllAcrossOrAllVertical (ListCurly RecordType) ->
+            True
 
-                _ ->
-                    False
-
-        fieldHasColonSep field =
-            Array.any
-                (\c ->
-                    when lpnBox c is
-                        SynthesizedText ":" ->
-                            True
-
-                        _ ->
-                            False
-                )
-                (lpnChildren field)
-
-        firstField =
-            lpnChildren node
-                |> Array.keepIf (\c -> not (nodeIsComment c))
-                |> Array.first
-    in
-    isCurly
-        && (when firstField is
-                Just f ->
-                    fieldHasColonSep f
-
-                Nothing ->
-                    False
-           )
+        _ ->
+            False
 
 
 {-| True for a node that renders as a multi-line record TYPE — either a plain

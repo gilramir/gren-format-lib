@@ -21,6 +21,7 @@ import Formatter.Logical.LogicalPrintingTree exposing
     ( LPBox(..)
     , LPNode
     , ListBrackets(..)
+    , RecordKind(..)
     , lpnBox
     , lpnBracketNode
     , lpnChildren
@@ -179,10 +180,10 @@ makeSignatureBranch locType =
                                         let
                                             recordBox =
                                                 if fieldsMultiLine then
-                                                    AlwaysVertical ListCurly
+                                                    AlwaysVertical (ListCurly RecordType)
 
                                                 else
-                                                    AllAcrossOrAllVertical ListCurly
+                                                    AllAcrossOrAllVertical (ListCurly RecordType)
                                         in
                                         -- `locType.start` is the opening `{`, which
                                         -- has no leaf of its own — record it so a

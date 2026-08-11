@@ -15,7 +15,7 @@ machine consumer.
 import Json.Encode as Json
 
 import Compiler.SourcePosition exposing (Located, Position)
-import Formatter.Logical.LogicalPrintingTree exposing (LPBox(..), LPNode, bracketsToString, lpnBox, lpnChildren, prefixGlyph, roleToString, stypeToString)
+import Formatter.Logical.LogicalPrintingTree exposing (LPBox(..), LPNode, ListBrackets, bracketsToString, lpnBox, lpnChildren, prefixGlyph, recordKindToString, roleToString, stypeToString)
 
 
 {-| Serialise the Logical Printing Tree to JSON for debugging.
@@ -98,11 +98,13 @@ lpBoxFields lpbox =
             [ { key = "type", value = Json.string "AllAcrossOrAllVertical" }
             , { key = "brackets", value = Json.string (bracketsToString brackets) }
             ]
+                ++ recordKindField brackets
 
         AlwaysVertical brackets ->
             [ { key = "type", value = Json.string "AlwaysVertical" }
             , { key = "brackets", value = Json.string (bracketsToString brackets) }
             ]
+                ++ recordKindField brackets
 
         RecordUpdate { name, forceVertical } ->
             [ { key = "type", value = Json.string "RecordUpdate" }
@@ -117,11 +119,13 @@ lpBoxFields lpbox =
         EmptyBracketed loc ->
             [ { key = "type", value = Json.string "EmptyBracketed" }
             , { key = "brackets", value = Json.string (bracketsToString loc.value) }
-            , { key = "startRow", value = Json.int loc.start.row }
-            , { key = "startCol", value = Json.int loc.start.col }
-            , { key = "endRow", value = Json.int loc.end.row }
-            , { key = "endCol", value = Json.int loc.end.col }
             ]
+                ++ recordKindField loc.value
+                ++ [ { key = "startRow", value = Json.int loc.start.row }
+                   , { key = "startCol", value = Json.int loc.start.col }
+                   , { key = "endRow", value = Json.int loc.end.row }
+                   , { key = "endCol", value = Json.int loc.end.col }
+                   ]
 
         IndentedBlock ->
             [ { key = "type", value = Json.string "IndentedBlock" } ]
@@ -191,3 +195,15 @@ lpBoxFields lpbox =
             , { key = "endRow", value = Json.int located.end.row }
             , { key = "endCol", value = Json.int located.end.col }
             ]
+
+
+-- A curly bracket list's record kind (`type` / `value`); nothing for a bracket
+-- that has no kind. Reported apart from `brackets`, which names the glyph.
+recordKindField : ListBrackets -> Array { key : String, value : Json.Value }
+recordKindField brackets =
+    when recordKindToString brackets is
+        Just kind ->
+            [ { key = "recordKind", value = Json.string kind } ]
+
+        Nothing ->
+            []

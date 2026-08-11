@@ -17,6 +17,7 @@ import Formatter.Logical.LogicalPrintingTree exposing
     ( LPBox(..)
     , LPNode
     , ListBrackets(..)
+    , RecordKind(..)
     , lpnBox
     , lpnBracketNode
     , lpnChildren
@@ -56,7 +57,7 @@ insertPattern locPat =
                 -- (matching record literals); the empty form is a `{}` text leaf.
                 |> Result.map
                     (\fieldNodes ->
-                        [ authoredBracketList ListCurly spans locPat.start locPat.end (lpnLeaf (mkText locPat.start "{}")) fieldNodes ]
+                        [ authoredBracketList (ListCurly RecordValue) spans locPat.start locPat.end (lpnLeaf (mkText locPat.start "{}")) fieldNodes ]
                     )
 
         Src.PAlias { pattern = pat, name = name } ->

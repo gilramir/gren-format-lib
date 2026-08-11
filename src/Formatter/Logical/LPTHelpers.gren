@@ -24,6 +24,7 @@ import Formatter.Logical.LogicalPrintingTree exposing
     ( LPBox(..)
     , LPNode
     , ListBrackets(..)
+    , RecordKind(..)
     , lpnBox
     , lpnBracketNode
     , lpnChildren
