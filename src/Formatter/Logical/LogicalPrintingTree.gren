@@ -1,7 +1,7 @@
 module Formatter.Logical.LogicalPrintingTree exposing
     ( CommentRole(..)
     , LPBox(..)
-    , LPNode(..)
+    , LPNode
     , ListBrackets(..)
     , PrefixKind(..)
     , SyntaxType(..)
@@ -575,7 +575,9 @@ added later for signature-segment row computation, not comments). The
 cache is populated bottom-up by `lpnNode` at construction time. ALL
 LPT construction must go through `lpnNode` (or `lpnLeaf`) — building
 an `LPNode` by direct record syntax would skip the cache and produce
-wrong answers from the accessors.
+wrong answers from the accessors. The type is exported **opaque** for
+exactly that reason: outside this module there is no way to spell the
+record, so the rule is a compile error rather than a convention.
 
 `lastBracketEnd` is the source position of the last positioned
 descendant of the rightmost bracket-list (`AllAcrossOrAllVertical`,

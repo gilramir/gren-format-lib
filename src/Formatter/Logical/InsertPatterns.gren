@@ -15,7 +15,7 @@ import Formatter.Logical.LPTHelpers exposing (authoredBracketList, itemsSpanRows
 import Formatter.Logical.LiteralFormat exposing (charLiteralString, escapeStringContent, hexLiteral)
 import Formatter.Logical.LogicalPrintingTree exposing
     ( LPBox(..)
-    , LPNode(..)
+    , LPNode
     , ListBrackets(..)
     , lpnBox
     , lpnBracketNode

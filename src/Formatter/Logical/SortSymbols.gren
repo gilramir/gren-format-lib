@@ -41,7 +41,7 @@ import String
 import Formatter.Logical.LogicalPrintingTree exposing
     ( CommentRole(..)
     , LPBox(..)
-    , LPNode(..)
+    , LPNode
     , ListBrackets(..)
     , SyntaxType(..)
     , commentFirstCol

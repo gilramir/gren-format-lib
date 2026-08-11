@@ -184,7 +184,9 @@ An `LPNode` is a `box` (the layout shape) plus `children`, plus a handful of
 **cached subtree bounds**. Build nodes only with the smart constructors —
 `lpnLeaf box`, `lpnNode box children`, `lpnBracketNode box closePos children` —
 never with raw record syntax: the constructors compute the caches bottom-up, and
-skipping them yields wrong positions and mis-placed comments.
+skipping them yields wrong positions and mis-placed comments. The type is
+exported opaque, so this is enforced by the compiler — outside
+`LogicalPrintingTree` the record simply cannot be spelled.
 
 ### Boxes you will reach for
 
@@ -897,7 +899,9 @@ comment, or as a bug report that a file changed on the *second* run of
 **Construction and positions**
 
 - **Always construct nodes via `lpnLeaf` / `lpnNode` / `lpnBracketNode`, never
-  raw record syntax.** These are the smart constructors that compute the
+  raw record syntax.** (`LPNode` is opaque, so the compiler holds you to this;
+  the reason it is worth holding to follows.) These are the smart constructors
+  that compute the
   position caches (`firstPos`/`lastPos`/`minRow`/`maxRow`) bottom-up from a
   node's children — the same caches `Comments` uses to decide what's near what
   in the LPT (Logical Printing Tree, the intermediate structure between the

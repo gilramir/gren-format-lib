@@ -123,7 +123,7 @@ import Compiler.SourcePosition exposing (Located, Position, at)
 import Formatter.Logical.LogicalPrintingTree exposing
     ( CommentRole(..)
     , LPBox(..)
-    , LPNode(..)
+    , LPNode
     , ListBrackets(..)
     , SyntaxType(..)
     , commentRendersOwnLine

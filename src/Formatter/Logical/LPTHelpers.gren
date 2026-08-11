@@ -23,7 +23,7 @@ import Compiler.SourcePosition exposing (Located, Position)
 
 import Formatter.Logical.LogicalPrintingTree exposing
     ( LPBox(..)
-    , LPNode(..)
+    , LPNode
     , ListBrackets(..)
     , lpnBox
     , lpnBracketNode

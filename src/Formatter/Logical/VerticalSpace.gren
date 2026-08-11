@@ -12,7 +12,7 @@ before a comment sitting between two `when` cases.
 import Array.Builder as Builder
 import Formatter.Logical.LogicalPrintingTree exposing
     ( LPBox(..)
-    , LPNode(..)
+    , LPNode
     , SyntaxType(..)
     , commentFirstCol
     , lpnBox

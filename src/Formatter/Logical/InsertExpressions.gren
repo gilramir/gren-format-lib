@@ -30,7 +30,7 @@ import Formatter.Logical.LPTHelpers exposing
 import Formatter.Logical.LiteralFormat exposing (charLiteralString, escapeMultilineContent, escapeStringContent, hexLiteral)
 import Formatter.Logical.LogicalPrintingTree exposing
     ( LPBox(..)
-    , LPNode(..)
+    , LPNode
     , ListBrackets(..)
     , PrefixKind(..)
     , lpnBox
