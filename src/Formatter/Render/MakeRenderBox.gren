@@ -20,7 +20,27 @@ import Formatter.Render.CommentBox exposing (commentNodeBox, emptyBracketedComme
 import Formatter.Render.ElmStructure as E
 import Formatter.Render.FlowAssembly exposing (FlowItem, FlowMeasure, SoftGlueAlignment(..), assembleBrokenCall, assembleBrokenWithComments, bracketPunc, gluedExposingBox, isCommentItem, pairLeadingComments, pairableCommentLine, parenInnerIsAlignCarrying, softBlockChildForcesVerticalBox, softGlueAlignment, trySoftGlueFlow, typeContentSpansRows, verticalExposingBox)
 import Formatter.Render.FlowPolicy as FP
-import Formatter.Render.NodeClassify exposing (commentBreaksFlowRow, commentTextCanRide, fieldValueDropsToOwnLine, isColonLeaf, isDroppingSignatureRecordNode, isMultilineLambdaParenBlockBox, isOpAndRhsNode, isPipelineStepNode, isTypeRecordLiteral, leafLineRow, leafValue, literalCommentsRideFlatLine, nodeIsComment, parenContentIsLambdaHead, rowsSpanMultiple, signatureForceVertical, splitSignatureSegments, subtreeHasComment)
+import Formatter.Render.NodeClassify exposing
+    ( commentBreaksFlowRow
+    , commentBreaksFlowRowDeep
+    , commentTextCanRide
+    , fieldValueDropsToOwnLine
+    , isColonLeaf
+    , isDroppingSignatureRecordNode
+    , isMultilineLambdaParenBlockBox
+    , isOpAndRhsNode
+    , isPipelineStepNode
+    , isTypeRecordLiteral
+    , leafLineRow
+    , leafValue
+    , literalCommentsRideFlatLine
+    , nodeIsComment
+    , parenContentIsLambdaHead
+    , rowsSpanMultiple
+    , signatureForceVertical
+    , splitSignatureSegments
+    , subtreeHasComment
+    )
 
 
 {-| Entry point: render one top-level root child to a Box, or `Err` if it
@@ -2720,8 +2740,21 @@ makeIfConditionBox forceVertical children =
                         -- the run — `else if` ⏎ `{- a -} -- b` ⏎ `cond` on the
                         -- first format, `{- a -}` ⏎ `-- b` ⏎ `cond` on the
                         -- second. Commit to broken now instead of flipping.
+                        -- `Deep`, not the shallow scan: `if <cond> then` is ONE
+                        -- row spanning the whole condition, so a comment nested
+                        -- inside the condition's call or binop chain settles the
+                        -- header's shape exactly as a comment written between the
+                        -- header's own tokens does. Asked shallowly, a condition
+                        -- with a LEADING comment and a nested row-breaking one
+                        -- took the inline arm and then could not honour it — the
+                        -- binop form reached `assembleFlow`'s "unreachable
+                        -- multi-line non-paren unclassified soft-glue item" and
+                        -- refused the file, the call form formatted but left the
+                        -- leading comment holding the condition's first row, so
+                        -- the parser measured the continuation indent from the
+                        -- first real token and the output would not reparse.
                         renderVertical =
-                            forceVertical || commentBreaksFlowRow condNodes
+                            forceVertical || commentBreaksFlowRowDeep condNodes
                     in
                     makePBox (lpnBox ifNode) (lpnChildren ifNode)
                         |> Result.andThen
@@ -3432,8 +3465,17 @@ makeWhenFlowBox forceVertical children =
 
                         Just { rest = scrutineeNodes } ->
                             let
+                                -- Same rule as an `if` condition, for the same
+                                -- reason: `when <subject> is` is one row, and a
+                                -- comment anywhere inside the subject breaks it.
+                                -- The header had no comment-awareness at all, so
+                                -- a leading comment plus a nested row-breaking one
+                                -- hit the same unrenderable flow.
+                                renderVertical =
+                                    forceVertical || commentBreaksFlowRowDeep scrutineeNodes
+
                                 headerResult =
-                                    if forceVertical then
+                                    if renderVertical then
                                         buildFlowBox 0 scrutineeNodes
                                             |> Result.map
                                                 (\scrut ->

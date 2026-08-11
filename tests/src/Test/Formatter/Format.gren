@@ -430,7 +430,8 @@ coreExpressionsSuite fsPerm =
         , setUp = U.noFixture
         , tearDown = U.noTearDown
         , tests =
-            [ assertPrettyIn fsPerm "CoreExpressions" "an `else if` condition the author wrote FLAT stays flat however many blank lines precede the `else if`, and a comment under `then` does not stack it either -- `else if` has no AST position, so both proxies for its row have to agree before the condition breaks" "ElseIfBlankLines"
+            [ assertPrettyIn fsPerm "CoreExpressions" "an `if`/`when` header goes vertical for a row-breaking comment NESTED inside its condition -- in a call, a binop chain, or a paren -- not only for one between the header's own tokens. With a leading comment as well, the binop form used to reach the flow assembler's `unreachable multi-line non-paren unclassified soft-glue item` and refuse the file, and the call form produced output that would not reparse" "HeaderNestedBreakingComment"
+            , assertPrettyIn fsPerm "CoreExpressions" "an `else if` condition the author wrote FLAT stays flat however many blank lines precede the `else if`, and a comment under `then` does not stack it either -- `else if` has no AST position, so both proxies for its row have to agree before the condition breaks" "ElseIfBlankLines"
             , assertPrettyIn fsPerm "CoreExpressions" "simple arithmetic" "SimpleArithmetic"
             , assertPrettyIn fsPerm "CoreExpressions" "when expression" "WhenExpression"
             , assertPrettyIn fsPerm "CoreExpressions" "if expression" "IfExpression"
@@ -568,8 +569,7 @@ patternsAndLiteralsSuite fsPerm =
             , assertPrettyIn fsPerm "PatternsAndLiterals" "a multi-line record at a segment head with the -> kept on its closing } line forces the whole signature vertical (record stays broken, -> drops to its own line) instead of crashing" "SignatureBrokenRecordArg"
             , assertPrettyIn fsPerm "PatternsAndLiterals" "a multi-line block comment below a declaration detaches to column 1, leaving no trailing-whitespace line" "ClaimedMultilineComment"
             , assertPrettyIn fsPerm "PatternsAndLiterals" "two blank lines are forced before every top-level declaration unit (function/alias/union/port), regardless of authored blanks; the unit begins at its doc comment, else signature, else declaration" "ForcedDeclBlankLines"
-            , assertPrettyIn fsPerm "PatternsAndLiterals" "a run of comments floats or attaches as ONE unit: with a gap on both sides of the run the two blank lines go above its first line -- asking each comment alone made a `{-| doc -} -- c` row answer two on the first format (one node, its rows covering both) and one on the reparse (two adjacent nodes). A run LED BY A DOC COMMENT attaches instead of floating, since a doc comment reaches the declaration it documents across a blank"
- "FloatingCommentRunBlankLines"
+            , assertPrettyIn fsPerm "PatternsAndLiterals" "a run of comments floats or attaches as ONE unit: with a gap on both sides of the run the two blank lines go above its first line -- asking each comment alone made a `{-| doc -} -- c` row answer two on the first format (one node, its rows covering both) and one on the reparse (two adjacent nodes). A run LED BY A DOC COMMENT attaches instead of floating, since a doc comment reaches the declaration it documents across a blank" "FloatingCommentRunBlankLines"
             , assertPrettyIn fsPerm "PatternsAndLiterals" "float literals round-trip (decimal stays decimal, scientific stays scientific)" "FloatLiterals"
             , assertPrettyIn fsPerm "PatternsAndLiterals" "only a comment that cannot ride a literal's flat line forces it open: -- , multi-line, and own-row comments break it; an inline block comment does not" "LiteralInlineComment"
             ]

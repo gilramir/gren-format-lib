@@ -409,8 +409,28 @@ until this is resolved.
 As described in [When the formatter can't tell what you meant](formatterRules.md#when-the-formatter-cant-tell-what-you-meant), a comment beside `=`, `:`, `|`, or an import's `as` always snaps to one
 canonical side. Two different intents produce the same output.
 
+An `if`'s `then` is one of these tokens, and it is worth naming because the
+comment does not merely snap sideways — it changes branch. A comment written
+between the condition's last token and `then` comes out inside the `then`
+branch's body:
+
+```gren
+-- you write:                      -- gren-format writes:
+if a > 0 && b {- x                 if a > 0 && b then
+               y -} then               {- x
+    1                                     y -}
+                                          1
+else
+    0                              else
+                                       0
+```
+
+`then` has no recorded position, so "the end of the condition" and "the start of
+the body" are the same place. Nothing here distinguishes them.
+
 The clearest case is a `--` at a `,` or a `|`, because the two spellings that
 collapse are the two you are most likely to have meant differently. These:
+
 
 ```gren
 v =                              v =

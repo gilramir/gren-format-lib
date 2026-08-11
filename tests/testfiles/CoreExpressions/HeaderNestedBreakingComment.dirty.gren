@@ -1,0 +1,52 @@
+module HeaderNestedBreakingComment exposing (byCall, byParen, byWhen, midChain)
+
+-- `if <cond> then` and `when <subject> is` are each ONE row spanning the whole
+-- condition, so a comment nested inside the condition's call or binop chain
+-- settles the header's shape just as a comment between the header's own tokens
+-- does. The scan that kept the header honest looked only at the condition's
+-- direct children, so a LEADING comment plus a nested row-breaking one took the
+-- inline arm and then could not honour it: the binop form hit the flow
+-- assembler's "unreachable multi-line non-paren unclassified soft-glue item"
+-- and refused the file, and the call form formatted but left the leading
+-- comment holding the condition's first row -- which made the parser measure
+-- the continuation indent from the first real token, so the output would not
+-- reparse.
+byCall : (Int -> Int -> Int) -> Int -> Int -> Int
+byCall f a b =
+    if {-c-} f a {- x
+                  y -} b then
+        1
+
+    else
+        0
+
+
+byParen : Int -> Int
+byParen a =
+    if {-c-} (a {- x
+                 y -}) > 0 then
+        1
+
+    else
+        0
+
+
+midChain : Int -> Bool -> Int
+midChain a b =
+    if {-c-} a && b {- x
+                     y -} > 0 then
+        1
+
+    else
+        0
+
+
+byWhen : Int -> Int
+byWhen a =
+    when {-c-} a {- x
+                  y -} > 0 is
+        True ->
+            1
+
+        False ->
+            0
