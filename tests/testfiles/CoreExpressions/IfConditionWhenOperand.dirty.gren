@@ -1,0 +1,15 @@
+module IfConditionWhenOperand exposing (runLeader)
+
+
+runLeader i =
+    if i > 0 && (when at (i - 1) is
+                    Just prev ->
+                        pairableComment prev
+
+                    Nothing ->
+                        False
+                ) then
+        runLeader (i - 1)
+
+    else
+        i

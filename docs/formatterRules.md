@@ -36,6 +36,7 @@ main README; for how the formatter arrives at these decisions internally, see
   - [Character literals](#character-literals)
   - [Multi-line (triple-quoted) strings](#multi-line-triple-quoted-strings)
 - [If expressions](#if-expressions)
+  - [A condition that cannot fit on one line stacks anyway](#a-condition-that-cannot-fit-on-one-line-stacks-anyway)
 - [When expressions](#when-expressions)
 - [Let expressions](#let-expressions)
 - [Patterns as arguments](#patterns-as-arguments)
@@ -1323,6 +1324,70 @@ else
 The condition itself follows author layout too — a multi-line binop predicate
 uses the precedence-aware breaks described in
 [Binary operators](#binary-operators).
+
+### A condition that cannot fit on one line stacks anyway
+
+"Written on one line stays on one line" holds only while the condition *can* be
+one line. A condition containing a `when`, an `if`, a `let`, or any other
+construct that always breaks has no one-line form, so `if <cond> then` has none
+either — and the header falls back to the same stacked shape an author-broken
+condition gets. Your layout is still being followed; there is simply no inline
+layout to follow it to.
+
+This is the common way to meet it, from this repo's own
+`Render/FlowAssembly.gren`. Written with the condition on the `if` row:
+
+```gren
+runLeader i =
+    if i > 0 && (when at (i - 1) is
+                    Just prev ->
+                        pairableComment prev
+
+                    Nothing ->
+                        False
+                ) then
+        runLeader (i - 1)
+
+    else
+        i
+```
+
+and formatted:
+
+```gren
+runLeader i =
+    if
+        i > 0
+            && (when at (i - 1) is
+                    Just prev ->
+                        pairableComment prev
+
+                    Nothing ->
+                        False
+               )
+    then
+        runLeader (i - 1)
+
+    else
+        i
+```
+
+Three rules are visible in that output, and it is worth separating them:
+
+- **`if` takes its own line, the condition indents 4, `then` goes flush with
+  `if`** — the fallback above. The `when` inside can never be one line, because
+  a branch body always starts a row of its own.
+- **The condition breaks at `&&` and not at `>`** — an operator chain splits
+  only at its loosest operators, so `i > 0` stays glued and the `&&` operand
+  drops to the next row, indented 4 from the condition (8 from `if`). See
+  [Binary operators](#binary-operators).
+- **The `)` lands under its `(`** — the ordinary closing-bracket rule, which is
+  why it can shift a column from wherever you had aligned it by hand.
+
+elm-format produces the same shape, with one difference that follows from the
+second rule: it breaks the chain at *every* operator, giving `i` ⏎ `> 0` ⏎
+`&& (…)`. That is
+[divergence #17](elmFormatComparison.md#divergence-17).
 
 Branch bodies **always** go on the next line, indented 4 spaces — even a
 one-word body. `else` always lines up with `if`. A single blank line always

@@ -586,6 +586,15 @@ reported **17** findings, all 17 `[known: compiler-common#35]`, and
 purpose and stays red until that parser fix ships and the dependency is bumped;
 nothing in *that* 17 is this formatter's to fix.
 
+**It reads 19 again from 2026-08-10, for a duller reason: the new
+`CoreExpressions/IfConditionWhenOperand` fixture contains `i - 1` twice**, and a
+`--` spliced into either gap is #35's own signature. 0 formatter-side, and the
+fixture books 0 findings in every other mode. The `-` was kept rather than
+swapped for a `+` to protect the number — the fixture's job is to pin
+`docs/formatterRules.md`'s worked example **verbatim**, and that example is real
+code from `Render/FlowAssembly.gren`. Editing a probe to recover a green is the
+mistake this section is about.
+
 **It reads 19 later the same day, and the 2 are pre-existing.** Both are the same
 gap of the new `ContainerTailMultilineComment` fixture, one per comment kind — a
 SECOND comment injected into a record-update field that already carries a
