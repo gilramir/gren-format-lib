@@ -99,6 +99,8 @@ Formatter                          entry point: prettyPrint
                                    (+ BinopLayout / CommentBox / FlowAssembly /
                                     NodeClassify / BoxOps — knot-free helpers only,
                                     since Gren forbids circular imports)
+        …BackwardPipeline          the `<|` cluster; re-enters the recursion via a
+                                   `Renderers` record instead of importing back
         …Box                       elm-format's Box IR (Line/Box, Tab tab stops, prefix)
         …ElmStructure              port of the two ElmStructure.hs combinators we use
         …FlowPolicy                shared inline/break decision layer

@@ -130,6 +130,8 @@ Formatter/Render/
   CommentBox.gren                  render a comment node (line / block / doc) to a Box
   BinopLayout.gren                 pure layout assembly for binop chains
   FlowAssembly.gren                FlowItem / SoftGlueAlignment types + pure flow-layout helpers
+  BackwardPipeline.gren            the whole `<|` pipeline cluster; re-enters the
+                                     recursion through a `Renderers` record
 Formatter/Audit/                not in the pipeline — the two gates that need
                                 the formatter's own internals
   DecisionTrace.gren               --decisions: which layout decision moved between two formats
@@ -140,13 +142,23 @@ Formatter/Audit/                not in the pipeline — the two gates that need
 `Logical/`, `Render.gren` alongside `Render/` — the orchestrator of each stage
 is the file next to the directory, not inside it.
 
-The last five `Render/` modules were extracted out of `MakeRenderBox.gren` to
-shrink it. Gren forbids circular imports, so only helpers that never
-transitively reach the `makePBox`/`buildFlowBox` recursion could move; the
-mutually-recursive dispatch and the per-construct renderers stay behind. The
-import DAG is `MakeRenderBox` → all five; `BinopLayout`/`CommentBox`/
-`FlowAssembly` → `BoxOps`, `NodeClassify` (and `FlowAssembly` → `FlowPolicy`);
-`BoxOps`, `NodeClassify` and `FlowPolicy` import no other `Render` module.
+Most of those were extracted out of `MakeRenderBox.gren` to shrink it. Gren
+forbids circular imports, so a helper could only move if it never transitively
+reached the `makePBox`/`buildFlowBox` recursion; the mutually-recursive dispatch
+and the per-construct renderers stay behind. `BoxOps`, `NodeClassify` and
+`FlowPolicy` import no other `Render` module; `BinopLayout`/`CommentBox`/
+`FlowAssembly` import those (and `FlowAssembly` → `FlowPolicy`); `MakeRenderBox`
+imports everything.
+
+`BackwardPipeline` is the exception, and the pattern to copy when a cluster is
+big enough to want its own module but does reach the recursion. It takes its
+three entry points (`assembleFlow`, `buildFlowBox`, `renderFlowItems`) as a
+`Renderers` record threaded through every function in the cluster, so the import
+still points one way. `MakeRenderBox` already passed renderers as arguments in
+the small — `renderHeaderIndentedBody`, `literalItemRenderer` — this is the same
+move at module scale. It is worth doing where the seam is genuinely narrow: the
+whole 849-line `<|` cluster needed exactly those three functions and had exactly
+one caller.
 
 `LogicalPrintingTree.gren` is the hub every module depends on; its module doc
 opens with a categorised map of all ~30 `LPBox` constructors. `BinopPrecedence`
