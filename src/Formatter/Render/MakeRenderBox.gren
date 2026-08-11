@@ -1,4 +1,4 @@
-module Formatter.Render.MakeRenderBox exposing (buildFlowBoxMeasured, makePBox, makePrettyLineBox, renderFlowItems)
+module Formatter.Render.MakeRenderBox exposing (buildFlowBoxMeasured, makePBox, makePrettyLineBox)
 
 {-| Box-model renderer — the sole backend. It renders an LPT node to
 elm-format's `Box` (Tab + prefix arithmetic), returning `Err` for any construct
@@ -892,8 +892,8 @@ A `--` breaks the chain unless it is the very last thing on it: nothing may
 follow one on its row, so `people |> f -- c` ⏎ `|> g` has to break while
 `people |> f |> g -- c` stays flat. That is the comment placement rules' doing,
 not `joinInline`'s — the join sees a `--`-ended box as the one-line box it is,
-which is right for the trailing case. (It is NOT a `MustBreakBox`; nothing in
-this port constructs one. See `B.asJoinable`.)
+which is right for the trailing case. (elm-format would have a `MustBreak` box
+here; this port has no such constructor. See `B.asJoinable`.)
 
 When the chain does break, a comment-bearing one still routes through the generic
 fold, where the per-step comment handling (leading peel, trailing glue,

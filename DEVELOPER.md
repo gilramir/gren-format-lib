@@ -500,10 +500,16 @@ its predecessor. If yes → `forceVertical = True`; the renderer does the rest.
 
 ```gren
 type Line = Text String | Row (Array Line) | Space | Tab
+          | NoTrim String       -- text whose trailing spaces are significant
+          | LineComment String  -- a `--`, which runs to end of row
 type Box  = SingleLine Line
           | Stack { first : Line, second : Line, rest : Array Line }  -- 2+ lines
-          | MustBreakBox Line
 ```
+
+elm-format's `Box` has a third constructor, `MustBreak`, as its `--`-comment
+mechanism. This port does not: the same fact rides the comment's own `Line`
+leaf as `LineComment`, which is what lets it survive `prefix`/`indent`/`row`
+composition. `B.endsOpen` and `B.asJoinable` are where it is read.
 
 A `Box` is never "maybe one line, maybe more" — it already *is* one or the
 other, decided by whoever built it. `Tab` isn't "+4 spaces"; it's a real tab
@@ -521,19 +527,19 @@ on the right:
 - `B.line l` — wrap one `Line` as a `SingleLine` box.
 
   ```gren
-  B.line (B.row [ B.keyword "let", B.space, B.identifier "x" ])
+  B.line (B.row [ B.keyword "let", B.space, B.literal "x" ])
   ```
   ```
   let x
   ```
 
-- `B.mustBreak l` — wrap one `Line` as a `MustBreakBox` (a `--` comment: it
-  must own its line, no matter what glues around it). It renders identically
-  to `B.line`; the difference only matters one layer up, in `FlowPolicy`,
-  which refuses to glue anything after a `MustBreakBox` onto the same line.
+- `B.lineComment s` — a `--` comment's text as a `Line`. It renders exactly
+  like `B.literal s`; the difference only matters one layer up, where
+  `B.endsOpen`/`B.asJoinable` report that the line is still open and
+  `FlowPolicy` refuses to glue anything after it onto the same row.
 
   ```gren
-  B.mustBreak (B.literal "-- keep on one line")
+  B.line (B.lineComment "-- keep on one line")
   ```
   ```
   -- keep on one line
@@ -543,9 +549,9 @@ on the right:
 
   ```gren
   B.stack1
-      [ B.line (B.identifier "one")
-      , B.line (B.identifier "two")
-      , B.line (B.identifier "three")
+      [ B.line (B.literal "one")
+      , B.line (B.literal "two")
+      , B.line (B.literal "three")
       ]
   ```
   ```
@@ -560,8 +566,8 @@ on the right:
   ```gren
   B.indent
       (B.stack1
-          [ B.line (B.identifier "one")
-          , B.line (B.identifier "two")
+          [ B.line (B.literal "one")
+          , B.line (B.literal "two")
           ]
       )
   ```
@@ -577,8 +583,8 @@ on the right:
   ```gren
   B.prefix (B.literal "x = ")
       (B.stack1
-          [ B.line (B.identifier "1")
-          , B.line (B.row [ B.punc "+", B.space, B.identifier "2" ])
+          [ B.line (B.literal "1")
+          , B.line (B.row [ B.punc "+", B.space, B.literal "2" ])
           ]
       )
   ```
@@ -593,8 +599,8 @@ on the right:
   ```gren
   B.addSuffix (B.literal ",")
       (B.stack1
-          [ B.line (B.identifier "1")
-          , B.line (B.row [ B.punc "+", B.space, B.identifier "2" ])
+          [ B.line (B.literal "1")
+          , B.line (B.row [ B.punc "+", B.space, B.literal "2" ])
           ]
       )
   ```
@@ -611,14 +617,14 @@ on the right:
   indented box glued to a 2-character label, with and without freezing first:
 
   ```gren
-  B.prefix (B.literal "x:") (B.indent (B.line (B.identifier "a")))
+  B.prefix (B.literal "x:") (B.indent (B.line (B.literal "a")))
   ```
   ```
   x:  a
   ```
 
   ```gren
-  B.prefix (B.literal "x:") (B.freezeTabs (B.indent (B.line (B.identifier "a"))))
+  B.prefix (B.literal "x:") (B.freezeTabs (B.indent (B.line (B.literal "a"))))
   ```
   ```
   x:    a
@@ -634,7 +640,7 @@ on the right:
   whitespace inside a `Box` never survives to the output:
 
   ```gren
-  B.render (B.line (B.row [ B.identifier "x", B.space ]))
+  B.render (B.line (B.row [ B.literal "x", B.space ]))
   ```
   ```
   x
@@ -1024,11 +1030,12 @@ codebase looks the way it does.
 
 Note this is a *parser*-level divergence, not a render-level one: since the
 [Box cutover](#why-box-replaced-doc-and-prettyexpressive-before-it), our
-render IR literally *is* elm-format's `Box`/`Line` types, ported rather than
-reinvented. So everything below about how elm-format's `Box` renders a
-comment once it's in the tree (`MustBreak` for `--`, `SingleLine` for an
-inline `{- -}`, the `Tab`/`prefix` indentation mechanism) describes our
-renderer too. What's still genuinely different — and what the rest of this
+render IR is elm-format's `Box`/`Line` types, ported rather than reinvented
+(with one deliberate change: no `MustBreak` constructor — see above). So
+everything below about how elm-format's `Box` renders a comment once it's in
+the tree (`SingleLine` for an inline `{- -}`, the `Tab`/`prefix` indentation
+mechanism, and the "a `--` ends its line" fact, which we spell `LineComment`)
+describes our renderer too. What's still genuinely different — and what the rest of this
 section is really about — is how a comment *gets into* that tree in the
 first place: elm-format's parser puts it there directly, in a typed slot;
 ours puts it there afterward, by matching source positions.

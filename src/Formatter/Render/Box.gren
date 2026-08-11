@@ -12,7 +12,6 @@ module Formatter.Render.Box exposing
     , endsOpen
     , freezeTabs
     , height
-    , identifier
     , indent
     , isLine
     , keyword
@@ -21,7 +20,6 @@ module Formatter.Render.Box exposing
     , lineLength
     , literal
     , mapFirstLine
-    , mustBreak
     , noTrim
     , prefix
     , punc
@@ -72,18 +70,16 @@ type Line
     | LineComment String
 
 
-{-| A `Box` holds at least one line. `SingleLine` can appear mid-line; `Stack`
-(2+ lines) and `MustBreak` must appear on their own. `MustBreak` is elm's
-mechanism for `--` comments. -}
+{-| A `Box` holds at least one line. `SingleLine` can appear mid-line; a
+`Stack` (2+ lines) must appear on its own.
+
+elm-format's `Box.hs` has a third constructor, `MustBreak`, as its mechanism for
+`--` comments. This port does not: it carries that fact on the comment's own
+`Line` leaf instead (`LineComment`, read by `endsOpen`), for the reason
+`asJoinable` gives below. -}
 type Box
     = SingleLine Line
     | Stack { first : Line, second : Line, rest : Array Line }
-    | MustBreakBox Line
-
-
-identifier : String -> Line
-identifier =
-    Text
 
 
 keyword : String -> Line
@@ -137,11 +133,6 @@ blankLine =
     line (literal "")
 
 
-mustBreak : Line -> Box
-mustBreak l =
-    MustBreakBox l
-
-
 destructure : Box -> { first : Line, rest : Array Line }
 destructure b =
     when b is
@@ -150,9 +141,6 @@ destructure b =
 
         Stack s ->
             { first = s.first, rest = [ s.second ] ++ s.rest }
-
-        MustBreakBox l1 ->
-            { first = l1, rest = [] }
 
 
 stackPrime : Box -> Box -> Box
@@ -202,9 +190,6 @@ mapFirstLine firstFn restFn b =
         Stack s ->
             Stack { first = firstFn s.first, second = restFn s.second, rest = Array.map restFn s.rest }
 
-        MustBreakBox l1 ->
-            MustBreakBox (firstFn l1)
-
 
 mapLines : (Line -> Line) -> Box -> Box
 mapLines fn =
@@ -233,9 +218,6 @@ height b =
         SingleLine _ ->
             1
 
-        MustBreakBox _ ->
-            1
-
         Stack s ->
             2 + Array.length s.rest
 
@@ -253,11 +235,12 @@ the test for a position without. `allJoinable` applies it to a whole array,
 for the two combinators where a delimiter follows *every* child.
 
 This is the fact elm-format gets from rendering a `--` as a `MustBreak` box,
-which its `isLine` rejects. This port never constructs `MustBreakBox`, because
-the combinators that build a comment onto a line (`stackPrime`, `addSuffixBox`)
-destructure it back to a `Stack`/`SingleLine` and the fact would be lost the
-first time a comment was glued anywhere. Carrying it on the comment's own leaf
-instead survives all of them; this function is where the two designs meet.
+which its `isLine` rejects. This port has no `MustBreak` constructor at all,
+because the combinators that build a comment onto a line (`stackPrime`,
+`addSuffixBox`) would destructure it back to a `Stack`/`SingleLine` and the fact
+would be lost the first time a comment was glued anywhere. Carrying it on the
+comment's own leaf instead survives all of them; this function is where the two
+designs meet.
 -}
 asJoinable : Box -> Result Box Line
 asJoinable b =
@@ -616,9 +599,6 @@ endsOpen box_ =
         SingleLine l ->
             lineEndsOpen l
 
-        MustBreakBox l ->
-            lineEndsOpen l
-
         Stack s ->
             when Array.last s.rest is
                 Just l ->
@@ -664,9 +644,6 @@ render box_ =
         Stack s ->
             String.join "\n" (Array.map renderOneLine ([ s.first, s.second ] ++ s.rest)) ++ "\n"
 
-        MustBreakBox l ->
-            renderOneLine l ++ "\n"
-
 
 -- JSON (debug)
 
@@ -690,9 +667,6 @@ toJson box_ =
                   , value = Json.array lineToJson ([ s.first, s.second ] ++ s.rest)
                   }
                 ]
-
-        MustBreakBox l ->
-            wrap "MustBreakBox" [ { key = "line", value = lineToJson l } ]
 
 
 lineToJson : Line -> Json.Value

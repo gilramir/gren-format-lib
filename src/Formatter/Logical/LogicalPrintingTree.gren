@@ -873,7 +873,7 @@ commentFirstCol node =
 
 {-| Last positioned token of the subtree in depth-first post-order.
 Children take precedence over the box's own position when both
-contribute, mirroring the existing `lastRealPosition` semantics.
+contribute, mirroring the existing `lpnLastPos` semantics.
 -}
 lpnLastPos : LPNode -> Maybe Position
 lpnLastPos node =
@@ -1254,11 +1254,11 @@ Inclusion rules match the legacy recursive helpers:
   - `firstPos`: contributes from `UnbreakableText`, `SingleLineComment`,
     `BlockComment`, `PrefixGlue`, `MultilineString`, `RecordUpdate`,
     `EmptyBracketed` (= the union of cases previously listed by
-    `firstRealPosition` in `Formatter.Logical.Comments`).
+    `lpnFirstPos`).
   - `lastPos`: contributes from `UnbreakableText`, `SingleLineComment`,
     `BlockComment`, `MultilineString` only — for `PrefixGlue`,
     `RecordUpdate`, and `EmptyBracketed`, children's positions take
-    precedence (matching the legacy `lastRealPosition`).
+    precedence (matching `lpnLastPos`).
   - `minRow` / `maxRow`: contribute from `UnbreakableText`,
     `SingleLineComment`, `BlockComment` (widened by content newlines),
     `DocComment`, `MultilineString`, `RecordUpdate`, `EmptyBracketed`,

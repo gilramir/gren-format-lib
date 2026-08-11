@@ -1365,7 +1365,7 @@ insertCommentIntoSubtree commentNode row col node =
                             { acc | index = acc.index + 1 }
 
                         else
-                            when firstRealPosition sib is
+                            when lpnFirstPos sib is
                                 Nothing ->
                                     { acc | index = acc.index + 1 }
 
@@ -1790,17 +1790,17 @@ insertAmongChildren containerBox commentNode row col children =
             -- column). See README divergence #22 and the `LetInTrailingComment`
             -- test named "…not own-line, which would oscillate".
             --
-            -- "Position-less" is judged by `lastRealPosition`, with one
+            -- "Position-less" is judged by `lpnLastPos`, with one
             -- exception: a `BodyBlock` is never skipped. A BodyBlock wraps a
             -- declaration's (or `let` binding's) VALUE; when that value is an
             -- empty bracket (`[]` / `{}`) the BodyBlock has a real opening
             -- position but a `Nothing` LAST position (no positioned children),
-            -- so `lastRealPosition` alone treats it as skippable and carries a
+            -- so `lpnLastPos` alone treats it as skippable and carries a
             -- leading binding comment (`v = {- note -}`) PAST the empty value to
             -- render `[] {- note -}`. If that value later holds an inside comment
             -- it becomes non-empty and absorbs the stranded comment on reparse
             -- (oscillating). Guarding on `BodyBlock` — rather than switching to
-            -- `firstRealPosition` — keeps an empty bracket used as a LIST ITEM
+            -- `lpnFirstPos` — keeps an empty bracket used as a LIST ITEM
             -- (`[ {}, … ]`, a bare `EmptyBracketed`) skippable as before, so its
             -- own comment placement is unchanged; only the value-wrapper stops
             -- the skip.
@@ -1817,7 +1817,7 @@ insertAmongChildren containerBox commentNode row col children =
                                         { before = b, after = a }
 
                                     _ ->
-                                        when lastRealPosition nextNode is
+                                        when lpnLastPos nextNode is
                                             Nothing ->
                                                 helper (Array.pushLast nextNode b) restOfAfter
 
@@ -2015,7 +2015,7 @@ insertAmongChildren containerBox commentNode row col children =
 -- PREDICATES: POSITION & BOX-KIND TESTS
 --
 -- Shared by both phases. The position tests (subtreeContainsRow, subtreeEndsBefore,
--- subtreeStartsAfter, positionBefore, first/lastRealPosition)
+-- subtreeStartsAfter, positionBefore, lpnFirstPos/lpnLastPos)
 -- read the O(1) bounds cache; the box classifiers (boxKeepsTrailingCommentOutside,
 -- commentInside*, isBracketContainerBox) decide whether a trailing comment stays
 -- outside a container or descends into it.
@@ -2212,7 +2212,7 @@ splitAt index arr =
 
 subtreeEndsBefore : LPNode -> Int -> Int -> Bool
 subtreeEndsBefore node row col =
-    lastRealPosition node
+    lpnLastPos node
         |> (\maybePos ->
                 when maybePos is
                     Nothing ->
@@ -2223,32 +2223,15 @@ subtreeEndsBefore node row col =
            )
 
 
--- Returns the first real source position in a depth-first traversal of the subtree.
--- Synthesized tokens are skipped. Used to detect when a child subtree starts
--- after a comment we're trying to place, so we don't incorrectly descend into it.
--- O(1) — reads the cached value populated by `lpnNode`.
-firstRealPosition : LPNode -> Maybe Position
-firstRealPosition node =
-    lpnFirstPos node
-
-
 -- True if the subtree's first positioned leaf is at or after the given (row, col).
 subtreeStartsAfter : LPNode -> Int -> Int -> Bool
 subtreeStartsAfter node row col =
-    when firstRealPosition node is
+    when lpnFirstPos node is
         Nothing ->
             False
 
         Just pos ->
             pos.row > row || (pos.row == row && pos.col > col)
-
-
--- Returns the last real source position in a depth-first traversal of the subtree.
--- Synthesized tokens (row <= 0) are skipped.
--- O(1) — reads the cached value populated by `lpnNode`.
-lastRealPosition : LPNode -> Maybe Position
-lastRealPosition node =
-    lpnLastPos node
 
 
 -- COMMENT-ROLE CLASSIFICATION
@@ -3209,7 +3192,7 @@ classifyCommentKind containerBox commentNode before after row =
                         && row <= info.last
                         && Array.all
                             (\n ->
-                                firstRealPosition n == Nothing
+                                lpnFirstPos n == Nothing
                                     || (isExposingListNode n && pastSynthesizedExposing)
                             )
                             after
