@@ -1,0 +1,12 @@
+module ImportIndentedTrailingComment exposing (x)
+
+import Alpha
+-- at column 1: this one leads the import BELOW it, so it stays above Quux
+import Quux
+import Zebra
+-- indented: this note trails Zebra, so the sort carries it along
+
+
+x : Int
+x =
+    1

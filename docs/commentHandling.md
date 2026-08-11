@@ -916,6 +916,13 @@ in every position — a lambda body, an `else` branch, a record field, a call's
 argument list, a `let` binding, a `when` branch — so you never have to know which
 one you are in.
 
+One position is an exception: a run written *just inside* an opening bracket, or
+between a pipeline step's operator and its operand, is laid out all-or-nothing
+instead. The authored row isn't recorded there, so neither direction can be
+honoured — see
+[Known limitations](knownLimitations.md#a-comment-run-just-inside-a-bracket-doesnt-keep-its-rows).
+
+
 ```gren
 -- you write:                        -- gren-format:
 \q ->                                \q ->
@@ -966,6 +973,11 @@ A few places can't be decided well, because the information simply isn't there:
   is read as belonging to the list rather than to the name, because the closing
   `)` has no recorded position to measure against. Write the list across several
   lines and the two are tellable apart again.
+- **A run of comments just inside an opening bracket** loses the rows you gave
+  it (C7's one exception, above): one gap is one attachment, so the run carries
+  a single role derived from its members' shapes and nothing records which of
+  them you wrote together.
+
 
 Each of these, with a worked example, is in
 **[Known limitations](knownLimitations.md)**.

@@ -6,6 +6,7 @@ module Formatter.Logical.LogicalPrintingTree exposing
     , PrefixKind(..)
     , SyntaxType(..)
     , bracketsToString
+    , commentFirstCol
     , commentGluesToPrevious
     , commentRendersOwnLine
     , commentRole
@@ -811,6 +812,61 @@ lpnFirstPos node =
     when node is
         LPNode r ->
             r.firstPos
+
+
+{-| Column of the leftmost token on the earliest row among a node's direct
+children — the visible indentation of a comment node's first line.
+
+Reads each comment leaf's source position straight from its box, because
+`lpnFirstPos` returns the *first child in array order* (not the minimum
+position) and can miss the leading comment when a same-row trailing comment
+shares the row (`{-| doc -} {- x -}` reports the trailing block's column
+otherwise). Scans for the true minimum `(row, col)`; defaults to 1 for a
+childless node.
+
+Column 1 vs. indented is what tells a comment that leads the declaration below
+it from one that trailed the construct above — `VerticalSpace.computeGroupStarts`
+and `SortSymbols.takeIndentedTrailingIdx` both turn on it, and they must agree.
+-}
+commentFirstCol : LPNode -> Int
+commentFirstCol node =
+    let
+        leafStart child =
+            when lpnBox child is
+                SingleLineComment { loc } ->
+                    Just loc.start
+
+                BlockComment { loc } ->
+                    Just loc.start
+
+                DocComment loc ->
+                    Just loc.start
+
+                _ ->
+                    lpnFirstPos child
+    in
+    lpnChildren node
+        |> Array.foldl
+            (\child acc ->
+                when leafStart child is
+                    Just p ->
+                        when acc is
+                            Just best ->
+                                if p.row < best.row || (p.row == best.row && p.col < best.col) then
+                                    Just p
+
+                                else
+                                    acc
+
+                            Nothing ->
+                                Just p
+
+                    Nothing ->
+                        acc
+            )
+            Nothing
+        |> Maybe.map .col
+        |> Maybe.withDefault 1
 
 
 {-| Last positioned token of the subtree in depth-first post-order.

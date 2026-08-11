@@ -406,7 +406,14 @@ moduleLineClosesBelow : Src.Module -> Bool
 moduleLineClosesBelow modAst =
     when modAst.effects is
         Src.Manager (Src.Fx { cmd = cmd, sub = sub }) ->
-            sub.start.row > cmd.start.row
+            -- The two fields on DIFFERENT rows is the whole test — the block was
+            -- written vertically, so its `}` is on a row of its own below them.
+            -- Asking `sub.start.row > cmd.start.row` instead only recognised the
+            -- command-first spelling: written `{ subscription = …` ⏎ `, command =
+            -- …` ⏎ `}` the header's row range stopped one row short of the `}`,
+            -- and a comment written after `exposing (..)` on that row fell
+            -- outside the header and was re-homed to a line of its own.
+            sub.start.row /= cmd.start.row
 
         _ ->
             False

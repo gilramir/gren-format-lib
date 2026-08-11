@@ -12,7 +12,7 @@ import Compiler.Ast.Source as Src
 import Compiler.SourcePosition exposing (Located, Position)
 
 import Formatter.Logical.LPTHelpers exposing (authoredBracketList, itemsSpanRows, mkText, mkTextFromLocString, mkZeroWidthText, plainAcross, resultFoldl, syntheticParens)
-import Formatter.Logical.LiteralFormat exposing (charLiteralString, escapeStringContent, intToHex)
+import Formatter.Logical.LiteralFormat exposing (charLiteralString, escapeStringContent, hexLiteral)
 import Formatter.Logical.LogicalPrintingTree exposing
     ( LPBox(..)
     , LPNode(..)
@@ -139,7 +139,7 @@ insertPattern locPat =
             let
                 text =
                     if isHex then
-                        "0x" ++ intToHex value
+                        hexLiteral value
 
                     else
                         String.fromInt value

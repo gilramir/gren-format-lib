@@ -130,8 +130,27 @@ intToHexSuite =
             , hexCase "2^35 + 1" 34359738369 "800000001"
             , hexCase "2^40 - 1 (the reported failure 0xFFFFFFFFFF)" 1099511627775 "FFFFFFFFFF"
             , hexCase "2^53 - 1 (max exact JS integer)" 9007199254740991 "1FFFFFFFFFFFFF"
+            -- The parser folds a pattern's leading `-` into the value, so a
+            -- negative reaches the formatter as one number. `hexLiteral` is what
+            -- callers use; it puts the sign in front of the `0x`. `intToHex`
+            -- itself no longer falls through to `hexDigit`'s wildcard (which
+            -- printed every negative as "F").
+            , hexCase "negative single digit" -1 "-1"
+            , hexCase "negative two digits" -255 "-FF"
+            , litCase "0" 0 "0x0"
+            , litCase "positive" 31 "0x1F"
+            , litCase "-0x1 (the reported failure: printed 0xF)" -1 "-0x1"
+            , litCase "-0xFF" -255 "-0xFF"
+            , litCase "-0xABCDEF" -11259375 "-0xABCDEF"
             ]
         }
+
+
+litCase : String -> Int -> String -> U.Test {}
+litCase name input expected =
+    U.test name <|
+        \_ ->
+            Task.succeed (Expect.equal (LiteralFormat.hexLiteral input) expected)
 
 
 hexCase : String -> Int -> String -> U.Test {}
@@ -375,7 +394,8 @@ importSuite fsPerm =
         , setUp = U.noFixture
         , tearDown = U.noTearDown
         , tests =
-            [ assertPrettyIn fsPerm "ImportStatements" "import with comments" "ImportWithComments"
+            [ assertPrettyIn fsPerm "ImportStatements" "an INDENTED own-line comment under an import trails that import and is carried along by the sort; a column-1 one in the same place leads the import below it. Reading only row-adjacency re-homed the indented note onto whichever import sorted into its place" "ImportIndentedTrailingComment"
+            , assertPrettyIn fsPerm "ImportStatements" "import with comments" "ImportWithComments"
             , assertPrettyIn fsPerm "ImportStatements" "exposed operators wrapped in parens" "ExposedOperator"
             , assertPrettyIn fsPerm "ImportStatements" "module line wraps exposing list to one indented line" "ModuleLineWrap"
             , assertPrettyIn fsPerm "ImportStatements" "module line wraps exposing list to one item per line" "ModuleLineVertical"
@@ -410,7 +430,8 @@ coreExpressionsSuite fsPerm =
         , setUp = U.noFixture
         , tearDown = U.noTearDown
         , tests =
-            [ assertPrettyIn fsPerm "CoreExpressions" "simple arithmetic" "SimpleArithmetic"
+            [ assertPrettyIn fsPerm "CoreExpressions" "an `else if` condition the author wrote FLAT stays flat however many blank lines precede the `else if`, and a comment under `then` does not stack it either -- `else if` has no AST position, so both proxies for its row have to agree before the condition breaks" "ElseIfBlankLines"
+            , assertPrettyIn fsPerm "CoreExpressions" "simple arithmetic" "SimpleArithmetic"
             , assertPrettyIn fsPerm "CoreExpressions" "when expression" "WhenExpression"
             , assertPrettyIn fsPerm "CoreExpressions" "if expression" "IfExpression"
             , assertPrettyIn fsPerm "CoreExpressions" "stacked if predicate wraps precedence-aware" "IfPredicate"
@@ -511,7 +532,9 @@ patternsAndLiteralsSuite fsPerm =
         , setUp = U.noFixture
         , tearDown = U.noTearDown
         , tests =
-            [ assertPrettyIn fsPerm "PatternsAndLiterals" "when branch body indentation" "WhenBranchBody"
+            [ assertPrettyIn fsPerm "PatternsAndLiterals" "a NEGATIVE hex literal keeps its sign: the parser folds a pattern's leading `-` into the value, so the sign has to be re-emitted in front of the `0x` -- built as `\"0x\" ++ intToHex n` a negative fell through to the digit function's wildcard and `-0x1` printed as `0xF`" "NegativeHexLiteral"
+            , assertPrettyIn fsPerm "PatternsAndLiterals" "a `\\r` inside a triple-quoted string stays escaped: emitted as a raw CR byte before a newline it rendered as CRLF, which the parser folds back to one LF, so the reparsed string had lost the CR" "CarriageReturnMultilineString"
+            , assertPrettyIn fsPerm "PatternsAndLiterals" "when branch body indentation" "WhenBranchBody"
             , assertPrettyIn fsPerm "PatternsAndLiterals" "when branch patterns" "WhenPatterns"
             , assertPrettyIn fsPerm "PatternsAndLiterals" "when-branch record-destructuring pattern written flat stays flat" "WhenRecordPatternFlat"
             , assertPrettyIn fsPerm "PatternsAndLiterals" "when-branch record-destructuring pattern written across rows aligns fields under the opening brace (regression guard for the nest/column mismatch fix)" "WhenRecordPatternVertical"
@@ -545,7 +568,8 @@ patternsAndLiteralsSuite fsPerm =
             , assertPrettyIn fsPerm "PatternsAndLiterals" "a multi-line record at a segment head with the -> kept on its closing } line forces the whole signature vertical (record stays broken, -> drops to its own line) instead of crashing" "SignatureBrokenRecordArg"
             , assertPrettyIn fsPerm "PatternsAndLiterals" "a multi-line block comment below a declaration detaches to column 1, leaving no trailing-whitespace line" "ClaimedMultilineComment"
             , assertPrettyIn fsPerm "PatternsAndLiterals" "two blank lines are forced before every top-level declaration unit (function/alias/union/port), regardless of authored blanks; the unit begins at its doc comment, else signature, else declaration" "ForcedDeclBlankLines"
-            , assertPrettyIn fsPerm "PatternsAndLiterals" "a run of comments floats or attaches as ONE unit: with a gap on both sides of the run the two blank lines go above its first line -- asking each comment alone made a `{-| doc -} -- c` row answer two on the first format (one node, its rows covering both) and one on the reparse (two adjacent nodes)" "FloatingCommentRunBlankLines"
+            , assertPrettyIn fsPerm "PatternsAndLiterals" "a run of comments floats or attaches as ONE unit: with a gap on both sides of the run the two blank lines go above its first line -- asking each comment alone made a `{-| doc -} -- c` row answer two on the first format (one node, its rows covering both) and one on the reparse (two adjacent nodes). A run LED BY A DOC COMMENT attaches instead of floating, since a doc comment reaches the declaration it documents across a blank"
+ "FloatingCommentRunBlankLines"
             , assertPrettyIn fsPerm "PatternsAndLiterals" "float literals round-trip (decimal stays decimal, scientific stays scientific)" "FloatLiterals"
             , assertPrettyIn fsPerm "PatternsAndLiterals" "only a comment that cannot ride a literal's flat line forces it open: -- , multi-line, and own-row comments break it; an inline block comment does not" "LiteralInlineComment"
             ]
@@ -599,7 +623,9 @@ declarationSuite fsPerm =
         , setUp = U.noFixture
         , tearDown = U.noTearDown
         , tests =
-            [ assertPrettyIn fsPerm "Declarations" "type aliases" "TypeAlias"
+            [ assertPrettyIn fsPerm "Declarations" "a doc comment reaches the declaration it documents ACROSS an author blank line, closing the gap instead of detaching permanently; a plain `--` still needs adjacency, and the MODULE doc comment -- the one written against the module line -- keeps its one blank" "DocCommentAcrossBlank"
+            , assertPrettyIn fsPerm "Declarations" "a definition sits directly under its signature with no blank line even when a COMMENT separates the two -- the unit is a signature and its definition \"separated only by comments\", and the blank suppression reads that whole span rather than just an adjacent pair" "SignatureCommentDefinitionBlank"
+            , assertPrettyIn fsPerm "Declarations" "type aliases" "TypeAlias"
             , assertPrettyIn fsPerm "Declarations" "a type alias whose body is a bare function type renders one `->` segment per row when the author broke it that way (even at only one boundary), with every segment -- including the first -- at the same column, since there's no \"name :\" header to glue it to" "TypeAliasFunctionType"
             , assertPrettyIn fsPerm "Declarations" "a type alias body whose function type carries a multi-line record type commits to the broken layout, so `-> Int` drops below the record's `}` instead of staying glued to it (the same trigger `makeSignatureBox` already had)" "TypeAliasDroppingRecord"
             , assertPrettyIn fsPerm "Declarations" "union types" "TypeUnion"
@@ -631,7 +657,9 @@ headerCommentsSuite fsPerm =
         , setUp = U.noFixture
         , tearDown = U.noTearDown
         , tests =
-            [ assertPrettyIn fsPerm "HeaderComments" "port declarations with comments in every header position" "PortComments"
+            [ assertPrettyIn fsPerm "HeaderComments" "an effect module's `where` block written SUBSCRIPTION-first still reports the header's closing row, so a comment past `exposing (..)` stays on the header line. The row bump only recognised the command-first spelling" "EffectHeaderSubscriptionFirst"
+            , assertPrettyIn fsPerm "HeaderComments" "two exposing entries whose trailing comments are both pinned above the `)` keep the order they were WRITTEN in; the fold walks the entries in sorted order and printed them reversed" "ExposingPinnedTrailingOrder"
+            , assertPrettyIn fsPerm "HeaderComments" "port declarations with comments in every header position" "PortComments"
             , assertPrettyIn fsPerm "HeaderComments" "effect module with comments around top-level decls" "EffectModuleComments"
             , assertPrettyIn fsPerm "HeaderComments" "module/import header keyword-gap comments" "ModuleHeaderComments"
             , assertPrettyIn fsPerm "HeaderComments" "block comment past a flat module exposing list is pinned above the ) instead of riding the last-written name" "ModuleExposingTrailingComment"

@@ -1,0 +1,26 @@
+module NegativeHexLiteral exposing (classify, mask)
+
+
+-- A leading `-` on a hex literal is folded into the value the parser stores, so
+-- the formatter has to put the sign back in FRONT of the `0x`. Building the
+-- literal as `"0x" ++ intToHex n` walked a negative into `hexDigit`'s wildcard
+-- arm and printed `-0x1` as `0xF`, which the AST check then refused.
+--
+-- Only ONE negative pattern per `when`: a second one fails to parse upstream
+-- (in decimal too, so it is not about hex).
+classify : Int -> Int
+classify n =
+    when n is
+        -0x1 ->
+            1
+
+        0x1F ->
+            2
+
+        _ ->
+            0
+
+
+mask : Int
+mask =
+    -0xABCDEF

@@ -1,0 +1,22 @@
+module CarriageReturnMultilineString exposing (crlf, tabsAndQuotes)
+
+-- A `\r` inside a triple-quoted string must stay ESCAPED. Emitting the raw CR
+-- byte put a real CRLF in the output wherever the author wrote `\r` before a
+-- newline, and the parser folds a CRLF back to a single LF -- so the reparsed
+-- string had lost the CR and the AST check refused the file. Tabs, newlines and
+-- quotes are still preserved as themselves; CR is the one control character
+-- `"""` cannot hold literally.
+crlf : String
+crlf =
+    """
+    ab\r
+    c
+    """
+
+
+tabsAndQuotes : String
+tabsAndQuotes =
+    """
+    one	two
+    "quoted"
+    """

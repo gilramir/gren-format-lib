@@ -1,0 +1,22 @@
+module ExposingPinnedTrailingOrder exposing
+    ( alpha
+    , beta
+    {- about beta -}
+    {- about alpha -}
+    )
+
+-- Both the authored-last and the sorted-last entry carry a trailing comment, so
+-- both are pinned above the `)`. The fold walks the entries in SORTED order and
+-- reached them back to front, printing the two comments in the reverse of the
+-- order they were written in. Pinning is what strips a comment of its name, so
+-- source order is the only meaning it has left.
+
+
+alpha : Int
+alpha =
+    1
+
+
+beta : Int
+beta =
+    2

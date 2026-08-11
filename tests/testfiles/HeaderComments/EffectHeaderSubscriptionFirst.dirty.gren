@@ -1,0 +1,14 @@
+effect module EffectHeaderSubscriptionFirst where
+    { subscription = MySub
+    , command = MyCmd
+    } exposing (..) {- past the header -}
+
+import Task
+
+
+type MyCmd a
+    = MyCmd (Task.Task Never a)
+
+
+type MySub a
+    = MySub a

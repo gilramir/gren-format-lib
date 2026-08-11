@@ -27,7 +27,7 @@ import Formatter.Logical.LPTHelpers exposing
     , syntheticParens
     , tryMapLastLeaf
     )
-import Formatter.Logical.LiteralFormat exposing (charLiteralString, escapeMultilineContent, escapeStringContent, intToHex)
+import Formatter.Logical.LiteralFormat exposing (charLiteralString, escapeMultilineContent, escapeStringContent, hexLiteral)
 import Formatter.Logical.LogicalPrintingTree exposing
     ( LPBox(..)
     , LPNode(..)
@@ -335,7 +335,7 @@ insertExpression locExpr =
                     Ok [ lpnLeaf (mkText locExpr.start n.text) ]
 
                 PN.Hex n ->
-                    Ok [ lpnLeaf (mkText locExpr.start ("0x" ++ intToHex n)) ]
+                    Ok [ lpnLeaf (mkText locExpr.start (hexLiteral n)) ]
 
         Src.CharLiteral c ->
             Ok [ lpnLeaf (mkText locExpr.start (charLiteralString c)) ]
@@ -1005,7 +1005,7 @@ simpleExprText locExpr =
                     n.text
 
                 PN.Hex n ->
-                    "0x" ++ intToHex n
+                    hexLiteral n
 
         Src.Operator opString ->
             -- The parser wraps an operator-as-value (`(+)`) in a `Parens`
@@ -1558,13 +1558,15 @@ Emits two sibling nodes per branch: an `IfCondition` containing
 `else if <test> then`, followed by an `IndentedBlock` for the branch body.
 
 Layout detection: the condition is treated as *stacked* (on its own line under
-`else if`) when `branch.test.start.row > prevEnd.row + 2`.  `prevEnd` is taken
-from the previous body's closing-bracket position (`lpnLastBracketEnd`), falling
-back to its last positioned token (`lpnLastPos`).  The bracket-end is used
-because the closing `}` / `]` is not itself a positioned token yet it occupies a
-row: without this, a multi-line record body underreports its last row by one and
-the `+ 2` guard fires incorrectly, stacking an `else if` that the author wrote
-flat.
+`else if`) when it starts more than two rows below the previous body AND the
+body starts more than one row below the condition — see `condForceVertical`
+below for why it takes both.  `prevEnd` is taken from the previous body's
+closing-bracket position (`lpnLastBracketEnd`), falling back to its last
+positioned token (`lpnLastPos`).  The bracket-end is used because the closing
+`}` / `]` is not itself a positioned token yet it occupies a row: without this, a
+multi-line record body underreports its last row by one and the row guard fires
+incorrectly, stacking an `else if` that the author wrote flat.
+
 -}
 folderInsertElseIfBranch : Src.IfBranch -> Array LPNode -> Result String (Array LPNode)
 folderInsertElseIfBranch branch accNodes =
@@ -1616,8 +1618,32 @@ folderInsertElseIfBranch branch accNodes =
         |> Result.andThen
             (\testNodes ->
                 let
-                    condForceVertical =
+                    -- Two questions, both of which a stacked condition answers
+                    -- yes and a flat one answers no. Neither is sound alone,
+                    -- because `else if` has no AST position and each proxy for
+                    -- its row is widened by something that is not layout:
+                    -- `condBelowPrev` by anything the author put between the
+                    -- previous body and the `else if` (a second blank line, or a
+                    -- comment), `bodyBelowCond` by a comment written under
+                    -- `then`. Neither of those moves BOTH, and a genuinely
+                    -- stacked condition moves both, so the conjunction is stable
+                    -- under either. On its own, `condBelowPrev` stacked
+                    -- conditions the author wrote flat.
+                    --
+                    -- `+ 2` on the first: the flat spelling puts `else if` one
+                    -- blank line below the previous body, so its condition
+                    -- starts exactly two rows down.
+                    condBelowPrev =
                         branch.test.start.row > prevEnd.row + 2
+
+                    -- `then` gets a row of its own only in the stacked form, so
+                    -- a flat condition's body starts on the row right after the
+                    -- condition ends.
+                    bodyBelowCond =
+                        branch.body.start.row > branch.test.end.row + 1
+
+                    condForceVertical =
+                        condBelowPrev && bodyBelowCond
 
                     condNode =
                         lpnNode (IfCondition { forceVertical = condForceVertical }) ([ elseIfNode ] ++ testNodes ++ [ thenNode ])

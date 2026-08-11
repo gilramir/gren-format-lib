@@ -20,8 +20,6 @@ pair =
 
 {-| A doc comment with a `--` written on its own row -}
 -- trailing the doc row
-
-
 docced : Int
 docced =
     3

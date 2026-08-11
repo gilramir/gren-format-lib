@@ -1,0 +1,48 @@
+module ElseIfBlankLines exposing (extraBlank, genuinelyStacked, stackedWithBodyComment)
+
+-- `else if` has no AST position, so whether the author stacked the condition
+-- under it has to be inferred. Reading only the gap to the previous body made
+-- anything else in that gap -- a second blank line -- look like a stacked
+-- condition, and a condition written FLAT came out broken across three rows.
+-- The body's own distance from the condition is the second half of the test:
+-- only a genuinely stacked condition moves both, so neither proxy can fire
+-- alone. `stackedWithBodyComment` is the other half: a comment under `then`
+-- pushes the body down, which must not stack a flat condition either.
+extraBlank : Int -> Int
+extraBlank x =
+    if x == 1 then
+        1
+
+
+    else if x == 2 then
+        2
+
+    else
+        3
+
+
+stackedWithBodyComment : Int -> Int
+stackedWithBodyComment x =
+    if x == 1 then
+        1
+
+    else if x == 2 then
+        -- about the body
+        2
+
+    else
+        3
+
+
+genuinelyStacked : Int -> Int
+genuinelyStacked x =
+    if x == 1 then
+        1
+
+    else if
+        x == 2
+    then
+        2
+
+    else
+        3

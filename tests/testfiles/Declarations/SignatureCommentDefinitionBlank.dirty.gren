@@ -1,0 +1,18 @@
+module SignatureCommentDefinitionBlank exposing (adjacent, withComment)
+
+-- A definition sits directly under its own signature with no blank line, even
+-- when the author left one -- and a comment between the two does not change
+-- that. `classifyChildren` already defines the unit as a signature and its
+-- definition "separated only by comments"; the blank suppression reads the
+-- same span now.
+withComment : Int
+-- a note about the definition
+
+withComment =
+    1
+
+
+adjacent : Int
+
+adjacent =
+    2

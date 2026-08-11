@@ -52,6 +52,7 @@ code, and why the places they *don't* look the way they do.
   - [#32 A lambda head broken across rows keeps its `->`](#divergence-32)
 - [Out of scope for comparison](#out-of-scope-for-comparison)
 
+
 ---
 
 ## The idea both formatters share
@@ -1558,8 +1559,14 @@ documentation instead of quietly outliving it.
     elm-format re-decides them per context.** Two or more comments in one gap are
     a *run*, and gren-format never moves a member between rows: written on one
     row they stay on one row, written on separate rows they stay apart. That is
-    rule [C7](commentHandling.md#c7--a-comment-keeps-the-rows-you-gave-it), and it
-    holds in every context.
+    rule [C7](commentHandling.md#c7--a-comment-keeps-the-rows-you-gave-it).
+
+    It holds in every context but one: a run written *just inside an opening
+    bracket*, or between a pipeline step's operator and its operand, is laid out
+    all-or-nothing instead, because the authored row is not recorded for it — see
+    [Known limitations](knownLimitations.md#a-comment-run-just-inside-a-bracket-doesnt-keep-its-rows).
+    That case happens to agree with elm-format, so it costs nothing here.
+
 
     elm-format decides per context instead, and the two answers disagree in both
     directions. Measured, same run and same term, only the context changed:
@@ -1707,6 +1714,7 @@ documentation instead of quietly outliving it.
     break, every lambda in it having been `\q ->` until then.
 
 ## Out of scope for comparison
+
 
 Some fixtures use Gren syntax with no valid Elm equivalent, so they can't be
 mechanically translated and run through `elm-format` at all:

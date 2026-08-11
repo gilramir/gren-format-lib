@@ -14,6 +14,7 @@ import Formatter.Logical.LogicalPrintingTree exposing
     ( LPBox(..)
     , LPNode(..)
     , SyntaxType(..)
+    , commentFirstCol
     , lpnBox
     , lpnChildren
     , lpnFirstPos
@@ -51,55 +52,8 @@ type alias DeclInfo =
     , isComment : Bool
     , core : Bool
     , commentCol : Int
+    , docLeadsBelow : Bool
     }
-
-
-{-| Column of the leftmost token on the earliest row among a node's direct
-children — the visible indentation of the comment's first line. Reads each comment
-leaf's source position straight from its box, because `lpnFirstPos` returns the
-*first child in array order* (not the minimum position) and can miss the leading
-comment when a same-row trailing comment shares the row (`{-| doc -} {- x -}`
-reports the trailing block's column otherwise). Scans for the true minimum
-`(row, col)`; defaults to 1 for a childless node. -}
-commentFirstCol : LPNode -> Int
-commentFirstCol node =
-    let
-        leafStart child =
-            when lpnBox child is
-                SingleLineComment { loc } ->
-                    Just loc.start
-
-                BlockComment { loc } ->
-                    Just loc.start
-
-                DocComment loc ->
-                    Just loc.start
-
-                _ ->
-                    lpnFirstPos child
-    in
-    lpnChildren node
-        |> Array.foldl
-            (\child acc ->
-                when leafStart child is
-                    Just p ->
-                        when acc is
-                            Just best ->
-                                if p.row < best.row || (p.row == best.row && p.col < best.col) then
-                                    Just p
-
-                                else
-                                    acc
-
-                            Nothing ->
-                                Just p
-
-                    Nothing ->
-                        acc
-            )
-            Nothing
-        |> Maybe.map .col
-        |> Maybe.withDefault 1
 
 
 {-| Classify each root child. `core` marks a node that *owns* a declaration
@@ -167,6 +121,27 @@ classifyChildren nodes =
                                         -- would report the trailing block's column);
                                         -- scan for the true minimum position instead.
                                         commentFirstCol node
+                                    -- A `{-| … -}` that documents the declaration
+                                    -- below it, as opposed to the MODULE's own doc
+                                    -- comment. Everything this flag reaches is bound
+                                    -- to the declaration below, so an author blank
+                                    -- between the two is removed rather than widened
+                                    -- to a full unit separation (see
+                                    -- `computeGroupStarts` and `docThenDecl`).
+                                    --
+                                    -- The module doc is told apart by the child
+                                    -- DIRECTLY above it being the module line, which
+                                    -- is where a module doc goes and the position the
+                                    -- rule reference names as the exception (it keeps
+                                    -- one blank line under it). Asking the weaker
+                                    -- "nothing but comments since the module line"
+                                    -- swept up the first *declaration's* doc comment
+                                    -- too, in any file whose module doc is followed
+                                    -- by one before the imports.
+                                    , docLeadsBelow =
+                                        comment
+                                            && r.stype == StDocComment
+                                            && acc.prevStype /= Just StModule
                                     }
                                     acc.out
                             , lastNonComment =
@@ -175,18 +150,21 @@ classifyChildren nodes =
 
                                 else
                                     Just r.stype
+                            , prevStype = Just r.stype
                             }
 
                         _ ->
                             { out =
                                 Builder.pushLast
-                                    { node = node, first = -1, last = -1, stype = Nothing, isComment = False, core = False, commentCol = 1 }
+                                    { node = node, first = -1, last = -1, stype = Nothing, isComment = False, core = False, commentCol = 1, docLeadsBelow = False }
                                     acc.out
                             , lastNonComment = acc.lastNonComment
+                            , prevStype = Nothing
                             }
                 )
-                { out = Builder.empty (Array.length nodes), lastNonComment = Nothing }
+                { out = Builder.empty (Array.length nodes), lastNonComment = Nothing, prevStype = Nothing }
                 nodes
+
     in
     Builder.toArray out
 
@@ -233,7 +211,25 @@ computeGroupStarts infos =
                                 -- independently — so the two passes agree.
                                 when acc.nextStartFirst is
                                     Just nf ->
-                                        nf == info.last + 1
+                                        if info.docLeadsBelow then
+                                            -- A doc comment reaches its declaration
+                                            -- ACROSS a blank line. `{-| … -}` is bound
+                                            -- to what it documents, and the rule
+                                            -- reference says so without qualification
+                                            -- ("sits directly above the declaration it
+                                            -- documents with no blank line between
+                                            -- them") -- but row-adjacency alone made an
+                                            -- author blank detach it permanently, and
+                                            -- the declaration below then opened its own
+                                            -- unit with TWO blanks between the two. A
+                                            -- `--` or plain `{- -}` still needs
+                                            -- adjacency: for those the blank is the
+                                            -- author saying the comment belongs to
+                                            -- neither side.
+                                            nf > info.last
+
+                                        else
+                                            nf == info.last + 1
 
                                     Nothing ->
                                         False
@@ -448,6 +444,32 @@ insertEmptyLines root =
                             , isComment = info.isComment
                             , last = info.last
                             , stype = info.stype
+                            , docLeadsBelow = info.docLeadsBelow
+                            -- Is a signature still open above this point — i.e.
+                            -- is the next declaration this signature's definition?
+                            -- A comment is TRANSPARENT here, which is the whole
+                            -- reason the flag exists: `classifyChildren` already
+                            -- defines a unit as a signature and its definition
+                            -- "separated only by comments" (that is what makes the
+                            -- definition not a `core` unit start), so the blank
+                            -- suppression below has to read the same span. Asking
+                            -- only whether the node DIRECTLY above was the
+                            -- signature let an author blank survive inside the
+                            -- unit as soon as a comment sat between the two.
+                            , sigPending =
+                                if info.stype == Just StFunctionSignature then
+                                    True
+
+                                else if info.isComment then
+                                    when acc.prev is
+                                        Just p ->
+                                            p.sigPending
+
+                                        Nothing ->
+                                            False
+
+                                else
+                                    False
                             }
                     in
                     when acc.prev is
@@ -478,10 +500,26 @@ insertEmptyLines root =
 
                                     -- A definition sits directly under its own
                                     -- signature with no blank, even if the author
-                                    -- left one.
+                                    -- left one — and equally when comments sit
+                                    -- between the two (`p.sigPending` carries the
+                                    -- signature across them).
                                     sigThenDef =
-                                        p.stype == Just StFunctionSignature
+                                        p.sigPending
                                             && info.stype == Just StFunctionDeclaration
+
+                                    -- What a doc comment documents sits directly
+                                    -- under it, the same way a definition sits
+                                    -- under its signature. This is the second half
+                                    -- of the rule whose first half is in
+                                    -- `computeGroupStarts`: the gap is closed
+                                    -- exactly where that pass decided the doc
+                                    -- comment leads the declaration below it, which
+                                    -- is what `isGroupStart` records. A doc comment
+                                    -- above something that is not a declaration
+                                    -- start (an import, say) is not a group start
+                                    -- there and keeps its gap here.
+                                    docThenDecl =
+                                        p.docLeadsBelow && p.isGroupStart
 
                                     gap =
                                         info.first > p.last + 1
@@ -516,7 +554,7 @@ insertEmptyLines root =
                                     , prev = Just prevRec
                                     }
 
-                                else if (gap || afterModule) && not sigThenDef then
+                                else if (gap || afterModule) && not sigThenDef && not docThenDecl then
                                     { newChildren =
                                         acc.newChildren
                                             |> Builder.pushLast (lpnLeaf EmptyLine)

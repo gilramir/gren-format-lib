@@ -44,6 +44,7 @@ import Formatter.Logical.LogicalPrintingTree exposing
     , LPNode(..)
     , ListBrackets(..)
     , SyntaxType(..)
+    , commentFirstCol
     , commentRole
     , lpnBox
     , lpnBracketEndElastic
@@ -383,9 +384,20 @@ takeUnit nodes i =
                 let
                     { trailing, afterTrailingIndex } =
                         takeSameRowTrailingIdx node nodes (afterLeadingIndex + 1)
+
+                    lastRow =
+                        when Array.last trailing is
+                            Just n ->
+                                origRowsLast n
+
+                            Nothing ->
+                                origRowsLast node
+
+                    indented =
+                        takeIndentedTrailingIdx lastRow nodes afterTrailingIndex
                 in
-                { unit = Just { leading = leading, item = node, trailing = trailing }
-                , nextIndex = afterTrailingIndex
+                { unit = Just { leading = leading, item = node, trailing = trailing ++ indented.trailing }
+                , nextIndex = indented.afterTrailingIndex
                 }
 
             else
@@ -449,7 +461,47 @@ takeSameRowTrailingIdxHelp prevLastRow nodes i acc =
             { trailing = Builder.toArray acc, afterTrailingIndex = i }
 
 
+{-| Take own-line comments the author INDENTED under the import above, starting
+at index `i`, for as long as each starts on the row directly below what precedes
+it.
+
+An indented comment below a top-level declaration belongs to the declaration
+ABOVE it — that is the documented rule (`docs/commentHandling.md`, "A comment on
+its own line below a top-level declaration": what your indentation still decides
+is which declaration the comment belongs to), and `VerticalSpace`'s
+`computeGroupStarts` already reads the column that way. `takeGluedLeadingIdx`
+asked only "own-line comment, row-adjacent to what follows", so it claimed this
+comment for the NEXT import and the sort carried it off:
+
+    import Zebra              import Alpha
+        -- about Zebra   ->   -- about Zebra
+    import Alpha              import Zebra
+
+A comment at column 1 in the same place is genuinely ambiguous and stays with
+`takeGluedLeadingIdx` — it leads the import below, and both passes agree on that
+too. -}
+takeIndentedTrailingIdx : Int -> Array LPNode -> Int -> { trailing : Array LPNode, afterTrailingIndex : Int }
+takeIndentedTrailingIdx prevLastRow nodes i =
+    takeIndentedTrailingIdxHelp prevLastRow nodes i (Builder.empty 0)
+
+
+takeIndentedTrailingIdxHelp : Int -> Array LPNode -> Int -> Builder.Builder LPNode -> { trailing : Array LPNode, afterTrailingIndex : Int }
+takeIndentedTrailingIdxHelp prevLastRow nodes i acc =
+    when Array.get i nodes is
+        Just node ->
+            if isCommentOrigRows node && origRowsFirst node == prevLastRow + 1 && commentFirstCol node > 1 then
+                takeIndentedTrailingIdxHelp (origRowsLast node) nodes (i + 1) (Builder.pushLast node acc)
+
+            else
+                { trailing = Builder.toArray acc, afterTrailingIndex = i }
+
+        Nothing ->
+            { trailing = Builder.toArray acc, afterTrailingIndex = i }
+
+
 -- True when the node at index `i` of `nodes` starts on `row`.
+
+
 startsOnRowIdx : Int -> Array LPNode -> Int -> Bool
 startsOnRowIdx row nodes i =
     when Array.get i nodes is
@@ -909,7 +961,7 @@ unfoldLastTrailing clusters =
         (\c acc ->
             if acc.index == sortedLast || c.origIndex == authoredLast then
                 { clusters = Array.pushLast { c | trailing = [] } acc.clusters
-                , pinned = acc.pinned ++ c.trailing
+                , pinned = Array.pushLast { origIndex = c.origIndex, nodes = c.trailing } acc.pinned
                 , index = acc.index + 1
                 }
 
@@ -921,7 +973,23 @@ unfoldLastTrailing clusters =
         )
         { clusters = [], pinned = [], index = 0 }
         clusters
-        |> (\r -> { clusters = r.clusters, pinned = r.pinned })
+        |> (\r ->
+                { clusters = r.clusters
+                -- Pinned in the order the comments were WRITTEN, not the order
+                -- their names sort to. Both `authoredLast` and `sortedLast` can
+                -- match, and when they are different entries the fold — which
+                -- walks the clusters in sorted order — reaches them back to
+                -- front: `(b {- cb -}, a {- ca -})` pinned `ca` above `cb`,
+                -- reversing two comments the author had in the other order. The
+                -- pinned run is a run of plain lines above the `)`, so its only
+                -- remaining meaning is that order.
+                , pinned =
+                    r.pinned
+                        |> Array.sortBy .origIndex
+                        |> Array.map .nodes
+                        |> Array.flatten
+                }
+           )
 
 
 {-| A comment pinned above the `)` leads its own line, whatever it was written

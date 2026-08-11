@@ -1,0 +1,38 @@
+module DocCommentAcrossBlank exposing (Shape, describe, size)
+
+{-| The MODULE doc comment -- the one written directly against the module line.
+It is the documented exception: it keeps the single blank line under it.
+-}
+
+import Task
+
+
+{-| A doc comment is bound to what it documents, so an author blank line between
+the two is closed rather than widened. Reading only row-adjacency detached the
+doc comment permanently instead, and the declaration below then opened its own
+unit with TWO blanks in between. elm-format closes the blank here too.
+-}
+size : Int
+size =
+    Task.succeed 1 |> always 1
+
+
+{-| A shape.
+-}
+type Shape
+    = Circle
+    | Square
+
+
+-- A plain line comment separated by a blank belongs to neither side and keeps
+-- its distance -- only a doc comment reaches across.
+
+
+describe : Shape -> String
+describe shape =
+    when shape is
+        Circle ->
+            "circle"
+
+        Square ->
+            "square"

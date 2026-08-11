@@ -1,4 +1,4 @@
-module Formatter.Logical.LiteralFormat exposing (charLiteralString, escapeMultilineContent, escapeStringContent, intToHex)
+module Formatter.Logical.LiteralFormat exposing (charLiteralString, escapeMultilineContent, escapeStringContent, hexLiteral, intToHex)
 
 {-|
 Source-text formatting of primitive literals: strings, chars, and hex
@@ -81,9 +81,16 @@ escapeMultilineContent s =
                 10 ->
                     String.fromChar c
 
-                -- CR (Carriage Return) — preserved verbatim
+                -- CR (Carriage Return) — escaped, NOT preserved verbatim.
+                -- The one control character `"""` cannot hold as itself: a raw
+                -- CR emitted just before a content newline renders as CRLF, and
+                -- the parser folds a CRLF to a single LF, so the reparsed string
+                -- is missing the CR (`"ab\r\nc"` came back as `"ab\nc"`, an AST
+                -- mismatch that refused the file). `\r` is a legal escape inside
+                -- a triple-quoted string — the input this protects was written
+                -- that way — so escaping round-trips where the raw byte does not.
                 13 ->
-                    String.fromChar c
+                    "\\r"
 
                 -- QUOTATION MARK — handled by escapeQuoteRuns below, not here
                 34 ->
@@ -175,6 +182,28 @@ charLiteralString c =
     "'" ++ inner ++ "'"
 
 
+{-| The source text of a hex integer literal, sign included: `0x1F`, or `-0x1`.
+
+The sign has to be put back in front of the `0x` here because the parser folds a
+pattern's leading `-` into the value it stores (`Src.PInt { value = -1, isHex =
+True }`), so what reaches the formatter is a single negative number with no
+record of where the `-` was written. Building the literal as `"0x" ++ intToHex n`
+instead walked a negative straight into `hexDigit`'s wildcard arm and printed
+`-0x1` as `0xF`, which the AST check then refused (`pattern int: -1 vs 15`).
+-}
+hexLiteral : Int -> String
+hexLiteral n =
+    if n < 0 then
+        "-0x" ++ intToHex (negate n)
+
+    else
+        "0x" ++ intToHex n
+
+
+{-| The hex digits of `n`, uppercase and unpadded. Callers building a literal
+want `hexLiteral`, which places the `0x` after the sign; a negative reaching
+here still gets a `-` rather than a wrong digit.
+-}
 intToHex : Int -> String
 intToHex n =
     let
@@ -228,7 +257,10 @@ intToHex n =
                 _ ->
                     "F"
     in
-    if n < 16 then
+    if n < 0 then
+        "-" ++ intToHex (negate n)
+
+    else if n < 16 then
         hexDigit n
 
     else

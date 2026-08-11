@@ -177,14 +177,115 @@ makeBinopBox forceVerticalArg children =
             in
             if forceVertical then
                 verticalBinopChainBox flat.ops operandItems
-                    |> Result.onError (\_ -> buildFlowBoxBroken grenIndent children)
+                    |> Result.onError (\_ -> binopChainFlow assembleBrokenWithComments operandItems children)
 
             else if Array.any subtreeHasComment children then
-                buildFlowBox grenIndent children
+                binopChainFlow (assembleFlow FP.OwnStart) operandItems children
 
             else
                 precedenceBinopBox flat.ops operandItems
-                    |> Result.onError (\_ -> buildFlowBox grenIndent children)
+                    |> Result.onError (\_ -> binopChainFlow (assembleFlow FP.OwnStart) operandItems children)
+
+
+{-| `buildFlowBox grenIndent children` / `buildFlowBoxBroken grenIndent children`
+for a binop chain, over the operand items `makeBinopBox` has ALREADY rendered.
+
+Same boxes, one render. The three layouts `makeBinopBox` can fall back to took
+`children` and rendered the whole chain a second time, throwing away the up-front
+render whose own comment says it exists to stop exactly that. Because
+`makeBinopBox` is reached again through every parenthesised operand, the second
+render doubled the work per nesting level: `1 + {- c -} (1 + {- c -} (…))` cost
+O(2^depth), measured at 4.3s for 18 levels and doubling from there. It is the
+same double-render class as the nested record literal in
+`docs/knownLimitations.md`, and needs the same conjunction of features to reach
+— a comment (or a layout that refuses), inside parens, nested — which is why no
+single-construct stress shape ever showed it. -}
+binopChainFlow : (Int -> Array FlowItem -> Result String Box) -> Array (Array FlowItem) -> Array LPNode -> Result String Box
+binopChainFlow assemble operandItems children =
+    binopChainFlowItems operandItems children
+        |> Result.andThen (\r -> assemble grenIndent r.items)
+
+
+{-| The items `renderFlowItems children` would produce for a binop chain, taking
+each operand's items from the queue instead of re-rendering the operand.
+
+Mirrors `flattenBinopNodes`, which is what filled the queue: one entry per
+level, in the same order, so the two walks stay in step. `rest` is the queue left
+for the caller. -}
+binopChainFlowItems : Array (Array FlowItem) -> Array LPNode -> Result String { items : Array FlowItem, rest : Array (Array FlowItem) }
+binopChainFlowItems queue children =
+    when Array.popLast children is
+        Nothing ->
+            -- `flattenBinopNodes` puts no operand on the queue for this, either.
+            Ok { items = [], rest = queue }
+
+        Just { last = lastNode } ->
+            when Array.popFirst queue is
+                Nothing ->
+                    Err "box: binop operand items exhausted"
+
+                Just { first = headItems, rest = queueRest } ->
+                    when lpnBox lastNode is
+                        OpAndRhs ->
+                            opAndRhsBoxFromItems queueRest (lpnChildren lastNode)
+                                |> Result.map
+                                    (\r ->
+                                        { items = Array.pushLast (flowItemFromBox lastNode r.box) headItems
+                                        , rest = r.rest
+                                        }
+                                    )
+
+                        _ ->
+                            -- Not a chain link: the whole of `children` is this
+                            -- one operand, and `headItems` is all of it.
+                            Ok { items = headItems, rest = queueRest }
+
+
+{-| `makeOpAndRhsBox` over pre-rendered items — the same two layouts and the same
+condition between them, with the rhs flow taken from the queue. -}
+opAndRhsBoxFromItems : Array (Array FlowItem) -> Array LPNode -> Result String { box : Box, rest : Array (Array FlowItem) }
+opAndRhsBoxFromItems queue children =
+    when Array.popFirst children is
+        Nothing ->
+            Err "box: empty OpAndRhs"
+
+        Just { first = opNode, rest = rhsNodes } ->
+            when leafValue opNode is
+                Just op ->
+                    binopChainFlowItems queue rhsNodes
+                        |> Result.andThen
+                            (\r ->
+                                assembleFlow FP.InlineStart 0 r.items
+                                    |> Result.andThen
+                                        (\rhsBox ->
+                                            if not (isSingleLine rhsBox) && Array.any isOpAndRhsNode rhsNodes then
+                                                -- The operator becomes the flow's own
+                                                -- first item; it is a text leaf, so
+                                                -- rendering it is free.
+                                                renderFlowItem opNode
+                                                    |> Result.andThen (\opItem -> assembleFlow FP.InlineStart grenIndent (Array.pushFirst opItem r.items))
+                                                    |> Result.map (\box -> { box = box, rest = r.rest })
+
+                                            else
+                                                Ok { box = prefixOperator op rhsBox, rest = r.rest }
+                                        )
+                            )
+
+                Nothing ->
+                    Err "box: OpAndRhs op is not a text leaf"
+
+
+{-| The flow item for a node whose box the caller already has. The generic arm of
+`renderFlowItem`, minus the render — valid for any node kind that arm handles
+(everything but a comment and a `ParenBlock`, which carry extra parts). -}
+flowItemFromBox : LPNode -> Box -> FlowItem
+flowItemFromBox node box =
+    { node = node
+    , box = box
+    , isBlock = isBlockNode node box
+    , comment = Nothing
+    , lambdaBodyBox = Nothing
+    }
 
 
 {-| True when the operand is a single chain-breaking node (comments skipped)
@@ -1404,12 +1505,7 @@ operatorPrefixedOperandBox renderOperand op operandNodes =
             |> Result.map (prefixOperator op)
 
     else
-        traverseResult
-            (\node ->
-                commentNodeBox node
-                    |> Result.map (\box -> { box = box, inline = commentTextCanRide node })
-            )
-            leading
+        leadCommentRunBoxes leading
             |> Result.andThen
                 (\lead ->
                     renderOperand rest
@@ -4726,6 +4822,16 @@ reparse `{- x -}` sits on the item's row rather than the run's, so the next
 format drops it back to its own row and the file never settles. This is the same
 all-or-nothing rule `assembleBrokenWithComments` and `renderWhenBranchesBox`
 apply to a comment run, and the one elm-format applies here.
+
+**It is NOT rule C7, and cannot be made C7 from here.** Which rows the author
+used inside a container's comment run is not in the LPT: the bracket slot assigns
+a run ONE role from each member's SHAPE (`Comments.gren`, `bracketKindRole`), so
+`[ {- p -} -- q` and `[ {- p -}` ⏎ `-- q` arrive with identical roles
+(`RidesInline`, `TrailsPrevious`) — and likewise for two single-line blocks. Any
+rule written here therefore lays both authorings out the same way and violates C7
+on one of them; grouping by `commentGluesToPrevious`, the way `leadingRunRowBoxes`
+does for a binop chain, was measured to move the violation rather than remove it.
+Honouring C7 here needs the authored row recorded upstream, in the role.
 
 `bodyMayRide` is the caller's separate question of whether the *body* can share
 the run's last row at all. A bracket item can (it is the row's whole content); a

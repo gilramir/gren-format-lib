@@ -28,7 +28,9 @@ nothing is going wrong.
 - [A comment after the last binding in a `let`](#a-comment-after-the-last-binding-in-a-let)
 - [Block comment body indentation](#block-comment-body-indentation)
 - [Two fixtures parse a custom-type shape the language no longer allows](#two-fixtures-parse-a-custom-type-shape-the-language-no-longer-allows)
+- [A comment run just inside a bracket doesn't keep its rows](#a-comment-run-just-inside-a-bracket-doesnt-keep-its-rows)
 - [Very deep lambda or unary-minus nesting can overflow the stack](#very-deep-lambda-or-unary-minus-nesting-can-overflow-the-stack)
+
 
 ---
 
@@ -867,7 +869,52 @@ formatter bug of their own. (`gen-random.py`, the property-based random-input
 generator, no longer emits multi-argument variants for this same reason —
 see `tests/GENERATOR.md`.)
 
+## A comment run just inside a bracket doesn't keep its rows
+
+[Rule C7](commentHandling.md#c7--a-comment-keeps-the-rows-you-gave-it) says a
+comment run keeps the rows you wrote it on, and
+[divergence #30](elmFormatComparison.md#divergence-30) says that holds in every
+context. It does not hold for a run written just inside an opening bracket, or
+between a pipeline step's operator and its operand. There, the whole run is laid
+out all-or-nothing: if every member can share a line they are all joined onto
+one, and if any member cannot, every member gets a row of its own.
+
+```gren
+-- you write:            -- gren-format writes:
+a =                      a =
+    [ {- p -}                [ {- p -} {- q -} 1        <- joined a run you split
+      {- q -} 1            ]
+    ]
+
+b =                      b =
+    [ {- p -} -- q           [ {- p -}                  <- split a run you joined
+      1                        -- q
+    ]                          1
+                             ]
+```
+
+Both happen to be what elm-format does, so this costs nothing in parity — but it
+is the rule stated elsewhere, applied where the information to apply it is
+missing.
+
+**It is not fixable in the renderer.** Which rows the author used inside a
+container's comment run is not recorded anywhere the renderer can read it: rule
+C1 makes one gap one attachment, so `Comments.gren` gives the whole run one role,
+derived from each member's *shape* (`bracketKindRole`). `[ {- p -} -- q` and
+`[ {- p -}` ⏎ `-- q` therefore arrive with identical roles (`RidesInline`,
+`TrailsPrevious`), and so do the two spellings of a two-block run. Any rule
+written in `glueLeadingCommentRun` lays both authorings out the same way and so
+breaks C7 on one of them; grouping by `commentGluesToPrevious` the way a binop
+chain's `leadingRunRowBoxes` does was measured to move the violation from one
+spelling to the other rather than remove it.
+
+Honouring C7 here means recording the authored row upstream, in the role — a
+change to the comment model rather than to a layout function, and one that
+contradicts the "one gap, one role" reading `Comments.gren` currently documents
+at that slot.
+
 ## Very deep lambda or unary-minus nesting can overflow the stack
+
 
 This one isn't a comment-placement or compiler quirk — it's an implementation
 limit in the formatter itself, found by `tests/pathological-nesting.py`
@@ -926,6 +973,25 @@ four times per level. All are fixed. What is left for them is only the ordinary
 stack-depth ceiling described above — they run out of JS stack between 200 and
 240 levels, in two cases at exactly the depth the parser gives out and in the
 others slightly before it, with no exponential term anywhere.
+
+A seventh site was found by code review on 2026-08-11, in the **binop chain**,
+and it is the one whose conjunction is easiest to write by accident: a comment
+anywhere in a parenthesised chain, nested. `makeBinopBox` renders its operands
+once up front — its own comment says that is what the up-front render is *for* —
+but the layout it falls back to for a comment-bearing chain took the raw
+children and rendered the whole chain a second time, and so did both of its
+`Result.onError` paths. Since a parenthesised operand re-enters `makeBinopBox`,
+that doubled the work per level:
+
+```gren
+x =
+    (1 + {- c -} (1 + {- c -} (1 + {- c -} …)))
+```
+
+12 levels took 0.18s, 16 took 1.16s, 18 took 4.27s — a clean factor of two per
+level, unusable around 22. The fallbacks now assemble from the operand items
+already rendered (`binopChainFlowItems`), and all three depths format in 0.07s.
+
 
 The pipeline-lambda pair is worth spelling out, since it is the one shape here
 that reads like something a person might actually write. "Direct operand" means
