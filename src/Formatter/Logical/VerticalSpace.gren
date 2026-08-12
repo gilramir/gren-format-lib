@@ -63,7 +63,10 @@ allowed to be separated from its definition only by comments). A function
 declaration *with* a signature is not a core start; its signature is.
 
 `lastNonComment` carries the nearest non-comment stype above, so a definition
-can see its signature across an intervening comment.
+can see its signature across an intervening comment — and so a doc comment can
+tell whether it is the MODULE's own, which sits above every import with only
+comments between it and the module line (`seenDoc` supplies the other half of
+that test: only the first doc comment in the file can be the module's).
 -}
 classifyChildren : Array LPNode -> Array DeclInfo
 classifyChildren nodes =
@@ -129,19 +132,29 @@ classifyChildren nodes =
                                     -- to a full unit separation (see
                                     -- `computeGroupStarts` and `docThenDecl`).
                                     --
-                                    -- The module doc is told apart by the child
-                                    -- DIRECTLY above it being the module line, which
-                                    -- is where a module doc goes and the position the
-                                    -- rule reference names as the exception (it keeps
-                                    -- one blank line under it). Asking the weaker
-                                    -- "nothing but comments since the module line"
-                                    -- swept up the first *declaration's* doc comment
-                                    -- too, in any file whose module doc is followed
-                                    -- by one before the imports.
+                                    -- The module doc is told apart the way the
+                                    -- PARSER tells it apart (`Compiler.Parse.Module`:
+                                    -- header → exports → docs → imports): it is the
+                                    -- FIRST doc comment in the file, and nothing but
+                                    -- comments stands between it and the module line.
+                                    -- Both halves are needed. Without the "first",
+                                    -- the weaker "nothing but comments since the
+                                    -- module line" sweeps up the first
+                                    -- *declaration's* doc comment too, in any file
+                                    -- whose module doc is followed by one before the
+                                    -- imports. Without `lastNonComment` — asking
+                                    -- instead whether the child DIRECTLY above is the
+                                    -- module line — an ordinary `--` note written
+                                    -- above the module doc hides it, and the module
+                                    -- doc then gets pulled down onto the first
+                                    -- declaration's own doc comment. That is also
+                                    -- exactly what `--remove-unused-imports` emits
+                                    -- when it shields the docs slot below a
+                                    -- placeholder.
                                     , docLeadsBelow =
                                         comment
                                             && r.stype == StDocComment
-                                            && acc.prevStype /= Just StModule
+                                            && not (acc.lastNonComment == Just StModule && not acc.seenDoc)
                                     }
                                     acc.out
                             , lastNonComment =
@@ -150,7 +163,7 @@ classifyChildren nodes =
 
                                 else
                                     Just r.stype
-                            , prevStype = Just r.stype
+                            , seenDoc = acc.seenDoc || r.stype == StDocComment
                             }
 
                         _ ->
@@ -159,10 +172,10 @@ classifyChildren nodes =
                                     { node = node, first = -1, last = -1, stype = Nothing, isComment = False, core = False, commentCol = 1, docLeadsBelow = False }
                                     acc.out
                             , lastNonComment = acc.lastNonComment
-                            , prevStype = Nothing
+                            , seenDoc = acc.seenDoc
                             }
                 )
-                { out = Builder.empty (Array.length nodes), lastNonComment = Nothing, prevStype = Nothing }
+                { out = Builder.empty (Array.length nodes), lastNonComment = Nothing, seenDoc = False }
                 nodes
 
     in

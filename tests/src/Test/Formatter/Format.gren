@@ -704,6 +704,7 @@ headerCommentsSuite fsPerm =
             , assertPrettyIn fsPerm "HeaderComments" "canonical rendering of a comment in an effect-module where block" "AmbiguousEffectModule"
             , assertPrettyIn fsPerm "HeaderComments" "a RUN of comments left of an effect-module handler's constructor travels together to the one slot between `where` and `{`" "EffectWhereCommentRun"
             , assertPrettyIn fsPerm "HeaderComments" "trailing comment below a wrapped import stays at the continuation indent" "ImportTrailingComment"
+            , assertPrettyIn fsPerm "HeaderComments" "a `--` note above the module doc does not hide it, so the first declaration's own doc keeps its blank lines" "ModuleDocBelowNote"
             ]
         }
 

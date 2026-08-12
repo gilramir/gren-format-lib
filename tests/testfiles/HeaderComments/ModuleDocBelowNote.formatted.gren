@@ -1,0 +1,9 @@
+module ModuleDocBelowNote exposing (x)
+
+-- a note above the module doc
+{-| Module doc. -}
+
+
+{-| Doc for x. -}
+x =
+    1
