@@ -27,10 +27,9 @@ core formatting rules. Five companion documents go deeper:
 
 - [Overview](#overview)
 - [A formatted example](#a-formatted-example)
-- [Gren Formatter Rules](#gren-formatter-rules)
-  - [Background](#background)
+- [Formatting Philosophy](#formatting-philosophy)
 - [Comments](#comments)
-- [Known limitations](#known-limitations)
+- [Known limitations and Bugs](#known-limitations)
 - [Performance](#performance)
 - [Comparison with elm-format](#comparison-with-elm-format)
 
@@ -41,9 +40,9 @@ core formatting rules. Five companion documents go deeper:
 Turning your source file into its formatted version happens through a pipeline
 of steps, each step handing its result to the next. Any step can fail: a parse
 error means the source itself is invalid Gren, while a failure in Step 1 or
-Step 2 means the formatter hasn't been taught to handle some construct yet —
+Step 2 means the formatter has caught an internal bug in its own logic —
 not that anything is wrong with your code. Either way, nothing is silently
-mangled; the failure is reported instead:
+mangled; the failure is reported instead. This is the flow:
 
 ![Formatter pipeline](docs/diagrams/formatter-pipeline.png)
 
@@ -121,21 +120,19 @@ A few things worth noticing:
   Neither is about length; it's however the author wrote it (see
   [Record updates](docs/formatterRules.md#record-updates)).
 
-Every one of these decisions follows from how the code was written, not from
-any line-width target — see [Background](#background) below, and the full
-[Gren Formatter Rules](docs/formatterRules.md) for the complete reference.
+Every one of these decisions follows from how the code was written.
+any line-width target — see [Formatting Philosophy](#formatting-philosophy) below, and the full
+[Formatter Rules](docs/formatterRules.md) for the complete reference.
 
 ---
 
-## Gren Formatter Rules
+## Formatting Philosophy
 
 A guide to how `gren format` lays out your code — what it changes, what it
 leaves alone, and why. This section covers the core ideas; for a rule
 reference with a before/after example for every construct (module
 declarations, records, pipelines, comments, and everything else), see
-**[docs/formatterRules.md](docs/formatterRules.md)**.
-
-### Background
+**[Formatter Rules](docs/formatterRules.md)**.
 
 The Gren formatter has one central idea: **your line breaks are your layout
 decisions.** Write something on one line and it stays on one line. Put a line
@@ -166,7 +163,7 @@ The four core rules:
    torture test inserts a comment into every inter-token gap of every fixture
    file, formats twice, and requires byte-identical output. It is red today:
    **17** gaps out of some 56,000 still shift, and all 17 are the same upstream
-   parser bug (see [knownLimitations.md](docs/knownLimitations.md)). Nothing
+   parser bug (see [Known Limitations](docs/knownLimitations.md)). Nothing
    left in it is the formatter's to fix; it goes green when that parser fix
    ships.
 
@@ -213,24 +210,40 @@ Each rule, with a "you write / gren-format writes" example for every case, is in
 
 ---
 
-## Known limitations
+## Known limitations and Bugs
 
-`gren-format` has a handful of known gaps: a few inherited
-compiler/parser bugs (one around field access on a record-update base, one
-around aliasing an unparenthesized constructor pattern with `as`, and one where
-a continuation line at the same column as the body above it ends that body
-early), a `when`
-pattern shape the Haskell-based compiler can reject even though the formatter
-produced it, a bracketed pattern broken across rows that the *released* compiler
-rejects and the next one will accept (`gren-format` follows `compiler-common`,
-which is deliberately more permissive about indentation than the Haskell
-compiler still in use today), several comment-placement choices forced by a token (`=`,
-`:`, `|`, `in`, a bracket's closing paren, an effect module's `where` block)
-that the parser doesn't record a position for, and a stack-depth limit on
-extreme lambda/unary-minus nesting (hundreds of levels deep, well past
-anything real code hits).
+`gren-format` has a handful of known gaps:
 
-Full write-up, with a before/after example for each: **[docs/knownLimitations.md](docs/knownLimitations.md)**.
+* a few inherited compiler/parser bugs
+* a `when` pattern shape the Haskell-based compiler can reject
+* a bracketed pattern broken across rows that the Haskell-base compiler rejects
+* several comment-placement choices forced by a token (`=`,
+    `:`, `|`, `in`, a bracket's closing paren, an effect module's `where` block)
+    that the parser doesn't record a position for
+* and a stack-depth limit on extreme lambda/unary-minus nesting (hundreds of levels deep, well past
+    anything real code hits).
+
+For a full write-up, with examples, see: **[Known Limitations](docs/knownLimitations.md)**.
+
+Furthermore, here is a list of the GitHub issues we are tracking in upstream
+packages that affect the output of `gren-format`.
+
+
+* [compiler-common#11 - Gren parser is more strict with indentation in when..is expressions
+](https://github.com/gren-lang/compiler-common/issues/11)
+* [compiler-common#14 - New parser rejects same-column arguments in multi-line function calls](https://github.com/gren-lang/compiler-common/issues/14)
+* [compiler-common#25 - The wrong row number is assigned to "import", "type", "type alias", and "port" in the AST](https://github.com/gren-lang/compiler-common/issues/25)
+* [compiler-common#27 - Parser misparses postfix record access after parens, record literals, record updates, and qualified variables
+](https://github.com/gren-lang/compiler-common/issues/27)
+* [compiler-common#31 - new parser fails to parse a constructor-application pattern aliased with "as"
+](https://github.com/gren-lang/compiler-common/issues/31)
+* [compiler-common#32 - Parser accepts custom-type variants with more than one bare-constructor argument
+ ](https://github.com/gren-lang/compiler-common/issues/32)
+* [compiler-common#34 - Expand the recording of the original string for some literals
+](https://github.com/gren-lang/compiler-common/issues/34)
+* [compiler-common#35 - A binops minus sign ("-") split across rows is parsed as negation when the right operand happens to start at the column immediately after the minus sign](https://github.com/gren-lang/compiler-common/issues/35)
+* [core#134 - String.toInt returns the wrong value for 24 exactly-representable integers near 2^53
+ ](https://github.com/gren-lang/core/issues/134)
 
 ---
 
@@ -239,9 +252,8 @@ Full write-up, with a before/after example for each: **[docs/knownLimitations.md
 Real Gren files are small enough that formatting speed is a non-issue, but
 the formatter is also checked against synthetic files pushed far past
 anything realistic — thousands of top-level declarations, thousands of
-stacked comments, deeply nested expressions — to catch algorithmic hot spots
-before they'd ever surface on real code. That stress suite is
-`tests/pathological-other.py` (size/shape probes) and
+stacked comments, deeply nested expressions — to catch algorithmic hot spots.
+That stress suite is `tests/pathological-other.py` (size/shape probes) and
 `tests/pathological-nesting.py` (depth probes).
 
 A few representative numbers:
@@ -265,8 +277,8 @@ in a loop, and never rescan work already known to be settled.
 
 ## Comparison with elm-format
 
-Gren is a spiritual descendant of Elm, so `gren format` and `elm-format`
-should agree on shared syntax unless there's a deliberate reason not to. Both
+`gren format` is a spiritual descendent of `elm-format`, and agree on
+formatted syntax in most places. Both
 formatters share the same "your line breaks are your layout decisions"
 philosophy — neither reflows code to fit a page width — so they agree almost
 everywhere. Where they don't, it's a catalogued choice: 26 divergences,
@@ -278,4 +290,4 @@ one of those has to snap to a canonical side
 ([#22](docs/elmFormatComparison.md#divergence-22)).
 
 The full catalogue, with a real before/after example for every entry, is in
-**[docs/elmFormatComparison.md](docs/elmFormatComparison.md)**.
+**[Comparison with elm-format](docs/elmFormatComparison.md)**.

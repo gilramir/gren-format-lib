@@ -1,4 +1,4 @@
-# Extending the formatter for new Gren syntax
+# Notes for Developers
 
 This is the orientation guide for a developer who needs to teach `gren format`
 about a new piece of Gren syntax — a new AST node, a new declaration kind, a new
