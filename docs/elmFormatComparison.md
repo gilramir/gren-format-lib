@@ -1,13 +1,12 @@
 # Comparison with elm-format
 
-Gren is a spiritual descendant of Elm, so `gren format` and `elm-format` should agree on
-shared syntax unless there's a deliberate reason not to. We ran an audit on the
+`gren format` is a spiritual descendent of `elm-format`, and agree on
+formatted syntax in most places. We ran an audit on the
 formatter's own test fixtures (`gren-format-lib/tests/testfiles/`),
 converting the Gren code to Elm, ran them through
-`elm-format` and catalogued every divergence. This is the full catalogue; the
-main [README](../README.md) links to specific entries here as they come up in
-context, and [`redundantParens.md`](redundantParens.md) is a deeper dive on
-the single most common divergence (#10).
+`elm-format` and catalogued every divergence. This is the full catalogue,
+and [Redundant Parens](redundantParens.md) is a deeper dive on
+the a common divergence (#10).
 
 Before the specific findings, it helps to see how alike the two tools are
 underneath — that's what explains why they agree on the overwhelming majority of
@@ -114,12 +113,6 @@ if it stops being — an entry with no fixture, or a fixture with no entry.
 | | | 28 | `D28TypeBreakNotRecorded` |
 | | | 29 | `D29LetAnnotationHeadGlue` |
 
-This is not decoration. Writing those fixtures found **six entries whose
-worked example no longer matched the shipped formatter** — #8, #9, #18, #22, #25
-and #26 — three of them stale by one day, and one (#9) making a claim about
-literal preservation that had never been true for integers or string escapes.
-An entry here is now a test, and a decision that changes breaks its own
-documentation instead of quietly outliving it.
 
 1. <a id="divergence-1"></a>**Blank lines: comment-attached vs. declaration-attached**
    elm-format always puts its 2-blank-line separator immediately above the
