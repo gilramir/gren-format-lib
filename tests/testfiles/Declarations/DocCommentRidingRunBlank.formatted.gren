@@ -1,0 +1,12 @@
+module DocCommentRidingRunBlank exposing (..)
+
+-- lead
+{-| Doc. -}
+-- a
+-- b
+
+
+-- tail
+f : Int -> Int
+f x =
+    x

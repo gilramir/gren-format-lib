@@ -251,8 +251,32 @@ computeGroupStarts infos =
                             -- line (`{-| doc -} {- x -}`); severing here would drop
                             -- the doc comment's unit-start status and destabilise
                             -- its leading blank count. Pass the pending start
-                            -- through unchanged.
-                            acc.nextStartFirst
+                            -- through -- but only while it is still adjacent.
+                            --
+                            -- Transparent means "occupies no row of its own", and
+                            -- that holds only while the pending start sits on the
+                            -- row right below this comment. A riding comment
+                            -- satisfies it by construction: its `last` IS the row
+                            -- it rides, so the declaration below is `last + 1`.
+                            -- Passing the start through UNCONDITIONALLY instead let
+                            -- it leap a blank line that this comment's own row had
+                            -- already broken -- and only on pass 1, because pass 2
+                            -- re-emits the comment at column 1, where it takes the
+                            -- ordinary path and severs. That is the shape
+                            -- `{-| Doc. -} -- a` / `-- b` / blank / `-- tail` /
+                            -- signature: the leaked start made the doc comment a
+                            -- unit start on pass 1 and not on pass 2, so the module
+                            -- header's blank count moved between them.
+                            when acc.nextStartFirst is
+                                Just nf ->
+                                    if nf == info.last + 1 then
+                                        acc.nextStartFirst
+
+                                    else
+                                        Nothing
+
+                                Nothing ->
+                                    Nothing
 
                         else
                             Nothing
