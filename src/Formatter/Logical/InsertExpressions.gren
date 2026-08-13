@@ -31,8 +31,8 @@ import Formatter.Logical.LogicalPrintingTree exposing
     ( LPBox(..)
     , LPNode
     , ListBrackets(..)
-    , RecordKind(..)
     , PrefixKind(..)
+    , RecordKind(..)
     , lpnBox
     , lpnBracketNode
     , lpnChildren

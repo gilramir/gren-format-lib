@@ -121,15 +121,18 @@ import Compiler.Parse.Context as Ctx
 import Compiler.SourcePosition exposing (Located, Position, at)
 
 import Formatter.Logical.LogicalPrintingTree exposing
-    ( commentLeadsNext
+    ( CommentRole(..)
+    , LPBox(..)
+    , LPNode
+    , ListBrackets(..)
+    , RecordKind(..)
+    , SyntaxType(..)
+    , commentLeadsNext
     , commentRendersOwnLine
     , commentRole
-    , CommentRole(..)
     , firstRowInSubtree
     , gluesTrailingComment
     , lastRowInSubtree
-    , ListBrackets(..)
-    , LPBox(..)
     , lpnBox
     , lpnBracketEndElastic
     , lpnBracketEndExact
@@ -141,13 +144,10 @@ import Formatter.Logical.LogicalPrintingTree exposing
     , lpnLastPos
     , lpnLeaf
     , lpnNode
-    , LPNode
     , lpnReplaceChildren
     , lpnSetCommentRole
-    , RecordKind(..)
     , spanTrailingOwnLine
     , subtreeRowRange
-    , SyntaxType(..)
     )
 import Formatter.Strings exposing (countNewlines)
 

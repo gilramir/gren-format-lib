@@ -12,14 +12,99 @@ signatures, and comments — each laid out to match elm-format.
 -}
 
 import Formatter.Logical.BinopPrecedence exposing (binopMinPrecedence, binopPrecedence)
-import Formatter.Logical.LogicalPrintingTree exposing (commentGluesToPrevious, commentLeadsOwnLine, commentRole, CommentRole(..), firstRowInSubtree, ListBrackets(..), LPBox(..), lpnBox, lpnChildren, lpnLastBracketEnd, lpnLastPos, lpnMaxRow, LPNode, lpnReplaceChildren, prefixGlyph, RecordKind(..), spanTrailingOwnLine, SyntaxType(..))
+import Formatter.Logical.LogicalPrintingTree exposing
+    ( CommentRole(..)
+    , LPBox(..)
+    , LPNode
+    , ListBrackets(..)
+    , RecordKind(..)
+    , SyntaxType(..)
+    , commentGluesToPrevious
+    , commentLeadsOwnLine
+    , commentRole
+    , firstRowInSubtree
+    , lpnBox
+    , lpnChildren
+    , lpnLastBracketEnd
+    , lpnLastPos
+    , lpnMaxRow
+    , lpnReplaceChildren
+    , prefixGlyph
+    , spanTrailingOwnLine
+    )
 import Formatter.Render.BackwardPipeline as BP
-import Formatter.Render.BinopLayout exposing (assembleBinopBox, commentBreaksBinopChain, flattenBinopNodes, isChainBreakingOperandBox, opText)
+import Formatter.Render.BinopLayout exposing
+    ( assembleBinopBox
+    , commentBreaksBinopChain
+    , flattenBinopNodes
+    , isChainBreakingOperandBox
+    , opText
+    )
 import Formatter.Render.Box as B exposing (Box(..))
-import Formatter.Render.BoxOps exposing (applyIndent, blockIndentSpaces, boxLine, glueCommentSuffix, glueLeadingCommentPrefix, grenIndent, isBlockNode, isSingleLine, joinInline, prefixOperator, spaceJoinLines, stackWithBlanks, wrapParenVerticalPadded)
-import Formatter.Render.CommentBox exposing (commentForcesBracketOpen, commentNodeBox, emptyBracketedCommentLine, glueLeadingCommentRun, glueTrailingComments, makeCommentLineBox, multiLineBlockCommentBox, operatorPrefixedOperandBox, pairInlineComments, peelLeadingInlineComments, peelTrailingCommentNodes, spanLeadingComments, spanOperatorRowComments, spanTrailingComments, spanTrailingOwnLineComments, splitOpenerComments, stepLeadBoxes, stepLeadPrefixBoxes, updateBaseBox)
+import Formatter.Render.BoxOps exposing
+    ( applyIndent
+    , blockIndentSpaces
+    , boxLine
+    , glueCommentSuffix
+    , glueLeadingCommentPrefix
+    , grenIndent
+    , isBlockNode
+    , isSingleLine
+    , joinInline
+    , prefixOperator
+    , spaceJoinLines
+    , stackWithBlanks
+    , wrapParenVerticalPadded
+    )
+import Formatter.Render.CommentBox exposing
+    ( commentForcesBracketOpen
+    , commentNodeBox
+    , emptyBracketedCommentLine
+    , glueLeadingCommentRun
+    , glueTrailingComments
+    , makeCommentLineBox
+    , multiLineBlockCommentBox
+    , operatorPrefixedOperandBox
+    , pairInlineComments
+    , peelLeadingInlineComments
+    , peelTrailingCommentNodes
+    , spanLeadingComments
+    , spanOperatorRowComments
+    , spanTrailingComments
+    , spanTrailingOwnLineComments
+    , splitOpenerComments
+    , stepLeadBoxes
+    , stepLeadPrefixBoxes
+    , updateBaseBox
+    )
 import Formatter.Render.ElmStructure as E
-import Formatter.Render.FlowAssembly exposing (assembleBrokenCall, assembleBrokenWithComments, BinopChainSegment, bracketPunc, FlowItem, flowItemFromBox, FlowMeasure, gluedExposingBox, groupBinopByPrecedence, isCommentItem, leadingRunRowBoxes, operandItemsRenderMultiline, pairableCommentLine, pairLeadingComments, parenInnerIsAlignCarrying, parenLambdaMultilineItems, softBlockChildForcesVerticalBox, softGlueAlignment, SoftGlueAlignment(..), splitAfterGluedOperand, splitPairingCommentItems, splitStepTriggerItems, trySoftGlueFlow, typeContentSpansRows, verticalExposingBox)
+import Formatter.Render.FlowAssembly exposing
+    ( BinopChainSegment
+    , FlowItem
+    , FlowMeasure
+    , SoftGlueAlignment(..)
+    , assembleBrokenCall
+    , assembleBrokenWithComments
+    , bracketPunc
+    , flowItemFromBox
+    , gluedExposingBox
+    , groupBinopByPrecedence
+    , isCommentItem
+    , leadingRunRowBoxes
+    , operandItemsRenderMultiline
+    , pairLeadingComments
+    , pairableCommentLine
+    , parenInnerIsAlignCarrying
+    , parenLambdaMultilineItems
+    , softBlockChildForcesVerticalBox
+    , softGlueAlignment
+    , splitAfterGluedOperand
+    , splitPairingCommentItems
+    , splitStepTriggerItems
+    , trySoftGlueFlow
+    , typeContentSpansRows
+    , verticalExposingBox
+    )
 import Formatter.Render.FlowPolicy as FP
 import Formatter.Render.NodeClassify exposing
     ( commentBreaksFlowRow
@@ -33,16 +118,16 @@ import Formatter.Render.NodeClassify exposing
     , isOpAndRhsNode
     , isPipelineStepNode
     , isTypeRecordLiteral
-    , leafLineRow
     , lambdaParenIsHeadAndBodyOnly
+    , leafLineRow
     , leafValue
     , literalCommentsRideFlatLine
     , nodeIsComment
     , parenContentIsLambdaHead
     , rowsSpanMultiple
     , signatureForceVertical
-    , splitSignatureSegments
     , splitOffLambdaHead
+    , splitSignatureSegments
     , stepOperatorText
     , subtreeHasComment
     , valueNodeIsHardBlock

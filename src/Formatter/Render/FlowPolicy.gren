@@ -64,15 +64,15 @@ surfaced before facts are built.
 -}
 
 import Formatter.Logical.LogicalPrintingTree exposing
-    ( commentGluesToPrevious
+    ( CommentRole(..)
+    , LPBox(..)
+    , LPNode
+    , ListBrackets(..)
+    , commentGluesToPrevious
     , commentLeadsNext
     , commentRole
-    , CommentRole(..)
-    , ListBrackets(..)
-    , LPBox(..)
     , lpnBox
     , lpnChildren
-    , LPNode
     , roleGlues
     )
 

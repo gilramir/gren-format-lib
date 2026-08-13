@@ -211,5 +211,3 @@ applyIndent indent box =
 
     else
         applyIndent (indent - 4) (B.indent box)
-
-

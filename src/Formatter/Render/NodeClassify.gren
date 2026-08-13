@@ -31,7 +31,21 @@ module Formatter.Render.NodeClassify exposing
 {-| Boolean predicates and small structural queries over LPT nodes.
 -}
 
-import Formatter.Logical.LogicalPrintingTree exposing (boxIsComment, commentRole, CommentRole(..), firstRowInSubtree, ListBrackets(..), LPBox(..), lpnBox, lpnBracketStart, lpnChildren, lpnHasComment, lpnMaxRow, LPNode, RecordKind(..))
+import Formatter.Logical.LogicalPrintingTree exposing
+    ( CommentRole(..)
+    , LPBox(..)
+    , LPNode
+    , ListBrackets(..)
+    , RecordKind(..)
+    , boxIsComment
+    , commentRole
+    , firstRowInSubtree
+    , lpnBox
+    , lpnBracketStart
+    , lpnChildren
+    , lpnHasComment
+    , lpnMaxRow
+    )
 import Formatter.Render.Box as B
 
 

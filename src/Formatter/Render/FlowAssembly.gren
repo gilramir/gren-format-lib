@@ -1,11 +1,12 @@
 module Formatter.Render.FlowAssembly exposing
-    ( assembleBrokenCall
-    , assembleBrokenWithComments
-    , BinopChainSegment
-    , bracketPunc
+    ( BinopChainSegment
     , FlowItem
-    , flowItemFromBox
     , FlowMeasure
+    , SoftGlueAlignment(..)
+    , assembleBrokenCall
+    , assembleBrokenWithComments
+    , bracketPunc
+    , flowItemFromBox
     , gluedExposingBox
     , groupBinopByPrecedence
     , isCommentItem
@@ -14,14 +15,13 @@ module Formatter.Render.FlowAssembly exposing
     , itemIsMultilineParenBlock
     , leadingRunRowBoxes
     , operandItemsRenderMultiline
+    , pairLeadingComments
     , pairableCommentItemLine
     , pairableCommentLine
-    , pairLeadingComments
     , parenInnerIsAlignCarrying
     , parenLambdaMultilineItems
     , softBlockChildForcesVerticalBox
     , softGlueAlignment
-    , SoftGlueAlignment(..)
     , splitAfterGluedOperand
     , splitPairingCommentItems
     , splitStepTriggerItems
@@ -34,7 +34,7 @@ module Formatter.Render.FlowAssembly exposing
 -}
 
 import Formatter.Logical.BinopPrecedence exposing (binopMinPrecedence, binopPrecedence)
-import Formatter.Logical.LogicalPrintingTree exposing (commentGluesToPrevious, commentRole, CommentRole(..), ListBrackets(..), LPBox(..), lpnBox, lpnChildren, lpnMaxRow, LPNode, RecordKind(..), roleGlues)
+import Formatter.Logical.LogicalPrintingTree exposing (CommentRole(..), LPBox(..), LPNode, ListBrackets(..), RecordKind(..), commentGluesToPrevious, commentRole, lpnBox, lpnChildren, lpnMaxRow, roleGlues)
 import Formatter.Render.BinopLayout exposing (isChainBreakingOperandBox)
 import Formatter.Render.Box as B exposing (Box(..))
 import Formatter.Render.BoxOps exposing (applyIndent, commentRunLine, glueCommentSuffix, isBlockNode, isSingleLine, joinInline, nodesShareStartRow)

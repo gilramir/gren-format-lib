@@ -177,7 +177,6 @@ classifyChildren nodes =
                 )
                 { out = Builder.empty (Array.length nodes), lastNonComment = Nothing, seenDoc = False }
                 nodes
-
     in
     Builder.toArray out
 
