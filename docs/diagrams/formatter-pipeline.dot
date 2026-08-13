@@ -5,34 +5,64 @@ digraph FormatterPipeline {
     fontsize=12;
     ranksep=0.45;
     nodesep=0.55;
+    compound=true;
 
     node [fontname="Helvetica,Arial,sans-serif", fontsize=11];
     edge [fontname="Helvetica,Arial,sans-serif", fontsize=10, color="#555555"];
 
-    // Data nodes
-    node [shape=box, style="rounded,filled", fillcolor="#eef2f7", color="#7a95b8", fontcolor="#1c2b3a"];
-    source     [label="your source code\n(text)"];
-    astCtx     [label="code structure  +  comments\n(AST + Context)"];
-    lpt        [label="a Logical Printing Tree"];
-    renderPlan [label="a render plan\n(Box tree)"];
-    formatted  [label="formatted code\n(text)"];
+    // ---- What the calling code does before prettyPrint -------------------
+    subgraph cluster_caller {
+        label="calling code";
+        labeljust=l;
+        fontsize=11;
+        fontcolor="#5b6b7c";
+        style="dashed,rounded";
+        color="#9aa8b6";
+        margin=12;
 
-    // Process nodes
-    node [shape=box, style="rounded,filled", fillcolor="#dbe9f7", color="#3f6fa8", fontcolor="#1c2b3a"];
-    parse [label="parse\n(Gren's compiler-common parser,\nbefore this library gets involved)"];
-    step1 [label="Step 1\nbuild the Logical Printing Tree"];
-    step2 [label="Step 2\nbuild the render plan"];
-    step3 [label="Step 3\nrender to text\n(cannot fail)"];
+        node [shape=box, style="rounded,filled", fillcolor="#eef2f7", color="#7a95b8", fontcolor="#1c2b3a"];
+        source [label="your source code\n(text)"];
+        astCtx [label="code structure  +  comments\n(AST + Context)"];
 
-    // Error / failure nodes
-    node [shape=box, style="rounded,filled", fillcolor="#fbdede", color="#c0392b", fontcolor="#7a1f13"];
-    parseFail [label="parse error\n(invalid Gren syntax)"];
-    step1Fail [label="Err\n(a code shape the tree builder\ndoesn't yet handle)"];
-    step2Fail [label="Err\n(a construct the render-plan\nbuilder doesn't yet handle)"];
+        node [shape=box, style="rounded,filled", fillcolor="#dbe9f7", color="#3f6fa8", fontcolor="#1c2b3a"];
+        parse [label="parse\n(Gren's compiler-common parser)"];
 
-    // Explanatory note
-    node [shape=note, style=filled, fillcolor="#fffbe6", color="#c9a227", fontcolor="#4a3b06", fontsize=9];
-    errNote [label="Err from Step 1 and Step 2 indicate gaps in the\lgren formatter logic, not evidence of invalid source.\l"];
+        node [shape=box, style="rounded,filled", fillcolor="#fbdede", color="#c0392b", fontcolor="#7a1f13"];
+        parseFail [label="parse error\n(invalid Gren syntax)"];
+
+        { rank=same; astCtx; parseFail }
+    }
+
+    // ---- What this library does (Formatter.prettyPrint) ------------------
+    subgraph cluster_lib {
+        label="gren-format-lib";
+        labeljust=l;
+        fontsize=11;
+        fontcolor="#5b6b7c";
+        style="dashed,rounded";
+        color="#9aa8b6";
+        margin=12;
+
+        node [shape=box, style="rounded,filled", fillcolor="#eef2f7", color="#7a95b8", fontcolor="#1c2b3a"];
+        lpt        [label="a Logical Printing Tree"];
+        renderPlan [label="a render plan\n(Box tree)"];
+        formatted  [label="formatted code\n(text)"];
+
+        node [shape=box, style="rounded,filled", fillcolor="#dbe9f7", color="#3f6fa8", fontcolor="#1c2b3a"];
+        step1 [label="Step 1\nbuild the Logical Printing Tree"];
+        step2 [label="Step 2\nbuild the render plan"];
+        step3 [label="Step 3\nrender to text\n(cannot fail)"];
+
+        node [shape=box, style="rounded,filled", fillcolor="#fbdede", color="#c0392b", fontcolor="#7a1f13"];
+        step1Fail [label="Err\n(a code shape the tree builder\ndoesn't yet handle)"];
+        step2Fail [label="Err\n(a construct the render-plan\nbuilder doesn't yet handle)"];
+
+        node [shape=note, style=filled, fillcolor="#fffbe6", color="#c9a227", fontcolor="#4a3b06", fontsize=9];
+        errNote [label="Err from Step 1 and Step 2 indicate gaps in the\lgren formatter logic, not evidence of invalid source.\l"];
+
+        { rank=same; lpt; step1Fail }
+        { rank=same; renderPlan; step2Fail; errNote }
+    }
 
     // Main flow
     source -> parse;
@@ -51,8 +81,4 @@ digraph FormatterPipeline {
 
     step1Fail -> errNote [style=dotted, arrowhead=none, color="#c9a227", constraint=false];
     step2Fail -> errNote [style=dotted, arrowhead=none, color="#c9a227", constraint=false];
-
-    { rank=same; astCtx; parseFail }
-    { rank=same; lpt; step1Fail }
-    { rank=same; renderPlan; step2Fail; errNote }
 }

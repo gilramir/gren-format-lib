@@ -6,20 +6,8 @@ consistent indentation, comments and blank lines kept where they belong, and
 also honoring the single-line/multi-line formatting the author of the source code chose.
 
 This README covers the essentials — an overview, a formatted example, and the
-core formatting rules. Five companion documents go deeper:
-
-- **[How the formatter works](docs/howItWorks.md)** — a conceptual,
-  step-by-step tour of the pipeline (parse → Logical Printing Tree → render
-  plan → text), with a worked example at each step.
-- **[Gren Formatter Rules](docs/formatterRules.md)** — the full rule
-  reference, with a before/after example for every construct.
-- **[How gren-format places your comments](docs/commentHandling.md)** — the six
-  rules that decide where every comment lands, each with a verified
-  "you write / gren-format writes" example.
-- **[Comparison with elm-format](docs/elmFormatComparison.md)** — every place
-  `gren format` deliberately diverges from `elm-format`, and why.
-- **[Known limitations](docs/knownLimitations.md)** — compiler/parser bugs
-  and comment-placement choices the formatter can't do better on today.
+core formatting rules. The companion documents in [`docs/`](docs/) go deeper;
+they're listed under [Deep dive](#deep-dive) at the end.
 
 ---
 
@@ -32,10 +20,58 @@ core formatting rules. Five companion documents go deeper:
 - [Known limitations and Bugs](#known-limitations)
 - [Performance](#performance)
 - [Comparison with elm-format](#comparison-with-elm-format)
+- [Deep dive](#deep-dive)
 
 ---
 
 ## Overview
+
+The whole library is one function, `Formatter.prettyPrint`. It takes the two
+things the [compiler-common](https://github.com/gren-lang/compiler-common)
+parser gives you for a source file — the syntax tree and the parse context —
+and hands back the formatted text:
+
+```gren
+prettyPrint : Src.Module -> Ctx.Context -> Result String String
+```
+
+So calling it means parsing first, then passing both halves along. This is
+what `gren-format` itself does, minus the file I/O:
+
+```gren
+module FormatFile exposing (format)
+
+import Compiler.Parse.Context as Context
+import Compiler.Parse.Module as PM
+import Formatter
+import String.Parser.Advanced as Parser
+
+
+{-| Format the contents of one Gren source file.
+-}
+format : String -> Result String String
+format source =
+    let
+        parser =
+            Parser.succeed (\ast context -> { ast = ast, context = context })
+                |> Parser.keep PM.parser
+                |> Parser.keep Parser.getPayload
+    in
+    when Parser.run parser Context.empty source is
+        Err errs ->
+            -- the source isn't valid Gren
+            Err (PM.errorsToString source errs)
+
+        Ok { ast, context } ->
+            -- the AST says what the code means; the context holds every
+            -- comment and blank line
+            Formatter.prettyPrint ast context
+```
+
+The parser is run with `Context.empty` as its starting payload; it fills that
+payload in as it goes, and `Parser.getPayload` retrieves the finished context
+once the module is parsed. Both results are needed — the AST alone has no
+comments in it.
 
 Turning your source file into its formatted version happens through a pipeline
 of steps, each step handing its result to the next. Any step can fail: a parse
@@ -303,3 +339,54 @@ one of those has to snap to a canonical side
 
 The full catalogue, with a real before/after example for every entry, is in
 **[Comparison with elm-format](docs/elmFormatComparison.md)**.
+
+---
+
+## Deep dive
+
+Everything above is the short version. These are the full documents, all in
+[`docs/`](docs/).
+
+**What the formatter does to your code**
+
+- **[Gren Formatter Rules](docs/formatterRules.md)** — the full rule
+  reference, with a before/after example for every construct.
+- **[How gren-format places your comments](docs/commentHandling.md)** — the six
+  rules that decide where every comment lands, each with a verified
+  "you write / gren-format writes" example.
+- **[Sorting](docs/sorting.md)** — the two things the formatter reorders:
+  the names in an `exposing ( … )` list, and a run of `import` statements.
+- **[Required formatting shapes](docs/requiredFormatting.md)** — the layouts
+  that are recorded Gren-team design decisions and must not be changed.
+- **[Comparison with elm-format](docs/elmFormatComparison.md)** — every place
+  `gren format` deliberately diverges from `elm-format`, and why.
+- **[Redundant parens](docs/redundantParens.md)** — which redundant parentheses
+  each of the two formatters strips, side by side on real output.
+- **[Known limitations](docs/knownLimitations.md)** — compiler/parser bugs
+  and comment-placement choices the formatter can't do better on today.
+
+**How it works inside**
+
+- **[How the formatter works](docs/howItWorks.md)** — a conceptual,
+  step-by-step tour of the pipeline (parse → Logical Printing Tree → render
+  plan → text), with a worked example at each step.
+- **[Notes for developers](docs/developer.md)** — the orientation guide for
+  teaching the formatter about a new piece of Gren syntax.
+- **[How gren-format handles comments](docs/commentModel.md)** — why comments
+  are the hard part, and the model the implementation is built on.
+- **[The comment algorithm](docs/commentAlgorithm.md)** — the implementation
+  itself, for people working on the formatter.
+- **[Development history](docs/devHistory.md)** — the archived long-form
+  `CLAUDE.md`: every bug this formatter has had, and every fix that was tried
+  and backed out.
+
+**How it's tested**
+
+- **[Testing gates](docs/testing.md)** — every independent check, what failure
+  class it aims at, and how to run it.
+- **[Long fuzz sweeps](docs/fuzzTesting.md)** — grinding through hundreds of
+  thousands of random modules with `fuzzrun.py`.
+- **[Distributed sweeps](docs/distributedFuzzing.md)** — spreading one sweep
+  across several hosts.
+- **[Testing runs of comments](docs/commentRunTesting.md)** — how the repo gets
+  more than one comment in a row right, without enumerating the combinations.
