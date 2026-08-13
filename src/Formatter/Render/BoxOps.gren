@@ -1,9 +1,30 @@
-module Formatter.Render.BoxOps exposing (applyIndent, blockIndentSpaces, boxLine, commentRunLine, glueCommentSuffix, glueLeadingCommentPrefix, grenIndent, isBlockNode, isSingleLine, joinInline, nodesShareStartRow, prefixOperator, spaceJoinLines, stackWithBlanks, wrapParenVerticalPadded)
+module Formatter.Render.BoxOps exposing
+    ( applyIndent
+    , blockIndentSpaces
+    , boxLine
+    , commentRunLine
+    , glueCommentSuffix
+    , glueLeadingCommentPrefix
+    , grenIndent
+    , isBlockNode
+    , isSingleLine
+    , joinInline
+    , nodesShareStartRow
+    , prefixOperator
+    , spaceJoinLines
+    , stackWithBlanks
+    , wrapParenVerticalPadded
+    )
 
 {-| Low-level `Box`/`Line` manipulation helpers shared by the renderer.
 -}
 
-import Formatter.Logical.LogicalPrintingTree exposing (LPBox(..), LPNode, lpnBox, lpnFirstPos)
+import Formatter.Logical.LogicalPrintingTree exposing
+    ( LPBox(..)
+    , LPNode
+    , lpnBox
+    , lpnFirstPos
+    )
 import Formatter.Render.Box as B exposing (Box(..))
 
 

@@ -1,4 +1,11 @@
-module Formatter.Audit.DecisionTrace exposing (Decision, DeclTrace, Flip, diffDeclarations, reportToJson, traceDeclarations)
+module Formatter.Audit.DecisionTrace exposing
+    ( Decision
+    , DeclTrace
+    , Flip
+    , diffDeclarations
+    , reportToJson
+    , traceDeclarations
+    )
 
 {-| What the formatter decided, and whether it decides the same thing again.
 
@@ -74,11 +81,27 @@ one is how the gate starts lying.
 
 -}
 
-import Formatter.Logical.LogicalPrintingTree exposing (LPBox(..), LPNode, SyntaxType(..), bracketsToString, lpnBox, lpnChildren, roleToString, stypeToString)
+import Formatter.Logical.LogicalPrintingTree exposing
+    ( LPBox(..)
+    , LPNode
+    , SyntaxType(..)
+    , bracketsToString
+    , lpnBox
+    , lpnChildren
+    , roleToString
+    , stypeToString
+    )
 import Formatter.Render as Render
 import Formatter.Render.BoxOps exposing (isSingleLine)
 import Formatter.Render.MakeRenderBox exposing (makePBox)
-import Formatter.Render.NodeClassify exposing (commentBreaksFlowRow, commentEndsItsLine, commentTextCanRide, literalCommentsRideFlatLine, signatureForceVertical, splitSignatureSegments)
+import Formatter.Render.NodeClassify exposing
+    ( commentBreaksFlowRow
+    , commentEndsItsLine
+    , commentTextCanRide
+    , literalCommentsRideFlatLine
+    , signatureForceVertical
+    , splitSignatureSegments
+    )
 import Json.Encode as Json
 
 

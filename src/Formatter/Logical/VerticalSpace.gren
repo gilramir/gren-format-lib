@@ -1,4 +1,7 @@
-module Formatter.Logical.VerticalSpace exposing (insertEmptyLines, insertFlowBlankLines)
+module Formatter.Logical.VerticalSpace exposing
+    ( insertEmptyLines
+    , insertFlowBlankLines
+    )
 
 {-| Insert blank-line `EmptyLine` siblings into the Logical Printing Tree to
 preserve and normalise vertical spacing — between top-level declarations

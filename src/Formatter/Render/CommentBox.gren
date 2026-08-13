@@ -27,10 +27,33 @@ module Formatter.Render.CommentBox exposing
 {-| Rendering of comment nodes (line, block, doc) to `Box`.
 -}
 
-import Formatter.Logical.LogicalPrintingTree exposing (CommentRole(..), LPBox(..), LPNode, commentGluesToPrevious, commentLeadsNext, commentLeadsOwnLine, commentRole, commentTrailsHead, lpnBox, lpnChildren, lpnReplaceChildren, roleIs, spanTrailingOwnLine)
+import Formatter.Logical.LogicalPrintingTree exposing
+    ( CommentRole(..)
+    , LPBox(..)
+    , LPNode
+    , commentGluesToPrevious
+    , commentLeadsNext
+    , commentLeadsOwnLine
+    , commentRole
+    , commentTrailsHead
+    , lpnBox
+    , lpnChildren
+    , lpnReplaceChildren
+    , roleIs
+    , spanTrailingOwnLine
+    )
 import Formatter.Render.Box as B exposing (Box(..))
-import Formatter.Render.BoxOps exposing (glueCommentSuffix, glueLeadingCommentPrefix, isSingleLine, prefixOperator)
-import Formatter.Render.NodeClassify exposing (commentTextCanRide, literalCommentsRideFlatLine, nodeIsComment)
+import Formatter.Render.BoxOps exposing
+    ( glueCommentSuffix
+    , glueLeadingCommentPrefix
+    , isSingleLine
+    , prefixOperator
+    )
+import Formatter.Render.NodeClassify exposing
+    ( commentTextCanRide
+    , literalCommentsRideFlatLine
+    , nodeIsComment
+    )
 import Formatter.Results exposing (traverseResult)
 
 

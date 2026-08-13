@@ -34,12 +34,39 @@ module Formatter.Render.FlowAssembly exposing
 -}
 
 import Formatter.Logical.BinopPrecedence exposing (binopMinPrecedence, binopPrecedence)
-import Formatter.Logical.LogicalPrintingTree exposing (CommentRole(..), LPBox(..), LPNode, ListBrackets(..), RecordKind(..), commentGluesToPrevious, commentRole, lpnBox, lpnChildren, lpnMaxRow, roleGlues)
+import Formatter.Logical.LogicalPrintingTree exposing
+    ( CommentRole(..)
+    , LPBox(..)
+    , LPNode
+    , ListBrackets(..)
+    , RecordKind(..)
+    , commentGluesToPrevious
+    , commentRole
+    , lpnBox
+    , lpnChildren
+    , lpnMaxRow
+    , roleGlues
+    )
 import Formatter.Render.BinopLayout exposing (isChainBreakingOperandBox)
 import Formatter.Render.Box as B exposing (Box(..))
-import Formatter.Render.BoxOps exposing (applyIndent, commentRunLine, glueCommentSuffix, isBlockNode, isSingleLine, joinInline, nodesShareStartRow)
+import Formatter.Render.BoxOps exposing
+    ( applyIndent
+    , commentRunLine
+    , glueCommentSuffix
+    , isBlockNode
+    , isSingleLine
+    , joinInline
+    , nodesShareStartRow
+    )
 import Formatter.Render.FlowPolicy as FP
-import Formatter.Render.NodeClassify exposing (isColonLeaf, isEmptyLine, isMultilineLambdaParenBlockBox, isTypeRecordLiteral, nodeIsComment, subtreeEndsWithMultilineBlockComment)
+import Formatter.Render.NodeClassify exposing
+    ( isColonLeaf
+    , isEmptyLine
+    , isMultilineLambdaParenBlockBox
+    , isTypeRecordLiteral
+    , nodeIsComment
+    , subtreeEndsWithMultilineBlockComment
+    )
 import Formatter.Results exposing (traverseResult)
 
 

@@ -1,4 +1,8 @@
-module Formatter.Audit.PredicateAgreement exposing (Finding, auditLpt, findingsToJson)
+module Formatter.Audit.PredicateAgreement exposing
+    ( Finding
+    , auditLpt
+    , findingsToJson
+    )
 
 {-| A render-truth audit of the LPT "will this break?" predicates.
 
@@ -40,12 +44,26 @@ See `flowCommentFindings`.
 
 -}
 
-import Formatter.Logical.LogicalPrintingTree exposing (LPBox(..), LPNode, lpnBox, lpnChildren, lpnFirstPos, stypeToString)
+import Formatter.Logical.LogicalPrintingTree exposing
+    ( LPBox(..)
+    , LPNode
+    , lpnBox
+    , lpnChildren
+    , lpnFirstPos
+    , stypeToString
+    )
 import Formatter.Render.Box as B exposing (Box)
 import Formatter.Render.BoxOps exposing (isSingleLine)
 import Formatter.Render.FlowAssembly exposing (FlowMeasure)
-import Formatter.Render.MakeRenderBox exposing (buildFlowBoxMeasured, makePBox)
-import Formatter.Render.NodeClassify exposing (commentBreaksFlowRow, isMultilineLambdaParenBlockBox, nodeIsComment)
+import Formatter.Render.MakeRenderBox exposing
+    ( buildFlowBoxMeasured
+    , makePBox
+    )
+import Formatter.Render.NodeClassify exposing
+    ( commentBreaksFlowRow
+    , isMultilineLambdaParenBlockBox
+    , nodeIsComment
+    )
 import Json.Encode as Json
 
 

@@ -15,7 +15,18 @@ machine consumer.
 import Json.Encode as Json
 
 import Compiler.SourcePosition exposing (Located, Position)
-import Formatter.Logical.LogicalPrintingTree exposing (LPBox(..), LPNode, ListBrackets, bracketsToString, lpnBox, lpnChildren, prefixGlyph, recordKindToString, roleToString, stypeToString)
+import Formatter.Logical.LogicalPrintingTree exposing
+    ( LPBox(..)
+    , LPNode
+    , ListBrackets
+    , bracketsToString
+    , lpnBox
+    , lpnChildren
+    , prefixGlyph
+    , recordKindToString
+    , roleToString
+    , stypeToString
+    )
 
 
 {-| Serialise the Logical Printing Tree to JSON for debugging.

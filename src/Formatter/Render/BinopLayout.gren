@@ -1,12 +1,28 @@
-module Formatter.Render.BinopLayout exposing (assembleBinopBox, commentBreaksBinopChain, flattenBinopNodes, isChainBreakingOperandBox, opText)
+module Formatter.Render.BinopLayout exposing
+    ( assembleBinopBox
+    , commentBreaksBinopChain
+    , flattenBinopNodes
+    , isChainBreakingOperandBox
+    , opText
+    )
 
 {-| Pure layout assembly for binary-operator chains (operand boxes + operator texts -> Box).
 -}
 
 import Formatter.Logical.BinopPrecedence exposing (binopPrecedence)
-import Formatter.Logical.LogicalPrintingTree exposing (CommentRole(..), LPBox(..), LPNode, commentRole, lpnBox, lpnChildren)
+import Formatter.Logical.LogicalPrintingTree exposing
+    ( CommentRole(..)
+    , LPBox(..)
+    , LPNode
+    , commentRole
+    , lpnBox
+    , lpnChildren
+    )
 import Formatter.Render.Box as B exposing (Box(..))
-import Formatter.Render.NodeClassify exposing (commentBreaksFlowRow, leafValue)
+import Formatter.Render.NodeClassify exposing
+    ( commentBreaksFlowRow
+    , leafValue
+    )
 import Formatter.Results exposing (traverseResult)
 
 

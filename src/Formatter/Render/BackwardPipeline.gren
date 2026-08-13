@@ -16,13 +16,49 @@ did it in the small (`renderHeaderIndentedBody`, `literalItemRenderer`).
 from it and from nothing else — `makePipelineBox` was the cluster's sole caller.
 -}
 
-import Formatter.Logical.LogicalPrintingTree exposing (CommentRole(..), LPBox(..), LPNode, commentLeadsOwnLine, lpnBox, lpnChildren)
+import Formatter.Logical.LogicalPrintingTree exposing
+    ( CommentRole(..)
+    , LPBox(..)
+    , LPNode
+    , commentLeadsOwnLine
+    , lpnBox
+    , lpnChildren
+    )
 import Formatter.Render.Box as B exposing (Box(..))
-import Formatter.Render.BoxOps exposing (applyIndent, boxLine, glueCommentSuffix, glueLeadingCommentPrefix, grenIndent, isBlockNode, isSingleLine)
-import Formatter.Render.CommentBox exposing (commentNodeBox, glueTrailingComments, operatorPrefixedOperandBox, spanLeadingComments, spanOperatorRowComments, spanTrailingComments, stepLeadBoxes, stepLeadPrefixBoxes)
-import Formatter.Render.FlowAssembly exposing (FlowItem, assembleBrokenCall, isCommentItem)
+import Formatter.Render.BoxOps exposing
+    ( applyIndent
+    , boxLine
+    , glueCommentSuffix
+    , glueLeadingCommentPrefix
+    , grenIndent
+    , isBlockNode
+    , isSingleLine
+    )
+import Formatter.Render.CommentBox exposing
+    ( commentNodeBox
+    , glueTrailingComments
+    , operatorPrefixedOperandBox
+    , spanLeadingComments
+    , spanOperatorRowComments
+    , spanTrailingComments
+    , stepLeadBoxes
+    , stepLeadPrefixBoxes
+    )
+import Formatter.Render.FlowAssembly exposing
+    ( FlowItem
+    , assembleBrokenCall
+    , isCommentItem
+    )
 import Formatter.Render.FlowPolicy as FP
-import Formatter.Render.NodeClassify exposing (commentBreaksFlowRow, commentTextCanRide, isPipelineStepNode, leafValue, literalCommentsRideFlatLine, nodeIsComment, stepOperatorText)
+import Formatter.Render.NodeClassify exposing
+    ( commentBreaksFlowRow
+    , commentTextCanRide
+    , isPipelineStepNode
+    , leafValue
+    , literalCommentsRideFlatLine
+    , nodeIsComment
+    , stepOperatorText
+    )
 import Formatter.Results exposing (traverseResult)
 
 
