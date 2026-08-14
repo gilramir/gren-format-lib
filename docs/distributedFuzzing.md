@@ -1,7 +1,7 @@
 # Distributed sweeps
 
-**Status: implemented 2026-08-09.** `fuzzrun.py coordinate` and
-`fuzzrun.py worker` spread one sweep across several hosts.
+`fuzzrun.py coordinate` and `fuzzrun.py worker` spread one sweep across several
+hosts.
 [`fuzzTesting.md`](fuzzTesting.md) is the operating manual — start there for how
 to run one. This document is why it is shaped the way it is: the decisions, the
 hazards a shared filesystem introduces, and the one invariant that is not free
@@ -23,7 +23,7 @@ second; four hosts should manage four times that, and the twelve-hour sweeps tha
 find the six-feature conjunctions are exactly where that multiplier is worth
 having.
 
-The shape, decided 2026-08-09:
+The shape:
 
 - **One master, started with a time budget** (`--for 5m` while testing, `2h`,
   later `12h`). It coordinates and **does no work of its own** — no local jobs,
@@ -178,10 +178,9 @@ stays protected.
 another terminal while a sweep wrote. WAL needs an mmap'd `-shm` shared-memory
 file, which SQLite documents as unsupported on network filesystems.
 
-**Decision (2026-08-09, the user's): the database stays on NFS beside the
-artifacts, and WAL is dropped.** The alternative — db on the coordinator's local
-disk via the existing `--db` global — was written up here first and rejected for
-a reason that outweighs the tidiness: with the db in the shared directory, the
+**The database stays on NFS beside the artifacts, and WAL is dropped.** The
+alternative — db on the coordinator's local disk via the existing `--db`
+global — is tidier but loses more than it gains: with the db in the shared directory, the
 master can be started from **whichever host is free**, because coverage state
 follows the directory instead of being pinned to one machine. That is the
 difference between "ssh to the coordinator" and "ssh anywhere", and the whole

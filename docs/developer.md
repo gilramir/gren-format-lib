@@ -42,7 +42,7 @@ that are easy to make and expensive to find.
   - [The cached bounds (why `lpnNode` matters)](#the-cached-bounds-why-lpnnode-matters)
 - [Author layout — the `forceVertical` flag](#author-layout--the-forcevertical-flag)
 - [`Formatter.Render.Box` — the backend](#formatterrenderbox--the-backend)
-  - [Why Box replaced Doc (and PrettyExpressive before it)](#why-box-replaced-doc-and-prettyexpressive-before-it)
+  - [Why Box, and not a pretty-printer](#why-box-and-not-a-pretty-printer)
 - [Adding a new construct — the checklist](#adding-a-new-construct--the-checklist)
   - [1. Find the AST node](#1-find-the-ast-node)
   - [2. Convert AST → LPT](#2-convert-ast--lpt)
@@ -80,10 +80,9 @@ Src.Module + Ctx.Context  ──►  LPT  ──►  Box  ──►  String
   intermediate "could become a newline" node and nothing to resolve at render
   time. The flat-vs-vertical choice is made once, at LPT-build time, via
   `forceVertical` flags on certain boxes (see below); rendering just executes
-  whichever shape the tree already committed to. See [Why Box replaced Doc (and
-  PrettyExpressive before it)](#why-box-replaced-doc-and-prettyexpressive-before-it)
-  for how this backend got here and why it looks nothing like a typical
-  Wadler-style pretty-printer.
+  whichever shape the tree already committed to. See [Why Box, and not a
+  pretty-printer](#why-box-and-not-a-pretty-printer) for why this backend looks
+  nothing like a typical Wadler-style pretty-printer.
 
 Entry point: `Formatter.prettyPrint : Src.Module -> Ctx.Context ->
 Result String String`. It calls `MakeLogical.makeLogicalPrintingTree` (build the
@@ -722,61 +721,27 @@ When you add a new box type, add an arm to `makePrettyLineBox`'s `when box is
 fits — a new `LPBox` constructor requires new arms in *every* `when box is` in
 `MakeRenderBox` plus `selfBoxBounds` in `LogicalPrintingTree`.
 
-### Why Box replaced Doc (and PrettyExpressive before it)
+### Why Box, and not a pretty-printer
 
-This backend has had three incarnations; each replacement removed a layer of
-machinery that turned out to be solving a problem gren-format doesn't have.
+Box is a port of elm-format's own `Box.hs`, and that is the point: it is the IR
+elm-format renders through, so the two formatters' render-time behaviour can be
+described in the same terms — which is what the
+[comments section below](#why-the-architecture-is-comment-driven--contrasted-with-elm-format)
+does.
 
-**1. PrettyExpressive → a custom `Doc` (June 2026).** The formatter originally
-rendered through `gilramir/gren-pretty-expressive` (kept for reference at
-`../gren-pretty-expressive/`) — a Wadler/Prettier-style pretty-printer (the
-family of formatters, including JavaScript's Prettier, that lay out code by
-searching for the best line-break points within a page-width budget) with a
-genuine cost-based layout *optimizer*: given a page width, it searched for the
-best place to break each group. But gren-format's actual rule is "your line
-breaks are your layout decisions" — there is no 80-column target to optimize
-for, and every construct's flat-vs-vertical choice is already decided from the
-author's source positions (`forceVertical`) before rendering starts. Running
-an optimizer over a decision that was already made is dead weight at best and,
-at worst, a second source of truth that can disagree with the first. It was
-replaced with a small custom `Doc` type (`Group`/`Nest`/`Nl`/`HardNl`) whose
-`Group` *always* rendered flat — no search, no page width, just a fixed
-choice — while keeping the general Wadler-style vocabulary.
+The obvious alternative is a Wadler/Prettier-style pretty-printer — the family,
+including JavaScript's Prettier, that lays code out by searching for the best
+line breaks within a page-width budget. This formatter had one (and then a
+hand-written `Doc` IR after it), and both were removed. A cost-based optimizer
+answers "where should the breaks go?", and gren-format has already answered that
+before rendering starts: your line breaks are your layout decisions, recorded as
+`forceVertical`. Running a search over a decision already made is dead weight,
+and worse, it is a second opinion that can disagree with the first.
 
-**2. Custom `Doc` → `Box` (June–July 2026, the "Change-1" strangler).** With
-the optimizer gone, `Doc`'s `Group`/`Nest`/`Nl` combinators were still a
-*reinvented* layout vocabulary — our own abstraction, not elm-format's —
-and matching elm-format's exact output through it meant hand-tuning column
-arithmetic construct by construct (bespoke `fieldLine`/`R.align` code for
-record updates, for instance) and still landing on documented divergences the
-arithmetic couldn't reach — e.g. a lambda field value's `\arg ->` head
-dropping to its own line, which elm-format does unconditionally but the `Doc`
-renderer couldn't reproduce.
-
-A proof-of-concept (commit `7f3a536`) tried something more direct: port
-elm-format's actual `Box.hs`/`ElmStructure.hs` combinators verbatim, instead
-of re-deriving their behavior through a different abstraction. The result was
-byte-identical to real `elm-format` output on every case tried, including the
-lambda-field case, **with zero hand-tuned column arithmetic** — because it
-uses elm-format's own primitives (`Tab` tab-stops, `prefix` padding) rather
-than approximating them. That result justified a full rewrite: a "strangler
-fig" migration — replace the old implementation piece by piece behind a
-safety net, rather than in one big-bang rewrite — ported one construct at a
-time behind a self-verifying guard that compared `Box` output against the
-live `Doc` output and only trusted `Box` where they agreed (see the many
-`Change-1 strangler tranche N` commits).
-Once every construct crossed over with 0 `Box` `Err`s across the whole corpus,
-`fa25ba0` deleted `Doc.gren` and the guard — `Box` has been the sole backend
-since.
-
-The throughline: each step removed a layer that was re-deciding something
-already decided elsewhere. PrettyExpressive re-decided layout via cost search
-when the author already decided it. `Doc` re-derived elm-format's rendering
-behavior through a different vocabulary when the shortest path was to just
-port elm-format's actual code. `Box` doesn't re-decide or re-derive
-anything — it's the same IR elm-format itself renders through, which is also
-why the [comments section below](#why-the-architecture-is-comment-driven--contrasted-with-elm-format)
-can now describe our render-time behavior and elm-format's in the same terms.
+That is the throughline for anything you add here. Each layer this renderer has
+shed was one that re-decided something already decided elsewhere, and the same
+test applies to a new one: if a box has to work out what the author already
+told us, the answer belongs upstream, not in the renderer.
 
 ---
 
@@ -1104,9 +1069,9 @@ upstream decision: **gren-format reuses the production Gren compiler's parser
 opposite choice, and comparing the two is the fastest way to understand why this
 codebase looks the way it does.
 
-Note this is a *parser*-level divergence, not a render-level one: since the
-[Box cutover](#why-box-replaced-doc-and-prettyexpressive-before-it), our
-render IR is elm-format's `Box`/`Line` types, ported rather than reinvented
+Note this is a *parser*-level divergence, not a render-level one: our
+[render IR](#why-box-and-not-a-pretty-printer) is elm-format's `Box`/`Line`
+types, ported rather than reinvented
 (with one deliberate change: no `MustBreak` constructor — see above). So
 everything below about how elm-format's `Box` renders a comment once it's in
 the tree (`SingleLine` for an inline `{- -}`, the `Tab`/`prefix` indentation

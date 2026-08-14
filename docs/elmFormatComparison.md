@@ -359,7 +359,7 @@ if it stops being — an entry with no fixture, or a fixture with no entry.
      it is elm-format that is closer to what a `\u{…}`-writing author typed.
 
    Fixture: `Divergence/D09VerbatimLiterals`, which pins all three. Both sides
-   re-verified against the `elm-format` binary 2026-08-02.
+   are verified against the `elm-format` binary.
 
    Filed upstream as
    [compiler-common#34](https://github.com/gren-lang/compiler-common/issues/34);
@@ -589,12 +589,6 @@ if it stops being — an entry with no fixture, or a fixture with no entry.
     than append once the left side isn't single-line). Covered by the
     `BackwardPipeMultilineSeed` fixture.
 
-    (This entry used to claim gren-format laid a `<|` chain out FLAT, every step
-    at the same indent, as a deliberate divergence. That stopped being true at
-    `6f06b66` (2026-07-15), which made the plain path cumulative after checking
-    the elm-format binary; the doc was not updated with it, so its example
-    output was false under the shipped formatter until 2026-07-31.)
-
 15. <a id="divergence-15"></a>**A comment trailing a pipeline step** gren-format keeps it
     on that step; elm-format moves it to lead the next step (the same
     trailing-vs-leading choice as point 13, here for `|>`/`<|` instead of a
@@ -783,7 +777,7 @@ if it stops being — an entry with no fixture, or a fixture with no entry.
     the author wrote one line and one line still works, so gren-format keeps it.
     A comment that genuinely *can't* share the line does break these open — a
     `--` comment, a `{- … -}` spread over several lines, or one the author put on
-    its own row (see [Block comments](formatterRules.md#block-comments----)). Note this is the one
+    its own row (see [Block comments](formatterRules.md#block-comments--)). Note this is the one
     place gren-format is *less* aggressive than elm-format about comments: points
     1 and 12 are also about elm-format moving comments away from the code they
     were written beside, and the reasoning is the same.
@@ -1157,14 +1151,14 @@ if it stops being — an entry with no fixture, or a fixture with no entry.
                                                     }
     ```
 
-    An earlier gren-format sent both record-update spellings past the `|` instead,
-    which matched elm-format on the second one. That was given up deliberately on
-    2026-08-02: it made the record update the one line-leading separator that
-    moves a `--` off the row it was written on, and a rule that holds at `,`, at a
-    union's `|` and at a record update's `|` was judged worth more than parity on
-    one spelling of one construct. It costs 600 cells of the comment axis, and
-    nothing in `core/`, `compiler-common/`, `compiler-node/` or this repo — the
-    spelling does not occur in real code, in any of its three forms.
+    Sending both record-update spellings past the `|` instead would match
+    elm-format on the second one, at the price of making the record update the
+    one line-leading separator that moves a `--` off the row it was written on.
+    A rule that holds at `,`, at a union's `|` and at a record update's `|`
+    alike is worth more than parity on one spelling of one construct. The choice
+    costs 600 cells of the comment axis and nothing in `core/`,
+    `compiler-common/`, `compiler-node/` or this repo — the spelling does not
+    occur in real code, in any of its three forms.
 
     Three constructs do not follow C2. Since both spellings collapse into one
     output, the side chosen decides **which of the two authors gets their text
@@ -1184,7 +1178,7 @@ if it stops being — an entry with no fixture, or a fixture with no entry.
     The last two are **stated preferences, not forced choices**. The parser
     records no more at a union's `|` than at a record update's: both spellings
     of each arrive byte-identical, so either construct could be made to serve
-    either author. Reviewed and kept 2026-08-03 — the two `|`s deliberately
+    either author. Both are kept — the two `|`s deliberately
     answer the same question in opposite directions, and a single-line `{- -}`
     beside a `|` occurs nowhere in the 592-file package corpus, in either
     position, in either construct.
@@ -1203,10 +1197,7 @@ if it stops being — an entry with no fixture, or a fixture with no entry.
     A *run* of them behaves the same way, all-or-nothing: every comment of the
     run rides the first item's line, or — as soon as one of them cannot ride,
     being a `--` or a multi-line `{- … -}` — the whole run stands on its own
-    rows. (Until 2026-08-02 an opener run broke after its first comment while
-    the identical run in a `,` gap rode; only the first comment of an opener
-    run is classified `RidesInline`, and the ride test there asked the role
-    rather than the comment's shape.)
+    rows.
 
     ```gren
     -- both formatters:
@@ -1274,8 +1265,7 @@ if it stops being — an entry with no fixture, or a fixture with no entry.
     the closing `}`. gren-format keeps the update's inner columns uniform.
 
     **The same holds at every `|`, not just a record update's** — the comment
-    axis's type contexts (2026-08-03) reached the other two and both answer the
-    same way. gren-format puts the comment at the column of the line it leads;
+    axis's type contexts reach the other two, and both answer the same way. gren-format puts the comment at the column of the line it leads;
     elm-format hangs it two columns past the enclosing opener, where again
     nothing lines up with it:
 
@@ -1343,15 +1333,11 @@ if it stops being — an entry with no fixture, or a fixture with no entry.
 
     This is the same rule as the blank line above, not a second one — both are
     "what elm-format does to the comment's own rows". It is listed separately
-    only because the comment matrix could not reach it until it swept the
-    multi-line kind (2026-08-05), at which point it became **the single largest
-    family in the comment-parity baseline**.
+    because it is **the single largest family in the comment-parity baseline**.
 
-    **Removing the row break below a comment that leads an operator used to be
-    the other half of this entry. It no longer is** — `b1beb72` (2026-08-02) made
-    a single-line `{- -}` in front of an operator ride that operator's row, the
-    same answer `++` already gave, and the two formatters now agree here byte for
-    byte:
+    A single-line `{- -}` in front of an operator is not part of it. That rides
+    the operator's row, the same answer `++` gives, and the two formatters agree
+    on it byte for byte:
 
     ```gren
     -- you wrote:            -- gren-format AND elm-format:
@@ -1404,23 +1390,10 @@ if it stops being — an entry with no fixture, or a fixture with no entry.
                                                           one
     ```
 
-    Until 2026-08-08 it did **not**: this kind alone moved the operator onto a
-    row of its own (`fn` ⏎ `····<| {- c` ⏎ … ⏎ `···one`), the shape the
-    parenthetical below records as removed for the `--`. `spanOperatorRowComments`
-    peeled a `--` written on the operator's row and not a multi-line comment, on
-    the stated grounds that the latter "brings its own newlines" — but its own
-    rows are no reason to move the operator, and every other spelling of this
-    code (no comment, `--`, ridable single-line `{- -}`) put the `<|` on the
-    seed's row. Found in the comment axis's UNREVIEWED parity debt, 104 cells,
-    once the multi-line kind reached that axis on 2026-08-05. Fixture
+    A comment's own rows are no reason to move the operator, and every spelling
+    of this code — no comment, `--`, ridable single-line `{- -}`, multi-line —
+    puts the `<|` on the seed's row. Fixture
     `BinopsAndPipelines/BackwardPipeMultilineOperatorRowComment`.
-
-    (This entry used to say gren-format moved the **operator** onto a row of its
-    own — `[ fn` / `····<| -- c` / `········one`. That stopped being true at
-    `f330757` and `67e1b0a` (2026-08-02), which stopped a comment dragging a `<|`
-    off the row its seed put it on. The divergence survived the change; only its
-    mechanism did not, and this text was corrected 2026-08-02 when
-    `Divergence/D26BackPipeLineComment` was written from it and disagreed.)
 
     What makes gren-format's the more consistent of the two is `|>`. Both
     formatters agree, byte for byte, that a `--` trailing a **forward** pipe stays
@@ -1434,7 +1407,7 @@ if it stops being — an entry with no fixture, or a fixture with no entry.
 27. <a id="divergence-27"></a>**A parenthesized *function* type is flattened back onto
     one line; elm-format keeps the break.** When you write the type across rows,
     gren-format keeps your break — inside a record type, inside parens, and
-    between `->` segments alike (that was not true before 2026-08-03; see
+    between `->` segments alike (see
     [Type signatures](formatterRules.md#type-signatures)). The one place it
     still flattens is an arrow-joined type inside parens:
 
@@ -1500,8 +1473,8 @@ if it stops being — an entry with no fixture, or a fixture with no entry.
     `InsertTypes.typeWithArgs` splices its argument nodes straight into the
     parent flow — so there is no container to hold "the author broke this".
     Only three things in a type carry an author-layout flag at all: the `->`
-    segmentation, `itemsSpanRows` over a record's fields, and (since
-    2026-08-03) a parenthesized application. `itemsSpanRows` compares each
+    segmentation, `itemsSpanRows` over a record's fields, and a parenthesized
+    application. `itemsSpanRows` compares each
     field's *start* against the previous field's *end*, which is why a break
     inside a single field, or between `{` and the first field, is invisible to
     it.
@@ -1591,7 +1564,7 @@ if it stops being — an entry with no fixture, or a fixture with no entry.
     second shape above. gren-format asks one question in all eight positions:
     what did you write?
 
-    **The trade was made deliberately** (2026-08-08). The rule is simpler to state
+    **The trade is deliberate.** The rule is simpler to state
     and to predict than elm-format's, and it is the only one under which the
     formatter never invents or destroys a row break inside a run. It costs
     agreement in the four stacking contexts and gains it in the other four; the
@@ -1693,8 +1666,7 @@ if it stops being — an entry with no fixture, or a fixture with no entry.
     it annotates (C7), and the head costs fewer rows — six against eight above.
     What it costs is a uniform body indent: gren's body starts after `} -> `, so
     a wide closing row pushes it right, where elm's body always sits at a fixed
-    offset under the `\`. That trade was reviewed on 2026-08-09 and gren's side
-    kept.
+    offset under the `\`. The trade is deliberate, and gren's side is kept.
 
     Not to be confused with [#16](#divergence-16), which is about a comment
     written *after* the arrow of a **one-row** head, and where the two formatters

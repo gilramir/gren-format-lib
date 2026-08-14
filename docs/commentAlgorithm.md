@@ -940,8 +940,7 @@ Its scoping is as important as its existence:
   the earliest member that renders below the declaration and leaves everything in
   front of it where it was written. A run's leader can perfectly well glue onto
   the declaration's last row while a later member cannot, so asking the question
-  of the *leader* — which is what this did until 2026-08-06 — keeps a whole run
-  glued behind a leader that glues. (`firstRowOfItsOwn` is the scan that finds the
+  of the *leader* instead keeps a whole run glued behind a leader that glues. (`firstRowOfItsOwn` is the scan that finds the
   cut; it is one of the three run state machines in §6.)
 - The split has to live in the peel rather than in the caller, because the run is
   collected by descending through each node's last child: a kept prefix could not
@@ -1393,12 +1392,12 @@ reason this cannot be collapsed into "did something break the line":
   `let` binding that is not merely wrong but unparseable: a binding must start at
   the block's column.
 
-The `next comment` column is where rule **C7** lives at render time. Until
-2026-08-08 `AlreadyTerminated` answered `GlueNoSep` unconditionally, which split
-every authored one-row run into one row per member, and
-`TerminatedByOwnLineComment` let a following comment merge *up*, which joined a
-run the author had split. Both are now role-aware, which is to say: **gren never
-moves a comment between rows.**
+The `next comment` column is where rule **C7** lives at render time. Both arms
+are role-aware, which is what makes them honour the author's rows: answer
+`GlueNoSep` from `AlreadyTerminated` unconditionally and every authored one-row
+run splits into one row per member; let `TerminatedByOwnLineComment` merge a
+following comment *up* and a run the author split is joined. **gren never moves
+a comment between rows.**
 
 ### 6.3 The run scanner — over a *run*
 
@@ -1528,10 +1527,10 @@ run's own layout as opposed to the code's: members written on one row stay on on
 row, members written apart stay apart. It is enforced in the two arms of §6.2's
 `next comment` column — `commentPlacement`'s `AlreadyTerminated` arm (which
 otherwise splits an authored one-row run) and the inline arm's
-`TerminatedByOwnLineComment` handling (which otherwise joins a split one). Both
-were unconditional until 2026-08-08, each in the direction that *lost* the
-author's rows, and each matched elm-format, which re-decides a run's rows from
-the context around it. Keeping them is a deliberate divergence
+`TerminatedByOwnLineComment` handling (which otherwise joins a split one).
+Unconditional, each loses the author's rows in one direction, and each then
+matches elm-format, which re-decides a run's rows from the context around it.
+Keeping them role-aware is a deliberate divergence
 ([#30](elmFormatComparison.md#divergence-30)).
 
 R4 is what makes the answer to "what about a run?" independent of where the run
@@ -1691,7 +1690,7 @@ That is a falsifiable claim about what a test varying run size will turn up. Rea
 
 | probe | what it newly reaches | predicted | measured |
 |---|---|---|---|
-| one comment | nothing — every neighbour is *code* | (the baseline) | the state of every gate here until 2026-08-06 |
+| one comment | nothing — every neighbour is *code* | (the baseline) | the baseline every gate started from |
 | `--run 2` | the first comment→comment boundary ever tested | **finds bugs** | **20 findings** in 19,081 gaps; one real family, fixed the same day |
 | `--run 3` | nothing — `block│block` was already there at n=2 | **nothing new** | 17 findings in 57,885 gaps, **all 17 a known upstream parser bug** |
 | `--mix-pairs` | the other eight boundaries — a *different* kind on each side | **finds bugs** | **1,752 findings** in 115,770 gaps, **1,718 formatter-side**, in three bugs — one of them R2 above |
@@ -1901,43 +1900,36 @@ Three of those deserve emphasis, because they cover holes that look covered:
   That case is pinned by a fixture and was found by enumerating the grid, not by a
   gate.
 
-**Current state (2026-08-09):**
+**What the gates report.** Run them; the numbers move. What is worth knowing is
+the *shape* of the result, which has been stable:
 
-- Fixture suite: **378 tests, all passing** — 368 fixture cases across 12 suites,
-  plus 10 unit tests.
-- `check-decision-stability.py`: **PASS**, 0 unstable decisions over the corpus.
-- `fuzz-idempotency.py`: 17 findings at n=1, and **all 17 are a known upstream
-  parser bug**
-  ([compiler-common#35](https://github.com/gren-lang/compiler-common/issues/35)
-  — a binary `-` whose right operand starts at the operator's own column parses
-  as a negation). They are reported with that label, counted, and **not
-  subtracted**: the gate stays red on purpose until the parser fix ships,
-  because hiding a finding is how a gate starts lying about its coverage. The
-  **formatter-side residual is zero.**
-- The run axes agree with it and add nothing formatter-side: `--run 2` reads the
-  same 17-all-known; `--run 3` 17-all-known over 57,885 gaps; `--mix-pairs` 43,
-  all 43 known; `--mix-triples` 154 over 475,824 gaps, all 154 known (136 #35, 16
-  [#25](https://github.com/gren-lang/compiler-common/issues/25), 2
-  [#14](https://github.com/gren-lang/compiler-common/issues/14)).
-  `check-decision-stability.py` reports **the same counts with the same issue
-  split** in the `--run 2` and `--mix-pairs` modes — two gates arriving at one
-  number over 100k+ probes, which is what "imports the other's probe definitions
-  by path rather than copying them" is supposed to buy.
-- `matrix-syntax.py --comments`: 68,456 cells formatted, **0 failing, 0
-  UNREVIEWED** — every divergence from elm-format names a catalogue entry. 20,038
-  are byte-identical to elm-format; 73 have **no Elm twin at all** (Elm requires a
-  declaration to start in column 1 and Gren does not, so `elm-format` rejects the
-  *program*, not the translation — [#31](elmFormatComparison.md#divergence-31)),
-  and those are skipped from the comparison, counted, and printed with a shape
-  breakdown on every run.
-- `matrix-syntax.py --comments --comment-runs`: 113,796 cells over all nine
-  two-member compositions, run against oracles 1–3 only.
+- The fixture suite and `check-decision-stability.py` are green over the corpus.
+- `fuzz-idempotency.py`'s residual is upstream, not formatter-side: every
+  finding at n=1 classifies to a known parser bug — chiefly
+  [compiler-common#35](https://github.com/gren-lang/compiler-common/issues/35),
+  a binary `-` whose right operand starts at the operator's own column parsing
+  as a negation — and is labelled, counted and **not subtracted**. The
+  formatter-side residual is zero.
+- The run axes agree with it and add nothing formatter-side: `--run 2`,
+  `--run 3`, `--mix-pairs` and `--mix-triples` each report the same findings,
+  all classifying upstream. `check-decision-stability.py` reports the same
+  counts with the same issue split in its matching modes — two gates arriving at
+  one number over 100k+ probes, which is what "imports the other's probe
+  definitions by path rather than copying them" is supposed to buy.
+- `matrix-syntax.py --comments`: **0 failing, 0 UNREVIEWED** — every divergence
+  from elm-format names a catalogue entry. A minority of cells have **no Elm
+  twin at all** (Elm requires a declaration to start in column 1 and Gren does
+  not, so `elm-format` rejects the *program*, not the translation —
+  [#31](elmFormatComparison.md#divergence-31)); those are skipped from the
+  comparison, counted, and printed with a shape breakdown on every run.
+- `matrix-syntax.py --comments --comment-runs` sweeps all nine two-member
+  compositions against oracles 1–3 only.
 
 That parity zero is the line to quote to a sceptic: every place `gren format` and
 `elm-format` put a comment differently is a *decision on record with a reason*,
-not an unexamined difference. It took several `--interview` sittings to get there
-from 16,141, and the last 3,407 were read down in one — **finding two formatter
-bugs on the way**, which is the argument for reading debt rather than widening a
+not an unexamined difference. Getting there meant reading 16,141 unreviewed cells
+down to none over several `--interview` sittings, which **found two formatter
+bugs on the way** — the argument for reading debt rather than widening a
 classifier until the counter reaches zero.
 
 **And note what a green gate is worth.** This axis ran green for months over two
@@ -1952,8 +1944,8 @@ The honest caveats, stated so nobody has to discover them:
   over the matrix's generated cells. Neither says anything about a run in a
   syntactic position that neither the corpus nor the matrix vocabulary contains —
   and one such shape (a two-field record whose second field holds a lambda with a
-  multi-line body) produced a real bug on 2026-08-09 that the comment axis reads
-  as zero, because it never reaches it. A baseline that does not cover a shape
+  multi-line body) produced a real bug that the comment axis reads as zero,
+  because it never reaches it. A baseline that does not cover a shape
   reports zero for it exactly as it reports zero for a shape that agrees.
 - **The comment-run axis has no elm-format baseline, on purpose.** Sampled, it
   would book ~47,000 UNREVIEWED cells, and a 98k-entry asset half of which reads

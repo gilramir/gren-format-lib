@@ -2,7 +2,7 @@
 
 A guide to how `gren format` lays out your code — what it changes, what it
 leaves alone, and why. For a shorter tour of the core ideas, see the
-["Gren Formatter Rules" section](../README.md#gren-formatter-rules) of the
+["Gren Formatter Rules" section](../README.md) of the
 main README; for how the formatter arrives at these decisions internally, see
 [How the formatter works](howItWorks.md).
 
@@ -930,7 +930,7 @@ formatter that derived it all along keeps working when it does. The trade-off
 accepted here is that dropping `port` from a file with no ports is a change you
 didn't ask for, and one you'll meet again when you add a port to that file — so
 until the keyword becomes optional, expect the formatter to keep the header and
-the ports in agreement for you. (Decided 2026-07-26; the discussion was
+the ports in agreement for you. (The discussion is
 [gren-lang/compiler-common#33](https://github.com/gren-lang/compiler-common/issues/33).)
 
 ---

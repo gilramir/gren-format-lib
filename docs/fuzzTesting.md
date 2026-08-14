@@ -309,8 +309,8 @@ Three details that make it usable rather than merely present:
   short. Verified by round-tripping a bundle back to files and diffing.
 - **`--full` includes the unminimized `input.gren`**, which is not redundant:
   one seed can carry two bugs and the shrinker keeps only the one it was
-  minimizing towards (2026-08-09, seed 10035748), so a fix verified against the
-  minimized file alone can leave the second one live.
+  minimizing towards, so a fix verified against the minimized file alone can
+  leave the second one live.
 
 Truncation is always marked in the header, never silent; raise `--lines` (default
 200 per section) to get the rest.

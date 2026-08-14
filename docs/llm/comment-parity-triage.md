@@ -472,7 +472,7 @@ gren having done nothing.
 `--interview` was run over the 5,485 remaining UNREVIEWED, and 30 review groups
 (2,948 cells) got a verdict. Read together rather than one at a time, they are
 **six English rules**, now the normative statement of comment behaviour in
-[docs/commentHandling.md](../commentHandling.md#the-rules-in-english) — C1/C2
+[docs/commentHandling.md](../commentHandling.md#the-seven-rules-at-a-glance) — C1/C2
 attachment, C3–C6 layout.
 
 The verdicts were *internally consistent under one rule*: at a separator the
@@ -832,7 +832,7 @@ both authorings around an `=` or a `|` arrive identically and one of them must
 differ from elm-format whichever side gren picks.
 
 - Groups 42–44 (`arrayRecords/*`, 24 cells) — a `--` in a record field's `=` gap.
-  Straight [C2](../commentHandling.md#c2--where-the-separator-has-no-source-position-the-comment-leads-what-follows-it):
+  Straight [C2](../commentHandling.md#c2--when-the-parser-doesnt-record-the-punctuation-the-comment-leads-what-follows):
   gren puts the comment after the `=`, elm strands the `=` on a row of its own
   above it. Registered `#22`.
 - Groups 45–47 (`arrayUpdates/*`, 24 cells) — a `--` at a record update's `|`.

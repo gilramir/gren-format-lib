@@ -179,11 +179,11 @@ Only the default full sweep is gated this way. `--kind`, `--run`, `--mix*`,
 `--pairs` and a file argument each probe a different set of gaps, so their
 findings are reported but not held against the baseline.
 
-This distinction is not decoration. Until 2026-08-11 the gate exited non-zero
-on *any* finding, so it ran permanently red, and "27 findings, 19 of them
-known" read exactly like "19 findings, all known". Eight findings belonging to
-a real bug — an `if`/`when` header that could not see a comment nested in its
-condition — sat in that summary line looking like the upstream ones.
+This distinction is not decoration. A gate that exits non-zero on *any* finding
+runs permanently red, and then "27 findings, 19 of them known" reads exactly
+like "19 findings, all known" — which is how eight findings of a real bug (an
+`if`/`when` header that could not see a comment nested in its condition) once
+sat in that summary line looking like the upstream ones.
 
 Run a full sweep after any change to comment handling, and especially after
 adding a comment-bearing fixture — a new comment shape can surface a latent
@@ -391,10 +391,11 @@ checks each cell — **2459 cells** at present.
 
 ### The layout variants
 
-Added 2026-07-18, after a record-literal binop-field crash slipped through a
-flat-only matrix:
+A flat-only matrix misses whatever needs a pre-broken atom — it let a
+record-literal binop-field crash through — so every construct-in-context is
+generated in up to four:
 
-- `flat` — the paren-carrying atom on one line (the original 850 cells).
+- `flat` — the paren-carrying atom on one line.
 - `broken` — the same atom pre-broken across rows (valid in every context).
 - `bareFlat` / `bareBroken` — the atom with its outer parens stripped, in
   value-position contexts only (record field, `let` binding, branch body,
@@ -516,9 +517,9 @@ reason.
 Every gate above walks a fixed space: the matrix enumerates known shapes,
 both fuzzers perturb comments/whitespace over the fixed fixture corpus, and
 the audit walks the corpus too. None of them vary **structure**. A bug that
-needs a conjunction of features nobody wrote by hand — the exact axis the
-2026-07-18 real-corpus sweep proved productive on — has no fixture or matrix
-cell to trigger it. `gen-random.py` builds random-but-legal Gren modules
+needs a conjunction of features nobody wrote by hand — the axis the real-corpus
+sweep proved most productive of all — has no fixture or matrix cell to trigger
+it. `gen-random.py` builds random-but-legal Gren modules
 (structure *and* comments) with bounded depth, and checks four oracles per
 generated module. Full design in `GENERATOR.md`.
 
@@ -757,9 +758,9 @@ commentBreaksFlowRow(run) == True  <==>  deleting the whole run lets the next
 ```
 
 **The grain is the run, not the member**, and that distinction is worth knowing
-because getting it wrong is what the audit did until 2026-08-08. Asked per
-comment it reported 8,527 cells of `matrix-syntax.py --comment-runs`, none of
-them a layout bug: deleting one member of a run does not close the gap, because
+because getting it wrong is expensive. Asked per comment, the audit reports
+thousands of cells of `matrix-syntax.py --comment-runs`, none of them a layout
+bug: deleting one member of a run does not close the gap, because
 the other member breaks the row anyway. A member's own contribution and what the
 *gap* does coincide only when that member is the sole reason for the break, and
 in a run there is always another reason. A run of one is the single-comment case

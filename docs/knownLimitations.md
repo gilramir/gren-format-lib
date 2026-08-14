@@ -27,7 +27,7 @@ nothing is going wrong.
   - [A comment past a flat list](#a-comment-past-a-flat-list)
 - [A comment after the last binding in a `let`](#a-comment-after-the-last-binding-in-a-let)
 - [Block comment body indentation](#block-comment-body-indentation)
-- [Two fixtures parse a custom-type shape the language no longer allows](#two-fixtures-parse-a-custom-type-shape-the-language-no-longer-allows)
+- [A custom-type variant with two or more arguments still parses](#a-custom-type-variant-with-two-or-more-arguments-still-parses)
 - [A comment run just inside a bracket doesn't keep its rows](#a-comment-run-just-inside-a-bracket-doesnt-keep-its-rows)
 - [Very deep lambda or unary-minus nesting can overflow the stack](#very-deep-lambda-or-unary-minus-nesting-can-overflow-the-stack)
 
@@ -157,8 +157,8 @@ continuation. Workaround: indent it past the first line of the body.
 
 The full write-up, with both `--pre-ast` dumps and the `gren make` type error
 that pins down the real compiler's reading, is in
-`gren-format/parser-same-column-continuation-bug.md`; it was added to
-compiler-common#14 on 2026-08-01.
+`gren-format/parser-same-column-continuation-bug.md`, and on
+compiler-common#14.
 
 ## Output today's compiler rejects, that the next one will accept
 
@@ -853,7 +853,7 @@ opener-alone form as a "keep my exact columns" signal and left the body
 verbatim; that was a divergence from elm-format, which re-indents the body the
 same way described here, so it was removed.)
 
-## Two fixtures parse a custom-type shape the language no longer allows
+## A custom-type variant with two or more arguments still parses
 
 Since [the 24w release](https://gren-lang.org/news/161224_gren_24w), a custom
 type's variant is limited to 0 or 1 argument — `type Person = Person String
@@ -861,33 +861,11 @@ Int` is no longer valid Gren; a multi-field variant must carry a record
 instead (`Person { name : String, age : Int }`). The parser this project is
 built on does not enforce that restriction for a chain of bare
 constructor-name arguments, so `type Person = Person String Int` still parses
-without error today. Tracked at
+without error, and `gren format` duly formats it. Tracked at
 [compiler-common#32](https://github.com/gren-lang/compiler-common/issues/32).
 
-Two of this package's own test fixtures rely on that gap —
-`tests/testfiles/Declarations/TypeUnion.formatted.gren`:
-
-```gren
-type Shape
-    = Circle Int
-    | Rectangle Int Int
-```
-
-and `tests/testfiles/CoreExpressions/UnionLayoutByAuthor.formatted.gren`:
-
-```gren
-type WithPayloads
-    = Wrap Int | Pair Int Int
-```
-
-`Rectangle Int Int` and `Pair Int Int` are both 2-argument variants — invalid
-per the 24w rule, yet accepted and formatted today because of the bug above.
-These fixtures will be cleaned up (reduced to 0/1-argument variants) once
-compiler-common#32 is fixed and released; until then they're a known,
-intentional exception to the language's current variant-arity rule, not a
-formatter bug of their own. (`gen-random.py`, the property-based random-input
-generator, no longer emits multi-argument variants for this same reason —
-see `tests/GENERATOR.md`.)
+Two of this package's own fixtures depend on the gap and are reduced to 0/1
+argument variants when it closes; `gen-random.py` already avoids emitting them.
 
 ## A comment run just inside a bracket doesn't keep its rows
 
@@ -972,88 +950,15 @@ hundreds of directly nested lambdas or unary minuses is not something anyone
 writes by hand. Fixing it properly means rewriting the renderer's recursive
 core to use an explicit stack instead of the JS call stack (a trampoline) —
 a large, invasive change judged disproportionate to a depth nothing has ever
-hit. Now would we consider changing Node's own stack size; that's complete
-out of scope as a solution.
+hit. Nor would we consider changing Node's own stack size; that is out of
+scope as a solution.
 
-Nested **record literals** used to hit a much sharper version of this
-problem — not a stack overflow but an exponential-time hang, becoming
-unusable well before 25 levels of nesting. That one *was* a formatter bug
-(a value was rendered twice per level instead of once) and has been fixed;
-record literals now nest as deep as the parser allows, same as most other
-constructs.
-
-The same double-render bug turned out to have five more sites, all needing a
-*conjunction* of features rather than one construct nested deeply — which is
-why the single-construct shapes above never showed it. A paren wrapping a
-lambda whose body is a bracket literal (`(\q -> [ …, 1 ])`), the record
-variant, a paren-wrapped pipeline as a step argument (`0 |> g ( … )`), and a
-**pipeline step whose lambda argument nests through its own body**, in both the
-direct-operand and the relocated form. Each rendered the same subtree two or
-four times per level. All are fixed. What is left for them is only the ordinary
-stack-depth ceiling described above — they run out of JS stack between 200 and
-240 levels, in two cases at exactly the depth the parser gives out and in the
-others slightly before it, with no exponential term anywhere.
-
-A seventh site was found by code review on 2026-08-11, in the **binop chain**,
-and it is the one whose conjunction is easiest to write by accident: a comment
-anywhere in a parenthesised chain, nested. `makeBinopBox` renders its operands
-once up front — its own comment says that is what the up-front render is *for* —
-but the layout it falls back to for a comment-bearing chain took the raw
-children and rendered the whole chain a second time, and so did both of its
-`Result.onError` paths. Since a parenthesised operand re-enters `makeBinopBox`,
-that doubled the work per level:
-
-```gren
-x =
-    (1 + {- c -} (1 + {- c -} (1 + {- c -} …)))
-```
-
-12 levels took 0.18s, 16 took 1.16s, 18 took 4.27s — a clean factor of two per
-level, unusable around 22. The fallbacks now assemble from the operand items
-already rendered (`binopChainFlowItems`), and all three depths format in 0.07s.
-
-
-The pipeline-lambda pair is worth spelling out, since it is the one shape here
-that reads like something a person might actually write. "Direct operand" means
-the parenthesized lambda is the *first* thing after the `|>`, with no function
-in between, so it stays glued to the operator rather than relocating to its own
-line:
-
-```gren
-x =
-    v
-        |> (\a0 ->
-                v
-                    |> (\a1 ->
-                            v
-                                |> (\a2 ->
-                                        v
-                                   )
-                       )
-           )
-```
-
-Written with a function in front of the lambda it takes the *relocation* path
-instead — a different renderer, but it had the same duplicated render:
-
-```gren
-y =
-    v
-        |> f
-            (\a0 ->
-                v
-                    |> f
-                        (\a1 ->
-                            v
-                        )
-            )
-```
-
-What multiplies is the nesting *through the lambda's body*: every level is a
-pipeline step whose operand is a paren whose body is another step of the same
-shape. Both forms used to render that body twice per level (the layout needs
-the lambda's head line and body box separately, so it re-derived the body even
-though the paren's own box already contained it). The body box now rides along
-on the flow item that produced it. Depth 10 of the first form went from 21.7 s
-to 0.07 s; depth 30 of either now formats in under 0.2 s.
-
+Deep nesting used to be worse than a depth ceiling: several constructs
+rendered the same subtree twice per level, which is exponential rather than
+linear, and made record literals unusable well before 25 levels. Those were
+formatter bugs and are fixed — every construct now renders each subtree once,
+and what is left for all of them is the ordinary stack-depth ceiling described
+above. The pattern is worth knowing if you touch the renderer: a suspected
+blowup here has always turned out to be a second render, not a slow function.
+[`docs/testing.md`](testing.md#scaling-bench-scalingpy-and-how-to-check-a-suspected-blowup)
+has the measurements and the shapes that were timed.
