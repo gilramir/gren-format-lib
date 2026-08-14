@@ -76,11 +76,11 @@ leading the next one), because trailing-vs-leading is precisely what the
 COMMENT_AXIS below for the gap scoping and the separate baseline.
 
 It is a DELIBERATE GATE, not part of a default run: 2459 syntax cells become
-~83,600 comment cells, roughly 25 minutes at -j 12 on a 16-core box (three
-subprocesses per cell, one of them elm-format). Slice it with --construct/--context
-plus --comment-kind / --comment-pos while working on a specific construct, and
-run it whole after touching anything in the comment pipeline. A default run
-prints a line saying it did not run, so the green never looks broader than it is.
+~83,600 comment cells, at three subprocesses per cell, one of them elm-format.
+It is a long sweep. Slice it with --construct/--context plus --comment-kind /
+--comment-pos while working on a specific construct, and run it whole after
+touching anything in the comment pipeline. A default run prints a line saying it
+did not run, so the green never looks broader than it is.
 
 NOT COVERED (deliberate, stated rather than hidden):
   - multi-line string literals: `\"\"\"x\"\"\"` does not parse on one line, so it
