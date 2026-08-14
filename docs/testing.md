@@ -593,6 +593,56 @@ use `fuzzrun.py`, which drives this generator. See
   algorithm).
 - **`tests/fuzzrun.py`** — the long-sweep coordinator ([fuzzTesting.md](fuzzTesting.md)).
 
+## Real-corpus sweep (`corpus-check.py`)
+
+### What it guards against
+
+Everything else on this page is synthetic. The matrix builds cells from a
+vocabulary this repo authors, both fuzzers perturb a corpus this repo wrote, and
+`gen-random.py` generates modules from a grammar this repo specified — so all of
+them reach the shapes somebody here thought of. Real published Gren does not
+have that ceiling: it varies many axes at once, and the productive axis for bugs
+is **feature co-occurrence**. The sweep that first ran this over ten published
+packages found nine bugs in five classes, each a conjunction no single-axis gate
+could produce — multi-line string × trailing whitespace × nesting;
+author-broken record × arrow position; pipe × record arg × `else if`; binop ×
+comment × bracket operand; call × three-or-more multi-line block arguments.
+
+This gate is that sweep, made repeatable. It is the one oracle whose inputs
+nobody in this project chose.
+
+### What it checks
+
+`--show` over every `.gren` file in a tree of real packages. That one call is
+parse → format → reparse → AST-compare → format again → idempotency-compare, so
+a clean exit per file buys no-crash, meaning-preserved, idempotent, and "the
+output parses". Failures are bucketed by which of those broke — `crash`,
+`ast-mismatch`, `non-idempotent`, `parse`, `unreadable` — so the report reads as
+a work-list rather than a count.
+
+A file the **parser** rejects is reported separately and not counted as a
+formatter failure: gren-format cannot format what the compiler will not parse,
+and the known instance is upstream (compiler-common#31, an unparenthesized
+`Ctor arg as name`).
+
+### How to run it
+
+```bash
+cd gren-format-lib/tests
+./corpus-check.py -j 12                 # the default corpus root
+./corpus-check.py /path/to/pkgs -j 12   # a different tree of packages
+./corpus-check.py -v                    # first error line per failure
+```
+
+It needs a tree of real Gren packages to sweep; the default root is a
+`gren-format-preview/pkgs` checkout beside this repo. Any directory of `.gren`
+files works — this package's own `src/`, `core/`, a vendored dependency.
+
+### Where the code lives
+
+- **`tests/corpus-check.py`** — the driver, the bucketing, and the parser-class
+  carve-out.
+
 ## Project fuzzer (`fuzz-project.py`)
 
 ### What it guards against

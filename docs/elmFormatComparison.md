@@ -777,7 +777,7 @@ if it stops being — an entry with no fixture, or a fixture with no entry.
     the author wrote one line and one line still works, so gren-format keeps it.
     A comment that genuinely *can't* share the line does break these open — a
     `--` comment, a `{- … -}` spread over several lines, or one the author put on
-    its own row (see [Block comments](formatterRules.md#block-comments--)). Note this is the one
+    its own row (see [Block comments](formatterRules.md#block-comments-----)). Note this is the one
     place gren-format is *less* aggressive than elm-format about comments: points
     1 and 12 are also about elm-format moving comments away from the code they
     were written beside, and the reasoning is the same.

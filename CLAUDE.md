@@ -46,6 +46,7 @@ where its code lives):
 | `audit-predicates.py` | predicates claiming a break the renderer does not emit |
 | `check-render-invariant.py` | `Render/*` never re-derives placement from source rows (also run by `run-tests.sh`) |
 | `fuzz-project.py` | the modes that WRITE FILES (no-arg project run, paths, `--remove-unused-imports`) |
+| `corpus-check.py` | `--show` over real published packages — the one gate whose inputs nobody here chose |
 | `bench-scaling.py` | timing only, never fails — how a shape scales; see the 2026-08-11 measurement in `docs/testing.md` |
 
 Pass `-j 12` — this machine has 16 cores and the fuzzers default to `-j 2`.
