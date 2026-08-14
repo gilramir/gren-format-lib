@@ -51,6 +51,12 @@ where its code lives):
 
 Pass `-j 12` — this machine has 16 cores and the fuzzers default to `-j 2`.
 
+The five `tests/_run_*.py` are **instruments, not gates** — they answer a
+question (is this pile of findings a bug, or is the instrument asking the wrong
+one?) and guard nothing. Nothing runs them automatically and their exit status
+means nothing; `docs/testing.md` says what each answers and which part is meant
+to be reused.
+
 **Rebuild the CLI first** (`cd ../gren-format && ./build.sh`): every python gate
 shells out to the built `../gren-format/app`, so a stale binary tests the wrong
 code. Never rebuild while a fuzzer is running.

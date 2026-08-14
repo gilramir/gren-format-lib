@@ -700,6 +700,88 @@ through to the generator.
 - **`tests/gen-random.py`** — imported directly, so the modules a trial contains
   are the same generated syntax that gate sweeps.
 
+## Instruments, not gates (`_run_*.py`)
+
+Five scripts in `tests/` carry a leading underscore, and it means something:
+**they answer a question, they do not guard anything.** Nothing runs them
+automatically, their exit status is meaningless, and a green run of one proves
+nothing about the formatter. Each was written for an investigation that is now
+closed; what is kept is the *method*, because the question recurs.
+
+The question they all serve is the one a large pile of findings raises:
+**is this pile a bug, or is my instrument asking the wrong question?** The way
+to answer it is never to read the pile one cell at a time.
+
+### The predicate three — is a pile a layout bug, or a grain mismatch?
+
+Written when the run axis's predicate audit reported 8,527 `commentEndsItsLine`
+findings — 96% of everything `--comment-runs` said. Not one was a layout bug:
+the audit was asking per *comment* what only makes sense per *run*, and
+re-graining it took the pile to 0 (the reasoning is in
+[the audit's own section](#the-second-property-commentbreaksflowrow-both-ways)).
+
+```bash
+python3 _run_predicate_sample.py [stride] [-j N]        # 1. which way does the pile point?
+python3 _run_predicate_parity.py <keep-dir> [stride]    # 2. does it lay out wrong?
+python3 _run_predicate_census.py <keep-dir> [-j N]      # 3. the whole space, tallied
+```
+
+- **`_run_predicate_sample.py`** splits the pile by **claim direction** and by
+  **run composition** before anything else. That order is the method:
+  `flowCommentFindings` is bidirectional (a predicate promising a break the flow
+  did not take, versus a flow breaking where the predicate promised nothing —
+  the worse direction), and a pile whose direction is a pure function of
+  composition is a scope mismatch, not a layout bug.
+- **`_run_predicate_parity.py`** asks the question the audit cannot: elm-format.
+  Byte-identical output on a cell whose predicate disagrees means the
+  disagreement is internal and the work is the *audit's*; diverging in the
+  comment's own rows means a layout claim to review and the work is the
+  *formatter's*. Cells diverging for a reason the comment baseline already
+  registers are reported separately, since inheriting a base divergence says
+  nothing either way. Needs `elm-format` on `PATH`.
+- **`_run_predicate_census.py`** reads every failing cell that `matrix-syntax.py
+  -k` wrote out and tallies claim direction × composition × box kinds ×
+  construct/context, so no sweep is needed. It is what turned "one family,
+  probably" into "a pure function of composition, with no construct or context
+  dependence" — which is what a grain mismatch looks like and a layout bug does
+  not.
+
+### The parity two — what would a run-axis elm-format baseline cost?
+
+The comment-run axis deliberately has **no** elm-format baseline. These two are
+the evidence for that standing decision, and the way to revisit it.
+
+```bash
+python3 _run_parity_sample.py [1-in-N] [-j N] [--seed S]   # how much debt, split how?
+python3 _run_parity_review.py --kind multix2 --per-kind 150  # what IS the debt?
+```
+
+- **`_run_parity_sample.py`** measures the debt before anyone writes the
+  baseline — `--update-baseline` rewrites the whole file and refuses a filtered
+  run, so there is no other way to ask. It formats sampled cells with both
+  formatters and prints how they classify, overall and **per run composition**,
+  which is the cut that decides whether one comment kind is the entire debt.
+  Two traps are baked into it: the sample is seeded-**random**, not every Nth
+  cell (`run_cells` has a period of 18, so a stride sharing a factor with it
+  draws 0 cells from whole compositions while printing a per-composition table
+  as though it had covered them), and it computes the uncommented cells' output
+  pairs by default, without which every `#23` cell reads as UNREVIEWED and the
+  headline is inflated.
+- **`_run_parity_review.py`** says what the debt *is* rather than how much:
+  it buckets the unclassifiable cells on the **disagreement**, reusing
+  `triage-comment-parity.py`'s own `shape`/`disagreement`, so one group here is
+  one question `--interview` would ask. Names and literals are flattened and the
+  context dropped, so the same disagreement in a call argument, a record field
+  and a pipeline step is a single group with a count. It writes nothing.
+
+### Where the code lives
+
+- **`tests/_run_predicate_*.py`**, **`tests/_run_parity_*.py`** — the five
+  instruments. Each one's docstring states what it answered and what part of it
+  is meant to be reused.
+- **`tests/triage-comment-parity.py`** — the classifier and `--interview` loop
+  both parity instruments borrow their grouping from.
+
 ## Scaling (`bench-scaling.py`, and how to check a suspected blowup)
 
 `bench-scaling.py` times the formatter against a rising comment count, with

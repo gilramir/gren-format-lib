@@ -17,7 +17,7 @@ they're listed under [Deep dive](#deep-dive) at the end.
 - [A formatted example](#a-formatted-example)
 - [Formatting Philosophy](#formatting-philosophy)
 - [Comments](#comments)
-- [Known limitations and Bugs](#known-limitations)
+- [Known limitations and Bugs](#known-limitations-and-bugs)
 - [Performance](#performance)
 - [Comparison with elm-format](#comparison-with-elm-format)
 - [Deep dive](#deep-dive)
