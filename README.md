@@ -358,9 +358,10 @@ Everything above is the short version. These are the full documents, all in
 
 - **[Gren Formatter Rules](docs/formatterRules.md)** — the full rule
   reference, with a before/after example for every construct.
-- **[How gren-format places your comments](docs/commentHandling.md)** — the
-  seven rules (C1–C7) that decide where every comment lands, each with a
-  verified "you write / gren-format writes" example.
+- **[How gren-format places your comments](docs/commentHandling.md)** — why
+  comments are the hard part, and the seven rules (C1–C7) that decide where
+  every comment lands, each with a verified "you write / gren-format writes"
+  example.
 - **[Sorting](docs/sorting.md)** — the two things the formatter reorders:
   the names in an `exposing ( … )` list, and a run of `import` statements.
 - **[Required formatting shapes](docs/requiredFormatting.md)** — the layouts
@@ -379,10 +380,8 @@ Everything above is the short version. These are the full documents, all in
   plan → text), with a worked example at each step.
 - **[Notes for developers](docs/developer.md)** — the orientation guide for
   teaching the formatter about a new piece of Gren syntax.
-- **[How gren-format handles comments](docs/commentModel.md)** — why comments
-  are the hard part, and the model the implementation is built on.
-- **[The comment algorithm](docs/commentAlgorithm.md)** — the implementation
-  itself, for people working on the formatter.
+- **[The comment algorithm](docs/commentAlgorithm.md)** — the comment
+  implementation itself, for people working on the formatter.
 - **[The LLM attic](docs/llmAttic.md)** — approaches tried and backed out, work
   deferred and the measurement behind it, and designs never built. Written to be
   read by a model working on this repo.

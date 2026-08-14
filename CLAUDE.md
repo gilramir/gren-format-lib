@@ -126,9 +126,10 @@ Three things to hold onto:
 
 - [`docs/formatterRules.md`](docs/formatterRules.md) — what every rule does, with
   worked examples. Read first when reasoning about behaviour.
-- [`docs/commentHandling.md`](docs/commentHandling.md) — the C1–C7 comment rules,
-  normative. [`docs/commentModel.md`](docs/commentModel.md) and
-  [`docs/commentAlgorithm.md`](docs/commentAlgorithm.md) are the how and the why.
+- [`docs/commentHandling.md`](docs/commentHandling.md) — comments, for the
+  reader: what the parser hands over, the decide-once model, and the normative
+  C1–C7 rules. [`docs/commentAlgorithm.md`](docs/commentAlgorithm.md) is the same
+  ground for someone editing the code.
 - [`docs/howItWorks.md`](docs/howItWorks.md) — a tour of the pipeline.
 - [`docs/elmFormatComparison.md`](docs/elmFormatComparison.md) — every deliberate
   divergence from elm-format. `tests/testfiles/Divergence/` pins each entry.
