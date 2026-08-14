@@ -164,8 +164,10 @@ A few things worth noticing:
   pushed to a line of its own; and the one-line `{- ten percent -}` sits *inside*
   the expression, between the `*` and its right operand, so the line it's on has
   to stay flat — a comment is never a reason to break a line, and a line is
-  never re-broken around a comment (rules 3 and 4 in [Comments](#comments)
-  below; see also
+  never re-broken around a comment
+  ([C3](docs/commentHandling.md#c3--a-comment-never-forces-a-break) and
+  [C4](docs/commentHandling.md#c4--a-comment-changes-where-the-lines-fall-and-nothing-else)
+  in [Comments](#comments) below; see also
   [How gren-format places your comments](docs/commentHandling.md)).
 
 Every one of these decisions follows from how the code was written.
@@ -239,19 +241,24 @@ Everything else follows your layout choices.
 ## Comments
 
 `gren format` never changes the text of a comment — it only decides where the
-comment sits relative to the code around it. Six rules decide every comment in a
-file:
+comment sits relative to the code around it. Seven rules decide every comment in
+a file:
 
-1. A comment belongs to the code you wrote it next to.
-2. Where the parser doesn't record the punctuation (`=`, `:`, `,`, `|`, `->`,
-   and the keywords), the comment leads what follows it.
-3. A comment never forces a break — unless it's a `--` or a multi-line
-   `{- … -}`, which can't share a line with code that follows.
-4. A comment changes where the lines fall, and nothing else: the indentation and
-   the grouping are what you'd get with the comment deleted.
-5. gren-format adds nothing around a comment — no blank line, no line of its own
-   for air.
-6. A comment on its own line is indented to the code it leads.
+1. **[C1](docs/commentHandling.md#c1--a-comment-belongs-to-the-code-you-wrote-it-next-to)** — A comment belongs to the code you wrote it next to.
+2. **[C2](docs/commentHandling.md#c2--when-the-parser-doesnt-record-the-punctuation-the-comment-leads-what-follows)** — Where the parser doesn't record the punctuation, the comment leads
+   what follows.
+3. **[C3](docs/commentHandling.md#c3--a-comment-never-forces-a-break)** — A comment never forces a break.
+4. **[C4](docs/commentHandling.md#c4--a-comment-changes-where-the-lines-fall-and-nothing-else)** — A comment changes where the lines fall, and nothing else.
+5. **[C5](docs/commentHandling.md#c5--gren-format-adds-nothing-around-a-comment)** — gren-format adds nothing around a comment.
+6. **[C6](docs/commentHandling.md#c6--an-own-line-comment-is-indented-to-the-code-it-leads)** — An own-line comment is indented to the code it leads.
+7. **[C7](docs/commentHandling.md#c7--a-comment-keeps-the-rows-you-gave-it)** — A comment keeps the rows you gave it.
+
+The first two settle **which piece of code a comment is attached to**; the last
+five settle **how the attached comment is laid out**. Much of the rest follows
+from one mechanical fact: a `--` runs to the end of its line and a multi-line
+`{- … -}` spans lines, so neither can share a line with the code around it,
+while a one-line `{- -}` can — see
+[The two kinds of comment](docs/commentHandling.md#the-two-kinds-of-comment).
 
 Each rule, with a "you write / gren-format writes" example for every case, is in
 **[How gren-format places your comments](docs/commentHandling.md)**.
@@ -351,9 +358,9 @@ Everything above is the short version. These are the full documents, all in
 
 - **[Gren Formatter Rules](docs/formatterRules.md)** — the full rule
   reference, with a before/after example for every construct.
-- **[How gren-format places your comments](docs/commentHandling.md)** — the six
-  rules that decide where every comment lands, each with a verified
-  "you write / gren-format writes" example.
+- **[How gren-format places your comments](docs/commentHandling.md)** — the
+  seven rules (C1–C7) that decide where every comment lands, each with a
+  verified "you write / gren-format writes" example.
 - **[Sorting](docs/sorting.md)** — the two things the formatter reorders:
   the names in an `exposing ( … )` list, and a run of `import` statements.
 - **[Required formatting shapes](docs/requiredFormatting.md)** — the layouts
@@ -376,9 +383,8 @@ Everything above is the short version. These are the full documents, all in
   are the hard part, and the model the implementation is built on.
 - **[The comment algorithm](docs/commentAlgorithm.md)** — the implementation
   itself, for people working on the formatter.
-- **[Development history](docs/devHistory.md)** — the archived long-form
-  `CLAUDE.md`: every bug this formatter has had, and every fix that was tried
-  and backed out.
+- **[Rejected approaches](docs/rejectedApproaches.md)** — fixes that were tried
+  and backed out, and what each one cost.
 
 **How it's tested**
 

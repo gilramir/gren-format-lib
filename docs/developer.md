@@ -157,11 +157,11 @@ three entry points (`assembleFlow`, `buildFlowBox`, `renderFlowItems`) as a
 still points one way. `MakeRenderBox` already passed renderers as arguments in
 the small — `renderHeaderIndentedBody`, `literalItemRenderer` — this is the same
 move at module scale. It is worth doing where the seam is genuinely narrow: the
-whole 849-line `<|` cluster needed exactly those three functions and had exactly
-one caller.
+whole `<|` cluster — the largest module under `Render/` — needed exactly those
+three functions and had exactly one caller.
 
 `LogicalPrintingTree.gren` is the hub every module depends on; its module doc
-opens with a categorised map of all ~30 `LPBox` constructors. `BinopPrecedence`
+opens with a categorised map of all 28 `LPBox` constructors. `BinopPrecedence`
 is imported by both `InsertExpressions` (to decide the author's break tier) and
 `MakeRenderBox` (to render it) — they must agree, so the fixity table has one
 home.
@@ -297,12 +297,20 @@ Leaves (carry text/position, no children):
 
 Layout boxes (have children):
 
-- `AcrossOrVertical { forceVertical : Bool }` — bare (unbracketed) token
-  sequence, all on one line *or* one child per line with continuations
-  indented +4 — same author-driven choice as `AllAcrossOrAllVertical`, just
-  without delimiters. The default for "a thing and its parts" (a function
-  call, a variant + payload). When `forceVertical` is `True`, continuations
-  always break — no flat option.
+- `AcrossOrVertical { forceVertical : Bool, checkContentVertical : Bool }` —
+  bare (unbracketed) token sequence, all on one line *or* one child per line
+  with continuations indented +4 — same author-driven choice as
+  `AllAcrossOrAllVertical`, just without delimiters. The default for "a thing
+  and its parts" (a function call, a variant + payload). When `forceVertical`
+  is `True`, continuations always break — no flat option.
+
+  `checkContentVertical` is the idempotency backstop, and set only for a
+  genuine `Src.Call`: it lets a child whose *content* breaks (a comment, a
+  multiline string) force the whole call one-per-line, so the call commits to
+  the vertical shape on the first format instead of flipping to it on reparse.
+  It's off for the other flows `AcrossOrVertical` is reused for — a
+  function/lambda head, a record field's `name = value` — where the trailing
+  token must stay glued to the last item regardless.
 
   ```gren
   foo x y =
@@ -377,11 +385,12 @@ Layout boxes (have children):
   same lambda gets `IndentedBlock` instead — the same row-span check from
   [Author layout](#author-layout--the-forcevertical-flag) decides which one.
 
-- `WhenBranch`, `IfCondition { forceVertical }`, `WhenFlow { forceVertical }`,
-  `PipelineStep`, `ParenBlock`, `OpAndRhs`, `PrefixGlue`, `Glue`,
-  `RecordUpdate { forceVertical }`, `EmptyBracketed` — specialised shapes;
-  read their doc comments in `LogicalPrintingTree.gren` before reusing. One
-  concrete example each:
+- `WhenBranch`, `WhenBranchPattern`, `IfCondition { forceVertical }`,
+  `WhenFlow { forceVertical }`, `Pipeline { forceVertical, op }`,
+  `PipelineStep`, `ParenBlock`, `Binop { forceVertical }`, `OpAndRhs`,
+  `PrefixGlue`, `Glue`, `RecordUpdate { name, forceVertical }`,
+  `EmptyBracketed` — specialised shapes; read their doc comments in
+  `LogicalPrintingTree.gren` before reusing. One concrete example each:
 
   - **`WhenFlow` / `WhenBranch`** — a whole `when … is` expression, and one of
     its `pattern -> body` arms:
@@ -422,11 +431,18 @@ Layout boxes (have children):
             |> List.filter isEven
     ```
 
-  - **`ParenBlock`** — a parenthesized expression; children render glued
-    directly onto `(`/`)` with no inner space. The lambda in the
-    `SoftIndentedBlock` example above is itself a `ParenBlock`:
-    `List.map (\x -> x + 1) list` — everything between `(` and `)` is its
-    children.
+  - **`ParenBlock { forceVertical, checkContentVertical, contentAlwaysBreaks }`**
+    — a parenthesized expression; children render glued directly onto `(`/`)`
+    with no inner space. The lambda in the `SoftIndentedBlock` example above is
+    itself a `ParenBlock`: `List.map (\x -> x + 1) list` — everything between
+    `(` and `)` is its children.
+
+    The two extra flags both guard idempotency, and both are `False` for
+    formatter-synthesized parens (pattern/type wrapping), which have no author
+    position to read. `checkContentVertical` asks the question of the *rendered
+    box* — "did this come out multi-row anyway?" — and `contentAlwaysBreaks`
+    answers the same question up front, at LPT-build time, for the logical
+    stage, which has no box to look at yet.
 
   - **`OpAndRhs`** — one `op rhs` link of a non-pipeline binop chain:
 
@@ -440,8 +456,8 @@ Layout boxes (have children):
     side. That nesting is precedence, not left-to-right flattening: `2 * 3`
     stays grouped together because `*` binds tighter than `+`.
 
-  - **`RecordUpdate { forceVertical }`** — `{ base | … }`, inline or exploded
-    the same way a record literal is:
+  - **`RecordUpdate { name, forceVertical }`** — `{ base | … }` (`name` is the
+    base), inline or exploded the same way a record literal is:
 
     ```gren
     foo pt =
@@ -486,9 +502,10 @@ the wrong place — `first` should be the declaration's **leading keyword** row.
 ### The cached bounds (why `lpnNode` matters)
 
 Every node caches `firstPos`, `lastPos`, `minRow`, `maxRow`, `lastBracketEnd`,
-`bracketEndExact`, and `bracketEndElastic`. `Formatter.Logical.Comments` uses these to answer "what's the
-first/last positioned token here?" and "where does the rightmost bracket close?"
-in O(1). `lpnNode` fills them from `selfBoxBounds box` merged with the children;
+`bracketEndExact`, `bracketEndElastic`, `bracketStart`, and `hasComment`.
+`Formatter.Logical.Comments` uses these to answer "what's the first/last
+positioned token here?" and "where does the rightmost bracket close?" in O(1).
+`lpnNode` fills them from `selfBoxBounds box` merged with the children;
 `lpnBracketNode` additionally records an *exact* closing-bracket position, and
 `lpnElasticBracketNode` records a *derived* one that grows as comments are placed
 inside it (see step 3 below).
@@ -505,8 +522,9 @@ positions, not at render time from a column budget.
 
 The mechanism: some boxes carry `{ forceVertical : Bool }`. Set it `True` when
 the author's source has a line break inside that construct; set it `False` for
-flat intent. `MakeRenderBox` then picks between a flat flow (`buildFlowDoc`) and a
-hard-breaking flow (`buildFlowDocBroken`) based on that flag.
+flat intent. `MakeRenderBox` then picks between an ordinary flow
+(`buildFlowBox`) and a hard-breaking one (`buildFlowBoxBroken`) based on that
+flag.
 
 **Where to detect multiline intent** (in `InsertExpressions.gren`):
 
@@ -835,7 +853,7 @@ default flags for you: `plainAcross children` (an `AcrossOrVertical` flow — a
 head-and-its-parts) and `syntheticParens children` (a formatter-synthesized
 `ParenBlock` with no author position). Prefer them over spelling out the box
 record; reach for the raw box only when you need a non-default flag
-(`forceVertical = True`, `isCallArgument = True`, …).
+(`forceVertical = True`, `checkContentVertical = True`, …).
 
 ### 3. Get positions right (the difficult part)
 - A real token from the AST → `mkTextFromLocString` / `UnbreakableText`. Its own
@@ -880,9 +898,10 @@ section](#author-layout--the-forcevertical-flag) for the pattern.
 
 ### 5. Comments — usually nothing to do
 `Formatter.Logical.Comments` re-attaches every comment by position **and
-classifies its `CommentRole`** (`TrailsPrevious` / `LeadsOwnLine` /
-`RidesInline` / `Standalone`) once, from the pristine parse rows; the renderer
-reads that role and never re-derives placement from rows. See
+classifies its `CommentRole`** (`TrailsPrevious` / `LeadsOwnLine` / `LeadsNext` /
+`TrailsHead` / `RidesInline` / `LeadsInline` / `Standalone`) once, from the
+pristine parse rows; the renderer reads that role and never re-derives
+placement from rows. See
 `CommentRole`'s docstring in `Formatter.Logical.LogicalPrintingTree` for the
 whole model, `docs/commentHandling.md` for the behaviour it implements, and
 `Comments.gren`, "Adding
@@ -1001,6 +1020,8 @@ node ../gren-format/app --show   src/F.gren   # formatted output to stdout
 node ../gren-format/app --pre-ast  src/F.gren # parsed AST + comment context as JSON
 node ../gren-format/app --lpt    src/F.gren   # the Logical Printing Tree as JSON
 node ../gren-format/app --post-ast src/F.gren # format, verify ASTs match, print formatted AST
+node ../gren-format/app --box    src/F.gren   # the Box tree, one entry per top-level decl
+node ../gren-format/app --decisions src/F.gren # which layout decisions moved between two formats
 ```
 
 `--lpt` is your best friend for a placement bug: it shows exactly where a comment
@@ -1031,8 +1052,15 @@ node ../../gren-format/app --show <Name>.dirty.gren > testfiles/<SuiteDir>/<Name
 
 **Read it** to confirm it is actually canonical before trusting it.
 
-**Two fuzzers** guard the cross-cutting properties; both are run by hand (not in
-`run-tests.sh`) and need a fresh build of `gren-format/app`:
+**The standing gates** guard the cross-cutting properties. `run-tests.sh` runs
+two of them itself, before it builds: `check-render-invariant.py` (no `Render/*`
+code may read a source row to decide placement — step 5 above) and
+`check-divergence-index.py` (the divergence catalogue and its fixture suite stay
+1:1). The rest are run by hand and need a fresh build of `gren-format/app` —
+**rebuild it first** (`cd ../gren-format && ./build.sh`), since every one of them
+shells out to the built binary and a stale one tests the wrong code.
+
+The two that matter most for new syntax:
 
 ```bash
 cd gren-format-lib/tests
@@ -1050,6 +1078,20 @@ Run **both** after any change that touches comments, positions, or vertical
 space — especially after adding a comment-bearing fixture, which can itself
 surface a latent gap. A new construct that holds comments should get at least one
 comment-bearing fixture so the fuzzers exercise it.
+
+`fuzz-idempotency.py` fails on an **unlabelled** finding, not on any finding: a
+finding whose cause is a known upstream parser bug is registered in
+`tests/idempotency-known-baseline.json` and forgiven, so a real regression can't
+hide among the upstream ones. Re-register with `--update-known-baseline` only
+after a deliberate change. When it does flag a gap, `repro.py <fixture> <kind>
+<gap>` rebuilds that one case from the label, and `check-decision-stability.py`
+names *which* layout decision moved.
+
+Those aren't the only gates — there are also a construct × context matrix
+(`matrix-syntax.py`), random-module property testing (`gen-random.py` /
+`fuzzrun.py`), a predicate audit, and `fuzz-project.py`, the only gate that
+exercises the modes that write files. **[`docs/testing.md`](testing.md)** is the
+full index: what each one guards against and how to run it.
 
 ---
 
@@ -1110,8 +1152,8 @@ decisions live: `allSingles children` asks "is every part still one line?", and
 author newlines enter as parser flags (`FASplitFirst`/`FAJoinFirst`,
 `ForceMultiline`, `Multiline`). Indentation is a tab-stop (`Tab` rounds to the
 next multiple of 4) plus `prefix` (pads continuation lines by the exact character
-width of the prefix) — the mechanism behind the fixed-4-vs-round-to-4 divergence
-noted in the README.
+width of the prefix) — the same mechanism this port uses, since `Box.gren` is
+that code rather than a reimplementation of it.
 
 ### gren-format: comments are re-attached by position
 
@@ -1140,9 +1182,10 @@ bookkeeping in this codebase is forced by that one fact:
   each pass, so it must be invariant under reformatting; elm-format's equivalent
   is a parser flag baked into the tree once.
 - **Render-time comment logic re-derives elm's typed slots from geometry.**
-  `buildFlowDocImpl`'s `SingleLineComment`/`BlockComment` handling,
-  `peelTrailingComments`, `splitLeadingComments`, `boxKeepsTrailingCommentOutside`,
-  and the `prevElided` zero-width-token hazard all exist to recover
+  `renderFlowItem`'s `SingleLineComment`/`BlockComment` handling,
+  `peelTrailingCommentNodes`, `peelLeadingInlineComments`,
+  `boxKeepsTrailingCommentOutside`, and the `prevElided` zero-width-token
+  hazard all exist to recover
   "trailing-same-line vs standalone-own-line vs end-of-line" — the distinctions
   elm-format reads directly off `BeforeTerm` / `AfterTerm` / `C0Eol`. Our version
   keys off `loc.start.row == acc.prevRow` and friends.

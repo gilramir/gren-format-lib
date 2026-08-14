@@ -9,8 +9,7 @@ itself a method, just not a repeatable script. Updated 2026-07-18: dogfooding
 and coverage-gap analysis moved to "already run" (dogfooding found a real
 crash; coverage-gap analysis became the `gren-coverage-node` repo), and the
 author-broken syntax matrix extension is now **done** — 850 → 1738 cells,
-4 real bugs found and fixed, 0 UNREVIEWED, 0 known BUGs remaining (see
-`gren-format-lib/docs/devHistory.md` for the full writeup).
+4 real bugs found and fixed, 0 UNREVIEWED, 0 known BUGs remaining.
 
 Updated again 2026-07-18 (second session): **the real-corpus sweep (avenue #1)
 was run** against 10 published packages and found **9 real bugs in 5 classes**

@@ -136,7 +136,8 @@ Three things to hold onto:
   is not ours to fix.
 - [`docs/testing.md`](docs/testing.md) and
   [`docs/fuzzTesting.md`](docs/fuzzTesting.md) — the gates, in full.
-- [`DEVELOPER.md`](DEVELOPER.md) — how to extend the formatter with new syntax.
-- [`docs/devHistory.md`](docs/devHistory.md) — the archived long-form CLAUDE.md:
-  every bug this formatter has had, and every fix that was tried and **backed
-  out**. Check it before redesigning a rule.
+- [`docs/developer.md`](docs/developer.md) — how to extend the formatter with
+  new syntax.
+- [`docs/rejectedApproaches.md`](docs/rejectedApproaches.md) — fixes that were
+  tried and **backed out**, and what each cost. Check it before redesigning a
+  comment-placement or glue rule.

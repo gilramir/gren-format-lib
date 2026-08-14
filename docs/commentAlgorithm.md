@@ -18,7 +18,7 @@ the gate numbers. This document is the full reference underneath it.
 It is written for someone who has never touched this codebase. It assumes you
 have read [How the formatter works](howItWorks.md) and know what the Logical
 Printing Tree (LPT) and the Box tree are. If you are adding a new construct,
-read [DEVELOPER.md](../DEVELOPER.md) as well — it has the checklist; this
+read [developer.md](developer.md) as well — it has the checklist; this
 document has the model behind it.
 
 ---
@@ -120,7 +120,7 @@ Re-attaching them is this algorithm.
 > parsing exactly what the compiler parses (a formatter that accepts a
 > different language than the compiler is a bug factory), and we pay for it with
 > the re-attachment pass described below. This trade is discussed at length in
-> [DEVELOPER.md](../DEVELOPER.md#why-the-architecture-is-comment-driven--contrasted-with-elm-format).
+> [developer.md](developer.md#why-the-architecture-is-comment-driven--contrasted-with-elm-format).
 
 ### 1.2 What "correct" means here
 
@@ -2154,7 +2154,7 @@ and there are several such places, each with a reason on record — the list is
 - [How gren-format places your comments](commentHandling.md) — rules C1–C7, the
   normative statement of *behaviour*
 - [How the formatter works](howItWorks.md) — the pipeline, conceptually
-- [DEVELOPER.md](../DEVELOPER.md) — adding a construct; the position rules
+- [developer.md](developer.md) — adding a construct; the position rules
 - [Testing gates](testing.md) and [Comment-run testing](commentRunTesting.md)
 - `CommentRole`'s docstring in `Formatter.Logical.LogicalPrintingTree` — the
   normative statement of each role
