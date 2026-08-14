@@ -1,9 +1,9 @@
-# Notes for Developers
+# Adding new Gren syntax to the formatter
 
-This is the orientation guide for a developer who needs to teach `gren format`
-about a new piece of Gren syntax — a new AST node, a new declaration kind, a new
-expression form. Gren will keep growing, so the formatter has to be easy to
-extend without breaking the invariants that keep formatting correct, stable, and
+This is the orientation guide for teaching `gren format` about a new piece of
+Gren syntax — a new AST node, a new declaration kind, a new expression form.
+Gren will keep growing, so the formatter has to be easy to extend without
+breaking the invariants that keep formatting correct, stable, and
 comment-faithful.
 
 Read this once for the mental model, then keep `docs/formatterRules.md` (the

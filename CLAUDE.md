@@ -145,8 +145,8 @@ Three things to hold onto:
   is not ours to fix.
 - [`docs/testing.md`](docs/testing.md) and
   [`docs/fuzzTesting.md`](docs/fuzzTesting.md) — the gates, in full.
-- [`docs/developer.md`](docs/developer.md) — how to extend the formatter with
-  new syntax.
+- [`docs/addingSyntax.md`](docs/addingSyntax.md) — how to teach the formatter
+  a new piece of Gren syntax.
 - [`docs/llm/`](docs/llm/) — written for a model, not a reader:
   [`attic.md`](docs/llm/attic.md) holds approaches **tried and backed out**,
   work deferred and the measurement that settled it, and designs never built.

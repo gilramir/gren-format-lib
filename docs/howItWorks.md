@@ -237,5 +237,5 @@ to one part of a file never surprises you by reshuffling an unrelated part.
 - [Gren Formatter Rules](formatterRules.md) — a full reference of
   formatting rules with worked examples, for anyone using `gren format` day
   to day.
-- [Notes for Developers](developer.md) — an orientation guide for anyone extending
-  the formatter with new syntax.
+- [Adding new Gren syntax to the formatter](addingSyntax.md) — the orientation
+  guide for a new AST node, declaration kind, or expression form.

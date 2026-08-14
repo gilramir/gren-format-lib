@@ -392,8 +392,9 @@ Everything above is the short version. The full documents are in
 - **[How the formatter works](docs/howItWorks.md)** — a conceptual,
   step-by-step tour of the pipeline (parse → Logical Printing Tree → render
   plan → text), with a worked example at each step. Start here.
-- **[Notes for developers](docs/developer.md)** — the orientation guide for
-  teaching the formatter about a new piece of Gren syntax.
+- **[Adding new Gren syntax to the formatter](docs/addingSyntax.md)** — the
+  orientation guide for teaching the formatter about a new AST node,
+  declaration kind, or expression form.
 - **[The comment algorithm](docs/commentAlgorithm.md)** — the comment
   implementation itself: attachment, roles, the state machines, and why every
   run of comments is covered.
