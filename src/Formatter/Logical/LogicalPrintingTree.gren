@@ -10,8 +10,8 @@ module Formatter.Logical.LogicalPrintingTree exposing
     , bracketsToString
     , commentFirstCol
     , commentGluesToPrevious
-    , commentLeadsNext
     , commentLeadsLine
+    , commentLeadsNext
     , commentRendersOwnLine
     , commentRidesInline
     , commentRole

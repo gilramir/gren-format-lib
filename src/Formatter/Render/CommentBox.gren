@@ -32,8 +32,8 @@ import Formatter.Logical.LogicalPrintingTree exposing
     , LPBox(..)
     , LPNode
     , commentGluesToPrevious
-    , commentLeadsNext
     , commentLeadsLine
+    , commentLeadsNext
     , commentRole
     , commentTrailsHead
     , lpnBox
