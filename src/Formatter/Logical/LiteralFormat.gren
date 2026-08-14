@@ -10,12 +10,20 @@ module Formatter.Logical.LiteralFormat exposing
 Source-text formatting of primitive literals: strings, chars, and hex
 integers. Pure string-to-string conversions; no LPT awareness.
 
+@docs escapeStringContent, escapeMultilineContent, charLiteralString
+@docs hexLiteral, intToHex
+
 -}
 
 import Char
 import Math
 
 
+{-| Escape content for embedding in a single-quoted `"..."` literal: tab,
+newline, carriage return, `"` and `\` become their two-character escapes, and
+any other control character (C0, or DEL) becomes `\u{HEX}`. Everything else is
+emitted verbatim.
+-}
 escapeStringContent : String -> String
 escapeStringContent s =
     let
@@ -56,20 +64,20 @@ escapeStringContent s =
     String.foldl (\c acc -> acc ++ escapeChar c) "" s
 
 
--- Escape content for embedding in a triple-quoted `"""..."""` literal.
--- These strings still process `\` as an escape introducer, so literal
--- backslashes must be doubled or the parser will misinterpret the next
--- character (e.g. `\.` is rejected as "invalid escape sequence"). But
--- newlines, carriage returns, and tabs are preserved as themselves — the
--- whole point of `"""` is that real newlines stand for newlines.
---
--- A double quote only needs escaping when it is part of a run of three or
--- more (which would terminate the literal, or embed a stray `"""`) or when
--- it sits at the very end of the content, adjacent to the closing `"""`. An
--- isolated `"` (or a run of one or two mid-content) is left verbatim. This
--- mirrors elm-format's `escapeMultiQuote` exactly, so `gren format` no longer
--- adds spurious `\` characters in front of every quote — an isolated quote in
--- an embedded template or fixture (e.g. `Debug.log "u"`) is preserved as-is.
+{-| Escape content for embedding in a triple-quoted `"""..."""` literal.
+These strings still process `\` as an escape introducer, so literal
+backslashes must be doubled or the parser will misinterpret the next
+character (e.g. `\.` is rejected as "invalid escape sequence"). But
+newlines and tabs are preserved as themselves — the whole point of `"""`
+is that real newlines stand for newlines.
+
+A double quote only needs escaping when it is part of a run of three or
+more (which would terminate the literal, or embed a stray `"""`). An
+isolated `"` (or a run of one or two mid-content) is left verbatim. This
+mirrors elm-format's `escapeMultiQuote`, so `gren format` no longer
+adds spurious `\` characters in front of every quote — an isolated quote in
+an embedded template or fixture (e.g. `Debug.log "u"`) is preserved as-is.
+-}
 escapeMultilineContent : String -> String
 escapeMultilineContent s =
     let
@@ -152,6 +160,11 @@ escapeQuoteRuns s =
     folded.acc ++ emitRun folded.quotes
 
 
+{-| The source text of a character literal, quotes included: `'a'`, `'\n'`,
+`'\u{00e9}'`. Printable ASCII is emitted as itself; tab, newline, carriage
+return, `'` and `\` take their two-character escapes; everything else —
+including every non-ASCII character — becomes a `\u{HEX}` escape.
+-}
 charLiteralString : Char -> String
 charLiteralString c =
     let
