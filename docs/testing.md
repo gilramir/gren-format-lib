@@ -782,6 +782,73 @@ python3 _run_parity_review.py --kind multix2 --per-kind 150  # what IS the debt?
 - **`tests/triage-comment-parity.py`** — the classifier and `--interview` loop
   both parity instruments borrow their grouping from.
 
+## Pathological-input sweeps (`pathological-nesting.py`, `pathological-other.py`)
+
+### What they guard against
+
+Every other gate feeds the formatter *plausible* input: the fixtures are code
+somebody wrote, the matrix cells are code somebody might write, and
+`gen-random.py` is bounded to the depth real programs reach. None of them ask
+what happens at the edges — a thousand nested parens, a file that is nothing but
+comments, an identifier ten thousand characters long, a file with no
+declarations at all. Those are where a recursive renderer runs out of stack and
+where an accidental `O(n²)` shows up as a hang rather than as a wrong answer.
+
+Neither script is a pass/fail gate on the corpus. They **find a boundary** and
+tell you which side of it the formatter is on.
+
+### `pathological-nesting.py` — how deep before something breaks
+
+Thirteen shapes, each nested to increasing depth: `parens`, `list`, `record`,
+`lambda`, `ifchain`, `unaryminus`, `binopchain`, `pipelinechain`, and five
+*conjunction* shapes (`lambdaarray`, `lambdarecord`, `pipeparenarg`,
+`pipelambda`, `pipelambdaarg`) that nest one construct through another — the
+conjunctions are the ones that found the double-render blowups, because a single
+construct nested deeply never showed them.
+
+It grows depth geometrically until something breaks, then **bisects to the exact
+boundary depth**, and at that boundary runs `--pre-ast` as well to separate two
+very different findings: the **parser** giving out first (a `compiler-common`
+limit, not ours — recursive descent pays a native stack frame per level) from
+the **formatter** giving out first (ours). A single probe at the crossover is
+noisy, since native stack thresholds move a few percent run to run, so it
+samples rather than trusting one point.
+
+The one limitation this found and could not fix is in
+[Known limitations](knownLimitations.md#very-deep-lambda-or-unary-minus-nesting-can-overflow-the-stack).
+
+### `pathological-other.py` — everything that isn't depth
+
+Seven **size shapes** swept geometrically — `long-identifier`, `long-string`,
+`long-comment`, `wide-list`, `wide-record`, `wide-module` (many top-level
+declarations), `wide-comments-only` (a file of nothing but comments) — plus five
+one-shot **scenarios** that are about kind rather than size: `empty-module`,
+`all-comment-file`, `unicode-identifiers`, `unicode-strings`, `crlf-corpus`.
+
+The two size shapes behind the README's performance table are `wide-module` and
+`wide-comments-only`.
+
+### How to run them
+
+```bash
+cd gren-format-lib/tests
+./pathological-nesting.py -v                       # all shapes, bisect each
+./pathological-nesting.py --shape pipelambda -v    # one shape
+./pathological-other.py -v                         # sizes + scenarios
+./pathological-other.py --scenario-only            # skip the size sweeps
+./pathological-other.py --size wide-module --max-size 40000
+```
+
+Both take `--start`, `--factor` and `--timeout`; the nesting prober takes
+`--max-depth` and the size prober `--max-size`. A timeout is a finding here, not
+an infrastructure problem — that is how a hang presents.
+
+### Where the code lives
+
+- **`tests/pathological-nesting.py`** — the depth prober, the bisection, and the
+  parse-stage/format-stage split.
+- **`tests/pathological-other.py`** — the size sweeps and the one-shot scenarios.
+
 ## Scaling (`bench-scaling.py`, and how to check a suspected blowup)
 
 `bench-scaling.py` times the formatter against a rising comment count, with

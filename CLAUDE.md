@@ -48,6 +48,7 @@ where its code lives):
 | `fuzz-project.py` | the modes that WRITE FILES (no-arg project run, paths, `--remove-unused-imports`) |
 | `corpus-check.py` | `--show` over real published packages — the one gate whose inputs nobody here chose |
 | `bench-scaling.py` | timing only, never fails — how a shape scales; see the 2026-08-11 measurement in `docs/testing.md` |
+| `pathological-nesting.py` / `pathological-other.py` | the edges: nesting depth (bisected to the boundary), and size/shape/unicode/CRLF probes |
 
 Pass `-j 12` — this machine has 16 cores and the fuzzers default to `-j 2`.
 

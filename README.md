@@ -332,7 +332,8 @@ the formatter is also checked against synthetic files pushed far past
 anything realistic — thousands of top-level declarations, thousands of
 stacked comments, deeply nested expressions — to catch algorithmic hot spots.
 That stress suite is `tests/pathological-other.py` (size/shape probes) and
-`tests/pathological-nesting.py` (depth probes).
+`tests/pathological-nesting.py` (depth probes), both described in
+[Testing gates](docs/testing.md).
 
 A few representative numbers:
 
@@ -343,13 +344,21 @@ A few representative numbers:
 | Stacked top-level comments (no code — a stress case, not realistic) | 4,005 | ~0.5s |
 | Stacked top-level comments (no code — a stress case, not realistic) | 32,000 | ~21s |
 
-Those numbers reflect several `O(n²)` fixes: earlier versions of the
-formatter rebuilt or rescanned the *entire* array of already-processed
-declarations or comments once per new one — 15,131 declarations used to take
-~15s (now ~4s), and 32,000 stacked comments used to time out entirely (now
-~21s). The fix in each case was the same shape: accumulate with
-`Array.Builder` (amortized O(1) per append) instead of `Array.pushLast`/`++`
-in a loop, and never rescan work already known to be settled.
+**How it grows.** Declarations are close to linear: each doubling of the file
+costs about 1.9–2.4× the time. The comments-only shape is the steepest thing
+measured here, at roughly 2.9–3.4× per doubling — still nowhere near a hang at
+sizes an order of magnitude past real source, but the one curve worth watching
+if comment handling changes.
+
+The pattern behind those numbers is worth knowing if you work on the formatter,
+because the same mistake is easy to make twice. Every performance problem this
+codebase has had was one of two shapes: **rescanning settled work** — rebuilding
+or re-walking the entire array of already-processed declarations or comments
+once per new one, which is `O(n²)` in the file — or **rendering the same subtree
+twice**, which is exponential in nesting depth. The fixes are equally uniform:
+accumulate with `Array.Builder` (amortized O(1) per append) rather than
+`Array.pushLast`/`++` in a loop, and render each subtree once, up front, letting
+every path consume the same result.
 
 ---
 
