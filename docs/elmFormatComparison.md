@@ -4,9 +4,11 @@
 formatted syntax in most places. We ran an audit on the
 formatter's own test fixtures (`gren-format-lib/tests/testfiles/`),
 converting the Gren code to Elm, ran them through
-`elm-format` and catalogued every divergence. This is the full catalogue,
-and [Redundant Parens](redundantParens.md) is a deeper dive on
-the a common divergence (#10).
+`elm-format` and catalogued every divergence. This is the full catalogue.
+[Divergence #10](#divergence-10) — redundant parens — is the one that shows up
+most on real code, and it is a
+[settled decision](settledDecisions.md#redundant-parens-are-never-stripped)
+rather than a gap.
 
 Before the specific findings, it helps to see how alike the two tools are
 underneath — that's what explains why they agree on the overwhelming majority of
@@ -444,18 +446,38 @@ if it stops being — an entry with no fixture, or a fixture with no entry.
     Parens around a *call argument* are not an exception — a positional slot can
     never make parens load-bearing, but gren-format keeps them anyway, for the
     same reason it keeps every other redundant paren: consistency. What you wrote
-    is what you get, everywhere:
+    is what you get, everywhere.
 
-    ```gren
-    -- you wrote (and gren-format keeps):
-    node "div" ({ foo = 1, bar = 2 }) []
+    **Side by side.** Every row below is real output — the input was run through
+    both formatters, and elm-format's column is shown in Gren syntax (`case … of`
+    written back as `when … is`) so the two are directly comparable.
 
-    -- elm-format strips to:
-    node "div" { foo = 1, bar = 2 } []
-    ```
+    | you write | gren-format | elm-format |
+    |---|---|---|
+    | `((a)) + ((b))` | `((a)) + ((b))` | `a + b` |
+    | `(a) + (b)` | `(a) + (b)` | `a + b` |
+    | `(((a)))` | `(((a)))` | `a` |
+    | `((f x)) + ((g y))` | `((f x)) + ((g y))` | `f x + g y` |
+    | `((a))` | `((a))` | `a` |
+    | `{ fld = ((a)) }` | `{ fld = ((a)) }` | `{ fld = a }` |
+    | `[ ((a)), ((b)) ]` | `[ ((a)), ((b)) ]` | `[ a, b ]` |
+    | `node "div" ({ foo = 1, bar = 2 }) []` | `node "div" ({ foo = 1, bar = 2 }) []` | `node "div" { foo = 1, bar = 2 } []` |
+    | `fn (a) last` | `fn (a) last` | `fn a last` |
+    | `fn ((a)) last` | `fn ((a)) last` | `fn a last` |
+    | `fn (((a))) last` | `fn (((a))) last` | `fn a last` |
+    | `fn ((f x)) last` | `fn ((f x)) last` | `fn (f x) last` |
+    | `fn (({ a = 1 })) last` | `fn (({ a = 1 })) last` | `fn { a = 1 } last` |
 
-    See [Redundant parens: what each formatter strips](redundantParens.md)
-    for the full comparison, and [Function application](formatterRules.md#function-application).
+    Two things worth reading off that table. **elm-format's stripping is about
+    meaning, not appearance**: `fn ((f x)) last` keeps exactly one paren, because
+    a call argument that is itself a call genuinely needs it — while
+    `((f x)) + ((g y))` keeps none, because an operator's operand doesn't. It
+    strips to the minimum and stops there. **gren-format's column has no
+    exceptions**: every row keeps exactly what was written, at every nesting
+    depth and in every position, including call arguments.
+
+    Keeping them is a [settled decision](settledDecisions.md#redundant-parens-are-never-stripped),
+    not a gap. See also [Function application](formatterRules.md#function-application).
 
 11. <a id="divergence-11"></a>**Doc-comment body contents** elm-format reaches *inside*
     a `{-| … -}` doc comment and reformats its contents: it re-spaces `@docs`

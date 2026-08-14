@@ -41,8 +41,9 @@ the day.
 
 ## Rejected approaches
 
-Each of these was tried against the whole corpus and reverted. The cost line is
-the point of the entry.
+Each of these was tried against the whole corpus and backed out — all but the
+last reverted before shipping, the last deleted after months in the formatter.
+The cost line is the point of the entry.
 
 ### `freezeTabs` inside `addSuffixBox`, to fix a `Box.prefix` mis-measurement
 
@@ -152,6 +153,43 @@ two traces come from identical text and nothing can differ — exactly the "if t
 two formats agree the comparison collapses into the idempotency check we already
 have" trap. The value of that gate is the *reason* a probe moved, which only the
 formatter holds; a check that compares two identical texts holds nothing.
+
+---
+
+### Stripping a call argument's redundant parens
+
+Unlike the rest of this section, this one **shipped** — it was live formatter
+behaviour for months — and was then deleted by decision (`598f55a`,
+2026-07-15). `exprIsAtomicAsArg` / `insertCallArgAsItem` /
+`folderInsertCallArgAsItem` in `InsertExpressions.gren` stripped one layer of
+parens off an *atomic* call argument; call arguments now fold through the same
+plain path as every other position.
+
+**Why a model needs this entry.** It is the locally obvious proposal — a
+positional call-argument slot can never make parens load-bearing, so stripping
+there is provably meaning-preserving, which is exactly what elm-format relies
+on. That reasoning is correct and it is not the reason the code was removed.
+Keeping every paren in *every* position is a
+[settled decision](../settledDecisions.md#redundant-parens-are-never-stripped);
+consistency across positions is the rule, and being more explicit than
+elm-format is [divergence #10](../elmFormatComparison.md#divergence-10), not a
+gap to close.
+
+**What it actually failed at was consistency, not correctness.** `fn (a) last`
+came out as `fn a last`, but `fn ((a)) last` was left untouched — a second
+layer switched the stripping off entirely rather than peeling one, so the two
+got opposite treatment. That was registered as 6 `doubleParen`/`callArg*` BUG
+cells in `tests/matrix-parity-baseline.json`; deleting the stripper reclassified
+them from BUG to plain #10 (registered divergences 245 → 251, known bugs
+10 → 4).
+
+**Nothing in the docs signals this any more, which is why it is here.** The
+comparison table used to carry ⚠️ rows marking the one-layer-only strip; the
+table now lives under divergence #10 with no exceptions in it, and the
+`docs/redundantParens.md` that held the warning was folded into
+`settledDecisions.md` and `elmFormatComparison.md` (2026-08-14). A reader of the
+current docs sees a rule with no exceptions and no trace that an exception was
+ever tried.
 
 ---
 

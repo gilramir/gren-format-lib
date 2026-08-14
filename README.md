@@ -379,12 +379,11 @@ Everything above is the short version. The full documents are in
   example.
 - **[Sorting](docs/sorting.md)** — the two things the formatter reorders:
   the names in an `exposing ( … )` list, and a run of `import` statements.
-- **[Required formatting shapes](docs/requiredFormatting.md)** — the layouts
-  that are recorded Gren-team design decisions and must not be changed.
+- **[Settled formatting decisions](docs/settledDecisions.md)** — the closed
+  questions: recorded Gren-team decisions the output must keep honouring, each
+  with the fixture that pins it.
 - **[Comparison with elm-format](docs/elmFormatComparison.md)** — every place
   `gren format` deliberately diverges from `elm-format`, and why.
-- **[Redundant parens](docs/redundantParens.md)** — which redundant parentheses
-  each of the two formatters strips, side by side on real output.
 - **[Known limitations](docs/knownLimitations.md)** — compiler/parser bugs
   and comment-placement choices the formatter can't do better on today.
 
