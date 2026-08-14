@@ -3,7 +3,7 @@
 real published Gren packages and classify each failure.
 
 This is the standing, repeatable form of the root `CLAUDE.md` "elm-format
-comparison" / `qe.md` avenue #1 exercise. Unlike the synthetic gates
+comparison" exercise. Unlike the synthetic gates
 (`matrix-syntax.py`, `fuzz-idempotency.py`, `fuzz-whitespace.py`,
 `audit-predicates.py`), which each vary ONE axis over a fixed base, real source
 varies many axes at once — and every one of the 2026-07-18 scan bugs (A–E) was a

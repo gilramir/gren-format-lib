@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Boundary/pathological-input sweep: the non-depth-shaped cases from qe.md
-avenue #1 that `pathological-nesting.py` doesn't reach.
+"""Boundary/pathological-input sweep: the non-depth-shaped cases
+`pathological-nesting.py` doesn't reach.
 
 `pathological-nesting.py` varies NESTING DEPTH (parens/list/record/lambda/
 if-chain/unary-minus/binop-chain/pipeline-chain) and found the one performance
 bug this repo has (an O(2^depth) render hang). Depth is one axis; this script
-covers the others qe.md named as still untried: very long identifiers, files
+covers the others: very long identifiers, files
 that are all comments, empty modules, CRLF line endings, unicode in
 strings/identifiers, huge single-line input. None of those are nesting-depth
 shaped, so the bisection-on-depth engine above doesn't reach them.

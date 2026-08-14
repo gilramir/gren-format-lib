@@ -276,7 +276,7 @@ Three things shape what is reported, and each replaced a wrong first attempt:
 - **A "silent flip" check (a decision moved, the bytes did not) was tried and
   dropped as vacuous.** Over the corpus the input already *is* the output, so
   both traces come from identical text and nothing can differ. That is exactly
-  the trap [`llmAttic.md`](llmAttic.md) records it under: when the two formats
+  the trap [the attic](llm/attic.md) records it under: when the two formats
   agree, an output-shaped comparison collapses back into the idempotency check we
   already have.
 

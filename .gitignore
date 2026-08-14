@@ -10,6 +10,4 @@ tests/comment-parity-pairs.jsonl
 tests/comment-parity-bases.jsonl
 
 # scratch notes, not meant to be committed
-tbd.md
 bug.md
-comment-parity-triage.md

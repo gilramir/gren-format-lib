@@ -18,8 +18,8 @@
 
 Assembled for 1.0.0 from two documents that were retired: the archived long-form
 `CLAUDE.md`, and `commentRunTesting.md`. Everything else in those was either
-duplicated by [`testing.md`](testing.md) /
-[`commentAlgorithm.md`](commentAlgorithm.md) or superseded — in particular
+duplicated by [`testing.md`](../testing.md) /
+[`commentAlgorithm.md`](../commentAlgorithm.md) or superseded — in particular
 `commentAlgorithm.md` §7 (the run rules R1–R5), §8 (why one comment working
 implies *n* working, argued from the code rather than from a suite) and §10 (what
 each gate varies) now say what `commentRunTesting.md` set out to plan.

@@ -2,11 +2,11 @@
 """Cluster the comment-axis parity divergences into reviewable families.
 
 `./matrix-syntax.py --comments` registers ~26k divergences from elm-format in
-matrix-comment-baseline.json, of which ~16k are UNREVIEWED (tbd.md item 1). The
+matrix-comment-baseline.json, of which ~16k were UNREVIEWED. The
 baseline records a reason per cell and nothing else, so reviewing them means
 regenerating the output pairs -- and 16k diffs is not a review, it is a wall.
 
-This is the sampler tbd.md's "suggested approach" asks for, made mechanical: it
+This is that sampler, made mechanical: it
 re-runs the UNREVIEWED cells, re-runs each cell's UNCOMMENTED form for reference,
 and sorts every divergence into one family by three independent features.
 
@@ -267,7 +267,7 @@ FAMILIES = {
            "The comment was written just after an opening `{` / `[`. gren lifts it "
            "onto its own line ABOVE the whole container; elm-format keeps it inside, "
            "on the first item's line. An attachment decision (Comments.gren), not a "
-           "layout one -- tbd.md names this family in its suggested approach."),
+           "layout one."),
     "A2": ("gren re-homes a comment written after `,` back onto the previous item",
            "The author wrote the comment leading item N (just after the comma). gren "
            "attaches it trailing item N-1, elm-format keeps it leading item N. Same "

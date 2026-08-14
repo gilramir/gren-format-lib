@@ -2,8 +2,8 @@
 """Pathological/boundary-input sweep: how deep can each construct nest before
 something breaks?
 
-qe.md avenue #1 ("boundary/pathological inputs") was untried until now. Every
-other gate in this repo — the matrix, both fuzzers, `gen-random.py` — samples
+Boundary and pathological input is an axis of its own. Every other gate in this
+repo — the matrix, both fuzzers, `gen-random.py` — samples
 *legal syntax at bounded depth*, because that is what real Gren programs and
 random-but-plausible programs look like. None of them stress structural depth
 itself. The one historical bug this axis is known to catch (an `O(2^depth)`

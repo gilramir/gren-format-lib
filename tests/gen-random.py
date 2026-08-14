@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Property-based random Gren generator (qe.md avenue #2).
+"""Property-based random Gren generator: the feature-co-occurrence axis.
 
 Builds random-but-legal Gren modules with bounded depth and checks the standing
 invariants on each: parses, formats without crashing, AST-equivalent, idempotent,
@@ -2210,10 +2210,8 @@ class Gen:
             # formatter bug (a backward-pipe step's operator glues onto the
             # same line as the `--`, silently swallowing the operator into
             # the comment text — an ast-mismatch). Left in place
-            # DELIBERATELY, not restricted to block-only, per the user's
-            # call 2026-07-22: the bug and its repro seeds are written up in
-            # `gren-format-lib/tbd.md` (seeds 1480/2303/2767) for review
-            # before deciding the fix; the generator should keep finding it
+            # DELIBERATELY, not restricted to block-only: the generator
+            # should keep finding it (seeds 1480/2303/2767 reproduce it)
             # rather than being narrowed to hide it.
             trailing = self.comment()
             if trailing is not None:

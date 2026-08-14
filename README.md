@@ -382,7 +382,7 @@ Everything above is the short version. These are the full documents, all in
   teaching the formatter about a new piece of Gren syntax.
 - **[The comment algorithm](docs/commentAlgorithm.md)** — the comment
   implementation itself, for people working on the formatter.
-- **[The LLM attic](docs/llmAttic.md)** — approaches tried and backed out, work
+- **[The LLM attic](docs/llm/attic.md)** — approaches tried and backed out, work
   deferred and the measurement behind it, and designs never built. Written to be
   read by a model working on this repo.
 
