@@ -20,7 +20,7 @@ import Formatter.Logical.LogicalPrintingTree exposing
     , RecordKind(..)
     , SyntaxType(..)
     , commentGluesToPrevious
-    , commentLeadsOwnLine
+    , commentLeadsLine
     , commentRole
     , firstRowInSubtree
     , lpnBox
@@ -368,7 +368,7 @@ opAndRhsBoxFromItems queue children =
 
 
 {-| The indented body of a vertical binop chain: each group's operator line,
-with the own-line comments between groups placed around them.
+with the line-leading comments between groups placed around them.
 
 A trailing run of single-line block comments in a group's own-line split does
 NOT stack on its own row — it rides the next group's operator line
@@ -376,7 +376,7 @@ NOT stack on its own row — it rides the next group's operator line
 broken chain, and mirrors `assembleBrokenWithComments`'s `pending` for a broken
 call. Both authorings converge on it: written on its own row the comment pairs
 after one format, and written inline it stays paired, so the paired form is the
-only fixed point (the classifier tags the comment `LeadsOwnLine` either way, so
+only fixed point (the classifier tags the comment `LeadsLine` either way, so
 the two authorings reparse to the same tree).
 
 The pairing is off in the three cases where there is no line to ride: the
@@ -507,7 +507,7 @@ verticalBinopChainBox ops operandItems =
                                         |> Result.andThen (binopChainIndentedLines op0.trailing)
                                         |> Result.map
                                             (\indentedLines ->
-                                                -- Every operator line + every own-line comment
+                                                -- Every operator line + every line-leading comment
                                                 -- sits at +grenIndent; `firstBox` (operand0) at the base.
                                                 B.stack1 ([ firstBox ] ++ Array.map B.indent indentedLines)
                                             )
@@ -893,7 +893,7 @@ to `(`, body at `(` + grenIndent, `)` on its own line at the `(` column
 (elm-format). elm-format anchors everything at the `(` column; here the box's
 own origin IS that column (the caller drops the trigger box at its indent), so
 plain stacking reproduces it. The `(` glue is FIRST-LINE-ONLY: the head flow's
-own breaks (an own-line comment between lambda params) land at the align
+own breaks (a line-leading comment between lambda params) land at the align
 level — the `(` COLUMN, one left of the head's first character — so the
 head box's continuation rows must stay at the box origin, not be padded by
 the `(` width (`B.prefix` put them one column deep — KitchenComments'
@@ -1134,7 +1134,7 @@ renderPipelineStepChildrenWith glueLeading allChildren =
         -- "trailing comments below a pipeline's last step stay at the step
         -- indent" pins it, and role is the wrong question for them: after a
         -- single-line paren `prevBlockGlueRow` yields no glue row, so a `{- c -}`
-        -- the author wrote right there is `LeadsOwnLine` and still glues.
+        -- the author wrote right there is `LeadsLine` and still glues.
         glued =
             peelTrailingCommentNodes rest
 
@@ -2122,9 +2122,10 @@ renderWhenBranchesBox children =
                                 handleComment acc child
 
                             EmptyLine ->
-                                -- The blank-line marker that precedes an own-line
-                                -- comment leading the next branch ([WB, EmptyLine,
-                                -- comment, WB]). The one blank line between branch
+                                -- The blank-line marker that precedes a
+                                -- line-leading comment on the next branch ([WB,
+                                -- EmptyLine, comment, WB]). The one blank line
+                                -- between branch
                                 -- boxes is supplied by `stackWithBlanks`, so the
                                 -- marker is a no-op here. Any other position
                                 -- (leading, or after a lead comment) falls back.
@@ -2143,10 +2144,10 @@ renderWhenBranchesBox children =
         |> Result.andThen
             (\acc ->
                 if not (Array.isEmpty acc.lead) then
-                    -- unreachable: `lead` holds own-line comments that LEAD the
+                    -- unreachable: `lead` holds line-leading comments that LEAD the
                     -- next branch, and is drained by each `WhenBranch`. A comment
                     -- after the LAST branch never lands in the when's branch
-                    -- children — Comments.gren attaches a trailing own-line comment
+                    -- children — Comments.gren attaches a trailing line-leading comment
                     -- as a following sibling `OriginalRows`, outside the `WhenFlow`
                     -- — so `lead` is always empty here.
                     Err "unreachable: comment left in the lead run after the last when-branch"
@@ -2314,7 +2315,7 @@ makeSignatureBox children =
         if not forceVertical && hasComment then
             -- Inline signature carrying a comment: render via the comment-aware
             -- flow, NOT a flat group, because a comment's break points have no
-            -- stable inline anchor (elm-format); a `--`/own-line comment that
+            -- stable inline anchor (elm-format); a `--`/line-leading comment that
             -- forces a continuation is indented +4 by `assembleFlow`.
             --
             -- The single-node type (`foo : { a : Int {- c -} }`) used to have a
@@ -2403,11 +2404,11 @@ makeExposingLineBox stype children =
                 -- A header comment the author wrote on the header's own row
                 -- (`module M exposing {- c -}`, `module {- c -} M exposing`) is
                 -- rendered by the flow *within* the header line and does not
-                -- stop the coupled layout — only an own-line one that sits
+                -- stop the coupled layout — only a line-leading one that sits
                 -- between the header and the `(` does, which is the
                 -- `SortSymbols` hoist's shape (handled below).
                 --
-                -- The test is on the TRAILING run, not on any own-line comment
+                -- The test is on the TRAILING run, not on any line-leading comment
                 -- anywhere in the header, which is what it used to ask. A `--`
                 -- written INSIDE the header (`module -- c` ⏎ `M exposing`) puts
                 -- a later token on its own row, so it reads as own-line without
@@ -2518,7 +2519,7 @@ makeExposingLineBox stype children =
                                         --
                                         -- A multi-line header is fine here for the
                                         -- same reason it is in `gluedExposingBox`:
-                                        -- this shape only STACKS (own-line comments
+                                        -- this shape only STACKS (line-leading comments
                                         -- at +4 beneath the header, list at +4 below
                                         -- those). The two must agree, and they are
                                         -- reachable from each other's output — this
@@ -3467,7 +3468,7 @@ column, each remaining item at +`indent`. This is a separate assembler from
 already renders broken function applications via `assembleBrokenCall`, so the one
 caller here is the forced-vertical comment-bearing binop (`operand0` /
 `op … rest` at +4). Top-level comment items ARE handled:
-`assembleBrokenWithComments` places leading, gluing and own-line comments itself
+`assembleBrokenWithComments` places leading, gluing and line-leading comments itself
 (verified behaviorally — an earlier version of this doc said they fall back). -}
 buildFlowBoxBroken : Int -> Array LPNode -> Result String Box
 buildFlowBoxBroken indent nodes =
@@ -3590,7 +3591,7 @@ assembleFlowImpl measure flowStart flowIndent items =
                         -- reads it instead of re-deriving glue/own-line from rows.
                         role =
                             commentRole (lpnBox item.node)
-                                |> Maybe.withDefault LeadsOwnLine
+                                |> Maybe.withDefault LeadsLine
                     in
                     if c.isLineComment then
                         FP.LineCommentItem { role = role }
@@ -3653,7 +3654,7 @@ assembleFlowImpl measure flowStart flowIndent items =
                 Nothing ->
                     Err "box: glue with nothing before"
 
-        -- Materialize a comment item's placement. An own-line comment (the
+        -- Materialize a comment item's placement. A line-leading comment (the
         -- policy leaves `AlreadyTerminated`) flushes and stands alone; an
         -- inline one joins the current row. `GlueSpace` with an empty current
         -- row means the previous item was a block (a dropped record): glue

@@ -126,7 +126,7 @@ functions that decide which row a following `--`/`{- -}` comment glues onto —
 each match on `LPBox` kind, and neither had a case for `MultilineString`, so
 both silently fell through to their `_ -> -1` default. That made the
 classifier think a same-row trailing comment could never glue onto a multi-line
-string's close, so it always emitted `LeadsOwnLine` — pushing the comment onto
+string's close, so it always emitted `LeadsLine` — pushing the comment onto
 its own new line "for now" at the body's indent, which is not the same
 decision the *next* format pass makes for that new (now own-row) position,
 hence the oscillation. Fixed by adding `MultilineString _ -> lastRenderedRow
@@ -1135,7 +1135,7 @@ so this is a strict widening with no effect on any previously-generated shape.
 
 **Bug found and fixed** (the dominant class — 28 of the first 29 findings, plus
 a crash): a same-row multi-row `{- -}` trailing an import's or module header's
-**flat, `ListParen`** exposing list classified `LeadsOwnLine` and rendered on a
+**flat, `ListParen`** exposing list classified `LeadsLine` and rendered on a
 fresh row; reparsing that output then read the comment as an unattached
 `Standalone` top-level comment (its start row no longer fell inside the
 import's/header's own declared row range) instead of the construct's own
@@ -1587,7 +1587,7 @@ formatter emitted a file that neither `compiler-common` nor `gren make` will
 parse. `trySoftGlueFlow`'s `flowItemInlineLine` — the fast path written for
 `multilineRecord { alpha` ⏎ `, beta` ⏎ `} =` — accepted **any** single-line block
 comment as a gluable prefix item, asking the comment's shape
-(`commentTextCanRide`'s question) instead of its stored role. So a `LeadsOwnLine`
+(`commentTextCanRide`'s question) instead of its stored role. So a `LeadsLine`
 comment was glued onto a broken pattern's first row, and a `let` binding that is
 not the first cannot begin with a comment on its row at all. The same comment in
 front of a one-row pattern had always stacked above it. Scoped with

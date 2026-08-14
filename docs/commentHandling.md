@@ -31,12 +31,12 @@ where gren-format and elm-format disagree about comments, see the
 - [The two kinds of comment](#the-two-kinds-of-comment)
 - [The seven rules at a glance](#the-seven-rules-at-a-glance)
 - [C1 — A comment belongs to the code you wrote it next to](#c1--a-comment-belongs-to-the-code-you-wrote-it-next-to)
-- [C2 — When the parser doesn't record the punctuation, the comment leads what follows](#c2--when-the-parser-doesnt-record-the-punctuation-the-comment-leads-what-follows)
+- [C2 — When the parser doesn't record the punctuation, the comment lands after it](#c2--when-the-parser-doesnt-record-the-punctuation-the-comment-lands-after-it)
 - [C3 — A comment never forces a break](#c3--a-comment-never-forces-a-break)
 - [C4 — A comment changes where the lines fall, and nothing else](#c4--a-comment-changes-where-the-lines-fall-and-nothing-else)
 - [C5 — gren-format adds nothing around a comment](#c5--gren-format-adds-nothing-around-a-comment)
-- [C6 — An own-line comment is indented to the code it leads](#c6--an-own-line-comment-is-indented-to-the-code-it-leads)
-- [C7 — A comment keeps the rows you gave it](#c7--a-comment-keeps-the-rows-you-gave-it)
+- [C6 — A line-leading comment is indented to the code it leads](#c6--a-line-leading-comment-is-indented-to-the-code-it-leads)
+- [C7 — Comments written together stay together; comments written apart stay apart](#c7--comments-written-together-stay-together-comments-written-apart-stay-apart)
 - [Comments in runs](#comments-in-runs)
 - [Where the rules run out](#where-the-rules-run-out)
 - [Trying it yourself](#trying-it-yourself)
@@ -159,8 +159,8 @@ can hold:
 | role | means |
 |---|---|
 | `TrailsPrevious` | glue onto the end of the thing before it — `x = 1 -- why` |
-| `LeadsOwnLine` | stand on its own line, above what follows |
-| `LeadsNext` | it belongs to what comes *after* an invisible separator ([C2](#c2--when-the-parser-doesnt-record-the-punctuation-the-comment-leads-what-follows)) |
+| `LeadsLine` | stand on its own line, above what follows |
+| `LeadsNext` | it belongs to what comes *after* an invisible separator ([C2](#c2--when-the-parser-doesnt-record-the-punctuation-the-comment-lands-after-it)) |
 | `TrailsHead` | glue onto a container's head — a record update's base name |
 | `RidesInline` | ride mid-line without breaking it — `f {- k -} x` |
 | `LeadsInline` | glued to the front of a declaration — `{- c -} import Qux` |
@@ -261,9 +261,9 @@ This is where the role is chosen. `-- smallest` is on the same row as the `1`
 before it, so it trails it: `TrailsPrevious`. `{- then -}` sits in the gap at a
 comma — and a comma is one of the separators the parser does not record a
 position for, so the two ways of typing it are literally the same input to the
-formatter. That case is [C2](#c2--when-the-parser-doesnt-record-the-punctuation-the-comment-leads-what-follows)
-below, and the answer is `LeadsNext`: the comment leads whatever follows the
-separator.
+formatter. That case is [C2](#c2--when-the-parser-doesnt-record-the-punctuation-the-comment-lands-after-it)
+below, and the answer is `LeadsNext`: the comment lands after the separator,
+not before it.
 
 Everything after this point just draws what was decided. The renderer's only
 remaining question about a comment is about its **text**, not its position: can
@@ -313,13 +313,14 @@ sizes =
 ## The seven rules at a glance
 
 1. **C1** — A comment belongs to the code you wrote it next to.
-2. **C2** — Where the parser doesn't record the punctuation, the comment leads
-   what follows.
+2. **C2** — Where the parser doesn't record the punctuation, the comment lands
+   after it, not before.
 3. **C3** — A comment never forces a break.
 4. **C4** — A comment changes where the lines fall, and nothing else.
 5. **C5** — gren-format adds nothing around a comment.
-6. **C6** — An own-line comment is indented to the code it leads.
-7. **C7** — A comment keeps the rows you gave it.
+6. **C6** — A line-leading comment is indented to the code it leads.
+7. **C7** — Comments written together stay together; comments written
+   apart stay apart.
 
 The first two are about **which piece of code a comment is attached to**; the
 last five are about **how the attached comment is laid out**. They never trade
@@ -397,7 +398,7 @@ b =
 
 ---
 
-## C2 — When the parser doesn't record the punctuation, the comment leads what follows
+## C2 — When the parser doesn't record the punctuation, the comment lands after it
 
 Gren's parser reads punctuation and keywords and then throws most of them away.
 Of everything that can separate two pieces of an expression, only **a binary
@@ -415,7 +416,7 @@ look at how wide the whitespace gaps are — formatting must not depend on your
 spacing.)
 
 So one of the two spellings has to move. gren-format always picks the **later**
-side: the comment leads whatever comes after the punctuation.
+side: the comment lands after the punctuation, never before it.
 
 ```gren
 -- you write (either one of these):
@@ -809,7 +810,7 @@ inside it can share that line. A single-line `{- -}` can; a `--` and a
 multi-line `{- … -}` cannot.
 
 This is about the **code's** line. The same sentence applied to a *comment's* own
-line is [C7](#c7--a-comment-keeps-the-rows-you-gave-it): two comments you wrote
+line is [C7](#c7--comments-written-together-stay-together-comments-written-apart-stay-apart): two comments you wrote
 on one row can share it, so they keep it.
 
 ```gren
@@ -1038,10 +1039,13 @@ Two things that look like counter-examples and aren't:
 
 ---
 
-## C6 — An own-line comment is indented to the code it leads
+## C6 — A line-leading comment is indented to the code it leads
 
-A comment on its own line is indented to match the code below it — not to a
-column of its own, and not to the column you happened to type it at.
+A **line-leading** comment — one with nothing before it on its row — is
+indented to match the code below it, not to a column of its own and not to the
+column you happened to type it at. What comes *after* it on the row is not part
+of the test: a single-line `{- -}` that starts a row and is followed by code is
+line-leading too, and takes the same indent.
 
 Precisely: to the column where the line it leads **begins**. In a call, a `let`,
 or a `when` body, that's just the code's column:
@@ -1139,10 +1143,11 @@ introduces the *next* declaration instead, is in
 
 ---
 
-## C7 — A comment keeps the rows you gave it
+## C7 — Comments written together stay together; comments written apart stay apart
 
-gren-format never joins rows you wrote apart, and never splits a row you wrote
-together. Where C3 is about the **code's** line, this is about the comment's own.
+gren-format never joins two comments you wrote on separate rows, and never
+splits two you wrote on the same row. Where C3 is about the **code's** line,
+this is about the comments' own.
 
 Two or more comments in one gap are a **run** (there is a section on runs
 [below](#comments-in-runs)), and the same question decides their rows:
@@ -1215,7 +1220,7 @@ fruit =
     ]
 ```
 
-**A run crosses a separator together, or not at all.** [C2](#c2--when-the-parser-doesnt-record-the-punctuation-the-comment-leads-what-follows)
+**A run crosses a separator together, or not at all.** [C2](#c2--when-the-parser-doesnt-record-the-punctuation-the-comment-lands-after-it)
 moves a single-line `{- -}` across an unrecorded separator, while a `--` and a
 multi-line comment both stay with the item above. So a *mixed* run in one gap
 would tear in half if each member were asked separately. It is asked of the whole

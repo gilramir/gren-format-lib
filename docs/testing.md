@@ -322,7 +322,7 @@ diagnosis. Two readings, both off real sweeps:
   declaration owns it**. A group carrying them is a comment relocating between
   declarations; the same group without them is a comment staying put and
   changing role.
-- **`Comment.role=LeadsOwnLine` lost against `Comment.role=Standalone` gained**,
+- **`Comment.role=LeadsLine` lost against `Comment.role=Standalone` gained**,
   in bulk. That is the detached-comment class: a multi-line `{- … -}` written
   past a declaration's last token, which renders below the declaration and is
   re-homed to column 1 on reparse.

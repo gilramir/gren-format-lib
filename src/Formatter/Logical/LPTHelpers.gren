@@ -145,7 +145,7 @@ choice in one place.
   - Some items → an `lpnBracketNode` whose box is `AlwaysVertical` when the
     author wrote the items across rows (`spans`, from `itemsSpanRows`), else
     `AllAcrossOrAllVertical` (inline unless it carries a comment). `closeEnd` is
-    the closing bracket's source position, registered so an own-line comment
+    the closing bracket's source position, registered so a line-leading comment
     before the close stays inside the container; `openStart` is the *opening*
     bracket's position, registered so a comment written just after it stays
     inside too (`[ {- c -} 1, 2 ]`), rather than being hoisted above the whole

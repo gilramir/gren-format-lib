@@ -82,7 +82,7 @@ import Formatter.Logical.LogicalPrintingTree exposing
   - `FirstItem` — nothing precedes; emit no separator.
   - `FlowSep` — normal flow: space or newline (a groupable soft break).
   - `HardNl` — after an `IndentedBlock`: forced newline.
-  - `AlreadyTerminated` — after a `--`, or a single-line own-line comment, has
+  - `AlreadyTerminated` — after a `--`, or a single-line line-leading comment, has
     ended its own line: no extra separator for a following TOKEN. A following
     COMMENT glues back onto that line iff its role says the author wrote it
     there, which after a `--` it never can (a `--` runs to EOL, so a comment
@@ -330,7 +330,7 @@ statements and declarations — top-level units, `let` bindings, `when` cases,
 `if`/`else` branches — and those are placed by `Formatter.Logical.VerticalSpace`
 as `EmptyLine` markers before the flow ever reaches this layer. Inside a single
 expression — a pipeline, a binop chain, a list, a record — the parts are never
-separated by a blank line, including an own-line comment leading a part.
+separated by a blank line, including a line-leading comment on a part.
 -}
 decide : FlowConfig -> FlowState -> ItemFacts -> Decision
 decide config state facts =
@@ -366,7 +366,7 @@ decide config state facts =
                 -- does not continue a line the caller already started
                 -- (e.g. before a non-first `let` binding), OR when a
                 -- previous comment already ended the line (AlreadyTerminated):
-                -- a run of own-line comments must each stay on their own
+                -- a run of line-leading comments must each stay on their own
                 -- line, not glue the following token onto the last one.
                 -- A single-line block comment that continues a line stays
                 -- inline (`a * {- c -} b`, a binop RHS, a `( … )` body).
@@ -415,8 +415,9 @@ decide config state facts =
                 -- onto that item's last rendered line with a space. This
                 -- matters after a *block* (a dropped type record, whose
                 -- `prevRowBlock` is its `}` row): the HardNl separator would push
-                -- the comment to a fresh line, which reparses as an own-line
-                -- comment and detaches (a +4 ↔ col-0 oscillation). For an
+                -- the comment to a fresh line, which reparses as a
+                -- line-leading comment and detaches (a +4 ↔ col-0 oscillation).
+                -- For an
                 -- inline previous item the `SoftSep` join already renders a
                 -- space, so this is a no-op there.
                 let
@@ -473,7 +474,7 @@ decide config state facts =
                     -- rule. A comment that OPENED its own line (placement
                     -- `OwnLine`) starts a fresh comment line and KEEPS it: a run
                     -- the author wrote on separate rows stays on separate rows.
-                    -- Until 2026-08-08 a following own-line comment merged up
+                    -- Until 2026-08-08 a following line-leading comment merged up
                     -- onto it, to match elm-format, which joins such a run
                     -- (`PipelineLambdaArgTrailingComment` pinned the merged
                     -- form). That is a deliberate divergence now: gren never
@@ -531,7 +532,7 @@ decide config state facts =
                 -- Carry the record's closing-bracket row as `prevRowBlock` (not -1)
                 -- so a single-line block comment on that same source row glues
                 -- onto the record's `}` line (`} {- c -}`) instead of dropping
-                -- to a fresh line — which would reparse as an own-line comment
+                -- to a fresh line — which would reparse as a line-leading comment
                 -- and detach (a +4 ↔ col-0 oscillation). Keeping the rule's
                 -- `nextSep` (HardNl / FlowSep) means a following *type node*
                 -- still breaks to its own line; only a same-row comment glues
@@ -546,7 +547,7 @@ decide config state facts =
                 -- bracket row as `prevRowBlock` so a same-row trailing comment glues
                 -- onto the `]`/`}` line (`] {- c -}`) — a reparse fixed point —
                 -- instead of dropping to its own line at the body indent, which
-                -- reparses as an own-line comment and detaches (the +4 ↔ col-0
+                -- reparses as a line-leading comment and detaches (the +4 ↔ col-0
                 -- oscillation). A following non-comment item still breaks
                 -- (`separator = FlowSep`); only a same-row comment glues.
                 { placement = joinPlacement state.separator
@@ -557,7 +558,7 @@ decide config state facts =
                 -- A single-line EXPRESSION bracket (`{ a = 1 }`, `[ 1, 2 ]`).
                 -- A same-row trailing `--` line comment glues onto the `}`/`]`
                 -- line (`prevRowLine = closingRow`) instead of dropping to its own
-                -- line, which reparses as an own-line comment and detaches (the
+                -- line, which reparses as a line-leading comment and detaches (the
                 -- +4 ↔ col-0 oscillation). A *block* comment keeps `prevRowBlock = -1`
                 -- so it stays own-line — matching elm-format and the canonical
                 -- comment fixtures, which put a block comment after a single-line
@@ -614,8 +615,9 @@ decide config state facts =
             }
 
         PipelineStepItem ->
-            -- A pipeline step stacks on its own line under the seed. An own-line
-            -- comment leading a step stays glued to that step with no blank line
+            -- A pipeline step stacks on its own line under the seed. A
+            -- line-leading comment on a step stays glued to that step with no
+            -- blank line
             -- above it: a pipeline is one expression, and blank lines never
             -- separate the parts of a single expression (see `decide`'s header).
             { placement =
@@ -668,11 +670,11 @@ joinPlacement sep =
 
 {-| A comment glues onto the previous item's line when the classifier tagged it
 `TrailsPrevious` (a `--` or `{- -}` that trails the item) or `RidesInline`
-(an inline `{- -}` riding a flat flow). `LeadsOwnLine` / `Standalone` do not
+(an inline `{- -}` riding a flat flow). `LeadsLine` / `Standalone` do not
 glue here.
 -}
 -- The own-line-comment join: a `TrailsPrevious` / `RidesInline` comment glues
--- with a space; a `LeadsOwnLine` comment forces its own line. The glue/own-line
+-- with a space; a `LeadsLine` comment forces its own line. The glue/own-line
 -- call is the stored `CommentRole` — decided once in `Comments.gren` from the
 -- pristine parse rows — not a render-time row comparison. `config` is unused
 -- today but keeps the helper's signature uniform with the arms.
@@ -683,7 +685,7 @@ commentPlacement _ state role =
             AsFirst
 
         -- After a `--`, or a single-line comment that took its own line: a
-        -- same-row trailing comment glues onto it, an own-line one stays
+        -- same-row trailing comment glues onto it, a line-leading one stays
         -- own-line. Role-aware for the same reason the arm below is — **gren
         -- never moves a comment between rows**, so a member the author wrote on
         -- the previous member's row shares that row here too. Answering
@@ -702,7 +704,7 @@ commentPlacement _ state role =
                 GlueNoSep
 
         -- After a multi-line block comment: a same-row trailing comment glues
-        -- onto its `-}` line; an own-line one stays own-line (`GlueNoSep`
+        -- onto its `-}` line; a line-leading one stays own-line (`GlueNoSep`
         -- materializes as its own line, like `AlreadyTerminated`).
         TerminatedByBlockComment ->
             if roleGlues role then

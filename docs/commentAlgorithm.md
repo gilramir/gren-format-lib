@@ -186,7 +186,7 @@ recomputes it.
 ```gren
 type CommentRole
     = TrailsPrevious   -- glue onto the previous sibling's last rendered line
-    | LeadsOwnLine     -- own line, at the current flow/body indent
+    | LeadsLine        -- own line, at the current flow/body indent
     | LeadsNext        -- belongs to the sibling AFTER an unrecorded separator
     | TrailsHead       -- glue onto the container's head (a record update's base)
     | RidesInline      -- rides mid-line without breaking it (`f {- k -} x`)
@@ -237,7 +237,7 @@ b =
 | `{- c -}` before `import Qux` | `LeadsInline` |
 | `{- inline -}` in `import Dict … as D` | `RidesInline` |
 | `-- about the base` | `TrailsHead` |
-| `-- start here` | `LeadsOwnLine` |
+| `-- start here` | `LeadsLine` |
 | `-- the seed` | `TrailsPrevious` |
 | `{- two -}` | `LeadsNext` |
 | `-- detached below b` | `Standalone` |
@@ -700,7 +700,7 @@ The split in the last three rows is rule **C3** — *a comment never forces a
 break*. `seed |> f |> g` stays on one row, so a `{- c -}` written between the
 seed and the operator has a flat line to ride and belongs on it. Redirecting it
 inside made it the step's first child, where nothing precedes it, so it
-classified `LeadsOwnLine` and forced the whole chain vertical — line breaks the
+classified `LeadsLine` and forced the whole chain vertical — line breaks the
 code never needed. The `SoftIndentedBlock` row is the mirror: a `--` *does* end
 its line, the body is forced onto the next row regardless, and a reparse reads
 that as an `IndentedBlock` — whose arm redirects. So leaving the `--` outside
@@ -750,13 +750,13 @@ So `x {- c -} = y` and `x = {- c -} y` arrive as *the same three facts*: where
 apart, and it must not look at whitespace width (formatting must not depend on
 your spacing). One of the two spellings has to move.
 
-The rule is: **the comment leads what follows the separator** — role
+The rule is: **the comment lands after the separator, not before it** — role
 `LeadsNext`. Making that a stored role, rather than a thing each renderer
 re-derives, is what stops a comment from flipping sides of an invisible `,`
 between formats.
 
 C2 has one documented exception and three documented preferences, all in
-[commentHandling.md](commentHandling.md#c2--when-the-parser-doesnt-record-the-punctuation-the-comment-leads-what-follows).
+[commentHandling.md](commentHandling.md#c2--when-the-parser-doesnt-record-the-punctuation-the-comment-lands-after-it).
 The exception, in code, is `leadsAcrossItemSeparator`: it applies only to a
 **single-line `{- -}`**. A `--` ends its row, so it reads as a note about that
 row, and at a line-*leading* separator (`,`, a union's `|`, a record update's
@@ -776,8 +776,8 @@ anything else (the generic flow)              →  the coarse rule
 ```
 
 - **Bracket branch** (`isBracketContainerBox`) — permissive: a comment on the
-  same row as the previous item trails it, whatever kind of item that was; an
-  own-row one leads its own line. These comments render through
+  same row as the previous item trails it, whatever kind of item that was; a
+  line-leading one stands on its own line. These comments render through
   `commentBracketListBox`, never through the generic flow, so they get their own
   branch. The record update is a sub-case with its own arm, because its children
   are its *fields* — the base name is not a child at all, so a comment beside it
@@ -914,7 +914,7 @@ comment is in.
 `findOrCreateOrigRow` refuses a comment written on a row *below* a declaration.
 But a comment written on the declaration's **last** row escapes that check — its
 row is inside the range — and can still *render* below it, because a multi-line
-`{- … -}` with no glue row classifies `LeadsOwnLine` and takes a fresh line.
+`{- … -}` with no glue row classifies `LeadsLine` and takes a fresh line.
 That is exactly the §1.3 oscillation. So: once everything is placed, lift any
 trailing run that renders own-line into the same column-1 `OriginalRows` the
 reparse would give it. **Format¹ builds the tree format² would build.**
@@ -947,7 +947,7 @@ Its scoping is as important as its existence:
   be put back afterwards without re-nesting comments the descent had already
   lifted out.
 - **Two** things make a member render below, and they are different questions:
-  `runRendersBelowDeclaration` (the member brings its own rows — `LeadsOwnLine`
+  `runRendersBelowDeclaration` (the member brings its own rows — `LeadsLine`
   *and* a genuinely multi-line `{- … -}`), and **the member in front of it is a
   `--`**, which swallows the rest of its row so everything after it is on a later
   one whatever its own kind says. A `tailComment` field carries "this level's tail
@@ -957,7 +957,7 @@ Its scoping is as important as its existence:
   block comment inline regardless, which is why `[ 1 ] {- one -} {- two -}` stays
   put. Lifting on the role alone broke nine fixtures.
 - A `--` is deliberately excluded from `runRendersBelowDeclaration` even though it
-  also ends its row; several fixtures pin an own-line `--` staying at the
+  also ends its row; several fixtures pin a line-leading `--` staying at the
   construct's indent, and whether those should detach is a separate question with
   its own fixtures. Note it still *causes* a cut for the member after it — being
   a reason for somebody else to detach and being detachable are not the same
@@ -999,11 +999,11 @@ c rec =
 ```
 
 (The `--` scope has no example here because it is a scoping *decision* rather
-than a shape: a `--` that classifies `LeadsOwnLine` and renders below its
+than a shape: a `--` that classifies `LeadsLine` and renders below its
 construct is left alone, and the fixtures that pin those live under a wrapped
 import and a pipeline's last step.)
 
-**`rehomePipelineStepTrailers`** — a pipeline step's trailing own-line comment
+**`rehomePipelineStepTrailers`** — a pipeline step's trailing comment
 run renders below its step, which puts it *above* the next `|>`; and a comment
 on its own row before an operator is, to a reparse, that operator's step's
 *leading* comment. There is no other reading available, so format¹ must own it
@@ -1012,7 +1012,7 @@ there too.
 This one needs the tree to see, because the repair does **not** change the
 output — that is the whole point of it. Write a multi-line comment after a step
 whose operand is a single-line paren (a paren gives a block comment no glue row,
-so the comment classifies `LeadsOwnLine`):
+so the comment classifies `LeadsLine`):
 
 ```gren
 -- you write:
@@ -1045,7 +1045,7 @@ Pipeline
     ParenBlock
       …the lambda…
   PipelineStep
-    BlockComment ' multi\n   line '  role=LeadsOwnLine     ← here
+    BlockComment ' multi\n   line '  role=LeadsLine        ← here
     UnbreakableText '|>'
     UnbreakableText 'g'
 ```
@@ -1521,10 +1521,10 @@ Letting later members jump onto the item's line is not a fixed point: on reparse
 `assembleBrokenWithComments` and `renderWhenBranchesBox` apply the same
 all-or-nothing rule. elm-format agrees here.
 
-**R4 — A run keeps the rows you gave it.** This is rule
-[C7](commentHandling.md#c7--a-comment-keeps-the-rows-you-gave-it), and it is the
-run's own layout as opposed to the code's: members written on one row stay on one
-row, members written apart stay apart. It is enforced in the two arms of §6.2's
+**R4 — A run's members written together stay together; written apart, they
+stay apart.** This is rule
+[C7](commentHandling.md#c7--comments-written-together-stay-together-comments-written-apart-stay-apart) — the run's own
+layout as opposed to the code's. It is enforced in the two arms of §6.2's
 `next comment` column — `commentPlacement`'s `AlreadyTerminated` arm (which
 otherwise splits an authored one-row run) and the inline arm's
 `TerminatedByOwnLineComment` handling (which otherwise joins a split one).
@@ -1833,7 +1833,7 @@ What happened to each comment:
 |---|---|---|---|---|---|
 | `{- c -}` | the `import` declaration | into the import's flow | after the module name; the `as` and alias are position-less, so C2's *earlier*-side preference for `as` keeps it here | `RidesInline` | rides the row |
 | `{-\| … -}` | its own top-level slot | — | — | *(doc comments need no role — they are top-level only and unambiguous)* | own line |
-| `-- start here` | `total`'s declaration | into the `let` binding | lands before the binding's `IndentedBlock` value → **redirected inside** (§4.4c) | `LeadsOwnLine` | own line at the value's column |
+| `-- start here` | `total`'s declaration | into the `let` binding | lands before the binding's `IndentedBlock` value → **redirected inside** (§4.4c) | `LeadsLine` | own line at the value's column |
 | `-- the seed` | `total`'s declaration | into the array | after `base`, on `base`'s row | `TrailsPrevious` | glued to `base`'s line — and, being a `--`, it forces the array open (§5.2) |
 | `{- two -}` | `total`'s declaration | into the array | in the unrecorded `,` gap | `LeadsNext` (rule C2) | glued to the front of `3`, behind the `, ` prefix |
 

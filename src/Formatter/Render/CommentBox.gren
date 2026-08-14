@@ -33,7 +33,7 @@ import Formatter.Logical.LogicalPrintingTree exposing
     , LPNode
     , commentGluesToPrevious
     , commentLeadsNext
-    , commentLeadsOwnLine
+    , commentLeadsLine
     , commentRole
     , commentTrailsHead
     , lpnBox
@@ -298,7 +298,7 @@ Peeled: any comment the author put ON the operator's row that cannot ride the
 body's line — a `--`, or a multi-line `{- … -}`. Not peeled:
 
   - a single-line `{- -}` needs no peel — it already rides the body's line;
-  - a `LeadsOwnLine` comment belongs above the body, not on the operator's line.
+  - a `LeadsLine` comment belongs above the body, not on the operator's line.
 
 **The multi-line case was excluded until 2026-08-08**, on the stated grounds
 that "it brings its own newlines, so it keeps the operator-leading layout". Its
@@ -317,10 +317,10 @@ spanOperatorRowComments nodes =
         gluesToOperatorRow node =
             when lpnBox node is
                 SingleLineComment { role } ->
-                    role /= LeadsOwnLine
+                    role /= LeadsLine
 
                 BlockComment { loc, role } ->
-                    String.contains "\n" loc.value && role /= LeadsOwnLine
+                    String.contains "\n" loc.value && role /= LeadsLine
 
                 _ ->
                     False
@@ -597,7 +597,7 @@ runStartsOnOperatorRow : Array LPNode -> Bool
 runStartsOnOperatorRow leading =
     when Array.first leading is
         Just node ->
-            not (commentLeadsOwnLine node)
+            not (commentLeadsLine node)
 
         Nothing ->
             True
@@ -637,7 +637,7 @@ row-reading here:
     (`{ rec -- c` ⏎ `| a = 1 }`). Glued onto the END of the base's line.
 
 The rest of the leading run is not the base's: `LeadsNext` is a comment rule C2
-hands to the field after the unrecorded `|`, and `LeadsOwnLine` one the author
+hands to the field after the unrecorded `|`, and `LeadsLine` one the author
 put on a row of its own. Both render among the fields. -}
 splitOpenerComments : Array LPNode -> { opener : Array LPNode, baseTrail : Array LPNode, rest : Array LPNode }
 splitOpenerComments children =
@@ -648,7 +648,7 @@ splitOpenerComments children =
                     if acc.stopped then
                         acc
 
-                    else if nodeIsComment node && not (commentLeadsOwnLine node) && not (commentLeadsNext node) then
+                    else if nodeIsComment node && not (commentLeadsLine node) && not (commentLeadsNext node) then
                         { acc | i = acc.i + 1 }
 
                     else
@@ -835,7 +835,7 @@ when there are none and wrong when there are — it slides the first row out fro
 under the rest of its own construct, so `[ {- c -} if cond then` leaves `else`
 back at the item column, no longer under its `if`. A multi-line item takes the
 comments stacked above it instead, which is also the shape the reparse
-re-derives, since the comment then reads `LeadsOwnLine` and routes to
+re-derives, since the comment then reads `LeadsLine` and routes to
 `commentBracketListBox`.
 
 The other callers answer yes always, and are unchanged: a record field, a record

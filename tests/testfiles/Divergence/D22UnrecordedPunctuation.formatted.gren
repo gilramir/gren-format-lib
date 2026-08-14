@@ -4,8 +4,8 @@ module D22UnrecordedPunctuation exposing (..)
 -- the brackets, and for nothing else that separates two pieces of an
 -- expression. So `x {- c -} TOKEN y` and `x TOKEN {- c -} y` arrive as the same
 -- three facts, and gren-format picks one side for all of them: the LATER one,
--- the comment leads what follows the separator (rule C2). elm-format keeps the
--- side you wrote it on, so exactly one of the two spellings matches it.
+-- the comment lands after the separator, not before it (rule C2). elm-format
+-- keeps the side you wrote it on, so exactly one spelling matches it.
 
 
 -- Both of these format alike, with the comment past the `=`.

@@ -20,7 +20,7 @@ import Formatter.Logical.LogicalPrintingTree exposing
     ( CommentRole(..)
     , LPBox(..)
     , LPNode
-    , commentLeadsOwnLine
+    , commentLeadsLine
     , lpnBox
     , lpnChildren
     )
@@ -215,7 +215,7 @@ makeBackwardPipelineBox renderers forceVertical children =
                 || Array.any (\b -> b) (Array.indexedMap (\i n -> stepLeadsWithComment (i == 0) n) stepNodes)
 
         -- The operator is the first NON-comment child (a step may lead with an
-        -- own-line comment before `<|`).
+        -- line-leading comment before `<|`).
         stepOpIsBackward stepNode =
             when Array.first (Array.keepIf (\n -> not (nodeIsComment n)) (lpnChildren stepNode)) is
                 Just opNode ->
@@ -475,7 +475,7 @@ backwardSingleStep renderers forceVertical seedBox { leadGlued, glued, rest = bo
                                     -- written on that row has no row left to ride
                                     -- and stacks above the body — the shape the
                                     -- reparse re-derives, since it then reads
-                                    -- `LeadsOwnLine`.
+                                    -- `LeadsLine`.
                                     opLineBox
                                         |> Result.map
                                             (\opBox ->
@@ -531,7 +531,7 @@ ever non-empty for a comment the author wrote on the `<|`'s own row (a
 single-line `{- c -}`, role `RidesInline`). Where such a comment goes depends on
 something this function cannot see: the step renders `seed <| {- c -} body` when
 it stays inline, and `seed <|` ⏎ `{- c -} body` when it does not — and the second
-puts the comment on a row without the `<|`, which reparses as `LeadsOwnLine` and
+puts the comment on a row without the `<|`, which reparses as `LeadsLine` and
 stacks. So the caller, which makes the inline/vertical call, glues them onto the
 body's first line in the first case and stacks them above it in the second, and
 both are fixed points. Comments that already lead their own line are stacked in
@@ -606,7 +606,7 @@ buildBackwardBodyBox renderers bodyNodes =
                     -- below and rode the row correctly.
                     ridesLeading =
                         not (Array.isEmpty leading)
-                            && not (Array.all (\c -> commentLeadsOwnLine c.node) leading)
+                            && not (Array.all (\c -> commentLeadsLine c.node) leading)
 
                     stackLeading box =
                         if Array.isEmpty leading || ridesLeading then
@@ -823,7 +823,7 @@ backwardMultiStep renderers forceVertical seedBox stepBodies =
                             -- single-line box, but the ` <| ` of the step after it
                             -- cannot share that row.
                             || Array.any (\b -> B.endsOpen b.box) bodyBoxes
-                            -- An own-row comment before an operator needs rows,
+                            -- A line-leading comment before an operator needs rows,
                             -- so the chain cannot stay on one.
                             || Array.any (\step -> not (Array.isEmpty step.leadOwnRow)) stepBodies
                 in

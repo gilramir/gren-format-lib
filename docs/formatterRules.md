@@ -85,14 +85,20 @@ The four core rules:
 4. **Formatting is stable.** Running the formatter on already-formatted code
    produces the same code back. Format once or ten times — same result. A
    torture test inserts a comment into every inter-token gap of every fixture
-   file, formats twice, and requires byte-identical output. It is red today:
-   **17** gaps out of some 56,000 still shift, and all 17 are the same upstream
-   parser bug (see [knownLimitations.md](knownLimitations.md)). Nothing left in
-   it is the formatter's to fix; it goes green when that parser fix ships.
+   file, formats twice, and requires byte-identical output. Nothing shifts.
+   Its **19** residual findings out of some 56,000 gaps are not shifts at all:
+   every one is the same upstream parser bug
+   ([compiler-common#35](https://github.com/gren-lang/compiler-common/issues/35)),
+   which reads `10 -` ⏎ `····3` as the call `10 (-3)`, so a `--` written after
+   that `-` comes back as `---`. The formatter's own AST check catches that and
+   refuses the file (see
+   [knownLimitations.md](knownLimitations.md#a-binary---whose-right-operand-starts-at-the-operators-own-column)).
+   Nothing left in it is the formatter's to fix; the 19 are registered by name
+   and forgiven, and they stop being reported when that parser fix ships.
 
    The same test run with a **run of two** comments in every gap — a comment
    whose neighbour is another comment, which is where the rules are hardest —
-   reports those same 17 and nothing else.
+   reports that same set and nothing else.
 
 A few things are **always fixed**, regardless of how you wrote them:
 
@@ -314,8 +320,8 @@ the only boundary; it never moves, and it splits the imports around it into
 independently sorted groups.
 
 Comments don't split a run. A comment travels with the import it belongs to:
-the one on its own row for a trailing comment, the one directly below it for an
-own-line comment. Leave a blank line under a comment and it belongs to no
+the one on its own row for a trailing comment, the one directly below it for a
+line-leading comment. Leave a blank line under a comment and it belongs to no
 import, so it stays where you put it and everything below it still sorts:
 
 ```gren
@@ -438,7 +444,7 @@ convert :
 A `{- … -}` that fits on **one** line is the one that does not keep its row: it
 doesn't end its line, so the side of the `->` you wrote it on isn't visible, and
 it follows the general rule — leading the type after the arrow. This is
-[C2](commentHandling.md#c2--when-the-parser-doesnt-record-the-punctuation-the-comment-leads-what-follows)
+[C2](commentHandling.md#c2--when-the-parser-doesnt-record-the-punctuation-the-comment-lands-after-it)
 and its exception; see [When the formatter can't tell what you
 meant](#when-the-formatter-cant-tell-what-you-meant).
 
@@ -2219,8 +2225,8 @@ There is one rule behind everything in this section: **a blank line separates
 statements and declarations — top-level units, `let` bindings, `when` cases, and
 `if`/`else` branches — and never separates the parts of a single expression.** A
 list, a record, a binop chain, and a pipeline are each one expression, so no
-blank line ever falls between their parts, and an own-line comment sitting between
-two of those parts is kept without a blank line above it. (elm-format differs both
+blank line ever falls between their parts, and a line-leading comment sitting
+between two of those parts is kept without a blank line above it. (elm-format differs both
 ways: it *adds* a blank above such a comment inside a list or record, and does
 *not* add one between pipeline steps — see the divergence catalogue.)
 
@@ -2352,10 +2358,10 @@ without that fact can do and still be stable. Where the choice is visible in the
 comparison with elm-format, it is catalogued as
 [divergence #22](elmFormatComparison.md#divergence-22).
 
-The canonical side is the **later** one — the comment leads what follows the
-token. The worked cases below are all instances of that one rule, and the
-exceptions to it (a `--` at a `,` or a `|`, a union variant's `|`, an import's
-`as`, and an `exposing` list) say so where they appear.
+The canonical side is the **later** one — the comment lands after the token,
+not before it. The worked cases below are all instances of that one rule, and
+the exceptions to it (a `--` at a `,` or a `|`, a union variant's `|`, an
+import's `as`, and an `exposing` list) say so where they appear.
 
 Where the token **is** recorded, the formatter keeps the side you wrote it on.
 The brackets are the useful case: a comment just inside an opening bracket
@@ -2505,7 +2511,7 @@ member of the family where keeping the row also *matches* elm-format, on both
 spellings.
 
 A comment around one of the keywords `then`, `else`, `is`, `in`, or a **lambda's
-or branch's** `->` always lands **after** the keyword, leading what follows it
+or branch's** `->` always lands **after** the keyword, never before it
 (a *type's* `->` is the exception just described, not one of these):
 
 ```gren

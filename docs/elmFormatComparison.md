@@ -40,8 +40,8 @@ code, and why the places they *don't* look the way they do.
   - [#21 Single-item container collapse](#divergence-21)
   - [#22 Comment beside unrecorded punctuation snaps to one side](#divergence-22)
   - [#23 A comment doesn't open the construct around it](#divergence-23)
-  - [#24 Record update's own-line comment indent](#divergence-24)
-  - [#25 A comment keeps the rows you gave it](#divergence-25)
+  - [#24 Record update's line-leading comment indent](#divergence-24)
+  - [#25 Blank rows added or removed around a comment](#divergence-25)
   - [#26 A `--` trailing a `<|` moves the operator](#divergence-26)
   - [#27 A parenthesized function type flattens](#divergence-27)
   - [#28 A type break gren-format doesn't record](#divergence-28)
@@ -264,7 +264,7 @@ if it stops being — an entry with no fixture, or a fixture with no entry.
    ```
 
    A **single-line** `{- … -}` at the arrow is not the exception and follows
-   the general [C2](commentHandling.md#c2--when-the-parser-doesnt-record-the-punctuation-the-comment-leads-what-follows)
+   the general [C2](commentHandling.md#c2--when-the-parser-doesnt-record-the-punctuation-the-comment-lands-after-it)
    rule instead, leading the type after the arrow (`-> {- c -} Int`) whichever
    side of the `->` it was typed on. Written on the later side that agrees with
    elm-format; written on the earlier side it is the ordinary #22 trade.
@@ -738,7 +738,7 @@ if it stops being — an entry with no fixture, or a fixture with no entry.
     ```
 
     (The comment is past the comma because the comma has no source position and
-    [C2](commentHandling.md#c2--when-the-parser-doesnt-record-the-punctuation-the-comment-leads-what-follows)
+    [C2](commentHandling.md#c2--when-the-parser-doesnt-record-the-punctuation-the-comment-lands-after-it)
     sends it to the later side — that half is [#22](#divergence-22). What *this*
     entry is about is the row: one row in, one row out.)
 
@@ -790,8 +790,9 @@ if it stops being — an entry with no fixture, or a fixture with no entry.
     cases, `if`/`else` branches — and never separates the parts of a single
     expression.** A list, a record, a record type, a binop chain, and a pipeline
     are each one expression, so no blank line ever falls between their parts,
-    including above an own-line comment leading one of them. elm-format instead
-    sets such a comment off with a blank line above it inside a list or record. So
+    including above a line-leading comment that belongs to one of them.
+    elm-format instead sets such a comment off with a blank line above it inside
+    a list or record. So
     given a record type in a signature that you wrote with a blank line before an
     inner `--` comment:
 
@@ -1049,8 +1050,8 @@ if it stops being — an entry with no fixture, or a fixture with no entry.
     all of them and documents it; every case is listed with a worked example in
     [When the formatter can't tell what you meant](formatterRules.md#when-the-formatter-cant-tell-what-you-meant).
 
-    The side it picks is the **later** one — the comment leads what follows the
-    separator ([rule C2](commentHandling.md#c2--when-the-parser-doesnt-record-the-punctuation-the-comment-leads-what-follows)):
+    The side it picks is the **later** one — the comment lands after the
+    separator, not before it ([rule C2](commentHandling.md#c2--when-the-parser-doesnt-record-the-punctuation-the-comment-lands-after-it)):
 
     ```gren
     -- both of these:                     -- gren-format:
@@ -1096,8 +1097,9 @@ if it stops being — an entry with no fixture, or a fixture with no entry.
                                       -> String
     ```
 
-    An own-row comment sits at the **separator's** column in all of them — the
-    `,`, the update's `|`, the union's `|`, the signature's `->` — not indented
+    A line-leading comment sits at the **separator's** column in all of them —
+    the `,`, the update's `|`, the union's `|`, the signature's `->` — not
+    indented
     under the item above it. That is the same column rule
     [#24](#divergence-24) states for a record update, holding at every
     line-leading separator.
@@ -1245,8 +1247,8 @@ if it stops being — an entry with no fixture, or a fixture with no entry.
     pattern is split from its own `->`. gren-format treats a comment as something
     to place, not as a reason to re-lay-out working code.
 
-24. <a id="divergence-24"></a>**A record update's own-line comment sits at the field indent;
-    elm-format hangs it two columns past the `{`.** A comment the author wrote on
+24. <a id="divergence-24"></a>**A record update's line-leading comment sits at
+    the field indent; elm-format hangs it two columns past the `{`.** A comment the author wrote on
     a row of its own in the `|` gap stays on a row of its own
     ([#22](#divergence-22)), and gren-format puts it where the `|`/`,` field lines
     are — 4 past the `{`, the same indent every other part of the update uses (see
@@ -1287,14 +1289,15 @@ if it stops being — an entry with no fixture, or a fixture with no entry.
         | B Int                    | B Int
     ```
 
-25. <a id="divergence-25"></a>**A comment sits on the rows you gave it; elm-format re-spaces around
-    it, in both directions.** [#23](#divergence-23) is about elm-format breaking
+25. <a id="divergence-25"></a>**gren-format adds and removes no rows around a
+    comment; elm-format re-spaces around it, in both directions.**
+    [#23](#divergence-23) is about elm-format breaking
     the *code* open to make room for a comment. This is the other half: what
-    elm-format does to the comment's own rows. It will add a row gren-format
+    elm-format does to the rows around it. It will add a row gren-format
     doesn't, and it will take one away — which direction depends on where the
     comment is, and neither is something gren-format does at all.
 
-    **It adds a blank line above an own-row comment inside a container:**
+    **It adds a blank line above a line-leading comment inside a container:**
 
     ```gren
     -- you wrote (and gren-format keeps):    -- elm-format:
@@ -1525,7 +1528,7 @@ if it stops being — an entry with no fixture, or a fixture with no entry.
     elm-format re-decides them per context.** Two or more comments in one gap are
     a *run*, and gren-format never moves a member between rows: written on one
     row they stay on one row, written on separate rows they stay apart. That is
-    rule [C7](commentHandling.md#c7--a-comment-keeps-the-rows-you-gave-it).
+    rule [C7](commentHandling.md#c7--comments-written-together-stay-together-comments-written-apart-stay-apart).
 
     It holds in every context but one: a run written *just inside an opening
     bracket*, or between a pipeline step's operator and its operand, is laid out
@@ -1588,7 +1591,7 @@ if it stops being — an entry with no fixture, or a fixture with no entry.
     binding to hold its block's column). Gren has no such rule, so a comment
     written in front of a declaration's name is legal — and because gren-format
     never moves a comment off the row it was written on
-    ([C7](commentHandling.md#c7--a-comment-keeps-the-rows-you-gave-it), #25), the
+    ([C7](commentHandling.md#c7--comments-written-together-stay-together-comments-written-apart-stay-apart), #25), the
     name stays right of it in the output too.
 
     **The comment is not what gren is permitting.** The same declaration

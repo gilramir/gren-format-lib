@@ -293,17 +293,22 @@ workaround is wanted: any rendering faithful to the misparsed tree would rewrite
 a subtraction the real compiler accepts. gren-format refuses the file and waits
 for compiler-common#35.
 
-**Seventeen** of `fuzz-idempotency.py`'s residual findings are this bug — the
+**Nineteen** of `fuzz-idempotency.py`'s residual findings are this bug — the
 fuzzer inserts a `--` into the gap after a `-` in `BinaryOps`, `Records` (×2),
 `BinopParenOperandCommentKind` (×2), `KitchenComments` (×3), `KitchenSink`,
 `LambdaPatterns`, `LetBlankLines`, `NegateParens`, `WhenBranchBody`,
-`BinopLayoutByAuthor`, `BinopMixedPrecedenceBroken`, `D17PrecedenceSplit` and
-`IfPredicate`. Both `fuzz-idempotency.py` and `check-decision-stability.py`
+`BinopLayoutByAuthor`, `BinopMixedPrecedenceBroken`, `D17PrecedenceSplit`,
+`IfPredicate` and `IfConditionWhenOperand` (×2). Note that none of them is a
+*shift*: `--show` exits non-zero here because the AST comparison fails, not
+because the two formats differ, and the gate counts any non-zero exit as a
+finding. Both `fuzz-idempotency.py` and `check-decision-stability.py`
 **name them on sight** (`[known: compiler-common#35]`, plus a count in the
-summary) so they are not investigated again; they still count as findings and
-still fail the run. They are in no baseline: when the fix ships and the
-`compiler-common` dependency is bumped, they stop being reported and the
-residual drops by seventeen.
+summary) so they are not investigated again, and they still count as findings.
+All nineteen are registered in `tests/idempotency-known-baseline.json`, so
+`fuzz-idempotency.py` forgives exactly those and fails on anything else —
+including one of them quietly ceasing to reproduce. When the fix ships and the
+`compiler-common` dependency is bumped, they stop being reported, the baseline
+empties and the residual drops by nineteen.
 
 Workaround for a file you need formatted today: keep the right operand on the
 operator's row, or parenthesize.
@@ -869,7 +874,7 @@ argument variants when it closes; `gen-random.py` already avoids emitting them.
 
 ## A comment run just inside a bracket doesn't keep its rows
 
-[Rule C7](commentHandling.md#c7--a-comment-keeps-the-rows-you-gave-it) says a
+[Rule C7](commentHandling.md#c7--comments-written-together-stay-together-comments-written-apart-stay-apart) says a
 comment run keeps the rows you wrote it on, and
 [divergence #30](elmFormatComparison.md#divergence-30) says that holds in every
 context. It does not hold for a run written just inside an opening bracket, or

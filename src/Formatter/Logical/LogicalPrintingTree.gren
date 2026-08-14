@@ -11,7 +11,7 @@ module Formatter.Logical.LogicalPrintingTree exposing
     , commentFirstCol
     , commentGluesToPrevious
     , commentLeadsNext
-    , commentLeadsOwnLine
+    , commentLeadsLine
     , commentRendersOwnLine
     , commentRidesInline
     , commentRole
@@ -232,12 +232,12 @@ never re-derives it from source rows.
     rendered line, preceded by one space (`<prev-last-line> <comment>`). For a
     `--` this is always safe (it runs to end-of-line); for a `{- -}` it is only
     assigned where the block-glue rules allow.
-  - `LeadsOwnLine` — renders on its own line at the current flow/body indent,
-    before the next sibling. The default for own-row comments.
+  - `LeadsLine` — renders on its own line at the current flow/body indent,
+    before the next sibling. The default for line-leading comments.
   - `LeadsNext` — the comment belongs to the sibling that FOLLOWS it, across a
     separator the parser did not record, and renders glued to the front of that
     sibling's box (`| {- c -} a = 1`, `, {- c -} 2`). This is rule **C2** — "where
-    the separator has no source position, the comment leads what follows it" —
+    the separator has no source position, the comment lands after it" —
     made a stored fact, so no renderer has to re-derive which side of an invisible
     `|` or `,` the author wrote it on. Whether it rides the sibling's first row or
     stands above it is the comment's own shape, not its position, so the renderer
@@ -268,11 +268,11 @@ never re-derives it from source rows.
 `DocComment` needs no role — doc comments are top-level-only and already
 unambiguous. (A comment inside a bracket container is not a distinct role: the
 classifier's bracket branch tags it `TrailsPrevious` / `RidesInline` /
-`LeadsOwnLine` like any other, which is all `commentBracketListBox` needs.)
+`LeadsLine` like any other, which is all `commentBracketListBox` needs.)
 -}
 type CommentRole
     = TrailsPrevious
-    | LeadsOwnLine
+    | LeadsLine
     | LeadsNext
     | TrailsHead
     | RidesInline
@@ -289,8 +289,8 @@ roleToString role =
         TrailsPrevious ->
             "TrailsPrevious"
 
-        LeadsOwnLine ->
-            "LeadsOwnLine"
+        LeadsLine ->
+            "LeadsLine"
 
         LeadsNext ->
             "LeadsNext"
@@ -683,13 +683,13 @@ commentRole box =
 
 The one spelling for the question "what role does this comment have". It used to
 have several: four named one-liners in the render layer
-(`commentTrailsHead`/`commentLeadsOwnLine`/`commentLeadsNext`/`commentRidesInline`)
+(`commentTrailsHead`/`commentLeadsLine`/`commentLeadsNext`/`commentRidesInline`)
 and the open-coded `commentRole (lpnBox n) == Just X` in four more modules, none
 of which could see the others. This is the vocabulary every comment bugfix
 navigates by, so it lives here, beside the type.
 
 Note the near-misses that are deliberately NOT this: `roleGlues` asks about a
-CLASS of roles, and `commentRendersOwnLine` is `roleIs LeadsOwnLine` **and** a
+CLASS of roles, and `commentRendersOwnLine` is `roleIs LeadsLine` **and** a
 shape test -- a role saying own-line is not the same as rendering on one. -}
 roleIs : CommentRole -> LPNode -> Bool
 roleIs role node =
@@ -701,9 +701,9 @@ commentTrailsHead =
     roleIs TrailsHead
 
 
-commentLeadsOwnLine : LPNode -> Bool
-commentLeadsOwnLine =
-    roleIs LeadsOwnLine
+commentLeadsLine : LPNode -> Bool
+commentLeadsLine =
+    roleIs LeadsLine
 
 
 commentLeadsNext : LPNode -> Bool
@@ -764,16 +764,16 @@ commentGluesToPrevious node =
 
 {-| Split off the trailing run of comments the author gave a line of their own:
 `{ body, trailing }`, where `trailing` is the trailing comment run **that starts
-at an own-line member** and `body` is everything before it.
+at a line-leading member** and `body` is everything before it.
 
 A comment that RIDES the previous token's line (`module Foo {- c -} exposing`)
 stays in the body, where the caller's flow renders it on that line — peeling it
-would move it below. That is why the run has to *start* at a `LeadsOwnLine`
+would move it below. That is why the run has to *start* at a `LeadsLine`
 comment rather than merely contain one.
 
 **But a comment that glues onto another COMMENT of the run travels with it**,
 and until 2026-08-06 it did not: this asked for the maximal suffix of
-`LeadsOwnLine` comments, so a run whose last member glues (`{- multi… -}
+`LeadsLine` comments, so a run whose last member glues (`{- multi… -}
 {- multi… -}`, the second classified `TrailsPrevious` against the first) peeled
 **nothing at all** and the whole run stayed behind. That is rule C1 — one gap is
 one attachment, and the run moves together — and `Comments.detachOwnLineTrailer`
@@ -784,8 +784,8 @@ the pipeline-step pair, whose halves must agree
 (`Comments.movePipelineStepTrailers` and `renderPipelineStepChildrenWith`'s
 `stopped` peel); with one comment each behaved, with two neither did.
 
-So: scan back over comments, and split at the EARLIEST own-line one. A run with
-no own-line member at all peels nothing, exactly as before.
+So: scan back over comments, and split at the EARLIEST line-leading one. A run with
+no line-leading member at all peels nothing, exactly as before.
 
 Polymorphic in the element so the pre-rendered `FlowItem` path shares it: pass
 `identity` for a plain node array, `.node` for flow items.
@@ -803,12 +803,12 @@ already, so the necessity was in the placement, not in the rule.
 spanTrailingOwnLine : (a -> LPNode) -> Array a -> { body : Array a, trailing : Array a }
 spanTrailingOwnLine toNode items =
     let
-        -- The original rule, unchanged: the maximal suffix of `LeadsOwnLine`
+        -- The original rule, unchanged: the maximal suffix of `LeadsLine`
         -- comments.
         plain remaining acc =
             when Array.popLast remaining is
                 Just { last, initial } ->
-                    if commentLeadsOwnLine (toNode last) then
+                    if commentLeadsLine (toNode last) then
                         plain initial (Array.pushFirst last acc)
 
                     else
@@ -823,7 +823,7 @@ spanTrailingOwnLine toNode items =
         -- of its own; the gluing comments after it come with it (rule C1).
         --
         -- `commentRendersOwnLine`, not the role: a single-line `{- c -}` tagged
-        -- `LeadsOwnLine` is still rendered inline by the layer below, so
+        -- `LeadsLine` is still rendered inline by the layer below, so
         -- starting a run at one MOVES it — `KitchenComments`' `{-c99-}` glued
         -- onto its pipeline step's line, and peeling it stacked the run below
         -- the step where the reparse detaches it to column 1.
@@ -865,7 +865,7 @@ spanTrailingOwnLine toNode items =
 
 {-| Does this comment actually RENDER on a line of its own?
 
-**Not the same question as `commentRole == Just LeadsOwnLine`**, and the
+**Not the same question as `commentRole == Just LeadsLine`**, and the
 difference has cost this repo twice. The render layer keeps a *single-line*
 block comment inline whatever its role says — which is why `[ 1 ] {- one -}
 {- two -}` stays on its row — so "renders own-line" needs the comment's SHAPE as
@@ -874,12 +874,12 @@ that first (lifting on the role alone broke nine fixtures), and
 `spanTrailingOwnLine`'s run extension learned it again on 2026-08-06.
 
 A `--` also ends its row and is deliberately excluded, for the reason
-`runRendersBelowDeclaration` gives: several fixtures pin an own-line `--`
+`runRendersBelowDeclaration` gives: several fixtures pin a line-leading `--`
 staying at its construct's indent, and whether those should move is a separate
 question with its own fixtures. -}
 commentRendersOwnLine : LPNode -> Bool
 commentRendersOwnLine node =
-    commentLeadsOwnLine node
+    commentLeadsLine node
         && (when lpnBox node is
                 BlockComment c ->
                     String.contains "\n" c.loc.value
@@ -1365,7 +1365,7 @@ bounds purely from children and would shrink a container's row range back to
 its last item — which is wrong when the new children are the *same* code plus
 an inserted comment. Comment insertion (`Formatter.Logical.Comments`) uses this so a
 container's closing-bracket extent survives every rebuild, keeping subsequent
-own-line comments before the bracket inside it. For nodes with no such
+line-leading comments before the bracket inside it. For nodes with no such
 extension it is identical to `lpnNode (lpnBox old) newChildren`. -}
 lpnReplaceChildren : LPNode -> Array LPNode -> LPNode
 lpnReplaceChildren old newChildren =

@@ -3,8 +3,8 @@ port module SignatureArrowCommentKeepsRow exposing (..)
 -- Rule C2's line-leading-separator exception at a type's `->`. A broken
 -- signature renders the arrow line-leading, so a `--` (or a multi-line
 -- `{- ... -}`) above one strands nothing and keeps the row it was written on.
--- A single-line `{- -}` still follows the general rule and leads what comes
--- after the arrow.
+-- A single-line `{- -}` still follows the general rule and lands after
+-- the arrow.
 -- Spelling 1: the `--` trails the type to the arrow's left.
 
 

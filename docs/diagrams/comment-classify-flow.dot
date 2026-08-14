@@ -26,11 +26,11 @@ digraph ClassifyFlow {
     gMulti   [label="multi-line?"];
 
     node [shape=box, style="rounded,filled", fillcolor="#e4f3e4", color="#4b8b4b", fontcolor="#14401b", fontsize=12];
-    r1 [label="LeadsOwnLine"];
+    r1 [label="LeadsLine"];
     r2 [label="TrailsPrevious"];
-    r3 [label="LeadsOwnLine"];
+    r3 [label="LeadsLine"];
     r4 [label="TrailsPrevious"];
-    r5 [label="LeadsOwnLine"];
+    r5 [label="LeadsLine"];
     r6 [label="TrailsPrevious"];
     r7 [label="RidesInline"];
 

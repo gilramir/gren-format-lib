@@ -863,7 +863,7 @@ section](#author-layout--the-forcevertical-flag) for the pattern.
 
 ### 5. Comments — usually nothing to do
 `Formatter.Logical.Comments` re-attaches every comment by position **and
-classifies its `CommentRole`** (`TrailsPrevious` / `LeadsOwnLine` / `LeadsNext` /
+classifies its `CommentRole`** (`TrailsPrevious` / `LeadsLine` / `LeadsNext` /
 `TrailsHead` / `RidesInline` / `LeadsInline` / `Standalone`) once, from the
 pristine parse rows; the renderer reads that role and never re-derives
 placement from rows. See

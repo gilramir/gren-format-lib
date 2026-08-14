@@ -204,7 +204,7 @@ makeSignatureBranch locType =
                                         -- plain record type above — that records the
                                         -- `}` as the node's `lastBracketEnd`, which the
                                         -- comment-placement descent guards read to keep
-                                        -- an own-line comment before `}` inside the
+                                        -- a line-leading comment before `}` inside the
                                         -- record and a trailing comment after `}` at the
                                         -- declaration's own column. Plain `lpnNode` set
                                         -- no close position (`name.end` is not it), so

@@ -96,13 +96,13 @@ moves. Which name a comment belongs to is decided by **where the comment starts*
       )
   ```
 
-  Without the chain the `--` would be an own-line comment leading `apple`, and if
-  the name below it sorted to the front, the comment would be carried across the
-  list away from the name it describes. `SortingCommentZoo` covers this.
+  Without the chain the `--` would be a line-leading comment belonging to
+  `apple`, and if the name below it sorted to the front, the comment would be
+  carried across the list away from the name it describes. `SortingCommentZoo` covers this.
 
 - **On its own line, between two names** (`itemA` ⏎ `{- note -}` ⏎ `, itemB`):
   the comment leads the name *below* it (`itemB`) and travels with that name.
-  gren-format attaches an own-line comment to the following name, not the
+  gren-format attaches a line-leading comment to the following name, not the
   preceding one — this is a deliberate divergence from elm-format, which attaches
   it to the preceding name. The `-- describes zebra` in
   `ExposingListSortCommentBarrier` is this case.
@@ -276,7 +276,7 @@ starts on, exactly like a single-line comment:
   ```
 
 - On its own line → leads the name below it (or hoists to the front if that name
-  sorts first), same as a single-line own-line comment.
+  sorts first), same as a single-line line-leading comment.
 
 - A comment starting on the row where a multiline block *closes* is part of that
   block's run and belongs to the same name — see "Trailing a comment that trails
@@ -380,7 +380,7 @@ comments above the block and drops the blank lines, which gren-format does not.
 Classification again follows the `{-`'s start row:
 
 - On its own line between two imports → leads the import below it and travels
-  with it, just like an own-line single-line comment.
+  with it, just like a line-leading single-line comment.
 - Starting on an import's own row (trailing) → travels with that import and does
   **not** break the run, even though the comment's later rows sit below the import
   line. Continuation lines pad to align under the `{-`.
@@ -426,7 +426,7 @@ the first name is a header comment, not that name's). If a rule here changes,
 those pins have to change with it or the sweeps start reporting false finds.
 
 The generated shapes cover both exposing lists (the module header's and an
-import's own) and import runs, with stacked own-line comments, a block comment
-glued onto an import line, trailing comment chains, and multiline block
+import's own) and import runs, with stacked line-leading comments, a block
+comment glued onto an import line, trailing comment chains, and multiline block
 comments — including a chain whose links span rows. `GENERATOR.md` is the
 inventory.

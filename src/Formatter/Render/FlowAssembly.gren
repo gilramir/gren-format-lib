@@ -578,7 +578,7 @@ assembleBrokenCall indent items =
 
         Nothing ->
             -- No glue: head at the base column, every later item (and any
-            -- same-row/own-line comment) per the broken-flow fold.
+            -- same-row/line-leading comment) per the broken-flow fold.
             assembleBrokenWithComments indent items
 
 
@@ -782,7 +782,7 @@ record arg *drops* goes through `assembleBrokenCall` instead. -}
 -- **Shape is not enough: the comment's stored ROLE decides too.** This asked only
 -- `isLineComment || multiLine` until 2026-08-09, which is `commentTextCanRide`'s
 -- question (can these bytes share a row) and not this one (may this comment share
--- a row). A `LeadsOwnLine` comment in front of a multi-line bracket PATTERN was
+-- a row). A `LeadsLine` comment in front of a multi-line bracket PATTERN was
 -- glued onto the pattern's first row, and a `let` binding that is not the first
 -- cannot begin with a comment on its row at all — `{- k -} { kind` ⏎ `, value` ⏎
 -- `} = 0` is refused by compiler-common AND by `gren make`, so the formatter was
@@ -1041,8 +1041,8 @@ pairLeadingComments items =
 -- `CommentRole` is any of the non-gluing ones, so it leads its own line, leads
 -- the item after it, or stands alone.
 --
--- NOT the same test as `NodeClassify.commentLeadsOwnLine`, which is `role ==
--- LeadsOwnLine` exactly. This one is the complement of `roleGlues`, so it also
+-- NOT the same test as `NodeClassify.commentLeadsLine`, which is `role ==
+-- LeadsLine` exactly. This one is the complement of `roleGlues`, so it also
 -- covers `LeadsNext` / `TrailsHead` / `LeadsInline` / `Standalone`. The two wore
 -- the same name until 2026-08-02.
 commentDoesNotGlue : FlowItem -> Bool
@@ -1144,7 +1144,7 @@ operandItemsRenderMultiline items =
 
 
 {-| One group of a vertical binop chain past the first: the operator that leads
-it, the box its content rendered to, and the run of own-line comment items
+it, the box its content rendered to, and the run of line-leading comment items
 peeled off its end. -}
 type alias BinopChainSegment =
     { op : String, operandBox : Box, ownLine : Array FlowItem }
@@ -1200,7 +1200,7 @@ pairableCommentItemLine item =
     Maybe.andThen pairableCommentLine item.comment
 
 
-{-| Decide a group's own-line comment run: either the WHOLE run rides the next
+{-| Decide a group's line-leading comment run: either the WHOLE run rides the next
 group's operator line, or none of it does and every comment stands on its own
 row.
 

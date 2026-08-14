@@ -14,7 +14,7 @@ module Formatter.Logical.SortSymbols exposing (sortSymbols)
    between them*. A **blank line** is the only boundary: it never moves, and
    it splits the imports around it into independently-sorted groups.
    Comments do not break a run -- they travel with the import they belong
-   to, which is the import below them for an own-line comment and the
+   to, which is the import below them for a line-leading comment and the
    import on their own row for a trailing one (`import Foo -- note`). A
    comment with a blank line under it therefore stays put, being nobody's
    leading comment, and so does one written below the run's last import.
@@ -310,7 +310,7 @@ flattenClusters clusters =
 
 
 {-| One `import` statement together with the comments that travel with it:
-own-line comment(s) written directly above it with no blank line between, and
+line-leading comment(s) written directly above it with no blank line between, and
 any comment(s) trailing it on its own source row. -}
 type alias ImportUnit =
     { leading : Array LPNode
@@ -355,8 +355,9 @@ isCommentOrigRows node =
             False
 
 
-{-| Take the next import unit starting at index `i` of `nodes`: the own-line
-comments glued above the import (each row-adjacent to what follows it), the
+{-| Take the next import unit starting at index `i` of `nodes`: the
+line-leading comments glued above the import (each row-adjacent to what follows
+it), the
 import itself, and the comments trailing it on its own row. `unit = Nothing`
 when `nodes` does not start one at `i` -- including when a comment chain
 leads to something that is not an import, in which case nothing is consumed
@@ -461,7 +462,7 @@ takeSameRowTrailingIdxHelp prevLastRow nodes i acc =
             { trailing = Builder.toArray acc, afterTrailingIndex = i }
 
 
-{-| Take own-line comments the author INDENTED under the import above, starting
+{-| Take line-leading comments the author INDENTED under the import above, starting
 at index `i`, for as long as each starts on the row directly below what precedes
 it.
 
@@ -470,7 +471,7 @@ ABOVE it — that is the documented rule (`docs/commentHandling.md`, "A comment 
 its own line below a top-level declaration": what your indentation still decides
 is which declaration the comment belongs to), and `VerticalSpace`'s
 `computeGroupStarts` already reads the column that way. `takeGluedLeadingIdx`
-asked only "own-line comment, row-adjacent to what follows", so it claimed this
+asked only "line-leading comment, row-adjacent to what follows", so it claimed this
 comment for the NEXT import and the sort carried it off:
 
     import Zebra              import Alpha
@@ -828,12 +829,12 @@ The comment was classified inside the bracket, where it led an item; out here it
 sits between the header's `exposing` and the `(`, and on an **effect** module
 that is the header's position-less tail — the territory `Comments.headerTailGlue`
 owns. That rule glues a single-line comment onto the header row and leaves a
-multi-line `{- … -}` on its own, so a hoisted comment keeping `LeadsOwnLine`
+multi-line `{- … -}` on its own, so a hoisted comment keeping `LeadsLine`
 emitted the *plain*-module shape for an effect header and every later format
 re-glued it: not a fixed point.
 
 A plain module's `exposing` is positioned, so `headerTailGlue` is False there and
-`LeadsOwnLine` is already what a reparse assigns — nothing to re-take, which is
+`LeadsLine` is already what a reparse assigns — nothing to re-take, which is
 why the caller only asks for an effect header. -}
 hoistedTailRole : LPNode -> LPNode
 hoistedTailRole node =
@@ -1000,7 +1001,7 @@ pinned output yields, so the two agree by construction. -}
 pinAboveClose : LPNode -> LPNode
 pinAboveClose node =
     if isSweepComment node then
-        lpnSetCommentRole LeadsOwnLine node
+        lpnSetCommentRole LeadsLine node
 
     else
         node

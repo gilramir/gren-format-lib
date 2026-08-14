@@ -180,7 +180,7 @@ reading**. Three findings, in the order that settles it:
   refactor is not merely tidying a vestigial one.
 - **The split is real, is one shape, and is inert.** A run of two spliced into
   every gap of the corpus (19,081 gaps, single-line block kind) came back with
-  two roles at **6,531** of them — every one of them `LeadsOwnLine` +
+  two roles at **6,531** of them — every one of them `LeadsLine` +
   `RidesInline`, the generic flow's own chaining answer. By that point the second
   member's separator state is `AlreadyTerminated` / `HardNl`, where
   `commentPlacement` ignores the role, and the bytes matched elm-format's for the

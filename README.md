@@ -82,18 +82,6 @@ mangled; the failure is reported instead. This is the flow:
 
 ![Formatter pipeline](docs/diagrams/formatter-pipeline.png)
 
-**Before this library gets involved**, the compiler-common parser reads your file and
-splits it into two pieces:
-
-- the Abstract Syntax Tree (AST) — a description of which function calls which,
-  what a `let` contains, what a type looks like, and so on
-- a separate list of every comment you wrote, since these
-  don't change what the code means, but they do matter for how it looks
-
-This library's job starts from those two pieces and ends with the formatted
-text. It never changes what your code means — it only decides how it looks
-on the page.
-
 For the full step-by-step tour of that pipeline — what a Logical Printing
 Tree is, how a render plan is built from it, and a worked example at each
 stage — see **[How the formatter works](docs/howItWorks.md)**.
@@ -102,11 +90,7 @@ stage — see **[How the formatter works](docs/howItWorks.md)**.
 
 ## A formatted example
 
-One function, showing several rules at once: a `let` with multiple bindings,
-a pipeline, a binary-operator chain that breaks at its loosest operators, an
-`if`, a `when`, a record update, and all three kinds of comment. (`order` is a
-record with `isMember`, `hasCoupon`, `status`, and `total` fields; `Status` is
-a custom type that includes `Cancelled`.)
+Here is one function, formatted, showing several rules at once.
 
 ```gren
 {- Only members and coupon holders get the discount, and it always
@@ -158,17 +142,13 @@ A few things worth noticing:
   the other branch's two fields were written across rows and stay that way.
   Neither is about length; it's however the author wrote it (see
   [Record updates](docs/formatterRules.md#record-updates)).
-- All three comments stay exactly where they were written. The `{- ... -}`
-  above the signature keeps its own lines and its inner indentation; the `--`
-  note stays trailing on the pipeline step it was written on, rather than being
-  pushed to a line of its own; and the one-line `{- ten percent -}` sits *inside*
+- All three comments stay exactly where they were written.
+  - The `{- ... -}` above the signature keeps its own lines and its inner indentation
+  - the `--` note stays trailing on the pipeline step it was written on, rather than being
+  pushed to a line of its own
+  - and the one-line `{- ten percent -}` sits *inside*
   the expression, between the `*` and its right operand, so the line it's on has
-  to stay flat — a comment is never a reason to break a line, and a line is
-  never re-broken around a comment
-  ([C3](docs/commentHandling.md#c3--a-comment-never-forces-a-break) and
-  [C4](docs/commentHandling.md#c4--a-comment-changes-where-the-lines-fall-and-nothing-else)
-  in [Comments](#comments) below; see also
-  [How gren-format places your comments](docs/commentHandling.md)).
+  to stay flat
 
 Every one of these decisions follows from how the code was written, not from
 any line-width target — see [Formatting Philosophy](#formatting-philosophy)
@@ -179,8 +159,7 @@ reference.
 
 ## Formatting Philosophy
 
-A guide to how `gren format` lays out your code — what it changes, what it
-leaves alone, and why. This section covers the core ideas; for a rule
+This section covers the core ideas as to how `gren format` formats the code; for a rule
 reference with a before/after example for every construct (module
 declarations, records, pipelines, comments, and everything else), see
 **[Formatter Rules](docs/formatterRules.md)**.
@@ -232,13 +211,15 @@ The four core rules:
    of `import` statements (see [Sorting](docs/sorting.md)).
 
 4. **Formatting is stable.** Running the formatter on already-formatted code
-   produces the same code back. Format once or ten times — same result. A
-   torture test inserts a comment into every inter-token gap of every fixture
-   file, formats twice, and requires byte-identical output — some sixty
-   thousand probes. It passes. The handful of gaps that still shift are all one
-   upstream parser bug, each one registered by name so it forgives that finding
-   and nothing else (see [Known Limitations](docs/knownLimitations.md)); a new
-   shift, or one of those quietly ceasing to reproduce, fails the run.
+   produces the same code back. Format once or ten times — same result, and
+   nothing in the test corpus shifts. There is one corner case wher we cannot
+   produce proper formatting: an upstream parser bug
+   ([compiler-common#35](https://github.com/gren-lang/compiler-common/issues/35))
+   reads `10 -` ⏎ `····3` as the call `10 (-3)`, so a `--` written after that
+   `-` comes back as `---`. The formatter's own AST check catches that and
+   refuses to write the file rather than corrupt it. Those cases are registered
+   by name so our automated testing allows that pass, until the bug is fixed. See
+   [Known Limitations](docs/knownLimitations.md#a-binary---whose-right-operand-starts-at-the-operators-own-column).
 
 A few things are **always fixed**, regardless of how you wrote them:
 
@@ -268,13 +249,14 @@ comment sits relative to the code around it. Seven rules decide every comment in
 a file:
 
 1. **[C1](docs/commentHandling.md#c1--a-comment-belongs-to-the-code-you-wrote-it-next-to)** — A comment belongs to the code you wrote it next to.
-2. **[C2](docs/commentHandling.md#c2--when-the-parser-doesnt-record-the-punctuation-the-comment-leads-what-follows)** — Where the parser doesn't record the punctuation, the comment leads
-   what follows.
+2. **[C2](docs/commentHandling.md#c2--when-the-parser-doesnt-record-the-punctuation-the-comment-lands-after-it)** — Where the parser doesn't record the punctuation, the comment lands
+   after it, not before.
 3. **[C3](docs/commentHandling.md#c3--a-comment-never-forces-a-break)** — A comment never forces a break.
 4. **[C4](docs/commentHandling.md#c4--a-comment-changes-where-the-lines-fall-and-nothing-else)** — A comment changes where the lines fall, and nothing else.
 5. **[C5](docs/commentHandling.md#c5--gren-format-adds-nothing-around-a-comment)** — gren-format adds nothing around a comment.
-6. **[C6](docs/commentHandling.md#c6--an-own-line-comment-is-indented-to-the-code-it-leads)** — An own-line comment is indented to the code it leads.
-7. **[C7](docs/commentHandling.md#c7--a-comment-keeps-the-rows-you-gave-it)** — A comment keeps the rows you gave it.
+6. **[C6](docs/commentHandling.md#c6--a-line-leading-comment-is-indented-to-the-code-it-leads)** — A line-leading comment is indented to the code it leads.
+7. **[C7](docs/commentHandling.md#c7--comments-written-together-stay-together-comments-written-apart-stay-apart)** — Comments written together stay together; comments
+   written apart stay apart.
 
 The first two settle **which piece of code a comment is attached to**; the last
 five settle **how the attached comment is laid out**. Much of the rest follows

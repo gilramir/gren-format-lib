@@ -112,7 +112,7 @@ children (comments and blank lines are not counted, so inserting one does not
 renumber anything) and the first literal token in it, which for every
 declaration kind is the name being declared.
 
-`choice` is a short enum-ish string (`"True"`, `"LeadsOwnLine"`,
+`choice` is a short enum-ish string (`"True"`, `"LeadsLine"`,
 `"alwaysVertical:curly"`), never a rendering and never a number that could
 drift.
 -}

@@ -381,7 +381,7 @@ longer reads as a note on the last field.
   - 366 were a **real over-approximation**, now **fixed**: `fn {- c -} <| one`
     broke the chain where `|>`, `+` and `<| {- c -}` all stayed flat. Cause: the
     comment was redirected *into* the `PipelineStep`, where nothing precedes it,
-    so it classified `LeadsOwnLine` and forced the chain vertical. The redirect
+    so it classified `LeadsLine` and forced the chain vertical. The redirect
     is now conditional on the comment not being able to ride the row — the same
     test the `SoftIndentedBlock` arm already applied.
   - the rest are elm keeping a broken call's first argument on the `fn` line
@@ -413,7 +413,7 @@ slot) was right but the conclusion was lazy: the base name has a recorded
 position of its own (`RecordUpdate.name.start`), so the opener slot and the `|`
 slot ARE distinguishable. `{ {- c -} rec | a = 1 }` now matches elm-format, and
 the split is made once in `Comments.gren` — which is what makes
-`role /= LeadsOwnLine` mean exactly "opener" for the renderer, with no row-read.
+`role /= LeadsLine` mean exactly "opener" for the renderer, with no row-read.
 
 ### B4 — two mechanisms, both already decided, nothing unaccounted for
 
@@ -832,7 +832,7 @@ both authorings around an `=` or a `|` arrive identically and one of them must
 differ from elm-format whichever side gren picks.
 
 - Groups 42–44 (`arrayRecords/*`, 24 cells) — a `--` in a record field's `=` gap.
-  Straight [C2](../commentHandling.md#c2--when-the-parser-doesnt-record-the-punctuation-the-comment-leads-what-follows):
+  Straight [C2](../commentHandling.md#c2--when-the-parser-doesnt-record-the-punctuation-the-comment-lands-after-it):
   gren puts the comment after the `=`, elm strands the `=` on a row of its own
   above it. Registered `#22`.
 - Groups 45–47 (`arrayUpdates/*`, 24 cells) — a `--` at a record update's `|`.

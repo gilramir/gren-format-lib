@@ -636,7 +636,7 @@ isInKeyword node =
             False
 
 
--- True if a node is an own-line comment sibling in a `let` binding span.
+-- True if a node is a line-leading comment sibling in a `let` binding span.
 -- A comment sticks to the binding below it: the blank goes above the comment
 -- run, never between the comments and the binding — mirroring how a leading
 -- comment joins its declaration's unit at the top level.
@@ -692,7 +692,7 @@ isLetSignature node =
 -- strictly between the direct `let` and `in` leaves) and insert a single
 -- `EmptyLine` marker before every binding unit, no matter what the author
 -- wrote — mirroring the top level's forced spacing (but one blank, not two).
--- A unit is an optional run of own-line comments, an optional type signature,
+-- A unit is an optional run of line-leading comments, an optional type signature,
 -- and the binding itself; nothing inside a unit is separated. The first unit
 -- (directly under `let`) gets no blank.
 --
@@ -896,7 +896,7 @@ single recursive walk of the whole tree:
   - between `let` bindings — always exactly one blank, whether or not the
     author wrote any, mirroring the top level's forced spacing (but one
     blank, never the top level's two). A type signature stays glued to its
-    definition, and a run of own-line comments stays glued to the binding
+    definition, and a run of line-leading comments stays glued to the binding
     below it, exactly like a top-level function group.
   - before every `else if` and `else` of an if-expression — always one
     blank, regardless of the author's spacing, so each branch body is

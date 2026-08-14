@@ -14,7 +14,7 @@ For each comment, in source order:
 1. **Find the top-level slot.** Scan the root's children — which are one
    `OriginalRows` node per top-level declaration — for the one whose row
    range covers the comment. If no declaration's range covers the row (an
-   own-line comment in the gap below a declaration), splice in a fresh
+   line-leading comment in the gap below a declaration), splice in a fresh
    `OriginalRows` at the right sorted position — the comment detaches to
    column 1. (See "The trailing-comment boundary rule" below.)
 
@@ -55,8 +55,9 @@ its own line one row down and re-attaches at the *enclosing* level — so the
 indent oscillates, or drifts left to column 1 over several formats. The two
 layers below cure it in different ways:
 
-- **Top level** (`findOrCreateOrigRow`, plus `detachOwnLineTrailer`): an own-line
-  comment below a top-level declaration is **never** attached to it — it always
+- **Top level** (`findOrCreateOrigRow`, plus `detachOwnLineTrailer`): a
+  line-leading comment below a top-level declaration is **never** attached to it
+  — it always
   detaches to a fresh column-1 `OriginalRows`. This is what elm-format does, and
   column 1 is trivially a fixed point (it cannot drift). `findOrCreateOrigRow`
   answers that from the comment's source row, which misses a comment written ON
@@ -323,7 +324,7 @@ of the source rows.
 what elm-format does and is trivially a fixed point. A comment written on the
 declaration's LAST row escapes that check — its row is inside the declaration's
 range — and yet it can still end up rendering below the declaration. A
-multi-line `{- … -}` that finds no glue row classifies `LeadsOwnLine`, which
+multi-line `{- … -}` that finds no glue row classifies `LeadsLine`, which
 renders on a fresh line under the last token:
 
     v =                       first format:        and then, for ever:
@@ -547,17 +548,17 @@ peel splits on (a `--` in front of it is the other).
 
 Two conditions, and both are needed:
 
-  - `LeadsOwnLine`. A run that glues (`TrailsPrevious` / `RidesInline`) stays on
+  - `LeadsLine`. A run that glues (`TrailsPrevious` / `RidesInline`) stays on
     the declaration's last row, is already a fixed point, and belongs to the
     code it was written next to.
   - **the comment brings its own rows** — a `{- … -}` written across more than
-    one row. `LeadsOwnLine` alone is not "renders own-line": the render layer
+    one row. `LeadsLine` alone is not "renders own-line": the render layer
     keeps a *single-line* block comment inline regardless of the role, which is
     why `[ 1 ] {- one -} {- two -}` stays on its row, and why lifting on the
     role alone broke nine fixtures including that one.
 
 A `--` is deliberately **not** included even though it also ends its row.
-Several fixtures pin an own-line `--` staying at the construct's indent below a
+Several fixtures pin a line-leading `--` staying at the construct's indent below a
 wrapped import and below a pipeline's last step; whether those shapes should
 detach is a separate question with its own fixtures, not a free rider on this
 one. -}
@@ -581,7 +582,7 @@ declaration a later comment can trail into.
 But for a comment written past the header's last token it behaves exactly like
 any other top-level node: an effect module's `where { … }` block makes the
 header multi-line, so a trailing multi-line `{- … -}` finds no glue row,
-classifies `LeadsOwnLine`, and renders on a fresh row *underneath* the header —
+classifies `LeadsLine`, and renders on a fresh row *underneath* the header —
 which the reparse then re-homes to a column-1 `Standalone`, the same
 disagreement `detachOwnLineTrailer` exists to remove. elm-format detaches this
 one too (it detaches a trailing block comment after a *one-row* header as well,
@@ -879,10 +880,10 @@ mkCommentLpBox locComment =
     -- one at the splice point, where the neighbouring siblings are in hand.
     when locComment.value is
         Ctx.Line string ->
-            SingleLineComment { loc = at start end string, role = LeadsOwnLine }
+            SingleLineComment { loc = at start end string, role = LeadsLine }
 
         Ctx.Block string ->
-            BlockComment { loc = at start end string, role = LeadsOwnLine }
+            BlockComment { loc = at start end string, role = LeadsLine }
 
 
 -- LEADING GLUED BLOCK COMMENT
@@ -1751,7 +1752,7 @@ insertAmongChildren containerBox commentNode row col children =
         -- No siblings to classify against. A comment inside a bracket container
         -- (`{ {- c -} }`) classifies via the bracket branch (leads its own line);
         -- otherwise keep the role the caller pre-set (`Standalone` for a fresh
-        -- top-level slot, else the `LeadsOwnLine` default).
+        -- top-level slot, else the `LeadsLine` default).
         [ if isBracketContainerBox containerBox then
             lpnSetCommentRole (classifyCommentKind containerBox commentNode [] [] row) commentNode
 
@@ -1852,7 +1853,7 @@ insertAmongChildren containerBox commentNode row col children =
             -- The comment's role, decided here from its final neighbours (the
             -- pristine parse rows are still valid at this splice point). A
             -- comment redirected *into* an `IndentedBlock` / `PipelineStep`
-            -- leads that body on its own line (`LeadsOwnLine`); everything else
+            -- leads that body on its own line (`LeadsLine`); everything else
             -- is classified by `classifyCommentKind`.
             classifiedRole =
                 classifyCommentKind containerBox commentNode finalBefore finalAfter row
@@ -1861,7 +1862,7 @@ insertAmongChildren containerBox commentNode row col children =
                 lpnSetCommentRole classifiedRole commentNode
 
             leadingComment =
-                lpnSetCommentRole LeadsOwnLine commentNode
+                lpnSetCommentRole LeadsLine commentNode
         in
         when Array.popFirst finalAfter is
             Just { first = nextNode, rest = afterRest } ->
@@ -1888,7 +1889,7 @@ insertAmongChildren containerBox commentNode row col children =
                         -- separator, for ever.
                         --
                         -- Unconditional inside a bracket, including
-                        -- `LeadsOwnLine`: there the comment renders at the
+                        -- `LeadsLine`: there the comment renders at the
                         -- BRACKET's column, above the `,` — which is what the
                         -- same comment before a non-lambda field has always
                         -- done. Redirected inside, it came out glued after the
@@ -1915,7 +1916,7 @@ insertAmongChildren containerBox commentNode row col children =
                         -- it (`seed {- c -} |> f`, which is where elm-format puts
                         -- it and where a reparse re-derives it from). Redirecting
                         -- it inside made it the step's first child, where nothing
-                        -- precedes it, so it classified `LeadsOwnLine` and forced
+                        -- precedes it, so it classified `LeadsLine` and forced
                         -- the whole chain vertical — a comment creating line
                         -- breaks the code never needed. Same reasoning as the
                         -- `SoftIndentedBlock` arm below, and the same test: only
@@ -1967,8 +1968,8 @@ insertAmongChildren containerBox commentNode row col children =
                         -- reason: only a `RidesInline` comment has a flat row to
                         -- stay on. A `--` ends its row and a multi-line `{- … -}`
                         -- brings its own newlines, so both still lead the body
-                        -- from inside, and an own-row comment classifies
-                        -- `LeadsOwnLine` and is redirected as before.
+                        -- from inside, and a line-leading comment classifies
+                        -- `LeadsLine` and is redirected as before.
                         if isDeclValueContainer containerBox || classifiedRole /= RidesInline then
                             let
                                 newNextNode =
@@ -2539,7 +2540,7 @@ gave them is a spelling the formatter can see and keep:
 
 Stepping the splice point back over the arrow is all that takes: the comment's
 `prev` becomes the type to its left, and the ordinary same-row / own-row rules
-then say `TrailsPrevious` or `LeadsOwnLine`. (The third spelling — `Int -> -- c`
+then say `TrailsPrevious` or `LeadsLine`. (The third spelling — `Int -> -- c`
 ⏎ `String`, written past the arrow but still on the left type's row — is
 positionally identical to the trailing one, since the arrow is invisible, and
 collapses onto it: three ways to type it, two outcomes, exactly as at a `,`.)
@@ -2582,7 +2583,7 @@ below it.
 **The reparse cannot read that shape back.** A body starting on a later row
 arrives as an `IndentedBlock`, not a `SoftIndentedBlock`, and
 `insertAmongChildren`'s `IndentedBlock` arm redirects a comment before one
-INSIDE it as `LeadsOwnLine` — so the second format stacked it above the body and
+INSIDE it as `LeadsLine` — so the second format stacked it above the body and
 the file never settled. That arm's `SoftIndentedBlock` neighbour already
 documents this exact trade for a `--`, which is redirected for the same reason;
 this is the single-line `{- -}` whose body turns out to render multi-line,
@@ -2684,7 +2685,7 @@ it out, so the `)` gets a row of its own that a trailing comment can glue onto.
 `prevBlockGlueRow`'s `ParenBlock` arm used the source row span alone as its
 "does this paren close on a `)` row a comment can glue onto?" test. A paren the
 author wrote on ONE row but whose content forces a break defeats that proxy: the
-comment classifies `LeadsOwnLine`, and at the tail of a declaration that renders
+comment classifies `LeadsLine`, and at the tail of a declaration that renders
 it on a fresh row BELOW the declaration's last token — a row the reparse can
 never attribute back to the declaration, so it re-homes as a top-level
 `Standalone` comment at column 1. `0 <| ( if 0 then 1 else 2 ) {- c -}` moved
@@ -2761,7 +2762,7 @@ prevLineGlueRow node =
         -- any other single-child wrapper (`AcrossOrVertical`/`ParenBlock`
         -- above). Missing this case (falling through to the `_ -> -1`
         -- default) made a same-row `--` after a bare unary-minus body
-        -- always classify as `LeadsOwnLine`, oscillating on reparse exactly
+        -- always classify as `LeadsLine`, oscillating on reparse exactly
         -- like the `MultilineString` gap above once did. A lambda head does
         -- NOT glue (`gluesTrailingComment` is `False` for it) —
         -- `KitchenComments`' fixture-verified behavior keeps a same-row `--`
@@ -2780,7 +2781,7 @@ prevLineGlueRow node =
         -- two coincide, but a multi-line `{- … -}`'s `-}` can close several
         -- rows below its `{-`, and a same-row successor sits on that close
         -- row (`{- multi⏎line -} {- c -}`). Using the first row misclassified
-        -- the successor as `LeadsOwnLine`, which (with the render-side
+        -- the successor as `LeadsLine`, which (with the render-side
         -- `TerminatedByBlockComment` policy) oscillated col 4 ↔ col 0.
         SingleLineComment _ ->
             lastRowInSubtree node
@@ -2808,7 +2809,7 @@ prevLineGlueRow node =
 -- never render truly inline no matter what precedes it, so denying it a glue
 -- row after a single-line EXPOSING list is never correct: without this
 -- override, `import Foo exposing (y) {- multi⏎line -}` classified
--- `LeadsOwnLine`, which renders on a fresh row; reparsing that output then
+-- `LeadsLine`, which renders on a fresh row; reparsing that output then
 -- reads the comment as an unattached standalone (its row no longer falls
 -- inside the import's own row range) instead of the import's own trailing
 -- comment, so the SECOND format drops it back to a different placement — an
@@ -2900,7 +2901,7 @@ prevBlockGlueRow commentIsMultiline node =
         -- multi-line-only rule as the bracket lists above, keyed on the same
         -- stored flag `makeRecordUpdateBox` picks its layout from. There was no
         -- arm here at all, so `{ r | a = 1` ⏎ `, b = 2 } {- c -}` fell to the
-        -- `-1` default and classified `LeadsOwnLine`: rendered a row below the
+        -- `-1` default and classified `LeadsLine`: rendered a row below the
         -- declaration's last token, which the reparse re-homes to column 1.
         -- (`prevLineGlueRow` has always had its arm — a `--` is unambiguously
         -- trailing, so it glues after the flat form too.)
@@ -3018,7 +3019,7 @@ classifyCommentKind containerBox commentNode before after row =
         -- A comment that is a direct child of a bracketed container renders via
         -- `commentBracketListBox`, whose glue rule is *permissive*: a comment on
         -- the same row as the previous item (any item kind — a token, a nested
-        -- record, a paren) trails it; an own-row one leads its own line. This
+        -- record, a paren) trails it; a line-leading one leads its own line. This
         -- differs from the generic-flow coarse rule, and these comments never
         -- reach the generic `decide` path, so they get their own branch.
         isBracketBranch =
@@ -3114,10 +3115,10 @@ classifyCommentKind containerBox commentNode before after row =
         -- case is an effect module's `exposing (..)`: its real column depends on
         -- the untracked `where { … }` contents, so `(..)`/`exposing` stay
         -- position-less `SynthesizedText`. Without a glue row a same-row trailing
-        -- `-- c` classifies `LeadsOwnLine` and drops to its own line, oscillating
+        -- `-- c` classifies `LeadsLine` and drops to its own line, oscillating
         -- indented↔col-0 on reparse. Fall back to the last real content row on
         -- the line (`refRow`) so it glues onto the header row (`TrailsPrevious`)
-        -- instead. (A block trailer already renders inline from `LeadsOwnLine`,
+        -- instead. (A block trailer already renders inline from `LeadsLine`,
         -- so this only needs to cover the `--` case.)
         --
         -- That tail is position-less over a RANGE of rows, not just one.
@@ -3229,12 +3230,12 @@ classifyCommentKind containerBox commentNode before after row =
                 TrailsPrevious
 
             else
-                LeadsOwnLine
+                LeadsLine
 
         -- A single-line `{- -}` on the previous item's row rides the flat line
         -- (`RidesInline` — the only comment kind `literalCommentsRideFlatLine`
         -- keeps flat); a multi-line `{- … -}` on that row glues but breaks the
-        -- line (`TrailsPrevious`); an own-row comment leads its own line.
+        -- line (`TrailsPrevious`); a line-leading comment leads its own line.
         -- `RidesInline` vs `TrailsPrevious` is observed only by
         -- `literalCommentsRideFlatLine`; every other consumer glues both, so the
         -- distinction need not consider the *next* neighbour.
@@ -3243,7 +3244,7 @@ classifyCommentKind containerBox commentNode before after row =
         -- same gap `classifyLine` covers for `--`: an effect module's `exposing`
         -- is synthesized (its real column depends on the untracked `where { … }`
         -- contents), so a `{- c -}` the author wrote on the header row got
-        -- `LeadsOwnLine` and rendered on a fresh row below `exposing`. That makes
+        -- `LeadsLine` and rendered on a fresh row below `exposing`. That makes
         -- a FLAT exposing list start below the header, which reparses as a
         -- vertical list — non-idempotent. Fall back to the last real content row
         -- on the line (`refRow`), exactly as the `--` case does.
@@ -3283,7 +3284,7 @@ classifyCommentKind containerBox commentNode before after row =
                         || (glueRow >= 0 && row == glueRow)
             in
             if not sameRowPrev then
-                LeadsOwnLine
+                LeadsLine
 
             else if multiline then
                 TrailsPrevious
@@ -3306,7 +3307,7 @@ classifyCommentKind containerBox commentNode before after row =
         -- Keyed on EITHER adjacent item's row, which is what makes the role a
         -- reparse fixed point. The comment renders on the *next* item's row
         -- (`, {- c -} 2`), so a rule that only recognised "same row as the
-        -- previous item" would read its own output as an own-row comment and
+        -- previous item" would read its own output as a line-leading comment and
         -- drop it to its own line — `[ 1 {- c -}` ⏎ `, 2 ]` oscillated exactly
         -- that way. Both adjacent rows mean the same thing here: the comment is
         -- in the gap, on one side of an invisible comma. Only a comment on
@@ -3399,7 +3400,7 @@ classifyCommentKind containerBox commentNode before after row =
         -- comment: "`before` being all comments (rather than empty) is what keeps
         -- a SECOND comment here in the same region as the first"); the item list
         -- asked `Array.isEmpty before` and so split its runs, giving the first
-        -- member `RidesInline` and every later one `LeadsNext` or `LeadsOwnLine`.
+        -- member `RidesInline` and every later one `LeadsNext` or `LeadsLine`.
         -- Look for the container that already agrees.
         --
         -- Nothing rendered differently, because at this slot the renderer does
@@ -3447,7 +3448,7 @@ classifyCommentKind containerBox commentNode before after row =
         --           { rec -- c            the base's row  → `TrailsHead`
         --               | a = 1 }
         --
-        --           { rec                 its own row     → `LeadsOwnLine`,
+        --           { rec                 its own row     → `LeadsLine`,
         --               -- c                                which the renderer
         --               | a = 1 }                           puts at the `|` column
         --
@@ -3457,7 +3458,7 @@ classifyCommentKind containerBox commentNode before after row =
         --
         -- Everywhere the renderer needs to tell the two apart it can: the opener
         -- slot is the leading run of comment children whose role is none of
-        -- `LeadsNext` / `LeadsOwnLine` / `TrailsHead`. A comment TRAILING a field
+        -- `LeadsNext` / `LeadsLine` / `TrailsHead`. A comment TRAILING a field
         -- is not in that leading run and keeps the ordinary same-row rules.
         if isRecordUpdateBox containerBox && Array.all isCommentNode before then
             -- Somewhere in the base … first-field region. `before` being all
@@ -3471,7 +3472,7 @@ classifyCommentKind containerBox commentNode before after row =
                 LeadsNext
 
             else if updateBaseRow >= 0 && row /= updateBaseRow then
-                LeadsOwnLine
+                LeadsLine
 
             else
                 TrailsHead
@@ -3494,7 +3495,7 @@ classifyCommentKind containerBox commentNode before after row =
             LeadsNext
 
         else if not (Array.isEmpty before) && not inOpenerRun && (bracketPrevRow < 0 || row /= bracketPrevRow) then
-            LeadsOwnLine
+            LeadsLine
 
         else if inOpenerRun && nextItemBlocksFrontGlue then
             -- The opener slot (`[ {- c -} item`), where the first item holds a
@@ -3504,7 +3505,7 @@ classifyCommentKind containerBox commentNode before after row =
             -- requires them indented equally, so the output stops parsing. (A
             -- comment gluing onto the item BEFORE it is a suffix, landing after
             -- the closing `"""`, and is fine — this is only about the front.)
-            LeadsOwnLine
+            LeadsLine
 
         else
             bracketKindRole
@@ -3514,7 +3515,7 @@ classifyCommentKind containerBox commentNode before after row =
         -- line at the operator indent (relative to `chainedRefRow` — the last
         -- operand, plus any trailing comment run written on from its row).
         if row > chainedRefRow then
-            LeadsOwnLine
+            LeadsLine
 
         else
             TrailsPrevious
@@ -3523,7 +3524,7 @@ classifyCommentKind containerBox commentNode before after row =
         when prev is
             Nothing ->
                 -- Nothing precedes: the comment leads the flow.
-                LeadsOwnLine
+                LeadsLine
 
             Just p ->
                 when lpnBox commentNode is
@@ -3534,4 +3535,4 @@ classifyCommentKind containerBox commentNode before after row =
                         classifyBlock p (String.contains "\n" loc.value)
 
                     _ ->
-                        LeadsOwnLine
+                        LeadsLine

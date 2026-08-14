@@ -68,7 +68,7 @@ insertPattern locPat =
                         )
             in
             resultFoldl folderInsertPRecordField [] fields
-                -- `locPat.end` registers the closing `}` so an own-line comment
+                -- `locPat.end` registers the closing `}` so a line-leading comment
                 -- between the last field and the close stays *inside* the pattern
                 -- (matching record literals); the empty form is a `{}` text leaf.
                 |> Result.map
