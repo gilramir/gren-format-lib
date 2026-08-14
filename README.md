@@ -170,9 +170,10 @@ A few things worth noticing:
   in [Comments](#comments) below; see also
   [How gren-format places your comments](docs/commentHandling.md)).
 
-Every one of these decisions follows from how the code was written.
-any line-width target — see [Formatting Philosophy](#formatting-philosophy) below, and the full
-[Formatter Rules](docs/formatterRules.md) for the complete reference.
+Every one of these decisions follows from how the code was written, not from
+any line-width target — see [Formatting Philosophy](#formatting-philosophy)
+below, and the full [Formatter Rules](docs/formatterRules.md) for the complete
+reference.
 
 ---
 
@@ -200,22 +201,44 @@ The four core rules:
    formatter keeps it on one line. Width is irrelevant.
 
 2. **Multiple rows → one item per line.** If you put a line break between any
-   two items of a construct, the formatter keeps every item on its own line.
-   There is no "some items here, some there" shape — a line break anywhere
-   means every item gets its own line.
+   two items of a container — an array, a record, a call's arguments, a
+   pipeline's steps — the formatter keeps every item on its own line. There is
+   no "some items here, some there" shape: a line break anywhere in the
+   container means every item gets its own line.
 
-3. **The formatter never changes what your code means.** It only moves
-   whitespace. It never rewrites an expression, reorders anything, or edits
-   text inside a comment or string.
+   An **operator chain** is the one construct that breaks differently, because
+   its items are not peers. A chain you wrote across rows breaks at its
+   *loosest* operators and keeps the tighter ones glued to their operands, so
+   the shape shows you the grouping (see
+   [Binary operators](docs/formatterRules.md#binary-operators)):
+
+   ```gren
+   -- you write:                -- gren-format writes:
+   chain =                      chain =
+       aa && bb                     aa && bb
+           || cc && dd                  || cc && dd
+
+   -- and if you break it at the tighter operator instead,
+   -- the whole chain comes back flat:
+   chain =                      chain =
+       aa                           aa && bb || cc && dd
+           && bb || cc && dd
+   ```
+
+3. **The formatter never changes what your code means.** It never rewrites an
+   expression — every paren you wrote is kept, redundant or not — and never
+   edits the text inside a comment or string. It reorders exactly two things,
+   neither of which is code: the names in an `exposing ( … )` list, and a run
+   of `import` statements (see [Sorting](docs/sorting.md)).
 
 4. **Formatting is stable.** Running the formatter on already-formatted code
    produces the same code back. Format once or ten times — same result. A
    torture test inserts a comment into every inter-token gap of every fixture
-   file, formats twice, and requires byte-identical output. It is red today:
-   **17** gaps out of some 56,000 still shift, and all 17 are the same upstream
-   parser bug (see [Known Limitations](docs/knownLimitations.md)). Nothing
-   left in it is the formatter's to fix; it goes green when that parser fix
-   ships.
+   file, formats twice, and requires byte-identical output — some sixty
+   thousand probes. It passes. The handful of gaps that still shift are all one
+   upstream parser bug, each one registered by name so it forgives that finding
+   and nothing else (see [Known Limitations](docs/knownLimitations.md)); a new
+   shift, or one of those quietly ceasing to reproduce, fails the run.
 
 A few things are **always fixed**, regardless of how you wrote them:
 
@@ -336,7 +359,7 @@ in a loop, and never rescan work already known to be settled.
 formatted syntax in most places. Both
 formatters share the same "your line breaks are your layout decisions"
 philosophy — neither reflows code to fit a page width — so they agree almost
-everywhere. Where they don't, it's a catalogued choice: 26 divergences,
+everywhere. Where they don't, it's a catalogued choice: 32 divergences,
 covering things like blank-line placement around comments, redundant parens
 (the most common difference on real code), and how a multi-line operator chain
 breaks. One of them isn't a choice at all — Gren's parser throws away the
