@@ -61,8 +61,8 @@ did not exist: every gate in this repo varied *where* a comment goes and none
 varied *how many*, so a rule that only misbehaves once a comment's neighbour is
 another comment had no probe anywhere. That is not a corner — inside a run the
 neighbour a role is classified against IS another comment, which is why
-`docs/commentRunTesting.md` states rules C1 and C3 and plans to make them
-structural. With `N > 1` the members are marked `¤1 … ¤N`, the kind's label
+`docs/commentAlgorithm.md` §7 states the run rules (R1-R5) and §8 argues why a
+run of N reaches no decision a run of two does not. With `N > 1` the members are marked `¤1 … ¤N`, the kind's label
 grows to e.g. `blockx2` (so a finding is still `<fixture>[<kind>]@<gap>` and
 `repro.py` still reproduces it), and the marker check gains a REORDERING arm —
 a run torn across a separator is a real shape and it is a stable fixed point,
@@ -552,8 +552,8 @@ KINDS = [
 
 # The largest run `--run` accepts. The members are marked `¤1 … ¤n` and counted
 # by substring, so a two-digit index would make `¤1` a prefix of `¤10`; nothing
-# in `docs/commentRunTesting.md` asks for a run past three, where the laws stop
-# needing a baseline at all.
+# the repo asks for a run past three: `--run 3` swept dry, and
+# `docs/commentAlgorithm.md` §8.4 says why length adds no new case.
 MAX_RUN = 9
 
 
@@ -567,7 +567,7 @@ def run_text(label, text, n):
     one attachment, one role) and C3 (the run rides iff every member rides)
     exist to remove, and until this axis existed nothing in the repo varied it:
     `--comments` injects one comment per cell and this pass injected one per
-    gap. See `docs/commentRunTesting.md`.
+    gap. See `docs/commentAlgorithm.md` §8 and §10.
 
     The members are marked `¤1 … ¤n` rather than repeating one marker, which
     buys two things a repeated marker cannot: a finding names WHICH member

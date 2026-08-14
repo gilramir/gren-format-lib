@@ -271,9 +271,9 @@ Three things shape what is reported, and each replaced a wrong first attempt:
 - **A "silent flip" check (a decision moved, the bytes did not) was tried and
   dropped as vacuous.** Over the corpus the input already *is* the output, so
   both traces come from identical text and nothing can differ. That is exactly
-  the trap [`commentRunTesting.md`](commentRunTesting.md) names: when the two
-  formats agree, an output-shaped comparison collapses back into the idempotency
-  check we already have.
+  the trap [`llmAttic.md`](llmAttic.md) records it under: when the two formats
+  agree, an output-shaped comparison collapses back into the idempotency check we
+  already have.
 
 Two counters are the gate's own debt, printed every run: a probe whose bytes
 moved with **no** flip at all (`UNEXPLAINED`), and one explained only by a
@@ -337,8 +337,7 @@ renders below the declaration and so is re-homed to column 1 on reparse. The
 rule that fixes it was already written down in `Comments.gren`'s module doc and
 already implemented from source rows (`findOrCreateOrigRow`); asking the same
 question of the finished tree (`detachOwnLineTrailer`) took
-**fuzz-idempotency 347 → 172**. Write-up in
-[`commentRunTesting.md`](commentRunTesting.md).
+**fuzz-idempotency 347 → 172**.
 
 ### Where the code lives
 

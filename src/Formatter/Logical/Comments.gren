@@ -606,7 +606,7 @@ delimiter is not a node, so its last child having no node after it does not mean
 it has no *token* after it. `{ rec | fld = x -- c` ⏎ `}` is the shape — the `--`
 is the record update's last child and the `}` still follows it, so it is not a
 declaration trailer and must not be lifted out. (This is the same stand-in-token
-trap `docs/commentRunTesting.md` records for `commentSplitsType`, met from the
+trap `commentSplitsType` was deleted over (see `docs/llmAttic.md`), met from the
 other side; ignoring it here made the fix a no-op on its own reproducer, since
 the `--` joined the run and its `TrailsPrevious` role vetoed the lift.)
 

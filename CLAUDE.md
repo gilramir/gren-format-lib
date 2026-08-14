@@ -138,6 +138,6 @@ Three things to hold onto:
   [`docs/fuzzTesting.md`](docs/fuzzTesting.md) — the gates, in full.
 - [`docs/developer.md`](docs/developer.md) — how to extend the formatter with
   new syntax.
-- [`docs/rejectedApproaches.md`](docs/rejectedApproaches.md) — fixes that were
-  tried and **backed out**, and what each cost. Check it before redesigning a
-  comment-placement or glue rule.
+- [`docs/llmAttic.md`](docs/llmAttic.md) — approaches **tried and backed out**,
+  work deferred and the measurement that settled it, and designs never built.
+  Check it before redesigning a comment-placement or glue rule.

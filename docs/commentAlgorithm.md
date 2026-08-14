@@ -2155,6 +2155,7 @@ and there are several such places, each with a reason on record — the list is
   normative statement of *behaviour*
 - [How the formatter works](howItWorks.md) — the pipeline, conceptually
 - [developer.md](developer.md) — adding a construct; the position rules
-- [Testing gates](testing.md) and [Comment-run testing](commentRunTesting.md)
+- [Testing gates](testing.md), and [the LLM attic](llmAttic.md) for approaches
+  already tried and rejected
 - `CommentRole`'s docstring in `Formatter.Logical.LogicalPrintingTree` — the
   normative statement of each role

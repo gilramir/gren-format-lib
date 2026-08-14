@@ -10,8 +10,8 @@ meaning requires, at any nesting depth, in any position. gren-format keeps
 whatever you wrote, everywhere, with no exceptions — this is a deliberate,
 settled choice, not an oversight.
 
-This is [divergence #10](elmFormatComparison.md#divergence-catalogue) in the catalogue. It
-is the most common difference between the two formatters on real code.
+This is [divergence #10](elmFormatComparison.md#divergence-10) in the catalogue.
+It is the most common difference between the two formatters on real code.
 
 ## Around a `when`, `if`, or `let`
 
@@ -156,8 +156,8 @@ gren-format no longer strips a call argument's parens at all.
 
 ## Why gren-format keeps the rest
 
-Stripping a paren means proving it carries no meaning. For an operand that needs
-the operator's precedence; in general it needs to know what each position can
-hold. gren-format doesn't do that analysis, and won't: this is a settled design
-choice, not a gap — nothing about the output is *wrong*, only more explicit than
-elm-format's.
+Stripping a paren means proving it carries no meaning. For an operand, that
+takes the operator's precedence; in general it takes knowing what each syntactic
+position can hold. gren-format doesn't do that analysis, and won't: this is a
+settled design choice, not a gap — nothing about the output is *wrong*, only
+more explicit than elm-format's.

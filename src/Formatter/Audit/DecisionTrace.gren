@@ -12,7 +12,7 @@ module Formatter.Audit.DecisionTrace exposing
 Every other gate in this repo compares **output**. When a format is not a fixed
 point the byte diff says *where* the two runs disagree and never *why*; the
 culprit decision has to be inferred by hand, one diff at a time. That is what
-the 347-finding residual of `docs/commentRunTesting.md` is made of, and it is
+the 347-finding residual this gate was built for was made of, and it is
 why they have never grouped: hundreds of byte diffs with no shared vocabulary
 between them.
 

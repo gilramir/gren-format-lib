@@ -383,8 +383,9 @@ Everything above is the short version. These are the full documents, all in
   are the hard part, and the model the implementation is built on.
 - **[The comment algorithm](docs/commentAlgorithm.md)** — the implementation
   itself, for people working on the formatter.
-- **[Rejected approaches](docs/rejectedApproaches.md)** — fixes that were tried
-  and backed out, and what each one cost.
+- **[The LLM attic](docs/llmAttic.md)** — approaches tried and backed out, work
+  deferred and the measurement behind it, and designs never built. Written to be
+  read by a model working on this repo.
 
 **How it's tested**
 
@@ -394,5 +395,3 @@ Everything above is the short version. These are the full documents, all in
   thousands of random modules with `fuzzrun.py`.
 - **[Distributed sweeps](docs/distributedFuzzing.md)** — spreading one sweep
   across several hosts.
-- **[Testing runs of comments](docs/commentRunTesting.md)** — how the repo gets
-  more than one comment in a row right, without enumerating the combinations.

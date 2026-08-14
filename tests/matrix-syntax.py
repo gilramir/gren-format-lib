@@ -1054,7 +1054,7 @@ CONTEXTS = [
 # `let` binding's annotation -- had no cell here at all. That is one half of
 # what hid the signature-`->` comment rule (the other half was
 # `fuzz-idempotency.py` sweeping only one comment kind); see
-# `docs/commentRunTesting.md`.
+# `docs/commentAlgorithm.md` §10.
 #
 # Same namedtuples, same variants, same four oracles. The vocabularies are
 # disjoint and `enumerate_cells` pairs them by `kind`, because a type cannot
