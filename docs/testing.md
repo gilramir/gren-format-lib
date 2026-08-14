@@ -238,6 +238,8 @@ fixture the single-gap pass calls clean in every kind.
   than the fixture suite.
 - **`tests/idempotency-known-baseline.json`** — the registered upstream
   findings the exit status forgives, keyed by `repro.py` label.
+- **`tests/repro.py`** — rebuilds one finding from that label; see
+  [Reproducing one finding](#reproducing-one-finding-repropy).
 
 ## Decision-stability gate (`check-decision-stability.py`)
 
@@ -341,6 +343,35 @@ count in a day. Nothing in the byte diffs said which group a probe belonged to.
   the same two passes `verifyReparse` runs, keeping both trees and leaving the
   AST comparison out (this flag is aimed at files that are *not* fixed points).
 - **`tests/check-decision-stability.py`** — the driver and the histogram.
+
+## Reproducing one finding (`repro.py`)
+
+Both gates above report a finding as `<fixture>[<kind>]@<gap>` — a fixture, a
+comment kind, and the byte offset the comment was spliced at. `repro.py` takes
+that label directly and rebuilds the exact input, which is the first step of
+every investigation: a byte diff cannot tell you *why* a comment moved, and the
+answer is usually visible only in the roles the tree gave it.
+
+```bash
+cd gren-format-lib/tests
+./repro.py TrickyComments.formatted.gren multi 100        # both passes + the diff
+./repro.py <fixture> <kind> <gap> --input                 # just the spliced source
+./repro.py <fixture> <kind> <gap> --lpt1 / --lpt2         # the tree each pass rendered from
+./repro.py <fixture> <kind> <gap> --decisions             # which decisions differed
+```
+
+`<kind>` is `block` / `multi` / `line`, or one of those with an `xN` suffix
+(`blockx2`) for a `--run N` finding, or several joined with `+`
+(`block+multi+line`) for a `--mix*` one — so a label pasted off any gate's output
+works unchanged. The fixture may be a bare basename; it is searched for under
+`testfiles/`.
+
+Two details are deliberate. It **imports the probe definitions from
+`fuzz-idempotency.py` by path** rather than copying them, because a repro that
+splices differently from the gate that found the finding is not a repro. And it
+formats with `--show-first`, not `--show`, because `--show` runs the idempotency
+comparison internally and fails — which is exactly the state under
+investigation, so it would refuse to print the output you need.
 
 ## Whitespace-canonicalization fuzzer (`fuzz-whitespace.py`)
 
