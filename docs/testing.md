@@ -20,6 +20,21 @@ The gates fall into two kinds, and the distinction matters:
 Most of the suite is the first kind. Keep that in mind when a change "passes
 everything": passing the self-consistency gates is necessary, not sufficient.
 
+### Two things that apply to every gate below
+
+**Rebuild the `gren-format` app first.** Every gate except `run-tests.sh` and
+`check-render-invariant.py` shells out to the built CLI as a subprocess, so it
+exercises whatever formatter source was last compiled — not your working tree.
+Never rebuild while a fuzzer is running.
+
+```bash
+cd ../../gren-format && ./build.sh
+```
+
+**Pass `-j`.** The drivers default to `-j 2`; this machine has 16 cores, so
+`-j 12` is the difference between a coffee and an afternoon on a whole-corpus
+sweep.
+
 ---
 
 ## Effectful test suite (`run-tests.sh`)
@@ -170,13 +185,6 @@ known" read exactly like "19 findings, all known". Eight findings belonging to
 a real bug — an `if`/`when` header that could not see a comment nested in its
 condition — sat in that summary line looking like the upstream ones.
 
-
-**Rebuild the `gren-format` app first** (`cd ../../gren-format && ./build.sh`)
-— the fuzzer shells out to the built CLI as a subprocess, so it exercises
-whatever formatter source was last compiled, not the current working tree.
-This machine has 16 cores; the default is `-j 2`, so pass a higher `-j` for a
-fast whole-corpus sweep.
-
 Run a full sweep after any change to comment handling, and especially after
 adding a comment-bearing fixture — a new comment shape can surface a latent
 gap no existing fixture exercised.
@@ -216,12 +224,10 @@ default cap is ~65 minutes at `-j 12` (~224,000 probes). Run it after a change
 to how a construct's own row interacts with its contents — a header, a
 container, anything whose layout a nested comment can decide.
 
-State as of 2026-08-11: **127 findings, all of them
-`[known: compiler-common#35]`**, so the axis is green on the corpus. Its
-non-vacuity is not inferred from that: with the `if`/`when` header fix reverted
-it reports 32 findings on `IfExpression.formatted.gren`, a fixture the
-single-gap pass calls clean in every kind.
-
+The axis has been swept over the corpus with every finding classified upstream,
+so it is green. Its non-vacuity does not rest on that count: with the `if`/`when`
+header fix reverted it reports findings on `IfExpression.formatted.gren`, a
+fixture the single-gap pass calls clean in every kind.
 
 ### Where the code lives
 
@@ -232,7 +238,6 @@ single-gap pass calls clean in every kind.
   than the fixture suite.
 - **`tests/idempotency-known-baseline.json`** — the registered upstream
   findings the exit status forgives, keyed by `repro.py` label.
-
 
 ## Decision-stability gate (`check-decision-stability.py`)
 
@@ -294,50 +299,37 @@ cd gren-format-lib/tests
 ./check-decision-stability.py --gaps --kind line -v testfiles/<SuiteDir>/Foo.formatted.gren
 ```
 
-**Rebuild the app first** — it shells out to it. The plain mode is a real gate
-and passes over all 325 fixtures. The `--gaps` mode inherits
-`fuzz-idempotency.py`'s known-red residual, so its exit status says nothing new;
-its value is the histogram.
+The plain mode is a real gate and passes over the whole fixture corpus. The
+`--gaps` mode inherits `fuzz-idempotency.py`'s known-red residual, so its exit
+status says nothing new; its value is the histogram.
 
 Its probes are `fuzz-idempotency.py`'s, imported from that file by path rather
 than copied, so the two gates cannot drift onto different gaps — and the first
-whole-corpus run confirmed it, landing on **exactly the same 347 probes** that
-gate reports. It reuses the all-gaps fast path from there too, which matters
-more here because `--decisions` formats twice.
+whole-corpus run confirmed it, landing on exactly the probe set that gate
+reports. It reuses the all-gaps fast path from there too, which matters more
+here because `--decisions` formats twice.
 
-### What the first run found
+### How to read the histogram
 
-Of those 347, **320 were named by an author-intent flip**, 7 by a rendered shape
-alone, and **20 are unexplained**. They group, which is the whole point:
+Probes are grouped by the *set* of decisions that flipped, and the group is the
+diagnosis. Two readings, both off real sweeps:
 
-| probes | the decisions that moved |
-|---|---|
-| 238 | `Comment.role` + `Comment.endsItsLine` + `Comment.textCanRide` |
-| 47 | `Comment.role` alone |
-| 24 | `AcrossOrVertical.forceVertical` (+ `commentBreaksFlowRow`, `checkContentVertical`) |
-| 12 | `BracketContainer.literalCommentsRideFlatLine` |
-| ~6 | `Pipeline` / `Binop` / `IfCondition` `forceVertical` |
+- **`Comment.role` together with `Comment.endsItsLine` and
+  `Comment.textCanRide`.** Those last two are functions of the comment's *text*,
+  which cannot change — so they can only move if the comment changed **which
+  declaration owns it**. A group carrying them is a comment relocating between
+  declarations; the same group without them is a comment staying put and
+  changing role.
+- **`Comment.role=LeadsOwnLine` lost against `Comment.role=Standalone` gained**,
+  in bulk. That is the detached-comment class: a multi-line `{- … -}` written
+  past a declaration's last token, which renders below the declaration and is
+  re-homed to column 1 on reparse.
 
-The single sharpest line is which way the branches moved:
-`Comment.role=LeadsOwnLine` was **lost 246 times** and
-`Comment.role=Standalone` **gained 268** — one transition accounting for most of
-the residual.
-
-The two comment families are distinguishable because `endsItsLine` and
-`textCanRide` are functions of the comment's *text*, which cannot change: they
-can only move if the comment changed **which declaration owns it**. So the
-238-probe family is a comment relocating between declarations, and the 47 is one
-staying put and changing role. Read on a probe, the big family is a comment
-going `LeadsOwnLine` under one declaration to `Standalone` above the next —
-which is the detached-comment class `45f7269` already took 77 findings out of.
-
-**The instrument paid for itself the same day.** The 238-probe family was one
-shape — a multi-line `{- … -}` written past a declaration's last token, which
-renders below the declaration and so is re-homed to column 1 on reparse. The
-rule that fixes it was already written down in `Comments.gren`'s module doc and
-already implemented from source rows (`findOrCreateOrigRow`); asking the same
-question of the finished tree (`detachOwnLineTrailer`) took
-**fuzz-idempotency 347 → 172**.
+The second is the instrument paying for itself. The rule that fixes it was
+already written down in `Comments.gren`'s module doc and already implemented
+from source rows (`findOrCreateOrigRow`); asking the same question of the
+finished tree (`detachOwnLineTrailer`) halved the idempotency fuzzer's finding
+count in a day. Nothing in the byte diffs said which group a probe belonged to.
 
 ### Where the code lives
 
@@ -379,10 +371,6 @@ python3 fuzz-whitespace.py                 # default: stretch mode
 python3 fuzz-whitespace.py --mode indent   # modes: stretch | indent
 python3 fuzz-whitespace.py -j 12           # parallelise
 ```
-
-**Rebuild the `gren-format` app first** — like the idempotency fuzzer, it
-shells out to the built CLI. This machine has 16 cores; both fuzzers default
-to `-j 2`, so pass a higher `-j` for a full-corpus sweep.
 
 ### Where the code lives
 
@@ -457,9 +445,8 @@ cd gren-format-lib/tests
 ./matrix-syntax.py --update-baseline                        # rewrite the parity baseline
 ```
 
-**Rebuild the `gren-format` app first** — it shells out to it. Oracle 4 also
-needs `elm-format` on `PATH`; without it the matrix says so loudly and runs
-the other three rather than quietly reporting a thinner green.
+Oracle 4 needs `elm-format` on `PATH`; without it the matrix says so loudly and
+runs the other three rather than quietly reporting a thinner green.
 
 ### Where the code lives
 
@@ -570,9 +557,8 @@ cd gren-format-lib/tests
 ./gen-random.py --promote 12345 --name Foo  # turn a fixed find into a fixture
 ```
 
-**Rebuild the `gren-format` app first** — it shells out to
-`../../gren-format/app`. Artifacts land in gitignored `gen-out/run-NNNNNN/`,
-failures-only, bucketed by kind (`crash` / `ast-mismatch` / `non-idempotent` /
+Artifacts land in gitignored `gen-out/run-NNNNNN/`, failures-only, bucketed by
+kind (`crash` / `ast-mismatch` / `non-idempotent` /
 `comment-loss`), each with a self-contained `report.txt` carrying the repro
 command and a pre-computed diff.
 
@@ -605,6 +591,63 @@ use `fuzzrun.py`, which drives this generator. See
 - **`GENERATOR.md`** — the full design spec (grammar, depth bounds, shrinking
   algorithm).
 - **`tests/fuzzrun.py`** — the long-sweep coordinator ([fuzzTesting.md](fuzzTesting.md)).
+
+## Project fuzzer (`fuzz-project.py`)
+
+### What it guards against
+
+Every other gate on this page runs `--show` on **one file** and reads the
+output. The modes people actually run — `gren-format` with no arguments, which
+discovers a project and overwrites its sources, and `gren-format <paths>` — walk
+source directories and *write*, and between them they had eight fixture tests.
+Nothing swept them. Its first run duly found that the no-argument project run
+did not normalize CRLF, because it reads sources through
+`Outline.findSourceFiles` rather than `Format.readSource`, whose docstring
+claimed to be "the one place every read funnels through".
+
+### What it checks
+
+Each trial builds a real project — a `gren.json` plus several `gen-random.py`
+modules under `src/` — and holds the writing modes to what `--show` already
+guarantees per file:
+
+- **A** the no-argument project run exits 0.
+- **B** every file on disk afterwards equals its own `--show` output.
+- **C** the reported "N files reformatted" equals the number that changed.
+- **D** a second run reformats 0 and rewrites nothing — project idempotency.
+- **E** the same, for `--remove-unused-imports` against its own `--show`.
+- **F** `gren-format src/` — a directory argument — lands the same bytes as the
+  no-argument run.
+
+Three more cover the edges that only exist for a mode that writes, and each is
+about work that could be *lost* rather than merely mislaid:
+
+- **G** a file that does not parse must not cost the others their formatting,
+  and must itself come back byte-identical. A write mode that gives up halfway
+  is the one failure here that destroys source.
+- **H** a CRLF file formats in place to the same bytes as `--show`, and the
+  result is a fixed point.
+- **I** a lowercase-named `.gren` and a non-`.gren` file are not source files,
+  and must be left alone.
+
+### How to run it
+
+```bash
+cd gren-format-lib/tests
+./fuzz-project.py -n 60 -j 6          # sweep
+./fuzz-project.py --trial 7 --keep    # rebuild exactly trial 7, keep the project dirs
+```
+
+Trials are seeded, so `--trial N` replays one exactly; `--keep` leaves its
+directory behind to inspect. `--max-depth` and `--comment-rate` are passed
+through to the generator.
+
+### Where the code lives
+
+- **`tests/fuzz-project.py`** — the driver: builds the project, runs the modes,
+  compares against the single-file path.
+- **`tests/gen-random.py`** — imported directly, so the modules a trial contains
+  are the same generated syntax that gate sweeps.
 
 ## Scaling (`bench-scaling.py`, and how to check a suspected blowup)
 
@@ -759,11 +802,7 @@ cd gren-format-lib/tests
 ./audit-predicates.py -v testfiles/<SuiteDir>/Foo.formatted.gren   # one file
 ```
 
-**Rebuild the `gren-format` app first** (`cd ../../gren-format && ./build.sh`) —
-the driver shells out to the built app's `--audit-predicates` flag, so it audits
-whatever formatter source was last compiled, not the current working tree. Exit
-status is non-zero if any finding is reported. This machine has 16 cores; the
-driver defaults to `-j 2`, so pass a higher `-j` for a fast whole-corpus sweep.
+Exit status is non-zero if any finding is reported.
 
 The corpus it walks is `testfiles/*/*.formatted.gren` (via `corpus.py`) — the
 same fixture set the effectful suite uses. The matrix (`matrix-syntax.py`) additionally runs
