@@ -17,8 +17,8 @@ links to every companion document.
 
 The whole library is one function, `Formatter.prettyPrint`. It takes the two
 things the [compiler-common](https://github.com/gren-lang/compiler-common)
-parser gives you for a source file — the syntax tree and the parse context —
-and hands back the formatted text:
+parser gives you for a source file — the syntax tree and the parse context (the
+comments) — and hands back the formatted text:
 
 ```gren
 prettyPrint : Src.Module -> Ctx.Context -> Result String String
@@ -64,11 +64,11 @@ comments in it.
 
 ---
 
-## Documentation
+## More Extensive Documentation
 
 **[The documentation index](https://github.com/gilramir/gren-format-lib/blob/main/docs/index.md)**
-is the place to start. It carries what used to be the rest of this README — the
-pipeline diagram, a worked example, the formatting philosophy, the comment
+is the place to start. It has a pipeline diagram, a formatted example,
+the formatting philosophy, the comment
 rules, known limitations, performance, and the `elm-format` comparison — and
 links out to the full reference documents for using the formatter and for
 working on it.
