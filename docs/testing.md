@@ -387,7 +387,7 @@ corpus — neither varies syntax itself. A bug that needs a conjunction of
 features (a specific construct, in a specific context, in a specific layout
 shape) has no fixture to trigger it. The matrix is the syntax axis: it embeds
 every expression form in every context, in up to four layout variants, and
-checks each cell — **1738 cells** at present.
+checks each cell — **2459 cells** at present.
 
 ### The layout variants
 

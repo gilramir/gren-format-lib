@@ -75,8 +75,8 @@ leading the next one), because trailing-vs-leading is precisely what the
 `CommentRole` classifier decides -- sweeping one end would test half of it. See
 COMMENT_AXIS below for the gap scoping and the separate baseline.
 
-It is a DELIBERATE GATE, not part of a default run: 1738 syntax cells become
-~38,600 comment cells, about 11 minutes at -j 12 on a 16-core box (three
+It is a DELIBERATE GATE, not part of a default run: 2459 syntax cells become
+~83,600 comment cells, roughly 25 minutes at -j 12 on a 16-core box (three
 subprocesses per cell, one of them elm-format). Slice it with --construct/--context
 plus --comment-kind / --comment-pos while working on a specific construct, and
 run it whole after touching anything in the comment pipeline. A default run
