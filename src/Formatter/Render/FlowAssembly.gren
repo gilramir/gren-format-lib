@@ -36,15 +36,15 @@ module Formatter.Render.FlowAssembly exposing
 import Formatter.Logical.BinopPrecedence exposing (binopMinPrecedence, binopPrecedence)
 import Formatter.Logical.LogicalPrintingTree exposing
     ( CommentRole(..)
-    , LPShape(..)
     , LPNode
+    , LPShape(..)
     , ListBrackets(..)
     , RecordKind(..)
     , commentGluesToPrevious
     , commentRole
-    , lpnShape
     , lpnChildren
     , lpnMaxRow
+    , lpnShape
     , roleGlues
     )
 import Formatter.Render.BinopLayout exposing (isChainBreakingOperandShape)

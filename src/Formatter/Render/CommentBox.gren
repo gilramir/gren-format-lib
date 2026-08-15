@@ -29,16 +29,16 @@ module Formatter.Render.CommentBox exposing
 
 import Formatter.Logical.LogicalPrintingTree exposing
     ( CommentRole(..)
-    , LPShape(..)
     , LPNode
+    , LPShape(..)
     , commentGluesToPrevious
     , commentLeadsLine
     , commentLeadsNext
     , commentRole
     , commentTrailsHead
-    , lpnShape
     , lpnChildren
     , lpnReplaceChildren
+    , lpnShape
     , roleIs
     , spanTrailingOwnLine
     )

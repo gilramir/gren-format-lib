@@ -65,14 +65,14 @@ surfaced before facts are built.
 
 import Formatter.Logical.LogicalPrintingTree exposing
     ( CommentRole(..)
-    , LPShape(..)
     , LPNode
+    , LPShape(..)
     , ListBrackets(..)
     , commentGluesToPrevious
     , commentLeadsNext
     , commentRole
-    , lpnShape
     , lpnChildren
+    , lpnShape
     , roleGlues
     )
 

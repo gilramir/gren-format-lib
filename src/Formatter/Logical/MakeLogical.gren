@@ -25,18 +25,18 @@ import Formatter.Logical.LPTHelpers exposing
     , plainAcross
     )
 import Formatter.Logical.LogicalPrintingTree exposing
-    ( LPShape(..)
-    , LPNode
+    ( LPNode
+    , LPShape(..)
     , ListBrackets(..)
     , RecordKind(..)
     , SyntaxType(..)
     , lastRowInSubtree
-    , lpnShape
     , lpnBracketNode
     , lpnChildren
     , lpnElasticBracketNode
     , lpnLeaf
     , lpnNode
+    , lpnShape
     )
 
 

@@ -18,11 +18,11 @@ from it and from nothing else — `makePipelineBox` was the cluster's sole calle
 
 import Formatter.Logical.LogicalPrintingTree exposing
     ( CommentRole(..)
-    , LPShape(..)
     , LPNode
+    , LPShape(..)
     , commentLeadsLine
-    , lpnShape
     , lpnChildren
+    , lpnShape
     )
 import Formatter.Render.Box as B exposing (Box(..))
 import Formatter.Render.BoxOps exposing

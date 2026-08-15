@@ -1,12 +1,11 @@
 module Formatter.Logical.LogicalPrintingTree exposing
     ( CommentRole(..)
-    , LPShape(..)
     , LPNode
+    , LPShape(..)
     , ListBrackets(..)
     , PrefixKind(..)
     , RecordKind(..)
     , SyntaxType(..)
-    , shapeIsComment
     , bracketsToString
     , commentFirstCol
     , commentGluesToPrevious
@@ -19,7 +18,6 @@ module Formatter.Logical.LogicalPrintingTree exposing
     , firstRowInSubtree
     , gluesTrailingComment
     , lastRowInSubtree
-    , lpnShape
     , lpnBracketEndElastic
     , lpnBracketEndExact
     , lpnBracketNode
@@ -36,13 +34,15 @@ module Formatter.Logical.LogicalPrintingTree exposing
     , lpnNode
     , lpnReplaceChildren
     , lpnSetCommentRole
-    , lpnWithShape
+    , lpnShape
     , lpnWithBracketStart
+    , lpnWithShape
     , prefixGlyph
     , recordKindToString
     , roleGlues
     , roleIs
     , roleToString
+    , shapeIsComment
     , spanTrailingOwnLine
     , stypeToString
     , subtreeRowRange

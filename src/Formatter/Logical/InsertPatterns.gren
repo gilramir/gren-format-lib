@@ -30,15 +30,15 @@ import Formatter.Logical.LiteralFormat exposing
     , hexLiteral
     )
 import Formatter.Logical.LogicalPrintingTree exposing
-    ( LPShape(..)
-    , LPNode
+    ( LPNode
+    , LPShape(..)
     , ListBrackets(..)
     , RecordKind(..)
-    , lpnShape
     , lpnBracketNode
     , lpnChildren
     , lpnLeaf
     , lpnNode
+    , lpnShape
     )
 import Formatter.Results exposing (resultFoldl)
 

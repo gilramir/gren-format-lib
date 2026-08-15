@@ -114,12 +114,12 @@ it comes down; guessing at one is how the report starts lying.
 -}
 
 import Formatter.Logical.LogicalPrintingTree exposing
-    ( LPShape(..)
-    , LPNode
+    ( LPNode
+    , LPShape(..)
     , SyntaxType(..)
     , bracketsToString
-    , lpnShape
     , lpnChildren
+    , lpnShape
     , roleToString
     , stypeToString
     )

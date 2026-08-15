@@ -67,11 +67,11 @@ vacuous by construction, and shrinking it to that was the goal.
 -}
 
 import Formatter.Logical.LogicalPrintingTree exposing
-    ( LPShape(..)
-    , LPNode
-    , lpnShape
+    ( LPNode
+    , LPShape(..)
     , lpnChildren
     , lpnFirstPos
+    , lpnShape
     , stypeToString
     )
 import Formatter.Render.Box as B exposing (Box)

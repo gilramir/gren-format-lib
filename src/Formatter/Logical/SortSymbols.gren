@@ -40,19 +40,19 @@ import String
 
 import Formatter.Logical.LogicalPrintingTree exposing
     ( CommentRole(..)
-    , LPShape(..)
     , LPNode
+    , LPShape(..)
     , ListBrackets(..)
     , SyntaxType(..)
     , commentFirstCol
     , commentRole
-    , lpnShape
     , lpnBracketEndElastic
     , lpnChildren
     , lpnFirstPos
     , lpnLastPos
     , lpnReplaceChildren
     , lpnSetCommentRole
+    , lpnShape
     , lpnWithShape
     )
 

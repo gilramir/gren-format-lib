@@ -123,8 +123,8 @@ import Compiler.SourcePosition exposing (Located, Position, at)
 
 import Formatter.Logical.LogicalPrintingTree exposing
     ( CommentRole(..)
-    , LPShape(..)
     , LPNode
+    , LPShape(..)
     , ListBrackets(..)
     , RecordKind(..)
     , SyntaxType(..)
@@ -134,7 +134,6 @@ import Formatter.Logical.LogicalPrintingTree exposing
     , firstRowInSubtree
     , gluesTrailingComment
     , lastRowInSubtree
-    , lpnShape
     , lpnBracketEndElastic
     , lpnBracketEndExact
     , lpnBracketStart
@@ -147,6 +146,7 @@ import Formatter.Logical.LogicalPrintingTree exposing
     , lpnNode
     , lpnReplaceChildren
     , lpnSetCommentRole
+    , lpnShape
     , spanTrailingOwnLine
     , subtreeRowRange
     )

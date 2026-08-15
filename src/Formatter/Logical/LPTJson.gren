@@ -14,12 +14,12 @@ import Json.Encode as Json
 
 import Compiler.SourcePosition exposing (Located, Position)
 import Formatter.Logical.LogicalPrintingTree exposing
-    ( LPShape(..)
-    , LPNode
+    ( LPNode
+    , LPShape(..)
     , ListBrackets
     , bracketsToString
-    , lpnShape
     , lpnChildren
+    , lpnShape
     , prefixGlyph
     , recordKindToString
     , roleToString

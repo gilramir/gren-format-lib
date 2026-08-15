@@ -21,15 +21,15 @@ used to rewrite the text on the deepest leaf of a subtree.
 import Compiler.SourcePosition exposing (Located, Position)
 
 import Formatter.Logical.LogicalPrintingTree exposing
-    ( LPShape(..)
-    , LPNode
+    ( LPNode
+    , LPShape(..)
     , ListBrackets(..)
     , RecordKind(..)
-    , lpnShape
     , lpnBracketNode
     , lpnChildren
     , lpnLeaf
     , lpnNode
+    , lpnShape
     , lpnWithBracketStart
     )
 

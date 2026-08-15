@@ -33,18 +33,18 @@ module Formatter.Render.NodeClassify exposing
 
 import Formatter.Logical.LogicalPrintingTree exposing
     ( CommentRole(..)
-    , LPShape(..)
     , LPNode
+    , LPShape(..)
     , ListBrackets(..)
     , RecordKind(..)
-    , shapeIsComment
     , commentRole
     , firstRowInSubtree
-    , lpnShape
     , lpnBracketStart
     , lpnChildren
     , lpnHasComment
     , lpnMaxRow
+    , lpnShape
+    , shapeIsComment
     )
 import Formatter.Render.Box as B
 

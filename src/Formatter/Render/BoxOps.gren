@@ -20,10 +20,10 @@ module Formatter.Render.BoxOps exposing
 -}
 
 import Formatter.Logical.LogicalPrintingTree exposing
-    ( LPShape(..)
-    , LPNode
-    , lpnShape
+    ( LPNode
+    , LPShape(..)
     , lpnFirstPos
+    , lpnShape
     )
 import Formatter.Render.Box as B exposing (Box(..))
 

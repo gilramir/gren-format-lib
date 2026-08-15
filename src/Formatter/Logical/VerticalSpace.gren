@@ -14,16 +14,16 @@ before a comment sitting between two `when` cases.
 
 import Array.Builder as Builder
 import Formatter.Logical.LogicalPrintingTree exposing
-    ( LPShape(..)
-    , LPNode
+    ( LPNode
+    , LPShape(..)
     , SyntaxType(..)
     , commentFirstCol
-    , lpnShape
     , lpnChildren
     , lpnFirstPos
     , lpnLeaf
     , lpnNode
     , lpnReplaceChildren
+    , lpnShape
     )
 
 

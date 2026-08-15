@@ -12,11 +12,11 @@ module Formatter.Render.BinopLayout exposing
 import Formatter.Logical.BinopPrecedence exposing (binopPrecedence)
 import Formatter.Logical.LogicalPrintingTree exposing
     ( CommentRole(..)
-    , LPShape(..)
     , LPNode
+    , LPShape(..)
     , commentRole
-    , lpnShape
     , lpnChildren
+    , lpnShape
     )
 import Formatter.Render.Box as B exposing (Box(..))
 import Formatter.Render.NodeClassify exposing

@@ -14,8 +14,8 @@ signatures, and comments — each laid out to match elm-format.
 import Formatter.Logical.BinopPrecedence exposing (binopMinPrecedence, binopPrecedence)
 import Formatter.Logical.LogicalPrintingTree exposing
     ( CommentRole(..)
-    , LPShape(..)
     , LPNode
+    , LPShape(..)
     , ListBrackets(..)
     , RecordKind(..)
     , SyntaxType(..)
@@ -23,12 +23,12 @@ import Formatter.Logical.LogicalPrintingTree exposing
     , commentLeadsLine
     , commentRole
     , firstRowInSubtree
-    , lpnShape
     , lpnChildren
     , lpnLastBracketEnd
     , lpnLastPos
     , lpnMaxRow
     , lpnReplaceChildren
+    , lpnShape
     , prefixGlyph
     , spanTrailingOwnLine
     )

@@ -28,18 +28,18 @@ import Formatter.Logical.LPTHelpers exposing
     )
 import Formatter.Logical.LiteralFormat exposing (charLiteralString, escapeMultilineContent, escapeStringContent, hexLiteral)
 import Formatter.Logical.LogicalPrintingTree exposing
-    ( LPShape(..)
-    , LPNode
+    ( LPNode
+    , LPShape(..)
     , ListBrackets(..)
     , PrefixKind(..)
     , RecordKind(..)
-    , lpnShape
     , lpnBracketNode
     , lpnChildren
     , lpnLastBracketEnd
     , lpnLastPos
     , lpnLeaf
     , lpnNode
+    , lpnShape
     , lpnWithBracketStart
     )
 import Formatter.Results exposing (resultFoldl)
