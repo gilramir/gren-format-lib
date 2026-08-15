@@ -1316,8 +1316,8 @@ argument in full, with the numbers, is
 ## Where the rules run out
 
 A few placements are genuinely undecidable from what the parser hands over, and
-it is better to know which they are than to be surprised by them. Each is written
-up with a worked example in **[Known limitations](knownLimitations.md)**.
+it is better to know which they are than to be surprised by them. Each is
+describe, along with an example, in **[Known limitations](knownLimitations.md)**.
 
 **A comment after the last `let` binding ends up below the `in`.**
 

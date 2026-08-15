@@ -34,7 +34,7 @@ mangled; the failure is reported instead. This is the flow:
 ![Formatter pipeline](diagrams/formatter-pipeline.png)
 
 For the full step-by-step tour of that pipeline — what a Logical Printing
-Tree is, how a render plan is built from it, and a worked example at each
+Tree is, how a render plan is built from it, and a real example at each
 stage — see **[How the formatter works](howItWorks.md)**.
 
 ---
@@ -342,7 +342,7 @@ Everything above is the short version. The full documents are in this same
 
 - **[How the formatter works](howItWorks.md)** — a conceptual,
   step-by-step tour of the pipeline (parse → Logical Printing Tree → render
-  plan → text), with a worked example at each step. Start here.
+  plan → text), with a real example at each step. Start here.
 - **[Adding new Gren syntax to the formatter](addingSyntax.md)** — the
   orientation guide for teaching the formatter about a new AST node,
   declaration kind, or expression form.

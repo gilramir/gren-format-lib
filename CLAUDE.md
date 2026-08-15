@@ -137,7 +137,7 @@ Three things to hold onto:
   `README.md`, so it is deliberately short and links here). Every link in the
   README must be an absolute URL for the same reason.
 - [`docs/formatterRules.md`](docs/formatterRules.md) — what every rule does, with
-  worked examples. Read first when reasoning about behaviour.
+  examples. Read first when reasoning about behaviour.
 - [`docs/commentHandling.md`](docs/commentHandling.md) — comments, for the
   reader: what the parser hands over, the decide-once model, and the normative
   C1–C7 rules. [`docs/commentAlgorithm.md`](docs/commentAlgorithm.md) is the same

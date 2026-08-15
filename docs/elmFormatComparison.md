@@ -91,7 +91,7 @@ made a deliberately different choice from elm-format. Each finding records the
 decision and why.
 
 **Every entry has a fixture**, in `tests/testfiles/Divergence/`, built from that
-entry's own worked example: the `.dirty.gren` is what the entry says you wrote
+entry's own example: the `.dirty.gren` is what the entry says you wrote
 and the `.formatted.gren` is what it says gren-format produces. The mapping is
 1:1 in both directions and `tests/check-divergence-index.py` fails the test run
 if it stops being — an entry with no fixture, or a fixture with no entry.
@@ -1069,7 +1069,7 @@ if it stops being — an entry with no fixture, or a fixture with no entry.
     them apart is how wide the whitespace gaps are, and reading that would break
     the property that formatting is insensitive to the spacing you used
     (`x  =  1` and `x = 1` must format alike). So gren-format picks one side for
-    all of them and documents it; every case is listed with a worked example in
+    all of them and documents it; every case is listed with an example in
     [When the formatter can't tell what you meant](formatterRules.md#when-the-formatter-cant-tell-what-you-meant).
 
     The side it picks is the **later** one — the comment lands after the

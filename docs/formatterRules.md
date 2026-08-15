@@ -2528,7 +2528,7 @@ when sel is
 
 `in` is the most visible of these, because it decides whether a comment written
 after the last `let` binding renders above or below the `in` — see
-[divergence #20](elmFormatComparison.md#divergence-20) for the worked example.
+[divergence #20](elmFormatComparison.md#divergence-20) for more examples.
 
 A comment around an import's `as` always lands **before** it:
 

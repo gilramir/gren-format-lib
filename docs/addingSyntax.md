@@ -788,7 +788,7 @@ teaching, but shaped exactly like real work you'd do. Imagine Gren grows an
   top-level declaration, so `VerticalSpace` never sees it.
 
 The checklist below generalizes each of those steps into the general case; use
-the worked example above to see what each step concretely produces, then come
+the example above to see what each step concretely produces, then come
 back to the checklist itself as the reference for your next addition. Go in
 this order.
 
@@ -1171,7 +1171,7 @@ comment-bearing fixture so the fuzzers exercise the reconstruction.
 ## Where to read more
 
 - `docs/formatterRules.md` — authoritative, example-by-example description of
-  every rule (`README.md` has the short version plus a worked example).
+  every rule (`README.md` has the short version plus an example).
 - `Logical/LogicalPrintingTree.gren` — the module doc's categorised box table,
   then every box's own doc comment and the caching invariants.
 - `Logical/Comments.gren` module doc — the comment-attachment algorithm and its

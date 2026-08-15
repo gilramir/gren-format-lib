@@ -56,7 +56,7 @@ document has the model behind it.
   - [8.4 Every local rule reads at most one neighbour](#84-every-local-rule-reads-at-most-one-neighbour)
   - [8.5 Where one neighbour is *not* enough](#85-where-one-neighbour-is-not-enough--and-why-that-is-still-bounded)
   - [8.6 The fixed point, restated for runs](#86-the-fixed-point-restated-for-runs)
-- [9. A worked example](#9-a-worked-example)
+- [9. An example](#9-an-example)
 - [10. Coverage: what each gate actually varies](#10-coverage-what-each-gate-actually-varies)
 - [11. The functions to be careful about](#11-the-functions-to-be-careful-about)
 - [12. Debugging a comment bug](#12-debugging-a-comment-bug)
@@ -1782,7 +1782,7 @@ cannot have.
 
 ---
 
-## 9. A worked example
+## 9. An example
 
 Input:
 
@@ -2117,7 +2117,7 @@ Four hard-won habits:
 ## 13. Where the rules genuinely run out
 
 Three places cannot be decided well, because the information is not there. All
-three are documented with worked examples in
+three are documented with examples in
 **[Known limitations](knownLimitations.md)**:
 
 - **A comment after the last `let` binding** goes below the `in`. `in` has no
