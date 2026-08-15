@@ -25,13 +25,13 @@ import Formatter.Logical.LPTHelpers exposing
     , plainAcross
     )
 import Formatter.Logical.LogicalPrintingTree exposing
-    ( LPBox(..)
+    ( LPShape(..)
     , LPNode
     , ListBrackets(..)
     , RecordKind(..)
     , SyntaxType(..)
     , lastRowInSubtree
-    , lpnBox
+    , lpnShape
     , lpnBracketNode
     , lpnChildren
     , lpnElasticBracketNode
@@ -53,7 +53,7 @@ call, O(N)) once, after every declaration has been appended. Declarations
 are added in declaration-kind order (values, aliases, unions, ports,
 infix) rather than source order; the final `sortOriginalRows` pass
 restores source order using the row ranges recorded on each
-`OriginalRows` box.
+`OriginalRows` shape.
 -}
 lptFromAst : Src.Module -> Result String LPNode
 lptFromAst modAst =
@@ -83,7 +83,7 @@ sortOriginalRows root =
         sorted =
             Array.sortWith
                 (\a b ->
-                    when { a = lpnBox a, b = lpnBox b } is
+                    when { a = lpnShape a, b = lpnShape b } is
                         { a = OriginalRows { last = alast }, b = OriginalRows { first = bfirst } } ->
                             compare alast bfirst
 
@@ -92,7 +92,7 @@ sortOriginalRows root =
                 )
                 (lpnChildren root)
     in
-    lpnNode (lpnBox root) sorted
+    lpnNode (lpnShape root) sorted
 
 
 {-| Build an `OriginalRows` node spanning `firstRow` through the largest
@@ -205,7 +205,7 @@ processModuleLine modAst root =
 
                         -- Either shape of author-written vertical list: names on
                         -- separate rows, or a single name dropped below the
-                        -- header. Both decide the box AND the derived `)` row,
+                        -- header. Both decide the shape AND the derived `)` row,
                         -- which have to agree or a pinned comment escapes.
                         --
                         -- "Below the header" is measured against the header's
@@ -235,18 +235,18 @@ processModuleLine modAst root =
                             exposedSpansRows exposed
                                 || exposedStartsBelowHeader headerLastRow exposed
 
-                        listBox =
-                            exposingListBox vertical
+                        listShape =
+                            exposingListShape vertical
                     in
                     when moduleExposingClose vertical exposed is
                         Just closePos ->
                             -- Elastic, not exact: the `)` is derived from the
                             -- items, so it has to move down as comments are
                             -- pinned above it. See `lpnElasticBracketNode`.
-                            lpnElasticBracketNode listBox closePos itemNodes
+                            lpnElasticBracketNode listShape closePos itemNodes
 
                         Nothing ->
-                            lpnNode listBox itemNodes
+                            lpnNode listShape itemNodes
 
         -- The module line's range starts at row 1, the keyword's row (see
         -- keywordNode), NOT the module name's row. A long header comment can push the name
@@ -262,7 +262,7 @@ processModuleLine modAst root =
         -- range to cover it (see `moduleLineClosesBelow`).
         origRow =
             if moduleLineClosesBelow modAst then
-                when lpnBox base is
+                when lpnShape base is
                     OriginalRows r ->
                         lpnNode (OriginalRows { r | last = r.last + 1 }) (lpnChildren base)
 
@@ -494,7 +494,7 @@ exposedStartsBelowHeader headerRow exposed =
 (its last item sits on a later row than its first). This is the author-layout
 decision for an exposing list — the same role `itemsSpanRows` plays for array
 and record literals. It is computed once here and carried downstream by the
-box choice (`exposingListBox`), so `Formatter.Render` reads the box rather than
+shape choice (`exposingListShape`), so `Formatter.Render` reads the shape rather than
 re-deriving the row span from the items. -}
 exposedSpansRows : Array Src.Exposed -> Bool
 exposedSpansRows exposed =
@@ -511,13 +511,13 @@ exposedSpansRows exposed =
             False
 
 
-{-| The bracket box for an `exposing ( … )` list: `AlwaysVertical` when the
+{-| The bracket shape for an `exposing ( … )` list: `AlwaysVertical` when the
 author wrote it across rows (so it stays one-item-per-line), otherwise
 `AllAcrossOrAllVertical` (inline unless it carries a comment). Mirrors the
-literal-vs-multiline box choice array/record literals make from
+literal-vs-multiline shape choice array/record literals make from
 `itemsSpanRows`. -}
-exposingListBox : Bool -> LPBox
-exposingListBox spansRows =
+exposingListShape : Bool -> LPShape
+exposingListShape spansRows =
     if spansRows then
         AlwaysVertical ListParen
 
@@ -609,7 +609,7 @@ processImport locImport root =
                             -- name, and the `)` line reads as a one-row gap
                             -- before the next declaration — inserting a blank
                             -- line non-idempotently.
-                            , lpnBracketNode (exposingListBox (exposedSpansRows xlist)) locImport.end (Array.map processExposed xlist)
+                            , lpnBracketNode (exposingListShape (exposedSpansRows xlist)) locImport.end (Array.map processExposed xlist)
                             ]
 
                         Nothing ->

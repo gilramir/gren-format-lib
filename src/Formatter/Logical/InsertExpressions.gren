@@ -28,12 +28,12 @@ import Formatter.Logical.LPTHelpers exposing
     )
 import Formatter.Logical.LiteralFormat exposing (charLiteralString, escapeMultilineContent, escapeStringContent, hexLiteral)
 import Formatter.Logical.LogicalPrintingTree exposing
-    ( LPBox(..)
+    ( LPShape(..)
     , LPNode
     , ListBrackets(..)
     , PrefixKind(..)
     , RecordKind(..)
-    , lpnBox
+    , lpnShape
     , lpnBracketNode
     , lpnChildren
     , lpnLastBracketEnd
@@ -303,7 +303,7 @@ accessBaseIsBracketed locExpr =
 {-| Recursively convert a Gren expression into LPT nodes.
 
 Returns the top-level nodes for this expression. The caller is responsible
-for wrapping the result in a container box (e.g. `AcrossOrVertical`,
+for wrapping the result in a container shape (e.g. `AcrossOrVertical`,
 `IndentedBlock`) appropriate to its surrounding context.
 -}
 insertExpression : Src.Expression -> Result String (Array LPNode)
@@ -380,7 +380,7 @@ insertExpression locExpr =
             -- items across rows stay one-per-line, items on one row stay inline —
             -- unless an ITEM breaks on its own however it was written
             -- (`itemsAlwaysBreak`), which renders the list vertical regardless, so
-            -- the vertical box is picked up front.
+            -- the vertical shape is picked up front.
             -- `locExpr.end` is the `]`; the empty form is an `EmptyBracketed` `[]`.
             -- Built via `lpnBracketNode` (not plain `lpnLeaf`) so its close is
             -- marked EXACT: `loc.end` genuinely IS the `]`'s position (unlike a
@@ -555,7 +555,7 @@ insertUpdate locExpr { record = record, newValues = newValues } =
                         -- the author's layout chooses inline `{ b | a = 1, c = 2 }`
                         -- vs the expanded `{ b` / `| a = 1` / `, c = 2` / `}` form.
                         -- Single-field updates are no longer special-cased into a
-                        -- compact box — a single field whose value spans rows now
+                        -- compact shape — a single field whose value spans rows now
                         -- expands the same way a multi-field update does, matching
                         -- elm-format (previously it stayed `{ b | f = <block> }`).
                         -- Close position (`locExpr.end`) so the descent guards
@@ -628,7 +628,7 @@ insertBinops locExpr { operator = locStringOp } =
                                             flatBodyNodes =
                                                 when Array.popFirst bodyNodes is
                                                     Just { first = onlyNode, rest = [] } ->
-                                                        when lpnBox onlyNode is
+                                                        when lpnShape onlyNode is
                                                             AcrossOrVertical _ ->
                                                                 lpnChildren onlyNode
 
@@ -756,7 +756,7 @@ insertLambda locExpr { patterns = patterns, body = body } =
                     -- the +4 arg-flow continuation.
                     --
                     -- A block body also always drops to its own line under
-                    -- `->` (see `bodyBox`), matching elm-format — `let`/`if`/
+                    -- `->` (see `bodyShape`), matching elm-format — `let`/`if`/
                     -- `when` never stay glued to the `->`.
                     isBlockBody =
                         when body.value is
@@ -815,7 +815,7 @@ insertLambda locExpr { patterns = patterns, body = body } =
                     -- A `let`/`if`/`when` body always drops to its own line
                     -- under `->` (elm-format never glues the keyword to the
                     -- arrow); other bodies follow the author's row placement.
-                    bodyBox =
+                    bodyShape =
                         if lambdaBodyForceVertical || isBlockBody || bodyAlwaysBreaksVertical then
                             IndentedBlock
 
@@ -825,11 +825,11 @@ insertLambda locExpr { patterns = patterns, body = body } =
                     bodyBlockResult =
                         if isBlockBody then
                             insertExpression body
-                                |> Result.map (\bodyNodes -> lpnNode bodyBox bodyNodes)
+                                |> Result.map (\bodyNodes -> lpnNode bodyShape bodyNodes)
 
                         else
                             insertExpressionAsItem body
-                                |> Result.map (\bodyNode -> lpnNode bodyBox [ bodyNode ])
+                                |> Result.map (\bodyNode -> lpnNode bodyShape [ bodyNode ])
                 in
                 bodyBlockResult
                     |> Result.map
@@ -1184,8 +1184,8 @@ The two kinds in use differ only in how the renderer joins the body:
 
 Errors when the expression produces no nodes.
 -}
-insertExpressionAsBlock : LPBox -> Src.Expression -> Result String LPNode
-insertExpressionAsBlock box locExpr =
+insertExpressionAsBlock : LPShape -> Src.Expression -> Result String LPNode
+insertExpressionAsBlock shape locExpr =
     insertExpression locExpr
         |> Result.andThen
             (\nodes ->
@@ -1193,7 +1193,7 @@ insertExpressionAsBlock box locExpr =
                     Err "insertExpressionAsBlock: empty expression"
 
                 else
-                    Ok (lpnNode box nodes)
+                    Ok (lpnNode shape nodes)
             )
 
 
@@ -1211,7 +1211,7 @@ recordFieldsSpanRows fields =
 {-| Folder for fields of a record literal or record update.
 
 Produces one container node per field, holding the field name, an `=`
-separator, and the converted value nodes. The container box depends on the
+separator, and the converted value nodes. The container shape depends on the
 value's shape, because a field value that is itself a block-bodied construct
 would otherwise double-indent: the field's own flow adds +4, and the value's
 body block adds a second +4.
@@ -1233,7 +1233,7 @@ body block adds a second +4.
 
 This applies to both record literals and record updates: the literal renders a
 field through the list-item rendering path, and the update through
-`makeRecordUpdateBox`; both dispatch on the container box so the
+`makeRecordUpdateBox`; both dispatch on the container shape so the
 `IndentedBlock`/`BodyBlock` intent is honored either way.
 -}
 folderInsertRecordField : Src.RecordField -> Array LPNode -> Result String (Array LPNode)
@@ -1305,7 +1305,7 @@ it.
 Such a value must be wrapped in a `BodyBlock` so it drops below `field =`. Left
 on the plain flow path it stays a bare flow item, which `factsFor` classifies as
 a `LeafItem` — "single-line, glue it" — and the soft-glue arm has no way to place
-a multi-line box, so the format fails outright.
+a multi-line shape, so the format fails outright.
 
 Deliberately NOT keyed on the author's rows. A `when` used to be wrapped only
 when the author had already put it on a later row, on the reasoning that a flat
@@ -1336,7 +1336,7 @@ valueAlwaysBreaks expr =
 written across rows. Row-stable: an author-broken body stays broken on reparse. -}
 lambdaValueNodesAreBroken : Array LPNode -> Bool
 lambdaValueNodesAreBroken valueNodes =
-    when Maybe.map lpnBox (Array.last valueNodes) is
+    when Maybe.map lpnShape (Array.last valueNodes) is
         Just IndentedBlock ->
             True
 
@@ -1405,14 +1405,14 @@ exprAlwaysBreaks expr =
 
 The container then renders one item per line with its `]`/`}` on a row of its
 own, exactly as if the author had written it across rows, so
-`authoredBracketList` is given the vertical box up front. Committing on the
-first format is the point: the alternative is emitting the inline box, letting
+`authoredBracketList` is given the vertical shape up front. Committing on the
+first format is the point: the alternative is emitting the inline shape, letting
 the content break it open anyway, and having the reparse — which now sees items
-spanning rows — pick the vertical box on the second pass. Nothing about the
-BYTES differs between the two boxes here (verified: a flat-authored list with a
+spanning rows — pick the vertical shape on the second pass. Nothing about the
+BYTES differs between the two shapes here (verified: a flat-authored list with a
 breaking item renders identically to the same list authored across rows), but
-the box is what `Comments.bracketRendersMultiline` reads to decide whether a
-trailing `{- -}` has a closing-bracket row to glue onto — so with the inline box
+the shape is what `Comments.bracketRendersMultiline` reads to decide whether a
+trailing `{- -}` has a closing-bracket row to glue onto — so with the inline shape
 stored, the comment took a row BELOW the declaration's last token, which the
 reparse re-homes to column 1. -}
 itemsAlwaysBreak : Array Src.Expression -> Bool

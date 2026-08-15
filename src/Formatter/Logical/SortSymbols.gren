@@ -40,20 +40,20 @@ import String
 
 import Formatter.Logical.LogicalPrintingTree exposing
     ( CommentRole(..)
-    , LPBox(..)
+    , LPShape(..)
     , LPNode
     , ListBrackets(..)
     , SyntaxType(..)
     , commentFirstCol
     , commentRole
-    , lpnBox
+    , lpnShape
     , lpnBracketEndElastic
     , lpnChildren
     , lpnFirstPos
     , lpnLastPos
     , lpnReplaceChildren
     , lpnSetCommentRole
-    , lpnWithBox
+    , lpnWithShape
     )
 
 
@@ -85,10 +85,10 @@ type alias Cluster =
 
 
 {-| True for a comment leaf inserted directly into a container's children
-(siblings of exposed items, inside an exposing-list box). -}
+(siblings of exposed items, inside an exposing-list shape). -}
 isSweepComment : LPNode -> Bool
 isSweepComment node =
-    when lpnBox node is
+    when lpnShape node is
         SingleLineComment _ ->
             True
 
@@ -101,7 +101,7 @@ isSweepComment node =
 
 isExposedItem : LPNode -> Bool
 isExposedItem node =
-    when lpnBox node is
+    when lpnShape node is
         UnbreakableText _ ->
             True
 
@@ -111,7 +111,7 @@ isExposedItem node =
 
 isImportNode : LPNode -> Bool
 isImportNode node =
-    when lpnBox node is
+    when lpnShape node is
         OriginalRows { stype = StImport } ->
             True
 
@@ -123,12 +123,12 @@ isImportNode node =
 shared position cache (`lpnFirstPos` / `lpnLastPos`). -1 for a
 position-less node (shouldn't occur for anything this module clusters).
 
-This cache is IMMUTABLE -- `lpnWithBox` (used by `shiftOrigRows` below)
-deliberately leaves it untouched when swapping a node's box. That makes
+This cache is IMMUTABLE -- `lpnWithShape` (used by `shiftOrigRows` below)
+deliberately leaves it untouched when swapping a node's shape. That makes
 `rowSpan` correct for reading a node's TRUE original position, but wrong
 for reading an `OriginalRows` node's row *after* `sortImportGroups` has
 shifted it -- use `origRowsFirst` / `origRowsLast` for that instead (they
-read the mutated box field directly). Mixing the two up once already
+read the mutated shape field directly). Mixing the two up once already
 produced silently-wrong deltas that compounded across every import group
 member after the first. -}
 rowSpan : LPNode -> { first : Int, last : Int }
@@ -138,14 +138,14 @@ rowSpan node =
     }
 
 
-{-| An `OriginalRows` node's row range as currently stored on its own box
+{-| An `OriginalRows` node's row range as currently stored on its own shape
 -- i.e. `rowSpan`'s cache-based answer BEFORE any shift, but reflects a
-shift applied via `shiftOrigRows` / `lpnWithBox` afterward. Root-level
-imports are always this box kind, so this is the correct accessor once
+shift applied via `shiftOrigRows` / `lpnWithShape` afterward. Root-level
+imports are always this shape kind, so this is the correct accessor once
 `sortImportGroups` has started reflowing a sorted group. -}
 origRowsFirst : LPNode -> Int
 origRowsFirst node =
-    when lpnBox node is
+    when lpnShape node is
         OriginalRows r ->
             r.first
 
@@ -155,7 +155,7 @@ origRowsFirst node =
 
 origRowsLast : LPNode -> Int
 origRowsLast node =
-    when lpnBox node is
+    when lpnShape node is
         OriginalRows r ->
             r.last
 
@@ -165,9 +165,9 @@ origRowsLast node =
 
 shiftOrigRows : Int -> LPNode -> LPNode
 shiftOrigRows delta node =
-    when lpnBox node is
+    when lpnShape node is
         OriginalRows r ->
-            lpnWithBox (OriginalRows { r | first = r.first + delta, last = r.last + delta }) node
+            lpnWithShape (OriginalRows { r | first = r.first + delta, last = r.last + delta }) node
 
         _ ->
             node
@@ -344,7 +344,7 @@ line or block comment. (A doc comment is deliberately not one of these -- it
 belongs to the declaration it documents, and never travels with an import.) -}
 isCommentOrigRows : LPNode -> Bool
 isCommentOrigRows node =
-    when lpnBox node is
+    when lpnShape node is
         OriginalRows { stype = StSingleLineComment } ->
             True
 
@@ -629,11 +629,11 @@ importModuleName : LPNode -> String
 importModuleName item =
     let
         nonComments =
-            Array.keepIf (\n -> commentRole (lpnBox n) == Nothing) (lpnChildren item)
+            Array.keepIf (\n -> commentRole (lpnShape n) == Nothing) (lpnChildren item)
     in
     when Array.get 1 nonComments is
         Just n ->
-            when lpnBox n is
+            when lpnShape n is
                 UnbreakableText loc ->
                     loc.value
 
@@ -702,19 +702,19 @@ flattenUnits units =
 -- EXPOSING LISTS
 
 
-{-| Reorder every exposing-list box in the tree (the module header's and
+{-| Reorder every exposing-list shape in the tree (the module header's and
 every import's) by walking the whole tree once. `ListParen` is used
-exclusively for exposing-list boxes -- no other construct builds
+exclusively for exposing-list shapes -- no other construct builds
 `AllAcrossOrAllVertical ListParen` / `AlwaysVertical ListParen` -- so
-matching on the box alone finds every exposing list unambiguously, with no
-new box variant needed. -}
+matching on the shape alone finds every exposing list unambiguously, with no
+new shape variant needed. -}
 sortExposingLists : LPNode -> LPNode
 sortExposingLists node =
     let
         recursed =
             lpnReplaceChildren node (hoistBracketLeadingComments (Array.map sortExposingLists (lpnChildren node)))
     in
-    when lpnBox recursed is
+    when lpnShape recursed is
         AllAcrossOrAllVertical ListParen ->
             -- Flat *and* elastic = the module header's own one-row list, the
             -- only exposing list whose closing `)` is neither recorded by the
@@ -775,7 +775,7 @@ hoistBracketLeadingComments children =
         intoEffectHeaderTail =
             Array.any
                 (\n ->
-                    when lpnBox n is
+                    when lpnShape n is
                         SynthesizedText v ->
                             v == "exposing"
 
@@ -786,7 +786,7 @@ hoistBracketLeadingComments children =
     in
     Array.foldl
         (\child acc ->
-            when lpnBox child is
+            when lpnShape child is
                 AllAcrossOrAllVertical ListParen ->
                     Builder.append (hoistOne intoEffectHeaderTail child) acc
 
@@ -838,7 +838,7 @@ A plain module's `exposing` is positioned, so `headerTailGlue` is False there an
 why the caller only asks for an effect header. -}
 hoistedTailRole : LPNode -> LPNode
 hoistedTailRole node =
-    when lpnBox node is
+    when lpnShape node is
         SingleLineComment _ ->
             lpnSetCommentRole TrailsPrevious node
 
@@ -1026,7 +1026,7 @@ compareExposedText a b =
 
 exposedSortKey : LPNode -> { rank : Int, baseName : String }
 exposedSortKey node =
-    when lpnBox node is
+    when lpnShape node is
         UnbreakableText loc ->
             classifyExposedText loc.value
 

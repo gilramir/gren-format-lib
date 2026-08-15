@@ -356,7 +356,7 @@ preceding the whole container at the wrapper above it. `[ {- c -} 1, 2 ]`,
 `{ {- c -} a = 1 }`, `[ -- c` ⏎ `  1`, and the nested `[ { {- c -} a = 1 } ]`
 are now byte-identical to elm-format. Fixture: `ContainerOpenerComment`.
 
-A5: `RecordUpdate` was excluded from `boxKeepsTrailingCommentOutside`. It did
+A5: `RecordUpdate` was excluded from `shapeKeepsTrailingCommentOutside`. It did
 not need to be — its close is EXACT, so `commentInsideTrailingBracket` already
 keeps a genuinely-inside comment inside. `fn a { r | a = 1 } {- c -} last` no
 longer reads as a note on the last field.

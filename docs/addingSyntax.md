@@ -112,7 +112,7 @@ Formatter/Logical/
   LPTHelpers.gren                 LPT construction helpers: mkText*/plainAcross/
                                     syntheticParens/authoredBracketList/…
   BinopPrecedence.gren            operator fixity table for binop-chain layout
-  LogicalPrintingTree.gren        LPBox / LPNode types, smart constructors, bounds cache
+  LogicalPrintingTree.gren        LPShape / LPNode types, smart constructors, bounds cache
   LPTJson.gren                    --lpt debug serialiser
   Comments.gren                   re-attach parse-context comments by position
   SortSymbols.gren                sort exposing lists + import groups
@@ -120,7 +120,7 @@ Formatter/Logical/
 Formatter/Render.gren           LPT → String: maps RootBox children through
                                   MakeRenderBox, joins with "\n"
 Formatter/Render/
-  MakeRenderBox.gren               LPT → Box, one builder per LPBox constructor
+  MakeRenderBox.gren               LPT → Box, one builder per LPShape constructor
   Box.gren                         elm-format's Box IR (Line/Box, Tab tab-stops, prefix) + renderer
   FlowPolicy.gren                  shared inline/break decision layer for flow sequences
   ElmStructure.gren                faithful port of elm-format's ElmStructure.hs layout combinators
@@ -160,7 +160,7 @@ whole `<|` cluster — the largest module under `Render/` — needed exactly tho
 three functions and had exactly one caller.
 
 `LogicalPrintingTree.gren` is the hub every module depends on; its module doc
-opens with a categorised map of all 28 `LPBox` constructors. `BinopPrecedence`
+opens with a categorised map of all 28 `LPShape` constructors. `BinopPrecedence`
 is imported by both `InsertExpressions` (to decide the author's break tier) and
 `MakeRenderBox` (to render it) — they must agree, so the fixity table has one
 home.
@@ -504,7 +504,7 @@ Every node caches `firstPos`, `lastPos`, `minRow`, `maxRow`, `lastBracketEnd`,
 `bracketEndExact`, `bracketEndElastic`, `bracketStart`, and `hasComment`.
 `Formatter.Logical.Comments` uses these to answer "what's the first/last
 positioned token here?" and "where does the rightmost bracket close?" in O(1).
-`lpnNode` fills them from `selfBoxBounds box` merged with the children;
+`lpnNode` fills them from `selfShapeBounds box` merged with the children;
 `lpnBracketNode` additionally records an *exact* closing-bracket position, and
 `lpnElasticBracketNode` records a *derived* one that grows as comments are placed
 inside it (see step 3 below).
@@ -713,13 +713,13 @@ layers above `Box.gren` just materialize that decision:
   literals: single line when every child is a `SingleLine` and the caller
   didn't force multiline, otherwise the fully-expanded vertical form.
 - **`Formatter.Render.MakeRenderBox`** (`makePrettyLineBox`) — the actual
-  dispatch: one builder per `LPBox` constructor, calling into `FlowPolicy` and
+  dispatch: one builder per `LPShape` constructor, calling into `FlowPolicy` and
   `ElmStructure` and assembling the result with `Box.gren`'s primitives.
 
-When you add a new box type, add an arm to `makePrettyLineBox`'s `when box is
+When you add a new shape type, add an arm to `makePrettyLineBox`'s `when shape is
 …` dispatch returning `Result String Box`. Reuse an existing box shape if one
-fits — a new `LPBox` constructor requires new arms in *every* `when box is` in
-`MakeRenderBox` plus `selfBoxBounds` in `LogicalPrintingTree`.
+fits — a new `LPShape` constructor requires new arms in *every* `when shape is` in
+`MakeRenderBox` plus `selfShapeBounds` in `LogicalPrintingTree`.
 
 ### Why Box, and not a pretty-printer
 
@@ -881,7 +881,7 @@ support for a new construct", for the required reading. The short version:
   must attach at the enclosing flow level (rendered at the outer indent) on
   *every* format, or its indentation oscillates across reformats. This is already
   enforced generically by position-only tests (`nextSiblingIsBoundary`,
-  `boxKeepsTrailingCommentOutside`); do **not** add a construct-specific comment
+  `shapeKeepsTrailingCommentOutside`); do **not** add a construct-specific comment
   branch — if `fuzz-idempotency.py` flags a trailing-comment gap, fix it in those
   shared places.
 - **Never read a source row or position in `Render/*` to decide comment
@@ -895,14 +895,14 @@ support for a new construct", for the required reading. The short version:
   function there with a reason.
 
 ### 6. Render it — `MakeRenderBox.makePrettyLineBox`
-Add an arm to the `makePrettyLineBox` `when box is …` dispatch (and to the
+Add an arm to the `makePrettyLineBox` `when shape is …` dispatch (and to the
 parallel flow dispatches in `FlowPolicy`/`ElmStructure` if your box appears
 there) returning a `Result String Box` built from `Formatter.Render.Box`
 primitives. Reuse an existing box shape if one fits — prefer
 `AcrossOrVertical`, `AllAcrossOrAllVertical`, `IndentedBlock` etc. over
-inventing a new box. Only add a new `LPBox` constructor when no existing shape
+inventing a new shape. Only add a new `LPShape` constructor when no existing shape
 expresses the breaking behaviour you need; a new constructor means new arms in
-*every* `when box is` in `MakeRenderBox` plus `selfBoxBounds` in
+*every* `when shape is` in `MakeRenderBox` plus `selfShapeBounds` in
 `LogicalPrintingTree`.
 
 ### 7. Blank lines (top-level only)
@@ -1149,7 +1149,7 @@ bookkeeping in this codebase is forced by that one fact:
 - **Render-time comment logic re-derives elm's typed slots from geometry.**
   `renderFlowItem`'s `SingleLineComment`/`BlockComment` handling,
   `peelTrailingCommentNodes`, `peelLeadingInlineComments`,
-  `boxKeepsTrailingCommentOutside`, and the `prevElided` zero-width-token
+  `shapeKeepsTrailingCommentOutside`, and the `prevElided` zero-width-token
   hazard all exist to recover
   "trailing-same-line vs standalone-own-line vs end-of-line" — the distinctions
   elm-format reads directly off `BeforeTerm` / `AfterTerm` / `C0Eol`. Our version
@@ -1182,6 +1182,6 @@ comment-bearing fixture so the fuzzers exercise the reconstruction.
 - `Formatter.Render.Box` (`Render/Box.gren`) — the `Line`/`Box` types and
   renderer; small enough to read in full.
 - `Formatter.Render.MakeRenderBox` (`Render/MakeRenderBox.gren`) — the
-  per-`LPBox` dispatch that builds `Box` values.
+  per-`LPShape` dispatch that builds `Box` values.
 - `Formatter.Render.FlowPolicy` — the flow-item join decision layer
   (`decide`); read its module doc before adding a new kind of flow item.

@@ -1,12 +1,12 @@
 module Formatter.Logical.LogicalPrintingTree exposing
     ( CommentRole(..)
-    , LPBox(..)
+    , LPShape(..)
     , LPNode
     , ListBrackets(..)
     , PrefixKind(..)
     , RecordKind(..)
     , SyntaxType(..)
-    , boxIsComment
+    , shapeIsComment
     , bracketsToString
     , commentFirstCol
     , commentGluesToPrevious
@@ -19,7 +19,7 @@ module Formatter.Logical.LogicalPrintingTree exposing
     , firstRowInSubtree
     , gluesTrailingComment
     , lastRowInSubtree
-    , lpnBox
+    , lpnShape
     , lpnBracketEndElastic
     , lpnBracketEndExact
     , lpnBracketNode
@@ -36,7 +36,7 @@ module Formatter.Logical.LogicalPrintingTree exposing
     , lpnNode
     , lpnReplaceChildren
     , lpnSetCommentRole
-    , lpnWithBox
+    , lpnWithShape
     , lpnWithBracketStart
     , prefixGlyph
     , recordKindToString
@@ -55,11 +55,14 @@ modules populate it, `Comments`/`SortSymbols`/`VerticalSpace` transform it, and
 
 Two core types:
 
-  - `LPNode` — a tree node: a `box` (the rendering shape) plus `children`, with
-    seven cached subtree-bounds fields the position-dependent passes read in
-    O(1). ALL construction goes through `lpnNode`/`lpnLeaf` so the cache stays
-    correct (see the type's own doc).
-  - `LPBox` — the shape of one node. The constructors, by category:
+  - `LPNode` — a tree node: a `shape` (what layout this node takes) plus
+    `children`, with seven cached subtree-bounds fields the position-dependent
+    passes read in O(1). ALL construction goes through `lpnNode`/`lpnLeaf` so
+    the cache stays correct (see the type's own doc).
+  - `LPShape` — the shape of one node: which layout it takes, or which leaf
+    it is. NOT to be confused with `Formatter.Render.Box`, the render stage's
+    geometry IR — an `LPShape` says *what kind of thing this is*, a `Box` says
+    where its characters land. The constructors, by category:
 
 **Structural** (only ever direct children of the root)
   - `RootBox` — the tree root.
@@ -236,7 +239,7 @@ never re-derives it from source rows.
     before the next sibling. The default for line-leading comments.
   - `LeadsNext` — the comment belongs to the sibling that FOLLOWS it, across a
     separator the parser did not record, and renders glued to the front of that
-    sibling's box (`| {- c -} a = 1`, `, {- c -} 2`). This is rule **C2** — "where
+    sibling's shape (`| {- c -} a = 1`, `, {- c -} 2`). This is rule **C2** — "where
     the separator has no source position, the comment lands after it" —
     made a stored fact, so no renderer has to re-derive which side of an invisible
     `|` or `,` the author wrote it on. Whether it rides the sibling's first row or
@@ -246,7 +249,7 @@ never re-derives it from source rows.
     container that is not one of its children, so `TrailsPrevious` has nothing to
     attach to. Today that is exactly a record update's base name
     (`{ rec -- c` ⏎ `| a = 1 }`), whose fields are the children and whose base is
-    carried on the `RecordUpdate` box itself. A `--` before a *line-leading*
+    carried on the `RecordUpdate` shape itself. A `--` before a *line-leading*
     separator keeps the row it was written on (see `Comments.gren`'s record-update
     arm), and on the base's row that row belongs to the head.
   - `RidesInline` — an inline `{- -}` that rides in the middle of a flat flow
@@ -308,7 +311,7 @@ roleToString role =
             "Standalone"
 
 
-type LPBox
+type LPShape
     -- This is needed just to use as a root node
     = RootBox
     -- Sets the original source row for the children
@@ -607,7 +610,7 @@ gluesTrailingComment kind =
 
 {-| The logical-printing-tree node.
 
-The record carries a `box` (the rendering shape) and `children`, plus
+The record carries a `shape` (what layout this node takes) and `children`, plus
 seven fields that *cache* subtree bounds so position-dependent passes
 can answer "what's the first/last positioned token in this subtree?",
 "what's its row range?", and "where does the last bracketed sublist
@@ -636,7 +639,7 @@ bracket character.
 -}
 type LPNode
     = LPNode
-        { box : LPBox
+        { shape : LPShape
         , children : Array LPNode
         , firstPos : Maybe Position
         , lastPos : Maybe Position
@@ -650,11 +653,11 @@ type LPNode
         }
 
 
-lpnBox : LPNode -> LPBox
-lpnBox node =
+lpnShape : LPNode -> LPShape
+lpnShape node =
     when node is
         LPNode r ->
-            r.box
+            r.shape
 
 
 lpnChildren : LPNode -> Array LPNode
@@ -664,11 +667,11 @@ lpnChildren node =
             r.children
 
 
-{-| The `CommentRole` of a comment box, or `Nothing` for non-comment boxes
+{-| The `CommentRole` of a comment shape, or `Nothing` for non-comment shapes
 (and `DocComment`, which carries no role). -}
-commentRole : LPBox -> Maybe CommentRole
-commentRole box =
-    when box is
+commentRole : LPShape -> Maybe CommentRole
+commentRole shape =
+    when shape is
         SingleLineComment c ->
             Just c.role
 
@@ -684,7 +687,7 @@ commentRole box =
 The one spelling for the question "what role does this comment have". It used to
 have several: four named one-liners in the render layer
 (`commentTrailsHead`/`commentLeadsLine`/`commentLeadsNext`/`commentRidesInline`)
-and the open-coded `commentRole (lpnBox n) == Just X` in four more modules, none
+and the open-coded `commentRole (lpnShape n) == Just X` in four more modules, none
 of which could see the others. This is the vocabulary every comment bugfix
 navigates by, so it lives here, beside the type.
 
@@ -693,7 +696,7 @@ CLASS of roles, and `commentRendersOwnLine` is `roleIs LeadsLine` **and** a
 shape test -- a role saying own-line is not the same as rendering on one. -}
 roleIs : CommentRole -> LPNode -> Bool
 roleIs role node =
-    commentRole (lpnBox node) == Just role
+    commentRole (lpnShape node) == Just role
 
 
 commentTrailsHead : LPNode -> Bool
@@ -754,7 +757,7 @@ roleGlues role =
 `False` for any non-comment node. -}
 commentGluesToPrevious : LPNode -> Bool
 commentGluesToPrevious node =
-    when commentRole (lpnBox node) is
+    when commentRole (lpnShape node) is
         Just role ->
             roleGlues role
 
@@ -830,7 +833,7 @@ spanTrailingOwnLine toNode items =
         extended remaining acc best =
             when Array.popLast remaining is
                 Just { last, initial } ->
-                    when commentRole (lpnBox (toNode last)) is
+                    when commentRole (lpnShape (toNode last)) is
                         Just _ ->
                             let
                                 grown =
@@ -880,7 +883,7 @@ question with its own fixtures. -}
 commentRendersOwnLine : LPNode -> Bool
 commentRendersOwnLine node =
     commentLeadsLine node
-        && (when lpnBox node is
+        && (when lpnShape node is
                 BlockComment c ->
                     String.contains "\n" c.loc.value
 
@@ -895,19 +898,19 @@ lpnSetCommentRole : CommentRole -> LPNode -> LPNode
 lpnSetCommentRole role node =
     when node is
         LPNode r ->
-            when r.box is
+            when r.shape is
                 SingleLineComment c ->
-                    LPNode { r | box = SingleLineComment { c | role = role } }
+                    LPNode { r | shape = SingleLineComment { c | role = role } }
 
                 BlockComment c ->
-                    LPNode { r | box = BlockComment { c | role = role } }
+                    LPNode { r | shape = BlockComment { c | role = role } }
 
                 _ ->
                     node
 
 
 {-| First positioned token of the subtree in depth-first pre-order.
-For `PrefixGlue`/`RecordUpdate`/`EmptyBracketed`, the box's own
+For `PrefixGlue`/`RecordUpdate`/`EmptyBracketed`, the shape's own
 position takes precedence over the children (the prefix `\`, the
 base name, or the opening bracket itself is the earliest position).
 -}
@@ -921,7 +924,7 @@ lpnFirstPos node =
 {-| Column of the leftmost token on the earliest row among a node's direct
 children — the visible indentation of a comment node's first line.
 
-Reads each comment leaf's source position straight from its box, because
+Reads each comment leaf's source position straight from its shape, because
 `lpnFirstPos` returns the *first child in array order* (not the minimum
 position) and can miss the leading comment when a same-row trailing comment
 shares the row (`{-| doc -} {- x -}` reports the trailing block's column
@@ -936,7 +939,7 @@ commentFirstCol : LPNode -> Int
 commentFirstCol node =
     let
         leafStart child =
-            when lpnBox child is
+            when lpnShape child is
                 SingleLineComment { loc } ->
                     Just loc.start
 
@@ -974,7 +977,7 @@ commentFirstCol node =
 
 
 {-| Last positioned token of the subtree in depth-first post-order.
-Children take precedence over the box's own position when both
+Children take precedence over the shape's own position when both
 contribute, mirroring the existing `lpnLastPos` semantics.
 -}
 lpnLastPos : LPNode -> Maybe Position
@@ -1059,10 +1062,10 @@ lpnHasComment node =
             r.hasComment
 
 
-{-| Whether a box is itself a comment (rather than merely containing one). -}
-boxIsComment : LPBox -> Bool
-boxIsComment box =
-    when box is
+{-| Whether a shape is itself a comment (rather than merely containing one). -}
+shapeIsComment : LPShape -> Bool
+shapeIsComment shape =
+    when shape is
         SingleLineComment _ ->
             True
 
@@ -1127,43 +1130,43 @@ lpnWithBracketStart openStart node =
                 }
 
 
-{-| Replace a node's box, keeping its children and cached POSITION bounds
+{-| Replace a node's shape, keeping its children and cached POSITION bounds
 as-is. Used to tag an already-built node with context its constructor didn't
 have — e.g. shifting an `OriginalRows` node's cached row range after a reorder.
 
 Leaving the position cache untouched is deliberate and load-bearing:
 `SortSymbols.rowSpan` documents that it reads a node's TRUE original position
-while `origRowsFirst`/`origRowsLast` read the shifted box, and conflating the
+while `origRowsFirst`/`origRowsLast` read the shifted shape, and conflating the
 two once produced silently-wrong deltas across a whole import group.
 
 `hasComment` is recomputed, because it is not a fact about where the node
-started: swap a comment box for a non-comment one and the old answer is simply
+started: swap a comment shape for a non-comment one and the old answer is simply
 wrong. Today's only caller swaps `OriginalRows` for `OriginalRows` and cannot
 trip it — which is exactly why it would be found late. -}
-lpnWithBox : LPBox -> LPNode -> LPNode
-lpnWithBox newBox node =
+lpnWithShape : LPShape -> LPNode -> LPNode
+lpnWithShape newShape node =
     when node is
         LPNode r ->
             LPNode
                 { r
-                    | box = newBox
-                    , hasComment = boxIsComment newBox || Array.any lpnHasComment r.children
+                    | shape = newShape
+                    , hasComment = shapeIsComment newShape || Array.any lpnHasComment r.children
                 }
 
 
-lpnLeaf : LPBox -> LPNode
-lpnLeaf box =
-    lpnNode box []
+lpnLeaf : LPShape -> LPNode
+lpnLeaf shape =
+    lpnNode shape []
 
 
 {-| Smart constructor that fills in the cached subtree bounds. The
-self-bounds come from `selfBoxBounds`; children's cached bounds are
+self-bounds come from `selfShapeBounds`; children's cached bounds are
 combined via min/max. -}
-lpnNode : LPBox -> Array LPNode -> LPNode
-lpnNode box children =
+lpnNode : LPShape -> Array LPNode -> LPNode
+lpnNode shape children =
     let
         self =
-            selfBoxBounds box
+            selfShapeBounds shape
 
         -- Combine children's cached bounds with self's contribution.
         merged =
@@ -1229,7 +1232,7 @@ lpnNode box children =
                 , lastPos = self.lastPos
                 , minRow = self.minRow
                 , maxRow = self.maxRow
-                , hasComment = boxIsComment box
+                , hasComment = shapeIsComment shape
                 , lastBracketEnd = Nothing
                 , bracketEndExact = False
                 , bracketEndElastic = False
@@ -1238,7 +1241,7 @@ lpnNode box children =
 
         -- If THIS node is itself a bracket-list, its own bracket-end
         -- is the lastPos of the contents (= the last positioned
-        -- child's end, since bracket-list boxes don't contribute a
+        -- child's end, since bracket-list shapes don't contribute a
         -- selfLastPos). This shadows any deeper bracket's end —
         -- a comment near the outer closing bracket should be
         -- classified relative to THIS bracket, not an inner one.
@@ -1268,7 +1271,7 @@ lpnNode box children =
                 merged.bracketEndElastic
     in
     LPNode
-        { box = box
+        { shape = shape
         , children = children
         , firstPos = merged.firstPos
         , lastPos = merged.lastPos
@@ -1289,9 +1292,9 @@ to cover the closing bracket and records `closeEnd` as the node's
 `lastBracketEnd`, so a comment written on its own line between the last item
 and the closing bracket is classified as *inside* the container (and stays
 there) instead of falling past the last item's range and escaping. -}
-lpnBracketNode : LPBox -> Position -> Array LPNode -> LPNode
-lpnBracketNode box closeEnd children =
-    when lpnNode box children is
+lpnBracketNode : LPShape -> Position -> Array LPNode -> LPNode
+lpnBracketNode shape closeEnd children =
+    when lpnNode shape children is
         LPNode r ->
             LPNode
                 { r
@@ -1322,9 +1325,9 @@ An elastic close says two things:
 
 `bracketEndExact` stays False: the recorded position is still not the parser's.
 -}
-lpnElasticBracketNode : LPBox -> Position -> Array LPNode -> LPNode
-lpnElasticBracketNode box closeEnd children =
-    when lpnNode box children is
+lpnElasticBracketNode : LPShape -> Position -> Array LPNode -> LPNode
+lpnElasticBracketNode shape closeEnd children =
+    when lpnNode shape children is
         LPNode r ->
             LPNode
                 { r
@@ -1366,12 +1369,12 @@ its last item — which is wrong when the new children are the *same* code plus
 an inserted comment. Comment insertion (`Formatter.Logical.Comments`) uses this so a
 container's closing-bracket extent survives every rebuild, keeping subsequent
 line-leading comments before the bracket inside it. For nodes with no such
-extension it is identical to `lpnNode (lpnBox old) newChildren`. -}
+extension it is identical to `lpnNode (lpnShape old) newChildren`. -}
 lpnReplaceChildren : LPNode -> Array LPNode -> LPNode
 lpnReplaceChildren old newChildren =
     let
         rebuilt =
-            lpnNode (lpnBox old) newChildren
+            lpnNode (lpnShape old) newChildren
     in
     let
         -- The opening-bracket position (like the closing one) lives on the
@@ -1400,7 +1403,7 @@ lpnReplaceChildren old newChildren =
                         }
 
 
-{-| The bounds a box contributes by itself (independent of children).
+{-| The bounds a shape contributes by itself (independent of children).
 
 Inclusion rules match the legacy recursive helpers:
 
@@ -1419,11 +1422,11 @@ Inclusion rules match the legacy recursive helpers:
     invisible to `subtreeRowRange`, but including it is safe since
     it equals the row of the immediately-following child).
   - `isBracket`: `AllAcrossOrAllVertical`, `AlwaysVertical`, or
-    `EmptyBracketed` (the bracket-list boxes the descent guard cares
+    `EmptyBracketed` (the bracket-list shapes the descent guard cares
     about).
 -}
-selfBoxBounds :
-    LPBox
+selfShapeBounds :
+    LPShape
     ->
         { firstPos : Maybe Position
         , lastPos : Maybe Position
@@ -1431,7 +1434,7 @@ selfBoxBounds :
         , maxRow : Int
         , isBracket : Bool
         }
-selfBoxBounds box =
+selfShapeBounds shape =
     let
         empty =
             { firstPos = Nothing
@@ -1441,7 +1444,7 @@ selfBoxBounds box =
             , isBracket = False
             }
     in
-    when box is
+    when shape is
         UnbreakableText loc ->
             { empty
                 | firstPos = Just loc.start

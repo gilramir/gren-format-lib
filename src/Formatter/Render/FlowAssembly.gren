@@ -36,18 +36,18 @@ module Formatter.Render.FlowAssembly exposing
 import Formatter.Logical.BinopPrecedence exposing (binopMinPrecedence, binopPrecedence)
 import Formatter.Logical.LogicalPrintingTree exposing
     ( CommentRole(..)
-    , LPBox(..)
+    , LPShape(..)
     , LPNode
     , ListBrackets(..)
     , RecordKind(..)
     , commentGluesToPrevious
     , commentRole
-    , lpnBox
+    , lpnShape
     , lpnChildren
     , lpnMaxRow
     , roleGlues
     )
-import Formatter.Render.BinopLayout exposing (isChainBreakingOperandBox)
+import Formatter.Render.BinopLayout exposing (isChainBreakingOperandShape)
 import Formatter.Render.Box as B exposing (Box(..))
 import Formatter.Render.BoxOps exposing
     ( applyIndent
@@ -143,7 +143,7 @@ bracketPunc bracket =
             -- to the flow. It renders TIGHT (`(a, b)`), like the coupled path
             -- and like elm-format: `makeLiteralBox` passes
             -- `innerSpaces = bracket /= ListParen`, and `ListParen` is
-            -- exclusively an exposing list (`MakeLogical.exposingListBox` is its
+            -- exclusively an exposing list (`MakeLogical.exposingListShape` is its
             -- only builder), so no record or array is affected.
             --
             -- This was padded (`( a, b )`) until 2026-07-25. Tightening it was
@@ -669,7 +669,7 @@ parenInnerIsAlignCarrying : Array LPNode -> Bool
 parenInnerIsAlignCarrying children =
     when Array.popFirst children is
         Just { first, rest } ->
-            when lpnBox first is
+            when lpnShape first is
                 BlockComment _ ->
                     parenInnerIsAlignCarrying rest
 
@@ -710,7 +710,7 @@ softGlueAlignment node =
 
 softGlueAlignmentByType : LPNode -> SoftGlueAlignment
 softGlueAlignmentByType node =
-    when lpnBox node is
+    when lpnShape node is
         AlwaysVertical _ ->
             AlignCarrying
 
@@ -747,7 +747,7 @@ softGlueAlignmentByType node =
 -- pads continuation lines to stay aligned under the opening bracket.
 isSoftGlueLiteral : FlowItem -> Bool
 isSoftGlueLiteral item =
-    when lpnBox item.node is
+    when lpnShape item.node is
         AlwaysVertical _ ->
             True
 
@@ -1047,7 +1047,7 @@ pairLeadingComments items =
 -- the same name until 2026-08-02.
 commentDoesNotGlue : FlowItem -> Bool
 commentDoesNotGlue item =
-    when commentRole (lpnBox item.node) is
+    when commentRole (lpnShape item.node) is
         Just role ->
             not (roleGlues role)
 
@@ -1060,7 +1060,7 @@ commentDoesNotGlue item =
 -- the running line.
 softBlockDropsBox : FlowItem -> Bool
 softBlockDropsBox item =
-    when lpnBox item.node is
+    when lpnShape item.node is
         SoftIndentedBlock ->
             not (isSingleLine item.box)
 
@@ -1083,7 +1083,7 @@ softBlockChildForcesVerticalBox item =
             else
                 let
                     isBracketLiteral =
-                        when lpnBox only is
+                        when lpnShape only is
                             AlwaysVertical _ ->
                                 True
 
@@ -1136,7 +1136,7 @@ operandItemsRenderMultiline items =
     when Array.popFirst (Array.keepIf (\it -> not (nodeIsComment it.node)) items) is
         Just { first = it, rest = rest } ->
             Array.isEmpty rest
-                && isChainBreakingOperandBox (lpnBox it.node)
+                && isChainBreakingOperandShape (lpnShape it.node)
                 && not (isSingleLine it.box)
 
         Nothing ->
@@ -1336,7 +1336,7 @@ splitStepTriggerItems stepItems =
 
 itemIsMultilineParenBlock : FlowItem -> Bool
 itemIsMultilineParenBlock item =
-    when lpnBox item.node is
+    when lpnShape item.node is
         ParenBlock _ ->
             not (isSingleLine item.box)
 
@@ -1346,7 +1346,7 @@ itemIsMultilineParenBlock item =
 
 itemIsMultilineBracketContainer : FlowItem -> Bool
 itemIsMultilineBracketContainer item =
-    (when lpnBox item.node is
+    (when lpnShape item.node is
         AllAcrossOrAllVertical _ ->
             True
 
@@ -1430,7 +1430,7 @@ parenLambdaMultilineItems : Array FlowItem -> Bool
 parenLambdaMultilineItems items =
     when Array.get 1 items is
         Just second ->
-            when lpnBox second.node is
+            when lpnShape second.node is
                 IndentedBlock ->
                     True
 

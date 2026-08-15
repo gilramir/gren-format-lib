@@ -3,7 +3,7 @@ module Formatter.Logical.LPTJson exposing (lptToJson)
 {-| Serialise the Logical Printing Tree to JSON for debugging.
 
 Exposed via `gren format --lpt`, which prints the tree as nested objects:
-each node carries its box constructor (`type`, plus box-specific fields like
+each node carries its shape constructor (`type`, plus shape-specific fields like
 `first`/`last`/`stype` for `OriginalRows`, or the literal text for leaves)
 and a `children` array. The format is intended for human inspection of the
 intermediate representation produced by `Formatter.Logical`, not for any
@@ -16,11 +16,11 @@ import Json.Encode as Json
 
 import Compiler.SourcePosition exposing (Located, Position)
 import Formatter.Logical.LogicalPrintingTree exposing
-    ( LPBox(..)
+    ( LPShape(..)
     , LPNode
     , ListBrackets
     , bracketsToString
-    , lpnBox
+    , lpnShape
     , lpnChildren
     , prefixGlyph
     , recordKindToString
@@ -43,12 +43,12 @@ nodeToJson node =
             Json.array nodeToJson (lpnChildren node)
     in
     Json.object
-        (lpBoxFields (lpnBox node) ++ [ { key = "children", value = childrenJson } ])
+        (lpShapeFields (lpnShape node) ++ [ { key = "children", value = childrenJson } ])
 
 
-lpBoxFields : LPBox -> Array { key : String, value : Json.Value }
-lpBoxFields lpbox =
-    when lpbox is
+lpShapeFields : LPShape -> Array { key : String, value : Json.Value }
+lpShapeFields lpshape =
+    when lpshape is
         RootBox ->
             [ { key = "type", value = Json.string "RootBox" } ]
 

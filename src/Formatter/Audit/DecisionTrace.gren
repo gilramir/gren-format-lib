@@ -82,11 +82,11 @@ one is how the gate starts lying.
 -}
 
 import Formatter.Logical.LogicalPrintingTree exposing
-    ( LPBox(..)
+    ( LPShape(..)
     , LPNode
     , SyntaxType(..)
     , bracketsToString
-    , lpnBox
+    , lpnShape
     , lpnChildren
     , roleToString
     , stypeToString
@@ -322,14 +322,14 @@ nodeDecisions decl node =
         -- context its parent holds cannot be rendered alone, and saying so is
         -- better than picking a boolean.
         shape prefix =
-            when makePBox (lpnBox node) children is
+            when makePBox (lpnShape node) children is
                 Ok box ->
                     [ say (prefix ++ ".rendersOneLine") (boolName (isSingleLine box)) ]
 
                 Err _ ->
                     [ say (prefix ++ ".rendersOneLine") "notRenderable" ]
     in
-    when lpnBox node is
+    when lpnShape node is
         AcrossOrVertical r ->
             [ flag "AcrossOrVertical.forceVertical" r.forceVertical
             , flag "AcrossOrVertical.checkContentVertical" r.checkContentVertical
@@ -445,7 +445,7 @@ typeNodesOf children =
 
 isColonToken : LPNode -> Bool
 isColonToken node =
-    when lpnBox node is
+    when lpnShape node is
         UnbreakableText loc ->
             loc.value == ":"
 
@@ -458,7 +458,7 @@ isColonToken node =
 
 isEmptyLineNode : LPNode -> Bool
 isEmptyLineNode node =
-    lpnBox node == EmptyLine
+    lpnShape node == EmptyLine
 
 
 {-| A root child that is a real declaration rather than a detached comment or a
@@ -466,7 +466,7 @@ blank line. Only these are counted when numbering declarations, so a comment
 moving in or out of the root does not renumber the ones after it. -}
 isDeclarationChild : LPNode -> Bool
 isDeclarationChild node =
-    when lpnBox node is
+    when lpnShape node is
         OriginalRows r ->
             when r.stype is
                 StSingleLineComment ->
@@ -496,7 +496,7 @@ declarationName node =
 
 declStype : LPNode -> SyntaxType
 declStype node =
-    when lpnBox node is
+    when lpnShape node is
         OriginalRows r ->
             r.stype
 
@@ -506,7 +506,7 @@ declStype node =
 
 firstLiteralToken : LPNode -> Maybe String
 firstLiteralToken node =
-    when lpnBox node is
+    when lpnShape node is
         UnbreakableText loc ->
             Just loc.value
 

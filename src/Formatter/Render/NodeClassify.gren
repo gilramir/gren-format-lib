@@ -33,14 +33,14 @@ module Formatter.Render.NodeClassify exposing
 
 import Formatter.Logical.LogicalPrintingTree exposing
     ( CommentRole(..)
-    , LPBox(..)
+    , LPShape(..)
     , LPNode
     , ListBrackets(..)
     , RecordKind(..)
-    , boxIsComment
+    , shapeIsComment
     , commentRole
     , firstRowInSubtree
-    , lpnBox
+    , lpnShape
     , lpnBracketStart
     , lpnChildren
     , lpnHasComment
@@ -51,7 +51,7 @@ import Formatter.Render.Box as B
 
 nodeIsComment : LPNode -> Bool
 nodeIsComment node =
-    boxIsComment (lpnBox node)
+    shapeIsComment (lpnShape node)
 
 
 -- True when `node` or any descendant is a comment. Used to route a
@@ -85,7 +85,7 @@ walk. This one cannot follow: a multi-line `{- … -}` leaves a box whose extra
 rows are indistinguishable from any other multi-row box's.) -}
 subtreeEndsWithMultilineBlockComment : LPNode -> Bool
 subtreeEndsWithMultilineBlockComment node =
-    when lpnBox node is
+    when lpnShape node is
         BlockComment { loc } ->
             String.contains "\n" loc.value
 
@@ -119,7 +119,7 @@ does not, which is exactly why it can ride a flat line. Shared by every "does
 this comment force a break" question so they cannot drift apart. -}
 commentEndsItsLine : LPNode -> Bool
 commentEndsItsLine node =
-    when lpnBox node is
+    when lpnShape node is
         SingleLineComment _ ->
             True
 
@@ -159,7 +159,7 @@ Which comments break, from `FlowPolicy.decide` (this must track it):
 (`foo bar -- c`) breaks nothing, which is the long-standing fixed point for that
 shape and must stay one.
 
-Reads LPT box kinds only — no source rows, no rendered text — so it is
+Reads LPT shape kinds only — no source rows, no rendered text — so it is
 render-invariant safe.
 -}
 commentBreaksFlowRow : Array LPNode -> Bool
@@ -252,7 +252,7 @@ literalCommentsRideFlatLine children =
     not
         (Array.any
             (\node ->
-                when commentRole (lpnBox node) is
+                when commentRole (lpnShape node) is
                     Just RidesInline ->
                         False
 
@@ -280,7 +280,7 @@ item's row); a `LeadsNext` comment has its side already decided by the role and
 only this half left to ask. -}
 commentTextCanRide : LPNode -> Bool
 commentTextCanRide node =
-    when lpnBox node is
+    when lpnShape node is
         BlockComment { loc } ->
             not (String.contains "\n" loc.value)
 
@@ -293,7 +293,7 @@ commentTextCanRide node =
 
 isOpAndRhsNode : LPNode -> Bool
 isOpAndRhsNode node =
-    when lpnBox node is
+    when lpnShape node is
         OpAndRhs ->
             True
 
@@ -318,7 +318,7 @@ rowsSpanMultiple rows =
 
 isPipelineStepNode : LPNode -> Bool
 isPipelineStepNode node =
-    when lpnBox node is
+    when lpnShape node is
         PipelineStep ->
             True
 
@@ -337,12 +337,12 @@ its SECOND child too — its first branch — so without it this reports
 -}
 isMultilineLambdaParenBlockBox : LPNode -> Bool
 isMultilineLambdaParenBlockBox node =
-    when lpnBox node is
+    when lpnShape node is
         ParenBlock _ ->
             parenContentIsLambdaHead node
                 && (when Array.get 1 (lpnChildren node) is
                         Just secondChild ->
-                            when lpnBox secondChild is
+                            when lpnShape secondChild is
                                 IndentedBlock ->
                                     True
 
@@ -365,7 +365,7 @@ parenContentIsLambdaHead : LPNode -> Bool
 parenContentIsLambdaHead node =
     when Array.first (lpnChildren node) is
         Just headNode ->
-            when lpnBox headNode is
+            when lpnShape headNode is
                 IfCondition _ ->
                     False
 
@@ -408,7 +408,7 @@ once in `Comments.gren` and stored as a `CommentRole`, and
 `check-render-invariant.py` fails the build if anything here re-derives it. -}
 leafValue : LPNode -> Maybe String
 leafValue node =
-    when lpnBox node is
+    when lpnShape node is
         UnbreakableText locs ->
             Just locs.value
 
@@ -520,7 +520,7 @@ keep their records/arrays/patterns inline.
 -}
 isTypeRecordLiteral : LPNode -> Bool
 isTypeRecordLiteral node =
-    when lpnBox node is
+    when lpnShape node is
         AlwaysVertical (ListCurly RecordType) ->
             True
 
@@ -541,7 +541,7 @@ where `RecordUpdate` can never mean an update expression. -}
 isDroppingSignatureRecordNode : LPNode -> Bool
 isDroppingSignatureRecordNode node =
     isTypeRecordLiteral node
-        || (when lpnBox node is
+        || (when lpnShape node is
                 RecordUpdate _ ->
                     True
 
@@ -595,7 +595,7 @@ leafLineRow nodes =
 
 isEmptyLine : LPNode -> Bool
 isEmptyLine node =
-    when lpnBox node is
+    when lpnShape node is
         EmptyLine ->
             True
 
@@ -646,7 +646,7 @@ block box, so the soft-value drop rule (`dropFieldValueBoxWithBox`) never
 applies to it — callers short-circuit on this before rendering the value. -}
 valueNodeIsHardBlock : LPNode -> Bool
 valueNodeIsHardBlock valueNode =
-    when lpnBox valueNode is
+    when lpnShape valueNode is
         BodyBlock ->
             True
 
@@ -684,7 +684,7 @@ oscillates. `renderGluedLambdaField` settles it by observing the rendered box
 instead of predicting it. -}
 isGluedLambdaField : LPNode -> LPNode -> Bool
 isGluedLambdaField field valueNode =
-    when { f = lpnBox field, v = lpnBox valueNode } is
+    when { f = lpnShape field, v = lpnShape valueNode } is
         { f = IndentedBlock, v = SoftIndentedBlock } ->
             True
 

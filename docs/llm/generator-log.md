@@ -123,7 +123,7 @@ fn0 =
 
 Root cause: `Comments.gren`'s `prevLineGlueRow` and `prevBlockGlueRow` — the
 functions that decide which row a following `--`/`{- -}` comment glues onto —
-each match on `LPBox` kind, and neither had a case for `MultilineString`, so
+each match on `LPShape` kind, and neither had a case for `MultilineString`, so
 both silently fell through to their `_ -> -1` default. That made the
 classifier think a same-row trailing comment could never glue onto a multi-line
 string's close, so it always emitted `LeadsLine` — pushing the comment onto
@@ -300,7 +300,7 @@ follow it on the same line, producing unparseable output.
 
 Root cause chain (three code paths, all in the comment-role/render-role
 split from [[project_comment_arch_plan]]): (1) `Comments.gren`'s
-`boxKeepsTrailingCommentOutside` had no entry for `SoftIndentedBlock` (a
+`shapeKeepsTrailingCommentOutside` had no entry for `SoftIndentedBlock` (a
 lambda body / port payload has no bracket of its own to register, so
 `commentInsideTrailingBracket` can never rescue a genuinely-inside comment
 there) — a comment trailing the whole declaration sank past the field into
@@ -319,7 +319,7 @@ child, not RecordUpdate's) stayed invisible, and the flat-layout path glued
 `recordUpdateForcesOpen` reaches one level into an `IndentedBlock` field
 wrapper. All three were verified necessary and sufficient — reverting any one
 reintroduces the crash. **First attempt was wider and wrong**: adding
-`RecordUpdate` itself to `boxKeepsTrailingCommentOutside` (mirroring
+`RecordUpdate` itself to `shapeKeepsTrailingCommentOutside` (mirroring
 `AllAcrossOrAllVertical`) also fixed the crash, but silently changed the
 already-fixture-verified `RecordUpdateFieldTrailingComment` /
 `RecordUpdateCommentBinopValue` behavior (a comment meant to trail the last

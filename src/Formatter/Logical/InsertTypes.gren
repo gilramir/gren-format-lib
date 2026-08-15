@@ -18,11 +18,11 @@ import Formatter.Logical.LPTHelpers exposing
     , plainAcross
     )
 import Formatter.Logical.LogicalPrintingTree exposing
-    ( LPBox(..)
+    ( LPShape(..)
     , LPNode
     , ListBrackets(..)
     , RecordKind(..)
-    , lpnBox
+    , lpnShape
     , lpnBracketNode
     , lpnChildren
     , lpnLeaf
@@ -178,7 +178,7 @@ makeSignatureBranch locType =
                                 when extending is
                                     Nothing ->
                                         let
-                                            recordBox =
+                                            recordShape =
                                                 if fieldsMultiLine then
                                                     AlwaysVertical (ListCurly RecordType)
 
@@ -190,7 +190,7 @@ makeSignatureBranch locType =
                                         -- signature segment beginning with this
                                         -- record reads its true start row. See
                                         -- `lpnBracketStart`.
-                                        [ lpnBracketNode recordBox locType.end fieldNodes
+                                        [ lpnBracketNode recordShape locType.end fieldNodes
                                             |> lpnWithBracketStart locType.start
                                         ]
 

@@ -20,9 +20,9 @@ module Formatter.Render.BoxOps exposing
 -}
 
 import Formatter.Logical.LogicalPrintingTree exposing
-    ( LPBox(..)
+    ( LPShape(..)
     , LPNode
-    , lpnBox
+    , lpnShape
     , lpnFirstPos
     )
 import Formatter.Render.Box as B exposing (Box(..))
@@ -202,7 +202,7 @@ joinInline boxes =
 
 isBlockNode : LPNode -> Box -> Bool
 isBlockNode node box =
-    when lpnBox node is
+    when lpnShape node is
         BodyBlock ->
             True
 

@@ -18,10 +18,10 @@ from it and from nothing else — `makePipelineBox` was the cluster's sole calle
 
 import Formatter.Logical.LogicalPrintingTree exposing
     ( CommentRole(..)
-    , LPBox(..)
+    , LPShape(..)
     , LPNode
     , commentLeadsLine
-    , lpnBox
+    , lpnShape
     , lpnChildren
     )
 import Formatter.Render.Box as B exposing (Box(..))
@@ -190,7 +190,7 @@ makeBackwardPipelineBox renderers forceVertical children =
                 bodyLeadsWithOwnRowComment =
                     when Array.first bodyAfterGlue is
                         Just firstBodyNode ->
-                            when lpnBox firstBodyNode is
+                            when lpnShape firstBodyNode is
                                 SingleLineComment _ ->
                                     True
 
@@ -425,7 +425,7 @@ backwardSingleStep renderers forceVertical seedBox { leadGlued, glued, rest = bo
             Err "box: backward pipeline empty body"
 
         Just { last = lastNode, initial = headNodes } ->
-            when lpnBox lastNode is
+            when lpnShape lastNode is
                 IndentedBlock ->
                     -- Lambda authored across rows: seed <| \n head+4 \n body+8.
                     Result.map3

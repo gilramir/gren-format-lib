@@ -21,11 +21,11 @@ used to rewrite the text on the deepest leaf of a subtree.
 import Compiler.SourcePosition exposing (Located, Position)
 
 import Formatter.Logical.LogicalPrintingTree exposing
-    ( LPBox(..)
+    ( LPShape(..)
     , LPNode
     , ListBrackets(..)
     , RecordKind(..)
-    , lpnBox
+    , lpnShape
     , lpnBracketNode
     , lpnChildren
     , lpnLeaf
@@ -34,7 +34,7 @@ import Formatter.Logical.LogicalPrintingTree exposing
     )
 
 
-mkText : Position -> String -> LPBox
+mkText : Position -> String -> LPShape
 mkText pos text =
     let
         end =
@@ -47,7 +47,7 @@ mkText pos text =
         }
 
 
-mkTextFromLocString : Located String -> LPBox
+mkTextFromLocString : Located String -> LPShape
 mkTextFromLocString ltext =
     UnbreakableText ltext
 
@@ -86,7 +86,7 @@ Where the real column is not recoverable — an effect module's
 no honest anchor, and the site falls back to a position-less `SynthesizedText`
 instead of inventing one.
 -}
-mkZeroWidthText : Position -> String -> LPBox
+mkZeroWidthText : Position -> String -> LPShape
 mkZeroWidthText pos text =
     UnbreakableText
         { start = pos
@@ -136,13 +136,13 @@ itemsSpanRows items =
 
 
 {-| Build a bracketed container node (record/array literal, record/array
-pattern) from its already-built item nodes, applying the author-layout box
+pattern) from its already-built item nodes, applying the author-layout shape
 choice in one place.
 
   - No items → `empty`, the caller's own empty-bracket leaf (`EmptyBracketed`
     for literals, a `{}`/`[]` text leaf for patterns). The empty form genuinely
     differs per caller, so it stays a parameter.
-  - Some items → an `lpnBracketNode` whose box is `AlwaysVertical` when the
+  - Some items → an `lpnBracketNode` whose shape is `AlwaysVertical` when the
     author wrote the items across rows (`spans`, from `itemsSpanRows`), else
     `AllAcrossOrAllVertical` (inline unless it carries a comment). `closeEnd` is
     the closing bracket's source position, registered so a line-leading comment
@@ -151,8 +151,8 @@ choice in one place.
     inside too (`[ {- c -} 1, 2 ]`), rather than being hoisted above the whole
     container.
 
-This is the single home of the one-line-vs-multi-row box choice the bracketed
-containers share. (Record *updates* use the `RecordUpdate` box, so they build
+This is the single home of the one-line-vs-multi-row shape choice the bracketed
+containers share. (Record *updates* use the `RecordUpdate` shape, so they build
 their nodes directly rather than through here.)
 -}
 authoredBracketList : ListBrackets -> Bool -> Position -> Position -> LPNode -> Array LPNode -> LPNode
@@ -180,9 +180,9 @@ authoredBracketList brackets spans openStart closeEnd empty itemNodes =
 
 -- Walk to the deepest last UnbreakableText leaf and apply f to it.
 -- Returns Nothing if no UnbreakableText leaf is found.
-tryMapLastLeaf : (Located String -> LPBox) -> LPNode -> Maybe LPNode
+tryMapLastLeaf : (Located String -> LPShape) -> LPNode -> Maybe LPNode
 tryMapLastLeaf f node =
-    when lpnBox node is
+    when lpnShape node is
         UnbreakableText loc ->
             Just (lpnNode (f loc) (lpnChildren node))
 
@@ -197,7 +197,7 @@ tryMapLastLeaf f node =
                             Nothing
 
                         Just updated ->
-                            Just (lpnNode (lpnBox node) (Array.pushLast updated initialChildren))
+                            Just (lpnNode (lpnShape node) (Array.pushLast updated initialChildren))
 
 
 {-| Wrap a non-empty list of nodes in the parens the AUTHOR wrote, whose closing

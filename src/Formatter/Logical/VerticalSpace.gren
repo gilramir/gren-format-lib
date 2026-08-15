@@ -14,11 +14,11 @@ before a comment sitting between two `when` cases.
 
 import Array.Builder as Builder
 import Formatter.Logical.LogicalPrintingTree exposing
-    ( LPBox(..)
+    ( LPShape(..)
     , LPNode
     , SyntaxType(..)
     , commentFirstCol
-    , lpnBox
+    , lpnShape
     , lpnChildren
     , lpnFirstPos
     , lpnLeaf
@@ -77,7 +77,7 @@ classifyChildren nodes =
         { out } =
             Array.foldl
                 (\node acc ->
-                    when lpnBox node is
+                    when lpnShape node is
                         OriginalRows r ->
                             let
                                 comment =
@@ -609,14 +609,14 @@ insertEmptyLines root =
                 { newChildren = Builder.empty (Array.length zipped), prev = Nothing }
                 zipped
     in
-    lpnNode (lpnBox root) (Builder.toArray newChildren)
+    lpnNode (lpnShape root) (Builder.toArray newChildren)
 
 
 -- True if a node is the `let` keyword leaf that opens a let-expression
 -- (built by `InsertExpressions` as `mkText … "let"`, an UnbreakableText).
 isLetKeyword : LPNode -> Bool
 isLetKeyword node =
-    when lpnBox node is
+    when lpnShape node is
         UnbreakableText loc ->
             loc.value == "let"
 
@@ -628,7 +628,7 @@ isLetKeyword node =
 -- bindings. (The same marker `Formatter.Logical.Comments` uses to find the boundary.)
 isInKeyword : LPNode -> Bool
 isInKeyword node =
-    when lpnBox node is
+    when lpnShape node is
         SynthesizedText value ->
             value == "in"
 
@@ -642,7 +642,7 @@ isInKeyword node =
 -- comment joins its declaration's unit at the top level.
 isLetCommentNode : LPNode -> Bool
 isLetCommentNode node =
-    when lpnBox node is
+    when lpnShape node is
         SingleLineComment _ ->
             True
 
@@ -659,18 +659,18 @@ isLetCommentNode node =
 -- instead, so the `:` is unambiguous here.
 isLetSignature : LPNode -> Bool
 isLetSignature node =
-    when lpnBox node is
+    when lpnShape node is
         IndentedBlock ->
             -- Comments preceding a signature are redirected inside the
             -- IndentedBlock by Comments.insertAmongChildren, so the AcrossOrVertical
             -- may not be the first child. Check all children.
             Array.any
                 (\inner ->
-                    when lpnBox inner is
+                    when lpnShape inner is
                         AcrossOrVertical _ ->
                             Array.any
                                 (\c ->
-                                    when lpnBox c is
+                                    when lpnShape c is
                                         SynthesizedText v ->
                                             v == ":"
 
@@ -762,11 +762,11 @@ mapFlows transform node =
 -- expression starts with `if`, so it is excluded.
 isElseIfCondition : LPNode -> Bool
 isElseIfCondition node =
-    when lpnBox node is
+    when lpnShape node is
         IfCondition _ ->
             when Array.popFirst (lpnChildren node) is
                 Just { first = firstChild } ->
-                    when lpnBox firstChild is
+                    when lpnShape firstChild is
                         UnbreakableText loc ->
                             loc.value == "else if"
 
@@ -783,7 +783,7 @@ isElseIfCondition node =
 -- True if a node is the synthesized `else` leaf of an if-expression.
 isElseKeyword : LPNode -> Bool
 isElseKeyword node =
-    when lpnBox node is
+    when lpnShape node is
         SynthesizedText value ->
             value == "else"
 
@@ -820,7 +820,7 @@ insertBlanksInIfFlow children =
 -- True if a node is a `when … is` branch.
 isWhenBranchNode : LPNode -> Bool
 isWhenBranchNode node =
-    when lpnBox node is
+    when lpnShape node is
         WhenBranch ->
             True
 
@@ -835,7 +835,7 @@ isWhenBranchNode node =
 -- glued to it), so it is left alone.
 isLineComment : LPNode -> Bool
 isLineComment node =
-    when lpnBox node is
+    when lpnShape node is
         SingleLineComment _ ->
             True
 
@@ -877,7 +877,7 @@ insertBlanksInWhenFlow children =
 
 -- Compose the three per-flow blank-line rules into one transform, applied to
 -- every node's children during a single tree walk (via `mapFlows`). Each rule
--- triggers on its own distinct box shape (let/in keyword leaves, an
+-- triggers on its own distinct shape shape (let/in keyword leaves, an
 -- `IfCondition`'s `else`/`else if` leaf, a `WhenBranch` node), so at most one
 -- of the three ever matches a given children array — running them in
 -- sequence here is equivalent to three independent full-tree passes, in one

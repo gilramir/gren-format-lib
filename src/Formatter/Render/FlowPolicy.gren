@@ -26,7 +26,7 @@ the renderer's own state machine.
 
 The invariant: **the renderer has no layout policy of its own.** Any decision
 input richer than what `ItemFacts` carries (real source rows where this layer
-tracks `-1`, rendered-box shape where it dispatches on box type) is not extra
+tracks `-1`, rendered-box shape where it dispatches on LPT shape) is not extra
 precision — it is a divergence generator. A gluing flow's join decisions go
 through `decide`; the renderer keeps only *materialization* (turning a
 `Placement` into a `Box`).
@@ -65,13 +65,13 @@ surfaced before facts are built.
 
 import Formatter.Logical.LogicalPrintingTree exposing
     ( CommentRole(..)
-    , LPBox(..)
+    , LPShape(..)
     , LPNode
     , ListBrackets(..)
     , commentGluesToPrevious
     , commentLeadsNext
     , commentRole
-    , lpnBox
+    , lpnShape
     , lpnChildren
     , roleGlues
     )

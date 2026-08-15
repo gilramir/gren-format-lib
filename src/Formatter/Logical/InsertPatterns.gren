@@ -8,7 +8,7 @@ module Formatter.Logical.InsertPatterns exposing
 Pattern → LPT conversion. Patterns appear in let-destructures, lambda
 arguments, when-branch matches, and function arguments. They have their
 own grammar, distinct from expressions but using the same LPT layout
-boxes.
+shapes.
 
 -}
 
@@ -30,11 +30,11 @@ import Formatter.Logical.LiteralFormat exposing
     , hexLiteral
     )
 import Formatter.Logical.LogicalPrintingTree exposing
-    ( LPBox(..)
+    ( LPShape(..)
     , LPNode
     , ListBrackets(..)
     , RecordKind(..)
-    , lpnBox
+    , lpnShape
     , lpnBracketNode
     , lpnChildren
     , lpnLeaf

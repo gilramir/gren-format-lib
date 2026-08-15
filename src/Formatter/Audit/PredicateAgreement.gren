@@ -32,7 +32,7 @@ module was written when `NodeClassify` carried a whole mirror layer --
 predicting verticality from source rows. All of them are gone: verticality is now
 decided by rendering the child and asking `isSingleLine` / `B.allSingles`, which
 cannot disagree with the renderer because it *is* the renderer. What remains is
-`isMultilineLambdaParenBlockBox`, a structural query over box kinds rather than a
+`isMultilineLambdaParenBlockBox`, a structural query over shape kinds rather than a
 shape prediction from rows -- so that half of the audit is close to vacuous by
 construction, and shrinking it to that was the goal, not an accident.
 
@@ -45,9 +45,9 @@ See `flowCommentFindings`.
 -}
 
 import Formatter.Logical.LogicalPrintingTree exposing
-    ( LPBox(..)
+    ( LPShape(..)
     , LPNode
-    , lpnBox
+    , lpnShape
     , lpnChildren
     , lpnFirstPos
     , stypeToString
@@ -230,7 +230,7 @@ measurement having nothing to say:
     measuring, not by argument: disabled, it changed nothing over the corpus, the
     68,922-cell single-comment axis, or the 113,796-cell run axis.
 
-Scoped to the box kinds whose children `makePBox` hands straight to the gluing
+Scoped to the shape kinds whose children `makePBox` hands straight to the gluing
 flow assembler, so the assembly audited is the one the renderer performs. NOT
 covered: `BinopLayout.commentBreaksBinopChain`, which asks the same predicate of
 a chain with its operators interleaved back in -- reconstructing that here would
@@ -243,7 +243,7 @@ flowCommentFindings node liesBelow =
         children =
             lpnChildren node
     in
-    if not (dispatchesToGluingFlow (lpnBox node)) || not (Array.any nodeIsComment children) then
+    if not (dispatchesToGluingFlow (lpnShape node)) || not (Array.any nodeIsComment children) then
         []
 
     else
@@ -348,9 +348,9 @@ runFinding node liesBelow children run =
                     Just
                         { predicate = "commentBreaksFlowRow"
                         , boxKind =
-                            boxKindName (lpnBox node)
+                            shapeKindName (lpnShape node)
                                 ++ " / "
-                                ++ String.join "+" (Array.map (\m -> boxKindName (lpnBox m)) members)
+                                ++ String.join "+" (Array.map (\m -> shapeKindName (lpnShape m)) members)
                         , row = Array.first members |> Maybe.andThen lpnFirstPos |> Maybe.map (\p -> p.row) |> Maybe.withDefault -1
                         , col = Array.first members |> Maybe.andThen lpnFirstPos |> Maybe.map (\p -> p.col) |> Maybe.withDefault -1
                         , rendered = renderedFlow children
@@ -396,14 +396,14 @@ renderedFlow nodes =
             e
 
 
-{-| Which box kinds hand their children straight to the gluing flow assembler
+{-| Which shape kinds hand their children straight to the gluing flow assembler
 (`buildFlowBox 0 children` / the `assembleFlow` arm of `makePBox`). A kind that
 routes its children somewhere else -- a bracket container, a binop chain, a
 `when` -- is not what this predicate is asked about.
 -}
-dispatchesToGluingFlow : LPBox -> Bool
-dispatchesToGluingFlow box =
-    when box is
+dispatchesToGluingFlow : LPShape -> Bool
+dispatchesToGluingFlow shape =
+    when shape is
         AcrossOrVertical _ ->
             True
 
@@ -454,7 +454,7 @@ checkNode node liesBelow =
 
 checkShapePredicates : LPNode -> Bool -> Array Finding
 checkShapePredicates node liesBelow =
-    when makePBox (lpnBox node) (lpnChildren node) is
+    when makePBox (lpnShape node) (lpnChildren node) is
         -- A node that cannot render on its own (RootBox, OriginalRows, or a
         -- construct whose builder needs context its parent holds) yields no
         -- render truth to compare against, so it proves nothing either way.
@@ -474,7 +474,7 @@ checkShapePredicates node liesBelow =
 makeFinding : String -> LPNode -> Box -> Bool -> Finding
 makeFinding name node box liesBelow =
     { predicate = name
-    , boxKind = boxKindName (lpnBox node)
+    , boxKind = shapeKindName (lpnShape node)
     , row = lpnFirstPos node |> Maybe.map (\p -> p.row) |> Maybe.withDefault -1
     , col = lpnFirstPos node |> Maybe.map (\p -> p.col) |> Maybe.withDefault -1
     , rendered = String.trim (B.render box)
@@ -487,8 +487,8 @@ makeFinding name node box liesBelow =
 kind, or whether the author already forced it vertical) -- enough to tell one
 finding's shape from another's without going back to `--lpt`.
 -}
-boxKindName : LPBox -> String
-boxKindName box =
+shapeKindName : LPShape -> String
+shapeKindName shape =
     let
         forced fv =
             if fv then
@@ -497,7 +497,7 @@ boxKindName box =
             else
                 ""
     in
-    when box is
+    when shape is
         RootBox ->
             "RootBox"
 

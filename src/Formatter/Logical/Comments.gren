@@ -75,8 +75,8 @@ layers below cure it in different ways:
 - **Inner descent** (`insertCommentIntoSubtree`): the formatter does not
   *descend* into a child it trails when the next sibling is a flow boundary
   (`nextSiblingIsBoundary` — the `in` keyword, the next binding, the next branch)
-  or the child is one of a few box kinds that must never swallow a trailing
-  comment (the box-type guards). The comment stays a sibling at the current flow
+  or the child is one of a few shape kinds that must never swallow a trailing
+  comment (the shape-type guards). The comment stays a sibling at the current flow
   level — between two `let` bindings, after the last binding before `in`, between
   two `when` branches, etc. The boundary test is intentionally specific, not "any
   following sibling": a container followed by a continuation (e.g. a record type
@@ -91,12 +91,12 @@ it via `lpnBracketNode` (see "adding a construct" below).
 # Adding support for a new construct
 
 When a new Gren construct gains an LPT shape, comment handling usually needs
-*no* change here: emit its pieces as ordinary boxes in a flow and the
+*no* change here: emit its pieces as ordinary nodes in a flow and the
 trailing-comment rule above places boundary comments correctly. Two things to
 get right so it stays idempotent:
 
 1. If the construct has a closing bracket / delimiter the parser discards, build
-   its box with `lpnBracketNode <closePos>` so `commentInsideTrailingBracket`
+   its shape with `lpnBracketNode <closePos>` so `commentInsideTrailingBracket`
    can tell "inside the brackets" from "past them". This applies to a plain
    `( … )` as much as to a record or an array: an author-written PAREN around a
    TYPE went years without it, and a comment before its `)` escaped the parens
@@ -123,7 +123,7 @@ import Compiler.SourcePosition exposing (Located, Position, at)
 
 import Formatter.Logical.LogicalPrintingTree exposing
     ( CommentRole(..)
-    , LPBox(..)
+    , LPShape(..)
     , LPNode
     , ListBrackets(..)
     , RecordKind(..)
@@ -134,7 +134,7 @@ import Formatter.Logical.LogicalPrintingTree exposing
     , firstRowInSubtree
     , gluesTrailingComment
     , lastRowInSubtree
-    , lpnBox
+    , lpnShape
     , lpnBracketEndElastic
     , lpnBracketEndExact
     , lpnBracketStart
@@ -242,7 +242,7 @@ rehomePipelineStepTrailers node =
             lpnReplaceChildren node
                 (Array.map rehomePipelineStepTrailers (lpnChildren node))
     in
-    when lpnBox withRebuiltChildren is
+    when lpnShape withRebuiltChildren is
         Pipeline _ ->
             lpnReplaceChildren withRebuiltChildren
                 (movePipelineStepTrailers (lpnChildren withRebuiltChildren))
@@ -259,7 +259,7 @@ movePipelineStepTrailers : Array LPNode -> Array LPNode
 movePipelineStepTrailers children =
     let
         step acc child =
-            when lpnBox child is
+            when lpnShape child is
                 PipelineStep ->
                     let
                         kids =
@@ -357,7 +357,7 @@ the reparse produces.
 -}
 detachOwnLineTrailer : LPNode -> Array LPNode
 detachOwnLineTrailer child =
-    when lpnBox child is
+    when lpnShape child is
         OriginalRows rowInfo ->
             if hostsOwnLineTrailer rowInfo.stype then
                 let
@@ -458,7 +458,7 @@ peelOwnLineTrailingRun node =
         Just { last = lastCode, initial = front } ->
             let
                 inner =
-                    if descendsForTrailingRun (lpnBox lastCode) then
+                    if descendsForTrailingRun (lpnShape lastCode) then
                         peelOwnLineTrailingRun lastCode
 
                     else
@@ -531,7 +531,7 @@ endsItsRow : Maybe LPNode -> Bool
 endsItsRow prev =
     when prev is
         Just node ->
-            when lpnBox node is
+            when lpnShape node is
                 SingleLineComment _ ->
                     True
 
@@ -622,9 +622,9 @@ past the declaration's last token, re-homed it to column 1. Only the LAST branch
 is reachable here, since the peel descends through the last child alone; a
 comment trailing an earlier branch has a following sibling and stays where it
 is. -}
-descendsForTrailingRun : LPBox -> Bool
-descendsForTrailingRun box =
-    when box is
+descendsForTrailingRun : LPShape -> Bool
+descendsForTrailingRun shape =
+    when shape is
         BodyBlock ->
             True
 
@@ -661,7 +661,7 @@ descendsForTrailingRun box =
 
 commentRunStype : LPNode -> SyntaxType
 commentRunStype node =
-    when lpnBox node is
+    when lpnShape node is
         SingleLineComment _ ->
             StSingleLineComment
 
@@ -743,7 +743,7 @@ applyCommentToOrigRow locComment baseCommentNode created origRowNode =
         coveredRow =
             max endRow elasticEnd
     in
-    when lpnBox updatedOrigRow is
+    when lpnShape updatedOrigRow is
         OriginalRows rowInfo ->
             let
                 -- The header's other derived close moves for the same reason,
@@ -793,7 +793,7 @@ moduleWhereCloseRow stype node =
     else
         Array.foldl
             (\child acc ->
-                when lpnBox child is
+                when lpnShape child is
                     AllAcrossOrAllVertical (ListCurly _) ->
                         let
                             lastRow =
@@ -816,7 +816,7 @@ addCommentGeneric : Located Ctx.Comment -> CommentState -> CommentState
 addCommentGeneric locComment state =
     let
         baseCommentNode =
-            lpnLeaf (mkCommentLpBox locComment)
+            lpnLeaf (mkCommentLpShape locComment)
 
         row =
             locComment.start.row
@@ -831,7 +831,7 @@ addCommentGeneric locComment state =
     in
     when state.target is
         Just t ->
-            when lpnBox t is
+            when lpnShape t is
                 OriginalRows { first, last } ->
                     if first <= row && row <= last then
                         -- Re-hit: the comment still belongs to `target`.
@@ -867,8 +867,8 @@ advanceAndSearch locComment baseCommentNode row stype state =
     }
 
 
-mkCommentLpBox : Located Ctx.Comment -> LPBox
-mkCommentLpBox locComment =
+mkCommentLpShape : Located Ctx.Comment -> LPShape
+mkCommentLpShape locComment =
     let
         start =
             locComment.start
@@ -943,7 +943,7 @@ tryLeadingGluedAttach locComment state =
                 target =
                     findIndexed
                         (\i child ->
-                            when lpnBox child is
+                            when lpnShape child is
                                 OriginalRows { stype } ->
                                     isDeclStype stype
                                         -- The comment's closing delimiter ends on
@@ -974,7 +974,7 @@ tryLeadingGluedAttach locComment state =
                 Just { index } ->
                     let
                         commentNode =
-                            lpnSetCommentRole LeadsInline (lpnLeaf (mkCommentLpBox locComment))
+                            lpnSetCommentRole LeadsInline (lpnLeaf (mkCommentLpShape locComment))
 
                         updatedChildren =
                             Array.indexedMap
@@ -1052,14 +1052,14 @@ attachLeadingChild startPos commentNode declNode =
         newChildren =
             placement.head ++ [ commentNode ] ++ placement.rest
     in
-    when lpnBox declNode is
+    when lpnShape declNode is
         OriginalRows rowInfo ->
             lpnNode
                 (OriginalRows { rowInfo | first = min rowInfo.first startPos.row })
                 newChildren
 
         _ ->
-            lpnNode (lpnBox declNode) newChildren
+            lpnNode (lpnShape declNode) newChildren
 
 
 {-| True when a block comment starting at `startPos` (its end row already known
@@ -1160,7 +1160,7 @@ coveredByOtherDecl skipIndex row nodes =
                 False
 
             else
-                when lpnBox node is
+                when lpnShape node is
                     OriginalRows { first, last, stype } ->
                         isDeclStype stype && first <= row && row <= last
 
@@ -1277,7 +1277,7 @@ findOrCreateOrigRow row stype nodes =
                             { acc | after = Builder.pushLast node acc.after }
 
                         Nothing ->
-                            when lpnBox node is
+                            when lpnShape node is
                                 OriginalRows { first = first, last = last } ->
                                     if first <= row && row <= last then
                                         { acc | found = Just node }
@@ -1320,7 +1320,7 @@ findOrCreateOrigRow row stype nodes =
                                 { acc | after = Builder.pushLast node acc.after }
 
                             else
-                                when lpnBox node is
+                                when lpnShape node is
                                     OriginalRows { first = first } ->
                                         if row < first then
                                             { acc | after = Builder.pushLast node acc.after, done = True }
@@ -1430,7 +1430,7 @@ insertCommentIntoSubtree commentNode row col node =
                             nextSiblingIsBoundary =
                                 when Array.get (acc.index + 1) children is
                                     Just sib ->
-                                        when lpnBox sib is
+                                        when lpnShape sib is
                                             IndentedBlock ->
                                                 True
 
@@ -1462,7 +1462,7 @@ insertCommentIntoSubtree commentNode row col node =
 
                             -- The comment merely *trails* `child`'s last token and
                             -- must stay OUTSIDE it: `child` is a boundary-/bracket-
-                            -- keeping box (or the next sibling starts a new flow
+                            -- keeping shape (or the next sibling starts a new flow
                             -- item) and the comment isn't genuinely inside child's
                             -- closing bracket. See the trailing-comment boundary rule.
                             -- The comment sits past the LAST thing a paren wraps,
@@ -1488,7 +1488,7 @@ insertCommentIntoSubtree commentNode row col node =
                             --
                             -- and the reparse, seeing a comment on its own row past
                             -- the field, hands it to the record. `AcrossOrVertical`
-                            -- is already on `boxKeepsTrailingCommentOutside`, which
+                            -- is already on `shapeKeepsTrailingCommentOutside`, which
                             -- is why the identical shape with NO lambda
                             -- (`{ fld = fn q {- c` ⏎ `second -} }`) has always been
                             -- stable: a lambda is what makes the field render as an
@@ -1504,7 +1504,7 @@ insertCommentIntoSubtree commentNode row col node =
                             -- items, which is what the reparse derives.
                             containerTailKeepsCommentOutside =
                                 commentBringsOwnRows
-                                    && (when lpnBox node is
+                                    && (when lpnShape node is
                                             ParenBlock _ ->
                                                 hasNoFollowingSibling
 
@@ -1530,7 +1530,7 @@ insertCommentIntoSubtree commentNode row col node =
                             -- multi-line block comment brings its own rows and so
                             -- renders below the content whatever owns it.
                             commentBringsOwnRows =
-                                when lpnBox commentNode is
+                                when lpnShape commentNode is
                                     BlockComment { loc } ->
                                         String.contains "\n" loc.value
 
@@ -1577,7 +1577,7 @@ insertCommentIntoSubtree commentNode row col node =
                             blockTailKeepsCommentOutside =
                                 commentBringsOwnRows
                                     && not hasNoFollowingSibling
-                                    && (when lpnBox child is
+                                    && (when lpnShape child is
                                             IndentedBlock ->
                                                 True
 
@@ -1586,7 +1586,7 @@ insertCommentIntoSubtree commentNode row col node =
                                        )
 
                             trailingCommentEscapes =
-                                (boxKeepsTrailingCommentOutside child
+                                (shapeKeepsTrailingCommentOutside child
                                     || nextSiblingIsBoundary
                                     || containerTailKeepsCommentOutside
                                     || blockTailKeepsCommentOutside
@@ -1679,8 +1679,8 @@ insertCommentIntoSubtree commentNode row col node =
         -- No matching child found; insert at this level
         grown
             (lpnReplaceChildren node
-                (insertAmongChildren (lpnBox node) commentNode row col children
-                    |> repairTornGapRun (lpnBox node)
+                (insertAmongChildren (lpnShape node) commentNode row col children
+                    |> repairTornGapRun (lpnShape node)
                 )
             )
 
@@ -1712,8 +1712,8 @@ that choice is made by the branch above `leadsAcrossItemSeparator`. Naming a
 replacement here would be a second copy of it — the failure mode
 `feedback_fallback_layout_consistency` records, where a fallback that is not
 literally the same call silently diverges from the path it stands in for. -}
-repairTornGapRun : LPBox -> Array LPNode -> Array LPNode
-repairTornGapRun containerBox children =
+repairTornGapRun : LPShape -> Array LPNode -> Array LPNode
+repairTornGapRun containerShape children =
     let
         reclassifyAt index child =
             if not (commentLeadsNext child) then
@@ -1729,7 +1729,7 @@ repairTornGapRun containerBox children =
                 in
                 lpnSetCommentRole
                     (classifyCommentKind
-                        containerBox
+                        containerShape
                         child
                         before
                         after
@@ -1746,15 +1746,15 @@ repairTornGapRun containerBox children =
    is an IndentedBlock, redirect the comment as its first child so it renders
    at IndentedBlock indentation.
 -}
-insertAmongChildren : LPBox -> LPNode -> Int -> Int -> Array LPNode -> Array LPNode
-insertAmongChildren containerBox commentNode row col children =
+insertAmongChildren : LPShape -> LPNode -> Int -> Int -> Array LPNode -> Array LPNode
+insertAmongChildren containerShape commentNode row col children =
     if Array.isEmpty children then
         -- No siblings to classify against. A comment inside a bracket container
         -- (`{ {- c -} }`) classifies via the bracket branch (leads its own line);
         -- otherwise keep the role the caller pre-set (`Standalone` for a fresh
         -- top-level slot, else the `LeadsLine` default).
-        [ if isBracketContainerBox containerBox then
-            lpnSetCommentRole (classifyCommentKind containerBox commentNode [] [] row) commentNode
+        [ if isBracketContainerShape containerShape then
+            lpnSetCommentRole (classifyCommentKind containerShape commentNode [] [] row) commentNode
 
           else
             commentNode
@@ -1820,7 +1820,7 @@ insertAmongChildren containerBox commentNode row col children =
                                 { before = b, after = a }
 
                             Just { first = nextNode, rest = restOfAfter } ->
-                                when lpnBox nextNode is
+                                when lpnShape nextNode is
                                     BodyBlock ->
                                         { before = b, after = a }
 
@@ -1856,7 +1856,7 @@ insertAmongChildren containerBox commentNode row col children =
             -- leads that body on its own line (`LeadsLine`); everything else
             -- is classified by `classifyCommentKind`.
             classifiedRole =
-                classifyCommentKind containerBox commentNode finalBefore finalAfter row
+                classifyCommentKind containerShape commentNode finalBefore finalAfter row
 
             classifiedComment =
                 lpnSetCommentRole classifiedRole commentNode
@@ -1866,20 +1866,20 @@ insertAmongChildren containerBox commentNode row col children =
         in
         when Array.popFirst finalAfter is
             Just { first = nextNode, rest = afterRest } ->
-                when lpnBox nextNode is
+                when lpnShape nextNode is
                     IndentedBlock ->
                         -- Redirect into the IndentedBlock as its first child,
                         -- where it leads that body on a line of its own — a
                         -- `let` binding's value, a `when` branch's body.
                         --
-                        -- Not inside a BRACKET, where the same box is an ITEM:
+                        -- Not inside a BRACKET, where the same shape is an ITEM:
                         -- `folderInsertRecordField` builds a field holding a
                         -- lambda as an `IndentedBlock`, and an item does not
                         -- start its own line — it renders after the container's
                         -- `, `. This is the `BodyBlock` arm's premise
                         -- (`16a9b2e`) one constructor over: "the body always
                         -- starts a line of its own" is a fact about the
-                        -- CONTAINER, not about the box. A comment in the `,` gap
+                        -- CONTAINER, not about the shape. A comment in the `,` gap
                         -- classifies `LeadsNext` and renders `, {- c -} fld =`
                         -- for every other field shape; redirected inside a
                         -- lambda field it became that field's first child, where
@@ -1895,7 +1895,7 @@ insertAmongChildren containerBox commentNode row col children =
                         -- done. Redirected inside, it came out glued after the
                         -- `, ` instead, and that shape reparses to the twin's,
                         -- so this authoring oscillated too.
-                        if isBracketContainerBox containerBox then
+                        if isBracketContainerShape containerShape then
                             finalBefore ++ [ classifiedComment ] ++ finalAfter
 
                         else
@@ -1970,7 +1970,7 @@ insertAmongChildren containerBox commentNode row col children =
                         -- brings its own newlines, so both still lead the body
                         -- from inside, and a line-leading comment classifies
                         -- `LeadsLine` and is redirected as before.
-                        if isDeclValueContainer containerBox || classifiedRole /= RidesInline then
+                        if isDeclValueContainer containerShape || classifiedRole /= RidesInline then
                             let
                                 newNextNode =
                                     lpnNode BodyBlock (Array.pushFirst leadingComment (lpnChildren nextNode))
@@ -2002,7 +2002,7 @@ insertAmongChildren containerBox commentNode row col children =
                         -- settles on, and matches what the `IndentedBlock` arm
                         -- already does for the identical comment written one row
                         -- lower.
-                        when lpnBox commentNode is
+                        when lpnShape commentNode is
                             SingleLineComment _ ->
                                 let
                                     newNextNode =
@@ -2024,14 +2024,14 @@ insertAmongChildren containerBox commentNode row col children =
 --
 -- Shared by both phases. The position tests (subtreeContainsRow, subtreeEndsBefore,
 -- subtreeStartsAfter, posAtOrBefore, lpnFirstPos/lpnLastPos)
--- read the O(1) bounds cache; the box classifiers (boxKeepsTrailingCommentOutside,
--- commentInside*, isBracketContainerBox) decide whether a trailing comment stays
+-- read the O(1) bounds cache; the shape classifiers (shapeKeepsTrailingCommentOutside,
+-- commentInside*, isBracketContainerShape) decide whether a trailing comment stays
 -- outside a container or descends into it.
 
 
--- Box-type guards for the descent. These predicates name the LPBox kinds that a
+-- Box-type guards for the descent. These predicates name the LPShape kinds that a
 -- trailing comment must never be sucked *into*, even when `child` is the last
--- True for box kinds that, when a comment sits past their last token, must keep
+-- True for shape kinds that, when a comment sits past their last token, must keep
 -- that trailing comment OUTSIDE themselves — it belongs beside them, not inside.
 -- The node is the last in its flow (no following sibling to fall beside), or the
 -- descent guard pairs this with `nextSiblingIsBoundary` for a mid-flow node that
@@ -2039,13 +2039,13 @@ insertAmongChildren containerBox commentNode row col children =
 -- form still descends, via `commentInsideTrailingBracket` /
 -- `commentInsideEmptyBracket`.
 --
--- This is the single declared list of "never swallow a trailing comment" box
+-- This is the single declared list of "never swallow a trailing comment" shape
 -- kinds — to teach a new construct the same rule, add it here rather than
 -- threading another predicate into the guard.
 --
 -- The exception is a kind that keeps the comment out only for SOME comments or
 -- only in some positions, which this list cannot express: it is asked of every
--- comment kind, in every position, and answers with the box alone. The descent
+-- comment kind, in every position, and answers with the shape alone. The descent
 -- guard therefore has two scoped siblings, and a new rule belongs in one of
 -- them only if it needs a scope this list cannot carry —
 -- `containerTailKeepsCommentOutside` (a bracketed container, but only for a
@@ -2073,11 +2073,11 @@ insertAmongChildren containerBox commentNode row col children =
 --       stays outside. Excluding it used to let `fn a { r | a = 1 } {- c -} b`
 --       render as `{ r | a = 1 {- c -} }`, i.e. as a comment on the last
 --       field rather than on the record.
--- For every *other* box kind the sibling check in the descent expresses the same
+-- For every *other* shape kind the sibling check in the descent expresses the same
 -- intent whenever a sibling follows, so most constructs need no entry here.
-boxKeepsTrailingCommentOutside : LPNode -> Bool
-boxKeepsTrailingCommentOutside node =
-    when lpnBox node is
+shapeKeepsTrailingCommentOutside : LPNode -> Bool
+shapeKeepsTrailingCommentOutside node =
+    when lpnShape node is
         AcrossOrVertical _ ->
             True
 
@@ -2111,7 +2111,7 @@ boxKeepsTrailingCommentOutside node =
 -- reparse (non-idempotent). The closing position is `loc.end`.
 commentInsideEmptyBracket : LPNode -> Int -> Int -> Bool
 commentInsideEmptyBracket node row col =
-    when lpnBox node is
+    when lpnShape node is
         EmptyBracketed loc ->
             row < loc.end.row || (row == loc.end.row && col < loc.end.col)
 
@@ -2254,7 +2254,7 @@ subtreeStartsAfter node row col =
 -- the fixture that pins it.
 
 
--- True for the bracket container box kinds whose interior comments render via
+-- True for the bracket container shape kinds whose interior comments render via
 -- the bracket-list path: a comment that is a child of one of these is classified
 -- by `classifyCommentKind`'s bracket branch (its permissive same-row rule).
 {-| The module line's `exposing ( … )` list. `ListParen` is exclusively an
@@ -2266,7 +2266,7 @@ The module line is built as `[ keyword, name, where…, exposing, exports ]`
 keyword and this list after it is on the tail — whatever rows anything is on. -}
 isExposingListNode : LPNode -> Bool
 isExposingListNode node =
-    when lpnBox node is
+    when lpnShape node is
         AllAcrossOrAllVertical ListParen ->
             True
 
@@ -2277,9 +2277,9 @@ isExposingListNode node =
             False
 
 
-isBracketContainerBox : LPBox -> Bool
-isBracketContainerBox box =
-    when box is
+isBracketContainerShape : LPShape -> Bool
+isBracketContainerShape shape =
+    when shape is
         AllAcrossOrAllVertical _ ->
             True
 
@@ -2303,9 +2303,9 @@ isBracketContainerBox box =
 -- distinction decides whether a comment before it has a line to ride; see the
 -- `BodyBlock` arm of `insertAmongChildren`. (A `let` binding's value is an
 -- `IndentedBlock`, handled by its own arm, so it does not need naming here.)
-isDeclValueContainer : LPBox -> Bool
-isDeclValueContainer box =
-    when box is
+isDeclValueContainer : LPShape -> Bool
+isDeclValueContainer shape =
+    when shape is
         OriginalRows _ ->
             True
 
@@ -2313,13 +2313,13 @@ isDeclValueContainer box =
             False
 
 
--- True for the `{ base | field … }` box (record update expression, and the
+-- True for the `{ base | field … }` shape (record update expression, and the
 -- extensible record TYPE, which shares it). Its children are the FIELDS, so
 -- "first child" does not mean "written just after the `{`" the way it does for
 -- an item list — see the bracket branch of `classifyCommentKind`.
-isRecordUpdateBox : LPBox -> Bool
-isRecordUpdateBox box =
-    when box is
+isRecordUpdateShape : LPShape -> Bool
+isRecordUpdateShape shape =
+    when shape is
         RecordUpdate _ ->
             True
 
@@ -2327,13 +2327,13 @@ isRecordUpdateBox box =
             False
 
 
-{-| True when a node or any descendant is a `"""…"""` literal. Such a node's box
-cannot take a comment glued to the front of it: the glue shifts the box's first
+{-| True when a node or any descendant is a `"""…"""` literal. Such a node's shape
+cannot take a comment glued to the front of it: the glue shifts the shape's first
 row by the comment's width, and Gren requires every row of a multi-line string to
 be indented equally, so the result stops parsing. -}
 subtreeHasMultilineString : LPNode -> Bool
 subtreeHasMultilineString node =
-    when lpnBox node is
+    when lpnShape node is
         MultilineString _ ->
             True
 
@@ -2343,10 +2343,10 @@ subtreeHasMultilineString node =
 
 {-| True when a bracket container is an `exposing ( … )` list. `ListParen` is
 used for nothing else (`SortSymbols.gren`: "ListParen is exclusively exposing
-lists"), so the box alone says it. -}
-isExposingListBox : LPBox -> Bool
-isExposingListBox box =
-    when box is
+lists"), so the shape alone says it. -}
+isExposingListShape : LPShape -> Bool
+isExposingListShape shape =
+    when shape is
         AllAcrossOrAllVertical ListParen ->
             True
 
@@ -2367,7 +2367,7 @@ only, never its position, which is why the render-side copy does not breach the
 render invariant — keep them in step. -}
 commentIsSingleLineBlock : LPNode -> Bool
 commentIsSingleLineBlock node =
-    when lpnBox node is
+    when lpnShape node is
         BlockComment { loc } ->
             not (String.contains "\n" loc.value)
 
@@ -2438,9 +2438,9 @@ resolved.
 
 Anything that is not a positioned comment leaf, or not a record update, is not
 an opener. -}
-commentPrecedesUpdateBase : LPBox -> LPNode -> Bool
-commentPrecedesUpdateBase containerBox commentNode =
-    when { container = containerBox, comment = lpnBox commentNode } is
+commentPrecedesUpdateBase : LPShape -> LPNode -> Bool
+commentPrecedesUpdateBase containerShape commentNode =
+    when { container = containerShape, comment = lpnShape commentNode } is
         { container = RecordUpdate { name }, comment = SingleLineComment { loc } } ->
             posAtOrBefore loc.start name.start.row name.start.col
 
@@ -2457,7 +2457,7 @@ isUnionVariantFlow : LPNode -> Bool
 isUnionVariantFlow node =
     when Array.first (lpnChildren node) is
         Just c ->
-            when lpnBox c is
+            when lpnShape c is
                 SynthesizedText v ->
                     v == "=" || v == "|"
 
@@ -2471,7 +2471,7 @@ isUnionVariantFlow node =
 -- The last row a node actually renders content on: the max of its last
 -- positioned token and its closing bracket (elm-format's "last rendered line").
 -- This is the row a trailing comment must share to glue onto it. (Exactly the
--- `lastRenderedRow` the render layer reconstructs per box kind — computed here
+-- `lastRenderedRow` the render layer reconstructs per shape kind — computed here
 -- once, from the pristine cached bounds.)
 lastRenderedRow : LPNode -> Int
 lastRenderedRow node =
@@ -2508,7 +2508,7 @@ lastRenderedRow node =
 -- before it is ever classified, so its `prev` is the type to the arrow's left.
 nodeIsElided : LPNode -> Bool
 nodeIsElided node =
-    when lpnBox node is
+    when lpnShape node is
         UnbreakableText loc ->
             loc.value == "->"
                 && loc.start.row == loc.end.row
@@ -2609,7 +2609,7 @@ ending in it still ends at its bracket.
 -}
 flowEndsAtBracketClose : LPNode -> Bool
 flowEndsAtBracketClose node =
-    when lpnBox node is
+    when lpnShape node is
         AllAcrossOrAllVertical _ ->
             True
 
@@ -2645,7 +2645,7 @@ subtreeContainsComment node =
 {-| Whether a bracket container renders multi-line, so a following block comment
 can glue onto its closing bracket's line.
 
-**The box type IS the answer**, and asking anything else was the bug.
+**The shape type IS the answer**, and asking anything else was the bug.
 `authoredBracketList` has already made this exact decision once, from
 `itemsSpanRows`, and recorded it in the constructor: `AlwaysVertical` renders
 vertical, `AllAcrossOrAllVertical` renders inline unless a comment forces it
@@ -2656,7 +2656,7 @@ that is itself multi-line does not count, since there is no gap *between* items
 to cross").
 
 The two disagree on exactly the shape that collapses. `[ 1` ⏎ `]` has one item,
-so `itemsSpanRows` is False and the box is `AllAcrossOrAllVertical` — it renders
+so `itemsSpanRows` is False and the shape is `AllAcrossOrAllVertical` — it renders
 `[ 1 ]`, one row ([#21](../../../docs/elmFormatComparison.md#divergence-21)) —
 while the row range still spans the author's two rows. A trailing multi-line
 `{- … -}` therefore found a glue row that the output does not have, glued on the
@@ -2671,7 +2671,7 @@ correct, and the mirror beside it was the only thing wrong.
 -}
 bracketRendersMultiline : LPNode -> Bool
 bracketRendersMultiline node =
-    when lpnBox node is
+    when lpnShape node is
         AlwaysVertical _ ->
             True
 
@@ -2697,7 +2697,7 @@ row comparison instead of a glue row, and a call flow reaches the paren through
 `AcrossOrVertical`'s `bracketClosingRow` arm.
 
 This reads the flag `insertParens` stored, rather than re-deriving the answer
-here. It used to dispatch on the paren's FIRST CHILD box — `WhenFlow` /
+here. It used to dispatch on the paren's FIRST CHILD shape — `WhenFlow` /
 `IfCondition` / a `let` head — which is only the shape where the breaking
 construct is the whole content. It is not where the construct has to be:
 `0 <| ( f (if a then b else c) ) {- c -}` buries the `if` under a call, and
@@ -2710,7 +2710,7 @@ body — see `insertLambda`'s `bodyAlwaysBreaksVertical`), so it subsumes every
 buried position instead of one enumerated shape per bug. -}
 parenContentAlwaysBreaks : LPNode -> Bool
 parenContentAlwaysBreaks node =
-    when lpnBox node is
+    when lpnShape node is
         ParenBlock { contentAlwaysBreaks } ->
             contentAlwaysBreaks
 
@@ -2719,12 +2719,12 @@ parenContentAlwaysBreaks node =
 
 
 -- The source row a following `--` line comment glues onto (or -1 for "no glue,
--- stay own-line"). A faithful port of `factsFor`'s `startRowLine` per box kind:
+-- stay own-line"). A faithful port of `factsFor`'s `startRowLine` per shape kind:
 -- a `--` is unambiguously trailing, so it glues onto the previous item's last
 -- rendered row in strictly more places than a block comment.
 prevLineGlueRow : LPNode -> Int
 prevLineGlueRow node =
-    when lpnBox node is
+    when lpnShape node is
         UnbreakableText loc ->
             loc.start.row
 
@@ -2829,7 +2829,7 @@ prevLineGlueRow node =
 -- caught.
 prevBlockGlueRow : Bool -> LPNode -> Int
 prevBlockGlueRow commentIsMultiline node =
-    when lpnBox node is
+    when lpnShape node is
         UnbreakableText loc ->
             loc.start.row
 
@@ -2963,7 +2963,7 @@ prevBlockGlueRow commentIsMultiline node =
 -- True for a line/block comment leaf.
 isCommentNode : LPNode -> Bool
 isCommentNode node =
-    when lpnBox node is
+    when lpnShape node is
         SingleLineComment _ ->
             True
 
@@ -2994,8 +2994,8 @@ pinned by a fixture under `tests/testfiles/` (one directory per suite):
   - generic flow, elided `->` scoping, and the deliberate `let … in`
     divergence — `LetInTrailingComment`.
 -}
-classifyCommentKind : LPBox -> LPNode -> Array LPNode -> Array LPNode -> Int -> CommentRole
-classifyCommentKind containerBox commentNode before after row =
+classifyCommentKind : LPShape -> LPNode -> Array LPNode -> Array LPNode -> Int -> CommentRole
+classifyCommentKind containerShape commentNode before after row =
     let
         -- A binop chain (`Binop` / one `OpAndRhs` step) glues a same-row trailing
         -- comment onto the operand's last line regardless of bracket-ness, and
@@ -3006,7 +3006,7 @@ classifyCommentKind containerBox commentNode before after row =
         -- is gone — a comment-bearing chain renders through the comment-aware
         -- flow, which places each comment from its stored role.)
         isBinopContainer =
-            when containerBox is
+            when containerShape is
                 OpAndRhs ->
                     True
 
@@ -3023,7 +3023,7 @@ classifyCommentKind containerBox commentNode before after row =
         -- differs from the generic-flow coarse rule, and these comments never
         -- reach the generic `decide` path, so they get their own branch.
         isBracketBranch =
-            isBracketContainerBox containerBox
+            isBracketContainerShape containerShape
 
         -- The row a bracket-list child ends on: a bare token by its start (it
         -- cannot span rows), a comment by its LAST row, anything else by its max
@@ -3046,7 +3046,7 @@ classifyCommentKind containerBox commentNode before after row =
                 lastRowInSubtree n
 
             else
-                when lpnBox n is
+                when lpnShape n is
                     UnbreakableText l ->
                         l.start.row
 
@@ -3171,7 +3171,7 @@ classifyCommentKind containerBox commentNode before after row =
         pastSynthesizedExposing =
             Array.any
                 (\n ->
-                    when lpnBox n is
+                    when lpnShape n is
                         SynthesizedText v ->
                             v == "exposing"
 
@@ -3192,7 +3192,7 @@ classifyCommentKind containerBox commentNode before after row =
         --     comment's last row IS this comment's row, so the ordinary
         --     `row == glueRow` test glues it without this fallback.
         headerTailGlue p =
-            when containerBox is
+            when containerShape is
                 OriginalRows info ->
                     info.stype == StModule
                         && not (isCommentNode p)
@@ -3219,7 +3219,7 @@ classifyCommentKind containerBox commentNode before after row =
                         g
 
                     else
-                        when containerBox is
+                        when containerShape is
                             OriginalRows _ ->
                                 refRow
 
@@ -3271,7 +3271,7 @@ classifyCommentKind containerBox commentNode before after row =
                         g
 
                     else
-                        when { prev = lpnBox p, container = containerBox } is
+                        when { prev = lpnShape p, container = containerShape } is
                             { prev = SynthesizedText _, container = OriginalRows _ } ->
                                 refRow
 
@@ -3329,14 +3329,14 @@ classifyCommentKind containerBox commentNode before after row =
         -- and put under the `sort-order` oracle, an exposing list keeps the
         -- earlier side.
         -- Also NOT when the item it would lead holds a `"""…"""`. Gluing a
-        -- comment onto the front of that item's box shifts its first row by the
+        -- comment onto the front of that item's shape shifts its first row by the
         -- comment's width while the string's own content rows move by a
         -- different amount, and Gren requires a multi-line string's rows to be
         -- indented equally — the output stops parsing. The comment stays
         -- own-line there, which is the placement the item's shape forces anyway.
         leadsAcrossItemSeparator =
             not (Array.isEmpty before)
-                && not (isExposingListBox containerBox)
+                && not (isExposingListShape containerShape)
                 && commentIsSingleLineBlock commentNode
                 && gapRunCrossesTogether before after
                 && bracketNextItemRow >= 0
@@ -3349,7 +3349,7 @@ classifyCommentKind containerBox commentNode before after row =
         -- a real recorded position, and the base is a single token, so its start
         -- row is also its last row.
         updateBaseRow =
-            when containerBox is
+            when containerShape is
                 RecordUpdate { name } ->
                     name.start.row
 
@@ -3380,7 +3380,7 @@ classifyCommentKind containerBox commentNode before after row =
                         acc
 
                     else
-                        when lpnBox n is
+                        when lpnShape n is
                             UnbreakableText l ->
                                 l.start.row
 
@@ -3418,7 +3418,7 @@ classifyCommentKind containerBox commentNode before after row =
         -- only kind `literalCommentsRideFlatLine` keeps flat); a `--` or a
         -- multi-line `{- … -}` glues but breaks it.
         bracketKindRole =
-            when lpnBox commentNode is
+            when lpnShape commentNode is
                 BlockComment { loc } ->
                     if String.contains "\n" loc.value then
                         TrailsPrevious
@@ -3460,12 +3460,12 @@ classifyCommentKind containerBox commentNode before after row =
         -- slot is the leading run of comment children whose role is none of
         -- `LeadsNext` / `LeadsLine` / `TrailsHead`. A comment TRAILING a field
         -- is not in that leading run and keeps the ordinary same-row rules.
-        if isRecordUpdateBox containerBox && Array.all isCommentNode before then
+        if isRecordUpdateShape containerShape && Array.all isCommentNode before then
             -- Somewhere in the base … first-field region. `before` being all
             -- comments (rather than empty) is what keeps a SECOND comment here
             -- in the same region as the first — `{ {- a -} rec {- b -} | x = 1 }`
             -- must not let `{- b -}` inherit the opener's same-row glue.
-            if commentPrecedesUpdateBase containerBox commentNode then
+            if commentPrecedesUpdateBase containerShape commentNode then
                 bracketKindRole
 
             else if leadsAcrossUpdateSeparator then
@@ -3527,7 +3527,7 @@ classifyCommentKind containerBox commentNode before after row =
                 LeadsLine
 
             Just p ->
-                when lpnBox commentNode is
+                when lpnShape commentNode is
                     SingleLineComment _ ->
                         classifyLine p
 

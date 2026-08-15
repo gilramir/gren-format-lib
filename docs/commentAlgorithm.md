@@ -570,11 +570,11 @@ Three tests make a comment stay outside:
 
 | test | what it catches |
 |---|---|
-| `boxKeepsTrailingCommentOutside child` | box kinds that must never swallow a trailing comment |
+| `shapeKeepsTrailingCommentOutside child` | box kinds that must never swallow a trailing comment |
 | `nextSiblingIsBoundary` | the next sibling starts a new flow item — `in`, `else`, the next `let` binding (`IndentedBlock`), the next `when` branch (`WhenBranch`) |
 | `containerTailKeepsCommentOutside` | a multi-line comment past the last thing a paren wraps, or past any item of a bracketed container: it belongs to the container, not to that item |
 
-`boxKeepsTrailingCommentOutside` is **the single declared list** of such box
+`shapeKeepsTrailingCommentOutside` is **the single declared list** of such box
 kinds. If you add a construct that needs this rule, add it there rather than
 threading a new predicate into the guard:
 
@@ -635,7 +635,7 @@ An effect module's `where { … }` block has a second derived close, recomputed 
 
 ### 4.4 Phase 3 — which gap?
 
-`insertAmongChildren containerBox commentNode row col children`
+`insertAmongChildren containerShape commentNode row col children`
 
 The descent has settled on a node; now, between which two of its children does
 the comment go? Count how many children end before `(row, col)` — then apply
@@ -723,7 +723,7 @@ what the `BodyBlock` row's `isDeclValueContainer` gate exists for.
 
 ### 4.5 Phase 4 — which role?
 
-`classifyCommentKind containerBox commentNode before after row -> CommentRole`
+`classifyCommentKind containerShape commentNode before after row -> CommentRole`
 
 The splice point is known and the neighbours are in hand. This is where the
 placement is decided, and the criterion for the decision is stated in the
@@ -775,7 +775,7 @@ container is a binop chain (Binop / OpAndRhs) →  the operand rule
 anything else (the generic flow)              →  the coarse rule
 ```
 
-- **Bracket branch** (`isBracketContainerBox`) — permissive: a comment on the
+- **Bracket branch** (`isBracketContainerShape`) — permissive: a comment on the
   same row as the previous item trails it, whatever kind of item that was; a
   line-leading one stands on its own line. These comments render through
   `commentBracketListBox`, never through the generic flow, so they get their own
@@ -806,8 +806,8 @@ The diamonds, in code terms:
 
 | in the diagram | in `Comments.gren` |
 |---|---|
-| bracket container? | `isBracketContainerBox containerBox` |
-| binop chain? | `containerBox` is `Binop _` or `OpAndRhs` |
+| bracket container? | `isBracketContainerShape containerShape` |
+| binop chain? | `containerShape` is `Binop _` or `OpAndRhs` |
 | past the operand's row? | `row > chainedRefRow` — the last non-comment operand's row, grown through any comment run written on from it |
 | anything before it? | `before` is non-empty (`prev`) |
 | which kind? | `SingleLineComment` → `classifyLine`, `BlockComment` → `classifyBlock` |
@@ -821,7 +821,7 @@ The diamonds, in code terms:
 
 | in the diagram | in `Comments.gren` |
 |---|---|
-| in a record update's base…first-field region? | `isRecordUpdateBox containerBox && Array.all isCommentNode before` |
+| in a record update's base…first-field region? | `isRecordUpdateShape containerShape && Array.all isCommentNode before` |
 | before the base name? | `commentPrecedesUpdateBase` — the base's start position is recorded, so this is a fact, not a guess |
 | beside the `\|` separator, and may the whole run cross? | `leadsAcrossUpdateSeparator` — a single-line `{- -}` on the base's row or the first field's row, **and** `gapRunCrossesTogether` |
 | on the base's row? | `row == updateBaseRow` |
@@ -1972,7 +1972,7 @@ has a large blast radius. The right-hand column is what breaks when it is wrong
 |---|---|---|
 | `findOrCreateOrigRow` | which top-level declaration; **detach to column 1** when none | a claimed trailing comment drifts left a few columns per format |
 | `insertCommentIntoSubtree` | how deep to descend | the whole trailing-comment oscillation class |
-| `boxKeepsTrailingCommentOutside` | the declared list of never-swallow boxes | a comment sucked into the construct it merely trails |
+| `shapeKeepsTrailingCommentOutside` | the declared list of never-swallow boxes | a comment sucked into the construct it merely trails |
 | `commentInsideTrailingBracket` / `commentInsideEmptyBracket` | the "still inside the brackets" exception | a comment escapes a container, then lands on the far side of a synthesized token |
 | `insertAmongChildren` | the splice index, the synthesized-token skip, the wrapper redirects | a comment between a token and its generated `->`; a comment that forces a break C3 forbids |
 | `classifyCommentKind` | the `CommentRole` | everything downstream; a role that is not a reparse fixed point oscillates for ever |
@@ -2035,13 +2035,13 @@ it is fine. A whole-repo audit of these found one live instance and one that was
 
 The redirect arms of §4.4c each rest on a sentence like *"this body always starts
 a line of its own"*, written while looking at one place the box appears. The same
-`LPBox` constructor is reused elsewhere — an `IndentedBlock` is a `let` binding's
+`LPShape` constructor is reused elsewhere — an `IndentedBlock` is a `let` binding's
 value **and** a record field holding a lambda; a `BodyBlock` is a declaration's
 value **and** an array item — and inside a bracket the box is an *item*, which
 renders after the container's `, `. The premise is false there, and the comment
 that acts on it stacks above a separator the reparse then moves it in front of.
 
-Both known instances are now gated on the container (`isBracketContainerBox`,
+Both known instances are now gated on the container (`isBracketContainerShape`,
 `isDeclValueContainer`) rather than on the box. When you write such a premise,
 write down *which container you were looking at* — that is the fact that goes
 stale, and the code comment that records it is what lets the next reader spot it.

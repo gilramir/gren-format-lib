@@ -29,14 +29,14 @@ module Formatter.Render.CommentBox exposing
 
 import Formatter.Logical.LogicalPrintingTree exposing
     ( CommentRole(..)
-    , LPBox(..)
+    , LPShape(..)
     , LPNode
     , commentGluesToPrevious
     , commentLeadsLine
     , commentLeadsNext
     , commentRole
     , commentTrailsHead
-    , lpnBox
+    , lpnShape
     , lpnChildren
     , lpnReplaceChildren
     , roleIs
@@ -127,7 +127,7 @@ else (multi-line block, `--` line comment) can't be glued onto the one-line
 bracket, so it Errs rather than silently drop the comment. -}
 emptyBracketedCommentLine : LPNode -> Result String B.Line
 emptyBracketedCommentLine node =
-    when lpnBox node is
+    when lpnShape node is
         BlockComment { loc } ->
             if String.contains "\n" loc.value then
                 -- Not a crash: an `Err` here is the "can't fit the one-line form"
@@ -315,7 +315,7 @@ spanOperatorRowComments : Array LPNode -> { glued : Array LPNode, rest : Array L
 spanOperatorRowComments nodes =
     let
         gluesToOperatorRow node =
-            when lpnBox node is
+            when lpnShape node is
                 SingleLineComment { role } ->
                     role /= LeadsLine
 
@@ -383,7 +383,7 @@ peelTrailingCommentNodes nodes =
         go remaining acc sawLineComment =
             when Array.popLast remaining is
                 Just { last, initial } ->
-                    when lpnBox last is
+                    when lpnShape last is
                         SingleLineComment _ ->
                             if sawLineComment then
                                 { bodyNodes = remaining, trailing = acc }
@@ -433,7 +433,7 @@ comment's body is emitted verbatim as a single literal (safe — it is a
 standalone root child, already carrying its own closing delimiter). -}
 commentNodeBox : LPNode -> Result String Box
 commentNodeBox node =
-    when lpnBox node is
+    when lpnShape node is
         SingleLineComment { loc } ->
             Ok (B.line (B.lineComment ("--" ++ loc.value)))
 
@@ -502,7 +502,7 @@ spanOperandLeadingComments operandNodes =
     else
         when operandNodes is
             [ only ] ->
-                when lpnBox only is
+                when lpnShape only is
                     BodyBlock ->
                         let
                             inner =

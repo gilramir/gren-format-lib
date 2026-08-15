@@ -72,7 +72,7 @@ freezing changes both.
 
 ---
 
-### Adding `Binop` to `boxKeepsTrailingCommentOutside`
+### Adding `Binop` to `shapeKeepsTrailingCommentOutside`
 
 It converges the ownership half of the probe that motivated it, and **breaks 7
 fixtures** — `BinopChainCommentChain`, `TrailingLineCommentBinopOperand`,
