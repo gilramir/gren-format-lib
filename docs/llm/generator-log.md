@@ -294,7 +294,7 @@ raising `--comment-rate` to 0.5 (to exercise the new path harder — it only
 fires on an already-1-in-8-ish broken-arrow-with-comment combination) found a
 **pre-existing crash unrelated to the new grammar**: seed 809 shrunk to `{ y |
 next0 = \a -> 0 } -- k13`, a decl-trailing line comment on a single-line
-record UPDATE whose last field's value is a lambda. `gren format` emitted `{
+record UPDATE whose last field's value is a lambda. `gren-format` emitted `{
 y | next0 = \a -> 0 -- k13 }` — the comment swallowed the `}` that had to
 follow it on the same line, producing unparseable output.
 

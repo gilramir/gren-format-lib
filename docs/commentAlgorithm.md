@@ -1,6 +1,6 @@
 # The comment algorithm
 
-How `gren format` places comments — the *implementation*, for people who work on
+How `gren-format` places comments — the *implementation*, for people who work on
 the formatter.
 
 This is the companion to [How gren-format places your
@@ -126,7 +126,7 @@ Re-attaching them is this algorithm.
 Three properties, and all three are gated (§10):
 
 1. **Preservation.** Every comment in the input appears exactly once in the
-   output, with its text unchanged and its kind unchanged. `gren format` never
+   output, with its text unchanged and its kind unchanged. `gren-format` never
    edits comment text. (It does re-*indent* the continuation lines of a
    multi-line `{- … -}`; that is layout, not text.)
 2. **Faithful placement.** The comment lands beside the code the author wrote it
@@ -134,7 +134,7 @@ Three properties, and all three are gated (§10):
 3. **Idempotency.** `format(format(x)) == format(x)`, byte for byte. Formatting
    is a fixed point.
 
-Property 3 is not a nicety. `gren format` runs in editors on save and in CI. A
+Property 3 is not a nicety. `gren-format` runs in editors on save and in CI. A
 file that alternates between two spellings produces phantom diffs for ever, and
 "the formatter is unstable" is the fastest way to lose a team's trust in it.
 
@@ -570,15 +570,15 @@ Three tests make a comment stay outside:
 
 | test | what it catches |
 |---|---|
-| `shapeKeepsTrailingCommentOutside child` | box kinds that must never swallow a trailing comment |
+| `shapeKeepsTrailingCommentOutside child` | shape kinds that must never swallow a trailing comment |
 | `nextSiblingIsBoundary` | the next sibling starts a new flow item — `in`, `else`, the next `let` binding (`IndentedBlock`), the next `when` branch (`WhenBranch`) |
 | `containerTailKeepsCommentOutside` | a multi-line comment past the last thing a paren wraps, or past any item of a bracketed container: it belongs to the container, not to that item |
 
-`shapeKeepsTrailingCommentOutside` is **the single declared list** of such box
+`shapeKeepsTrailingCommentOutside` is **the single declared list** of such shape
 kinds. If you add a construct that needs this rule, add it there rather than
 threading a new predicate into the guard:
 
-| box kind | why |
+| shape kind | why |
 |---|---|
 | `AcrossOrVertical` | a function-call / argument flow |
 | `IfCondition` | an `if` / `else if` condition |
@@ -710,11 +710,11 @@ Read those arms as one rule: **redirect exactly when the body cannot share the
 head's row anyway.**
 
 The bracket exception in the first row is that rule again, and it is worth
-reading because the arms state their premise as a fact about the *box* when it is
-really a fact about the *container*. "This body always starts a line of its own"
-is true of an `IndentedBlock` holding a `let` binding's value and false of the
-same box holding a **record field** — `folderInsertRecordField` builds a
-lambda-valued field as an `IndentedBlock`, and inside a bracket that box is an
+reading because the arms state their premise as a fact about the *shape* when it
+is really a fact about the *container*. "This body always starts a line of its
+own" is true of an `IndentedBlock` holding a `let` binding's value and false of
+the same shape holding a **record field** — `folderInsertRecordField` builds a
+lambda-valued field as an `IndentedBlock`, and inside a bracket that shape is an
 **item**, which renders after the container's `, `. Redirected inside, a comment
 written in the `,` gap stacked above `fld =`; the reparse read it as own-line and
 moved it in front of the separator, for ever. Every other field shape had always
@@ -791,7 +791,7 @@ anything else (the generic flow)              →  the coarse rule
   sits beside it, not on a line of its own.
 - **Generic flow** — the coarse rule, split by comment kind:
   `classifyLine` for a `--` and `classifyBlock` for a `{- -}`, each consulting a
-  per-box-kind table of "what row does a following comment glue onto":
+  per-shape-kind table of "what row does a following comment glue onto":
   `prevLineGlueRow` and `prevBlockGlueRow`.
 
 Here is the whole function as a decision tree, in two halves — the branch
@@ -1033,8 +1033,8 @@ v =
         |> g
 ```
 
-Now ask the tree who owns it. This is `--lpt`'s JSON with everything but the box
-types and the comment's own fields stripped out:
+Now ask the tree who owns it. This is `--lpt`'s JSON with everything but the
+shape types and the comment's own fields stripped out:
 
 ```
 Pipeline
@@ -1925,7 +1925,7 @@ the *shape* of the result, which has been stable:
 - `matrix-syntax.py --comments --comment-runs` sweeps all nine two-member
   compositions against oracles 1–3 only.
 
-That parity zero is the line to quote to a sceptic: every place `gren format` and
+That parity zero is the line to quote to a sceptic: every place `gren-format` and
 `elm-format` put a comment differently is a *decision on record with a reason*,
 not an unexamined difference. Getting there meant reading 16,141 unreviewed cells
 down to none over several `--interview` sittings, which **found two formatter
@@ -1972,11 +1972,11 @@ has a large blast radius. The right-hand column is what breaks when it is wrong
 |---|---|---|
 | `findOrCreateOrigRow` | which top-level declaration; **detach to column 1** when none | a claimed trailing comment drifts left a few columns per format |
 | `insertCommentIntoSubtree` | how deep to descend | the whole trailing-comment oscillation class |
-| `shapeKeepsTrailingCommentOutside` | the declared list of never-swallow boxes | a comment sucked into the construct it merely trails |
+| `shapeKeepsTrailingCommentOutside` | the declared list of never-swallow shapes | a comment sucked into the construct it merely trails |
 | `commentInsideTrailingBracket` / `commentInsideEmptyBracket` | the "still inside the brackets" exception | a comment escapes a container, then lands on the far side of a synthesized token |
 | `insertAmongChildren` | the splice index, the synthesized-token skip, the wrapper redirects | a comment between a token and its generated `->`; a comment that forces a break C3 forbids |
 | `classifyCommentKind` | the `CommentRole` | everything downstream; a role that is not a reparse fixed point oscillates for ever |
-| `prevLineGlueRow` / `prevBlockGlueRow` | per-box-kind glue rows | a comment alternating between glued and own-line |
+| `prevLineGlueRow` / `prevBlockGlueRow` | per-shape-kind glue rows | a comment alternating between glued and own-line |
 | `flowEndsAtBracketClose` | does this flow end in a closing bracket, i.e. is there a glue row at all | a comment gluing onto a row the output does not have (a lambda whose *pattern* ends in a `]`) |
 | `headerTailGlue` | the effect header's position-less tail | a comment on a row with no recorded token on it; scoped away from comments, whose own positions already answer |
 | `chainedRefRow` / `bracketItemRow` | run chaining (§7 R1) | the second comment of a run dropping below the construct |
@@ -2005,7 +2005,7 @@ has a large blast radius. The right-hand column is what breaks when it is wrong
 | `NodeClassify.commentEndsItsLine` / `commentTextCanRide` | the shape table (§5.2) | using the role where the shape was meant, or vice versa |
 | `NodeClassify.commentBreaksFlowRow` | a comment-aware `forceVertical` | flat-then-broken oscillation |
 | `Box.endsOpen` / `asJoinable` | is gluing here safe? | **output that does not parse** — a `]` swallowed by a `--` |
-| `NodeClassify.subtreeEndsWithMultilineBlockComment` | is the box align-carrying? | a comment's continuation row off by a few columns |
+| `NodeClassify.subtreeEndsWithMultilineBlockComment` | is the subtree align-carrying? | a comment's continuation row off by a few columns |
 | `CommentBox.commentForcesBracketOpen` | may a literal stay flat? | as above, or a needless break |
 | `CommentBox.glueLeadingCommentRun` / `glueLeadBoxes` | run cohesion (§7 R3) | a run that half-rides and never settles |
 | `MakeRenderBox.commentBracketListBox` | the comment-bearing bracket layout | the biggest single materializer; most bracket comment bugs land here |
@@ -2031,18 +2031,18 @@ When you review such a site, do not stop at "this one is fine" — trace **why**
 it is fine. A whole-repo audit of these found one live instance and one that was
 **correct by accident**, and the accidental one is the more dangerous of the two.
 
-> **2. A premise about the box is really a premise about the container.**
+> **2. A premise about the shape is really a premise about the container.**
 
 The redirect arms of §4.4c each rest on a sentence like *"this body always starts
-a line of its own"*, written while looking at one place the box appears. The same
+a line of its own"*, written while looking at one place the shape appears. The same
 `LPShape` constructor is reused elsewhere — an `IndentedBlock` is a `let` binding's
 value **and** a record field holding a lambda; a `BodyBlock` is a declaration's
-value **and** an array item — and inside a bracket the box is an *item*, which
+value **and** an array item — and inside a bracket the shape is an *item*, which
 renders after the container's `, `. The premise is false there, and the comment
 that acts on it stacks above a separator the reparse then moves it in front of.
 
 Both known instances are now gated on the container (`isBracketContainerShape`,
-`isDeclValueContainer`) rather than on the box. When you write such a premise,
+`isDeclValueContainer`) rather than on the shape. When you write such a premise,
 write down *which container you were looking at* — that is the fact that goes
 stale, and the code comment that records it is what lets the next reader spot it.
 The general form is the one §1.3 states: **a placement decided from a fact the
@@ -2134,7 +2134,7 @@ three are documented with examples in
 
 Plus one that is not ours: `compiler-common#35`, §10.
 
-Where `gren format` and `elm-format` place a comment differently on purpose —
+Where `gren-format` and `elm-format` place a comment differently on purpose —
 and there are several such places, each with a reason on record — the list is
 **[Comparison with elm-format](elmFormatComparison.md)**.
 

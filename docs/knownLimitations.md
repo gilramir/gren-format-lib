@@ -1,6 +1,6 @@
 # Known limitations
 
-Places where `gren format` falls short of ideal — a compiler/parser bug it
+Places where `gren-format` falls short of ideal — a compiler/parser bug it
 inherits, a shape the language no longer allows but the parser still accepts,
 or a comment-placement choice forced by a token with no recorded source
 position. See the main [README](../README.md) for the overview, and
@@ -162,7 +162,7 @@ compiler-common#14.
 
 ## Output today's compiler rejects, that the next one will accept
 
-`gren format` is built on `compiler-common`, which is the parser the **next**
+`gren-format` is built on `compiler-common`, which is the parser the **next**
 Gren compiler will use. Today's released compiler is the Haskell one, and the
 two do not accept exactly the same language: `compiler-common` is deliberately
 more permissive about indentation. Where they differ, the formatter follows
@@ -183,7 +183,7 @@ f z =
     next
 ```
 
-`gren format` moves the `,` and the `}` back to the `{`'s own column, which is
+`gren-format` moves the `,` and the `}` back to the `{`'s own column, which is
 also the column the binding starts at:
 
 ```gren
@@ -316,12 +316,12 @@ operator's row, or parenthesize.
 ## An integer literal just below 2^53 is silently rewritten
 
 36 integers near the top of the exactly-representable range come out of
-`gren format` as a *different number*. The file still parses, the AST check
+`gren-format` as a *different number*. The file still parses, the AST check
 passes, the output is a fixed point — and the program no longer means what it
 did:
 
 ```gren
-a =                             -- input               -- after gren format
+a =                             -- input               -- after gren-format
     9007199254740991                                       9007199254740992
 ```
 
@@ -381,7 +381,7 @@ In this repo's own test suite. `tests/src/Test/Formatter/Format.gren` pins
 , hexCase "2^53 - 1 (max exact JS integer)" 9007199254740991 "1FFFFFFFFFFFFF"
 ```
 
-Running `gren format` over `gren-format-lib` rewrites that `…991` to `…992` and
+Running `gren-format` over `gren-format-lib` rewrites that `…991` to `…992` and
 the test then fails, because `intToHex` correctly reports `20000000000000` for
 the number it was actually given. **Formatting this repo will keep re-breaking
 that line** until core#134 ships and the dependency is bumped; repair it by hand
@@ -866,7 +866,7 @@ Int` is no longer valid Gren; a multi-field variant must carry a record
 instead (`Person { name : String, age : Int }`). The parser this project is
 built on does not enforce that restriction for a chain of bare
 constructor-name arguments, so `type Person = Person String Int` still parses
-without error, and `gren format` duly formats it. Tracked at
+without error, and `gren-format` duly formats it. Tracked at
 [compiler-common#32](https://github.com/gren-lang/compiler-common/issues/32).
 
 Two of this package's own fixtures depend on the gap and are reduced to 0/1

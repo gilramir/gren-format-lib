@@ -598,7 +598,7 @@ It now keeps the row the author wrote on:
 ```
 
 The new role is `TrailsHead`: a record update's base is carried on the
-`RecordUpdate` box, not among its children, so `TrailsPrevious` has nothing to
+`RecordUpdate` shape, not among its children, so `TrailsPrevious` has nothing to
 attach to. A single-line `{- -}` in that gap is untouched and still leads the
 first field (C2), keeping the update flat (C3). The opener slot, separated by the
 base name's recorded position, is untouched.

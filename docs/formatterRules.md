@@ -1,6 +1,6 @@
 # Gren Formatter Rules
 
-A guide to how `gren format` lays out your code — what it changes, what it
+A guide to how `gren-format` lays out your code — what it changes, what it
 leaves alone, and why. For a shorter tour of the core ideas, see the
 ["Gren Formatter Rules" section](../README.md) of the
 main README; for how the formatter arrives at these decisions internally, see

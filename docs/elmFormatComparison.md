@@ -1,6 +1,6 @@
 # Comparison with elm-format
 
-`gren format` is a spiritual descendent of `elm-format`, and agree on
+`gren-format` is a spiritual descendent of `elm-format`, and agree on
 formatted syntax in most places. We ran an audit on the
 formatter's own test fixtures (`gren-format-lib/tests/testfiles/`),
 converting the Gren code to Elm, ran them through

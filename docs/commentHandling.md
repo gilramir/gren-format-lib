@@ -1,6 +1,6 @@
 # How gren-format places your comments
 
-`gren format` **never changes the text of a comment.** What it decides is where
+`gren-format` **never changes the text of a comment.** What it decides is where
 each comment sits relative to the code around it — which line it lands on, and
 how far it is indented.
 
@@ -51,7 +51,7 @@ compiler does not care about, and the only part the formatter cannot afford to
 get wrong.** Move a line of code and it still means the same thing. Move a
 comment and it now describes something else.
 
-`gren format` does not have its own parser. It uses the **production Gren
+`gren-format` does not have its own parser. It uses the **production Gren
 compiler's** parser, which matters more than it sounds: a formatter that accepts
 a slightly different language than the compiler is a bug factory, so we always
 parse exactly what the compiler parses.
@@ -103,7 +103,7 @@ Putting them back together is what the rest of this document is about.
 
 Three things, and the third is the one that makes this hard.
 
-**1. Every comment survives.** Same text, same kind, exactly once. `gren format`
+**1. Every comment survives.** Same text, same kind, exactly once. `gren-format`
 never edits what you wrote inside a comment. (It does re-indent the continuation
 lines of a multi-line `{- … -}` so its body hangs under its own `{-`; that is
 layout, not text.)
@@ -114,7 +114,7 @@ rules below are the full statement.
 **3. Formatting twice changes nothing.** `format(format(x))` must equal
 `format(x)`, byte for byte.
 
-That third property is not a nicety. `gren format` runs on save and in CI, and a
+That third property is not a nicety. `gren-format` runs on save and in CI, and a
 file that alternates between two spellings produces phantom diffs for ever.
 
 Here is why it is the hard one. The formatter decides where a comment goes by

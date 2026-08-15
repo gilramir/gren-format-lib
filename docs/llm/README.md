@@ -1,7 +1,7 @@
 # `docs/llm/` — written for a model, not for a reader
 
 Nothing in this directory is part of the documentation. A person reading about
-`gren format`, or working on it, should never need to open these files; the
+`gren-format`, or working on it, should never need to open these files; the
 documentation proper is one level up in [`docs/`](../).
 
 What lives here is the material a model working on this repo would otherwise

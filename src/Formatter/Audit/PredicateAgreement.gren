@@ -107,6 +107,18 @@ because it is the shape any future recursive predicate would need, and because a
 `claim` is what the predicate answered. Findings of the one-directional property
 all carry `claim == True` by construction; `flowCommentFindings` also reports
 `False`, and the two read as opposite complaints.
+
+`boxKind` is misnamed: it holds `shapeKindName (lpnShape node)`, an `LPShape`
+constructor name, not a `Formatter.Render.Box` -- the two are different things
+(a shape says what kind of node this is, a `Box` says where its characters
+land), and the name dates from before `LPBox` was renamed to `LPShape`.
+`shapeKind` is what it should be called. It is deliberately NOT renamed: the
+field is a JSON key in the `--audit-predicates` output, read by
+`audit-predicates.py`, `matrix-syntax.py`, `gen-random.py` and the two
+`_run_predicate_*` instruments, and named in `tests/GENERATOR.md` and
+`docs/testing.md`. Renaming it is a one-shot flag day across all of those, for
+a field whose only consumers are our own gates -- not worth breaking a saved
+finding or a half-updated instrument over. Read it as "shape kind".
 -}
 type alias Finding =
     { predicate : String

@@ -3,7 +3,7 @@ module Formatter.Logical.BinopPrecedence exposing
     , binopPrecedence
     )
 
-{-| Operator fixities, used to lay out a non-pipeline binop chain.
+{-| Operator precedences, used to lay out a non-pipeline binop chain.
 
 A chain breaks at its lowest-precedence operators, keeping tighter-binding
 sub-terms inline (`a + b * c` breaks at `+`, keeps `b * c` together). Two halves
@@ -27,8 +27,9 @@ defaultBinopPrecedence =
 
 
 {-| Precedence of a binary operator: higher binds tighter. The values are core's
-authoritative fixities (`core/src/Basics.gren`). `|>` / `<|` (precedence 0) are
-pipelines, handled by the separate `Pipeline` path and never reach binop layout.
+authoritative precedences, read off its own fixity declarations
+(`core/src/Basics.gren`). `|>` / `<|` (precedence 0) are pipelines, handled by
+the separate `Pipeline` path and never reach binop layout.
 -}
 binopPrecedence : String -> Int
 binopPrecedence op =

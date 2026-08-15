@@ -1,7 +1,7 @@
 # Adding new Gren syntax to the formatter
 
-This is the orientation guide for teaching `gren format` about a new piece of
-Gren syntax — a new AST node, a new declaration kind, a new expression form.
+This is a guide for teaching `gren-format` about a new piece of
+Gren syntax — a new AST node, a new kind of declaration, a new expression.
 Gren will keep growing, so the formatter has to be easy to extend without
 breaking the invariants that keep formatting correct, stable, and
 comment-faithful.
@@ -19,9 +19,8 @@ idempotency fuzzer, the `forceVertical`-stability rule) exists because
 re-attaching something by position, after the fact, is harder to get right
 than never losing it in the first place. [Why the architecture is
 comment-driven](#why-the-architecture-is-comment-driven--contrasted-with-elm-format)
-makes that comparison explicit against elm-format, which took the opposite
-approach — it's dense but worth reading in full once, even placed near the
-end here.
+compares this approach with that of elm-format, which has a different
+foundation.
 
 The sections below go roughly in this order: how source text becomes a tree
 (the pipeline and the modules that build it), what that tree looks like and
@@ -37,7 +36,7 @@ that are easy to make and expensive to find.
   - [The AST — `Compiler.Ast.Source.Module`](#the-ast--compilerastsourcemodule)
   - [The comments — `Compiler.Parse.Context`](#the-comments--compilerparsecontext)
 - [The LPT — `Formatter.Logical.LogicalPrintingTree`](#the-lpt--formatterlogicallogicalprintingtree)
-  - [Boxes you will reach for](#boxes-you-will-reach-for)
+  - [Shapes you will reach for](#shapes-you-will-reach-for)
   - [`OriginalRows` and `SyntaxType` — the top level only](#originalrows-and-syntaxtype--the-top-level-only)
   - [The cached bounds (why `lpnNode` matters)](#the-cached-bounds-why-lpnnode-matters)
 - [Author layout — the `forceVertical` flag](#author-layout--the-forcevertical-flag)
@@ -75,11 +74,12 @@ Src.Module + Ctx.Context  ──►  LPT  ──►  Box  ──►  String
   not the exact spaces. It also carries enough source-position information to put
   comments back where the author wrote them.
 - **`Formatter.Render.Box`** turns the LPT into a concrete string. It is a
-  faithful port of elm-format's own `Box.hs` render IR: every node is already
+  faithful port of elm-format's own `Box.hs` render intermediate
+  representation(IR): every node is already
   either `SingleLine` or `Stack` (2+ actual output lines) — there is no
   intermediate "could become a newline" node and nothing to resolve at render
   time. The flat-vs-vertical choice is made once, at LPT-build time, via
-  `forceVertical` flags on certain boxes (see below); rendering just executes
+  `forceVertical` flags on certain LPT shapes (see below); rendering just executes
   whichever shape the tree already committed to. See [Why Box, and not a
   pretty-printer](#why-box-and-not-a-pretty-printer) for why this backend looks
   nothing like a typical Wadler-style pretty-printer.
@@ -111,7 +111,7 @@ Formatter/Logical/
   LiteralFormat.gren              string / char / hex literal escaping
   LPTHelpers.gren                 LPT construction helpers: mkText*/plainAcross/
                                     syntheticParens/authoredBracketList/…
-  BinopPrecedence.gren            operator fixity table for binop-chain layout
+  BinopPrecedence.gren            operator precedence table for binop-chain layout
   LogicalPrintingTree.gren        LPShape / LPNode types, smart constructors, bounds cache
   LPTJson.gren                    --lpt debug serialiser
   Comments.gren                   re-attach parse-context comments by position
@@ -141,28 +141,10 @@ Formatter/Audit/                not in the pipeline — the two gates that need
 `Logical/`, `Render.gren` alongside `Render/` — the orchestrator of each stage
 is the file next to the directory, not inside it.
 
-Most of those were extracted out of `MakeRenderBox.gren` to shrink it. Gren
-forbids circular imports, so a helper could only move if it never transitively
-reached the `makePBox`/`buildFlowBox` recursion; the mutually-recursive dispatch
-and the per-construct renderers stay behind. `BoxOps`, `NodeClassify` and
-`FlowPolicy` import no other `Render` module; `BinopLayout`/`CommentBox`/
-`FlowAssembly` import those (and `FlowAssembly` → `FlowPolicy`); `MakeRenderBox`
-imports everything.
-
-`BackwardPipeline` is the exception, and the pattern to copy when a cluster is
-big enough to want its own module but does reach the recursion. It takes its
-three entry points (`assembleFlow`, `buildFlowBox`, `renderFlowItems`) as a
-`Renderers` record threaded through every function in the cluster, so the import
-still points one way. `MakeRenderBox` already passed renderers as arguments in
-the small — `renderHeaderIndentedBody`, `literalItemRenderer` — this is the same
-move at module scale. It is worth doing where the seam is genuinely narrow: the
-whole `<|` cluster — the largest module under `Render/` — needed exactly those
-three functions and had exactly one caller.
-
 `LogicalPrintingTree.gren` is the hub every module depends on; its module doc
 opens with a categorised map of all 28 `LPShape` constructors. `BinopPrecedence`
 is imported by both `InsertExpressions` (to decide the author's break tier) and
-`MakeRenderBox` (to render it) — they must agree, so the fixity table has one
+`MakeRenderBox` (to render it) — they must agree, so the precedence table has one
 home.
 
 ---
@@ -193,7 +175,7 @@ types are their own recursive `Src.Expr` / `Src.Pattern` / `Src.Type_` trees,
 each node `Located`. When you add syntax, the parser team will have added a
 constructor here; your job starts from that constructor.
 
-**Positions are the load-bearing part.** The formatter leans on `start`/`end` of
+**Positions are the vital pieces of information.** The formatter leans on `start`/`end` of
 every token — not to reproduce them, but to (a) decide source order, (b)
 re-attach comments, and (c) detect author layout intent. If a new AST node
 carries a token the parser *doesn't* record a position for (a synthesized
@@ -211,27 +193,32 @@ type Comment = Line String | Block String
 Comments ride alongside the AST as a flat, source-ordered list of located
 `Line` (`--`) or `Block` (`{- -}`) strings. They are re-attached to the LPT
 *after* it is built, purely by position (`Formatter.Logical.Comments`). This is why
-positions on your LPT nodes must be honest: a comment is placed next to whatever
+positions on the LPT nodes must be correct: a comment is placed next to whatever
 token its `(row, col)` falls between.
 
 ---
 
 ## The LPT — `Formatter.Logical.LogicalPrintingTree`
 
-An `LPNode` is a `box` (the layout shape) plus `children`, plus a handful of
+An `LPNode` is an `LPShape` (what layout this node takes, or which leaf it is)
+plus `children`, plus a handful of
 **cached subtree bounds**. Build nodes only with the smart constructors —
-`lpnLeaf box`, `lpnNode box children`, `lpnBracketNode box closePos children` —
+`lpnLeaf shape`, `lpnNode shape children`,
+`lpnBracketNode shape closePos children` —
 never with raw record syntax: the constructors compute the caches bottom-up, and
 skipping them yields wrong positions and mis-placed comments. The type is
 exported opaque, so this is enforced by the compiler — outside
-`LogicalPrintingTree` the record simply cannot be spelled.
+`LogicalPrintingTree` the record simply cannot be spelled. An `LPShape` is not a
+`Formatter.Render.Box`: a shape says *what kind of thing this node is*, a `Box`
+(the render stage's IR, [below](#formatterrenderbox--the-backend)) says where its
+characters land.
 
-### Boxes you will reach for
+### Shapes you will reach for
 
 Every example below is real, formatted Gren — run through the actual CLI
 (`--show`) and checked for idempotency, not hand-typed. Where two snippets
 appear together, they're the same construct rendered two ways, to show what
-flips the box's shape.
+flips the shape.
 
 Leaves (carry text/position, no children):
 
@@ -276,7 +263,7 @@ Leaves (carry text/position, no children):
   All three come from `Compiler.Parse.Context`'s comment list and are spliced
   into the tree by position after it's built (see [The comments —
   `Compiler.Parse.Context`](#the-comments--compilerparsecontext)) — you build
-  the surrounding boxes correctly and these attach on their own.
+  the surrounding shapes correctly and these attach on their own.
 
 - `MultilineString (Located (Array String))`, `EmptyLine`, `RootBox`.
 
@@ -294,7 +281,7 @@ Leaves (carry text/position, no children):
   declarations — you won't construct one directly. `RootBox` only ever
   appears once, as the tree's own root.
 
-Layout boxes (have children):
+Layout shapes (have children):
 
 - `AcrossOrVertical { forceVertical : Bool, checkContentVertical : Bool }` —
   bare (unbracketed) token sequence, all on one line *or* one child per line
@@ -482,10 +469,10 @@ Layout boxes (have children):
   - **`PrefixGlue`** — a prefix glued with no space to what follows (`-expr`,
     `\pat -> …`). The lambda in the earlier examples is one: `\x -> x + 1`
     glues `\` directly onto the pattern `x` via `PrefixGlue "\\"` — the same
-    box handles unary negation, as `PrefixGlue "-"`.
+    shape handles unary negation, as `PrefixGlue "-"`.
 
 See `docs/formatterRules.md` for the rendered example of each rule these
-boxes implement, in user-facing terms rather than internal ones.
+shapes implement, in user-facing terms rather than internal ones.
 
 ### `OriginalRows` and `SyntaxType` — the top level only
 
@@ -504,7 +491,7 @@ Every node caches `firstPos`, `lastPos`, `minRow`, `maxRow`, `lastBracketEnd`,
 `bracketEndExact`, `bracketEndElastic`, `bracketStart`, and `hasComment`.
 `Formatter.Logical.Comments` uses these to answer "what's the first/last
 positioned token here?" and "where does the rightmost bracket close?" in O(1).
-`lpnNode` fills them from `selfShapeBounds box` merged with the children;
+`lpnNode` fills them from `selfShapeBounds shape` merged with the children;
 `lpnBracketNode` additionally records an *exact* closing-bracket position, and
 `lpnElasticBracketNode` records a *derived* one that grows as comments are placed
 inside it (see step 3 below).
@@ -519,11 +506,47 @@ The formatter has **no page width**. Whether a construct stays on one line or
 breaks across lines is determined at LPT-build time from the author's source
 positions, not at render time from a column budget.
 
-The mechanism: some boxes carry `{ forceVertical : Bool }`. Set it `True` when
+The mechanism: some shapes carry `{ forceVertical : Bool }`. Set it `True` when
 the author's source has a line break inside that construct; set it `False` for
 flat intent. `MakeRenderBox` then picks between an ordinary flow
 (`buildFlowBox`) and a hard-breaking one (`buildFlowBoxBroken`) based on that
 flag.
+
+One example, end to end. These two files differ by one newline — before the
+second argument — plus some stray spaces:
+
+```gren
+main =
+    update model (Just newValue)
+```
+
+```gren
+main =
+    update    model
+         (Just     newValue)
+```
+
+`insertCall` computes `forceVertical = itemsSpanRows (fn :: args)` for each. In
+the first, the whole call sits on one row, so the flag is `False`. In the
+second, `(Just newValue)` starts a row after `model`, so it is `True` — visible
+as `"forceVertical": true` on the call's `AcrossOrVertical` node under
+`node ../gren-format/app --lpt`. The two then render as:
+
+```gren
+main =
+    update model (Just newValue)
+```
+
+```gren
+main =
+    update model
+        (Just newValue)
+```
+
+Note what survived and what did not. The second file's extra spaces are gone —
+they carry no structural meaning — but its newline is preserved, because that
+one *is* the author's layout decision. And the first stays flat no matter how
+long it grows; there is no width at which the renderer breaks it for you.
 
 **Where to detect multiline intent** (in `InsertExpressions.gren`):
 
@@ -546,7 +569,8 @@ its predecessor. If yes → `forceVertical = True`; the renderer does the rest.
 ## `Formatter.Render.Box` — the backend
 
 `Formatter.Render.Box` (`Box.gren`) is a faithful port of elm-format's own
-`Box.hs`. Two types, both closed (no page-width machinery anywhere in them):
+`Box.hs`. Two types, and these are all of their constructors — no page-width
+machinery anywhere in them, and nothing that defers a break to render time:
 
 ```gren
 type Line = Text String | Row (Array Line) | Space | Tab
@@ -698,7 +722,7 @@ on the right:
 
 There is no `Group`, no `nl`/`breakDoc`, and nothing to "render flat and see
 if it fits." The flat-vs-vertical decision is made once, upstream of this
-module, when an LPT box is built with `forceVertical = True`/`False`; the two
+module, when an LPT shape is built with `forceVertical = True`/`False`; the two
 layers above `Box.gren` just materialize that decision:
 
 - **`Formatter.Render.FlowPolicy`** (`decide`) — given the running flow state
@@ -717,7 +741,7 @@ layers above `Box.gren` just materialize that decision:
   `ElmStructure` and assembling the result with `Box.gren`'s primitives.
 
 When you add a new shape type, add an arm to `renderNodeBox`'s `when shape is
-…` dispatch returning `Result String Box`. Reuse an existing box shape if one
+…` dispatch returning `Result String Box`. Reuse an existing shape if one
 fits — a new `LPShape` constructor requires new arms in *every* `when shape is` in
 `MakeRenderBox` plus `selfShapeBounds` in `LogicalPrintingTree`.
 
@@ -731,12 +755,18 @@ does.
 
 The obvious alternative is a Wadler/Prettier-style pretty-printer — the family,
 including JavaScript's Prettier, that lays code out by searching for the best
-line breaks within a page-width budget. This formatter had one (and then a
-hand-written `Doc` IR after it), and both were removed. A cost-based optimizer
-answers "where should the breaks go?", and gren-format has already answered that
-before rendering starts: your line breaks are your layout decisions, recorded as
-`forceVertical`. Running a search over a decision already made is dead weight,
-and worse, it is a second opinion that can disagree with the first.
+line breaks within a page-width budget. This formatter's first iteration was
+exactly that: it rendered through
+[`gilramir/gren-pretty-expressive`](https://packages.gren-lang.org/package/gilramir/gren-pretty-expressive),
+a Gren implementation of the [Pretty Expressive
+Printer](https://arxiv.org/pdf/2310.01530) — hand it a page width and a cost
+model and it searches every possible layout for the cheapest one. A
+hand-written `Doc` IR replaced that, and Box replaced the `Doc`; both are gone.
+A cost-based optimizer answers "where should the breaks go?", and gren-format
+has already answered that before rendering starts: your line breaks are your
+layout decisions, recorded as `forceVertical`. Running a search over a decision
+already made is dead weight, and worse, it is a second opinion that can
+disagree with the first.
 
 That is the throughline for anything you add here. Each layer this renderer has
 shed was one that re-decided something already decided elsewhere, and the same
@@ -747,7 +777,7 @@ told us, the answer belongs upstream, not in the renderer.
 
 ## Adding a new construct — the checklist
 
-Most new syntax is "build some boxes in a flow," and the existing comment and
+Most new syntax is "build some shapes in a flow," and the existing comment and
 blank-line machinery just works. Before the general checklist, here's what
 that looks like end to end for one example — hypothetical and simplified for
 teaching, but shaped exactly like real work you'd do. Imagine Gren grows an
@@ -781,7 +811,7 @@ teaching, but shaped exactly like real work you'd do. Imagine Gren grows an
   comments correctly on its own — *provided* the `then` position above is
   honest.
 - **Render.** Add an arm to `MakeRenderBox.renderNodeBox` for the new
-  shape, or — more likely — reuse whichever box already renders `if`'s
+  shape, or — more likely — reuse whichever shape already renders `if`'s
   condition/body pairing, since `unless` is structurally identical minus a
   branch.
 - **Blank lines.** Not applicable here: `unless` is an expression, not a
@@ -816,8 +846,8 @@ position but contributing zero width — see below), and `Formatter.Results`'
 most common container shapes there are smart constructors that fill in the
 default flags for you: `plainAcross children` (an `AcrossOrVertical` flow — a
 head-and-its-parts) and `syntheticParens children` (a formatter-synthesized
-`ParenBlock` with no author position). Prefer them over spelling out the box
-record; reach for the raw box only when you need a non-default flag
+`ParenBlock` with no author position). Prefer them over spelling out the shape
+record; reach for the raw shape only when you need a non-default flag
 (`forceVertical = True`, `checkContentVertical = True`, …).
 
 ### 3. Get positions right (the difficult part)
@@ -872,7 +902,7 @@ whole model, `docs/commentHandling.md` for the behaviour it implements, and
 `Comments.gren`, "Adding
 support for a new construct", for the required reading. The short version:
 
-- Emit your tokens as ordinary boxes in a flow and boundary comments place
+- Emit your tokens as ordinary shapes in a flow and boundary comments place
   correctly on their own.
 - If your construct has a **closing delimiter the parser discards**, you must use
   `lpnBracketNode` (step 3) or a comment written just before the close
@@ -896,11 +926,11 @@ support for a new construct", for the required reading. The short version:
 
 ### 6. Render it — `MakeRenderBox.renderNodeBox`
 Add an arm to the `renderNodeBox` `when shape is …` dispatch (and to the
-parallel flow dispatches in `FlowPolicy`/`ElmStructure` if your box appears
+parallel flow dispatches in `FlowPolicy`/`ElmStructure` if your shape appears
 there) returning a `Result String Box` built from `Formatter.Render.Box`
-primitives. Reuse an existing box shape if one fits — prefer
+primitives. Reuse an existing shape if one fits — prefer
 `AcrossOrVertical`, `AllAcrossOrAllVertical`, `IndentedBlock` etc. over
-inventing a new shape. Only add a new `LPShape` constructor when no existing shape
+inventing a new one. Only add a new `LPShape` constructor when no existing shape
 expresses the breaking behaviour you need; a new constructor means new arms in
 *every* `when shape is` in `MakeRenderBox` plus `selfShapeBounds` in
 `LogicalPrintingTree`.
@@ -918,7 +948,7 @@ These mistakes are easy to make and expensive to find, because most of them
 pass a first read of the diff cleanly. They surface later — as a
 `fuzz-idempotency.py` gap, as a reformat that quietly reindents someone's
 comment, or as a bug report that a file changed on the *second* run of
-`gren format`, not the first.
+`gren-format`, not the first.
 
 **Construction and positions**
 
@@ -1172,12 +1202,12 @@ comment-bearing fixture so the fuzzers exercise the reconstruction.
 
 - `docs/formatterRules.md` — authoritative, example-by-example description of
   every rule (`README.md` has the short version plus an example).
-- `Logical/LogicalPrintingTree.gren` — the module doc's categorised box table,
-  then every box's own doc comment and the caching invariants.
+- `Logical/LogicalPrintingTree.gren` — the module doc's categorised shape table,
+  then every shape's own doc comment and the caching invariants.
 - `Logical/Comments.gren` module doc — the comment-attachment algorithm and its
   "Adding support for a new construct" section; the body is banner-sectioned into
   phase 1 (top-level slot) and phase 2 (inner descent).
-- `Logical/BinopPrecedence.gren` — the operator fixity table and why its
+- `Logical/BinopPrecedence.gren` — the operator precedence table and why its
   `binopMinPrecedence` seam is shared by `InsertExpressions` and `MakeRenderBox`.
 - `Formatter.Render.Box` (`Render/Box.gren`) — the `Line`/`Box` types and
   renderer; small enough to read in full.

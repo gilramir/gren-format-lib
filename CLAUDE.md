@@ -122,7 +122,7 @@ Formatter.Audit                    off to the side, not in the pipeline
 Three things to hold onto:
 
 - Layout is **author-driven, not fit-driven** — no page width, no layout search.
-  Each box knows whether it renders inline or vertical, decided from the author's
+  Each shape knows whether it renders inline or vertical, decided from the author's
   original rows (`forceVertical`). Indent step is 4 (`grenIndent`).
 - Every top-level declaration becomes exactly one `OriginalRows` node directly
   under `RootBox`; comments and blank lines are added as *siblings* afterwards.

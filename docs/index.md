@@ -110,7 +110,7 @@ reference.
 
 ## Formatting Philosophy
 
-This section covers the core ideas as to how `gren format` formats the code; for a rule
+This section covers the core ideas as to how `gren-format` formats the code; for a rule
 reference with a before/after example for every construct (module
 declarations, records, pipelines, comments, and everything else), see
 **[Formatter Rules](formatterRules.md)**.
@@ -195,7 +195,7 @@ Everything else follows your layout choices.
 
 ## Comments
 
-`gren format` never changes the text of a comment — it only decides where the
+`gren-format` never changes the text of a comment — it only decides where the
 comment sits relative to the code around it. Seven rules decide every comment in
 a file:
 
@@ -297,7 +297,7 @@ every path consume the same result.
 
 ## Comparison with elm-format
 
-`gren format` is a spiritual descendent of `elm-format`, and agree on
+`gren-format` is a spiritual descendent of `elm-format`, and agree on
 formatted syntax in most places. Both
 formatters share the same "your line breaks are your layout decisions"
 philosophy — neither reflows code to fit a page width — so they agree almost
@@ -318,7 +318,7 @@ The full catalogue, with a real before/after example for every entry, is in
 
 Everything above is the short version. The full documents are in this same
 `docs/` directory, in two groups: the first is for reading about what
-`gren format` does to your code, the second for changing how it does it.
+`gren-format` does to your code, the second for changing how it does it.
 
 **Using the formatter**
 
@@ -334,7 +334,7 @@ Everything above is the short version. The full documents are in this same
   questions: recorded Gren-team decisions the output must keep honouring, each
   with the fixture that pins it.
 - **[Comparison with elm-format](elmFormatComparison.md)** — every place
-  `gren format` deliberately diverges from `elm-format`, and why.
+  `gren-format` deliberately diverges from `elm-format`, and why.
 - **[Known limitations](knownLimitations.md)** — compiler/parser bugs
   and comment-placement choices the formatter can't do better on today.
 
