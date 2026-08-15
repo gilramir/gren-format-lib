@@ -2,7 +2,8 @@ module Formatter exposing (prettyPrint)
 
 {-|
 The Formatter package takes a parsed Gren source file and produces a
-canonically formatted string.
+canonically formatted string. The parsing is done by the
+`gren-lang/compiler-common` package.
 
 @docs prettyPrint
 
@@ -16,8 +17,8 @@ import Formatter.Render exposing (makePrettyResult)
 
 
 {-|
-Input: a syntax tree (Src.Module) and a comment table (Ctx.Context) produced
-by the Gren parser.
+Input: a syntax tree (Compiler.Ast.Source.Module) and a comment table
+(Compiler.Parse.Context.Context) produced by the Gren parser.
 
 Output: a formatted source string.
 

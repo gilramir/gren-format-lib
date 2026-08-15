@@ -2,7 +2,7 @@
     "type": "package",
     "platform": "common",
     "name": "gilramir/gren-format-lib",
-    "summary": "The Gren formatter library code",
+    "summary": "The Gren Formatter Library",
     "license": "BSD-3-Clause",
     "version": "1.0.0",
     "exposed-modules": [

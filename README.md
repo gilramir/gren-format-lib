@@ -1,9 +1,11 @@
 # The Gren Formatter Library
 
-This package is the library behind `gren-format`: given a Gren source file,
-it produces a formatted version of the same file — consistent spacing,
-consistent indentation, comments and blank lines kept where they belong, and
-also honoring the single-line/multi-line formatting the author of the source code chose.
+This package is the library behind
+[`gren-format`](https://github.com/gilramir/gren-format): given the parser's
+output for a Gren source file, it produces a formatted version of that
+file — consistent spacing, consistent indentation, comments and blank
+lines kept where they belong, while also honoring the single-line or multi-line
+formatting choice of the author of the code.
 
 This README covers only how to call the library. Everything else — a formatted
 example, the formatting philosophy, the seven comment rules, known limitations,
@@ -15,17 +17,19 @@ links to every companion document.
 
 ## Overview
 
-The whole library is one function, `Formatter.prettyPrint`. It takes the two
+To use the library the format source code, you call only function,
+`Formatter.prettyPrint`. It takes the two
 things the [compiler-common](https://github.com/gren-lang/compiler-common)
 parser gives you for a source file — the syntax tree and the parse context (the
-comments) — and hands back the formatted text:
+comments) — and returns the formatted text, or an error string:
 
 ```gren
 prettyPrint : Src.Module -> Ctx.Context -> Result String String
 ```
 
-So calling it means parsing first, then passing both halves along. This is
-what `gren-format` itself does, minus the file I/O:
+To call the formatter, your code calls the `compiler-common` parser first,
+then passes the data structurest to the formatter. This is
+what `gren-format` itself does, after reading the file from disk:
 
 ```gren
 module FormatFile exposing (format)
@@ -64,11 +68,21 @@ comments in it.
 
 ---
 
-## More Extensive Documentation
+## Exposed modules
 
-**[The documentation index](https://github.com/gilramir/gren-format-lib/blob/main/docs/index.md)**
-is the place to start. It has a pipeline diagram, a formatted example,
-the formatting philosophy, the comment
-rules, known limitations, performance, and the `elm-format` comparison — and
-links out to the full reference documents for using the formatter and for
-working on it.
+Most of what this package exposes is not the formatting API — it is there so
+that `gren-format` can look inside a format, and so that the test suite can
+reach the pieces it checks.
+
+| Reason | Module | What it provides |
+|---|---|---|
+| **Formatter API** | `Formatter` | The whole API: `prettyPrint ast context` → formatted source, or an error. |
+| **Formatter API** | `Formatter.Logical` | Stage one alone — parsed module + comments → Logical Printing Tree. |
+| **Formatter API** | `Formatter.Render` | Stage two alone — Logical Printing Tree → the final string. |
+| **Inspection** | `Formatter.Logical.LPTJson` | The Logical Printing Tree as JSON (`--lpt`). |
+| **Inspection** | `Compiler.Ast.Source.Json` | A parsed module as JSON (`--pre-ast`, `--post-ast`). |
+| **Inspection** | `Compiler.Parse.Context.Json` | The parse context — every comment and its position — as JSON (`--pre-context`, `--post-context`). |
+| **Inspection** | `Formatter.Audit.DecisionTrace` | The layout decisions a format took, and which ones moved between two formats (`--decisions`). |
+| **Inspection** | `Formatter.Audit.PredicateAgreement` | Checks the "will this break?" predicates against what the renderer actually emits (`--audit-predicates`). |
+| **Verification** | `Compiler.Ast.Compare` | Position-independent comparison of two parsed modules — the proof that formatting did not change the code's meaning. |
+| **Testing** | `Formatter.Logical.LiteralFormat` | String, char and hex literal escaping. Exposed only so the test suite can reach it; callers go through `Formatter.prettyPrint`. |
