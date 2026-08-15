@@ -5,6 +5,52 @@ The Formatter package takes a parsed Gren source file and produces a
 canonically formatted string. The parsing is done by the
 `gren-lang/compiler-common` package.
 
+
+## Calling it
+
+There is one function to call, `prettyPrint`. It takes the two things the
+[compiler-common](https://github.com/gren-lang/compiler-common) parser gives you
+for a source file — the syntax tree and the parse context (the comments) — and
+returns the formatted text, or an error string:
+
+    prettyPrint : Src.Module -> Ctx.Context -> Result String String
+
+So your code runs the parser first, then passes both of its results to the
+formatter. This is what `gren-format` itself does, after reading the file from
+disk:
+
+    module FormatFile exposing (format)
+
+    import Compiler.Parse.Context as Context
+    import Compiler.Parse.Module as PM
+    import Formatter
+    import String.Parser.Advanced as Parser
+
+
+    -- Format the contents of one Gren source file.
+    format : String -> Result String String
+    format source =
+        let
+            parser =
+                Parser.succeed (\ast context -> { ast = ast, context = context })
+                    |> Parser.keep PM.parser
+                    |> Parser.keep Parser.getPayload
+        in
+        when Parser.run parser Context.empty source is
+            Err errs ->
+                -- the source isn't valid Gren
+                Err (PM.errorsToString source errs)
+
+            Ok { ast, context } ->
+                -- the AST says what the code means; the context holds every
+                -- comment and blank line
+                Formatter.prettyPrint ast context
+
+The parser is run with `Context.empty` as its starting payload; it fills that
+payload in as it goes, and `Parser.getPayload` retrieves the finished context
+once the module is parsed. Both results are needed — the AST alone has no
+comments in it.
+
 @docs prettyPrint
 
 -}
@@ -17,28 +63,30 @@ import Formatter.Render exposing (makePrettyResult)
 
 
 {-|
-Input: a syntax tree (Compiler.Ast.Source.Module) and a comment table
-(Compiler.Parse.Context.Context) produced by the Gren parser.
+**Input**: a syntax tree (`Compiler.Ast.Source.Module`) and a comment table
+(`Compiler.Parse.Context.Context`) produced by the Gren parser.
 
-Output: a formatted source string.
+**Output**: a formatted source string.
 
 The work happens in three stages:
 
-1. Build a Logical Printing Tree (MakeLogical, InsertExpressions, Comments,
+1. **Build a Logical Printing Tree** (MakeLogical, InsertExpressions, Comments,
    VerticalSpace). The syntax tree is walked and converted into an intermediate
-   tree of layout boxes — nodes that say things like "these pieces go across
+   tree of layout shapes — nodes that say things like "these pieces go across
    one line, or each on its own line" or "this block is indented under its
    header." Comments are woven in from the comment table, and blank lines are
    inserted between top-level declarations according to the spacing rules.
 
-2. Render to a document (Formatter.Render). The layout box tree is translated into a
-   `Formatter.Render` document. Layout is author-driven, not fit-driven: there
-   is no page-width search. Each box already knows whether it renders inline or
-   vertical (decided from the author's original source rows), so this stage just
-   builds the corresponding document.
+2. **Render to boxes** (Formatter.Render.MakeRenderBox). Each layout shape is
+   translated into a `Formatter.Render.Box` — the geometry IR ported from
+   elm-format, which knows about tab stops and prefix padding rather than about
+   Gren syntax. Layout is author-driven, not fit-driven: there is no page-width
+   search. Each shape already knows whether it renders inline or vertical
+   (decided from the author's original source rows), so this stage just builds
+   the box that says so.
 
-3. Serialize to a string. `Formatter.Render` walks the document and produces the
-   final text.
+3. **Serialize to a string.** `Formatter.Render` renders each top-level
+   declaration's box, right-trims it, and joins the results with newlines.
 
 The key design principle is that layout decisions (where line breaks go, how
 much indentation) are separated from content (the actual tokens and comments).

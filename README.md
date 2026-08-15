@@ -7,64 +7,12 @@ file — consistent spacing, consistent indentation, comments and blank
 lines kept where they belong, while also honoring the single-line or multi-line
 formatting choice of the author of the code.
 
-This README covers only how to call the library. Everything else — a formatted
-example, the formatting philosophy, the seven comment rules, known limitations,
+How to call it, with a worked example, is in the docs for the **Formatter**
+module — the one function you need. Everything else — a formatted example,
+the formatting philosophy, the seven comment rules, known limitations,
 performance, and the comparison with `elm-format` — is in **[the documentation
 index](https://github.com/gilramir/gren-format-lib/blob/main/docs/index.md)**, which also
 links to every companion document.
-
----
-
-## Overview
-
-To use the library the format source code, you call only function,
-`Formatter.prettyPrint`. It takes the two
-things the [compiler-common](https://github.com/gren-lang/compiler-common)
-parser gives you for a source file — the syntax tree and the parse context (the
-comments) — and returns the formatted text, or an error string:
-
-```gren
-prettyPrint : Src.Module -> Ctx.Context -> Result String String
-```
-
-To call the formatter, your code calls the `compiler-common` parser first,
-then passes the data structurest to the formatter. This is
-what `gren-format` itself does, after reading the file from disk:
-
-```gren
-module FormatFile exposing (format)
-
-import Compiler.Parse.Context as Context
-import Compiler.Parse.Module as PM
-import Formatter
-import String.Parser.Advanced as Parser
-
-
-{-| Format the contents of one Gren source file.
--}
-format : String -> Result String String
-format source =
-    let
-        parser =
-            Parser.succeed (\ast context -> { ast = ast, context = context })
-                |> Parser.keep PM.parser
-                |> Parser.keep Parser.getPayload
-    in
-    when Parser.run parser Context.empty source is
-        Err errs ->
-            -- the source isn't valid Gren
-            Err (PM.errorsToString source errs)
-
-        Ok { ast, context } ->
-            -- the AST says what the code means; the context holds every
-            -- comment and blank line
-            Formatter.prettyPrint ast context
-```
-
-The parser is run with `Context.empty` as its starting payload; it fills that
-payload in as it goes, and `Parser.getPayload` retrieves the finished context
-once the module is parsed. Both results are needed — the AST alone has no
-comments in it.
 
 ---
 
