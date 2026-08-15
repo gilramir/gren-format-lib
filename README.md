@@ -16,6 +16,22 @@ links to every companion document.
 
 ---
 
+## Formatting API
+
+To format Gren code, you only need one module and one function:
+**`Formatter`** and its **`prettyPrint`** function. Hand it the parser's
+`Src.Module` and `Ctx.Context` for a file and it gives you back the formatted
+source, or an error. That is the whole API.
+
+Everything else this package exposes is *not* part of that API. Those modules
+are there for advanced usage — reaching one pipeline stage on its own —
+for things `gren-format` itself needs in order to look inside a format
+(the JSON dumps behind `--lpt`, `--pre-ast`, `--decisions`, and friends), and
+for the test suite to reach the pieces it checks. If you are simply formatting
+code, you can ignore all of them.
+
+---
+
 ## Exposed modules
 
 Most of what this package exposes is not the formatting API — it is there so
@@ -25,8 +41,8 @@ reach the pieces it checks.
 | Reason | Module | What it provides |
 |---|---|---|
 | **Formatter API** | `Formatter` | The whole API: `prettyPrint ast context` → formatted source, or an error. |
-| **Formatter API** | `Formatter.Logical` | Stage one alone — parsed module + comments → Logical Printing Tree. |
-| **Formatter API** | `Formatter.Render` | Stage two alone — Logical Printing Tree → the final string. |
+| **Advanced** | `Formatter.Logical` | Stage one alone — parsed module + comments → Logical Printing Tree. |
+| **Advanced** | `Formatter.Render` | Stage two alone — Logical Printing Tree → the final string. |
 | **Inspection** | `Formatter.Logical.LPTJson` | The Logical Printing Tree as JSON (`--lpt`). |
 | **Inspection** | `Compiler.Ast.Source.Json` | A parsed module as JSON (`--pre-ast`, `--post-ast`). |
 | **Inspection** | `Compiler.Parse.Context.Json` | The parse context — every comment and its position — as JSON (`--pre-context`, `--post-context`). |
