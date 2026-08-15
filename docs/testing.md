@@ -338,7 +338,7 @@ count in a day. Nothing in the byte diffs said which group a probe belonged to.
 - **`src/Formatter/Audit/DecisionTrace.gren`** — the trace and the diff. Its
   module doc carries the rule about what may honestly be traced.
 - **`src/Formatter/Render.gren`** — `renderRootChildren`, the per-declaration
-  render the confinement needs. `makePrettyResult` is these joined with newlines.
+  render the confinement needs. `renderRoot` is these joined with newlines.
 - **`gren-format/src/Format.gren`** — `decisionsFile` / `decisionStabilityReport`:
   the same two passes `verifyReparse` runs, keeping both trees and leaving the
   AST comparison out (this flag is aimed at files that are *not* fixed points).
@@ -1006,10 +1006,11 @@ fresh row", which is already true without the run, and the caller's
 
 ### Root vs. propagated findings
 
-The audited predicates are recursive: their fallback arm is typically
-`Array.any <predicate> children`. So one wrong answer at a leaf makes every
-ancestor above it answer wrong too, and every caller reading those ancestors in
-turn. A single underlying bug can therefore surface as dozens of findings.
+A predicate of this kind can be recursive — an `Array.any <predicate> children`
+fallback arm was typical of the retired shape predicates. When one is, a single
+wrong answer at a leaf makes every ancestor above it answer wrong too, and every
+caller reading those ancestors in turn, so one underlying bug surfaces as dozens
+of findings.
 
 To keep the work-list honest, each finding is tagged:
 
@@ -1023,6 +1024,10 @@ The driver groups findings by `(predicate, box kind)` and reports root causes
 first, with the propagated echoes counted alongside. **Only root findings are a
 work-list.** A green run means every audited predicate agrees with the renderer
 on every node in the corpus.
+
+Neither predicate audited today is recursive, so `propagated` should always come
+back `False`. The tag is kept for the next predicate that is — and a `True` here
+would itself be worth investigating.
 
 ### How to run it
 

@@ -7,7 +7,7 @@ file — consistent spacing, consistent indentation, comments and blank
 lines kept where they belong, while also honoring the single-line or multi-line
 formatting choice of the author of the code.
 
-How to call it, with a worked example, is in the docs for the **Formatter**
+How to call it, with an example, is in the docs for the **Formatter**
 module — the one function you need. Everything else — a formatted example,
 the formatting philosophy, the seven comment rules, known limitations,
 performance, and the comparison with `elm-format` — is in **[the documentation

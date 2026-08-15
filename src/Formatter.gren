@@ -59,7 +59,7 @@ import Compiler.Ast.Source as Src
 import Compiler.Parse.Context as Ctx
 
 import Formatter.Logical exposing (makeLogicalPrintingTree)
-import Formatter.Render exposing (makePrettyResult)
+import Formatter.Render exposing (renderRoot)
 
 
 {-|
@@ -101,4 +101,4 @@ prettyPrint ast ctx =
             Err errString
 
         Ok lpTree ->
-            makePrettyResult lpTree
+            renderRoot lpTree

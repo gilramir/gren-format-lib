@@ -1,18 +1,18 @@
 module Formatter.Render exposing
     ( lptToBoxJson
-    , makePrettyResult
+    , renderRoot
     , renderRootChildren
     )
 
 {-| Render a Logical Printing Tree to its final formatted source string.
 
-`makePrettyResult` walks the `RootBox`'s top-level children, renders each one
+`renderRoot` walks the `RootBox`'s top-level children, renders each one
 through the Box renderer (`Formatter.Render.MakeRenderBox`), and joins the
-results with newlines. The Box renderer is the sole backend — the earlier
-`Formatter.Render.Doc` renderer and the self-verifying `Box`/`Doc` guard have
-been removed (the Box renderer covers every construct in the corpus).
+results with newlines. Box is the only backend: every construct goes through
+`Formatter.Render.Box`'s `Line`/`Box` IR, and one the renderer does not handle
+is an `Err` that fails the format rather than falling back to anything.
 
-@docs lptToBoxJson, makePrettyResult, renderRootChildren
+@docs lptToBoxJson, renderRoot, renderRootChildren
 -}
 
 import Formatter.Logical.LogicalPrintingTree exposing
@@ -26,12 +26,12 @@ import Json.Encode as Json
 
 
 {-| Render every top-level child of the `RootBox` and join them with newlines. -}
-makePrettyResult : LPNode -> Result String String
-makePrettyResult root =
+renderRoot : LPNode -> Result String String
+renderRoot root =
     -- The Box renderer terminates each child with a trailing newline (and
     -- right-trims every interior line); `renderRootChildren` strips that
     -- trailing whitespace, so the `"\n"` join supplies the separators without
-    -- doubling them. As before, the first `Err` left to right wins.
+    -- doubling them. The first `Err` left to right wins.
     renderRootChildren root
         |> Result.map (String.join "\n")
 
@@ -39,23 +39,23 @@ makePrettyResult root =
 {-| The same render, one string per top-level child instead of one string for
 the file.
 
-`makePrettyResult` is these joined with newlines. They are needed apart by
+`renderRoot` is these joined with newlines. They are needed apart by
 `Formatter.Audit.DecisionTrace`, which has to say *which declaration's* output
-moved between two formats -- a decision that flipped in a declaration whose
-output is unchanged did not cause anything, and reporting it alongside the ones
-that did is how a diagnostic turns back into noise. -}
+moved between two formats: a decision that flipped inside a declaration whose
+output is unchanged caused nothing, and reporting it beside the ones that did
+would bury them. -}
 renderRootChildren : LPNode -> Result String (Array String)
 renderRootChildren root =
     -- `traverseResult` rather than a fold that pushes onto an accumulator: see
     -- its own note on why that is O(n^2) here of all places.
     lpnChildren root
-        |> traverseResult (\node -> Result.map String.trimRight (makePrettyLine node))
+        |> traverseResult (\node -> Result.map String.trimRight (renderChild node))
 
 
 {-| Render one top-level LPT child through the Box renderer. -}
-makePrettyLine : LPNode -> Result String String
-makePrettyLine node =
-    MRB.makePrettyLineBox node
+renderChild : LPNode -> Result String String
+renderChild node =
+    MRB.renderNodeBox node
         |> Result.map RB.render
 
 
@@ -65,5 +65,5 @@ entry per declaration), for the `--box` debug flag — the Box analogue of the
 lptToBoxJson : LPNode -> Result String String
 lptToBoxJson root =
     lpnChildren root
-        |> traverseResult (\child -> Result.map RB.toJson (MRB.makePrettyLineBox child))
+        |> traverseResult (\child -> Result.map RB.toJson (MRB.renderNodeBox child))
         |> Result.map (\values -> Json.encode 2 (Json.array identity values))

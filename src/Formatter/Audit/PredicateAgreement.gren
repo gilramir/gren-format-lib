@@ -4,41 +4,63 @@ module Formatter.Audit.PredicateAgreement exposing
     , findingsToJson
     )
 
-{-| A render-truth audit of the LPT "will this break?" predicates.
+{-| A render-truth audit of the "will this break?" predicates in
+`Formatter.Render.NodeClassify`.
 
-A predicate in `Formatter.Render.NodeClassify` that answers "does this subtree
-force a hard break?" *before* anything is rendered, so that callers can lay out
-the code around it, is a hand-written mirror of what the renderer actually does,
-and nothing forces the two to agree. When such a predicate over-approximates --
-claims a break the renderer never emits -- callers commit to a vertical shape for
-content that lands on one line.
+This module backs the CLI's `--audit-predicates` flag:
 
-Nothing else catches that. Such output is still deterministic, AST-equivalent,
-idempotent, and stable under both fuzzers; only the layout is wrong. This module
-is the missing oracle: it checks each predicate against the renderer itself.
+    gren-format --audit-predicates MyFile.gren
 
-The property is one-directional:
+which walks a file's LPT and prints, as JSON, every predicate that promised a
+break the renderer did not deliver. Like `Formatter.Audit.DecisionTrace` it sits
+off to the side of the pipeline; nothing in `Formatter.Logical` or
+`Formatter.Render` consults it. `tests/audit-predicates.py` is the gate that
+drives it over the fixture corpus, and `docs/testing.md` describes how to run
+that and how to read what it prints.
+
+
+## Why it exists
+
+Layout here is decided in two stages. A predicate in `NodeClassify` answers
+"does this subtree force a hard break?" *before* anything is rendered, so its
+callers can lay out the code around it. Any such predicate is a hand-written
+mirror of what the renderer will do, and nothing forces the two to agree. When
+one over-approximates -- claims a break the renderer never emits -- callers
+commit to a vertical shape for content that lands on one line.
+
+Nothing else in the repo catches that. Such output is still deterministic,
+AST-equivalent, idempotent, and stable under both fuzzers; only the layout is
+wrong. This module is the missing oracle: it checks each predicate against the
+renderer itself.
+
+
+## The property
+
+For the predicates in `auditedPredicates` the implication is one-directional:
 
     predicate node == True   ==>   the node's own box renders multi-line
 
-An under-approximation (False on a node that does render multi-line) is NOT
-reported: these predicates only claim the breaks that are unconditional, and a
-node can still break for reasons they deliberately do not model -- most often
-the author's own row layout (`forceVertical`).
+An under-approximation -- `False` on a node that does render multi-line -- is
+deliberately not reported. These predicates claim only the breaks that are
+unconditional, and a node can still break for reasons they do not model, most
+often the author's own row layout (`forceVertical`).
 
-**Only one predicate is left under that property, and that is the point.** This
-module was written when `NodeClassify` carried a whole mirror layer --
-`subtreeHasVerticalBox`, `nodeSpansRows`, `bracketOpenGate` and friends, each
-predicting verticality from source rows. All of them are gone: verticality is now
-decided by rendering the child and asking `isSingleLine` / `B.allSingles`, which
-cannot disagree with the renderer because it *is* the renderer. What remains is
-`isMultilineLambdaParenBlockBox`, a structural query over shape kinds rather than a
-shape prediction from rows -- so that half of the audit is close to vacuous by
-construction, and shrinking it to that was the goal, not an accident.
-
-**`commentBreaksFlowRow` is audited separately and in BOTH directions**, because
+`commentBreaksFlowRow` is audited separately and in **both** directions, because
 it is a different kind of mirror and its dangerous direction is the other one.
 See `flowCommentFindings`.
+
+
+## Why the one-directional half is nearly empty
+
+That is the intended end state rather than missing coverage. This module was
+written when `NodeClassify` carried a whole mirror layer --
+`subtreeHasVerticalBox`, `nodeSpansRows`, `bracketOpenGate` and friends, each
+predicting verticality from source rows. All of them are gone: verticality is
+now decided by rendering the child and asking `isSingleLine` / `B.allSingles`,
+which cannot disagree with the renderer because it *is* the renderer. What
+remains is `isMultilineLambdaParenBlockBox`, a structural query over shape kinds
+rather than a prediction from rows -- so that half of the audit is close to
+vacuous by construction, and shrinking it to that was the goal.
 
 @docs Finding, auditLpt, findingsToJson
 
@@ -67,23 +89,23 @@ import Formatter.Render.NodeClassify exposing
 import Json.Encode as Json
 
 
-{-| One over-approximation: `predicate` claimed `boxKind` at `row`:`col` would
-break, but it rendered as the single line `rendered`.
+{-| One disagreement: `predicate` claimed the `boxKind` node at `row`:`col`
+would break, but it rendered as the single line `rendered`.
 
-`propagated` separates a lie from its echo. A predicate whose fallback arm is
-`Array.any thePredicate children` -- as the retired `subtreeHasVerticalBox`'s
-was -- turns one wrong answer at a leaf into a wrong answer at every ancestor,
-and the callers reading them wrong in turn. A propagated finding is real but not
-separately fixable: it disappears when the node below it is fixed. Only
-`propagated == False` findings are a work-list.
+`propagated` distinguishes a wrong answer from its echo. A predicate whose
+fallback arm is `Array.any thePredicate children` -- as the retired
+`subtreeHasVerticalBox`'s was -- turns one wrong answer at a leaf into a wrong
+answer at every ancestor above it, and at every caller reading those. A
+propagated finding is real but not separately fixable: it disappears once the
+node below it is fixed. Only `propagated == False` findings are a work-list.
 
-Neither predicate under audit today is recursive (see the module doc), so
-nothing they report can be an echo and this flag should always be `False`. It is
-kept because it is the shape any future recursive predicate would need, and
-because a `True` here would itself be news.
+Neither predicate audited today is recursive (see the module doc), so nothing
+they report can be an echo and this flag should always be `False`. It is kept
+because it is the shape any future recursive predicate would need, and because a
+`True` here would itself be worth investigating.
 
-`claim` is what the predicate answered. Every finding of the one-directional
-property has `claim == True` by construction; `flowCommentFindings` also reports
+`claim` is what the predicate answered. Findings of the one-directional property
+all carry `claim == True` by construction; `flowCommentFindings` also reports
 `False`, and the two read as opposite complaints.
 -}
 type alias Finding =
@@ -97,13 +119,14 @@ type alias Finding =
     }
 
 
-{-| The predicates under audit. Every one of them is consulted before layout and
-answers "this will break", so every one of them owes the renderer agreement.
+{-| The predicates checked against the one-directional property. Each is
+consulted before layout and answers "this will break", so each owes the renderer
+agreement.
 
 Adding a predicate here is the cheap half of adding one to `NodeClassify`. The
-expensive half is that a new row-reading shape predicate is a step back toward
-the mirror layer this codebase spent a long refactor deleting (the one
-`tests/check-render-invariant.py` now enforces the absence of) -- prefer
+expensive half is that a new shape predicate read from source rows is a step
+back toward the mirror layer this codebase spent a long refactor deleting -- the
+one `tests/check-render-invariant.py` now enforces the absence of. Prefer
 rendering the child and observing its box.
 -}
 auditedPredicates : Array { name : String, test : LPNode -> Bool }
@@ -160,75 +183,77 @@ one line. Under-approximating is the original bug this predicate was added to
 fix, and it is the worse one: `forceVertical` comes from AST rows that contain no
 comments, so the first format renders flat, the comment breaks the row anyway,
 and the reparse -- now seeing a later sibling on a later row -- renders broken.
-The file oscillates. That was 214 of the comment matrix's first 424 failures.
+The file oscillates.
 
-The check is per comment RUN rather than per flow or per comment, because that
-is the grain the claim is made at: assemble the children, then for each maximal
-run of comments in one gap ask whether the next real item started a row of its
-own, and compare that against `commentBreaksFlowRow` applied to that run plus
-the item after it. Answering from `decide`'s own assembly, rather than from a
-second prediction, is the whole point; every other reason a flow breaks moves
-both sides and cancels.
 
-**The grain is the run, and asking it per COMMENT was wrong** — it reported
-8,527 cells of the `--comment-runs` matrix and not one of them was a layout bug.
+### The grain is the comment RUN
+
+The check is per maximal run of comments in one gap -- not per flow, and not per
+comment -- because that is the grain the claim is made at: assemble the children,
+then for each run ask whether the next real item started a row of its own, and
+compare that against `commentBreaksFlowRow` applied to that run plus the item
+after it. Answering from `decide`'s own assembly, rather than from a second
+prediction, is the whole point; every other reason a flow breaks moves both sides
+and cancels.
+
+Asking it per COMMENT instead was wrong, and expensively so: it reported
+thousands of `--comment-runs` matrix cells and not one of them was a layout bug.
 Removing one member of a run does not close the gap, because the other member
 breaks the row anyway, so a `--` in a run read as an over-claim; and removing a
 single-line `{- b -}` that merely OCCUPIES a row a `--` before it created does
 close one, so it read as an under-claim. Both directions are the same mistake:
 the audit measured a member's own contribution while the predicate claims what
 the *gap* does, and those coincide only when the member is the sole reason for
-the break. In a run there is always another reason. The claim is now taken from
-`commentBreaksFlowRow` itself over `[run … next item]` — the same fold the
-renderer performs, restricted to this gap — rather than from `commentEndsItsLine`
-per member, so the two sides finally ask one question. A run of one is the
+the break. In a run there is always another reason. A run of one is the
 single-comment case unchanged.
 
-**Only a run with a real item on BOTH sides is checked, and the scope is
-load-bearing.** Three exclusions. The first two are the predicate being
-deliberately narrower than `decide` rather than wrong; the third is this
+
+### Only a run with a real item on BOTH sides is checked
+
+Three exclusions, and the scope is load-bearing. The first two are the predicate
+being deliberately narrower than `decide` rather than wrong; the third is this
 measurement having nothing to say:
 
   - **A trailing comment** has nothing after it to push. `foo bar -- c` is one
     line and is the long-standing fixed point for that shape; the predicate says
     so in as many words.
-  - **A LEADING comment** is where the two genuinely disagree, and the first run
-    of this audit reported all 46 of them. `decide`'s `BlockCommentItem` arm
-    breaks a *standalone leading* block comment in a vertical context, so
-    `{- c -}` / `42` is what it assembles; the predicate's rule is scoped to
-    mid-flow and answers False. Nothing is misled by that, and the reason is
-    worth keeping because it is an argument nobody had written down: the
-    predicate exists to stop the *items* being re-read as author-broken on the
-    reparse, and rows a leading comment occupies above the whole construct are
-    attributed to the comment, not to a break between items. The flow also
-    breaks by itself there, so the caller's `else` branch produces the same
-    layout the `True` branch would have been reached for. Should either of those
-    stop holding, this exclusion is the thing to revisit first.
+
+  - **A LEADING comment** is where the two genuinely disagree. `decide`'s
+    `BlockCommentItem` arm breaks a *standalone leading* block comment in a
+    vertical context, so `{- c -}` / `42` is what it assembles, while the
+    predicate's rule is scoped to mid-flow and answers False. Nothing is misled
+    by that, and the argument is worth keeping because it is one nobody had
+    written down: the predicate exists to stop the *items* being re-read as
+    author-broken on the reparse, and rows a leading comment occupies above the
+    whole construct are attributed to the comment, not to a break between items.
+    The flow also breaks by itself there, so the caller's `else` branch produces
+    the same layout the `True` branch would have been reached for. Should either
+    of those stop holding, this exclusion is the thing to revisit first.
+
   - **A gap the two items do not share even without the run** (`gapWithout > 0`).
     There the difference of the two gaps measures how many EXTRA rows the run
     added, and the predicate does not claim that; it claims the following item
     starts a fresh row, which is already true with the run deleted. Nothing is
     misled either, because the caller ORs this predicate into a `forceVertical`
-    that the already-broken gap sets anyway — the two arms agree, so the
+    that the already-broken gap sets anyway -- the two arms agree, so the
     predicate's answer cannot reach the output. The dangerous direction is
     untouched: an under-claim only oscillates when the flow WOULD have been flat
-    there, which is `gapWithout == 0`.
+    there, which is `gapWithout == 0`. A `{- ¤1 -} -- ¤2` in front of a record
+    type that takes the `DropBlock` rule on its own account is the shape this
+    excludes.
 
-    It is what the last two `--comment-runs` findings were: a `{- ¤1 -} -- ¤2`
-    in front of a record type that takes the `DropBlock` rule on its own account.
-
-    **It replaced a fourth exclusion, which it subsumes.** `runPairsWithFollower`
-    asked `FlowAssembly.pairLeadingComments` whether the assembler attaches the
-    comment to the item after it, the case being that the item's own placement
-    moved it (a type record's `DropBlock`; a soft block that rendered multi-line)
-    and the comment only travelled along. That is the same situation seen through
-    a prediction: an item that moves on its own account is an item the gap stays
-    open without, so `gapWithout > 0` states it in terms of the assembly instead.
-    It also covers what the pairing missed — `pairLeadingComments` walks past
-    *pairable* comments only, so a `--` in the run breaks the chain and nothing
-    pairs, which is why those two cells were reported at all. Deleted after
-    measuring, not by argument: disabled, it changed nothing over the corpus, the
-    68,922-cell single-comment axis, or the 113,796-cell run axis.
+    It replaced an earlier fourth exclusion that it subsumes.
+    `runPairsWithFollower` asked `FlowAssembly.pairLeadingComments` whether the
+    assembler attaches the comment to the item after it -- the case being that
+    the item's own placement moved it (a type record's `DropBlock`, a soft block
+    that rendered multi-line) and the comment only travelled along. That is the
+    same situation seen through a prediction: an item that moves on its own
+    account is an item the gap stays open without, so `gapWithout > 0` states it
+    in terms of the assembly instead. It also covers what the pairing missed --
+    `pairLeadingComments` walks past *pairable* comments only, so a `--` in the
+    run breaks the chain and nothing pairs. It was deleted after measuring, not
+    by argument: disabled, it changed nothing over the corpus or either matrix
+    axis.
 
 Scoped to the shape kinds whose children `makePBox` hands straight to the gluing
 flow assembler, so the assembly audited is the one the renderer performs. NOT

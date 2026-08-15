@@ -7,75 +7,107 @@ module Formatter.Audit.DecisionTrace exposing
     , traceDeclarations
     )
 
-{-| What the formatter decided, and whether it decides the same thing again.
+{-| Which layout decisions the formatter made, and whether it makes the same
+ones again.
 
-Every other gate in this repo compares **output**. When a format is not a fixed
-point the byte diff says *where* the two runs disagree and never *why*; the
-culprit decision has to be inferred by hand, one diff at a time. That is what
-the 347-finding residual this gate was built for was made of, and it is
-why they have never grouped: hundreds of byte diffs with no shared vocabulary
-between them.
+This module backs the CLI's `--decisions` flag:
 
-This module gives them one. It reads back, per top-level declaration, the
-layout decisions the formatter took, as `name = choice` pairs with no positions
-in them. Formatting twice and diffing the two decision sets turns
+    gren-format --decisions MyFile.gren
+
+which formats a file twice and prints, as JSON, the layout decisions that
+differed between the two passes. It is a debugging aid for **non-idempotent
+formatting** -- output that changes when the formatter is run on its own
+output. It sits off to the side of the pipeline; nothing in `Formatter.Logical`
+or `Formatter.Render` depends on it.
+
+
+## Why it exists
+
+Every other check in this repo compares *output*. When a format is not a fixed
+point, a byte diff shows **where** the two runs disagree but never **why**, so
+the decision behind each diff has to be reconstructed by hand, one diff at a
+time -- and two diffs with the same cause look no more alike than two with
+different ones.
+
+This module gives them a shared vocabulary. It reads back, per top-level
+declaration, the layout decisions the formatter took, as `name = choice` pairs.
+A diff like
 
     -   foo : Int -> {- c -} { a : Int, b : String }
     +   foo :
     +       Int
     +       -> {- c -} { a : Int, b : String }
 
-into
+comes back as
 
     decl 3 `foo`  AcrossOrVertical.forceVertical  False x1 -> True x1
 
-and a decision name is a thing hundreds of findings can share.
+and a decision name is something many findings can share, so a pile of diffs
+becomes a histogram instead of a reading list. `tests/check-decision-stability.py`
+is the driver that does exactly that over the fixture corpus; see
+`docs/testing.md` for how to run it and how to read the groups it prints.
 
 
-## Why the trace has no rows in it
+## How a trace is built and compared
 
-A row *is* what moves between the two formats; a decision keyed on one would
-report every finding and explain none. So a `Decision` carries only the
-declaration it belongs to, the decision's name, and the branch taken. Two
-traces are compared as **multisets of `(decl, name, choice)`** rather than
-aligned node-by-node, for the same reason: a comment that lands under a
-different parent on the reparse shifts every structural path after it, and an
-alignment that reports 40 spurious moves for one real flip is worse than no
-alignment at all. A multiset difference reports exactly the branches whose
-population changed.
+`traceDeclarations` walks a finished LPT and returns one `DeclTrace` per
+top-level declaration: the decisions taken inside it, plus the text it renders
+to. `diffDeclarations` compares two such arrays -- one per formatting pass --
+and returns the `Flip`s, the branches whose population changed. `reportToJson`
+renders the result as the `--decisions` payload.
+
+Three properties of that comparison are deliberate:
+
+  - **Decisions carry no source positions.** A row is precisely what moves
+    between two formats, so a decision keyed on one would flag every finding and
+    explain none. A `Decision` records only the declaration it was taken in, the
+    decision's name, and the branch taken.
+
+  - **Traces are compared as multisets of `(decl, name, choice)`**, not aligned
+    node by node. A comment that lands under a different parent on the reparse
+    shifts every structural path after it, and an alignment that reports forty
+    spurious moves for one real flip is worse than no alignment at all. A
+    multiset difference reports exactly the branches whose population changed.
+
+  - **Only declarations whose rendered output moved are compared.** Formatting a
+    file that is not already canonical legitimately changes many decisions --
+    the second pass reads the first pass's tidied rows, not the author's -- so
+    an unrestricted comparison is mostly the formatter converging. What the
+    restriction leaves out is counted in `convergedFlips` rather than dropped
+    silently.
 
 
-## What is traced, and the rule that keeps it honest
+## What may be traced: trace an input, never a composite
 
-Two kinds of thing, and **nothing is recomputed from a formula written here**:
+Two kinds of value are traced, and **nothing here is recomputed from a formula
+written in this module**:
 
-  - **The flags the LPT carries** -- `forceVertical`, `checkContentVertical`,
-    the bracket-container constructor, each comment's `CommentRole`, and the
-    blank lines `VerticalSpace` put above a declaration. These are the
-    author-intent decisions, taken in the logical stage from source rows, and
-    they are read straight off the node.
+  - **Flags the LPT already carries** -- `forceVertical`,
+    `checkContentVertical`, the bracket-container constructor, each comment's
+    `CommentRole`, and the blank lines `VerticalSpace` put above a declaration.
+    These are the author-intent decisions, taken in the logical stage from the
+    source rows, and they are read straight off the node.
 
-  - **Values produced by calling the renderer's own exported predicates** with
-    the node's own children -- `commentBreaksFlowRow`,
-    `literalCommentsRideFlatLine`, `signatureForceVertical`,
-    `commentEndsItsLine`, `commentTextCanRide` -- plus, for the shapes whose
-    layout is decided by measuring a rendered child, whether that child's box
-    comes back on one line (`makePBox` + `isSingleLine`, the same question
-    `Formatter.Audit.PredicateAgreement` asks).
+  - **Results of calling the renderer's own exported predicates** with the
+    node's own children -- `commentBreaksFlowRow`, `literalCommentsRideFlatLine`,
+    `signatureForceVertical`, `commentEndsItsLine`, `commentTextCanRide` --
+    plus, for the shapes whose layout is decided by measuring a rendered child,
+    whether that child's box comes back on one line (`makePBox` +
+    `isSingleLine`, the same question `Formatter.Audit.PredicateAgreement`
+    asks).
 
-The rule is: **trace an input, never a composite.** `commentForcesBracketOpen`
-is deliberately absent even though it is a decision, because reproducing it
-here would mean copying its formula out of `MakeRenderBox` -- a mirror, and
-this codebase has paid for mirrors three times in one day. Its two inputs are
-traced instead, so a flip in it still shows up, under the name of whichever
-input moved.
+Composite decisions are deliberately left out. `commentForcesBracketOpen`, for
+example, is a genuine layout decision, but tracing it would mean copying its
+formula out of `MakeRenderBox` -- a mirror, free to drift from the original and
+then report confidently about code that no longer behaves that way. Its two
+inputs are traced instead, so a flip in it still shows up, under the name of
+whichever input moved.
 
-The cost of that rule is coverage: some decisions have no traced input, so some
-byte diffs will show no flipped decision. That is reported rather than hidden
--- a diff with an empty flip list is `unexplained`, and the count of those is
-this gate's own debt, in the same spirit as the `UNREVIEWED` counter in the
-parity baselines. Adding a decision here is how it gets paid down; guessing at
-one is how the gate starts lying.
+The cost of that rule is coverage: a decision with no traced input means some
+byte diffs will show no flipped decision at all. That is reported rather than
+hidden -- a diff with an empty flip list comes back as `unexplained`, and the
+count of those is this module's own to-do list. Adding a traced decision is how
+it comes down; guessing at one is how the report starts lying.
 
 @docs Decision, DeclTrace, Flip, traceDeclarations, diffDeclarations, reportToJson
 
@@ -142,14 +174,12 @@ type alias Flip =
 -- TRACING
 
 
-{-| One declaration's decisions, beside the output it renders to.
+{-| One declaration's decisions, beside the text it renders to.
 
-The text is what makes the trace a diagnostic rather than a second pile of
-noise. Formatting a file that is not already canonical legitimately changes many
-decisions -- the second pass reads the first pass's tidied rows, not the
-author's -- so "this decision differs between the passes" on its own is mostly
-the formatter converging. Confining the comparison to declarations whose
-**output** moved leaves the decisions that actually did something.
+The text is what keeps the diff useful: `diffDeclarations` compares decisions
+only in declarations whose rendered output moved, so every flip it reports is a
+decision that had a visible effect. Without that restriction the report is
+mostly the formatter converging on a file that was not canonical to begin with.
 -}
 type alias DeclTrace =
     { decl : String
@@ -168,7 +198,7 @@ written against.
 Attribution puts a declaration's leading comments and blank lines under its
 label, so the labels come out in contiguous runs and the grouping is a single
 pass. The text of a run is its children's rendered output joined the way
-`makePrettyResult` joins it, so two runs compare exactly as the two files do.
+`renderRoot` joins it, so two runs compare exactly as the two files do.
 -}
 traceDeclarations : LPNode -> Result String (Array DeclTrace)
 traceDeclarations root =
@@ -551,17 +581,17 @@ diffTraces before after =
 out.
 
 `flips` covers only the declarations whose rendered output differs, so every
-entry in it is a decision that had an effect. `convergedFlips` counts the rest
--- decisions that differ in a declaration whose output is byte-identical. Those
-are not findings: they are what a second format legitimately decides differently
-when the first pass has already tidied the rows the flags are read from. The
-number is reported rather than dropped because it is the honest size of the
-noise this restriction removes.
+entry is a decision that had a visible effect. `convergedFlips` counts the rest:
+decisions that differ inside a declaration whose output is byte-identical. Those
+are not findings -- they are what a second format legitimately decides
+differently once the first pass has tidied the rows those flags are read from --
+but the number is reported anyway, so the size of what is being filtered out
+stays visible. `movedDecls` names the declarations that moved.
 
 Declarations are aligned by position. Formatting neither adds nor removes one,
 and the index counts only real declarations (`isDeclarationChild`), so the
-alignment holds through any amount of comment and blank-line movement; a
-mismatched pair is treated as moved rather than assumed away.
+alignment survives any amount of comment and blank-line movement; a pair whose
+labels disagree is reported as moved rather than skipped.
 -}
 diffDeclarations :
     Array DeclTrace
@@ -717,12 +747,14 @@ flipOf entry before after =
 -- REPORTING
 
 
-{-| The `--decisions` payload.
+{-| Encode the result as the JSON payload `--decisions` prints.
 
-`unexplained` is the finding this gate exists to make visible: the two formats
-produced different bytes and no traced decision changed, so the branch that
-moved is one nothing here records. It is reported per file rather than summed
-away, because the work-list is "which decision is missing", one file at a time.
+The field worth knowing is `unexplained`: true when the two formats produced
+different bytes and yet no traced decision changed, meaning the branch that
+moved is one this module does not record. It is reported per file rather than
+summed across a run, because fixing it is per-file work -- find the missing
+decision, trace it (under the rule in the module doc), and the file drops off
+the list.
 -}
 reportToJson :
     { bytesDiffer : Bool

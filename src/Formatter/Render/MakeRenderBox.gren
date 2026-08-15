@@ -1,8 +1,8 @@
-module Formatter.Render.MakeRenderBox exposing (buildFlowBoxMeasured, makePBox, makePrettyLineBox)
+module Formatter.Render.MakeRenderBox exposing (buildFlowBoxMeasured, makePBox, renderNodeBox)
 
 {-| Box-model renderer — the sole backend. It renders an LPT node to
 elm-format's `Box` (Tab + prefix arithmetic), returning `Err` for any construct
-it cannot render (the caller, `Formatter.Render`'s private `makePrettyLine`,
+it cannot render (the caller, `Formatter.Render`'s private `renderChild`,
 surfaces that `Err` — there is no fallback renderer, so it fails the whole
 file).
 
@@ -138,8 +138,8 @@ import Formatter.Results exposing (traverseResult)
 {-| Entry point: render one top-level root child to a Box, or `Err` if it
 can't be rendered — there is no fallback, so an `Err` here fails the format
 for the whole file. -}
-makePrettyLineBox : LPNode -> Result String Box
-makePrettyLineBox node =
+renderNodeBox : LPNode -> Result String Box
+renderNodeBox node =
     when lpnShape node is
         OriginalRows { stype = stype } ->
             let
@@ -459,7 +459,7 @@ block comment inside a group stays glued (`bbb {- c -} * ccc`) and a comment
 trailing an operand rides its group's line (`++ beta {- c -}`) — gren's uniform
 "a comment sticks to what it trails" rule. Comment-free and comment-bearing
 chains share this one renderer, so adding or removing a comment can never reflow
-the chain (the invariant the pre-2026-07-12 two-path split used to break).
+the chain.
 
 Every operand box comes from the single up-front render in `makeBinopBox`; only
 the operator leaves are rendered here (cheap, childless). -}
@@ -580,9 +580,9 @@ makeOpAndRhsBox children =
                     -- indent every other broken chain uses (`one` ⏎ `····+ two`).
                     -- The break here is one a comment forced — the chain's own
                     -- precedence split would have kept the tighter operator inline
-                    -- — but a forced break is still a break, and it was landing at
-                    -- the flow's ambient column, flush under the seed:
-                    -- `one + two -- c` ⏎ `* three`.
+                    -- — but a forced break is still a break, and without that
+                    -- indent it lands at the flow's ambient column, flush under
+                    -- the seed: `one + two -- c` ⏎ `* three`.
                     buildFlowBoxInline 0 rhsNodes
                         |> Result.andThen
                             (\rhsBox ->
@@ -882,10 +882,11 @@ makePipelineBox { forceVertical } op children =
 -- ParenBlock argument (`|> f (g x)`) is fine (it renders inline).
 
 
--- The three `splitStepTriggerItems` predicates. Each replaced a node-rendering
--- predicate of the same shape: the structural half is unchanged, and only the
--- verticality half moved from "render it again" to "read the box we have". A comment item's `box` is `B.blankLine` (single-line),
--- so the explicit comment guard below is belt-and-braces, matching the original.
+-- The three `splitStepTriggerItems` predicates. Each asks a structural question
+-- of the node and a verticality question of the box the flow already rendered,
+-- rather than rendering the node a second time to answer it. A comment item's
+-- `box` is `B.blankLine` (single-line), so the explicit comment guard below is
+-- belt-and-braces.
 
 
 {-| Render a relocated multi-line lambda argument `(\args ->` … `)` — head glued
@@ -927,11 +928,10 @@ makeMultilineLambdaArgBox bodyBoxFromItem children =
         --     fold, and that padding is relative to where the head box STARTS.
         --     Gluing `(` in front moves the head's first character one right
         --     and leaves those rows where they were, so the pattern's items and
-        --     its `]` land one column short of the `\` they hang off. The
-        --     docstring above used to claim this case "survives the first-line
-        --     glue untouched"; it does not, and the claim outlived the shape
-        --     that could disprove it because no gate here had a lambda whose
-        --     PATTERN breaks (`matrix-syntax.py`'s every lambda was `\q ->`).
+        --     its `]` land one column short of the `\` they hang off. So this
+        --     case does NOT survive the first-line glue untouched, easy as it is
+        --     to assume it does: a lambda whose PATTERN breaks is rare enough
+        --     that most fixtures never contain one.
         --
         -- The two are told apart by where the comment sits: a direct comment
         -- child of the head flow is the first case, anything else the second.
@@ -993,8 +993,8 @@ render. `Nothing` if it isn't a multi-line lambda paren, has a multi-line head
 
 Takes the caller's `FlowItem`, not the bare node: the "is this paren multi-line"
 gate reads `item.box` and the body comes from `item.lambdaBodyBox` — both
-already rendered by the flow. Re-deriving them here was two of the four renders
-per level behind the ~4^depth nested-pipeline-lambda hang. The head IS still
+already rendered by the flow. Re-deriving them here would be two of the four
+renders per level that made nested pipeline lambdas cost ~4^depth. The head IS still
 rendered here: it must go through `buildFlowBoxInline` (a leading block comment
 among the parameters stays on-line), which is not how an item is rendered, and
 a parameter list cannot contain the nesting. -}
@@ -1090,8 +1090,8 @@ A leading comment rides the `|>`'s own line (`{- c -} |> sort`) when it can, and
 stands on a line of its own above it when it cannot. That is the same rule a
 broken BINOP chain applies through `splitPairingCommentItems`, and it has to be:
 `head` ⏎ `{- c -} ++ rest` and `items` ⏎ `{- c -} |> fn` are the same authoring
-of the same thing, and the second used to float the comment onto a row the author
-did not put it on — rule C5.
+of the same thing, and deciding the second differently floats the comment onto a
+row the author did not put it on — rule C5.
 
 **`joinInline` alone cannot decide it.** A `--`'s box is an ordinary single
 `Line` here — one line tall, and rightly so, since a `--` may perfectly well END
@@ -1240,8 +1240,8 @@ stepOperandBox children =
     -- Render the children ONCE, up front, and drive everything below off those
     -- items: the trigger split's verticality tests, the preamble assembly
     -- (`assembleFlow FP.InlineStart 0` IS `buildFlowBoxInline 0`), the suffix, and — for
-    -- every trigger but the relocated lambda — the trigger box itself. Each of
-    -- those used to re-render its own subtree.
+    -- every trigger but the relocated lambda — the trigger box itself, rather
+    -- than each of those re-rendering its own subtree.
     renderFlowItems children
         |> Result.andThen
             (\items ->
@@ -1447,13 +1447,13 @@ makeIfConditionBox forceVertical children =
                         -- header's shape exactly as a comment written between the
                         -- header's own tokens does. Asked shallowly, a condition
                         -- with a LEADING comment and a nested row-breaking one
-                        -- took the inline arm and then could not honour it — the
-                        -- binop form reached `assembleFlow`'s "unreachable
+                        -- takes the inline arm and then cannot honour it: the
+                        -- binop form reaches `assembleFlow`'s "unreachable
                         -- multi-line non-paren unclassified soft-glue item" and
-                        -- refused the file, the call form formatted but left the
-                        -- leading comment holding the condition's first row, so
-                        -- the parser measured the continuation indent from the
-                        -- first real token and the output would not reparse.
+                        -- refuses the file, and the call form formats but leaves
+                        -- the leading comment holding the condition's first row,
+                        -- so the parser measures the continuation indent from the
+                        -- first real token and the output does not reparse.
                         renderVertical =
                             forceVertical || commentBreaksFlowRowDeep condNodes
                     in
@@ -1785,10 +1785,11 @@ makeRecordUpdateVerticalBox baseBox children =
                             -- the `|` each keep their own line instead of chaining —
                             -- deliberately unlike the union body and the bracket list.
                             --
-                            -- Before this was role-driven, every comment here landed
-                            -- on its own line unconditionally, disagreeing with the
-                            -- role `Comments.gren` had already assigned and
-                            -- oscillating once the update was reformatted across rows.
+                            -- The slot has to come from the role: placing every
+                            -- comment here on its own line unconditionally
+                            -- disagrees with the role `Comments.gren` already
+                            -- assigned, and oscillates once the update is
+                            -- reformatted across rows.
                             commentNodeBox node
                                 |> Result.map
                                     (\cbox ->
@@ -2215,11 +2216,10 @@ Gated on `not hasComment`: a comment-bearing type has its own dedicated handling
 (the comment flow, which asks the rendered box the same question), so it must
 run instead of being preempted here.
 
-A comment that pushes a `->` boundary onto a later row is NOT decided here.
-It used to be, by `commentSplitsType` — a hand-written prediction of what the
-renderer would do with each comment kind, mis-scoped three times in one day.
-Both callers now render the comment flow and ask the box
-(`FlowAssembly.typeContentSpansRows`), so there is nothing left to predict.
+A comment that pushes a `->` boundary onto a later row is NOT decided here. Both
+callers render the comment flow and ask the resulting box
+(`FlowAssembly.typeContentSpansRows`) instead, so there is nothing to predict —
+and predicting it, one hand-written rule per comment kind, is what this avoids.
 -}
 typeSegmentsForceVertical : Bool -> Array (Array LPNode) -> Bool
 typeSegmentsForceVertical hasComment segments =
@@ -2318,15 +2318,11 @@ makeSignatureBox children =
             -- stable inline anchor (elm-format); a `--`/line-leading comment that
             -- forces a continuation is indented +4 by `assembleFlow`.
             --
-            -- The single-node type (`foo : { a : Int {- c -} }`) used to have a
-            -- branch of its own here, gated on `typeHasCommentBracket`, gluing
-            -- the record after `:` with `B.prefix` and dropping only an
-            -- `isTypeRecordLiteral`. It needs none: for a one-segment type
-            -- `perSegment` IS "drop the whole type below the header", and the
-            -- flow glues it after `:` when it fits, so the two arms agreed
-            -- wherever they overlapped. (The other brackets it claimed to keep
-            -- glued never reached it — `commentSplitsType` had already forced
-            -- them vertical, and elm-format drops all three.)
+            -- The single-node type (`foo : { a : Int {- c -} }`) needs no branch
+            -- of its own: for a one-segment type `perSegment` IS "drop the whole
+            -- type below the header", and the flow glues it after `:` when it
+            -- fits. There is no bracket kind to keep glued instead — elm-format
+            -- drops all three.
             commentFlowOrSegments {}
 
         else if forceVertical then
@@ -2408,14 +2404,14 @@ makeExposingLineBox stype children =
                 -- between the header and the `(` does, which is the
                 -- `SortSymbols` hoist's shape (handled below).
                 --
-                -- The test is on the TRAILING run, not on any line-leading comment
-                -- anywhere in the header, which is what it used to ask. A `--`
-                -- written INSIDE the header (`module -- c` ⏎ `M exposing`) puts
-                -- a later token on its own row, so it reads as own-line without
-                -- being between the header and the `(` — and it sent the whole
-                -- line to the generic flow, which glues the list's first item
-                -- onto the header's last row and lets a comment pinned above the
-                -- list's derived `)` escape. The hoist branch below needs a
+                -- The test is on the TRAILING run, not on any line-leading
+                -- comment anywhere in the header. A `--` written INSIDE the
+                -- header (`module -- c` ⏎ `M exposing`) puts a later token on its
+                -- own row, so it reads as own-line without being between the
+                -- header and the `(`; counting it would send the whole line to
+                -- the generic flow, which glues the list's first item onto the
+                -- header's last row and lets a comment pinned above the list's
+                -- derived `)` escape. The hoist branch below needs a
                 -- trailing run to do anything at all, so a header without one
                 -- belongs on the coupled path.
                 headerHasOwnLineComment =
@@ -2823,7 +2819,7 @@ makePBox shape children =
 
         OriginalRows _ ->
             -- unreachable: OriginalRows is always a direct child of RootBox,
-            -- rendered by makePrettyLineBox — never passed to makePBox.
+            -- rendered by renderNodeBox — never passed to makePBox.
             Err "unreachable: OriginalRows never reaches makePBox"
 
 
@@ -2918,10 +2914,10 @@ makeParenBlockBoxWithParts flags children =
                     -- paren cannot change its internal shape.
                     --
                     -- Anything after it is a comment the author wrote past the
-                    -- `when`'s last branch and before the `)`. This arm used to
-                    -- render `first` alone, which DROPPED it -- silently, since a
-                    -- lost comment is AST-equivalent and its output is its own
-                    -- fixed point, so only the fuzzer's marker count can see it.
+                    -- `when`'s last branch and before the `)`. Rendering `first`
+                    -- alone DROPS it -- silently, since a lost comment is
+                    -- AST-equivalent and its output is its own fixed point, so
+                    -- only the fuzzer's marker count can see it.
                     -- The comments stack below the `when` and the paren wrap then
                     -- places them at `(`+1, beside where a comment already sitting
                     -- before the `)` renders. A non-comment sibling has no meaning
@@ -2974,13 +2970,12 @@ The offsets are emergent, not chosen. Measured against elm-format, a body lands
 at `(`+2 after a `+ `, `(`+3 after a `-`, `(`+4 when the `(` starts its line,
 and `(`+5 after a `++ `/`&& `/`|> ` — one Tab from the keyword in every case.
 
-An earlier version hard-coded `(`+2, or `(`+4 for a call argument (behind an
-`isCallArgument` flag on the box, since removed). Both values were real: `(`+4
-is what the rule yields when `(` starts a line, `(`+2 what it yields after a
-1-character operator, and each was verified against elm-format in that one
-shape. The bug was generalizing two samples into a rule — the offset is not a
-property of the syntactic role (call argument vs operand), it is a property of
-the column the `(` happens to land in.
+Do not hard-code one of them. `(`+4 and `(`+2 are both real — the first is what
+the rule yields when `(` starts a line, the second what it yields after a
+1-character operator, and either can be confirmed against elm-format in that one
+shape. Promoting either to a constant (or to a flag for "this is a call
+argument") is the mistake: the offset is not a property of the syntactic role,
+it is a property of the column the `(` happens to land in.
 -}
 blockInParenBox : Array LPNode -> Result String Box
 blockInParenBox children =
@@ -3013,8 +3008,8 @@ parenGenericFallbackBox flags children =
                     -- The lambda body, if this paren has one: the second child's
                     -- own box, straight out of the render above. `makePBox
                     -- IndentedBlock children` IS `buildFlowBox 0 children`, so
-                    -- this is byte-for-byte what the two consumers used to
-                    -- compute for themselves. The HEAD is deliberately not
+                    -- this is byte-for-byte what the two consumers would
+                    -- otherwise compute for themselves. The HEAD is deliberately not
                     -- carried: they render it with `InlineStart` while an
                     -- item is rendered without, and the head is a parameter list
                     -- -- it cannot contain the nesting, so re-rendering it is
@@ -3059,17 +3054,14 @@ parenGenericFallbackBox flags children =
 
                                 parenBox =
                                     if goVertical then
-                                        -- One expression, deliberately. This used to be a
-                                        -- three-way branch on
-                                        -- `parenContentLeadsWithMultilinePrefixGlue` (an
-                                        -- align-carrying `(\{ … } …)` parameter) and on
-                                        -- "a comment forced the break", whose bodies were
-                                        -- all byte-identical `wrapParenVerticalPadded`
-                                        -- calls — so the two predicates decided nothing
-                                        -- while each rendering a subtree to decide it.
-                                        -- The `(`-width padding those arms described is
-                                        -- what `wrapParenVerticalPadded` does in every
-                                        -- case; there was never an unpadded exclusion.
+                                        -- One expression, deliberately.
+                                        -- `wrapParenVerticalPadded` applies the
+                                        -- `(`-width padding in every case, and there
+                                        -- is no unpadded exclusion — so branching
+                                        -- here on an align-carrying `(\{ … } …)`
+                                        -- parameter, or on "a comment forced the
+                                        -- break", buys nothing but the subtree
+                                        -- render each such predicate costs.
                                         wrapParenVerticalPadded innerBox
 
                                     else
@@ -3468,8 +3460,8 @@ column, each remaining item at +`indent`. This is a separate assembler from
 already renders broken function applications via `assembleBrokenCall`, so the one
 caller here is the forced-vertical comment-bearing binop (`operand0` /
 `op … rest` at +4). Top-level comment items ARE handled:
-`assembleBrokenWithComments` places leading, gluing and line-leading comments itself
-(verified behaviorally — an earlier version of this doc said they fall back). -}
+`assembleBrokenWithComments` places leading, gluing and line-leading comments
+itself. -}
 buildFlowBoxBroken : Int -> Array LPNode -> Result String Box
 buildFlowBoxBroken indent nodes =
     renderFlowItems nodes
@@ -3858,17 +3850,14 @@ assembleFlowImpl measure flowStart flowIndent items =
 
                         Err _ ->
                             -- A multi-line first item pushes as its own block.
-                            -- This used to branch on "indented flow + nest-carrying
-                            -- + contains a multi-line block comment", with a long
-                            -- note about the two conflicting anchors that case has
-                            -- (align-padded comment body lines vs ambient content
-                            -- after it) — but both branches were the same bare
-                            -- push, so the split decided nothing and the
-                            -- `subtreeHasMultilineBlockComment` walk of the whole
-                            -- subtree was pure cost. The bare push is the proven
-                            -- materialization either way (MultilineBlockComments
-                            -- `#13`; broken record-pattern headers,
-                            -- PatternLayoutByAuthor).
+                            -- That holds even for the awkward case — an indented,
+                            -- nest-carrying flow holding a multi-line block
+                            -- comment, whose align-padded comment body lines and
+                            -- following ambient content anchor differently.
+                            -- Special-casing it produces the same bare push at the
+                            -- cost of walking the whole subtree to detect it
+                            -- (MultilineBlockComments `#13`; broken record-pattern
+                            -- headers, PatternLayoutByAuthor).
                             Ok { rows = Array.pushLast item.box acc.rows, curRow = [], state = decision.next }
 
                 FP.GlueNoSep ->

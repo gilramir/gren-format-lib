@@ -80,9 +80,9 @@ is that real newlines stand for newlines.
 A double quote only needs escaping when it is part of a run of three or
 more (which would terminate the literal, or embed a stray `"""`). An
 isolated `"` (or a run of one or two mid-content) is left verbatim. This
-mirrors elm-format's `escapeMultiQuote`, so `gren format` no longer
-adds spurious `\` characters in front of every quote — an isolated quote in
-an embedded template or fixture (e.g. `Debug.log "u"`) is preserved as-is.
+mirrors elm-format's `escapeMultiQuote`: an isolated quote in an embedded
+template or fixture (e.g. `Debug.log "u"`) is preserved as-is rather than
+backslash-escaped.
 -}
 escapeMultilineContent : String -> String
 escapeMultilineContent s =
@@ -209,12 +209,9 @@ charLiteralString c =
 
 {-| The source text of a hex integer literal, sign included: `0x1F`, or `-0x1`.
 
-The sign has to be put back in front of the `0x` here because the parser folds a
-pattern's leading `-` into the value it stores (`Src.PInt { value = -1, isHex =
-True }`), so what reaches the formatter is a single negative number with no
-record of where the `-` was written. Building the literal as `"0x" ++ intToHex n`
-instead walked a negative straight into `hexDigit`'s wildcard arm and printed
-`-0x1` as `0xF`, which the AST check then refused (`pattern int: -1 vs 15`).
+A negative can reach here: the parser folds a leading `-` into the value it
+stores (`Src.PInt { value = -1, isHex = True }`), so the sign is placed in front
+of the `0x` rather than left to the digits.
 -}
 hexLiteral : Int -> String
 hexLiteral n =
@@ -304,6 +301,9 @@ intToHex n =
 -- Format a code point for a `\u{...}` escape: lowercase hex, padded to 4 digits.
 -- Kept separate from intToHex (which is uppercase, unpadded) because intToHex
 -- is also used for hex integer literals where case and padding follow different rules.
+--
+-- `//` is safe here, unlike in intToHex: a code point is at most 0x10FFFF, far
+-- below the 2^35 where Gren's 32-bit `//` starts truncating.
 codePointHex : Int -> String
 codePointHex n =
     let

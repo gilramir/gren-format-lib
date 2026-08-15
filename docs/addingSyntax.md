@@ -49,7 +49,7 @@ that are easy to make and expensive to find.
   - [3. Get positions right (the difficult part)](#3-get-positions-right-the-difficult-part)
   - [4. Detect author layout intent](#4-detect-author-layout-intent)
   - [5. Comments — usually nothing to do](#5-comments--usually-nothing-to-do)
-  - [6. Render it — `MakeRenderBox.makePrettyLineBox`](#6-render-it--makerenderboxmakeprettylinebox)
+  - [6. Render it — `MakeRenderBox.renderNodeBox`](#6-render-it--makerenderboxrendernodebox)
   - [7. Blank lines (top-level only)](#7-blank-lines-top-level-only)
 - [Things to worry about](#things-to-worry-about)
 - [How to test](#how-to-test)
@@ -86,7 +86,7 @@ Src.Module + Ctx.Context  ──►  LPT  ──►  Box  ──►  String
 
 Entry point: `Formatter.prettyPrint : Src.Module -> Ctx.Context ->
 Result String String`. It calls `MakeLogical.makeLogicalPrintingTree` (build the
-LPT) then `Render.makePrettyResult` (render it). Every stage returns
+LPT) then `Render.renderRoot` (render it). Every stage returns
 `Result String _`; there are no silent fallbacks — an unhandled case is an
 `Err`, not a guess.
 
@@ -712,11 +712,11 @@ layers above `Box.gren` just materialize that decision:
   combinators (`groupBox`, `extensionGroup`, …) for shapes like bracketed
   literals: single line when every child is a `SingleLine` and the caller
   didn't force multiline, otherwise the fully-expanded vertical form.
-- **`Formatter.Render.MakeRenderBox`** (`makePrettyLineBox`) — the actual
+- **`Formatter.Render.MakeRenderBox`** (`renderNodeBox`) — the actual
   dispatch: one builder per `LPShape` constructor, calling into `FlowPolicy` and
   `ElmStructure` and assembling the result with `Box.gren`'s primitives.
 
-When you add a new shape type, add an arm to `makePrettyLineBox`'s `when shape is
+When you add a new shape type, add an arm to `renderNodeBox`'s `when shape is
 …` dispatch returning `Result String Box`. Reuse an existing box shape if one
 fits — a new `LPShape` constructor requires new arms in *every* `when shape is` in
 `MakeRenderBox` plus `selfShapeBounds` in `LogicalPrintingTree`.
@@ -780,7 +780,7 @@ teaching, but shaped exactly like real work you'd do. Imagine Gren grows an
   ordinary flow items means `Formatter.Logical.Comments` re-attaches boundary
   comments correctly on its own — *provided* the `then` position above is
   honest.
-- **Render.** Add an arm to `MakeRenderBox.makePrettyLineBox` for the new
+- **Render.** Add an arm to `MakeRenderBox.renderNodeBox` for the new
   shape, or — more likely — reuse whichever box already renders `if`'s
   condition/body pairing, since `unless` is structurally identical minus a
   branch.
@@ -894,8 +894,8 @@ support for a new construct", for the required reading. The short version:
   new render-side row-read; if a use is genuinely structural, allowlist its
   function there with a reason.
 
-### 6. Render it — `MakeRenderBox.makePrettyLineBox`
-Add an arm to the `makePrettyLineBox` `when shape is …` dispatch (and to the
+### 6. Render it — `MakeRenderBox.renderNodeBox`
+Add an arm to the `renderNodeBox` `when shape is …` dispatch (and to the
 parallel flow dispatches in `FlowPolicy`/`ElmStructure` if your box appears
 there) returning a `Result String Box` built from `Formatter.Render.Box`
 primitives. Reuse an existing box shape if one fits — prefer

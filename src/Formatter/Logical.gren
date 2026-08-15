@@ -25,7 +25,8 @@ The pipeline runs in five stages:
 2. `Formatter.Logical.Comments.lptAddComments` weaves in comment nodes from the
    parse `Ctx.Context`, as siblings of the declarations they belong to.
 3. `Formatter.Logical.SortSymbols.sortSymbols` reorders the symbols inside
-   every `exposing ( ... )` list alphabetically (elm-format's grouping),
+   every `exposing ( ... )` list into elm-format's three groups -- operators,
+   then types/unions, then plain values, alphabetically within each --
    carrying each symbol's attached comments along with it. `import`
    statements themselves are left in source order. Runs *after* comments
    are attached, never before -- see that module's docs for why.
@@ -35,8 +36,10 @@ The pipeline runs in five stages:
 5. `Formatter.Logical.VerticalSpace.insertEmptyLines` inserts `EmptyLine` siblings
    to normalise blank-line spacing between top-level declarations.
 
-Returns `Err` (with the original error prefixed for context) if any stage
-fails. The resulting `LPNode` is the input to `Formatter.Render`.
+Only stage 1 can fail; the later stages are total. An `Err` from `lptFromAst`
+comes back wrapped in "Failed to create intermediate representation for pretty
+printing: ", so the caller can tell which stage produced it. The resulting
+`LPNode` is the input to `Formatter.Render`.
 -}
 makeLogicalPrintingTree : Src.Module -> Ctx.Context -> Result String LPNode
 makeLogicalPrintingTree ast ctx =

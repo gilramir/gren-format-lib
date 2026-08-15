@@ -677,7 +677,7 @@ scoping the skip to keep the comment with the bindings makes it *oscillate*
 same-row → back to the body column). Below `in` is the only stable-and-correct
 rule.
 
-**b. The `BodyBlock` guard.** "Position-less" is judged by `lastRealPosition`,
+**b. The `BodyBlock` guard.** "Position-less" is judged by `lpnLastPos`,
 with one exception: a `BodyBlock` is never skipped. A `BodyBlock` wrapping an
 *empty* value (`[]`, `{}`) has a real opening position but no last position, so
 it looks skippable and a leading comment sails past the value to render
