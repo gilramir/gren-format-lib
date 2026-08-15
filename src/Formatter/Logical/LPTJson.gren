@@ -12,7 +12,6 @@ and a `children` array.
 
 import Json.Encode as Json
 
-import Compiler.SourcePosition exposing (Located, Position)
 import Formatter.Logical.LogicalPrintingTree exposing
     ( LPNode
     , LPShape(..)

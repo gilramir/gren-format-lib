@@ -19,7 +19,6 @@ import Formatter.Logical.LogicalPrintingTree exposing
     , SyntaxType(..)
     , commentFirstCol
     , lpnChildren
-    , lpnFirstPos
     , lpnLeaf
     , lpnNode
     , lpnReplaceChildren

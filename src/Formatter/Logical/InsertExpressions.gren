@@ -11,7 +11,7 @@ formatting, and shared LPT helpers live in sibling modules.
 
 import Compiler.Ast.Source as Src
 import Compiler.Parse.Number as PN
-import Compiler.SourcePosition exposing (Located, Position)
+import Compiler.SourcePosition exposing (Located)
 
 import Formatter.Logical.BinopPrecedence exposing (binopMinPrecedence, binopPrecedence)
 import Formatter.Logical.InsertPatterns exposing (argNeedsParens, folderInsertPattern, insertPattern)

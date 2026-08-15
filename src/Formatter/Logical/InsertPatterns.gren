@@ -13,7 +13,6 @@ shapes.
 -}
 
 import Compiler.Ast.Source as Src
-import Compiler.SourcePosition exposing (Located, Position)
 
 import Formatter.Logical.LPTHelpers exposing
     ( authoredBracketList
@@ -34,11 +33,7 @@ import Formatter.Logical.LogicalPrintingTree exposing
     , LPShape(..)
     , ListBrackets(..)
     , RecordKind(..)
-    , lpnBracketNode
-    , lpnChildren
     , lpnLeaf
-    , lpnNode
-    , lpnShape
     )
 import Formatter.Results exposing (resultFoldl)
 

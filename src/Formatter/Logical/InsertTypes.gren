@@ -7,7 +7,6 @@ union variant payloads, and port signatures.
 -}
 
 import Compiler.Ast.Source as Src
-import Compiler.SourcePosition exposing (Located, Position)
 
 import Formatter.Logical.LPTHelpers exposing
     ( fixupParensChildrenNodesAt
@@ -23,10 +22,7 @@ import Formatter.Logical.LogicalPrintingTree exposing
     , ListBrackets(..)
     , RecordKind(..)
     , lpnBracketNode
-    , lpnChildren
     , lpnLeaf
-    , lpnNode
-    , lpnShape
     , lpnWithBracketStart
     )
 import Formatter.Results exposing (resultFoldl)

@@ -70,9 +70,6 @@ import Formatter.Logical.LogicalPrintingTree exposing
     , ListBrackets(..)
     , commentGluesToPrevious
     , commentLeadsNext
-    , commentRole
-    , lpnChildren
-    , lpnShape
     , roleGlues
     )
 

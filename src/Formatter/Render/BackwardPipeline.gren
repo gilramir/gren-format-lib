@@ -31,7 +31,6 @@ import Formatter.Render.BoxOps exposing
     , glueCommentSuffix
     , glueLeadingCommentPrefix
     , grenIndent
-    , isBlockNode
     , isSingleLine
     )
 import Formatter.Render.CommentBox exposing

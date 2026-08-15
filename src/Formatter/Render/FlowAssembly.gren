@@ -58,7 +58,6 @@ import Formatter.Render.BoxOps exposing
     , joinInline
     , nodesShareStartRow
     )
-import Formatter.Render.FlowPolicy as FP
 import Formatter.Render.NodeClassify exposing
     ( isColonLeaf
     , isEmptyLine
