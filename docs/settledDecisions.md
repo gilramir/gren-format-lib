@@ -14,17 +14,20 @@ fourth is about *content* — a rewrite the formatter must not perform.
 - [Open and close brackets align vertically](#open-and-close-brackets-align-vertically)
 - [Redundant parens are never stripped](#redundant-parens-are-never-stripped)
 
-The last section is **not settled yet** — it is the working analysis of a change
-the Gren project lead has asked for, written down so the questions it raises can
-be answered one at a time. Nothing in it constrains the formatter until it moves
-up into the list above.
+The last section is a change the Gren project lead has asked for. **R1 and R2
+are implemented and pinned** — by `tests/testfiles/Divergence/D33BackPipeLambdaAligned`
+and `tests/testfiles/BinopsAndPipelines/BackPipeContinuationAlignment` — and are
+as binding as the four entries above. R3 is decided but not built, and is marked
+where it appears. The section stays down here until R3 lands and it can move up
+whole.
 
-- [Under discussion: a lambda after `<|` keeps its head on the operator's row](#under-discussion-a-lambda-after--keeps-its-head-on-the-operators-row)
-  - [1. What we see today](#1-what-we-see-today)
-  - [2. The new behavior](#2-the-new-behavior)
+- [A lambda after `<|` keeps its head on the operator's row](#a-lambda-after--keeps-its-head-on-the-operators-row)
+  - [1. The shape, and the one it replaced](#1-the-shape-and-the-one-it-replaced)
+  - [2. The behavior](#2-the-behavior)
   - [3. Similar patterns](#3-similar-patterns)
   - [4. One-row lambdas are unaffected](#4-one-row-lambdas-are-unaffected)
   - [5. Which bodies are continuations?](#5-which-bodies-are-continuations)
+  - [6. Comments, in the two places R1 and R2 meet one](#6-comments-in-the-two-places-r1-and-r2-meet-one)
 
 ---
 
@@ -153,13 +156,13 @@ side-by-side table of what each formatter strips. See also
 
 ---
 
-# Under discussion: a lambda after `<|` keeps its head on the operator's row
+# A lambda after `<|` keeps its head on the operator's row
 
-## 1. What we see today
+## 1. The shape, and the one it replaced
 
 `compiler/src/Main.gren` opens with a chain of continuations — a call, `<|`, and
-a lambda that takes the result and does it again. This is the desired
-formatting — the **aligned form**, so called because every continuation sits at
+a lambda that takes the result and does it again. This is what the formatter
+produces — the **aligned form**, so called because every continuation sits at
 the same column:
 
 ```gren
@@ -176,8 +179,8 @@ init env =
                 Array.dropFirst 2 env.args
 ```
 
-gren-format currently rewrites it into a staircase — each continuation four
-columns further right than the one above it, and the `let` at column 52:
+Before R1 and R2, gren-format rewrote it into a staircase — each continuation
+four columns further right than the one above it, and the `let` at column 52:
 
 ```gren
 init env =
@@ -198,13 +201,15 @@ init env =
                                                             Array.dropFirst 2 env.args
 ```
 
-The staircase is what `elm-format` produces.
+The staircase is what `elm-format` still produces —
+[divergence #33](elmFormatComparison.md#divergence-33).
 
-## 2. The new behavior
+## 2. The behavior
 
-Two rules, and they are independent. We want both rules.
+Three rules. R1 and R2 are independent of each other and are what the formatter
+does today; R3 is a rider on R2 and is not built yet.
 
-Both fire on every `<|`, whatever the author wrote. Row placement in the source
+They fire on every `<|`, whatever the author wrote. Row placement in the source
 decides nothing here: the staircase spelling and the aligned spelling both come
 back as the aligned form. That is a normalization, not a preference the author
 gets to express per operator — everywhere else a row choice decides whether one
@@ -262,6 +267,46 @@ expression starts.
 R2 removes the second of the two indents, and only for bodies
 that are themselves steps. Together, R1 and R2 turn a chain of *n* continuations
 into *n* rows at one column, closed by a body at +4.
+
+### R3 — the body that closes the chain takes a row of its own
+
+**Not built yet** — R1 and R2 are, so everything else on this page is what the
+formatter does today, and this is the one rule that is still only a decision.
+
+> When R2 aligns a continuation to the base column, that continuation's own
+> lambda body starts on the **row below** its `->`, at base + 4 — even where the
+> author wrote it on the `->` row.
+
+Only the *last* step of a chain can be affected by this, because every other
+step's body is itself a continuation and so occupies rows already. So R3 says
+one thing: **a row at the chain's column holds a whole step and nothing else**,
+and the chain always closes with a body at +4.
+
+```gren
+-- as the author wrote it, with the last step's body on its `->` row:
+init env =
+    Init.await FileSystem.initialize <| \fsPermission ->
+    Init.await Terminal.initialize <| \terminalConfig -> done terminalConfig
+
+
+-- the output: the step still aligns (+0), its body moves down (+4)
+init env =
+    Init.await FileSystem.initialize <| \fsPermission ->
+    Init.await Terminal.initialize <| \terminalConfig ->
+        done terminalConfig
+```
+
+R3 reaches **only** a lambda that R2 aligned — that is, a step *inside* a chain.
+A `<|` lambda that is not part of one keeps whatever the author chose, so
+`await one <| \a -> done a` still comes back on a single row
+([§4](#4-one-row-lambdas-are-unaffected)).
+
+*That last paragraph is the scope of R3, and it is **awaiting confirmation** —
+the example R3 was given by is a two-step chain, so it does not by itself
+distinguish "a chain step's body breaks" from "every `<|` lambda body breaks".
+The narrow reading is written here because it is the one §4 already stated and
+nobody objected to; the wide one would also move the ~1785 standalone
+`<| \p ->` sites in the corpus rather than the ~350 chain members.*
 
 ### Two different things get called a chain
 
@@ -362,17 +407,19 @@ summary =
            )
 ```
 
-Of every operator that can take a lambda operand, only two do something else.
-`<|` drops the whole lambda to a row of its own — the shape R1 changes:
+Of every operator that could take a lambda operand, only two ever did something
+else. `<|` dropped the whole lambda to a row of its own, which is the shape R1
+changed — it now gives the same answer as the three above:
 
 ```gren
-fetch =
-    counts <|
-        \rows ->
+-- before R1:                     -- and now:
+fetch =                           fetch =
+    counts <|                         counts <| \rows ->
+        \rows ->                          done rows
             done rows
 ```
 
-and `|>` with a *bare* lambda strands the operator on a row by itself, which
+`|>` with a *bare* lambda still strands the operator on a row by itself, which
 gren-format produces nowhere else (**this is surely a bug**):
 
 ```gren
@@ -413,16 +460,16 @@ oneRow =
 ```
 
 **And it is one row because the author wrote it that way.** Layout is
-author-driven, so nothing else decides it: the same expression with the
-body on the next row comes back on the next row, and length never breaks it
-either, there being no page-width fitter to overrule the choice:
+author-driven, so nothing else decides it: a body written on the next row comes
+back on the next row, and length never pushes one off the `->` row, there being
+no page-width fitter to overrule the choice. (R1 still puts the head back on the
+operator's row in the first of these — that part is not the author's to choose.)
 
 ```gren
--- written broken, and kept broken:
+-- the body written off the `->` row, and kept off it:
 notOneRow =
-    await one <|
-        \x ->
-            done x
+    await one <| \x ->
+        done x
 
 
 -- 93 columns and still one row:
@@ -432,8 +479,7 @@ stillOneRow =
 
 The one thing that overrides the author is a **body that cannot render on one
 row** — a `let`, a `when`. Writing one of those on the `->` row does not produce
-a one-row lambda; the body breaks, and today's staircase comes back with it,
-which is exactly the shape R1 changes:
+a one-row lambda; the body breaks, and takes its +4:
 
 ```gren
 -- input, all on one row:
@@ -441,30 +487,40 @@ letBody =
     await one <| \x -> let y = 1 in y
 
 
--- today's output:
+-- output:
 letBody =
-    await one <|
-        \x ->
-            let
-                y =
-                    1
-            in
-            y
+    await one <| \x ->
+        let
+            y =
+                1
+        in
+        y
 ```
 
 So the class this section exempts is "the body fits on the `->` row *and* the
 author put it there".
 
-The same holds for the `|>` side (`|> Array.map (\n -> n * 2)`). Nothing in §5
-touches a one-row lambda.
+The same holds for the `|>` side (`|> Array.map (\n -> n * 2)`).
+
+**The one exception is R3.** A one-row lambda that is a *step inside a chain*
+does have its body moved down — that is what R3 is, and it is the only place the
+author's row choice is overruled for a lambda that could have stayed on one row.
+A `<|` lambda standing on its own is never touched.
 
 ## 5. Which bodies are continuations?
 
-One question is left. A body that is itself a continuation starts at the chain's
-column (+0), every other body starts at +4 — so which bodies are continuations?
-Three shapes are not obvious, and each needs a call. Here is each as its own
-small chain, rendered with the recommended answer. Predicted, not measured — the
-rule isn't built:
+One question was left over. A body that is itself a continuation starts at the
+chain's column (+0), every other body starts at +4 — so which bodies are
+continuations? Three shapes were not obvious. All three are now decided:
+
+| Case | The choices | Decided |
+|---|---|---|
+| Case 1 — a multi-step run ending in a lambda | it counts as a continuation · only a single-step run counts | **+4** — only a single-step run counts |
+| Case 2 — a continuation whose own body fits on one row | align on structure · require the inner continuation to break first | **+0** — align on structure, and [R3](#r3--the-body-that-closes-the-chain-takes-a-row-of-its-own) then moves that body down |
+| Case 3 — a *parenthesized* continuation | look through the parens · don't | **+4** — the parens mark a value, not a step |
+
+Here is each as its own small chain. These are the formatter's actual output,
+pinned by `tests/testfiles/BinopsAndPipelines/BackPipeContinuationAlignment`:
 
 ```gren
 -- Case 1 — this body is a run of TWO `<|`s, so the lambda is handed to
@@ -478,10 +534,9 @@ case1 =
                 done attempt
 
 
--- Case 2 — the inner step's own body (`done a b`) sits on the same row as
---          its `->`, because the author put it there (§4) — so this step takes
---          no row below itself. It is still the plain `seed <| lambda` shape,
---          so it counts as a continuation: +0
+-- Case 2 — the inner step is the plain `seed <| lambda` shape, so it counts as
+--          a continuation and aligns: +0. Its own body stays on the `->` row
+--          until R3 is built, which will put it on the row below at +4.
 case2 =
     Init.await one <| \a ->
     Init.await two <| \b -> done a b
@@ -491,18 +546,9 @@ case2 =
 case3 =
     Init.await one <| \a ->
         (Init.await two <| \b ->
-         done a b
+            done a b
         )
 ```
-
-Each row below is a real fork; the recommendation is mine, and the desired
-output is silent on all three.
-
-| Case | The choices | Recommended |
-|---|---|---|
-| Case 1 — a multi-step run ending in a lambda | it counts as a continuation · only a single-step run counts | **+4** — only a single-step run counts |
-| Case 2 — a continuation that fits on one row | align on structure · require the inner continuation to break first | **+0** — align on structure |
-| Case 3 — a *parenthesized* continuation | look through the parens · don't | **+4** — the parens mark a value, not a step |
 
 Most bodies are obvious: in `Main.gren`'s chain every body but the last is
 plainly another `Init.await … <| \p ->` (+0), and the last is a `let` (+4).
@@ -571,16 +617,39 @@ init env =
                 done attempt
 ```
 
-*Recommendation: B.* Under A, `withRetries 3 <|` sits at the chain's column,
-which promises the reader "here is the next step of the chain" — and then the
-very next row is different because the multi-step run has its own
-staircase inside it. The column stops meaning one-step-per-row. B keeps that
-promise: a row at the chain's column is always a whole step.
+**Decided: B.** Under A, `withRetries 3 <|` sits at the chain's column, which
+promises the reader "here is the next step of the chain" — and then the very
+next row is different because the multi-step run has its own staircase inside
+it. The column stops meaning one-step-per-row. B keeps that promise: a row at
+the chain's column is always a whole step.
 
 Multi-step `<|` runs are rare in any case, and the real one in
 `compiler/src/Terminal/Run.gren` —
 `PackageInstallError <| PackageInstall.PackageInstallGitError <| { … }` — has no
 lambda in it at all, so neither example reading touches it.
+
+**A sub-case of this, decided separately.** Case 1 settles whether a multi-step
+run *is* a continuation — it is not, so it takes the +4. It does not settle what
+happens *inside* one: the run's own lambda still has a body, and that body can
+itself be a continuation. **R2 applies there unchanged**, so that body gets the
+same +0 and the chain simply restarts at the multi-step run's own column:
+
+```gren
+-- the row that was in question is `await two <| \b ->`: it sits at the column
+-- of the row above it (8), not +4 from it (12).
+subCase =
+    withRetries 3 <|
+        Task.mapError toReport <| \a ->
+        await two <| \b ->
+            done a b
+```
+
+The alternative was to make a multi-step run suppress R2 inside itself, putting
+that row at 12. **Decided against by the Gren lead** on the shape: it starts a
+second staircase inside a construct whose whole purpose is to not have one, and
+a chain reads worse for it. The uniform rule is also the one the code wants —
+the two sites that lay out a `<|` step have to agree, or a chain would render
+differently depending on how many steps its innermost run has.
 
 ---
 
@@ -605,10 +674,30 @@ init env =
         Init.await Terminal.initialize <| \terminalConfig -> done terminalConfig
 ```
 
-*Recommendation: align on structure* — the first. The reader can see the body
-sitting on the row, so nothing is ambiguous about where the chain ended.
-step of a six-step chain as the only one that steps right. The +4 indent exists to mark
-a body that took **a row of its own** (R2); there is none here.
+**Decided: align on structure** — the first. The step is the same `seed <|
+lambda` shape as every other row of the chain, so it belongs at the chain's
+column; singling out the last step of a six-step chain as the only one that
+steps right would be the odd shape.
+
+**But the body will not stay on that row.** The first spelling above is today's
+output, because R3 is not built;
+[R3](#r3--the-body-that-closes-the-chain-takes-a-row-of-its-own) moves the body
+down, so once it lands both spellings come back as
+
+```gren
+init env =
+    Init.await FileSystem.initialize <| \fsPermission ->
+    Init.await Terminal.initialize <| \terminalConfig ->
+        done terminalConfig
+```
+
+which keeps the chain's rows uniform — every one of them a whole step and
+nothing else — and gives the chain a visible close at +4.
+
+That has a pleasant consequence for the implementation: since a continuation's
+body always ends up on its own row, R2's membership test never has to ask
+whether the inner body was written on the `->` row. Case 2 stops being a
+distinction the predicate can see.
 
 ---
 
@@ -629,7 +718,85 @@ chain =
             )
 ```
 
-*Recommendation: not a continuation — +4.* This needs no new rule; it falls out
-of R2 asking about the body's top node. It is also the right answer on its own
-terms: the author wrote parens around it, which is a deliberate mark that the
-inner expression is a *value* being produced, not the next step of the chain.
+**Decided: not a continuation — +4.** This needs no new rule; it falls out of R2
+asking about the body's top node. It is also the right answer on its own terms:
+the author wrote parens around it, which is a deliberate mark that the inner
+expression is a *value* being produced, not the next step of the chain.
+
+Note that the paren block is not a chain either, so R3 does not reach inside it:
+a one-row lambda in there stays on its row.
+
+## 6. Comments, in the two places R1 and R2 meet one
+
+Neither of these was in the original list of questions. Both had to be answered
+to build R1 at all, because R1 *creates* them: it changes what a row holds, so a
+comment that used to have somewhere to sit may no longer, and a rule that
+declines to glue over a comment produces two different layouts for the same
+code. The house rule they are both decided by is **C4 — a comment changes where
+the rows fall, not how the code sits against its neighbours.**
+
+### 6a. A comment between the `<|` and the `\`
+
+R1 wants one row for `seed <| \p ->`. A comment written in that gap either fits
+on that row or needs one of its own, and that — not its kind, and not where the
+author put the lambda — is what decides.
+
+**A single-line `{- … -}` the author wrote on the operator's row rides**, in
+front of the head. Staying on one row is the whole point of R1, and it is
+already what the same comment does when the lambda's body is on the `->` row.
+
+```gren
+-- both of these spellings, and the comment-free twin, agree:
+ridingComment =
+    fn <| {- fs -} \a ->
+        done a
+```
+
+**Everything else keeps the pre-R1 layout for that step**, because there is no
+row to give it: a `--` ends its row, a multi-row `{- … -}` occupies rows, and one
+the author put on a row of its own keeps that row
+([divergence #30](elmFormatComparison.md#divergence-30)).
+
+```gren
+ownRowComment =
+    fn <|
+        {- fs -}
+        \a ->
+            done a
+
+
+lineComment =
+    fn <|
+        -- fs
+        \a ->
+            done a
+```
+
+The alternative — decline over every comment, on the grounds that the comment
+slots were an open question — is what makes this a decision rather than an
+omission. It would have rendered `fn <|` ⏎ `{- fs -}` ⏎ `\a -> …` differently
+from its comment-free twin, which is a C4 violation R1 would have introduced.
+
+### 6b. A comment inside a step does not move R2's column
+
+R2 asks whether a body is the next step of the chain. That question is answered
+from the shape of the tree with the comments taken out, so a comment can never
+shift the column that every row below it sits at. All it can cost is the head
+glue for the step it is written in — 6a's fallback, which is one row, once.
+
+```gren
+-- the comment costs `fn` its head glue and nothing else: the step is still at
+-- the chain's column, and so is everything after it
+lineCommentStep =
+    await one <| \a ->
+    fn <|
+        -- c
+        \b ->
+            done b
+```
+
+This is why the two predicates behind R1 and R2 differ in exactly one respect:
+`lambdaOperandSplit` has to *place* a head, so it declines anything it cannot
+put on the row, while `isBackwardContinuation` only asks what the step *is*, and
+ignores comments entirely.
+

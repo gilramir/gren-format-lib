@@ -1864,16 +1864,56 @@ A `<|` chain is right-associative — each step is an argument to the one above
 it — so the staircase is what the nesting actually is, and it is what
 `elm-format` produces. This is the layout however flat you wrote the chain.
 
-When a `<|` step body is a lambda, the `<|` trails the preceding step and the
-lambda sits on the next line, indented +4 from the pipeline seed. The lambda
-body is indented another +4:
+**A lambda after `<|` is the exception**, and it has its own two rules. The
+lambda's *head* — the `\`, its parameters and the `->` — stays on the `<|`'s row,
+and only the body moves:
 
 ```gren
 main =
-    Node.defineSimpleProgram <|
-        \env ->
-            run env
+    Node.defineSimpleProgram <| \env ->
+        run env
 ```
+
+And when the body is *itself* another `… <| \… ->`, it starts at the **same
+column** rather than +4. A chain of continuations is therefore one row per step,
+all at one column, closed by a body at +4 — the step right being the only thing
+that says where the chain ended, since a chain has no `in`:
+
+```gren
+init env =
+    Init.await FileSystem.initialize <| \fsPermission ->
+    Init.await ChildProcess.initialize <| \cpPermission ->
+    Init.await Terminal.initialize <| \terminalConfig ->
+        run fsPermission cpPermission terminalConfig
+```
+
+Unlike the rest of this page, that is **not** your layout being followed: both
+spellings come back as the aligned form. Everywhere else a row choice decides
+whether one construct is inline or broken; here it would decide the indentation
+of everything below it. Three things are still your choice — a lambda whose body
+you put on the `->` row stays on one row, a left-hand side that renders across
+rows keeps the old staircase, and parens around the next step mark it as a value
+rather than a step, so it takes the +4.
+
+```gren
+-- your one-row lambda, unchanged:
+oneRow =
+    await one <| \a -> done a
+
+
+-- a multi-line left-hand side keeps the staircase:
+multilineSeed =
+    { fs = fsPermission
+    , cp = cpPermission
+    } <|
+        \a ->
+            done a
+```
+
+This is [divergence #33](elmFormatComparison.md#divergence-33) — `elm-format`
+staircases every one of these. The full statement, and which bodies count as
+continuations, is in
+[`settledDecisions.md`](settledDecisions.md#a-lambda-after--keeps-its-head-on-the-operators-row).
 
 A comment just before a `|>` step travels with that step:
 

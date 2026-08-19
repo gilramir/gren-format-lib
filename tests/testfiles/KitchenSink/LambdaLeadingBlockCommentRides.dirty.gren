@@ -54,11 +54,11 @@ pipelineOperandNoComment =
         |> \q -> q + one
 
 
--- The comment has a row to ride only while the body stays on the operator's
--- row. Once the body leaves it -- because the author broke the chain, or the
--- body itself spans rows -- the comment stacks above the body instead. That is
--- also what the reparse re-derives: with the operator on an earlier row the
--- comment reads as leading its own line, so both spellings are fixed points.
+-- The author breaking the chain is no longer one of those: R1 puts a lambda
+-- operand's head back on the `<|`'s row whatever the author wrote, so the
+-- comment gets its row back with it and the two spellings converge. What still
+-- takes the ride away is a comment the author gave a row of its own -- see
+-- `Divergence/D33BackPipeLambdaAligned` -- and the `|>` side, which has no R1.
 
 
 backPipeBodyBroken =

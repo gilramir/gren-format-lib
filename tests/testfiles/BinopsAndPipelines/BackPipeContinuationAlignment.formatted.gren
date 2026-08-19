@@ -1,0 +1,110 @@
+module BackPipeContinuationAlignment exposing (..)
+
+-- R2 asks one question of a `<|` lambda's body -- is it itself the next step of
+-- the chain? -- and answers it with one number, the column the body starts at.
+-- Three shapes were not obvious; all three are settled in
+-- docs/settledDecisions.md, and this file is where each one is pinned.
+--
+-- Case 1: the body is a run of TWO `<|`s, so the lambda is handed to
+-- `Task.mapError toReport` and not to the seed. Not a continuation: +4.
+
+
+case1MultiStepRun =
+    await one <| \a ->
+        withRetries 3 <|
+            Task.mapError toReport <| \attempt ->
+                done attempt
+
+
+-- Case 2: the body is the plain `seed <| lambda` shape, so it counts as a
+-- continuation and aligns (+0) even though its own body sits on its `->` row.
+--
+-- The body's ROW is a separate question, still out with the Gren lead as R3:
+-- he wants it on the row below at +4. When that lands this block changes and
+-- the alignment above it does not -- do not "fix" the two together.
+
+
+case2OneRowBody =
+    await one <| \a ->
+    await two <| \b -> done a b
+
+
+-- A rider on Case 1, decided separately: the multi-step run's own lambda still
+-- has a body, and that body can itself be a continuation. R2 applies there
+-- unchanged, so the chain restarts at the run's own column rather than stepping
+-- right again -- a second staircase inside the construct that exists to not
+-- have one is the shape this was decided against.
+
+
+case1RunWithChainInside =
+    withRetries 3 <|
+        Task.mapError toReport <| \a ->
+        await two <| \b ->
+            done a b
+
+
+-- Case 3: the author wrote parens, which mark the inner expression as a value
+-- rather than the next step. The body's top node is a paren block, so R2's
+-- question is answered by the shape: +4.
+
+
+case3Parenthesized =
+    await one <| \a ->
+        (await two <| \b ->
+            done a b
+        )
+
+
+-- A body that is not a continuation at all takes the same +4. A chain has no
+-- closing keyword -- nothing plays the part `in` plays for `let` -- so this
+-- step right is the only thing that says where the chain ended.
+
+
+closingLet =
+    await one <| \a ->
+    await two <| \b ->
+        let
+            y =
+                1
+        in
+        y
+
+
+-- The base column is whatever column the `<|` expression starts at, read off
+-- the rendered box rather than computed. The last two are not multiples of
+-- four: a bracket sets its own.
+
+
+inLetBinding =
+    let
+        step =
+            await one <| \a ->
+                done a
+    in
+    step
+
+
+inWhenBranch =
+    when x is
+        Just y ->
+            await one <| \a ->
+                done a y
+
+
+inRecordField =
+    { command =
+        await one <| \a ->
+            done a
+    }
+
+
+inBracketItem =
+    [ await one <| \a ->
+        done a
+    ]
+
+
+inParens =
+    (await one <| \a ->
+        done a
+    )

@@ -220,6 +220,43 @@ class Lambda(E):
         self.params, self.body, self.body_pre = params, body, body_pre
         self.body_below = body_below
 
+class ContStep:
+    # One `seed <| \p ->` row of a continuation chain. `lead` is an own-line
+    # comment run written ABOVE this step at the chain's base column — the
+    # inter-token gap the aligned form created, which no other node can reach.
+    # Never set on step 0, whose row is headless (its caller supplies the
+    # padding), so a comment above it would be a comment above the whole
+    # expression — a slot other machinery already covers.
+    # `gap` is a single-row block comment written between this step's `<|` and
+    # its `\` — the slot R1 has to decide about, and the only comment kind that
+    # can stay on the glued row. A `--` or a multi-row `{- … -}` there takes the
+    # row away and the step falls back to the pre-R1 staircase, so neither is
+    # emitted here: this axis is for the shape that RIDES.
+    def __init__(self, seed, params, lead=None, gap=None):
+        self.seed, self.params, self.lead = seed, params, lead
+        self.gap = gap
+
+class Continuation(E):
+    r"""A `<|` continuation chain: n steps of `seed <| \p ->` and a final body.
+
+    Deliberately NOT built out of `Binop` + `Lambda`, though that is what it
+    parses as. The point is the ALIGNED spelling — every step at one column,
+    the final body at +4 — which is what the formatter emits for this shape
+    since divergence #33, and which no combination of `emit_binop` and
+    `emit_lambda` can write. Feeding the formatter its own output shape is the
+    whole value: it is the fixed point that must hold, the layout the parser
+    must read back, and the only place a comment can sit on its own row between
+    two steps at the base column.
+
+    `staircase` emits the pre-#33 spelling of the SAME tree instead — each step
+    two indents deeper than the last. Both must come back as the aligned form
+    (the change normalizes rather than preserving), so the two spellings are
+    one property with two inputs.
+    """
+    def __init__(self, steps, body, body_lead=None, staircase=False):
+        self.steps, self.body = steps, body
+        self.body_lead, self.staircase = body_lead, staircase
+
 class Record(E):
     def __init__(self, fields, broken=False):  # fields: [(name, val)]
         self.fields, self.broken = fields, broken
@@ -471,6 +508,9 @@ def multiline(n):
         # `one_line` of it and the emitter asserts.
         return (multiline(n.body) or n.body_below
                 or any(getattr(p, "broken", False) for p in n.params))
+    if isinstance(n, Continuation):
+        # Always: the final body is on a row of its own under the last step.
+        return True
     if isinstance(n, Record):
         return n.broken or any(multiline(v) for _, v in n.fields)
     if isinstance(n, Update):
@@ -509,6 +549,7 @@ def emit(n, col):
     if isinstance(n, When):   return emit_when(n, col)
     if isinstance(n, Let):    return emit_let(n, col)
     if isinstance(n, Lambda): return emit_lambda(n, col)
+    if isinstance(n, Continuation): return emit_continuation(n, col)
     if isinstance(n, Record): return emit_record(n.fields, None, n.broken, col)
     if isinstance(n, Update): return emit_record(n.fields, n.base, n.broken, col)
     if isinstance(n, Array):  return emit_array(n, col)
@@ -748,6 +789,40 @@ def emit_lambda(n, col):
     bl = emit(n.body, _end_col(rows, col))
     rows[-1] = rows[-1] + bl[0]
     return rows + bl[1:]
+
+
+def _cont_head(st):
+    r"""One step's row, without its indent: `seed <| {- c -} \p q ->`."""
+    gap = (comment_text(st.gap) + " ") if st.gap else ""
+    return (one_line(st.seed) + " <| " + gap + "\\"
+            + " ".join(emit_param(p) for p in st.params) + " ->")
+
+
+def emit_continuation(n, col):
+    if n.staircase:
+        # The pre-#33 spelling: the lambda drops below its `<|` and its body
+        # drops again, so each step sits two indents deeper than the last.
+        # Comments are not written into this form — `mk_continuation` attaches
+        # them only to the aligned one, where every step shares a column and a
+        # run above one step reads the same way at any depth.
+        out = []
+        c = col
+        for i, st in enumerate(n.steps):
+            head = one_line(st.seed) + " <|"
+            out.append(head if i == 0 else pad(c) + head)
+            out.append(pad(c + INDENT) + "\\"
+                       + " ".join(emit_param(p) for p in st.params) + " ->")
+            c += 2 * INDENT
+        return out + own_line(n.body, c)
+
+    out = [_cont_head(n.steps[0])]
+    for st in n.steps[1:]:
+        if st.lead is not None:
+            out += comment_lines(st.lead, col)
+        out.append(pad(col) + _cont_head(st))
+    if n.body_lead is not None:
+        out += comment_lines(n.body_lead, col + INDENT)
+    return out + own_line(n.body, col + INDENT)
 
 
 def emit_record(fields, base, broken, col):
@@ -1916,7 +1991,8 @@ class Gen:
         if r < 0.71:  return self.mk_when(d)
         if r < 0.79:  return self.mk_let(d)
         if r < 0.85:  return self.mk_lambda(d)
-        if r < 0.91:
+        if r < 0.94:  return self.mk_continuation(d)
+        if r < 0.98:
             n = self.mk_multiline_str()
             # Unlike every other branch above (which fall through to `atom()`
             # below and get this for free), this branch returns straight from
@@ -1992,6 +2068,59 @@ class Gen:
         if self.chance(0.25):
             operands[-1] = self.mk_lambda(d)
         return Binop(operands, ops, broken=self.chance(0.5))
+
+    def mk_continuation(self, d):
+        r"""v1.39: a `<|` continuation chain — n steps of `seed <| \p ->`
+        closed by a body, emitted in the ALIGNED form divergence #33 defines.
+
+        The tree was already reachable in principle (`mk_pipeline` may end its
+        chain in a bare lambda, and a lambda body may be another pipeline), but
+        only by coincidence and never more than one level deep, and never in
+        the aligned SPELLING — `emit_binop` and `emit_lambda` between them can
+        only write the staircase. So the three things the aligned form is new
+        for had no case anywhere: two steps at exactly the same column (the
+        shape family of compiler-common#14, which the formatter now emits
+        rather than merely accepting), a comment on its own row between two
+        steps at that column, and the final body's +4 against a run of rows
+        that do not step.
+        """
+        k = self.rng.randint(1, 4)
+        steps = []
+        for i in range(k):
+            params = [self.pattern_base(d)
+                      for _ in range(self.rng.randint(1, 2))]
+            # No lead on step 0 — see `ContStep`.
+            steps.append(ContStep(self.cont_seed(d), params,
+                                  None if i == 0 else self.comment_run(),
+                                  gap=self.comment(kinds=("block",))))
+        node = Continuation(steps, self.value(d),
+                            body_lead=self.comment_run())
+        # The staircase spelling of the same tree. Only without comments: the
+        # two forms put a step's own row at different depths, so a run written
+        # above one would be testing the staircase's comment placement rather
+        # than the aligned form's, which is the gap this axis exists for.
+        if (node.body_lead is None
+                and all(st.lead is None and st.gap is None for st in steps)
+                and self.chance(0.35)):
+            node.staircase = True
+        return node
+
+    def cont_seed(self, d):
+        """A continuation step's left-hand side, guaranteed single-row.
+
+        **D2** turns R1 off for a left-hand side that renders across rows, so a
+        multi-row seed is a different shape from the one this axis is for — and
+        the aligned form has no column for it: every step's row starts at the
+        base, and a seed that ends on a later row would put the `<|` there.
+        (The multi-row seed has its own coverage through `mk_binop`.)
+        """
+        if self.chance(0.6):
+            seed = Call(Var(self.pick(self.vars)),
+                        [self.arg(d) for _ in range(self.rng.randint(1, 2))],
+                        broken=False)
+        else:
+            seed = self.atom(d)
+        return seed if not multiline(seed) else Var(self.pick(self.vars))
 
     def mk_record(self, d):
         k = self.rng.randint(0, 3)
@@ -3407,6 +3536,10 @@ def child_slots(n):
         out.append((n.body, _attr_setter(n, "body")))
     elif isinstance(n, Lambda):
         out.append((n.body, _attr_setter(n, "body")))
+    elif isinstance(n, Continuation):
+        for st in n.steps:
+            out.append((st.seed, _attr_setter(st, "seed")))
+        out.append((n.body, _attr_setter(n, "body")))
     elif isinstance(n, (Record, Update)):
         for i in range(len(n.fields)):
             out.append((n.fields[i][1], _field_setter(n.fields, i)))
@@ -3455,6 +3588,10 @@ def list_containers(m):
                 yield node, "branches", 1
             elif isinstance(node, Let):
                 yield node, "binds", 1
+            elif isinstance(node, Continuation):
+                # Down to one step, which is still a `<|` lambda and still the
+                # shape R1 glues — the chain is what R2 adds on top.
+                yield node, "steps", 1
 
 
 def _all_nodes(n):
@@ -3557,6 +3694,18 @@ def comment_clearers(m):
                             yield chain_pop(b, "lead")
                     if b.trailing is not None:
                         yield clear_attr(b, "trailing")
+            if isinstance(node, Continuation):
+                if node.body_lead is not None:
+                    yield clear_attr(node, "body_lead")
+                    if len(node.body_lead) > 1:
+                        yield chain_pop(node, "body_lead")
+                for st in node.steps:
+                    if st.gap is not None:
+                        yield clear_attr(st, "gap")
+                    if st.lead is not None:
+                        yield clear_attr(st, "lead")
+                        if len(st.lead) > 1:
+                            yield chain_pop(st, "lead")
             if isinstance(node, When):
                 for i in range(len(node.branches)):
                     if node.branches[i][2] is not None:
@@ -3606,6 +3755,12 @@ def layout_resetters(m):
             elif isinstance(node, Lambda):
                 if node.body_below:
                     yield off(node, "body_below")
+            elif isinstance(node, Continuation):
+                # Toward the aligned spelling, which is the formatter's own
+                # output — so a find that survives this was never about the
+                # author having written the staircase.
+                if node.staircase:
+                    yield off(node, "staircase")
             elif isinstance(node, Let):
                 for b in node.binds:
                     if b.val_below:

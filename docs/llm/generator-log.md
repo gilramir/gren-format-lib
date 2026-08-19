@@ -1740,3 +1740,65 @@ fn3 =
 
 which formats to output that does not reparse. With the fix in, `-n 300` is
 **300/300 clean**.
+
+
+### A `<|` continuation chain, in the ALIGNED spelling — v1.39
+
+`seed <| \p ->` steps at one column, closed by a body at +4, is what the
+formatter emits for this shape as of [divergence #33](../elmFormatComparison.md#divergence-33).
+The generator could not write it. The *tree* was reachable in principle —
+v1.33's `mk_pipeline` may end its chain in a bare lambda, and a lambda body may
+be another pipeline — but only by coincidence, never reliably more than one
+level deep, and never in that spelling: `emit_binop` always indents its operand
+by `INDENT + len(op) + 1` and `emit_lambda` always puts a block body at
+`col + INDENT`, so between them the two emitters can only write the staircase.
+
+So the three things the aligned form is new for had no case anywhere:
+
+- **two steps at exactly the same column** — the shape family of
+  compiler-common#14, which the formatter went from merely *accepting* to
+  *emitting*;
+- **a comment on its own row between two steps, at that column** — an
+  inter-token gap that did not exist before the change;
+- **the final body's +4** measured against a run of rows that do not step.
+
+- **`Continuation` / `ContStep`** — a first-class node rather than
+  `Binop` + `Lambda`, precisely because those two cannot spell it. `ContStep`
+  carries the step's seed, its parameters, an own-line comment `lead` written
+  above it at the base column, and a single-row `{- … -}` `gap` between its `<|`
+  and its `\`. The gap is block-only and single-row on purpose: that is the one
+  comment kind R1 keeps on the glued row, and the kinds that take the row away
+  send the step back to the pre-R1 staircase, which is a different shape.
+- **`Continuation.staircase`** — the pre-#33 spelling of the same tree. The
+  change *normalizes* rather than preserving, so both spellings must come back
+  aligned; they are one property with two inputs. Comment-free by construction,
+  since a run written above a step means something different when every step
+  sits at a different depth.
+- **`cont_seed`** — guaranteed single-row. **D2** turns R1 off for a left-hand
+  side that renders across rows, so a multi-row seed is a different shape (and
+  the aligned form has no column for it: a seed ending on a later row would put
+  the `<|` there). The multi-row seed keeps its coverage through `mk_binop`.
+
+**Coverage, counted from the trees over `-n 400 --max-depth 5`:** 225 of 400
+modules hold a chain, 525 chains in all — 126 of one step, 126 of two, 120 of
+three, 153 of four; 471 aligned against 54 staircase; **783 rows sitting at
+exactly the column of the row above**; 228 inter-step comment runs, 331 gap
+comments, 142 leads on a final body, and 26 chains directly nested in another.
+`-n 400` clean, twice.
+
+**Verified non-vacuous against the code it was written for.** With
+`renderGluedLambdaStep` changed to drop the gap comments instead of gluing them
+in front of the head — one `Array.foldr glueLeadingCommentPrefix` deleted —
+`-n 60` reports **18 comment-loss seeds**. Seed 2 shrinks to a module whose
+operative rows are
+
+```gren
+0 <| {- k3 -} \_ z ->
+    Err
+```
+
+— the `{- k3 -}` is simply gone from the output. Reverted, the same 60 are
+clean. Nothing else in the repo watches that slot: the
+fixture corpus has one hand-written case of it
+(`KitchenSink/LambdaLeadingBlockCommentRides`), and `fuzz-idempotency.py` reaches
+it only where a fixture already put a lambda after a `<|`.

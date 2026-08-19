@@ -51,6 +51,7 @@ code, and why the places they *don't* look the way they do.
   - [#30 A comment run keeps the rows you wrote it on](#divergence-30)
   - [#31 A declaration that doesn't start in column 1](#divergence-31)
   - [#32 A lambda head broken across rows keeps its `->`](#divergence-32)
+  - [#33 A lambda after `<|` keeps its head on the operator's row](#divergence-33)
 - [Out of scope for comparison](#out-of-scope-for-comparison)
 
 
@@ -1702,6 +1703,91 @@ if it stops being — an entry with no fixture, or a fixture with no entry.
     (`\{ basisPoints }` ⏎ `-- comment` ⏎ `accumulatingFactor ->`); it became
     *visible* only when `matrix-syntax.py` gained lambdas whose pattern can
     break, every lambda in it having been `\q ->` until then.
+
+33. <a id="divergence-33"></a>**A lambda after `<|` keeps its head on the
+    operator's row, and a chain of them sits at one column; elm-format builds a
+    staircase.** Two rules, both gren's alone. **R1**: when the right-hand
+    operand of `<|` is a lambda, the `\`, its parameters and the `->` stay on the
+    `<|`'s row, and only the body moves. **R2**: a body that is itself another
+    `… <| \… ->` starts at the *same* column as the row above it; any other body
+    starts at +4. Together they turn a chain of *n* continuations into *n* rows
+    at one column, closed by a body at +4.
+
+    ```gren
+    -- you write (and this is also what gren-format gives back):
+    init env =
+        Init.await FileSystem.initialize <| \fsPermission ->
+        Init.await ChildProcess.initialize <| \cpPermission ->
+        Init.await HttpClient.initialize <| \httpPermission ->
+            done fsPermission cpPermission httpPermission
+    ```
+
+    ```gren
+    -- elm-format, from that same input:
+    init env =
+        Init.await FileSystem.initialize <|
+            \fsPermission ->
+                Init.await ChildProcess.initialize <|
+                    \cpPermission ->
+                        Init.await HttpClient.initialize <|
+                            \httpPermission ->
+                                done fsPermission cpPermission httpPermission
+    ```
+
+    The staircase is not wrong — it is exactly the nesting the code has, `<|`
+    being right-associative with a lambda swallowing everything to its right. It
+    is that every step costs eight columns and the depth is unbounded:
+    `compiler/src/Main.gren`'s six-step opener puts its `let` at column 52.
+
+    **Why gren parts company here.** `Task.await`'s own doc comment in
+    `core/src/Task.gren` teaches this shape, and `Task.await` / `Init.await`
+    exist for it. It is also the majority spelling in real Gren code: across the
+    45 published packages in `gren-format-preview`, read at `git HEAD` so the
+    numbers are what authors *wrote*, the flat spelling wins 1790 sites to 745 —
+    and the choice is per package, packages being internally consistent. And it
+    makes `<|` agree with its neighbours: `>>`, `++` and user-defined operators
+    already keep a bare lambda's head on the operator's row, and so does `|>`
+    with a parenthesized direct operand, where elm-format agrees with gren.
+    elm-format's staircase comes from its generic right-associative operator
+    machinery, which stacks as soon as the right side is not single-line and has
+    no idea a lambda is special.
+
+    **Normalization, not preference.** Both spellings come back as the aligned
+    form; where the author put the `\` decides nothing. Everywhere else in
+    gren-format a row choice decides whether *one* construct is inline or broken,
+    but here it would decide the indentation of everything below it.
+
+    Four boundaries, each settled and each with its own case in the fixture:
+
+    - **A multi-line left-hand side turns R1 off** — a call whose arguments you
+      broke, a multi-row record, array or paren keeps the staircase. Gluing there
+      would put the head on a row starting well right of the base column while R2
+      pulls its body back to the base.
+    - **A one-row lambda is untouched.** `await one <| \a -> done a` is one row
+      because the author wrote it that way, and stays one row.
+    - **A multi-line lambda *head* still glues**, its continuation rows lining up
+      under the `\`. Only a comment can break a head at all — that is
+      [#32](#divergence-32) — and this is the same trade #32 already took.
+    - **A comment between the `<|` and the `\` glues only if it can ride**: a
+      single-line `{- … -}` the author put on the operator's row does, and a
+      `--`, a multi-row `{- … -}`, or one the author gave a row of its own
+      ([#30](#divergence-30)) keeps the pre-R1 staircase for that step.
+
+    Which bodies count as continuations for R2 is three further questions, all
+    answered in
+    [`settledDecisions.md`](settledDecisions.md#5-which-bodies-are-continuations):
+    a multi-step run ending in a lambda does not (+4), a continuation whose own
+    body fits on one row does (+0), and a *parenthesized* continuation does not
+    (+4).
+
+    Note what R2 emits: a token at exactly the column of the row above it, which
+    is the shape family of
+    [compiler-common#14](https://github.com/gren-lang/compiler-common/issues/14).
+    The emitted shape is safe — a continuation body opens a new scope at the base
+    column, so the row above is already closed — but the aligned form reads like
+    a statement list, so a second statement written at that column is a parse
+    error rather than the reading the author intended. It fails loudly.
+
 
 ## Out of scope for comparison
 

@@ -386,7 +386,9 @@ inside a record type.
 
 **Expressions.** Binop chains over every operator in
 `Formatter.Logical.BinopPrecedence`, `|>` and `<|` included, optionally ending in
-a bare lambda; record literals and updates; arrays; `let`/`in`, including
+a bare lambda; `<|` **continuation chains** (`seed <| \p ->` steps closed by a
+body) in both the aligned and the staircase spelling, with an own-line comment
+run between two steps; record literals and updates; arrays; `let`/`in`, including
 let-bound functions; `when`/`is`; `if`/`then`/`else`; lambdas; calls; field
 access; parentheses. Atoms are ints (decimal and hex), floats (plain and
 scientific), strings, `"""…"""` multi-line strings, chars, vars, qualified names,

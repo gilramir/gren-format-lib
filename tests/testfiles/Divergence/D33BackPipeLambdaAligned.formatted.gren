@@ -1,0 +1,82 @@
+module D33BackPipeLambdaAligned exposing (..)
+
+-- R1: a lambda after `<|` keeps its head on the operator's row.
+-- R2: a body that is itself another `… <| \… ->` starts at the same column;
+-- any other body starts at +4. elm-format staircases all of these.
+
+
+chain =
+    Init.await FileSystem.initialize <| \fsPermission ->
+    Init.await ChildProcess.initialize <| \cpPermission ->
+    Init.await HttpClient.initialize <| \httpPermission ->
+        done fsPermission cpPermission httpPermission
+
+
+-- The staircase spelling of the same expression. Row placement decides
+-- nothing here, so it comes back as the aligned form.
+
+
+chainWrittenAsStaircase =
+    Init.await FileSystem.initialize <| \fsPermission ->
+    Init.await ChildProcess.initialize <| \cpPermission ->
+        done fsPermission cpPermission
+
+
+-- A single step has nothing to align, so its body just takes the +4.
+
+
+singleStep =
+    Parser <| \s ->
+        Good { pred = False, value = a, state = s }
+
+
+-- A one-row lambda is one row because the author wrote it that way, and R1
+-- has no body to move.
+
+
+oneRow =
+    await one <| \a -> done a
+
+
+-- A multi-line left-hand side turns R1 off: the staircase is kept.
+
+
+multilineSeed =
+    { fs = fsPermission
+    , cp = cpPermission
+    } <|
+        \a ->
+            done a
+
+
+-- A multi-line lambda HEAD does not turn R1 off. Only a comment can break a
+-- head (divergence #32); the head's continuation rows line up under the `\`.
+
+
+brokenHead =
+    withRow row <| \{ quantity -- always >= 1, validated at the door
+                    , unitPriceCents
+                    } ->
+        done (quantity * unitPriceCents)
+
+
+-- Between the `<|` and the `\`, a comment glues only if it can ride the row.
+
+
+ridingComment =
+    fn <| {- fs -} \a ->
+        done a
+
+
+ownRowComment =
+    fn <|
+        {- fs -}
+        \a ->
+            done a
+
+
+lineComment =
+    fn <|
+        -- fs
+        \a ->
+            done a

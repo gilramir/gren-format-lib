@@ -7,11 +7,13 @@ module Formatter.Render.NodeClassify exposing
     , isColonLeaf
     , isDroppingSignatureRecordNode
     , isEmptyLine
+    , isBackwardContinuation
     , isGluedLambdaField
     , isMultilineLambdaParenBlockBox
     , isOpAndRhsNode
     , isPipelineStepNode
     , isTypeRecordLiteral
+    , lambdaOperandSplit
     , lambdaParenIsHeadAndBodyOnly
     , leafLineRow
     , leafValue
@@ -36,6 +38,7 @@ import Formatter.Logical.LogicalPrintingTree exposing
     , LPNode
     , LPShape(..)
     , ListBrackets(..)
+    , PrefixKind(..)
     , RecordKind(..)
     , commentRole
     , firstRowInSubtree
@@ -719,3 +722,154 @@ splitOffLambdaHead nodes =
                 , lambdaNodes = Array.dropFirst i nodes
                 }
             )
+
+
+{-| Split a backward-pipeline step's operand into a lambda head and a lambda
+body, when the operand IS a lambda. This is the shape **R1** glues onto the
+`<|`'s row (`docs/settledDecisions.md`): everything up to and including the `->`
+stays with the operator, and only the body moves.
+
+`bodyOnHeadRow` is the author's choice of where the lambda body sits, carried on
+the LPT by which block wraps it: `SoftIndentedBlock` is the body the author put
+on the `->` row, `IndentedBlock` the body they put on a row of its own. That is
+the one thing R1 does not overrule — a one-row lambda comes back on one row.
+
+Deliberately strict. The operand must be a lone `BodyBlock` of exactly a lambda
+head and its body, so a comment anywhere in the operand's own children yields
+`Nothing` and the step keeps the pre-R1 layout; the comment slots around `<|`
+are still open questions. It also rules out the other block operands, which
+reach this module wearing similar shapes: an `if` is a `BodyBlock` of four
+children, a `let` a `BodyBlock` whose last child is a `BodyBlock`, and a `when`
+a `WhenFlow`.
+-}
+lambdaOperandSplit : Array LPNode -> Maybe { head : LPNode, body : Array LPNode, bodyOnHeadRow : Bool }
+lambdaOperandSplit operandNodes =
+    when operandNodes is
+        [ only ] ->
+            when lpnShape only is
+                BodyBlock ->
+                    when lpnChildren only is
+                        [ headNode, bodyNode ] ->
+                            if isLambdaHeadNode headNode then
+                                when lpnShape bodyNode is
+                                    SoftIndentedBlock ->
+                                        Just { head = headNode, body = lpnChildren bodyNode, bodyOnHeadRow = True }
+
+                                    IndentedBlock ->
+                                        Just { head = headNode, body = lpnChildren bodyNode, bodyOnHeadRow = False }
+
+                                    _ ->
+                                        Nothing
+
+                            else
+                                Nothing
+
+                        _ ->
+                            Nothing
+
+                _ ->
+                    Nothing
+
+        _ ->
+            Nothing
+
+
+-- A lambda's head flow, identified by the `\` it opens with. `PrefixLambdaHead`
+-- is the LPT's own record of what that glyph is for, so this asks the tree
+-- rather than the rendered text (`parenContentIsLambdaHead`, one node up, has to
+-- ask the shape instead because it is handed the whole content). A comment
+-- written in front of the `\` does not stop it being a lambda head; it renders
+-- inside the head flow either way.
+isLambdaHeadNode : LPNode -> Bool
+isLambdaHeadNode node =
+    when Array.first (Array.keepIf (\n -> not (nodeIsComment n)) (lpnChildren node)) is
+        Just firstChild ->
+            when lpnShape firstChild is
+                PrefixGlue loc ->
+                    loc.value == PrefixLambdaHead
+
+                _ ->
+                    False
+
+        Nothing ->
+            False
+
+
+{-| **R2**'s membership test: is this lambda body the next step of the chain,
+rather than the value the chain produces? A continuation is a lambda handed
+*straight* to a single-step `<|` run — `seed <| \p -> …` — and it starts at the
+chain's base column; every other body starts at base + 4.
+
+The three cases the Gren lead settled all fall out of asking exactly that, of
+the body's **top node** (`docs/settledDecisions.md` §5):
+
+  - a multi-step run (`withRetries 3 <| Task.mapError toReport <| \a -> …`) is
+    not one, because the lambda is not handed to the seed — **Case 1**, +4;
+  - a continuation whose own body fits on the `->` row still is one, because
+    the shape is the same `seed <| lambda` — **Case 2**, +0;
+  - a *parenthesized* continuation is not one, because the top node is then a
+    `ParenBlock` — **Case 3**, +4. Do not "fix" this to look through the
+    parens; the author wrote them to mark a value.
+
+Comments are ignored throughout, which is the difference between this and
+`lambdaOperandSplit` — that one has to glue a head onto a row and so declines
+anything it cannot place, while this one only asks what the step *is*. A comment
+in the step must not move the column every row below it sits at (rule C4); all
+it can cost is the head glue for the step it is written in.
+-}
+isBackwardContinuation : Array LPNode -> Bool
+isBackwardContinuation bodyNodes =
+    when Array.keepIf (\n -> not (nodeIsComment n)) bodyNodes is
+        [ only ] ->
+            when lpnShape only is
+                Pipeline p ->
+                    if p.op /= "<|" then
+                        False
+
+                    else
+                        when Array.keepIf isPipelineStepNode (lpnChildren only) is
+                            [ step ] ->
+                                when Array.keepIf (\n -> not (nodeIsComment n)) (lpnChildren step) is
+                                    [ opNode, operandNode ] ->
+                                        (leafValue opNode == Just "<|")
+                                            && isLambdaOperand operandNode
+
+                                    _ ->
+                                        False
+
+                            _ ->
+                                False
+
+                _ ->
+                    False
+
+        _ ->
+            False
+
+
+-- `lambdaOperandSplit`'s question with the comments taken out and the split
+-- thrown away: is this operand a lambda at all? Used only by
+-- `isBackwardContinuation`, where the answer decides a column rather than a glue.
+isLambdaOperand : LPNode -> Bool
+isLambdaOperand operandNode =
+    when lpnShape operandNode is
+        BodyBlock ->
+            when Array.keepIf (\n -> not (nodeIsComment n)) (lpnChildren operandNode) is
+                [ headNode, bodyNode ] ->
+                    isLambdaHeadNode headNode
+                        && (when lpnShape bodyNode is
+                                SoftIndentedBlock ->
+                                    True
+
+                                IndentedBlock ->
+                                    True
+
+                                _ ->
+                                    False
+                           )
+
+                _ ->
+                    False
+
+        _ ->
+            False

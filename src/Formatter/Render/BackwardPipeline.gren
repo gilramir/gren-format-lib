@@ -52,7 +52,9 @@ import Formatter.Render.FlowPolicy as FP
 import Formatter.Render.NodeClassify exposing
     ( commentBreaksFlowRow
     , commentTextCanRide
+    , isBackwardContinuation
     , isPipelineStepNode
+    , lambdaOperandSplit
     , leafValue
     , literalCommentsRideFlatLine
     , nodeIsComment
@@ -418,6 +420,25 @@ backwardSingleStep renderers forceVertical seedBox { leadGlued, glued, rest = bo
 
         glueForcesBreak =
             not (Array.isEmpty glued)
+
+        -- **D2** is the one withholding of R1 that only a one-step run has: a
+        -- left-hand side rendering across rows would put the head on a row
+        -- starting well right of the base column while R2 pulls its body back to
+        -- the base, leaving the body with nothing above it to line up with. In a
+        -- longer run the operator has already been placed at a sane column by
+        -- the `isBrokenCall` branch of `backwardMultiStep`, so it does not
+        -- arise there.
+        --
+        -- `leadOwnRow` needs no test either: a comment that cannot ride the
+        -- operator's row sends the whole chain operator-leading from
+        -- `stepLeadsWithComment` when it sits on the first step, and the only
+        -- step of a one-step run is the first.
+        gluedLambda =
+            if isSingleLine seedBox then
+                backwardLambdaStep glued bodyNodes
+
+            else
+                Nothing
     in
     when Array.popLast bodyNodes is
         Nothing ->
@@ -440,77 +461,177 @@ backwardSingleStep renderers forceVertical seedBox { leadGlued, glued, rest = bo
                         (renderers.buildFlowBox 0 (lpnChildren lastNode))
 
                 _ ->
-                    -- Any inline body, including an inline lambda whose body
-                    -- starts on the `->` row (a `SoftIndentedBlock`): render the
-                    -- whole body flow and glue it after `<| ` (or, if forced
-                    -- vertical, drop it +4 under `seed <|`). Only an
-                    -- across-rows lambda (`IndentedBlock`, above) needs the
-                    -- head/body split.
-                    buildBackwardBodyBox renderers bodyNodes
-                        |> Result.andThen
-                            (\{ box = bodyBox, ridingLeading, singleLineSansTrailingComment } ->
-                                -- A multi-line body drops to +4 under `seed <|`
-                                -- exactly as the author-broken (`forceVertical`)
-                                -- case does — elm-format breaks the pipeline the
-                                -- moment the body spans rows, even when the author
-                                -- kept `<|` glued to the seed row.
-                                --
-                                -- A body that is multi-line ONLY because of the
-                                -- comment run it ends with does not count as
-                                -- spanning rows: the code in it is one row, and a
-                                -- comment moves rows, not code (rule C4). Without
-                                -- the exception `fn <| one {- c` ⏎ `… -}` dropped
-                                -- `one` below the operator while `fn <| one`,
-                                -- `fn <| one -- c` and `fn <| one {- c -}` all
-                                -- kept it — the multi-line kind alone deciding
-                                -- where the code sits, which is
-                                -- `spanOperatorRowComments`' bug one level out.
-                                -- **This costs elm-format parity and was taken
-                                -- anyway** (2026-08-08): elm drops the body in all
-                                -- four spellings, so gren's old odd-one-out was the
-                                -- single case that happened to agree with it.
-                                if forceVertical || (not (isSingleLine bodyBox) && not singleLineSansTrailingComment) || glueForcesBreak then
-                                    -- The body leaves the `<|`'s row, so a comment
-                                    -- written on that row has no row left to ride
-                                    -- and stacks above the body — the shape the
-                                    -- reparse re-derives, since it then reads
-                                    -- `LeadsLine`.
-                                    opLineBox
-                                        |> Result.map
-                                            (\opBox ->
-                                                B.stack1
-                                                    [ opBox
-                                                    , B.indent (B.stack1 (ridingLeading ++ [ bodyBox ]))
-                                                    ]
-                                            )
+                    when gluedLambda is
+                        Just { lead, split } ->
+                            opLineBox
+                                |> Result.andThen (\opBox -> renderGluedLambdaStep renderers opBox lead split)
 
-                                else
-                                    -- The body stays on the `<|`'s row, so the
-                                    -- comment does too: `seed <| {- c -} body`.
-                                    --
-                                    -- `leadGlued` goes on via `stepLeadBoxes`
-                                    -- rather than `opLineBox`, which already has
-                                    -- the ` <|` appended. Building the line from
-                                    -- the bare `seedBox` here is what silently
-                                    -- DROPPED a comment written in front of the
-                                    -- `<|` of a one-line chain.
-                                    -- `glueCommentSuffix`, not `addSuffix`, because
-                                    -- the body reaching here may be multi-line
-                                    -- after all: one row of code plus the rows of
-                                    -- the comment it ends with. Both reduce to
-                                    -- appending a line when the body really is
-                                    -- single-line — the whole difference is that
-                                    -- the comment's continuation rows are padded
-                                    -- under where the body starts instead of
-                                    -- `boxLine` refusing the box outright.
-                                    Result.map
-                                        (\seedWithLead ->
-                                            glueCommentSuffix
-                                                (Array.foldr glueLeadingCommentPrefix bodyBox ridingLeading)
-                                                (B.addSuffix (B.literal " <|") seedWithLead)
-                                        )
-                                        (stepLeadBoxes leadGlued seedBox)
+                        Nothing ->
+                            backwardPlainBody renderers forceVertical seedBox leadGlued glueForcesBreak opLineBox bodyNodes
+
+
+{-| **R1**'s eligibility test for one `<|` step: is its operand a lambda whose
+head the operator's row can hold? Both `backwardSingleStep` and the last step of
+`backwardMultiStep` ask it, and they have to agree — otherwise a chain would
+render differently depending on how many steps its innermost run has.
+
+Two things withhold the row the head would go on, and either falls back to the
+pre-R1 layout for that step:
+
+  - a comment glued after the operator. That is always a `--`, which ends its
+    row, so there is nothing left to put the head on;
+  - a comment between the `<|` and the `\` that cannot ride. A single-line
+    `{- … -}` the author put on the operator's row can, and comes back in
+    `lead` to be glued in front of the head — staying on one row is the whole
+    point of R1, and it is what the same comment already does when the lambda's
+    body is on the `->` row (`KitchenSink/LambdaLeadingBlockCommentRides`).
+    A `--` ends the row, a multi-row `{- … -}` occupies rows, and one the author
+    gave a row of its own keeps it (divergence #30) — none of the three has a
+    row to spare.
+-}
+backwardLambdaStep : Array LPNode -> Array LPNode -> Maybe { lead : Array LPNode, split : { head : LPNode, body : Array LPNode, bodyOnHeadRow : Bool } }
+backwardLambdaStep glued bodyNodes =
+    if not (Array.isEmpty glued) then
+        Nothing
+
+    else
+        when spanLeadingComments bodyNodes is
+            { leading, rest } ->
+                if Array.all (\c -> commentTextCanRide c && not (commentLeadsLine c)) leading then
+                    lambdaOperandSplit rest
+                        |> Maybe.map (\split -> { lead = leading, split = split })
+
+                else
+                    Nothing
+
+
+{-| **R1 + R2**: a `<|` step whose operand is a lambda.
+
+R1 puts the lambda's head — the `\`, its parameters and the `->` — on the
+operator's row, so the step reads `seed <| \p ->` and only the body moves.
+
+Where the body then goes is R2, and there are three answers, one per row of the
+`when` below:
+
+  - **on the head's row**, when the author put it there and it renders on one
+    row. That is the one-row lambda `docs/settledDecisions.md` §4 exempts, and
+    the author's choice is the only thing that decides it — R1 never pulls a
+    body up onto the `->` row, and never pushes one off it.
+  - **at the base column**, when the body is itself the next step of the chain
+    (`isBackwardContinuation`). This is the flattening: *n* continuations become
+    *n* rows at one column.
+  - **at base + 4** otherwise. A chain has no closing keyword, so this step
+    right is the only thing telling a reader the chain ended.
+
+The base column is never computed here. Both the +0 and the +4 are relative to
+the box this function returns, which the caller places — so a chain in a
+`let` binding, a `when` branch, a record field or after a `[ ` all pick their
+base up from wherever they are put, including the two that are not multiples of
+four.
+
+`B.addSuffixBox` rather than `B.addSuffix` for the head: a head the author broke
+with a comment inside its parameter pattern (**D3**, the only thing that can
+break one — divergence #32) then hangs its continuation rows under the `\`
+instead of being refused.
+-}
+renderGluedLambdaStep : Renderers -> Box -> Array LPNode -> { head : LPNode, body : Array LPNode, bodyOnHeadRow : Bool } -> Result String Box
+renderGluedLambdaStep renderers opBox leadComments { head, body, bodyOnHeadRow } =
+    Result.map3
+        (\leadBoxes headBox bodyBox ->
+            let
+                headRow =
+                    B.addSuffixBox
+                        (B.prefix B.space (Array.foldr glueLeadingCommentPrefix headBox leadBoxes))
+                        opBox
+            in
+            if bodyOnHeadRow && isSingleLine headRow && isSingleLine bodyBox then
+                B.addSuffixBox (B.prefix B.space bodyBox) headRow
+
+            else if isBackwardContinuation body then
+                B.stack1 [ headRow, bodyBox ]
+
+            else
+                B.stack1 [ headRow, B.indent bodyBox ]
+        )
+        (traverseResult commentNodeBox leadComments)
+        (renderers.buildFlowBox 0 [ head ])
+        (renderers.buildFlowBox 0 body)
+
+
+{-| A `<|` step body that is not a lambda R1 can glue — every operand but one,
+plus the lambdas R1 declines (see `gluedLambda`). Unchanged from before R1: the
+body is rendered as one flow and glued after `<| `, or dropped +4 under
+`seed <|` when the author broke the step, when the body renders across rows, or
+when a comment glued to the operator ends its row.
+-}
+backwardPlainBody : Renderers -> Bool -> Box -> Array LPNode -> Bool -> Result String Box -> Array LPNode -> Result String Box
+backwardPlainBody renderers forceVertical seedBox leadGlued glueForcesBreak opLineBox bodyNodes =
+    buildBackwardBodyBox renderers bodyNodes
+        |> Result.andThen
+            (\{ box = bodyBox, ridingLeading, singleLineSansTrailingComment } ->
+                -- A multi-line body drops to +4 under `seed <|`
+                -- exactly as the author-broken (`forceVertical`)
+                -- case does — elm-format breaks the pipeline the
+                -- moment the body spans rows, even when the author
+                -- kept `<|` glued to the seed row.
+                --
+                -- A body that is multi-line ONLY because of the
+                -- comment run it ends with does not count as
+                -- spanning rows: the code in it is one row, and a
+                -- comment moves rows, not code (rule C4). Without
+                -- the exception `fn <| one {- c` ⏎ `… -}` dropped
+                -- `one` below the operator while `fn <| one`,
+                -- `fn <| one -- c` and `fn <| one {- c -}` all
+                -- kept it — the multi-line kind alone deciding
+                -- where the code sits, which is
+                -- `spanOperatorRowComments`' bug one level out.
+                -- **This costs elm-format parity and was taken
+                -- anyway** (2026-08-08): elm drops the body in all
+                -- four spellings, so gren's old odd-one-out was the
+                -- single case that happened to agree with it.
+                if forceVertical || (not (isSingleLine bodyBox) && not singleLineSansTrailingComment) || glueForcesBreak then
+                    -- The body leaves the `<|`'s row, so a comment
+                    -- written on that row has no row left to ride
+                    -- and stacks above the body — the shape the
+                    -- reparse re-derives, since it then reads
+                    -- `LeadsLine`.
+                    opLineBox
+                        |> Result.map
+                            (\opBox ->
+                                B.stack1
+                                    [ opBox
+                                    , B.indent (B.stack1 (ridingLeading ++ [ bodyBox ]))
+                                    ]
                             )
+
+                else
+                    -- The body stays on the `<|`'s row, so the
+                    -- comment does too: `seed <| {- c -} body`.
+                    --
+                    -- `leadGlued` goes on via `stepLeadBoxes`
+                    -- rather than `opLineBox`, which already has
+                    -- the ` <|` appended. Building the line from
+                    -- the bare `seedBox` here is what silently
+                    -- DROPPED a comment written in front of the
+                    -- `<|` of a one-line chain.
+                    -- `glueCommentSuffix`, not `addSuffix`, because
+                    -- the body reaching here may be multi-line
+                    -- after all: one row of code plus the rows of
+                    -- the comment it ends with. Both reduce to
+                    -- appending a line when the body really is
+                    -- single-line — the whole difference is that
+                    -- the comment's continuation rows are padded
+                    -- under where the body starts instead of
+                    -- `boxLine` refusing the box outright.
+                    Result.map
+                        (\seedWithLead ->
+                            glueCommentSuffix
+                                (Array.foldr glueLeadingCommentPrefix bodyBox ridingLeading)
+                                (B.addSuffix (B.literal " <|") seedWithLead)
+                        )
+                        (stepLeadBoxes leadGlued seedBox)
+            )
+
 
 
 {-| Render a `<|` step body: a body that is a call with a child that renders
@@ -812,6 +933,24 @@ backwardMultiStep renderers forceVertical seedBox stepBodies =
                             Nothing ->
                                 []
 
+                    -- R1 inside a multi-step run. Only the LAST step can have
+                    -- a lambda operand -- a lambda swallows everything to its
+                    -- right, so it always ends its run -- and its head glues
+                    -- onto the row the step before it ends on, exactly as
+                    -- `backwardSingleStep` glues one onto the seed's row. The
+                    -- two have to agree: without this a chain would render
+                    -- differently depending on how many steps its innermost run
+                    -- has. Same two withholdings as there, asked of this step:
+                    -- a `--` glued after the operator, or a leading comment that
+                    -- cannot ride.
+                    lastLambda =
+                        when Array.popLast stepBodies is
+                            Just { last = lastStep } ->
+                                backwardLambdaStep lastStep.glued lastStep.rest
+
+                            Nothing ->
+                                Nothing
+
                     effectiveVertical =
                         forceVertical
                             || Array.any (\b -> not (isSingleLine b.box)) bodyBoxes
@@ -855,6 +994,18 @@ backwardMultiStep renderers forceVertical seedBox stepBodies =
                     let
                         n =
                             Array.length bodyBoxes
+
+                        -- The last step gets no body row of its own when R1
+                        -- glues its head onto the row above; `n` stays the true
+                        -- step count, so the step before it still ends in the
+                        -- ` <|` that introduces it.
+                        renderedCount =
+                            when lastLambda is
+                                Just _ ->
+                                    n - 1
+
+                                Nothing ->
+                                    n
                     in
                     Result.map2
                         (\headBox stepBoxes -> B.stack1 ([ headBox ] ++ stepBoxes))
@@ -926,9 +1077,27 @@ backwardMultiStep renderers forceVertical seedBox stepBodies =
                                                 else
                                                     Ok wo
                                             )
+                                        |> Result.andThen
+                                            (\wo ->
+                                                -- The glue happens BEFORE the
+                                                -- step's own indent, so R2's +0
+                                                -- and +4 are measured from this
+                                                -- step's column and the whole
+                                                -- thing is lifted to it after.
+                                                when lastLambda is
+                                                    Just { lead, split } ->
+                                                        if i == renderedCount - 1 then
+                                                            renderGluedLambdaStep renderers wo lead split
+
+                                                        else
+                                                            Ok wo
+
+                                                    Nothing ->
+                                                        Ok wo
+                                            )
                                         |> Result.map (applyIndent ((i + 1) * grenIndent))
                                 )
-                                bodyBoxes
+                                (Array.takeFirst renderedCount bodyBoxes)
                             )
                         )
             )

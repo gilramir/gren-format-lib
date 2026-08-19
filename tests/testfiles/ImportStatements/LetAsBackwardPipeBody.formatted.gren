@@ -11,6 +11,5 @@ single =
 
 
 withLambda =
-    fn <|
-        \x ->
-            x + one
+    fn <| \x ->
+        x + one
