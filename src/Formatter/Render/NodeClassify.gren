@@ -6,6 +6,7 @@ module Formatter.Render.NodeClassify exposing
     , fieldValueDropsToOwnLine
     , isColonLeaf
     , isDroppingSignatureRecordNode
+    , isBareLambdaOperand
     , isEmptyLine
     , isBackwardContinuation
     , isGluedLambdaField
@@ -832,7 +833,7 @@ isBackwardContinuation bodyNodes =
                                 when Array.keepIf (\n -> not (nodeIsComment n)) (lpnChildren step) is
                                     [ opNode, operandNode ] ->
                                         (leafValue opNode == Just "<|")
-                                            && isLambdaOperand operandNode
+                                            && isBareLambdaOperand operandNode
 
                                     _ ->
                                         False
@@ -847,11 +848,18 @@ isBackwardContinuation bodyNodes =
             False
 
 
--- `lambdaOperandSplit`'s question with the comments taken out and the split
--- thrown away: is this operand a lambda at all? Used only by
--- `isBackwardContinuation`, where the answer decides a column rather than a glue.
-isLambdaOperand : LPNode -> Bool
-isLambdaOperand operandNode =
+{-| `lambdaOperandSplit`'s question with the comments taken out and the split
+thrown away: is this operand a **bare** (unparenthesized) lambda?
+
+Two callers, and the answer decides something different for each.
+`isBackwardContinuation` uses it to pick a column. `splitStepTriggerItems` uses
+it to keep such an operand OUT of a `|>` step's trigger split, so the lambda
+stays glued to the operator's row instead of stranding it — the same exclusion a
+parenthesized lambda has always had, which is why `|> (\x -> …)` looked right
+and `|> \x -> …` did not.
+-}
+isBareLambdaOperand : LPNode -> Bool
+isBareLambdaOperand operandNode =
     when lpnShape operandNode is
         BodyBlock ->
             when Array.keepIf (\n -> not (nodeIsComment n)) (lpnChildren operandNode) is

@@ -1337,9 +1337,16 @@ stepPreambleBox preamble =
         -- row: `|> ` prefixes a blank line (rendered as a bare `|>`, since
         -- `render` right-trims) and the trigger drops below it at one tab stop —
         -- the same dangling-operator shape this produced when the operator was
-        -- itself the preamble's only item. Reached by a bare multi-line lambda
-        -- operand (`|> \d -> …`); a paren or bracket operand is excluded from
-        -- the split by `isDirectGluedOperand` and stays glued instead.
+        -- itself the preamble's only item.
+        --
+        -- Reached now only by a bare `if`/`when`/`let` operand. A paren, a
+        -- bracket container and a bare LAMBDA are all excluded from the split by
+        -- `isDirectGluedOperand` and stay glued instead — the lambda was the one
+        -- of the three missing from that list, and the dangling `|>` it produced
+        -- was a shape gren-format emitted nowhere else. The block operands are
+        -- the same family and are an open question: elm-format parenthesizes
+        -- them, which is a route gren does not have, and no other operator glues
+        -- a bare block. See `BinopsAndPipelines/PipelineBareLambdaOperand`.
         Ok B.blankLine
 
     else if Array.length preamble <= 1 || Array.any isCommentItem preamble then

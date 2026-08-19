@@ -1823,6 +1823,17 @@ summary =
            )
 ```
 
+The same holds without the parentheses. `|> \rows ->` keeps its head on the
+operator's row too, and only the body drops — the paren version is not a special
+case, it just hangs its body off the `(`:
+
+```gren
+tally =
+    counts
+        |> \rows ->
+            done rows
+```
+
 **Your row placement is the choice.** The formatter uses the multi-line form when
 the lambda body starts on a different row from `->`, and the inline form when the
 body is on the same row.

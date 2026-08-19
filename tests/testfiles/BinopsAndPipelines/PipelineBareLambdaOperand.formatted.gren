@@ -1,23 +1,30 @@
 module PipelineBareLambdaOperand exposing (..)
 
 -- A pipeline step whose operand is a BARE (unparenthesized) multi-line lambda.
--- It is the step's first operand and it forces a break, so the step's preamble
--- is empty: `|>` dangles on its own row and the lambda drops one tab stop
--- below it. The operator is a Box prefix over the operand, so "empty preamble"
--- means "nothing shares the operator's row" -- rendering that as a flow of zero
--- items is what crashed with `box: empty flow`.
+-- Its head stays on the `|>`'s row and only its body moves, which is what
+-- `>>`, `++`, a user-defined operator and `<|` all do with the same operand,
+-- and what the PARENTHESIZED twin below has always done. It is excluded from
+-- the trigger split by `isDirectGluedOperand`, alongside the paren and bracket
+-- operands.
 --
--- A parenthesized or bracketed operand does NOT take this path: it is excluded
--- from the trigger split (`isDirectGluedOperand`) and stays glued to the `|>`.
+-- It used to be the one operand kind missing from that exclusion, so it became
+-- the step's trigger and left the preamble empty -- `|>` alone on its row with
+-- the lambda a tab stop below it, a shape gren-format emitted nowhere else.
+-- (The operator is a Box prefix over the operand, so "empty preamble" means
+-- "nothing shares the operator's row"; rendering that as a flow of zero items
+-- is what crashed with `box: empty flow` before it was made a blank line.)
+--
+-- The empty preamble is still reachable, by a bare `if`/`when`/`let` operand --
+-- `bareIfStillDangles` below. elm-format parenthesizes that one too, and gren
+-- never introduces a paren, so it is a separate question from this one.
 
 
 bareLambda =
     a
         |> b
-        |>
-            \decoder ->
-                f decoder
-                    |> c
+        |> \decoder ->
+            f decoder
+                |> c
 
 
 parenLambdaStaysGlued =
@@ -34,3 +41,13 @@ recordOperandStaysGlued =
             | x = 1
             , y = 2
            }
+
+
+bareIfStillDangles =
+    a
+        |>
+            if c then
+                x
+
+            else
+                y

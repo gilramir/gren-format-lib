@@ -59,7 +59,8 @@ import Formatter.Render.BoxOps exposing
     , nodesShareStartRow
     )
 import Formatter.Render.NodeClassify exposing
-    ( isColonLeaf
+    ( isBareLambdaOperand
+    , isColonLeaf
     , isEmptyLine
     , isMultilineLambdaParenBlockBox
     , isTypeRecordLiteral
@@ -1300,21 +1301,32 @@ splitStepTriggerItems stepItems =
 
                 Nothing ->
                     let
-                        -- A multi-line paren block OR a multi-line bracket
-                        -- container (array / record / update) written directly
-                        -- after `|>` (nothing but the operator in the preamble)
-                        -- glues to the operator like elm-format's `|> (if …` /
-                        -- `|> [ 1`. Keeping it out of the trigger split leaves it
-                        -- in the preamble, where `buildFlowBoxInline` glues it;
-                        -- otherwise the relocation branch strands `|>` on its own
-                        -- line with the operand dropped +4 below.
+                        -- A multi-line paren block, a multi-line bracket
+                        -- container (array / record / update), or a bare lambda,
+                        -- written directly after `|>` (nothing but the operator
+                        -- in the preamble) glues to the operator like
+                        -- elm-format's `|> (if …` / `|> [ 1`. Keeping it out of
+                        -- the trigger split leaves it in the preamble, where
+                        -- `buildFlowBoxInline` glues it; otherwise the relocation
+                        -- branch strands `|>` on its own line with the operand
+                        -- dropped +4 below.
                         -- (`acc.preamble` holds the step's OPERANDS only — the
                         -- operator is a prefix applied by `stepBodyBox`, not an
                         -- item — so "nothing before it" is an empty preamble.)
+                        --
+                        -- The bare lambda was the one operand kind missing from
+                        -- this list, and the stranded `|>` it produced was a
+                        -- shape gren-format emitted NOWHERE else. The
+                        -- parenthesized twin `|> (\x -> …)` was excluded from
+                        -- the day this split was written, so the two spellings
+                        -- of the same operand disagreed; both now glue, which is
+                        -- also what `>>`, `++`, a user-defined operator and (as
+                        -- of R1) `<|` do with a bare lambda.
                         isDirectGluedOperand =
                             Array.isEmpty acc.preamble
                                 && (itemIsMultilineParenBlock item
                                         || itemIsMultilineBracketContainer item
+                                        || isBareLambdaOperand item.node
                                    )
                     in
                     if

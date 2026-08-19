@@ -1027,6 +1027,28 @@ CONTEXTS = [
     Context("parenBinopArg",    "fn ({x} |> gn) last",          True,  False),
     Context("parenBackPipeArg", "fn (gn <| {x}) last",          True,  False),
     Context("pipelineSeed",     "{x} |> fn",                    True,  False),
+    # KNOWN COVERAGE GAP, 2026-08-19. `value_position` should be True here for
+    # the same reason `backPipeBody`'s is -- the operand is the last thing in the
+    # expression, so a bare (unparenthesized) lambda / `if` / `when` / `let`
+    # stands here legally, verified against the app for all four. It is False,
+    # so no cell in this matrix places a BARE construct after `|>`, and the
+    # `|>`-with-a-bare-lambda bug fixed on 2026-08-19 (the operator stranded on
+    # a row of its own) had no cell here at all -- only the parenthesized twin.
+    #
+    # Flipping it to True adds 36 cells and turns up two things, which is why it
+    # is a scoped work item rather than a one-character change:
+    #   * one oracle-1 failure -- `v = seed |> fn <| one`, written on one row
+    #     with nothing forcing a break, comes back across three. A MIXED
+    #     `|>`/`<|` chain, no lambda in it, so it predates the 2026-08-19 work;
+    #     `seed <| fn |> one` (the other mixing order) stays flat.
+    #   * ~26 parity cells needing a NEW catalogue entry: elm-format wraps a
+    #     bare non-atomic `|>` operand in parens it adds itself, and gren never
+    #     introduces a paren. Divergence #10 does not cover this -- that entry is
+    #     about parens the AUTHOR wrote and gren keeps.
+    #
+    # `pipelineSeed` stays False and is NOT the same case: a bare block there
+    # swallows the `|> fn` to its right, so the cell would test a different
+    # expression from the one the template names.
     Context("pipelineOperand",  "seed |> {x}",                  True,  False),
     Context("pipelineStep",     "seed |> fn {x}",               True,  False),
     Context("pipelineLast",     "seed |> fn |> gn {x}",         True,  False),

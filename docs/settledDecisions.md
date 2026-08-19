@@ -419,33 +419,52 @@ fetch =                           fetch =
             done rows
 ```
 
-`|>` with a *bare* lambda still strands the operator on a row by itself, which
-gren-format produces nowhere else (**this is surely a bug**):
+`|>` with a *bare* lambda used to strand the operator on a row by itself, which
+gren-format produced nowhere else. **That was a bug, and it is fixed**: the head
+now stays on the operator's row, exactly as the parenthesized twin above always
+did.
 
 ```gren
-tally =
-    counts
+-- before:                      -- and now:
+tally =                         tally =
+    counts                          counts
+        |>                              |> \rows ->
+            \rows ->                        done rows
+                done rows
+```
+
+The cause was one missing entry in a list. A step's *trigger* — the operand that
+breaks onto its own line — leaves nothing on the operator's row when it is the
+step's first operand, and `isDirectGluedOperand` is the exclusion that keeps
+certain operands out of that split. A multi-line paren block and a multi-line
+bracket container were on it; the bare lambda never was, so the two spellings of
+the same operand disagreed. Both authored forms now come back glued, and the
+spurious blank row that used to follow a comment in that gap is gone with it.
+
+elm-format reaches the same shape from the other side: fed the bare form it
+*adds* parens, and returns the parenthesized layout from the stranded spelling
+too. That route is closed to gren-format, which keeps redundant parens but
+[never introduces any](#redundant-parens-are-never-stripped) — so gren glues the
+bare lambda where elm parenthesizes it, and the two land one column apart.
+
+**One case in the same family is still open.** A bare `if`, `when` or `let`
+operand still strands the operator:
+
+```gren
+bareIf =
+    a
         |>
-            \rows ->
-                done rows
+            if c then
+                x
+
+            else
+                y
 ```
 
-elm-format never emits that. Fed the bare form it *adds* parens and lands back
-in the parenthesized shape above — and it returns the same thing if you feed it
-gren-format's stranded spelling, so the two inputs converge:
-
-```elm
--- elm-format, from `counts |> \rows ->` and from the stranded spelling alike:
-tally =
-    counts
-        |> (\rows ->
-                done rows
-           )
-```
-
-That route is closed to gren-format, which keeps redundant parens but
-[never introduces any](#redundant-parens-are-never-stripped) — so the stranded
-operator is ours alone.
+elm-format parenthesizes those too, so it has nothing to copy from; and unlike
+the lambda there is no other operator to point at, since `>>`, `++` and `<|` all
+*drop* a block operand rather than gluing it. Pinned as it stands by
+`tests/testfiles/BinopsAndPipelines/PipelineBareLambdaOperand`, awaiting a call.
 
 ## 4. One-row lambdas are unaffected
 
