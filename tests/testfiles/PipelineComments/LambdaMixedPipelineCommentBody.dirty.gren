@@ -4,3 +4,6 @@ import Foo0 exposing (y, item)
 
 
 fn1 = \node -> {- k4 -} y |> 0 <| 0
+
+
+fn2 = \node -> {- k5 -} y |> (if item then y else 0)

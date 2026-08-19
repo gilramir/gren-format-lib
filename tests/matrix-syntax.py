@@ -1035,16 +1035,18 @@ CONTEXTS = [
     # `|>`-with-a-bare-lambda bug fixed on 2026-08-19 (the operator stranded on
     # a row of its own) had no cell here at all -- only the parenthesized twin.
     #
-    # Flipping it to True adds 36 cells and turns up two things, which is why it
-    # is a scoped work item rather than a one-character change:
-    #   * one oracle-1 failure -- `v = seed |> fn <| one`, written on one row
-    #     with nothing forcing a break, comes back across three. A MIXED
-    #     `|>`/`<|` chain, no lambda in it, so it predates the 2026-08-19 work;
-    #     `seed <| fn |> one` (the other mixing order) stays flat.
-    #   * ~26 parity cells needing a NEW catalogue entry: elm-format wraps a
-    #     bare non-atomic `|>` operand in parens it adds itself, and gren never
-    #     introduces a paren. Divergence #10 does not cover this -- that entry is
-    #     about parens the AUTHOR wrote and gren keeps.
+    # Flipping it to True adds 36 cells. It first turned up an oracle-1 failure
+    # as well -- `v = seed |> fn <| one`, written on one row with nothing forcing
+    # a break, came back across three -- and that is now FIXED (a mixed `|>`/`<|`
+    # chain follows the author like every other chain). Re-measured after the
+    # fix: 2495 cells, 0 failing.
+    #
+    # What is left is registration, not a bug: ~26 parity cells needing a NEW
+    # catalogue entry, because elm-format wraps a bare non-atomic `|>` operand in
+    # parens it adds itself and gren never introduces a paren. Divergence #10
+    # does not cover this -- that entry is about parens the AUTHOR wrote and gren
+    # keeps. Write the entry, add its `Divergence/` fixture (the index checker
+    # keeps the two 1:1), register the cells, and flip this to True.
     #
     # `pipelineSeed` stays False and is NOT the same case: a bare block there
     # swallows the `|> fn` to its right, so the cell would test a different

@@ -28,6 +28,7 @@ import Formatter.Render.Box as B exposing (Box(..))
 import Formatter.Render.BoxOps exposing
     ( applyIndent
     , boxLine
+    , joinInline
     , glueCommentSuffix
     , glueLeadingCommentPrefix
     , grenIndent
@@ -59,6 +60,7 @@ import Formatter.Render.NodeClassify exposing
     , literalCommentsRideFlatLine
     , nodeIsComment
     , stepOperatorText
+    , subtreeHasComment
     )
 import Formatter.Results exposing (traverseResult)
 
@@ -231,9 +233,38 @@ makeBackwardPipelineBox renderers forceVertical children =
     if not allBackward then
         -- A mixed `|>`/`<|` chain (flattenPipeline merges them into one flat
         -- array tagged by the outermost op) renders operator-LEADING via the
-        -- generic flow fold (`renderers.buildFlowBox 0 children`) for the same
-        -- `not allStepsBackward` case.
-        renderers.buildFlowBox 0 children
+        -- generic flow fold (`renderers.buildFlowBox 0 children`), which gives
+        -- every step a row of its own.
+        --
+        -- Unless the author kept the whole chain on one row and every part
+        -- renders single-line, in which case it stays there. Layout is
+        -- author-driven, and the all-`|>` chain one branch over
+        -- (`makePipelineBox`) has always honoured exactly that; the mixed chain
+        -- was the one spelling that broke a flat authoring anyway. Which of the
+        -- two branches a chain lands in is pure parser associativity —
+        -- `seed |> fn <| one` parses as `(seed |> fn) <| one` and so is tagged
+        -- `<|`, while `seed <| fn |> one` is tagged `|>` — so the same tokens
+        -- with the same two operators came back flat one way round and across
+        -- three rows the other.
+        --
+        -- `joinInline` is the whole test: it returns `Nothing` the moment any
+        -- part is multi-line, which is exactly when the chain has to break. A
+        -- comment routes to the fold as before — per-step comment placement is
+        -- its machinery, not this branch's.
+        if forceVertical || Array.any subtreeHasComment children then
+            renderers.buildFlowBox 0 children
+
+        else
+            renderers.renderFlowItems children
+                |> Result.andThen
+                    (\items ->
+                        when joinInline (Array.map .box items) is
+                            Just flat ->
+                                Ok flat
+
+                            Nothing ->
+                                renderers.buildFlowBox 0 children
+                    )
 
     else
         -- The seed is rendered ONCE, before the two layouts are chosen between,

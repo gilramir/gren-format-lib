@@ -1722,7 +1722,9 @@ result =
 ## Pipelines
 
 Both `|>` (forward) and `<|` (backward) pipelines follow your layout. A run
-of the *same* operator is treated as one pipeline.
+of the *same* operator is treated as one pipeline; a chain that **mixes** the
+two follows your layout as well, and renders in the leading-operator style once
+it breaks.
 
 Written on one line, a pipeline stays on one line:
 

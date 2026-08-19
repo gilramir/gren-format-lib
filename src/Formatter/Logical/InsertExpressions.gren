@@ -83,35 +83,6 @@ flattenPipeline locExpr =
             { seed = locExpr, steps = [] }
 
 
-{-| True when `expr` renders as a mixed `|>`/`<|` pipeline that always breaks one
-step per line — its outermost pipeline operator is `<|` yet not every step is
-`<|` (`makeBackwardPipelineBox`'s `not allBackward` path), independent of the
-author's row layout.
-
-The pipeline may be BURIED under a tighter-precedence operator: the parser
-left-nests `node |> 0 <| 0 / String.y` as `((node |> 0) <| 0) / String.y`, so the
-mixed pipeline is the LEFT operand of the top `/`. Walk the left spine of
-non-pipeline binops to reach it — the whole expression still renders multi-line,
-since the tighter operator keeps its multi-line pipeline operand multi-line
-(`<| 0 / String.y` on the last step's line). Missing this buried case left a
-lambda body in `SoftIndentedBlock` when it actually breaks, oscillating a leading
-comment (see `insertLambda`'s `bodyAlwaysBreaksVertical`).
--}
-mixedPipelineBreaksVertical : Src.Expression -> Bool
-mixedPipelineBreaksVertical expr =
-    when expr.value is
-        Src.Binops { left = leftExpr, operator = op } ->
-            if isPipelineOp op.value then
-                op.value == "<|"
-                    && not (Array.all (\s -> s.op.value == "<|") (flattenPipeline expr).steps)
-
-            else
-                mixedPipelineBreaksVertical leftExpr
-
-        _ ->
-            False
-
-
 {-| Render the body of a pipeline step.
 
 The intent: if the body itself is a pipeline `Binops` whose operator differs
@@ -780,35 +751,30 @@ insertLambda locExpr { patterns = patterns, body = body } =
                     lambdaBodyForceVertical =
                         body.start.row > lastPatternEndRow
 
-                    -- A mixed `|>`/`<|` pipeline (outer-tagged `<|`, containing
-                    -- at least one forward `|>` step) always renders one step
-                    -- per line — `makeBackwardPipelineBox`'s `not allBackward`
-                    -- path — regardless of the author's row layout or of
-                    -- `Pipeline.forceVertical`. If the body were left in
+                    -- A body that breaks WHATEVER the author wrote — an
+                    -- `if`/`when`/`let`, at any depth — cannot be left in
                     -- `SoftIndentedBlock` on a same-row source (`\x -> {- c -}
-                    -- y |> 0 <| 0`), the render would still break the body onto
-                    -- its own line while a leading comment stayed glued to
-                    -- `->` — a shape that only reparses back into an
-                    -- `IndentedBlock` (whose leading-comment redirect forces
-                    -- the comment onto its own line unconditionally), so the
-                    -- file would oscillate. Treating this body as force-vertical
-                    -- up front picks `IndentedBlock` from the very first format,
-                    -- matching what every later reparse settles on.
+                    -- if …`): the render would break the body onto its own line
+                    -- while a leading comment stayed glued to `->`, a shape that
+                    -- only reparses back into an `IndentedBlock` (whose
+                    -- leading-comment redirect forces the comment onto its own
+                    -- line unconditionally), so the file would oscillate.
+                    -- Treating such a body as force-vertical up front picks
+                    -- `IndentedBlock` from the very first format, matching what
+                    -- every later reparse settles on.
                     --
-                    -- The mixed pipeline can be BURIED under a tighter operator
-                    -- at ANY position, not just the outer one: `node |> 0 <| 0
-                    -- / y` parses as `((node |> 0) <| 0) / y` (buried in the
-                    -- left spine), while `a |> b <| c + d <| e` parses as
-                    -- `(((a |> b) <| c) + d) <| e` — a `<|`-rooted tree whose
-                    -- forward `|>` is buried inside the LEFT operand of a `+`
-                    -- that `flattenPipeline` treats as an opaque seed, so
-                    -- `mixedPipelineBreaksVertical` alone reports "all backward"
-                    -- and misses it. `exprAlwaysBreaks` is the closed, full-tree
-                    -- recursion (it descends BOTH operands of every binop, and
-                    -- calls `mixedPipelineBreaksVertical` at each), so it finds a
-                    -- break-forcing pipeline (or if/when/let) at any depth — one
-                    -- predicate that subsumes every buried shape instead of a
-                    -- left-spine walk extended per newly-found nesting position.
+                    -- `exprAlwaysBreaks` is a full-tree recursion — it descends
+                    -- BOTH operands of every binop — so it finds one at any
+                    -- depth, including buried under a tighter operator
+                    -- (`node |> 0 <| (if …) / y` parses as
+                    -- `((node |> 0) <| (if …)) / y`). A left-spine walk would
+                    -- have to be extended per newly-found nesting position; this
+                    -- is closed.
+                    --
+                    -- A mixed `|>`/`<|` pipeline used to count as always-breaking
+                    -- here. It no longer breaks unless the author broke it, so
+                    -- `lambdaBodyForceVertical` above is what decides it, like
+                    -- every other row-dependent construct.
                     bodyAlwaysBreaksVertical =
                         exprAlwaysBreaks body
 
@@ -1346,14 +1312,19 @@ lambdaValueNodesAreBroken valueNodes =
 
 {-| True when an expression renders multi-line no matter how the author wrote it,
 because it TRANSITIVELY contains an `if`/`when`/`let` — the only constructs that
-always break — OR a mixed `|>`/`<|` pipeline, which always renders one step per
-line (`mixedPipelineBreaksVertical`, keyed on the operators, not the operands, so
-the operand recursion below can never see it). Unlike `valueAlwaysBreaks` (which
-stops at `Parens`), this descends through the wrappers a breaking child can hide
-behind — parens, binops, a call, a negation, `.field` access, a nested lambda, and
-bracket literals — so a lambda body like `0 // 0 * (if …)` is recognized as
-always-breaking. Used only for the record-field lambda-drop decision, where the
-test must be independent of the author's row layout to be a reparse fixed point. -}
+always break. Unlike `valueAlwaysBreaks` (which stops at `Parens`), this descends
+through the wrappers a breaking child can hide behind — parens, binops, a call, a
+negation, `.field` access, a nested lambda, and bracket literals — so a lambda
+body like `0 // 0 * (if …)` is recognized as always-breaking. Used only for the
+record-field lambda-drop decision, where the test must be independent of the
+author's row layout to be a reparse fixed point.
+
+A mixed `|>`/`<|` pipeline used to count here too, on the grounds that
+`makeBackwardPipelineBox`'s `not allBackward` path gave every step a row of its
+own whatever the author wrote. It no longer does — a mixed chain the author kept
+on one row stays on it, like every other chain — so the only thing deciding a
+flat one is the author's rows, which is where every other row-dependent
+construct is already decided. -}
 exprAlwaysBreaks : Src.Expression -> Bool
 exprAlwaysBreaks expr =
     when expr.value is
@@ -1373,9 +1344,7 @@ exprAlwaysBreaks expr =
             exprAlwaysBreaks inner
 
         Src.Binops payload ->
-            mixedPipelineBreaksVertical expr
-                || exprAlwaysBreaks payload.left
-                || exprAlwaysBreaks payload.right
+            exprAlwaysBreaks payload.left || exprAlwaysBreaks payload.right
 
         Src.Call payload ->
             exprAlwaysBreaks payload.fn || Array.any exprAlwaysBreaks payload.args

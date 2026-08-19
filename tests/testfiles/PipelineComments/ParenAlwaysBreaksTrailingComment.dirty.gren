@@ -1,7 +1,7 @@
 module Gen229 exposing (..)
 
 
-fn1 = 0 <| ( 0 |> 0 |> 0 <| 0 ) {- k48 -}
+fn1 = 0 <| ( 0 |> 0 |> (if a then b else c) ) {- k48 -}
 
 
 fn2 = 0 <| ( f (if a then b else c) ) {- k49 -}

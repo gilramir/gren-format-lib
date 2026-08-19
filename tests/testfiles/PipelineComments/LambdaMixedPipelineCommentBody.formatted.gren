@@ -4,8 +4,16 @@ import Foo0 exposing (item, y)
 
 
 fn1 =
+    \node -> {- k4 -} y |> 0 <| 0
+
+
+fn2 =
     \node ->
-        {- k4 -}
+        {- k5 -}
         y
-            |> 0
-            <| 0
+            |> (if item then
+                    y
+
+                else
+                    0
+               )

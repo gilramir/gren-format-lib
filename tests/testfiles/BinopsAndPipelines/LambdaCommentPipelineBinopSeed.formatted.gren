@@ -2,8 +2,17 @@ module LambdaCommentPipelineBinopSeed exposing (..)
 
 
 fn0 3 =
+    \Just -> {- k -} a |> b <| c + d <| e
+
+
+fn1 3 =
     \Just ->
-        {- k -}
+        {- k2 -}
         a
             |> b
-            <| c + d <| e
+            <| (if c then
+                    d
+
+                else
+                    e
+               ) + d
