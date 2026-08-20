@@ -40,6 +40,11 @@ The generator produces **input**; the formatter is under test. Per module:
    node's own rendered box. See below.
 6. **The `--remove-unused-imports` transform** — the CLI's *other* whole-file
    transform, held to the same four invariants plus two of its own. See below.
+7. **No stranded operator** — an operator alone on a row of its own. See
+   *Layout oracles* below.
+8. **No spontaneous break** — a declaration body the author wrote on one row
+   must come back on one row.
+9. **No ignored break** — a break the author *did* write must change something.
 
 ### Remove-unused-imports oracle
 
@@ -244,6 +249,57 @@ Zero-because-nothing-is-checked reads exactly like zero-because-all-agree.
 It costs about **18%** of throughput (17.1 → 14.1 seeds/s at `-j 12`,
 `--max-depth 5`), which is one extra app invocation on top of the five the other
 oracles already make.
+
+### Layout oracles (`stranded-operator`, `spontaneous-break`, `break-ignored`)
+
+Oracles 1-4 and 6 compare the formatter against itself or against its own input,
+and oracle 5 against a claim the formatter makes about itself. **Layout that is
+wrong but stable passes all of them.** That is not hypothetical: of the five
+bugs the `<|` work uncovered on 2026-08-19/20, three were exactly that —
+
+| commit | bug | what saw it |
+|---|---|---|
+| `299c912` | `a \|> \rows ->` put `\|>` alone on a row | elm-format parity |
+| `5fff8cc` | a mixed `\|>`/`<\|` chain broke a row the author kept flat | elm-format parity |
+| `afa9ea5` | a `\|>` step flattened a break the author wrote | elm-format parity |
+
+— and the gate that saw all three was `matrix-syntax.py`'s elm-format oracle,
+which this generator has no twin of. These three ask about the **shape of the
+output** instead, which needs no elm-format:
+
+- **`stranded-operator`** — an operator alone on its own row. Exempts `<|`
+  (a backward chain legitimately does this) and an operand that leads with a
+  comment (the comment has taken the operator's row). Both exemptions are read
+  off the fixture corpus, which holds 14 lone-operator rows, every one of them
+  one of these two.
+- **`spontaneous-break`** — if `multiline()` says the body is one row, nothing
+  in it can force a break, so a multi-row output was the formatter's own idea.
+  Skips a body holding an `If`: `multiline()` is the *emitter's* model and calls
+  an inline `if a then b else c` single-row, while the formatter always breaks
+  one. Measured yield 0.13 checks/seed — thin, because most generated bodies are
+  blocks, but ~130k checks over a million seeds.
+- **`break-ignored`** — differential, because the output alone cannot say what
+  the author wrote: re-emit with one `broken` flag off and format that. Identical
+  bytes mean the break bought nothing. Which flags qualify, and the minimum child
+  count each needs, is a measured table in `_BREAK_FLAG_MIN` — a broken 1-arg
+  call, a 1-item array and `If.broken` are all excluded because the formatter
+  provably does not honour them. Two sites per seed, in tree order (not sampled:
+  the shrinker re-runs `check` and demands the same bucket, so the choice has to
+  be a function of the module alone), ≈0.68 extra formats per seed.
+
+**Proved non-vacuous by replaying the bugs**: `./test-layout-oracles.py` reads
+each fixture's pre-fix expected output out of git and requires the matching
+oracle to fire on it and to be silent on today's. Run it whenever a predicate or
+an exclusion list here is touched — a widened exclusion that quietly re-covers
+the original bug fails there, which is the point. (Oracle 9's own trigger is
+fixed, so it is driven instead by admitting a 1-item array, a break the formatter
+is *known* not to honour: the oracle fires when the site list is widened to it
+and is silent when it is narrowed back, so both the machinery and the exclusion
+are shown doing their jobs.)
+
+Measured false-positive rate on the current build: 0 over 388 shipped fixtures
+(oracle 7), 0 over 300 seeds (oracle 8), 0 in 543 comparisons over 800 seeds
+(oracle 9).
 
 ## Legal-layout emission (the crux)
 

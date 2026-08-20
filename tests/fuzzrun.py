@@ -138,6 +138,7 @@ drain_grace_minutes = 35    # after the deadline, how long to wait for
 BUCKETS = ["crash", "ast-mismatch", "non-idempotent", "comment-loss",
            "sort-order", "predicate-lie", "rui-crash", "rui-ast-mismatch",
            "rui-non-idempotent", "rui-not-fixpoint", "rui-comment-order",
+           "stranded-operator", "spontaneous-break", "break-ignored",
            "timeout", "gen-error"]
 
 STOP = False        # set by SIGINT/SIGTERM; checked between and during chunks
@@ -2474,6 +2475,9 @@ EXPORT_EXTRAS = {
     "rui-ast-mismatch": ["rui.gren"],
     "rui-non-idempotent": ["rui.gren"],
     "rui-comment-order": ["rui.gren"],
+    "stranded-operator": ["formatted.gren"],
+    "spontaneous-break": ["formatted.gren"],
+    "break-ignored": ["unbroken.gren", "formatted.gren"],
 }
 
 
@@ -2503,6 +2507,19 @@ def check_hint(bucket):
         return ("needs BOTH inputs — format input.min.gren and permuted.gren "
                 "and diff\n#          (export --full carries the permuted twin; "
                 "report.txt has the diff)")
+    if bucket in ("stranded-operator", "spontaneous-break"):
+        # The whole point of the layout oracles is that these are STABLE:
+        # `--show` exits 0 on every one of them, so the obvious hint would read
+        # as "already fixed" the way it would for comment-loss.
+        return ("--show exits 0 on this class — the layout is wrong but stable.\n"
+                "#          node ../../gren-format/app --show input.min.gren "
+                "> f.gren\n"
+                "#          then look at the row / declaration report.txt names")
+    if bucket == "break-ignored":
+        return ("needs BOTH inputs — input.min.gren writes an author break and "
+                "unbroken.gren\n#          does not; they format to the same "
+                "bytes, which is the finding\n"
+                "#          (export --full carries unbroken.gren)")
     return "node ../../gren-format/app --show input.min.gren"
 
 

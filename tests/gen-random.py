@@ -7,6 +7,11 @@ comment-preserving, and independent of the order the author wrote sortable thing
 in. Targets the *feature co-occurrence* axis the 2026-07-18 scan proved
 productive — the axis every single-axis synthetic gate misses.
 
+Three further oracles (7-9) ask about the SHAPE of the output rather than about a
+round trip, because layout that is wrong but stable passes every invariant above:
+no operator stranded alone on a row, no break the formatter invented, no author
+break it threw away. See the "layout oracles" section and GENERATOR.md.
+
 See GENERATOR.md for the full design (oracles, legal-layout emission, shrinking,
 artifact management). Rebuild the app first: `cd ../../gren-format && ./build.sh`.
 
@@ -3185,8 +3190,10 @@ def check(src, tmpdir, m=None):
     """Run all oracles on `src`. Returns (bucket, detail_dict).
     bucket == 'ok' on full pass; 'quarantine' for a parse failure (generator bug).
 
-    `m` is the module `src` was emitted from; passing it enables the
-    author-order permutation oracle, which needs the tree rather than the text.
+    `m` is the module `src` was emitted from; passing it enables the three
+    oracles that need the tree rather than the text -- the author-order
+    permutation (4) and the two layout oracles that compare the output against
+    what the author actually wrote (8 and 9).
     """
     inp = os.path.join(tmpdir, "input.gren")
     with open(inp, "w") as f:
@@ -3238,6 +3245,21 @@ def check(src, tmpdir, m=None):
 
     # Oracle 6: the --remove-unused-imports transform.
     bucket, detail = _check_remove_unused_imports(src, formatted, inp, tmpdir)
+    if bucket is not None:
+        return bucket, detail
+
+    # Oracles 7-9: the LAYOUT oracles (see their section). These three ask about
+    # the shape of the output rather than about a round trip, which is the only
+    # way a stable-but-wrong layout is visible from here.
+    bucket, detail = _check_stranded_operator(formatted)
+    if bucket is not None:
+        return bucket, detail
+
+    bucket, detail = _check_spontaneous_break(m, formatted)
+    if bucket is not None:
+        return bucket, detail
+
+    bucket, detail = _check_break_ignored(m, src, formatted, tmpdir)
     if bucket is not None:
         return bucket, detail
 
@@ -3492,6 +3514,259 @@ def _ms_diff(a, b):
         if d > 0:
             out.append((k[0], k[1], d))
     return out
+
+
+# ─────────────────────────── layout oracles ───────────────────────────────
+#
+# Oracles 7-9 ask about the SHAPE of the output. Oracles 1-6 all ask about a
+# round trip, and that difference is the point: a formatter that lays a
+# construct out wrongly but does so STABLY -- same AST, same comments, a fixed
+# point -- passes 1-6 for ever. Three of the five bugs the `<|` work uncovered
+# on 2026-08-19/20 were exactly that shape (`299c912` stranded a `|>`,
+# `5fff8cc` broke a chain row the author kept flat, `afa9ea5` flattened one the
+# author broke), and the only gate that saw any of them was `matrix-syntax.py`'s
+# elm-format parity, which this generator has no twin of.
+#
+# Each of the three is a claim checkable from the emitted source and the
+# formatted output alone, so none of them needs elm-format. Every exclusion
+# below was MEASURED against the build of 2026-08-20 and the measurement is
+# quoted where it decided something -- an exclusion that is really a guess is
+# how one of these goes quietly vacuous.
+
+_LONE_OPERATOR = re.compile(
+    r"^\s*(" + "|".join(re.escape(o) for o in
+                        sorted(BINOPS + PIPES, key=len, reverse=True)) + r")\s*$")
+
+
+def _check_stranded_operator(formatted):
+    r"""Oracle 7: an operator alone on a row of its own.
+
+    `a |> \rows ->` rendered as `|>` alone with the lambda a tab stop below -- a
+    shape gren-format emitted nowhere else, recorded in `settledDecisions.md` as
+    "surely a bug" and fixed in `299c912`. Nothing here could see it: it is
+    stable, AST-preserving and comment-preserving.
+
+    Two exemptions, both read off the 388-fixture corpus rather than assumed.
+    The corpus holds 14 lone-operator rows and every one is one of these:
+
+      - `<|`, always. A backward chain whose step body ends multi-line puts the
+        next `<|` on a row of its own by design (`BackwardPipeMultilineSeed`,
+        `BackwardPipeCommentNesting`, `PipelineOperandLeadingComment`). Nothing
+        in the text tells that apart from a stranding, so `<|` is skipped whole:
+        this oracle covers `|>` and the ordinary binops, and says so rather than
+        pretending to cover `<|`.
+      - an operand that leads with a comment. The comment has taken the
+        operator's row, so the operator has nothing left to share it with
+        (`PipelineOperandLeadingComment`). The exemption tests the fact that
+        makes it legal -- the next non-blank row opens with a comment.
+
+    Rows inside a `\"\"\"` string are skipped: their content is arbitrary text
+    and an operator alone on one of them is a string, not a layout.
+    """
+    lines = formatted.split("\n")
+    in_string = False
+    for i, line in enumerate(lines):
+        if in_string:
+            in_string = line.count('"""') % 2 == 0
+            continue
+        if line.count('"""') % 2 == 1:
+            in_string = True
+            continue
+        hit = _LONE_OPERATOR.match(line)
+        if hit is None or hit.group(1) == "<|":
+            continue
+        nxt = next((l for l in lines[i + 1:] if l.strip()), "")
+        if nxt.lstrip().startswith(("--", "{-")):
+            continue
+        return "stranded-operator", {
+            "msg": "`%s` alone on row %d" % (hit.group(1), i + 1),
+            "row": i + 1, "formatted": formatted}
+    return None, None
+
+
+def _formatted_decl_block(formatted, name):
+    """The formatted rows of top-level declaration `name`, head row first.
+
+    A top-level declaration starts at column 1 and every continuation row is
+    indented, so the block is the row that starts with the name plus every row
+    after it that is blank or indented. The signature is skipped by SHAPE
+    (`name :`) rather than by position, because a leading comment can sit
+    between the signature and the body.
+
+    Blank and comment-only rows are dropped. A trailing comment the formatter
+    moves onto a row of its own is a comment decision -- oracle 3 and the
+    idempotency half of oracle 2 own that question -- not a break in the
+    expression, which is what the caller is counting.
+    """
+    lines = formatted.split("\n")
+    head = re.compile(r"^%s\b" % re.escape(name))
+    sig = re.compile(r"^%s\s*:" % re.escape(name))
+    start = next((i for i, l in enumerate(lines)
+                  if head.match(l) and not sig.match(l)), None)
+    if start is None:
+        return None
+    block = [lines[start]]
+    for l in lines[start + 1:]:
+        if l.strip() and not l.startswith((" ", "\t")):
+            break
+        block.append(l)
+    return [l for l in block if l.strip() and not re.match(r"^\s*(--|\{-)", l)]
+
+
+def _has_if(node):
+    """Does this subtree hold an `If`? The one construct where `multiline()`
+    and the formatter disagree: `multiline()` is the EMITTER's model and calls
+    an inline `if a then b else c` single-row, while the formatter always breaks
+    an `if` (measured -- and the parenthesized form breaks too)."""
+    return any(isinstance(x, If) for x in _all_nodes(node))
+
+
+def _check_spontaneous_break(m, formatted):
+    """Oracle 8: a declaration body the author wrote on ONE row must come back
+    on one row.
+
+    `v = seed |> fn <| one`, written flat with nothing in it that has to break,
+    came back across three -- and only in that mixing order, because
+    `a |> b <| c` is tagged `<|` by the parser and took the branch that gave
+    every step its own row (`5fff8cc`). Stable, so oracles 1-6 were silent.
+
+    The precondition is the emitter's own `multiline()`: when it says the body
+    is one row, no child of it can be multi-row either, so any break in the
+    output was the formatter's own idea. Two guards keep that honest -- a body
+    holding an `If` is skipped (see `_has_if`), and so is a declaration with a
+    broken parameter pattern, whose formatted HEAD is multi-row and would be
+    counted as body rows.
+
+    Every other single-row body was checked against the app directly and stays
+    on one row: a lambda, a 2-field record literal, a record update, a 3-item
+    array, a 3-argument call, a `++` chain, a mixed `|>`/`<|` chain, a negation,
+    a field access.
+
+    Yield, measured over 300 seeds at the defaults: 0.13 checks per seed, no
+    false positives. Thin per seed -- most generated bodies are blocks -- but a
+    million seeds is ~130k checks, and a flat operator chain as a whole
+    declaration body is squarely inside the population it does reach.
+    """
+    if m is None:
+        return None, None
+    for d in m.decls:
+        if not isinstance(d, Decl):
+            continue
+        if multiline(d.body) or d.body_below or _has_if(d.body):
+            continue
+        if any(getattr(p, "broken", False) for p in d.params):
+            continue
+        block = _formatted_decl_block(formatted, d.name)
+        if block is None or len(block) - 1 <= 1:
+            continue
+        return "spontaneous-break", {
+            "msg": "`%s`: body written on 1 row came back on %d"
+                   % (d.name, len(block) - 1),
+            "decl": d.name, "formatted": formatted}
+    return None, None
+
+
+# Which `broken` flags oracle 9 may ask about, and the smallest child count at
+# which the flag is honoured at all. Everything here is measured (120 seeds, all
+# sites, current build); the rate quoted is "flag off produced byte-identical
+# output", i.e. the break bought nothing.
+#
+#   Binop  1+ ops     0/16 identical      Call  2+ args   0/17     Paren  0/54
+#   Array  2+ items   0/6                 Record 2+       0/6      Update 2+  0/7
+#
+# Excluded, with the rate that excluded them:
+#   If.broken            2/2 identical -- the formatter always breaks an `if`,
+#                        so the flag can only ever be a no-op.
+#   Call, 1 argument     2/5 -- `emit_call`'s broken path glues arg0 onto the
+#                        head row, so a 1-arg broken call is usually the same
+#                        TEXT as the flat one; the few that differ do so through
+#                        `arg_break`, whose own placement rules make the
+#                        comparison ambiguous rather than wrong.
+#   Array/Record 0 or 1  2/3 and 4/5 -- a 0- or 1-item container is normalized
+#                        onto one row either way.
+_BREAK_FLAG_MIN = {"Binop": 1, "Call": 2, "Paren": 0,
+                   "Array": 2, "Record": 2, "Update": 2}
+
+# How many sites one seed may probe. Each costs one extra format, and the sites
+# are taken in tree order rather than sampled: the shrinker re-runs `check` and
+# demands the same bucket back, so the choice has to be a function of the module
+# alone. The cap is NOT silent -- the report names the site it fired on.
+_BREAK_PROBE_CAP = 2
+
+
+def _break_flag_sites(m):
+    """(decl index, node index, kind) for each author break oracle 9 may ask
+    about, in tree order. See `_BREAK_FLAG_MIN` for what is left out and why."""
+    sizes = {"Call": lambda n: len(n.args), "Binop": lambda n: len(n.ops),
+             "Array": lambda n: len(n.items), "Record": lambda n: len(n.fields),
+             "Update": lambda n: len(n.fields), "Paren": lambda n: 0}
+    out = []
+    for di, d in enumerate(m.decls):
+        if not isinstance(d, Decl):
+            continue
+        for ni, n in enumerate(_all_nodes(d.body)):
+            kind = type(n).__name__
+            if not getattr(n, "broken", False) or kind not in _BREAK_FLAG_MIN:
+                continue
+            if sizes[kind](n) >= _BREAK_FLAG_MIN[kind]:
+                out.append((di, ni, kind))
+    return out
+
+
+def _check_break_ignored(m, src, formatted, tmpdir):
+    """Oracle 9: an author's break that the formatter throws away.
+
+    `seed |> fn one` / `two` came back on one row: `InsertExpressions` unwraps a
+    call operand's `AcrossOrVertical` into the step's children -- deliberately,
+    to avoid a second +4 -- and that node was the only record of `forceVertical`
+    (`afa9ea5`). Stable again, and unlike oracle 8 the shape has no witness in
+    the output at all: a formatted file cannot say what the author wrote.
+
+    So the test is differential. Re-emit the module with ONE `broken` flag
+    turned off and format that; byte-identical output means the break bought
+    nothing, i.e. it was not honoured. Two guards, each of which a measurement
+    put there:
+
+      - the flip must change the emitted SOURCE. Where it does not there is
+        nothing to compare (a broken 1-arg call already glues arg0 onto its head
+        row, so both spellings are the same text).
+      - with the flag off the node must render on one row -- `multiline()` and
+        `_has_if`. Without the `If` half, seed 165 fired on a chain holding an
+        inline `if`: that chain breaks whatever the author wrote, so the extra
+        break really did buy nothing and really was not a bug.
+
+    After both, 800 seeds gave 543 comparisons and 0 findings.
+    """
+    if m is None:
+        return None, None
+    for (di, ni, kind) in _break_flag_sites(m)[:_BREAK_PROBE_CAP]:
+        flat = copy.deepcopy(m)
+        node = list(_all_nodes(flat.decls[di].body))[ni]
+        node.broken = False
+        if multiline(node) or _has_if(node):
+            continue
+        try:
+            flat_src = emit_module(flat)
+        except Exception:
+            continue
+        if flat_src == src:
+            continue
+        p = os.path.join(tmpdir, "unbroken.gren")
+        with open(p, "w") as f:
+            f.write(flat_src)
+        try:
+            shown = run_app(["--show", p])
+        except subprocess.TimeoutExpired:
+            continue
+        if shown.returncode != 0:
+            continue
+        if shown.stdout == formatted:
+            return "break-ignored", {
+                "msg": "author break on a %s in `%s` changed nothing"
+                       % (kind, flat.decls[di].name),
+                "decl": flat.decls[di].name, "kind": kind,
+                "unbroken": flat_src, "formatted": formatted}
+    return None, None
 
 
 # ───────────────────────────── shrinking ──────────────────────────────────
@@ -4019,6 +4294,30 @@ def write_report(fdir, seed, bucket, detail, src_full, src_min, tmpdir,
         if fmt is not None:
             with open(os.path.join(fdir, "formatted.gren"), "w") as f:
                 f.write(fmt)
+    elif bucket in ("stranded-operator", "spontaneous-break"):
+        # Both are read off the formatted output alone, so that output IS the
+        # artifact; `msg` already names the row or the declaration.
+        fmt = detail.get("formatted")
+        if fmt is not None:
+            with open(os.path.join(fdir, "formatted.gren"), "w") as f:
+                f.write(fmt)
+        lines.append("The finding is in formatted.gren -- see `message` above.")
+    elif bucket == "break-ignored":
+        # The artifact is the PAIR, as with `sort-order`: the module as written
+        # and the same module with one author break taken out. They format to
+        # the same bytes, which is the finding.
+        flat = detail.get("unbroken")
+        if flat is not None:
+            with open(os.path.join(fdir, "unbroken.gren"), "w") as f:
+                f.write(flat)
+        fmt = detail.get("formatted")
+        if fmt is not None:
+            with open(os.path.join(fdir, "formatted.gren"), "w") as f:
+                f.write(fmt)
+        lines.append("input.gren breaks a %s the author wrote; unbroken.gren is"
+                     % detail.get("kind", "node"))
+        lines.append("the same module without that break. Both format to")
+        lines.append("formatted.gren, byte for byte -- so the break was ignored.")
     elif bucket.startswith("rui-"):
         # Every one of these is about the SECOND transform, so the artifact a
         # reader needs first is its output -- the input formats cleanly on the
@@ -4093,13 +4392,16 @@ def process_seed(args_tuple):
         else:
             minm, minsrc = None, src
             detail = dict(detail, unshrunk=True)
-        if (bucket == "sort-order" or bucket.startswith("rui-")) and minm is not None:
+        if (bucket in ("sort-order", "stranded-operator", "spontaneous-break",
+                       "break-ignored")
+                or bucket.startswith("rui-")) and minm is not None:
             # The report's artifacts have to describe the SHRUNK module, not
             # the one the find came in on — `detail` here still holds the
             # unminimized pair (`sort-order`'s permuted twin, a `rui-` bucket's
-            # transform output). A stale `rui.gren` is especially misleading:
-            # it is a whole different module from `input.min.gren`, and reads
-            # like one.
+            # transform output, a layout oracle's `formatted.gren` and the row
+            # number that indexes into it). A stale `rui.gren` is especially
+            # misleading: it is a whole different module from
+            # `input.min.gren`, and reads like one.
             b2, d2 = check(minsrc, tmp, minm)
             if b2 == bucket:
                 detail = d2
@@ -4281,6 +4583,7 @@ def main():
     order = ["crash", "ast-mismatch", "non-idempotent", "comment-loss",
              "sort-order", "predicate-lie", "rui-crash", "rui-ast-mismatch",
              "rui-non-idempotent", "rui-not-fixpoint", "rui-comment-order",
+             "stranded-operator", "spontaneous-break", "break-ignored",
              "timeout", "gen-error", "quarantine"]
     counts = {b: len(v) for b, v in buckets.items()}
     ok = counts.get("ok", 0)
@@ -4288,12 +4591,13 @@ def main():
                 ("crash", "ast-mismatch", "non-idempotent", "comment-loss",
                  "sort-order", "predicate-lie", "rui-crash",
                  "rui-ast-mismatch", "rui-non-idempotent", "rui-not-fixpoint",
-                 "rui-comment-order", "timeout"))
+                 "rui-comment-order", "stranded-operator",
+                 "spontaneous-break", "break-ignored", "timeout"))
     summary_lines = ["%d/%d clean" % (ok, len(seeds)),
                      "app build: %s" % app_build_id(), ""]
     for b in order:
         if counts.get(b):
-            summary_lines.append("%-15s %d   seeds: %s" %
+            summary_lines.append("%-18s %d   seeds: %s" %
                                  (b, counts[b],
                                   " ".join(map(str, sorted(buckets[b])[:40]))))
     if _SHRINKS_SKIPPED:
