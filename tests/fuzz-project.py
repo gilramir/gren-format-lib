@@ -38,6 +38,26 @@ The edges of a mode that WRITES, each built on the same generated project:
      its own filter, separate from `Outline.findSourceFiles`
   L  `--diff` alongside a file that does not parse still writes nothing
 
+Naming a FILE is a third way to reach one, and different code again:
+`expandPathToFiles` lists and filters a directory, but returns `[path]`
+unfiltered for anything that is not one. That branch had no coverage at all:
+
+  M  every module named at once formats to its `--show` output, the count is
+     right, and a second run reformats 0 and changes nothing
+  M2 CRLF-clean, named -- H3's twin through the other expansion branch, with
+     `--diff` agreeing
+  M3 `--diff` over named files: a dry run whose patch applies and lands on
+     `--show` (J's twin; both call `diff_agrees`, so they cannot drift)
+  M4 naming a file the DIRECTORY branch would have skipped. A package's
+     sources must start with a capital, so `lowercase.gren` can never load as
+     a module and `gren-format src` skips it (K) -- but naming it is not a
+     guess the way discovery is, so the file branch formats whatever it is
+     handed, and a file that is not Gren at all comes back a parse error
+     rather than a silent skip. The asymmetry with K is deliberate; M4 pins
+     both halves so it reads as a choice rather than an oversight.
+  M5 one unparseable file among several named, named in the MIDDLE so a mode
+     that stops early leaves evidence on both sides. Same tolerance as G.
+
 These are a LIST over two axes -- how the files were found (no-arg / `src`
 positional / a named file / `--remove-unused-imports` / `--diff`) and what is
 wrong with them (dirty / already formatted / CRLF-dirty / CRLF-clean / one
@@ -57,14 +77,19 @@ That is not hypothetical. Two cells have already been caught out:
 
 Still empty, roughly in the order they look worth filling:
 
-  - a named FILE argument (`gren-format src/Mod0.gren`) is an entire column:
-    every oracle here passes `src`, the directory, and `expandPathToFiles`
-    takes a different branch for the two. The file branch applies no filter at
-    all, so a named `lowercase.gren` IS formatted where `src` skips it.
   - `--remove-unused-imports` against anything but dirty and already-formatted
-  - CRLF x `--remove-unused-imports`, and CRLF-dirty x positional -- the
-    lowest value of the lot now that a single `isAlreadyFormatted` predicate
-    answers that question for all three modes.
+    -- it is the only mode that REWRITES the AST rather than just laying it
+    out, so its edges (an unparseable neighbour, a non-source file) are not
+    obviously the same edges as everyone else's
+  - CRLF x `--remove-unused-imports`, and CRLF-dirty x the two positional
+    forms -- the lowest value of the lot, now that a single
+    `isAlreadyFormatted` predicate answers that question for every mode
+
+A note on reading this list: several oracles now overlap deliberately, and
+when they do the EARLIER one short-circuits. H3 and M2 both catch the CRLF
+bug, so muting H3 is the only way to see M2 do it; that is worth remembering
+before concluding a new oracle is watching something. Each was checked by
+inverting its own assertion and confirming its own label appears.
 
 Trials are seeded and replayable: `--trial N` rebuilds exactly one and
 leaves the project directory behind for inspection.
@@ -217,6 +242,28 @@ def apply_unified(before, hunks):
     return out
 
 
+def diff_agrees(trial, tag, root, stdout, before, expected, modules):
+    """`--diff` must name exactly the files that would change, and its patch
+    must APPLY to what is on disk and land on `--show`'s output. Shared by the
+    project run (J) and the named-file run (M3) so the two cannot drift."""
+    sections = diff_sections(stdout)
+    for name in modules:
+        key = "src/%s.gren" % name
+        if before[name] == expected[name]:
+            if key in sections:
+                return trial, tag + "-spoke-for-an-unchanged-file", name, root
+            continue
+        if key not in sections:
+            return trial, tag + "-stayed-silent", name, root
+        try:
+            patched = apply_unified(content_lines(before[name]), sections[key])
+        except ValueError as e:
+            return trial, tag + "-does-not-apply", "%s: %s" % (name, e), root
+        if patched != content_lines(expected[name]):
+            return trial, tag + "-applied-differs-from-show", name, root
+    return None
+
+
 def build_project(root, modules):
     """`root/gren.json` + `root/src/<Name>.gren`, one file per module."""
     src = os.path.join(root, "src")
@@ -326,21 +373,9 @@ def check_project(trial, root, modules):
             return trial, "diff-run-failed", first_line(rj.stdout + rj.stderr), root_j
         if snapshot(src_j) != before_j:
             return trial, "diff-wrote-to-disk", "--diff must be a dry run", root_j
-        sections = diff_sections(rj.stdout)
-        for name in modules:
-            key = "src/%s.gren" % name
-            if before_j[name] == expected[name]:
-                if key in sections:
-                    return trial, "diff-spoke-for-an-unchanged-file", name, root_j
-                continue
-            if key not in sections:
-                return trial, "diff-stayed-silent", name, root_j
-            try:
-                patched = apply_unified(content_lines(before_j[name]), sections[key])
-            except ValueError as e:
-                return trial, "diff-does-not-apply", "%s: %s" % (name, e), root_j
-            if patched != content_lines(expected[name]):
-                return trial, "diff-applied-differs-from-show", name, root_j
+        finding = diff_agrees(trial, "diff", root_j, rj.stdout, before_j, expected, modules)
+        if finding:
+            return finding
         # ... and once the project IS formatted, `--diff` says nothing at all.
         run_app([], cwd=root_j)
         rj2 = run_app(["--diff"], cwd=root_j)
@@ -381,6 +416,11 @@ BROKEN = "module Broken exposing (f)\n\n\nf =\n    ( 1\n"
 # NOT treat them alike -- see oracles I, I2 and K.
 NOT_GREN = {"notes.txt": "this file is not a Gren source file\n"}
 LOWERCASE_GREN = {"lowercase.gren": "-- a .gren whose name is not a module name\n"}
+
+# Valid, unformatted Gren living in a file whose name a package could never
+# load (sources must start with a capital). Used to pin what happens when such
+# a file is NAMED rather than found -- see M4.
+LOWERCASE_SOURCE = "module Whatever exposing (x)\nx : Int\nx =\n    1\n"
 
 
 def keep_or_remove(path):
@@ -564,6 +604,142 @@ def check_edges(trial, root, modules, expected):
             return trial, "diff-wrote-alongside-a-parse-error", "--diff must never write", root_l
     finally:
         keep_or_remove(root_l)
+    return check_named(trial, root, modules, expected)
+
+
+def check_named(trial, root, modules, expected):
+    """M -- the named-FILE column.
+
+    Every oracle above reaches files either by discovering the project or by
+    naming `src`, the directory. Naming a file is a THIRD way, and it is
+    different code: `Format.expandPathToFiles` lists and filters a directory,
+    but for anything that is not a directory it returns `[path]` with no
+    filter at all. That branch had no coverage whatever.
+    """
+    names = ["src/%s.gren" % n for n in sorted(modules)]
+
+    # M: the dirty project, every module named at once.
+    root_m = root + "-named"
+    src_m = build_project(root_m, modules)
+    try:
+        before_m = snapshot(src_m)
+        changed_m = sum(1 for n, t in before_m.items() if expected[n] != t)
+        rm = run_app(names, cwd=root_m)
+        if rm.returncode != 0:
+            return trial, "named-run-failed", first_line(rm.stdout + rm.stderr), root_m
+        after_m = snapshot(src_m)
+        for name in modules:
+            if after_m[name] != expected[name]:
+                return trial, "named-differs-from-show", name, root_m
+        said_m = reported_count(rm.stdout)
+        if said_m is not None and said_m != changed_m:
+            return trial, "named-wrong-reformatted-count", "said %s, %d changed" % (said_m, changed_m), root_m
+        rm2 = run_app(names, cwd=root_m)
+        if rm2.returncode != 0:
+            return trial, "named-second-run-failed", first_line(rm2.stdout + rm2.stderr), root_m
+        if snapshot(src_m) != after_m:
+            return trial, "named-not-idempotent", "", root_m
+        said_m2 = reported_count(rm2.stdout)
+        if said_m2 not in (None, 0):
+            return trial, "named-rewrote-formatted-files", "said %s" % said_m2, root_m
+    finally:
+        keep_or_remove(root_m)
+
+    # M2: CRLF-clean, named. The twin of H3 through the OTHER branch of
+    # `expandPathToFiles` -- and the branch `formatFile` is reached from, which
+    # is where the CRLF bug actually lived.
+    root_m2 = root + "-named-crlf"
+    src_m2 = build_project(root_m2, {n: t.replace("\n", "\r\n")
+                                     for n, t in expected.items()})
+    try:
+        rd2 = run_app(["--diff"] + names, cwd=root_m2)
+        if rd2.returncode != 0:
+            return trial, "named-crlf-diff-failed", first_line(rd2.stdout + rd2.stderr), root_m2
+        rm3 = run_app(names, cwd=root_m2)
+        if rm3.returncode != 0:
+            return trial, "named-crlf-run-failed", first_line(rm3.stdout + rm3.stderr), root_m2
+        after_m2 = snapshot(src_m2)
+        for name in modules:
+            if after_m2[name] != expected[name]:
+                return trial, "named-crlf-kept-its-carriage-returns", name, root_m2
+            if ("%s.gren" % name) not in rd2.stdout:
+                return trial, "named-crlf-diff-stayed-silent", name, root_m2
+    finally:
+        keep_or_remove(root_m2)
+
+    # M3: `--diff` over named files, dirty -- the patch round trip, J's twin.
+    root_m3 = root + "-named-diff"
+    src_m3 = build_project(root_m3, modules)
+    try:
+        before_m3 = snapshot(src_m3)
+        rd3 = run_app(["--diff"] + names, cwd=root_m3)
+        if rd3.returncode != 0:
+            return trial, "named-diff-run-failed", first_line(rd3.stdout + rd3.stderr), root_m3
+        if snapshot(src_m3) != before_m3:
+            return trial, "named-diff-wrote-to-disk", "--diff must be a dry run", root_m3
+        finding = diff_agrees(trial, "named-diff", root_m3, rd3.stdout, before_m3, expected, modules)
+        if finding:
+            return finding
+    finally:
+        keep_or_remove(root_m3)
+
+    # M4: naming a file the DIRECTORY branch would have skipped.
+    #
+    # A package's sources must start with a capital, so `lowercase.gren` can
+    # never be loaded as a module and `gren-format src` skips it (K). Naming it
+    # is a different act: discovery INFERS which files you meant and can afford
+    # to be conservative, while a path you typed is not a guess. So the file
+    # branch formats whatever it is handed -- which is also why a file that is
+    # not Gren at all comes back as a parse error rather than a silent skip.
+    # Both halves are pinned here because they are a deliberate asymmetry with
+    # K, not an oversight, and the next reader deserves to see it asserted.
+    root_m4 = root + "-named-notsource"
+    src_m4 = build_project(root_m4, modules)
+    low = os.path.join(src_m4, "lowercase.gren")
+    with open(low, "w") as f:
+        f.write(LOWERCASE_SOURCE)
+    txt = os.path.join(src_m4, "notes.txt")
+    with open(txt, "w") as f:
+        f.write(NOT_GREN["notes.txt"])
+    try:
+        shown = run_app(["--show", low])
+        if shown.returncode != 0:
+            return trial, "named-lowercase-show-failed", first_line(shown.stdout + shown.stderr), root_m4
+        rm4 = run_app(["src/lowercase.gren"], cwd=root_m4)
+        if rm4.returncode != 0:
+            return trial, "named-lowercase-run-failed", first_line(rm4.stdout + rm4.stderr), root_m4
+        if read(low) != shown.stdout:
+            return trial, "named-lowercase-differs-from-show", "lowercase.gren", root_m4
+        rm4b = run_app(["src/notes.txt"], cwd=root_m4)
+        if rm4b.returncode == 0:
+            return trial, "named-non-gren-file-accepted", "expected a parse error", root_m4
+        if read(txt) != NOT_GREN["notes.txt"]:
+            return trial, "named-non-gren-file-rewritten", "notes.txt", root_m4
+    finally:
+        keep_or_remove(root_m4)
+
+    # M5: one unparseable file among several NAMED ones, and named in the
+    # MIDDLE, so a mode that stops early leaves evidence on both sides of it.
+    # Tolerances match G: the run may stop, but must not write to the broken
+    # file and must not leave any other file in a third state.
+    root_m5 = root + "-named-broken"
+    src_m5 = build_project(root_m5, modules)
+    with open(os.path.join(src_m5, "Broken.gren"), "w") as f:
+        f.write(BROKEN)
+    mid = len(names) // 2
+    names5 = names[:mid] + ["src/Broken.gren"] + names[mid:]
+    try:
+        rm5 = run_app(names5, cwd=root_m5)
+        if rm5.returncode == 0:
+            return trial, "named-broken-accepted", "expected a parse error", root_m5
+        if read(os.path.join(src_m5, "Broken.gren")) != BROKEN:
+            return trial, "named-broken-file-rewritten", "a file that does not parse was written to", root_m5
+        after_m5 = snapshot(src_m5)
+        for name in modules:
+            if after_m5[name] not in (expected[name], modules[name]):
+                return trial, "named-partial-write-alongside-parse-error", name, root_m5
+    finally:
+        keep_or_remove(root_m5)
     return trial, "ok", "", None
 
 
