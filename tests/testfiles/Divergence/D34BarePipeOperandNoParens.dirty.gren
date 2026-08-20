@@ -1,0 +1,89 @@
+module D34BarePipeOperandNoParens exposing (..)
+
+-- A lambda, an `if`, a `when` and a `let` are all legal right operands of `|>`
+-- without parentheses. gren-format keeps such an operand's head on the `|>`'s
+-- row; elm-format wraps the operand in parens it ADDS and glues the `(` there
+-- instead. Both spellings below come back glued, since the operator's row is
+-- not the author's to choose here -- what the author chose is whether to write
+-- the parens, and those are kept either way (divergence #10).
+
+
+bareLambda rows =
+    rows
+        |>
+            \row ->
+                keep row
+
+
+bareIf rows =
+    rows |> if isEmpty rows then none else some
+
+
+bareWhen rows =
+    rows
+        |>
+            when rows is
+                [] ->
+                    none
+
+                _ ->
+                    some
+
+
+bareLet rows =
+    rows
+        |> let
+            width =
+                4
+           in
+           pad width
+
+
+-- The parenthesized spellings, which elm-format reproduces identically.
+
+
+parenLambda rows =
+    rows
+        |> (\row ->
+                keep row
+           )
+
+
+parenIf rows =
+    rows
+        |> (if isEmpty rows then
+                none
+
+            else
+                some
+           )
+
+
+-- A bare block has no closing token, so a `|>` step written after one is
+-- SWALLOWED into its last branch rather than becoming the next step. The
+-- formatter shows what was parsed: the swallowed operator renders inside the
+-- block's body, always right of the column a real step sits at. `swallowed`
+-- and `notSwallowed` are the same tokens apart from the parens.
+
+
+swallowed rows =
+    rows
+        |> when rows is
+            [] ->
+                none
+
+            _ ->
+                some
+        |> always 1
+
+
+notSwallowed rows =
+    rows
+        |> (when rows is
+                [] ->
+                    none
+
+                _ ->
+                    some
+           )
+        |> always 1

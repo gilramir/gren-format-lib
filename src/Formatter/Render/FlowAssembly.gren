@@ -59,7 +59,8 @@ import Formatter.Render.BoxOps exposing
     , nodesShareStartRow
     )
 import Formatter.Render.NodeClassify exposing
-    ( isBareLambdaOperand
+    ( isBareBlockOperand
+    , isBareLambdaOperand
     , isColonLeaf
     , isEmptyLine
     , isMultilineLambdaParenBlockBox
@@ -1314,19 +1315,21 @@ splitStepTriggerItems stepItems =
                         -- operator is a prefix applied by `stepBodyBox`, not an
                         -- item — so "nothing before it" is an empty preamble.)
                         --
-                        -- The bare lambda was the one operand kind missing from
-                        -- this list, and the stranded `|>` it produced was a
-                        -- shape gren-format emitted NOWHERE else. The
-                        -- parenthesized twin `|> (\x -> …)` was excluded from
-                        -- the day this split was written, so the two spellings
-                        -- of the same operand disagreed; both now glue, which is
-                        -- also what `>>`, `++`, a user-defined operator and (as
-                        -- of R1) `<|` do with a bare lambda.
+                        -- The two BARE operands were what this list was missing,
+                        -- and the stranded `|>` they produced was a shape
+                        -- gren-format emitted NOWHERE else. Their parenthesized
+                        -- twins `|> (\x -> …)` and `|> (if …)` were excluded from
+                        -- the day this split was written, so the two spellings of
+                        -- one operand disagreed; all four now glue, which is also
+                        -- what `>>`, `++` and a user-defined operator do with a
+                        -- bare lambda or a bare block (measured), and what `<|`
+                        -- does with a bare lambda as of R1.
                         isDirectGluedOperand =
                             Array.isEmpty acc.preamble
                                 && (itemIsMultilineParenBlock item
                                         || itemIsMultilineBracketContainer item
                                         || isBareLambdaOperand item.node
+                                        || isBareBlockOperand item.node
                                    )
                     in
                     if

@@ -6,6 +6,7 @@ module Formatter.Render.NodeClassify exposing
     , fieldValueDropsToOwnLine
     , isColonLeaf
     , isDroppingSignatureRecordNode
+    , isBareBlockOperand
     , isBareLambdaOperand
     , isEmptyLine
     , isBackwardContinuation
@@ -369,20 +370,62 @@ parenContentIsLambdaHead : LPNode -> Bool
 parenContentIsLambdaHead node =
     when Array.first (lpnChildren node) is
         Just headNode ->
-            when lpnShape headNode is
-                IfCondition _ ->
-                    False
-
-                WhenFlow _ ->
-                    False
-
-                UnbreakableText loc ->
-                    loc.value /= "let"
-
-                _ ->
-                    True
+            not (isBlockKeywordHead headNode)
 
         Nothing ->
+            False
+
+
+-- The head of a block construct: `if`, `when`, or `let`. Three shapes because
+-- that is how the three arrive — an `if`'s condition flow and a `when`'s
+-- scrutinee flow are nodes of their own, while `let` opens with the keyword as a
+-- plain leaf. Anything else heads a lambda or an ordinary expression.
+--
+-- Asking for the keyword text is a comparison against LANGUAGE SYNTAX, which is
+-- the one thing a layout change cannot move (see `leafValue`).
+isBlockKeywordHead : LPNode -> Bool
+isBlockKeywordHead headNode =
+    when lpnShape headNode is
+        IfCondition _ ->
+            True
+
+        WhenFlow _ ->
+            True
+
+        UnbreakableText loc ->
+            loc.value == "let"
+
+        _ ->
+            False
+
+
+{-| Is this operand a **bare** (unparenthesized) `if`, `when` or `let`?
+
+The block twin of `isBareLambdaOperand`, and its caller is the same: a bare block
+written straight after `|>` glues its head to the operator's row rather than
+stranding the operator on a row of its own. `>>`, `++` and user-defined
+operators already glue one, and so does `|> (if …)`, the parenthesized spelling
+of this very operand.
+
+A `when` arrives as a `WhenFlow` in its own right; an `if` and a `let` arrive
+wrapped in a `BodyBlock`, so they are recognised by what heads that block — the
+same question `parenContentIsLambdaHead` asks one level down.
+-}
+isBareBlockOperand : LPNode -> Bool
+isBareBlockOperand operandNode =
+    when lpnShape operandNode is
+        WhenFlow _ ->
+            True
+
+        BodyBlock ->
+            when Array.first (Array.keepIf (\n -> not (nodeIsComment n)) (lpnChildren operandNode)) is
+                Just headNode ->
+                    isBlockKeywordHead headNode
+
+                Nothing ->
+                    False
+
+        _ ->
             False
 
 

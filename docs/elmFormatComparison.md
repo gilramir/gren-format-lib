@@ -52,6 +52,7 @@ code, and why the places they *don't* look the way they do.
   - [#31 A declaration that doesn't start in column 1](#divergence-31)
   - [#32 A lambda head broken across rows keeps its `->`](#divergence-32)
   - [#33 A lambda after `<|` keeps its head on the operator's row](#divergence-33)
+  - [#34 A bare operand after `|>` glues; elm-format adds parentheses](#divergence-34)
 - [Out of scope for comparison](#out-of-scope-for-comparison)
 
 
@@ -1806,6 +1807,96 @@ if it stops being — an entry with no fixture, or a fixture with no entry.
     column, so the row above is already closed — but the aligned form reads like
     a statement list, so a second statement written at that column is a parse
     error rather than the reading the author intended. It fails loudly.
+
+34. <a id="divergence-34"></a>**A bare operand after `|>` keeps its head on the
+    operator's row; elm-format parenthesizes it instead.** A lambda, an `if`, a
+    `when` and a `let` are all legal right operands of `|>` with no parentheses
+    around them. gren-format keeps such an operand's head on the `|>`'s row and
+    lets the rest fall below it, the way it treats every other operand that
+    breaks. elm-format wraps the operand in parentheses **it adds itself**, and
+    then glues the `(` in exactly that spot.
+
+    ```gren
+    -- gren-format:
+    bareIf rows =
+        rows
+            |> if isEmpty rows then
+                none
+
+               else
+                some
+    ```
+
+    ```gren
+    -- elm-format, from the same input:
+    bareIf rows =
+        rows
+            |> (if isEmpty rows then
+                    none
+
+                else
+                    some
+               )
+    ```
+
+    **Why gren parts company.** gren-format never introduces a parenthesis. That
+    is the same rule as [#10](#divergence-10) seen from the other side: parens
+    the author wrote are never stripped, and parens the author did not write are
+    never added — punctuation is the author's, not the formatter's. Once that is
+    fixed, gluing is the only remaining choice that does not strand `|>` alone
+    on a row of its own, a shape gren-format produces nowhere else. It also
+    makes `|>` agree with its neighbours: `>>`, `++` and user-defined operators
+    already glue a bare lambda or a bare block head, and `<|` glues a bare
+    lambda ([#33](#divergence-33)).
+
+    The two formatters agree exactly where the author *did* write the parens —
+    `|> (if …)` comes back identically from both — so the divergence is over the
+    parens alone, never over where a row breaks.
+
+    The columns under a bare operand are emergent, not chosen: the body advances
+    to the next tab stop past the keyword's own column, which is the same rule
+    the parenthesized form follows one column further right. That is why the
+    `else` above sits under the `if` and its branches one column past it.
+
+    **What the parens the author left out are actually doing.** A bare block has
+    no closing token, so it extends as far as the indentation allows — and a
+    `|>` step written *after* one is swallowed into it, becoming part of the
+    block's last branch or body rather than the next step of the pipeline:
+
+    ```gren
+    -- you write, meaning two steps:
+    attempt rows =
+        rows
+            |> when rows is
+                [] ->
+                    none
+
+                _ ->
+                    some
+            |> always 1
+    ```
+
+    ```gren
+    -- gren-format shows you what that parsed as:
+    attempt rows =
+        rows
+            |> when rows is
+                [] ->
+                    none
+
+                _ ->
+                    some
+                        |> always 1
+    ```
+
+    That is the parser's reading, not a relocation — the formatter's AST check
+    passes, and writing the parens (`|> (when … )`) gives the two steps back.
+    The layout discloses it: a swallowed operator renders inside the block's own
+    body, which starts at a tab stop past the keyword's column and so always
+    lands strictly right of the column a genuine step sits at. But note this is
+    *quieter* than [#33](#divergence-33)'s neighbouring hazard, where a second
+    statement at the chain's column is a parse error and fails loudly. This one
+    compiles, and can typecheck; the four-column indent is the only signal.
 
 
 ## Out of scope for comparison

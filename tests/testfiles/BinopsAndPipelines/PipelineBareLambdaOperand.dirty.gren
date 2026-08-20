@@ -15,9 +15,12 @@ module PipelineBareLambdaOperand exposing (..)
 -- "nothing shares the operator's row"; rendering that as a flow of zero items
 -- is what crashed with `box: empty flow` before it was made a blank line.)
 --
--- The empty preamble is still reachable, by a bare `if`/`when`/`let` operand --
--- `bareIfStillDangles` below. elm-format parenthesizes that one too, and gren
--- never introduces a paren, so it is a separate question from this one.
+-- The bare `if`, `when` and `let` operands at the bottom are the same rule,
+-- added the same day: they were the last operand kinds that still emptied the
+-- preamble. `>>`, `++` and a user-defined operator glue a bare block's head too
+-- (measured), and so has `|> (if …)`, the parenthesized spelling of this very
+-- operand, from the beginning. elm-format reaches the glued shape by ADDING the
+-- parens -- divergence #34 -- which gren does not do.
 
 
 bareLambda =
@@ -43,10 +46,29 @@ recordOperandStaysGlued =
            }
 
 
-bareIfStillDangles =
+bareIfGluesToo =
     a
         |> if c then
             x
 
            else
             y
+
+
+bareWhenGluesToo =
+    a
+        |> when c is
+            Just w ->
+                w
+
+            Nothing ->
+                y
+
+
+bareLetGluesToo =
+    a
+        |> let
+            q =
+                1
+           in
+           q

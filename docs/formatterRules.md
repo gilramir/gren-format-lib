@@ -1836,6 +1836,25 @@ tally =
             done rows
 ```
 
+An `if`, a `when` or a `let` written straight after `|>` glues the same way —
+the keyword stays on the operator's row and the block falls below it, at the
+next tab stop past the keyword's own column:
+
+```gren
+classify rows =
+    rows
+        |> if Array.isEmpty rows then
+            none
+
+           else
+            some
+```
+
+`elm-format` reaches the same glued shape by *adding* parentheses around the
+operand; gren-format never introduces a paren, so it glues without one — that is
+[divergence #34](elmFormatComparison.md#divergence-34). Where you write the
+parens yourself the two agree exactly.
+
 **Your row placement is the choice.** The formatter uses the multi-line form when
 the lambda body starts on a different row from `->`, and the inline form when the
 body is on the same row.
