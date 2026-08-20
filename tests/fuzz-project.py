@@ -8,8 +8,8 @@ and overwrite files, and they had eight fixture tests between them. This
 builds a real project out of `gen-random.py` modules and holds those modes
 to what `--show` already guarantees per file.
 
-Six oracles per trial, all comparing against the single-file path that the
-other gates have already swept:
+Oracles per trial, all comparing against the single-file `--show` path that
+the other gates have already swept:
 
   A  the no-arg project run exits 0
   B  every file on disk afterwards equals its own `--show` output
@@ -18,28 +18,53 @@ other gates have already swept:
   E  the same for `--remove-unused-imports`, against its own `--show`
   F  `gren-format src/` (a directory argument) lands the same bytes as
      the no-arg run
+  J  `--diff` writes nothing, names exactly the files that would change, and
+     the patch it prints APPLIES to what is on disk and yields exactly what
+     the write would have produced -- then says nothing at all once the
+     project is formatted
 
-Three more about the edges of a mode that WRITES, each built on top of the
-same generated project:
+The edges of a mode that WRITES, each built on the same generated project:
 
-  G  a file that does not parse must not cost the others their formatting,
-     and must itself come back byte-identical -- a write mode that gives up
-     halfway is the one failure here that loses work
+  G  a file that does not parse is not written to and does not corrupt the
+     others (a run that stops early, leaving later files untouched, is
+     tolerated -- G does not require the run to carry on)
   H  a CRLF file formats in place to the same bytes as `--show`, and the
      result is a fixed point (the app normalises line endings when it reads)
-  I  a lowercase-named `.gren` and a non-`.gren` file are not source files
-     and must be left alone
+  H2 a project already formatted EXCEPT for its line endings is still rewritten
+  H3 the same, reached as a positional argument, with `--diff` agreeing
+  I  a non-`.gren` file is ignored by a run that really runs
+  I2 a lowercase-named `.gren` makes the no-arg run REFUSE, writing nothing
+  K  both kinds, reached as a positional argument -- `expandPathToFiles` has
+     its own filter, separate from `Outline.findSourceFiles`
+  L  `--diff` alongside a file that does not parse still writes nothing
 
-The oracles above are a LIST over two axes -- how the files were found
-(no-arg / `src/` positional / `--remove-unused-imports`) and what is wrong
-with them (dirty / CRLF-clean / unparseable / not-a-source). Read as a
-matrix it has holes, and positional x CRLF-clean was one: every CRLF oracle
-ran the no-arg mode and the positional oracle ran the dirty project, so for
-as long as the two modes disagreed about CRLF, nothing here could tell.
-They did disagree -- `readSource` handed the path-argument mode only the
-normalized text, so a CRLF-but-otherwise-formatted file compared equal to
-its own LF output and kept its `\r`s forever. H3 fills that cell in; the
-other empty ones are worth a look before trusting this list again.
+These are a LIST over two axes -- how the files were found (no-arg / `src`
+positional / a named file / `--remove-unused-imports` / `--diff`) and what is
+wrong with them (dirty / already formatted / CRLF-dirty / CRLF-clean / one
+unparseable / a non-source file present). Read as a MATRIX the list has holes,
+and a green oracle in one cell says nothing whatever about its neighbours.
+
+That is not hypothetical. Two cells have already been caught out:
+
+  - positional x CRLF-clean was EMPTY and had a bug in it. `Format.readSource`
+    handed the path-argument mode only the normalized text, so a CRLF-but-
+    otherwise-formatted file compared equal to its own LF output and kept its
+    `\r`s forever, while the no-arg run rewrote the same bytes. H3 fills it.
+  - non-source x no-arg was FILLED and VACUOUS, which is worse: oracle I
+    discarded the exit code, and its `lowercase.gren` made the run refuse the
+    project outright, so nothing was ever formatted and the assertion held for
+    the wrong reason. Split into I / I2, with the exit code checked.
+
+Still empty, roughly in the order they look worth filling:
+
+  - a named FILE argument (`gren-format src/Mod0.gren`) is an entire column:
+    every oracle here passes `src`, the directory, and `expandPathToFiles`
+    takes a different branch for the two. The file branch applies no filter at
+    all, so a named `lowercase.gren` IS formatted where `src` skips it.
+  - `--remove-unused-imports` against anything but dirty and already-formatted
+  - CRLF x `--remove-unused-imports`, and CRLF-dirty x positional -- the
+    lowest value of the lot now that a single `isAlreadyFormatted` predicate
+    answers that question for all three modes.
 
 Trials are seeded and replayable: `--trial N` rebuilds exactly one and
 leaves the project directory behind for inspection.
@@ -111,6 +136,85 @@ def snapshot(src_dir):
 def reported_count(stdout):
     m = re.search(r"(\d+) files? reformatted", stdout)
     return int(m.group(1)) if m else None
+
+
+HUNK = re.compile(r"^@@ -(\d+),(\d+) \+(\d+),(\d+) @@")
+
+
+def content_lines(text):
+    """A file's lines the way the formatter counts them: a file ending in a
+    newline has no empty final line, though `split` invents one."""
+    lines = text.split("\n")
+    if lines and lines[-1] == "":
+        lines.pop()
+    return lines
+
+
+def diff_sections(stdout):
+    """`--diff` output -> {path as printed: the hunk lines for it}.
+
+    The two header lines are skipped BY POSITION, never by prefix: a deleted
+    Gren line comment renders as `-` + `-- foo` == `--- foo`, which is
+    indistinguishable from a `--- path` header by looking at it.
+    """
+    out, cur, skip = {}, None, 0
+    # `content_lines`, not `split`: stdout ends in a newline, and the empty
+    # element that invents would land in the LAST file's hunks. Every real
+    # body line carries a ' ', '+', '-' or '\\' prefix, so a bare '' is never
+    # one -- which is how the applier's strictness caught this.
+    for line in content_lines(stdout):
+        if line.startswith("diff "):
+            cur = line.rsplit(" ", 1)[-1]
+            out[cur] = []
+            skip = 2
+            continue
+        if cur is None:
+            continue
+        if skip:
+            skip -= 1
+            continue
+        out[cur].append(line)
+    return out
+
+
+def apply_unified(before, hunks):
+    """Apply one file's hunks to its line list and return the result.
+
+    Every context and removed line is checked against the source, so a diff
+    that does not apply cleanly raises -- which is itself the finding. That is
+    the whole point of applying it rather than eyeballing it: a hunk header
+    with the wrong line number, or a context line the file does not have, is a
+    diff that would mangle a real user's file under `patch`.
+    """
+    out, si, i = [], 0, 0
+    while i < len(hunks):
+        m = HUNK.match(hunks[i])
+        if not m:
+            i += 1
+            continue
+        start = max(0, int(m.group(1)) - 1)
+        if start < si:
+            raise ValueError("hunk header goes backwards: %r" % hunks[i])
+        out.extend(before[si:start])
+        si = start
+        i += 1
+        while i < len(hunks) and not HUNK.match(hunks[i]):
+            line = hunks[i]
+            i += 1
+            if line.startswith("\\"):
+                continue                     # a note about the file, not a line
+            if line.startswith(" ") or line.startswith("-"):
+                if si >= len(before) or before[si] != line[1:]:
+                    raise ValueError("line %d does not match the source" % (si + 1))
+                if line.startswith(" "):
+                    out.append(before[si])
+                si += 1
+            elif line.startswith("+"):
+                out.append(line[1:])
+            else:
+                raise ValueError("unrecognised diff line: %r" % line)
+    out.extend(before[si:])
+    return out
 
 
 def build_project(root, modules):
@@ -209,6 +313,44 @@ def check_project(trial, root, modules):
     if not same:
         return trial, "path-arg-differs", "src/ argument vs no-arg run", root
 
+    # J -- `--diff` on the dirty project. H3 exercises `--diff` only on
+    # CRLF-clean input, where the body is EMPTY and all that prints is the
+    # note, so until this nothing had ever checked a hunk -- the mode's
+    # headline use was the one thing no sweep looked at.
+    root_j = root + "-diff"
+    src_j = build_project(root_j, modules)
+    try:
+        before_j = snapshot(src_j)
+        rj = run_app(["--diff"], cwd=root_j)
+        if rj.returncode != 0:
+            return trial, "diff-run-failed", first_line(rj.stdout + rj.stderr), root_j
+        if snapshot(src_j) != before_j:
+            return trial, "diff-wrote-to-disk", "--diff must be a dry run", root_j
+        sections = diff_sections(rj.stdout)
+        for name in modules:
+            key = "src/%s.gren" % name
+            if before_j[name] == expected[name]:
+                if key in sections:
+                    return trial, "diff-spoke-for-an-unchanged-file", name, root_j
+                continue
+            if key not in sections:
+                return trial, "diff-stayed-silent", name, root_j
+            try:
+                patched = apply_unified(content_lines(before_j[name]), sections[key])
+            except ValueError as e:
+                return trial, "diff-does-not-apply", "%s: %s" % (name, e), root_j
+            if patched != content_lines(expected[name]):
+                return trial, "diff-applied-differs-from-show", name, root_j
+        # ... and once the project IS formatted, `--diff` says nothing at all.
+        run_app([], cwd=root_j)
+        rj2 = run_app(["--diff"], cwd=root_j)
+        if rj2.returncode != 0:
+            return trial, "diff-clean-run-failed", first_line(rj2.stdout + rj2.stderr), root_j
+        if rj2.stdout != "":
+            return trial, "diff-spoke-for-a-formatted-project", first_line(rj2.stdout), root_j
+    finally:
+        keep_or_remove(root_j)
+
     # E -- the same story with the removal flag, from a fresh copy.
     root_r = root + "-rui"
     src_r = build_project(root_r, modules)
@@ -235,10 +377,10 @@ def check_project(trial, root, modules):
 
 
 BROKEN = "module Broken exposing (f)\n\n\nf =\n    ( 1\n"
-NOT_SOURCE = {
-    "lowercase.gren": "this file is not a Gren source file -- lowercase name\n",
-    "notes.txt": "nor is this one\n",
-}
+# Two different reasons a file in `src/` is not source, and the two modes do
+# NOT treat them alike -- see oracles I, I2 and K.
+NOT_GREN = {"notes.txt": "this file is not a Gren source file\n"}
+LOWERCASE_GREN = {"lowercase.gren": "-- a .gren whose name is not a module name\n"}
 
 
 def keep_or_remove(path):
@@ -333,19 +475,95 @@ def check_edges(trial, root, modules, expected):
     finally:
         keep_or_remove(root_h3)
 
-    # I: files that are not Gren sources.
+    # I: a non-`.gren` file is ignored -- by a run that REALLY RUNS.
+    #
+    # This oracle used to carry `lowercase.gren` as well and to discard the
+    # exit code, and it passed for the wrong reason the whole time: a
+    # lowercase `.gren` makes `Outline.findSourceFiles` refuse the entire
+    # project, so nothing was ever formatted and "the non-source file is
+    # unchanged" was trivially true. A gate that cannot fail is not a gate.
+    # The two files are separate oracles now and the exit code is checked.
     root_i = root + "-notsource"
     src_i = build_project(root_i, modules)
-    for name, text in NOT_SOURCE.items():
+    for name, text in NOT_GREN.items():
         with open(os.path.join(src_i, name), "w") as f:
             f.write(text)
     try:
-        run_app([], cwd=root_i)
-        for name, text in NOT_SOURCE.items():
+        ri = run_app([], cwd=root_i)
+        if ri.returncode != 0:
+            return trial, "notsource-run-failed", first_line(ri.stdout + ri.stderr), root_i
+        after_i = snapshot(src_i)
+        for name in modules:
+            if after_i[name] != expected[name]:
+                return trial, "notsource-blocked-formatting", name, root_i
+        for name, text in NOT_GREN.items():
             if read(os.path.join(src_i, name)) != text:
                 return trial, "non-source-file-rewritten", name, root_i
     finally:
         keep_or_remove(root_i)
+
+    # I2: a lowercase-named `.gren` is not a module name, and the no-arg run
+    # REFUSES the project over it rather than skipping it. Pinned because it
+    # is inherited behaviour, and because the positional mode does not do it
+    # (K) -- two modes disagreeing about one file is the shape that produced
+    # the CRLF bug.
+    root_i2 = root + "-lowercase"
+    src_i2 = build_project(root_i2, modules)
+    for name, text in LOWERCASE_GREN.items():
+        with open(os.path.join(src_i2, name), "w") as f:
+            f.write(text)
+    try:
+        before_i2 = snapshot(src_i2)
+        ri2 = run_app([], cwd=root_i2)
+        if ri2.returncode == 0:
+            return trial, "lowercase-gren-did-not-stop-the-run", "expected a refusal", root_i2
+        if snapshot(src_i2) != before_i2:
+            return trial, "lowercase-gren-refused-but-wrote-anyway", "", root_i2
+    finally:
+        keep_or_remove(root_i2)
+
+    # K: both kinds, reached as a POSITIONAL argument. `expandPathToFiles`
+    # filters with its own code -- entity type, extension, capital first
+    # letter -- entirely separate from `Outline.findSourceFiles`, and no
+    # oracle had ever run it.
+    root_k = root + "-notsource-paths"
+    src_k = build_project(root_k, modules)
+    extras = dict(NOT_GREN)
+    extras.update(LOWERCASE_GREN)
+    for name, text in extras.items():
+        with open(os.path.join(src_k, name), "w") as f:
+            f.write(text)
+    try:
+        rk = run_app(["src"], cwd=root_k)
+        if rk.returncode != 0:
+            return trial, "notsource-paths-run-failed", first_line(rk.stdout + rk.stderr), root_k
+        after_k = snapshot(src_k)
+        for name in modules:
+            if after_k[name] != expected[name]:
+                return trial, "notsource-paths-differs-from-show", name, root_k
+        for name, text in extras.items():
+            if read(os.path.join(src_k, name)) != text:
+                return trial, "non-source-file-rewritten-by-path-arg", name, root_k
+    finally:
+        keep_or_remove(root_k)
+
+    # L: `--diff` alongside a file that does not parse. The mode's whole
+    # promise is that it writes nothing, and that promise matters MOST on the
+    # run that is going to fail: a dry run that half-writes on its way to an
+    # error is the worst outcome available here.
+    root_l = root + "-diff-broken"
+    src_l = build_project(root_l, modules)
+    with open(os.path.join(src_l, "Broken.gren"), "w") as f:
+        f.write(BROKEN)
+    try:
+        before_l = snapshot(src_l)
+        rl = run_app(["--diff"], cwd=root_l)
+        if rl.returncode == 0:
+            return trial, "diff-ignored-a-parse-error", "expected a nonzero exit", root_l
+        if snapshot(src_l) != before_l:
+            return trial, "diff-wrote-alongside-a-parse-error", "--diff must never write", root_l
+    finally:
+        keep_or_remove(root_l)
     return trial, "ok", "", None
 
 
