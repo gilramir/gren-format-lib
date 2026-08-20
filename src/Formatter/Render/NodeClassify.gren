@@ -796,13 +796,23 @@ the LPT by which block wraps it: `SoftIndentedBlock` is the body the author put
 on the `->` row, `IndentedBlock` the body they put on a row of its own. That is
 the one thing R1 does not overrule — a one-row lambda comes back on one row.
 
-Deliberately strict. The operand must be a lone `BodyBlock` of exactly a lambda
-head and its body, so a comment anywhere in the operand's own children yields
-`Nothing` and the step keeps the pre-R1 layout; the comment slots around `<|`
-are still open questions. It also rules out the other block operands, which
-reach this module wearing similar shapes: an `if` is a `BodyBlock` of four
-children, a `let` a `BodyBlock` whose last child is a `BodyBlock`, and a `when`
-a `WhenFlow`.
+The operand must be a lone `BodyBlock` of a lambda head and its body, which rules
+out the other block operands -- they reach this module wearing similar shapes: an
+`if` is a `BodyBlock` of four children, a `let` a `BodyBlock` whose last child is
+a `BodyBlock`, and a `when` a `WhenFlow`.
+
+**Comments between the head and the body come back as part of the body**, since
+that is exactly where the renderer puts them: the `->` carries no position, so a
+comment written beside it snaps to the body's side (divergences #16 / #22), and
+the body is the slot a reparse reads it back into. Refusing the split over them
+instead -- which this did until 2026-08-20 -- made the step DECLINE R1 on the
+first format and accept it on the second, because format 1 moved the comment
+below the `->` and so handed format 2 the two-child shape it had just refused.
+`\[ 1 ] {- c -} -> [ 0` / `, 1 ]` oscillated for ever between the staircase and
+the glued form.
+
+A comment there also means the body cannot ride the `->`'s row, whatever block
+wraps it, so `bodyOnHeadRow` is False as soon as one is present.
 -}
 lambdaOperandSplit : Array LPNode -> Maybe { head : LPNode, body : Array LPNode, bodyOnHeadRow : Bool }
 lambdaOperandSplit operandNodes =
@@ -810,29 +820,53 @@ lambdaOperandSplit operandNodes =
         [ only ] ->
             when lpnShape only is
                 BodyBlock ->
-                    when lpnChildren only is
-                        [ headNode, bodyNode ] ->
+                    when Array.popFirst (lpnChildren only) is
+                        Just { first = headNode, rest = afterHead } ->
                             if isLambdaHeadNode headNode then
-                                when lpnShape bodyNode is
-                                    SoftIndentedBlock ->
-                                        Just { head = headNode, body = lpnChildren bodyNode, bodyOnHeadRow = True }
-
-                                    IndentedBlock ->
-                                        Just { head = headNode, body = lpnChildren bodyNode, bodyOnHeadRow = False }
-
-                                    _ ->
-                                        Nothing
+                                lambdaBodySplit headNode afterHead
 
                             else
                                 Nothing
 
-                        _ ->
+                        Nothing ->
                             Nothing
 
                 _ ->
                     Nothing
 
         _ ->
+            Nothing
+
+
+-- What follows a lambda's head inside the operand: the body block, with any
+-- comments the author wrote between the two in front of it. Anything else there
+-- (a second non-comment node) is not a shape R1 can place, so it declines.
+lambdaBodySplit : LPNode -> Array LPNode -> Maybe { head : LPNode, body : Array LPNode, bodyOnHeadRow : Bool }
+lambdaBodySplit headNode afterHead =
+    when Array.popLast afterHead is
+        Just { last = bodyNode, initial = between } ->
+            if not (Array.all nodeIsComment between) then
+                Nothing
+
+            else
+                let
+                    body =
+                        between ++ lpnChildren bodyNode
+
+                    onHeadRow =
+                        Array.isEmpty between
+                in
+                when lpnShape bodyNode is
+                    SoftIndentedBlock ->
+                        Just { head = headNode, body = body, bodyOnHeadRow = onHeadRow }
+
+                    IndentedBlock ->
+                        Just { head = headNode, body = body, bodyOnHeadRow = False }
+
+                    _ ->
+                        Nothing
+
+        Nothing ->
             Nothing
 
 

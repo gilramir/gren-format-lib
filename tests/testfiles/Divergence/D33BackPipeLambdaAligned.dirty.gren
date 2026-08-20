@@ -98,3 +98,16 @@ lineComment =
     fn <| -- fs
     \a ->
         done a
+-- A comment written beside the `->` leads the BODY. The arrow carries no
+-- position, so `] {- c -} ->` and `] -> {- c -}` are the same three facts
+-- (divergence #22) and gren snaps the comment to the body's side (#16); the
+-- head still glues. Refusing to split the operand over that comment made
+-- format 1 DECLINE R1 and format 2 accept it -- format 1 having moved the
+-- comment below the arrow, handing format 2 the shape it had just refused.
+
+
+commentBesideTheArrow =
+    fn <| \[ 1 ] {- c -} ->
+        [ 0
+        , 1
+        ]

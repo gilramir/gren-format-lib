@@ -1808,6 +1808,10 @@ if it stops being — an entry with no fixture, or a fixture with no entry.
       single-line `{- … -}` the author put on the operator's row does, and a
       `--`, a multi-row `{- … -}`, or one the author gave a row of its own
       ([#30](#divergence-30)) keeps the pre-R1 staircase for that step.
+    - **A comment beside the `->` leads the body, and the head still glues.**
+      The arrow carries no position, so writing the comment before it or after
+      it gives the formatter the same three facts ([#22](#divergence-22)) and it
+      snaps to the body's side ([#16](#divergence-16)).
 
     Which bodies count as continuations for R2 is three further questions, all
     answered in
