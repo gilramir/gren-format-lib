@@ -1877,7 +1877,7 @@ A `<|` chain is right-associative — each step is an argument to the one above
 it — so the staircase is what the nesting actually is, and it is what
 `elm-format` produces. This is the layout however flat you wrote the chain.
 
-**A lambda after `<|` is the exception**, and it has its own two rules. The
+**A lambda after `<|` is the exception**, and it has its own three rules. The
 lambda's *head* — the `\`, its parameters and the `->` — stays on the `<|`'s row,
 and only the body moves:
 
@@ -1900,16 +1900,21 @@ init env =
         run fsPermission cpPermission terminalConfig
 ```
 
+The closing body always takes a row of its own, even where you wrote it on the
+`->` row — that +4 row is the chain's closing mark, so a row at the chain's
+column always holds a whole step and nothing else.
+
 Unlike the rest of this page, that is **not** your layout being followed: both
-spellings come back as the aligned form. Everywhere else a row choice decides
-whether one construct is inline or broken; here it would decide the indentation
-of everything below it. Three things are still your choice — a lambda whose body
-you put on the `->` row stays on one row, a left-hand side that renders across
-rows keeps the old staircase, and parens around the next step mark it as a value
-rather than a step, so it takes the +4.
+spellings come back as the aligned form, and so does a chain you wrote entirely
+on one row. Everywhere else a row choice decides whether one construct is inline
+or broken; here it would decide the indentation of everything below it. Three
+things are still your choice — a *single* `<|` whose lambda body you put on the
+`->` row stays on one row, a left-hand side that renders across rows keeps the
+old staircase, and parens around the next step mark it as a value rather than a
+step, so it takes the +4.
 
 ```gren
--- your one-row lambda, unchanged:
+-- your one-row lambda, unchanged (one `<|`, so it is not a chain):
 oneRow =
     await one <| \a -> done a
 

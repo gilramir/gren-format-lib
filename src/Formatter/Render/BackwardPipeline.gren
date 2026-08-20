@@ -22,7 +22,9 @@ import Formatter.Logical.LogicalPrintingTree exposing
     , LPShape(..)
     , commentLeadsLine
     , lpnChildren
+    , lpnReplaceChildren
     , lpnShape
+    , lpnWithShape
     )
 import Formatter.Render.Box as B exposing (Box(..))
 import Formatter.Render.BoxOps exposing
@@ -554,6 +556,13 @@ Where the body then goes is R2, and there are three answers, one per row of the
   - **at base + 4** otherwise. A chain has no closing keyword, so this step
     right is the only thing telling a reader the chain ended.
 
+**R3** rides on the middle answer: a body given +0 is a chain step, so it is
+handed over with its own lambda body already broken onto a row of its own
+(`closeContinuationBelowHead`), and it cannot take the first answer either — a
+chain written entirely on one row still comes back as *n* rows plus the closing
+one. The exemption in the first answer is therefore the *single* `<|`, which is
+1785 of the corpus's 1790 flat sites; a chain of them normalizes.
+
 The base column is never computed here. Both the +0 and the +4 are relative to
 the box this function returns, which the caller places — so a chain in a
 `let` binding, a `when` branch, a record field or after a `[ ` all pick their
@@ -567,6 +576,19 @@ instead of being refused.
 -}
 renderGluedLambdaStep : Renderers -> Box -> Array LPNode -> { head : LPNode, body : Array LPNode, bodyOnHeadRow : Bool } -> Result String Box
 renderGluedLambdaStep renderers opBox leadComments { head, body, bodyOnHeadRow } =
+    let
+        isContinuation =
+            isBackwardContinuation body
+
+        -- **R3**, half one: the body is the next step of the chain, so its own
+        -- lambda body takes a row of its own.
+        bodyNodes =
+            if isContinuation then
+                closeContinuationBelowHead body
+
+            else
+                body
+    in
     Result.map3
         (\leadBoxes headBox bodyBox ->
             let
@@ -575,10 +597,14 @@ renderGluedLambdaStep renderers opBox leadComments { head, body, bodyOnHeadRow }
                         (B.prefix B.space (Array.foldr glueLeadingCommentPrefix headBox leadBoxes))
                         opBox
             in
-            if bodyOnHeadRow && isSingleLine headRow && isSingleLine bodyBox then
+            -- **R3**, half two: `not isContinuation` is what keeps a chain the
+            -- author wrote on one row from staying there. Without it R2's +0
+            -- would be contradicted by the row above it — the "next step of the
+            -- chain" would sit on the operator's row, not at the base column.
+            if bodyOnHeadRow && not isContinuation && isSingleLine headRow && isSingleLine bodyBox then
                 B.addSuffixBox (B.prefix B.space bodyBox) headRow
 
-            else if isBackwardContinuation body then
+            else if isContinuation then
                 B.stack1 [ headRow, bodyBox ]
 
             else
@@ -586,7 +612,84 @@ renderGluedLambdaStep renderers opBox leadComments { head, body, bodyOnHeadRow }
         )
         (traverseResult commentNodeBox leadComments)
         (renderers.buildFlowBox 0 [ head ])
-        (renderers.buildFlowBox 0 body)
+        (renderers.buildFlowBox 0 bodyNodes)
+
+
+{-| **R3**: hand an R2-aligned continuation over with its own lambda body
+already marked "takes a row of its own".
+
+A body R2 put at the base column always closes with its own body on the row
+below at +4, even where the author wrote it on the `->` row. So the +4 is not a
+record of a body that happened to break; it is the chain's **closing mark**,
+always present, and a row at the chain's column holds a whole step and nothing
+else. Only the last step of a chain can be affected — every other step's body is
+itself a continuation and occupies rows already.
+
+Said as a rewrite of the one node that carries the answer, rather than as an
+argument threaded down, because there is nothing to thread it through: a
+continuation renders through the generic dispatch (`buildFlowBox`), which has no
+channel for "you are a chain step". What that step reads to place its own body
+is exactly the block wrapping it — `SoftIndentedBlock` for the `->` row,
+`IndentedBlock` for a row of its own, which is all `lambdaOperandSplit`'s
+`bodyOnHeadRow` is — so saying it in the tree says it once, in the vocabulary
+the reader already has.
+
+The step rewritten here may still decline R1 (a comment in its `<|`-to-`\` gap)
+and lay its body out the pre-R1 way; it will lay it out *broken*, because that
+is what the block now says. Deliberate: a comment may cost a step its head glue,
+it may not decide whether the chain has a closing row (rule C4).
+
+Scoped to a chain by its only caller — `renderGluedLambdaStep` calls it exactly
+where R2 gives a body +0, so a `<|` lambda standing on its own keeps the row the
+author gave it (**D5**).
+-}
+closeContinuationBelowHead : Array LPNode -> Array LPNode
+closeContinuationBelowHead bodyNodes =
+    Array.map closeChainPipeline bodyNodes
+
+
+-- The walk down to that block: the `<|` pipeline, its one step, the lambda
+-- operand, and the block wrapping the lambda's body. `isBackwardContinuation`
+-- has already established that shape, so each arm here is a no-op rather than a
+-- refusal — and the comments it ignores are simply not on the path.
+closeChainPipeline : LPNode -> LPNode
+closeChainPipeline node =
+    when lpnShape node is
+        Pipeline _ ->
+            lpnReplaceChildren node (Array.map closeChainStep (lpnChildren node))
+
+        _ ->
+            node
+
+
+closeChainStep : LPNode -> LPNode
+closeChainStep node =
+    if isPipelineStepNode node then
+        lpnReplaceChildren node (Array.map closeChainOperand (lpnChildren node))
+
+    else
+        node
+
+
+closeChainOperand : LPNode -> LPNode
+closeChainOperand node =
+    when lpnShape node is
+        BodyBlock ->
+            when Array.popLast (lpnChildren node) is
+                Just { last, initial } ->
+                    when lpnShape last is
+                        SoftIndentedBlock ->
+                            lpnReplaceChildren node
+                                (Array.pushLast (lpnWithShape IndentedBlock last) initial)
+
+                        _ ->
+                            node
+
+                Nothing ->
+                    node
+
+        _ ->
+            node
 
 
 {-| A `<|` step body that is not a lambda R1 can glue — every operand but one,

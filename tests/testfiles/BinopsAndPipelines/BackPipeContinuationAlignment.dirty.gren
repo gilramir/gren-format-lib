@@ -18,14 +18,31 @@ case1MultiStepRun =
 -- Case 2: the body is the plain `seed <| lambda` shape, so it counts as a
 -- continuation and aligns (+0) even though its own body sits on its `->` row.
 --
--- The body's ROW is a separate question, still out with the Gren lead as R3:
--- he wants it on the row below at +4. When that lands this block changes and
--- the alignment above it does not -- do not "fix" the two together.
+-- R3 -- the Gren lead's rider on that answer -- then moves the body down. A
+-- body R2 aligned always closes with its own body on the row below, so the +4
+-- is the chain's CLOSING MARK and not a record of a body that happened to
+-- break; a row at the chain's column holds a whole step and nothing else. The
+-- two halves were decided separately, so both are pinned here: a regression in
+-- either alone would still look plausible.
 
 
 case2OneRowBody =
     await one <| \a ->
     await two <| \b -> done a b
+
+
+-- R3's boundary is how many `<|`s there are, not how many rows the author
+-- used. ONE `<|` on one row keeps it -- that spelling is 1785 of the corpus's
+-- 1790 flat sites -- while a CHAIN written on one row normalizes to a row per
+-- step plus the closing one.
+
+
+singleStepOnOneRow =
+    await one <| \a -> done a
+
+
+chainWrittenOnOneRow =
+    await one <| \a -> await two <| \b -> done a b
 
 
 -- A rider on Case 1, decided separately: the multi-step run's own lambda still

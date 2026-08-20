@@ -14,12 +14,12 @@ fourth is about *content* — a rewrite the formatter must not perform.
 - [Open and close brackets align vertically](#open-and-close-brackets-align-vertically)
 - [Redundant parens are never stripped](#redundant-parens-are-never-stripped)
 
-The last section is a change the Gren project lead has asked for. **R1 and R2
-are implemented and pinned** — by `tests/testfiles/Divergence/D33BackPipeLambdaAligned`
-and `tests/testfiles/BinopsAndPipelines/BackPipeContinuationAlignment` — and are
-as binding as the four entries above. R3 is decided but not built, and is marked
-where it appears. The section stays down here until R3 lands and it can move up
-whole.
+The last section is a change the Gren project lead asked for, and it is now
+closed like the rest: **R1, R2 and R3 are all implemented and pinned** — by
+`tests/testfiles/Divergence/D33BackPipeLambdaAligned` and
+`tests/testfiles/BinopsAndPipelines/BackPipeContinuationAlignment` — and are as
+binding as the four entries above. It keeps a heading of its own only because it
+is long enough to want sections.
 
 - [A lambda after `<|` keeps its head on the operator's row](#a-lambda-after--keeps-its-head-on-the-operators-row)
   - [1. The shape, and the one it replaced](#1-the-shape-and-the-one-it-replaced)
@@ -206,8 +206,8 @@ The staircase is what `elm-format` still produces —
 
 ## 2. The behavior
 
-Three rules. R1 and R2 are independent of each other and are what the formatter
-does today; R3 is a rider on R2 and is not built yet.
+Three rules, all three of them what the formatter does today. R1 and R2 are
+independent of each other; R3 is a rider on R2.
 
 They fire on every `<|`, whatever the author wrote. Row placement in the source
 decides nothing here: the staircase spelling and the aligned spelling both come
@@ -270,9 +270,6 @@ into *n* rows at one column, closed by a body at +4.
 
 ### R3 — the body that closes the chain takes a row of its own
 
-**Not built yet** — R1 and R2 are, so everything else on this page is what the
-formatter does today, and this is the one rule that is still only a decision.
-
 > When R2 aligns a continuation to the base column, that continuation's own
 > lambda body starts on the **row below** its `->`, at base + 4 — even where the
 > author wrote it on the `->` row.
@@ -301,12 +298,28 @@ A `<|` lambda that is not part of one keeps whatever the author chose, so
 `await one <| \a -> done a` still comes back on a single row
 ([§4](#4-one-row-lambdas-are-unaffected)).
 
-*That last paragraph is the scope of R3, and it is **awaiting confirmation** —
-the example R3 was given by is a two-step chain, so it does not by itself
-distinguish "a chain step's body breaks" from "every `<|` lambda body breaks".
-The narrow reading is written here because it is the one §4 already stated and
-nobody objected to; the wide one would also move the ~1785 standalone
-`<| \p ->` sites in the corpus rather than the ~350 chain members.*
+**That is the scope, confirmed by the Gren lead on 2026-08-19** — the narrow
+reading, since the example R3 was given by is a two-step chain and does not by
+itself separate "a chain step's body breaks" from "every `<|` lambda body
+breaks". The wide reading would have moved the ~1785 standalone `<| \p ->` sites
+in the corpus rather than the ~350 chain members.
+
+**The boundary is how many `<|`s there are, not how many rows the author used.**
+A whole chain written on one row is still a chain, so it normalizes to a row per
+step plus the closing one:
+
+```gren
+-- as the author wrote it, all on one row:
+init env =
+    Init.await FileSystem.initialize <| \fsPermission -> Init.await Terminal.initialize <| \terminalConfig -> done terminalConfig
+
+
+-- the output:
+init env =
+    Init.await FileSystem.initialize <| \fsPermission ->
+    Init.await Terminal.initialize <| \terminalConfig ->
+        done terminalConfig
+```
 
 ### Two different things get called a chain
 
@@ -554,11 +567,12 @@ case1 =
 
 
 -- Case 2 — the inner step is the plain `seed <| lambda` shape, so it counts as
---          a continuation and aligns: +0. Its own body stays on the `->` row
---          until R3 is built, which will put it on the row below at +4.
+--          a continuation and aligns: +0. Its own body then takes the row below
+--          at +4, which is R3 — written on the `->` row or not.
 case2 =
     Init.await one <| \a ->
-    Init.await two <| \b -> done a b
+    Init.await two <| \b ->
+        done a b
 
 
 -- Case 3 — a parenthesized continuation is not a continuation: +4
@@ -698,10 +712,9 @@ lambda` shape as every other row of the chain, so it belongs at the chain's
 column; singling out the last step of a six-step chain as the only one that
 steps right would be the odd shape.
 
-**But the body will not stay on that row.** The first spelling above is today's
-output, because R3 is not built;
-[R3](#r3--the-body-that-closes-the-chain-takes-a-row-of-its-own) moves the body
-down, so once it lands both spellings come back as
+**But the body does not stay on that row.**
+[R3](#r3--the-body-that-closes-the-chain-takes-a-row-of-its-own) moves it down,
+so both spellings above come back as
 
 ```gren
 init env =
@@ -727,14 +740,12 @@ Because [redundant parens are never stripped](#redundant-parens-are-never-stripp
 paren block, not a `<|` run:
 
 ```gren
--- today:
+-- the output, whichever way the parens were written:
 chain =
-    await one <|
-        \a ->
-            (await two <|
-                \b ->
-                    done a b
-            )
+    await one <| \a ->
+        (await two <| \b ->
+            done a b
+        )
 ```
 
 **Decided: not a continuation — +4.** This needs no new rule; it falls out of R2

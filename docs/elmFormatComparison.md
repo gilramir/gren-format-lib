@@ -1706,12 +1706,13 @@ if it stops being — an entry with no fixture, or a fixture with no entry.
 
 33. <a id="divergence-33"></a>**A lambda after `<|` keeps its head on the
     operator's row, and a chain of them sits at one column; elm-format builds a
-    staircase.** Two rules, both gren's alone. **R1**: when the right-hand
+    staircase.** Three rules, all gren's alone. **R1**: when the right-hand
     operand of `<|` is a lambda, the `\`, its parameters and the `->` stay on the
     `<|`'s row, and only the body moves. **R2**: a body that is itself another
     `… <| \… ->` starts at the *same* column as the row above it; any other body
-    starts at +4. Together they turn a chain of *n* continuations into *n* rows
-    at one column, closed by a body at +4.
+    starts at +4. **R3**: the body that closes a chain always takes a row of its
+    own, even where you wrote it on the `->` row. Together they turn a chain of
+    *n* continuations into *n* rows at one column, closed by a body at +4.
 
     ```gren
     -- you write (and this is also what gren-format gives back):
@@ -1763,8 +1764,26 @@ if it stops being — an entry with no fixture, or a fixture with no entry.
       broke, a multi-row record, array or paren keeps the staircase. Gluing there
       would put the head on a row starting well right of the base column while R2
       pulls its body back to the base.
-    - **A one-row lambda is untouched.** `await one <| \a -> done a` is one row
-      because the author wrote it that way, and stays one row.
+    - **A one-row lambda is untouched — unless it is a step of a chain.**
+      `await one <| \a -> done a` is one row because the author wrote it that
+      way, and stays one row. Written as the last step of a chain, R3 moves its
+      body down: the +4 row is the chain's closing mark, not a record of a body
+      that happened to break, so a row at the chain's column always holds a
+      whole step and nothing else. The boundary is how many `<|`s there are, not
+      how many rows you used — a whole chain written on one row normalizes:
+
+      ```gren
+      -- you write:
+      init env =
+          Init.await FileSystem.initialize <| \fsPermission ->
+          Init.await Terminal.initialize <| \terminalPermission -> done fsPermission
+
+      -- gren-format gives back:
+      init env =
+          Init.await FileSystem.initialize <| \fsPermission ->
+          Init.await Terminal.initialize <| \terminalPermission ->
+              done fsPermission
+      ```
     - **A multi-line lambda *head* still glues**, its continuation rows lining up
       under the `\`. Only a comment can break a head at all — that is
       [#32](#divergence-32) — and this is the same trade #32 already took.
@@ -1777,8 +1796,8 @@ if it stops being — an entry with no fixture, or a fixture with no entry.
     answered in
     [`settledDecisions.md`](settledDecisions.md#5-which-bodies-are-continuations):
     a multi-step run ending in a lambda does not (+4), a continuation whose own
-    body fits on one row does (+0), and a *parenthesized* continuation does not
-    (+4).
+    body fits on one row does (+0) — and R3 then moves that body down — and a
+    *parenthesized* continuation does not (+4).
 
     Note what R2 emits: a token at exactly the column of the row above it, which
     is the shape family of

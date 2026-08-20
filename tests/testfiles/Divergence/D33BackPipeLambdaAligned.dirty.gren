@@ -2,7 +2,9 @@ module D33BackPipeLambdaAligned exposing (..)
 
 -- R1: a lambda after `<|` keeps its head on the operator's row.
 -- R2: a body that is itself another `… <| \… ->` starts at the same column;
--- any other body starts at +4. elm-format staircases all of these.
+-- any other body starts at +4.
+-- R3: the body that closes a chain always takes a row of its own.
+-- elm-format staircases all of these.
 
 
 chain =
@@ -33,11 +35,27 @@ singleStep =
 
 
 -- A one-row lambda is one row because the author wrote it that way, and R1
--- has no body to move.
+-- has no body to move. This is the exemption R3 is bounded by: ONE `<|` keeps
+-- the row, a chain of them does not.
 
 
 oneRow =
     await one <| \a -> done a
+
+
+-- R3: the closing body takes a row of its own even where it was written on the
+-- `->` row -- the +4 is the chain's closing mark, not a record of a body that
+-- broke. The boundary is how many `<|`s there are, not how many rows: written
+-- on one row, the whole chain still comes back a row per step.
+
+
+closingBodyOnHeadRow =
+    Init.await FileSystem.initialize <| \fsPermission ->
+    Init.await Terminal.initialize <| \terminalPermission -> done fsPermission
+
+
+chainWrittenOnOneRow =
+    Init.await FileSystem.initialize <| \fsPermission -> Init.await Terminal.initialize <| \terminalPermission -> done fsPermission
 
 
 -- A multi-line left-hand side turns R1 off: the staircase is kept.
