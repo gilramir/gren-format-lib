@@ -790,6 +790,7 @@ makePipelineBox { forceVertical } op children =
             { assembleFlow = assembleFlow
             , buildFlowBox = buildFlowBox
             , renderFlowItems = renderFlowItems
+            , renderStepInline = renderPipelineStepInline
             }
             forceVertical
             children

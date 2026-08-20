@@ -68,11 +68,20 @@ import Formatter.Render.NodeClassify exposing
 import Formatter.Results exposing (traverseResult)
 
 
-{-| The three ways this module re-enters the renderer's recursion. -}
+{-| The four ways this module re-enters the renderer's recursion.
+
+`renderStepInline` is the all-`|>` branch's own step box (`makePipelineBox` ->
+`renderPipelineStepInline`). The mixed-chain branch below joins those boxes
+rather than raw flow items, which is not a detail: a comment's `FlowItem.box` is
+a BLANK line -- the assembler places the comment's text, not the item -- so
+joining item boxes silently dropped every comment the chain carried. Taking the
+box from the same function the other branch uses is also what keeps the two
+branches' answers identical, which is the whole point of the flat join here. -}
 type alias Renderers =
     { assembleFlow : FP.FlowStart -> Int -> Array FlowItem -> Result String Box
     , buildFlowBox : Int -> Array LPNode -> Result String Box
     , renderFlowItems : Array LPNode -> Result String (Array FlowItem)
+    , renderStepInline : LPNode -> Result String Box
     }
 
 
@@ -251,17 +260,48 @@ makeBackwardPipelineBox renderers forceVertical children =
         -- three rows the other.
         --
         -- `joinInline` is the whole test: it returns `Nothing` the moment any
-        -- part is multi-line, which is exactly when the chain has to break. A
-        -- comment routes to the fold as before — per-step comment placement is
-        -- its machinery, not this branch's.
-        if forceVertical || Array.any subtreeHasComment children then
+        -- part is multi-line, which is exactly when the chain has to break.
+        --
+        -- A COMMENT is not a second reason to break. It used to route straight
+        -- to the fold, so `seed |> {- c -} fn <| one` came back across three
+        -- rows while its comment-free twin — and `seed |> {- c -} fn |> gn`,
+        -- the all-`|>` chain, which tries the join first and only then asks
+        -- about comments — stayed on one. That is rule C3: a comment the author
+        -- wrote on a flat row does not open the construct around it. What the
+        -- fold owns is comment placement once a chain BREAKS, which is still
+        -- where a chain goes the moment the join fails.
+        --
+        -- The one thing a join cannot carry is a `--`: its box is a single
+        -- `Line`, so `joinInline` accepts it and then everything after it is
+        -- swallowed into the comment. `B.endsOpen` is that test, asked of every
+        -- box but the last — a chain ENDING in a `--` joins perfectly well.
+        --
+        -- The boxes joined are the SEED's and each STEP's, exactly as
+        -- `makePipelineBox` joins them, and never raw flow items: a comment
+        -- item's box is blank (see `Renderers`), so joining items dropped the
+        -- comment from the output altogether.
+        if forceVertical then
             renderers.buildFlowBox 0 children
 
         else
-            renderers.renderFlowItems children
+            Result.map2 (\seedBox stepBoxes -> [ seedBox ] ++ stepBoxes)
+                (renderers.buildFlowBox 0 seedNodes)
+                (traverseResult renderers.renderStepInline stepNodes)
                 |> Result.andThen
-                    (\items ->
-                        when joinInline (Array.map .box items) is
+                    (\boxes ->
+                        let
+                            swallowsWhatFollows =
+                                Array.any B.endsOpen
+                                    (Array.takeFirst (Array.length boxes - 1) boxes)
+
+                            joined =
+                                if swallowsWhatFollows then
+                                    Nothing
+
+                                else
+                                    joinInline boxes
+                        in
+                        when joined is
                             Just flat ->
                                 Ok flat
 

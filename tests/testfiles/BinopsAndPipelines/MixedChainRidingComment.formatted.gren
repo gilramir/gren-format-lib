@@ -1,0 +1,53 @@
+module MixedChainRidingComment exposing (..)
+
+-- A mixed `|>`/`<|` chain the author kept on one row stays there, and a comment
+-- that can RIDE that row is not a second reason to break it (rule C3). The
+-- all-`|>` chain has always worked this way -- it tries the flat join first and
+-- only then asks about comments -- while this branch asked about comments
+-- first, so the same authoring came back flat with one operator and across
+-- three rows with two. Which branch a chain lands in is pure parser
+-- associativity, so that difference was invisible to the author.
+
+
+ridesTheRow =
+    seed |> {- c -} fn <| one
+
+
+trailingLineCommentStillJoins =
+    seed |> fn <| one -- c
+
+
+-- The three that cannot ride, and break the chain as they always did: a `--`
+-- mid-chain (everything after it would be swallowed into the comment), a
+-- multi-line `{- … -}` (it brings its own rows), and an author who broke the
+-- chain themselves.
+
+
+lineCommentMidChain =
+    seed
+        |> -- c
+           fn
+        <| one
+
+
+multilineComment =
+    seed
+        |> {- c
+              more -}
+           fn
+        <| one
+
+
+authorBrokeIt =
+    seed
+        |> fn
+        <| one
+-- The seed's own comment survives the join. The first cut of this rule joined
+-- raw flow ITEMS, whose boxes are blank for a comment -- the assembler places a
+-- comment's text, not its item -- so `seed {- k -} |> fn <| one` came back with
+-- the comment DELETED and a double space where it had been. The boxes joined
+-- are the seed's and each step's, the same ones the all-`|>` branch joins.
+
+
+seedCommentSurvives =
+    seed {- k -} |> fn <| one
