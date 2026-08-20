@@ -58,6 +58,21 @@ unfiltered for anything that is not one. That branch had no coverage at all:
   M5 one unparseable file among several named, named in the MIDDLE so a mode
      that stops early leaves evidence on both sides. Same tolerance as G.
 
+`--remove-unused-imports` is the only mode that REWRITES the AST rather than
+just laying it out -- it drops imports, trims exposing lists, renumbers every
+position after them and can leave a placeholder comment behind -- so its edges
+are not obviously everyone else's edges, and E was its only cell:
+
+  P  both positional forms land what the no-arg RUI run lands
+  P2 `--diff --remove-unused-imports` writes nothing, and its patch applies
+     and lands on the RUI'd `--show` -- not the plain one
+  P3 already RUI-formatted except for its line endings: still rewritten
+  P4 an unparseable file alongside, with G's tolerance
+
+RUI x a non-source file is deliberately absent: which files a run finds is
+`Outline.findSourceFiles` / `expandPathToFiles`, code the flag does not touch
+and which I / I2 / K already cover in all three modes.
+
 These are a LIST over two axes -- how the files were found (no-arg / `src`
 positional / a named file / `--remove-unused-imports` / `--diff`) and what is
 wrong with them (dirty / already formatted / CRLF-dirty / CRLF-clean / one
@@ -75,15 +90,33 @@ That is not hypothetical. Two cells have already been caught out:
     project outright, so nothing was ever formatted and the assertion held for
     the wrong reason. Split into I / I2, with the exit code checked.
 
-Still empty, roughly in the order they look worth filling:
+Every cell that carries real risk is now filled. What is left is empty on
+purpose, and the reason is the same each time -- the cell re-asks a question
+that one piece of shared code has already been made to answer:
 
-  - `--remove-unused-imports` against anything but dirty and already-formatted
-    -- it is the only mode that REWRITES the AST rather than just laying it
-    out, so its edges (an unparseable neighbour, a non-source file) are not
-    obviously the same edges as everyone else's
-  - CRLF x `--remove-unused-imports`, and CRLF-dirty x the two positional
-    forms -- the lowest value of the lot, now that a single
-    `isAlreadyFormatted` predicate answers that question for every mode
+  - already-formatted x `src`, and unparseable x `src`. D/G cover them through
+    the no-arg run and M/M5 through named files; the directory form differs
+    from those two only in how `expandPathToFiles` produced the list, which K
+    and M4 already pin.
+  - CRLF-dirty x anything but the no-arg run. CRLF-clean is the sharp version
+    of that question -- it is the one where "already formatted" and "needs
+    rewriting" disagree -- and it is filled in every column. A dirty CRLF file
+    gets rewritten for other reasons anyway, which is exactly why H2 had to
+    exist alongside H.
+  - non-source x `--diff`. `--diff` walks the same discovery code as the
+    in-place mode it mirrors, and J/M3 already require it to agree with that
+    mode file-for-file.
+
+Anything that stops being true of the shared code turns these back into real
+cells, so they are listed rather than forgotten.
+
+One more trap, learned filling these: an oracle over inputs that never trigger
+the feature is green for the wrong reason too. Before writing the P block the
+`gen-random` corpus was measured for how often `--remove-unused-imports`
+actually changes anything -- 45 of 52 modules, at least two per trial -- and
+each P oracle was then checked against the PLAIN `--show` baseline to confirm
+it fails there, i.e. that it notices the flag taking effect rather than merely
+that something was written.
 
 A note on reading this list: several oracles now overlap deliberately, and
 when they do the EARLIER one short-circuits. H3 and M2 both catch the CRLF
@@ -408,7 +441,103 @@ def check_project(trial, root, modules):
     finally:
         if not os.environ.get("FUZZ_PROJECT_KEEP"):
             shutil.rmtree(root_r, ignore_errors=True)
+    finding = check_rui(trial, root, modules, expected_rui)
+    if finding:
+        return finding
     return check_edges(trial, root, modules, expected)
+
+
+def check_rui(trial, root, modules, expected_rui):
+    """P -- the `--remove-unused-imports` column.
+
+    E covers RUI on the dirty project through the no-arg run, and nothing else
+    did. RUI is the only mode that REWRITES the AST rather than just laying it
+    out -- it drops imports, trims exposing lists, renumbers every position
+    after them and can leave a placeholder comment behind -- so its edges are
+    not obviously the same edges as every other mode's.
+
+    Measured before writing these, because an oracle over inputs that never
+    trigger the feature is green for the wrong reason: RUI changes the output
+    for 87% of `gen-random` modules (45 of 52 sampled, at least two in every
+    trial), so these are exercised rather than nominally passing.
+
+    RUI x a non-source file is deliberately absent: which files a run finds is
+    `Outline.findSourceFiles` / `expandPathToFiles`, code the flag does not
+    touch and which I / I2 / K already cover in all three modes.
+    """
+    names = ["src/%s.gren" % n for n in sorted(modules)]
+
+    # P: both ways of naming paths must land what the no-arg RUI run lands.
+    for tag, args in (("dir", ["--remove-unused-imports", "src"]),
+                      ("named", ["--remove-unused-imports"] + names)):
+        root_p = root + "-rui-" + tag
+        src_p = build_project(root_p, modules)
+        try:
+            rp = run_app(args, cwd=root_p)
+            if rp.returncode != 0:
+                return trial, "rui-%s-run-failed" % tag, first_line(rp.stdout + rp.stderr), root_p
+            after_p = snapshot(src_p)
+            for name in modules:
+                if after_p[name] != expected_rui[name]:
+                    return trial, "rui-%s-differs-from-show" % tag, name, root_p
+        finally:
+            keep_or_remove(root_p)
+
+    # P2: `--diff --remove-unused-imports`. The diff has to describe the RUI'd
+    # output rather than the plain one, and still write nothing.
+    root_p2 = root + "-rui-diff"
+    src_p2 = build_project(root_p2, modules)
+    try:
+        before_p2 = snapshot(src_p2)
+        rd = run_app(["--diff", "--remove-unused-imports"], cwd=root_p2)
+        if rd.returncode != 0:
+            return trial, "rui-diff-run-failed", first_line(rd.stdout + rd.stderr), root_p2
+        if snapshot(src_p2) != before_p2:
+            return trial, "rui-diff-wrote-to-disk", "--diff must be a dry run", root_p2
+        finding = diff_agrees(trial, "rui-diff", root_p2, rd.stdout, before_p2, expected_rui, modules)
+        if finding:
+            return finding
+    finally:
+        keep_or_remove(root_p2)
+
+    # P3: already RUI-formatted except for the line endings -- the CRLF
+    # question asked of the mode that rewrites the AST. RUI's position
+    # arithmetic runs over the parse of normalized text, so no `\r` may
+    # survive into what it writes.
+    root_p3 = root + "-rui-crlf"
+    src_p3 = build_project(root_p3, {n: t.replace("\n", "\r\n")
+                                     for n, t in expected_rui.items()})
+    try:
+        rp3 = run_app(["--remove-unused-imports"], cwd=root_p3)
+        if rp3.returncode != 0:
+            return trial, "rui-crlf-run-failed", first_line(rp3.stdout + rp3.stderr), root_p3
+        after_p3 = snapshot(src_p3)
+        for name in modules:
+            if after_p3[name] != expected_rui[name]:
+                return trial, "rui-crlf-kept-its-carriage-returns", name, root_p3
+    finally:
+        keep_or_remove(root_p3)
+
+    # P4: an unparseable file alongside. RUI never reaches it -- the parse
+    # fails first -- but this is still a mode that writes, so G's tolerance
+    # applies: the broken file untouched, and no third state for the others.
+    root_p4 = root + "-rui-broken"
+    src_p4 = build_project(root_p4, modules)
+    with open(os.path.join(src_p4, "Broken.gren"), "w") as f:
+        f.write(BROKEN)
+    try:
+        rp4 = run_app(["--remove-unused-imports"], cwd=root_p4)
+        if rp4.returncode == 0:
+            return trial, "rui-broken-accepted", "expected a parse error", root_p4
+        if read(os.path.join(src_p4, "Broken.gren")) != BROKEN:
+            return trial, "rui-broken-file-rewritten", "a file that does not parse was written to", root_p4
+        after_p4 = snapshot(src_p4)
+        for name in modules:
+            if after_p4[name] not in (expected_rui[name], modules[name]):
+                return trial, "rui-partial-write-alongside-parse-error", name, root_p4
+    finally:
+        keep_or_remove(root_p4)
+    return None
 
 
 BROKEN = "module Broken exposing (f)\n\n\nf =\n    ( 1\n"
@@ -778,4 +907,5 @@ def main():
     return 1 if finds else 0
 
 
-sys.exit(main())
+if __name__ == "__main__":
+    sys.exit(main())
