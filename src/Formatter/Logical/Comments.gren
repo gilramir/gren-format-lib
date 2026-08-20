@@ -2880,7 +2880,39 @@ prevBlockGlueRow commentIsMultiline node =
                 lastRenderedRow node
 
             else
-                -1
+                -- A single-line paren still CLOSES, and its `)` is a token a
+                -- same-row comment can glue onto. The flow arm above already
+                -- answers exactly that for the identical shape one level up:
+                -- in `fn (bar baz) {- c -}` the comment's predecessor is the
+                -- call flow, `flowEndsAtBracketClose` holds, and it glues.
+                --
+                -- Asked of the paren DIRECTLY -- which is what happens inside a
+                -- pipeline step, where the comment attaches to the step and the
+                -- paren is its own predecessor -- the answer used to be `-1`,
+                -- "no glue row", so the same comment classified `LeadsLine` and
+                -- rendered on a row of its own at the argument indent. At the
+                -- tail of a declaration the reparse cannot attribute that row to
+                -- anything but the top level, and re-homed it to column 1: the
+                -- two formats never agreed. Two attachment depths must not give
+                -- one authoring two answers (rule C4).
+                --
+                -- `bracketClosingRow` is the `)`'s OWN recorded position, so a
+                -- formatter-synthesized paren -- which has none -- still yields
+                -- -1 and keeps the own-line answer. That is the case the row-SPAN
+                -- proxy this arm used to use got wrong (see above), and it is
+                -- untouched: the span is a different question from the `)`.
+                --
+                -- SINGLE-LINE only, which is the same scope the flat-ride rule
+                -- has everywhere else: a multi-line `{- … -}` breaks its row
+                -- wherever it lands, so gluing it buys nothing and costs the
+                -- deliberate answer `PipelineComments` pins -- it moves to the
+                -- STEP's column, the one place a reparse can read it back as the
+                -- same comment.
+                if commentIsMultiline then
+                    -1
+
+                else
+                    bracketClosingRow node
 
         AllAcrossOrAllVertical ListParen ->
             if bracketRendersMultiline node || commentIsMultiline then

@@ -1,0 +1,41 @@
+module StepParenTrailingComment exposing (..)
+
+-- A comment written after a SINGLE-LINE paren rides that paren's row -- and the
+-- answer must not depend on how deep the comment attaches. In the call below the
+-- comment's predecessor is the whole call flow; in the pipeline step it is the
+-- paren itself, and that arm used to answer "no glue row", so the same authoring
+-- classified LeadsLine, rendered on a row of its own at the argument indent, and
+-- the reparse re-homed it to column 1 -- a comment that moved on every format.
+--
+-- A MULTI-LINE `{- … -}` is a different question and keeps its own answer: it
+-- breaks its row wherever it lands, so trailing a step it moves to the step's
+-- column (see `PipelineStepTrailingMultilineComment`).
+
+
+inPlainCall =
+    fn one
+        { a = 1
+        , b = 2
+        }
+        (buildValue original newKey) {- rides the paren -}
+
+
+inPipelineStep rows =
+    rows
+        |> Dict.set
+            firstKey
+            { a = 1
+            , b = 2
+            }
+            (buildValue original newKey) {- rides the paren -}
+
+
+runAfterTheParen rows =
+    rows
+        |> Dict.set
+            firstKey
+            { a = 1
+            , b = 2
+            }
+            (buildValue original newKey) {- rides -} {- and this one glues after it
+                                                        across rows -}
