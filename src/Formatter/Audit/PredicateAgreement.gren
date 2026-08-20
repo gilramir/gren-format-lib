@@ -580,7 +580,7 @@ shapeKindName shape =
         IndentedBlock ->
             "IndentedBlock"
 
-        PipelineStep ->
+        PipelineStep _ ->
             "PipelineStep"
 
         Pipeline r ->

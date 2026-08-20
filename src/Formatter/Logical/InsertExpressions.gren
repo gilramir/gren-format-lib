@@ -595,16 +595,25 @@ insertBinops locExpr { operator = locStringOp } =
                                         -- lone AcrossOrVertical (from a function call) to keep the
                                         -- token flow directly under the step, avoiding a second +4
                                         -- of indentation.
+                                        --
+                                        -- The unwrap drops the node, so the step keeps its
+                                        -- `forceVertical` -- see `PipelineStep`. Without that,
+                                        -- `seed |> fn one` / `two` came back on ONE row, while the
+                                        -- same call kept the author's break in a plain body, after
+                                        -- `++`, and in the parenthesized spelling `|> (fn one` /
+                                        -- `two)`.
                                         let
-                                            flatBodyNodes =
+                                            unwrapped =
                                                 when Array.popFirst bodyNodes is
                                                     Just { first = onlyNode, rest = [] } ->
                                                         when lpnShape onlyNode is
-                                                            AcrossOrVertical _ ->
-                                                                lpnChildren onlyNode
+                                                            AcrossOrVertical flow ->
+                                                                { nodes = lpnChildren onlyNode
+                                                                , forceVertical = flow.forceVertical
+                                                                }
 
                                                             _ ->
-                                                                bodyNodes
+                                                                { nodes = bodyNodes, forceVertical = False }
 
                                                     Just _ ->
                                                         -- A multi-node body is a block: a `let`
@@ -617,12 +626,19 @@ insertBinops locExpr { operator = locStringOp } =
                                                         -- with its own internal alignment (exactly as a
                                                         -- top-level decl body holds the same nodes) and
                                                         -- the step just drops it below the operator.
-                                                        [ lpnNode BodyBlock bodyNodes ]
+                                                        { nodes = [ lpnNode BodyBlock bodyNodes ]
+                                                        , forceVertical = False
+                                                        }
 
                                                     Nothing ->
-                                                        bodyNodes
+                                                        { nodes = bodyNodes, forceVertical = False }
                                         in
-                                        Array.pushLast (lpnNode PipelineStep ([ opNode ] ++ flatBodyNodes)) accNodes
+                                        Array.pushLast
+                                            (lpnNode
+                                                (PipelineStep { forceVertical = unwrapped.forceVertical })
+                                                ([ opNode ] ++ unwrapped.nodes)
+                                            )
+                                            accNodes
                                     )
                         )
                         seedNodes

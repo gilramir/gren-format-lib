@@ -26,6 +26,7 @@ module Formatter.Render.NodeClassify exposing
     , signatureForceVertical
     , splitOffLambdaHead
     , splitSignatureSegments
+    , stepBrokeItsRows
     , stepOperatorText
     , subtreeEndsWithMultilineBlockComment
     , subtreeHasComment
@@ -324,7 +325,7 @@ rowsSpanMultiple rows =
 isPipelineStepNode : LPNode -> Bool
 isPipelineStepNode node =
     when lpnShape node is
-        PipelineStep ->
+        PipelineStep _ ->
             True
 
         _ ->
@@ -394,6 +395,23 @@ isBlockKeywordHead headNode =
 
         UnbreakableText loc ->
             loc.value == "let"
+
+        _ ->
+            False
+
+
+{-| Did the AUTHOR break this step's own flow — `|> fn one` / `two`?
+
+The step carries it (`PipelineStep`'s `forceVertical`) because the call node that
+recorded it is unwrapped into the step's children at build time. Everything else
+about a step's layout is read off the rendered boxes; this one fact cannot be,
+the rows being exactly what the unwrap spent.
+-}
+stepBrokeItsRows : LPNode -> Bool
+stepBrokeItsRows stepNode =
+    when lpnShape stepNode is
+        PipelineStep step ->
+            step.forceVertical
 
         _ ->
             False
@@ -706,7 +724,7 @@ valueNodeIsHardBlock valueNode =
         WhenBranch ->
             True
 
-        PipelineStep ->
+        PipelineStep _ ->
             True
 
         EmptyLine ->

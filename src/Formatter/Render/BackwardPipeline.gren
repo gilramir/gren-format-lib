@@ -61,6 +61,7 @@ import Formatter.Render.NodeClassify exposing
     , leafValue
     , literalCommentsRideFlatLine
     , nodeIsComment
+    , stepBrokeItsRows
     , stepOperatorText
     , subtreeHasComment
     )
@@ -339,6 +340,12 @@ makeBackwardPipelineBox renderers forceVertical children =
                                                                 leading
                                                         , glued = split.glued
                                                         , rest = split.rest
+
+                                                        -- The author's break INSIDE this step,
+                                                        -- which the step carries because the
+                                                        -- call node that recorded it is
+                                                        -- unwrapped at build time.
+                                                        , broke = stepBrokeItsRows stepNode
                                                         }
                                                )
 
@@ -420,7 +427,7 @@ backwardStepBodyBox renderers body =
             renderers.buildFlowBox 0 body
 
 
-assembleBackwardPipeline : Renderers -> Bool -> Box -> Array { leadGlued : Array LPNode, leadOwnRow : Array LPNode, glued : Array LPNode, rest : Array LPNode } -> Result String Box
+assembleBackwardPipeline : Renderers -> Bool -> Box -> Array { leadGlued : Array LPNode, leadOwnRow : Array LPNode, glued : Array LPNode, rest : Array LPNode, broke : Bool } -> Result String Box
 assembleBackwardPipeline renderers forceVertical seedBox stepBodies =
     when stepBodies is
         [ step ] ->
@@ -440,8 +447,8 @@ assembleBackwardPipeline renderers forceVertical seedBox stepBodies =
 -- `--lpt` for lambdas), so the `_` arm is what actually renders a broken lambda
 -- body. Kept rather than deleted because "believed unreachable" is not proven
 -- unreachable; if you make it fire, the layout it produces is untested.
-backwardSingleStep : Renderers -> Bool -> Box -> { leadGlued : Array LPNode, leadOwnRow : Array LPNode, glued : Array LPNode, rest : Array LPNode } -> Result String Box
-backwardSingleStep renderers forceVertical seedBox { leadGlued, glued, rest = bodyNodes } =
+backwardSingleStep : Renderers -> Bool -> Box -> { leadGlued : Array LPNode, leadOwnRow : Array LPNode, glued : Array LPNode, rest : Array LPNode, broke : Bool } -> Result String Box
+backwardSingleStep renderers forceVertical seedBox { leadGlued, glued, rest = bodyNodes, broke } =
     let
         -- `seed <|`, with any comment the author wrote on that row glued after
         -- the operator. A glued comment is always a `--`, so it also forces the
@@ -500,7 +507,7 @@ backwardSingleStep renderers forceVertical seedBox { leadGlued, glued, rest = bo
                                 |> Result.andThen (\opBox -> renderGluedLambdaStep renderers opBox lead split)
 
                         Nothing ->
-                            backwardPlainBody renderers forceVertical seedBox leadGlued glueForcesBreak opLineBox bodyNodes
+                            backwardPlainBody renderers forceVertical seedBox leadGlued glueForcesBreak opLineBox broke bodyNodes
 
 
 {-| **R1**'s eligibility test for one `<|` step: is its operand a lambda whose
@@ -698,9 +705,9 @@ body is rendered as one flow and glued after `<| `, or dropped +4 under
 `seed <|` when the author broke the step, when the body renders across rows, or
 when a comment glued to the operator ends its row.
 -}
-backwardPlainBody : Renderers -> Bool -> Box -> Array LPNode -> Bool -> Result String Box -> Array LPNode -> Result String Box
-backwardPlainBody renderers forceVertical seedBox leadGlued glueForcesBreak opLineBox bodyNodes =
-    buildBackwardBodyBox renderers bodyNodes
+backwardPlainBody : Renderers -> Bool -> Box -> Array LPNode -> Bool -> Result String Box -> Bool -> Array LPNode -> Result String Box
+backwardPlainBody renderers forceVertical seedBox leadGlued glueForcesBreak opLineBox broke bodyNodes =
+    buildBackwardBodyBox renderers broke bodyNodes
         |> Result.andThen
             (\{ box = bodyBox, ridingLeading, singleLineSansTrailingComment } ->
                 -- A multi-line body drops to +4 under `seed <|`
@@ -791,8 +798,8 @@ body's first line in the first case and stacks them above it in the second, and
 both are fixed points. Comments that already lead their own line are stacked in
 here as before and do not appear in `ridingLeading` — there is no decision to
 defer for them. -}
-buildBackwardBodyBox : Renderers -> Array LPNode -> Result String { box : Box, isBrokenCall : Bool, ridingLeading : Array Box, singleLineSansTrailingComment : Bool }
-buildBackwardBodyBox renderers bodyNodes =
+buildBackwardBodyBox : Renderers -> Bool -> Array LPNode -> Result String { box : Box, isBrokenCall : Bool, ridingLeading : Array Box, singleLineSansTrailingComment : Bool }
+buildBackwardBodyBox renderers stepBroke bodyNodes =
     renderers.renderFlowItems bodyNodes
         |> Result.andThen
             (\allItems ->
@@ -931,7 +938,7 @@ buildBackwardBodyBox renderers bodyNodes =
                                 }
                             )
 
-                else if Array.any .isBlock items then
+                else if Array.any .isBlock items || stepBroke then
                     assembleBrokenCall grenIndent items
                         |> Result.map
                             (\box ->
@@ -1011,9 +1018,9 @@ buildBackwardBodyBox renderers bodyNodes =
 --     sending the whole chain operator-leading, which used to move the seed's own
 --     `<|` off its row over a comment two steps away — see
 --     `makeBackwardPipelineBox`.
-backwardMultiStep : Renderers -> Bool -> Box -> Array { leadGlued : Array LPNode, leadOwnRow : Array LPNode, glued : Array LPNode, rest : Array LPNode } -> Result String Box
+backwardMultiStep : Renderers -> Bool -> Box -> Array { leadGlued : Array LPNode, leadOwnRow : Array LPNode, glued : Array LPNode, rest : Array LPNode, broke : Bool } -> Result String Box
 backwardMultiStep renderers forceVertical seedBox stepBodies =
-    traverseResult (\step -> buildBackwardBodyBox renderers step.rest) stepBodies
+    traverseResult (\step -> buildBackwardBodyBox renderers step.broke step.rest) stepBodies
         |> Result.andThen
             (\bodyBoxes ->
                 let

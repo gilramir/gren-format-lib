@@ -433,7 +433,7 @@ nodeDecisions decl node =
                 _ ->
                     []
 
-        PipelineStep ->
+        PipelineStep _ ->
             shape "PipelineStep"
 
         IndentedBlock ->

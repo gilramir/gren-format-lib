@@ -1,0 +1,46 @@
+module PipelineStepAuthorBreak exposing (..)
+
+-- A call operand the author wrote across rows keeps that break. The step's
+-- children ARE the call's -- `InsertExpressions` unwraps the call node so the
+-- step's own +4 is not doubled -- so the step carries the `forceVertical` that
+-- node had. Until it did, these came back on one row, while the same call kept
+-- its break in a plain body, after `++`, and inside the parenthesized spelling.
+
+
+forwardStep nodes =
+    nodes
+        |> Dict.set firstKey
+        (buildValue original newKey)
+
+
+backwardStep =
+    fn <| gn one
+          two
+
+
+-- A comment is not a reason to drop the author's break either. The call still
+-- lays out one argument per row, and the `--` then takes a row of its own --
+-- which is exactly what the SAME call does in a plain body (`fn one -- c` /
+-- `two` comes back with the comment own-row there too) and what elm-format
+-- does. Routing this case away from the broken-call assembler to protect the
+-- comment's row instead cost the code its break: `one two` came back joined.
+
+
+commentBreaksTheRowInstead =
+    fn <|
+        gn one -- c
+            two
+
+
+-- Unchanged: a call broken by a multi-line ARGUMENT still relocates through the
+-- trigger split, every argument on a row of its own.
+
+
+triggerRelocation rows =
+    rows
+        |> Array.foldl
+            seed
+            { limit = 10
+            , strict = True
+            }
+            extra

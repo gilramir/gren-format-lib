@@ -138,7 +138,7 @@ lpShapeFields lpshape =
         IndentedBlock ->
             [ { key = "type", value = Json.string "IndentedBlock" } ]
 
-        PipelineStep ->
+        PipelineStep _ ->
             [ { key = "type", value = Json.string "PipelineStep" } ]
 
         Pipeline { forceVertical } ->

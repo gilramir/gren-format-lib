@@ -1,7 +1,12 @@
 module PipelineArgIndent exposing (..)
 
--- Pipeline step args that don't fit on one line should be indented
--- +4 from the |> column, not placed at the same column as |>.
+-- Pipeline step args the author wrote on a row of their own are indented +4
+-- from the |> column, not left at the same column as |>.
+--
+-- The +4 is the whole point, but so is the break surviving at all: the step's
+-- call is unwrapped into the step's children at build time, and until the step
+-- carried its own `forceVertical` that unwrap dropped the author's break and
+-- this came back as one 110-column row.
 
 foo nodes newItemKey newValue firstExistingKey originalFirstLinkEntry =
     nodes

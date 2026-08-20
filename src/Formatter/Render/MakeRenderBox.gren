@@ -114,6 +114,7 @@ import Formatter.Render.NodeClassify exposing
     , signatureForceVertical
     , splitOffLambdaHead
     , splitSignatureSegments
+    , stepBrokeItsRows
     , stepOperatorText
     , subtreeHasComment
     , valueNodeIsHardBlock
@@ -1087,14 +1088,15 @@ the join emits `-- c |> fn`, with the operator swallowed inside the comment —
 output that no longer parses to the same AST. The all-or-nothing
 `commentTextCanRide` run is the real test, the one `splitPairingCommentItems`
 and `assembleBrokenWithComments` also use. -}
-renderPipelineStepChildren : Array LPNode -> Result String Box
-renderPipelineStepChildren allChildren =
+renderPipelineStepChildren : Bool -> Array LPNode -> Result String Box
+renderPipelineStepChildren stepBroke allChildren =
     let
         { leading } =
             spanLeadingComments allChildren
     in
     renderPipelineStepChildrenWith
         (not (Array.isEmpty leading) && Array.all commentTextCanRide leading)
+        stepBroke
         allChildren
 
 
@@ -1105,11 +1107,11 @@ so stacking it would make the step box multi-line and break a pipeline the flat
 line can carry. -}
 renderPipelineStepInline : LPNode -> Result String Box
 renderPipelineStepInline stepNode =
-    renderPipelineStepChildrenWith True (lpnChildren stepNode)
+    renderPipelineStepChildrenWith True (stepBrokeItsRows stepNode) (lpnChildren stepNode)
 
 
-renderPipelineStepChildrenWith : Bool -> Array LPNode -> Result String Box
-renderPipelineStepChildrenWith glueLeading allChildren =
+renderPipelineStepChildrenWith : Bool -> Bool -> Array LPNode -> Result String Box
+renderPipelineStepChildrenWith glueLeading stepBroke allChildren =
     let
         { leading, rest } =
             spanLeadingComments allChildren
@@ -1160,7 +1162,7 @@ renderPipelineStepChildrenWith glueLeading allChildren =
         (traverseResult commentNodeBox ownLineTrailing)
         |> Result.andThen
             (\{ leadingBoxes, ownLineBoxes } ->
-                stepBodyBox bodyNodes
+                stepBodyBox stepBroke bodyNodes
                     |> Result.andThen (\bodyBox -> glueTrailingComments bodyBox trailing)
                     |> Result.map
                         (\withTrailing ->
@@ -1188,8 +1190,8 @@ renderPipelineStepChildrenWith glueLeading allChildren =
 -- The comment-free core of a pipeline step: the trigger split over the body
 -- children (leading/trailing comments already peeled by
 -- `renderPipelineStepChildren`).
-stepBodyBox : Array LPNode -> Result String Box
-stepBodyBox children =
+stepBodyBox : Bool -> Array LPNode -> Result String Box
+stepBodyBox stepBroke children =
     -- The operator is a PREFIX, not a flow item — exactly as `makeOpAndRhsBox`
     -- treats a binop's operator. `B.prefix` pads the operand's continuation rows
     -- by the operator's own width, so anything that drops below the operator
@@ -1212,17 +1214,17 @@ stepBodyBox children =
         Just { first = opNode, rest = operandNodes } ->
             when stepOperatorText opNode is
                 Just op ->
-                    operatorPrefixedOperandBox stepOperandBox op operandNodes
+                    operatorPrefixedOperandBox (stepOperandBox stepBroke) op operandNodes
 
                 Nothing ->
-                    stepOperandBox children
+                    stepOperandBox stepBroke children
 
         Nothing ->
-            stepOperandBox children
+            stepOperandBox stepBroke children
 
 
-stepOperandBox : Array LPNode -> Result String Box
-stepOperandBox children =
+stepOperandBox : Bool -> Array LPNode -> Result String Box
+stepOperandBox stepBroke children =
     -- Render the children ONCE, up front, and drive everything below off those
     -- items: the trigger split's verticality tests, the preamble assembly
     -- (`assembleFlow FP.InlineStart 0` IS `buildFlowBoxInline 0`), the suffix, and — for
@@ -1255,7 +1257,19 @@ stepOperandBox children =
                                         )
 
                             Nothing ->
-                                assembleFlow FP.OwnStart grenIndent items
+                                if stepBroke then
+                                    -- The author wrote this step's call across
+                                    -- rows, so it renders as the broken call it
+                                    -- is: `fn` keeps its first argument and every
+                                    -- other argument takes a row at +4. Same
+                                    -- assembler a plain call goes through
+                                    -- (`makePBox`'s `AcrossOrVertical` arm), which
+                                    -- is what makes the two spellings of one call
+                                    -- agree.
+                                    assembleBrokenCall grenIndent items
+
+                                else
+                                    assembleFlow FP.OwnStart grenIndent items
 
                     Just { preamble, trigger, suffix } ->
                         let
@@ -2797,13 +2811,13 @@ makePBox shape children =
             -- makeCommentLineBox / commentNodeBox — never through makePBox.
             Err "unreachable: DocComment never reaches makePBox"
 
-        PipelineStep ->
+        PipelineStep step ->
             -- A `|> step` inside the generic fold (a comment-bearing pipeline
             -- routed to `buildFlowBox 0`). The step's own leading/trailing
             -- comments are peeled inside; the fold's PipelineStepItem placement
             -- supplies the +grenIndent step wrap and the blank-before-commented-
             -- step.
-            renderPipelineStepChildren children
+            renderPipelineStepChildren step.forceVertical children
 
         RootBox ->
             -- unreachable: RootBox is the singular tree root; it is never
@@ -3610,7 +3624,7 @@ assembleFlowImpl measure flowStart flowIndent items =
                         EmptyLine ->
                             FP.EmptyLineItem
 
-                        PipelineStep ->
+                        PipelineStep _ ->
                             FP.PipelineStepItem
 
                         _ ->

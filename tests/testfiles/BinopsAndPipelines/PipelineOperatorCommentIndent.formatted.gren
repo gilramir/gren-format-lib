@@ -69,5 +69,6 @@ ownRowBelowOperator =
 -- A `<|` step body's own arguments still indent past the operand.
 backwardPipeArgs =
     fn <|
-        gn one -- c
+        gn one
+            -- c
             two

@@ -419,7 +419,16 @@ type LPShape
     --     seed
     --         |> step1
     --         |> step2
-    | PipelineStep
+    --
+    -- `forceVertical` is the author's break INSIDE the step -- `|> fn one` /
+    -- `two`. It has to live here because `InsertExpressions` unwraps a call
+    -- operand's `AcrossOrVertical` into the step's own children (to avoid a
+    -- second +4), and that node was the only record of the fact; spread into the
+    -- step's flow, the tokens no longer say they were written across rows. It is
+    -- the step's own copy of the flag the unwrapped node carried, and nothing
+    -- else sets it: a call broken for a different reason (a multi-line argument)
+    -- still relocates through the trigger split.
+    | PipelineStep { forceVertical : Bool }
     -- A whole `|>`/`<|` pipeline: children are the seed node(s) followed by the
     -- `PipelineStep` nodes. `op` is `"|>"` or `"<|"`. Mirrors the author-layout
     -- rule of the bracketed containers: a pipeline written on one line stays

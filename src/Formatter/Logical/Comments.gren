@@ -259,7 +259,7 @@ movePipelineStepTrailers children =
     let
         step acc child =
             when lpnShape child is
-                PipelineStep ->
+                PipelineStep _ ->
                     let
                         kids =
                             acc.pending ++ lpnChildren child
@@ -645,7 +645,7 @@ descendsForTrailingRun shape =
         Pipeline _ ->
             True
 
-        PipelineStep ->
+        PipelineStep _ ->
             True
 
         WhenFlow _ ->
@@ -1904,7 +1904,7 @@ insertAmongChildren containerShape commentNode row col children =
                             in
                             finalBefore ++ [ newNextNode ] ++ afterRest
 
-                    PipelineStep ->
+                    PipelineStep _ ->
                         -- Redirect into the PipelineStep as its first child —
                         -- UNLESS the comment can ride the row it was written on.
                         --
@@ -1927,8 +1927,12 @@ insertAmongChildren containerShape commentNode row col children =
 
                         else
                             let
+                                -- `lpnReplaceChildren`, not `lpnNode PipelineStep …`:
+                                -- the step's own `forceVertical` is part of its
+                                -- shape now, and rebuilding it from the
+                                -- constructor would silently reset it to False.
                                 newNextNode =
-                                    lpnNode PipelineStep (Array.pushFirst leadingComment (lpnChildren nextNode))
+                                    lpnReplaceChildren nextNode (Array.pushFirst leadingComment (lpnChildren nextNode))
                             in
                             finalBefore ++ [ newNextNode ] ++ afterRest
 
