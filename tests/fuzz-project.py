@@ -30,6 +30,17 @@ same generated project:
   I  a lowercase-named `.gren` and a non-`.gren` file are not source files
      and must be left alone
 
+The oracles above are a LIST over two axes -- how the files were found
+(no-arg / `src/` positional / `--remove-unused-imports`) and what is wrong
+with them (dirty / CRLF-clean / unparseable / not-a-source). Read as a
+matrix it has holes, and positional x CRLF-clean was one: every CRLF oracle
+ran the no-arg mode and the positional oracle ran the dirty project, so for
+as long as the two modes disagreed about CRLF, nothing here could tell.
+They did disagree -- `readSource` handed the path-argument mode only the
+normalized text, so a CRLF-but-otherwise-formatted file compared equal to
+its own LF output and kept its `\r`s forever. H3 fills that cell in; the
+other empty ones are worth a look before trusting this list again.
+
 Trials are seeded and replayable: `--trial N` rebuilds exactly one and
 leaves the project directory behind for inspection.
 
@@ -294,6 +305,33 @@ def check_edges(trial, root, modules, expected):
                 return trial, "crlf-clean-kept-its-carriage-returns", name, root_h2
     finally:
         keep_or_remove(root_h2)
+
+    # H3: the same CRLF-clean project, reached as a POSITIONAL argument.
+    # H2 cannot see this one -- it runs the no-arg mode, and the two modes
+    # read their sources through different functions. The path-argument mode
+    # got only the line-ending-normalized text and so believed a CRLF file was
+    # already formatted, while the no-arg run three lines up rewrote the very
+    # same bytes. `--diff` has to agree with whichever one ran, too, so it is
+    # asked first and its verdict held against what the write actually did.
+    root_h3 = root + "-crlf-clean-paths"
+    src_h3 = build_project(root_h3, {n: t.replace("\n", "\r\n")
+                                     for n, t in expected.items()})
+    try:
+        rd3 = run_app(["--diff", "src"], cwd=root_h3)
+        if rd3.returncode != 0:
+            return trial, "crlf-clean-paths-diff-failed", first_line(rd3.stdout + rd3.stderr), root_h3
+        rh3 = run_app(["src"], cwd=root_h3)
+        if rh3.returncode != 0:
+            return trial, "crlf-clean-paths-run-failed", first_line(rh3.stdout + rh3.stderr), root_h3
+        after_h3 = snapshot(src_h3)
+        for name in modules:
+            if after_h3[name] != expected[name]:
+                return trial, "crlf-clean-paths-kept-its-carriage-returns", name, root_h3
+            # whatever changed on disk, `--diff` had to have said so
+            if ("%s.gren" % name) not in rd3.stdout:
+                return trial, "crlf-clean-paths-diff-stayed-silent", name, root_h3
+    finally:
+        keep_or_remove(root_h3)
 
     # I: files that are not Gren sources.
     root_i = root + "-notsource"
