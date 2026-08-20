@@ -454,30 +454,41 @@ bracket container were on it; the bare lambda never was, so the two spellings of
 the same operand disagreed. Both authored forms now come back glued, and the
 spurious blank row that used to follow a comment in that gap is gone with it.
 
+**That list has been short three times, so read it as a list.** After the bare
+lambda came the bare `if`/`when`/`let` ([#34](elmFormatComparison.md)), and after
+those a multi-line `"""` string:
+
+```gren
+-- before:                      -- and now:
+note =                          note =
+    a                               a
+        |>                              |> """
+            """                              one
+            one                              """
+            """
+```
+
+The string was found by `gen-random.py`'s `stranded-operator` oracle, which is
+the only gate that can see this class at all — a stranded operator is stable,
+AST-preserving and comment-preserving, so every round-trip check passes it. No
+fixture in the corpus held a `|> """` until that oracle produced 42 seeds of one.
+
+Unlike the lambda and the block, the string needs no divergence entry: a string
+is an atom, so elm-format does not parenthesize it, and **elm-format's output for
+the input above is byte-identical to gren-format's** (checked against the
+binary). Here the fix moved gren-format onto elm-format rather than away from it.
+
 elm-format reaches the same shape from the other side: fed the bare form it
 *adds* parens, and returns the parenthesized layout from the stranded spelling
 too. That route is closed to gren-format, which keeps redundant parens but
 [never introduces any](#redundant-parens-are-never-stripped) — so gren glues the
 bare lambda where elm parenthesizes it, and the two land one column apart.
 
-**One case in the same family is still open.** A bare `if`, `when` or `let`
-operand still strands the operator:
-
-```gren
-bareIf =
-    a
-        |>
-            if c then
-                x
-
-            else
-                y
-```
-
-elm-format parenthesizes those too, so it has nothing to copy from; and unlike
-the lambda there is no other operator to point at, since `>>`, `++` and `<|` all
-*drop* a block operand rather than gluing it. Pinned as it stands by
-`tests/testfiles/BinopsAndPipelines/PipelineBareLambdaOperand`, awaiting a call.
+**The one case left open here has since been closed.** A bare `if`, `when` or
+`let` operand used to strand the operator too; it now glues its head like the
+lambda, which is divergence #34 — elm-format parenthesizes those, and adding a
+paren is a route gren-format does not have. All five operand kinds are pinned by
+`tests/testfiles/BinopsAndPipelines/PipelineBareLambdaOperand`.
 
 ## 4. One-row lambdas are unaffected
 

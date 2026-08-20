@@ -1850,10 +1850,24 @@ classify rows =
             some
 ```
 
-`elm-format` reaches the same glued shape by *adding* parentheses around the
-operand; gren-format never introduces a paren, so it glues without one — that is
+A multi-line `"""` string is the same rule again:
+
+```gren
+note =
+    a
+        |> """
+           one
+           two
+           """
+```
+
+`elm-format` reaches the same glued shape for a lambda or a block by *adding*
+parentheses around the operand; gren-format never introduces a paren, so it
+glues without one — that is
 [divergence #34](elmFormatComparison.md#divergence-34). Where you write the
-parens yourself the two agree exactly.
+parens yourself the two agree exactly. The string is not part of that
+divergence: a string is an atom, elm-format does not parenthesize it, and the
+two formatters produce the same bytes for the example above.
 
 **Your row placement is the choice.** The formatter uses the multi-line form when
 the lambda body starts on a different row from `->`, and the inline form when the

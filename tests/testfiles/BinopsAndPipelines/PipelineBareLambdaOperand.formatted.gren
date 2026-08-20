@@ -14,12 +14,30 @@ module PipelineBareLambdaOperand exposing (..)
 -- "nothing shares the operator's row"; rendering that as a flow of zero items
 -- is what crashed with `box: empty flow` before it was made a blank line.)
 --
--- The bare `if`, `when` and `let` operands at the bottom are the same rule,
--- added the same day: they were the last operand kinds that still emptied the
--- preamble. `>>`, `++` and a user-defined operator glue a bare block's head too
--- (measured), and so has `|> (if …)`, the parenthesized spelling of this very
--- operand, from the beginning. elm-format reaches the glued shape by ADDING the
--- parens -- divergence #34 -- which gren does not do.
+-- The bare `if`, `when` and `let` operands are the same rule, added the same
+-- day: they were the last operand kinds that still emptied the preamble. `>>`,
+-- `++` and a user-defined operator glue a bare block's head too (measured), and
+-- so has `|> (if …)`, the parenthesized spelling of this very operand, from the
+-- beginning. elm-format reaches the glued shape by ADDING the parens --
+-- divergence #34 -- which gren does not do.
+--
+-- The multi-line STRING at the bottom is the fifth, and it is why this list is
+-- worth reading as a list. It was still missing after the four above were
+-- added, and nothing in this corpus held a `|> """` until gen-random's
+-- stranded-operator oracle produced 42 seeds of it. `++ """` and `>> """`
+-- glue it, and so does the parenthesized twin, so `|>` was again the only
+-- operator that did not.
+--
+-- The string is NOT part of divergence #34, unlike the lambda and the block: a
+-- string is an atom, so elm-format does not parenthesize it, and elm-format's
+-- output for `bareMultilineStringGluesToo` is byte-identical to this one
+-- (checked against the binary). Here the fix moved gren onto elm-format rather
+-- than away from it.
+--
+-- The last declaration pins the fix's SCOPE: with something already in the
+-- preamble the string is a plain argument, so it breaks the call the way any
+-- other author-broken call breaks -- one argument per row. `isDirectGluedOperand`
+-- cannot fire there, and that is by construction, not by a second rule.
 
 
 bareLambda =
@@ -72,3 +90,30 @@ bareLetGluesToo =
                 1
            in
            q
+
+
+bareMultilineStringGluesToo =
+    a
+        |> """
+           one
+           two
+           """
+        |> c
+
+
+parenMultilineStringStaysGlued =
+    a
+        |> ("""
+            one
+            two
+            """
+           )
+
+
+multilineStringAfterOtherOperandsDoesNotGlue =
+    a
+        |> fn
+            arg
+            """
+            one
+            """

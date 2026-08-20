@@ -1303,33 +1303,42 @@ splitStepTriggerItems stepItems =
                 Nothing ->
                     let
                         -- A multi-line paren block, a multi-line bracket
-                        -- container (array / record / update), or a bare lambda,
-                        -- written directly after `|>` (nothing but the operator
-                        -- in the preamble) glues to the operator like
-                        -- elm-format's `|> (if …` / `|> [ 1`. Keeping it out of
-                        -- the trigger split leaves it in the preamble, where
-                        -- `buildFlowBoxInline` glues it; otherwise the relocation
-                        -- branch strands `|>` on its own line with the operand
-                        -- dropped +4 below.
+                        -- container (array / record / update), a bare lambda, a
+                        -- bare block or a multi-line string, written directly
+                        -- after `|>` (nothing but the operator in the preamble)
+                        -- glues to the operator like elm-format's `|> (if …` /
+                        -- `|> [ 1`. Keeping it out of the trigger split leaves it
+                        -- in the preamble, where `buildFlowBoxInline` glues it;
+                        -- otherwise the relocation branch strands `|>` on its own
+                        -- line with the operand dropped +4 below.
                         -- (`acc.preamble` holds the step's OPERANDS only — the
                         -- operator is a prefix applied by `stepBodyBox`, not an
                         -- item — so "nothing before it" is an empty preamble.)
                         --
-                        -- The two BARE operands were what this list was missing,
-                        -- and the stranded `|>` they produced was a shape
-                        -- gren-format emitted NOWHERE else. Their parenthesized
-                        -- twins `|> (\x -> …)` and `|> (if …)` were excluded from
-                        -- the day this split was written, so the two spellings of
-                        -- one operand disagreed; all four now glue, which is also
-                        -- what `>>`, `++` and a user-defined operator do with a
-                        -- bare lambda or a bare block (measured), and what `<|`
+                        -- The BARE operands were what this list kept missing, and
+                        -- the stranded `|>` they produced was a shape gren-format
+                        -- emitted NOWHERE else. Their parenthesized twins
+                        -- `|> (\x -> …)`, `|> (if …)` and `|> ("""…)` were
+                        -- excluded from the day this split was written, so the two
+                        -- spellings of one operand disagreed; all of them now
+                        -- glue, which is also what `>>`, `++` and a user-defined
+                        -- operator do with any of them (measured), and what `<|`
                         -- does with a bare lambda as of R1.
+                        --
+                        -- The list has now been short TWICE — the lambda and the
+                        -- block in `299c912`/`e1322bd`, the string here — so the
+                        -- next reader should know what is left OUTSIDE it rather
+                        -- than guess: a multi-line operand that is not one of
+                        -- these five, which in practice means one whose own first
+                        -- row is not a glueable opener. Every operand kind the
+                        -- corpus and the syntax matrix reach is now inside.
                         isDirectGluedOperand =
                             Array.isEmpty acc.preamble
                                 && (itemIsMultilineParenBlock item
                                         || itemIsMultilineBracketContainer item
                                         || isBareLambdaOperand item.node
                                         || isBareBlockOperand item.node
+                                        || itemIsMultilineString item
                                    )
                     in
                     if
@@ -1352,6 +1361,25 @@ itemIsMultilineParenBlock : FlowItem -> Bool
 itemIsMultilineParenBlock item =
     when lpnShape item.node is
         ParenBlock _ ->
+            not (isSingleLine item.box)
+
+        _ ->
+            False
+
+
+{-| Is this operand a multi-line `"""` string?
+
+A `MultilineString` node is the operand itself — it arrives bare, as a direct
+child of the `PipelineStep`, the way a bare lambda or a bare block does — so
+this asks the shape and then the box, exactly as `itemIsMultilineParenBlock`
+does. The box test is not decoration: a single-row string cannot reach the
+trigger split at all (`itemForcesFlowVertical` is false for it), so gluing it
+would be a claim about a case that never arises.
+-}
+itemIsMultilineString : FlowItem -> Bool
+itemIsMultilineString item =
+    when lpnShape item.node is
+        MultilineString _ ->
             not (isSingleLine item.box)
 
         _ ->
