@@ -604,6 +604,22 @@ if it stops being — an entry with no fixture, or a fixture with no entry.
             value
     ```
 
+    **The same holds in the forward direction**, where it is the *right* side
+    that spans rows: gren-format keeps `seed |> items` on the row the author gave
+    it and breaks only what has to break, while elm-format drops the seed and
+    stacks every step below it.
+
+    ```gren
+    -- you write:            -- gren-format:          -- elm-format:
+    v =                      v =                      v =
+        seed |> items            seed |> items            seed
+            ++ rest                  ++ rest                  |> items
+                                                              ++ rest
+    ```
+
+    One rule underneath both directions: the operator's row is the author's, and
+    a side that spans rows does not move it.
+
     gren-format's choice keeps `<|` visually consistent with `|>` — a pipeline
     reads as a pipeline regardless of direction — rather than letting the
     operator's position depend on the precedence machinery shared with unrelated

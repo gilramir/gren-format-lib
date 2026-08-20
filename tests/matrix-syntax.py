@@ -1027,31 +1027,27 @@ CONTEXTS = [
     Context("parenBinopArg",    "fn ({x} |> gn) last",          True,  False),
     Context("parenBackPipeArg", "fn (gn <| {x}) last",          True,  False),
     Context("pipelineSeed",     "{x} |> fn",                    True,  False),
-    # KNOWN COVERAGE GAP, 2026-08-19. `value_position` should be True here for
-    # the same reason `backPipeBody`'s is -- the operand is the last thing in the
-    # expression, so a bare (unparenthesized) lambda / `if` / `when` / `let`
-    # stands here legally, verified against the app for all four. It is False,
-    # so no cell in this matrix places a BARE construct after `|>`, and the
-    # `|>`-with-a-bare-lambda bug fixed on 2026-08-19 (the operator stranded on
-    # a row of its own) had no cell here at all -- only the parenthesized twin.
+    # `value_position` is True here for the same reason `backPipeBody`'s is: the
+    # operand is the last thing in the expression, so a bare (unparenthesized)
+    # lambda / `if` / `when` / `let` stands here legally.
     #
-    # Flipping it to True adds 36 cells. It first turned up an oracle-1 failure
-    # as well -- `v = seed |> fn <| one`, written on one row with nothing forcing
-    # a break, came back across three -- and that is now FIXED (a mixed `|>`/`<|`
-    # chain follows the author like every other chain). Re-measured after the
-    # fix: 2495 cells, 0 failing.
+    # It was False until 2026-08-19, and that was a real hole -- no cell in this
+    # matrix placed a BARE construct after `|>`, so the `|>`-with-a-bare-lambda
+    # bug fixed that day (the operator stranded on a row of its own) had no cell
+    # here at all, only the parenthesized twin. Two fixes had to land before it
+    # could be flipped: that one, and a mixed `|>`/`<|` chain written on one row
+    # coming back across three (an oracle-1 failure this flag exposed).
     #
-    # What is left is registration, not a bug: ~26 parity cells needing a NEW
-    # catalogue entry, because elm-format wraps a bare non-atomic `|>` operand in
-    # parens it adds itself and gren never introduces a paren. Divergence #10
-    # does not cover this -- that entry is about parens the AUTHOR wrote and gren
-    # keeps. Write the entry, add its `Divergence/` fixture (the index checker
-    # keeps the two 1:1), register the cells, and flip this to True.
+    # The cells it adds diverge from elm-format on parity and are registered as
+    # divergence #34: elm-format wraps a bare non-atomic `|>` operand in parens
+    # it adds itself, and gren never introduces a paren. #10 does NOT cover them
+    # -- that entry is about parens the AUTHOR wrote and gren keeps, which is the
+    # same rule seen from the other side.
     #
     # `pipelineSeed` stays False and is NOT the same case: a bare block there
     # swallows the `|> fn` to its right, so the cell would test a different
     # expression from the one the template names.
-    Context("pipelineOperand",  "seed |> {x}",                  True,  False),
+    Context("pipelineOperand",  "seed |> {x}",                  True,  True),
     Context("pipelineStep",     "seed |> fn {x}",               True,  False),
     Context("pipelineLast",     "seed |> fn |> gn {x}",         True,  False),
     Context("backPipeBody",     "fn <| {x}",                    True,  True),
