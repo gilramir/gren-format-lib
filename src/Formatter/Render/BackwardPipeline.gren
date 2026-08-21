@@ -1132,16 +1132,38 @@ backwardMultiStep renderers forceVertical seedBox stepBodies =
                             Nothing ->
                                 Nothing
 
+                    -- A `--` ending a body: it is still a single-line box, but
+                    -- the ` <| ` of the step after it cannot share that row.
+                    --
+                    -- Asked of every body EXCEPT THE LAST, which is the whole
+                    -- point of the test: nothing is appended after the final
+                    -- body, so its `--` swallows nothing and the chain has a flat
+                    -- row to stay on. `Array.any` over all of them read the
+                    -- clause's own reason ("the step AFTER it") off by one and
+                    -- broke `a <| b <| c -- k` — while `a <| b -- k` (one step,
+                    -- `backwardSingleStep`, which has the exemption as
+                    -- `singleLineSansTrailingComment`) and the whole `|>`, `+`
+                    -- and `++` side stayed flat. One operator's chain
+                    -- disagreeing with its own mirror, over a comment that is
+                    -- last in the expression.
+                    bodyEndsOpenBeforeAStep =
+                        when Array.popLast bodyBoxes is
+                            Just { initial = beforeLast } ->
+                                Array.any (\b -> B.endsOpen b.box) beforeLast
+
+                            Nothing ->
+                                False
+
                     effectiveVertical =
                         forceVertical
                             || Array.any (\b -> not (isSingleLine b.box)) bodyBoxes
                             -- A glued comment is a `--`: nothing can follow it on
-                            -- its row, so the chain cannot stay inline.
+                            -- its row, so the chain cannot stay inline. Every
+                            -- step's, the last included -- this one sits BEFORE
+                            -- its own body (`<| -- c`), so there is always
+                            -- something after it to swallow.
                             || Array.any (\step -> not (Array.isEmpty step.glued)) stepBodies
-                            -- Same for a `--` ending a body: it is still a
-                            -- single-line box, but the ` <| ` of the step after it
-                            -- cannot share that row.
-                            || Array.any (\b -> B.endsOpen b.box) bodyBoxes
+                            || bodyEndsOpenBeforeAStep
                             -- A line-leading comment before an operator needs rows,
                             -- so the chain cannot stay on one.
                             || Array.any (\step -> not (Array.isEmpty step.leadOwnRow)) stepBodies

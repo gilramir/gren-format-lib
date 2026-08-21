@@ -745,6 +745,7 @@ pipelineCommentsSuite fsPerm =
             -- crashed; now padded under its start via B.addSuffixBox).
             , assertPrettyIn fsPerm "PipelineComments" "multi-line block comment trailing a backward-pipeline step glues onto its last line, and the body keeps the `<|`'s row -- the comment's own rows are not a reason to move the code" "BackwardPipeMultilineTrailingComment"
             , assertPrettyIn fsPerm "PipelineComments" "a `<|` body written on the operator's row stays there for all three comment kinds and for none, while a body that is multi-line in its own right still drops below the operator" "BackwardPipeBodyKeepsOperatorRow"
+            , assertPrettyIn fsPerm "PipelineComments" "a `--` ending the LAST body of a multi-step `<|` chain leaves the chain on its row -- the `endsOpen` clause is about the step AFTER a body, and there is none after the last, so asking it of every body broke `a <| b <| c -- k` while one step, `|>`, `+` and `++` all stayed flat" "BackwardPipeTrailingLineComment"
             -- Regression guards for the multiline-string `--`-swallow fix
             -- (now `B.endsOpen`). A `--` comment buried at the end of a
             -- multi-line-string operand's subtree must NOT let the following

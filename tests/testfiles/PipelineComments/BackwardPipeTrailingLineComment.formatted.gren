@@ -1,0 +1,63 @@
+module BackwardPipeTrailingLineComment exposing (..)
+
+-- A `--` ending the LAST body of a `<|` chain leaves the chain on its row.
+--
+-- `backwardMultiStep` sent the chain vertical when any body's box `endsOpen`,
+-- and the clause's own reason is why that is off by one: "the ` <| ` of the step
+-- AFTER it cannot share that row". Nothing is appended after the final body, so
+-- its `--` swallows nothing.
+--
+-- Nothing else agreed with it. One step (`backwardSingleStep`) already had the
+-- exemption as `singleLineSansTrailingComment`, and `|>`, `+` and `++` all keep
+-- a trailing `--` on the flat row -- so a `<|` chain disagreed with its own
+-- mirror operator, and with itself at a different length. elm-format keeps the
+-- chain flat too; it evicts the comment to the top level, which gren's "a
+-- comment never moves between rows" policy refuses (divergence #30), so the code
+-- layout is now the same and only the comment's home differs.
+--
+-- Found by fuzzrun 2026-08-20 (seed 10145017), the one failure of that sweep's
+-- 49 that was not the bracket-item bug.
+
+
+twoStepsKeepTheirRow =
+    Node <| 0 <| 1 -- k
+
+
+threeStepsToo =
+    Node <| 0 <| 1 <| 2 -- k
+
+
+-- THE TWIN that always worked: one step goes through `backwardSingleStep`.
+
+
+oneStepAlwaysDid =
+    Node <| 0 -- k
+
+
+-- THE MIRROR OPERATOR, which never broke.
+
+
+forwardPipeTwin =
+    0 |> f |> g -- k
+
+
+-- THE BOUNDARY, and the reason the clause exists: a `--` ending a body that is
+-- NOT the last one really would swallow the next step's operator, so that chain
+-- still goes vertical.
+
+
+midChainCommentStillBreaks =
+    Node <|
+        0 -- k
+        <|
+            1
+
+
+-- The other always-breaking shape: a `--` glued AFTER the operator sits before
+-- its own body, so there is always something after it to swallow.
+
+
+gluedAfterOperatorStillBreaks =
+    Node <| -- k
+        0 <|
+            1
