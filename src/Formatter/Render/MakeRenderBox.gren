@@ -1704,7 +1704,28 @@ renderFieldFlowWithValueBox field valueNode headNodes valueBox =
 renders each `name = value` field with the drop rule (`renderRecordFieldBox`);
 every other bracket (array / tuple / paren) holds plain expressions, rendered
 straight through `makePBox`. Used by both the comment-free (`makeLiteralBox`) and
-comment-bearing (`commentBracketListBox`) literal paths so the two can't drift. -}
+comment-bearing (`commentBracketListBox`) literal paths so the two can't drift.
+
+An item that is a `BodyBlock` is the one exception, and `FlowStart` is exactly
+the question it turns on: an ITEM continues the line the container already
+started (`[ ` / `, `), so its flow is an `InlineStart`, not the `OwnStart` that
+`makePBox`'s generic `BodyBlock` arm hands every other caller. With `OwnStart` a
+leading single-line `{- c -}` is `standaloneLeading` — it stands on its own row
+and drops the item below it, which makes the item box multi-line, which breaks
+the whole list open. A comment forcing a break is rule C3, and here it also cost
+the author's layout: the flat and broken spellings of the same list then rendered
+the same bytes, so `fuzzrun.py`'s author-break oracle could no longer see which
+one was written (48 of the 49 failures of the 2026-08-20 sweep were this).
+
+Only a LAMBDA item ever reached it. `BodyBlock` is the wrapper for a
+several-node item value, and every other such item (`fn x`, `{ a = 1 }`, a
+literal) arrives as a bare child instead, whose own arm was already inline.
+
+Deliberately fixed HERE rather than in `Comments.gren` by keeping the comment out
+of the `BodyBlock`: the attachment is what a comment RUN travels by, and moving
+one member out while a multi-line sibling stays in tears the run in half — the
+`CommentRunCrossesSeparator` hazard, measured as a fresh reparse oscillation when
+tried. The comment's placement is unchanged; only the item's `FlowStart` is. -}
 literalItemRenderer : ListBrackets -> (LPNode -> Result String Box)
 literalItemRenderer bracket =
     when bracket is
@@ -1712,7 +1733,13 @@ literalItemRenderer bracket =
             renderRecordFieldBox
 
         _ ->
-            \node -> makePBox (lpnShape node) (lpnChildren node)
+            \node ->
+                when lpnShape node is
+                    BodyBlock ->
+                        buildFlowBoxInline 0 (lpnChildren node)
+
+                    shape ->
+                        makePBox shape (lpnChildren node)
 
 
 {-| Render a record update `{ base | f = v, … }` via elm's `extensionGroup`.

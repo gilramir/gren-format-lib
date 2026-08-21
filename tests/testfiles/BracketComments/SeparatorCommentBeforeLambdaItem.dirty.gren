@@ -1,0 +1,64 @@
+module SeparatorCommentBeforeLambdaItem exposing (..)
+
+-- A `{- c -}` written across a bracket's `,` rides that separator's row before a
+-- LAMBDA item, exactly as it does before every other item shape.
+--
+-- An ITEM continues the line the container already started (`[ ` / `, `), so its
+-- flow is an `InlineStart`. A lambda item is the one item shape that arrives
+-- wrapped in a `BodyBlock`, and `makePBox`'s generic `BodyBlock` arm hands every
+-- caller an `OwnStart` -- under which a leading single-line `{- c -}` is
+-- `standaloneLeading`, stands on its own row and drops the item below it. That
+-- made the item box multi-line, which broke the whole list open. Rule C3: a
+-- comment never forces a break.
+--
+-- It also cost the author's layout: the flat spelling below and the broken one
+-- after it then rendered the SAME bytes, so `fuzzrun.py`'s author-break oracle
+-- could no longer see which was written -- 48 of the 49 failures of the
+-- 2026-08-20 sweep, all this one shape.
+--
+-- The fix is the item's `FlowStart`, not the comment's attachment. Keeping the
+-- comment out of the `BodyBlock` in `Comments.gren` fixes these three
+-- declarations too, and then tears a comment RUN in half: attachment is what a
+-- run travels by, so moving one member out while a multi-line sibling stays in
+-- reparses differently every pass. The last declaration here is that run, and it
+-- oscillated when this was tried the other way.
+
+
+flatStaysFlat =
+    [ 0, {- c -} \q -> q, other ]
+
+
+-- The same list broken by the author. Both spellings must survive as written;
+-- that they collapsed onto one IS the bug.
+
+
+brokenStaysBroken =
+    [ 0
+    , {- c -} \q -> q
+    , other
+    ]
+
+
+-- THE TWIN that always worked: every other item shape is a bare child of the
+-- list, never wrapped in a `BodyBlock`, so its flow was already inline.
+
+
+plainItemTwin =
+    [ 0, {- c -} fn arg, other ]
+
+
+-- THE BOUNDARY: at the OPENER the comment leads the first item and rides the
+-- `[ ` row -- a different slot, and one that already worked.
+
+
+openerTwin =
+    [ {- c -} \q -> q, other ]
+
+
+-- THE RUN: a single-line comment followed by a multi-line one, in the same `,`
+-- gap. Both members stay children of the ITEM, so the run travels whole.
+
+
+separatorRun =
+    [ 0, {- c -} {- second
+       row -} \q -> q, other ]
