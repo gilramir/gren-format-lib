@@ -95,7 +95,6 @@ import Formatter.Render.FlowAssembly exposing
 import Formatter.Render.FlowPolicy as FP
 import Formatter.Render.NodeClassify exposing
     ( commentBreaksFlowRow
-    , commentBreaksFlowRowDeep
     , commentTextCanRide
     , fieldValueDropsToOwnLine
     , isColonLeaf
@@ -109,6 +108,7 @@ import Formatter.Render.NodeClassify exposing
     , leafLineRow
     , leafValue
     , nodeIsComment
+    , nodesLeadWithComment
     , parenContentIsLambdaHead
     , rowsSpanMultiple
     , signatureForceVertical
@@ -1437,54 +1437,91 @@ makeIfConditionBox forceVertical children =
                 Just { initial = condNodes, last = thenNode } ->
                     let
                         -- `forceVertical` came from the AST's source rows, which
-                        -- cannot see a comment — the same gap `AcrossOrVertical`
-                        -- closes with this predicate, for the same reason. A
-                        -- comment that ends its line inside the condition breaks
-                        -- it whatever the author wrote, `joinInline` then fails
-                        -- and the inline arm falls through to the stacked
-                        -- fallback; but the CONDITION was already built by
-                        -- `buildFlowBoxInline`, so a leading comment sits on the
-                        -- condition's row rather than its own. The reparse reads
-                        -- the broken shape, takes the vertical arm, and splits
-                        -- the run — `else if` ⏎ `{- a -} -- b` ⏎ `cond` on the
-                        -- first format, `{- a -}` ⏎ `-- b` ⏎ `cond` on the
-                        -- second. Commit to broken now instead of flipping.
-                        -- `Deep`, not the shallow scan: `if <cond> then` is ONE
-                        -- row spanning the whole condition, so a comment nested
-                        -- inside the condition's call or binop chain settles the
-                        -- header's shape exactly as a comment written between the
-                        -- header's own tokens does. Asked shallowly, a condition
-                        -- with a LEADING comment and a nested row-breaking one
-                        -- takes the inline arm and then cannot honour it: the
-                        -- binop form reaches `assembleFlow`'s "unreachable
-                        -- multi-line non-paren unclassified soft-glue item" and
-                        -- refuses the file, and the call form formats but leaves
-                        -- the leading comment holding the condition's first row,
-                        -- so the parser measures the continuation indent from the
-                        -- first real token and the output does not reparse.
-                        renderVertical =
-                            forceVertical || commentBreaksFlowRowDeep condNodes
+                        -- cannot see a comment, so it is only half the question.
+                        --
+                        -- The other half: a comment leading the condition may
+                        -- hold the condition's first row only while the condition
+                        -- FITS on that row. The moment it does not, the row
+                        -- belongs to the comment and the condition's real first
+                        -- token starts BELOW it, indented past where a reader --
+                        -- and the parser -- measures the continuation from:
+                        --
+                        --     if {- c -} f a {- x       the parser measures the
+                        --                 y -} b then   continuation indent from
+                        --                               `f` and reads `b` as a
+                        --                               dedent: output that does
+                        --                               not reparse
+                        --
+                        --     if {- c -} a {- x         Err "unreachable:
+                        --                y -} > 0 then  multi-line non-paren
+                        --                               unclassified soft-glue
+                        --                               item" -- the file is
+                        --                               refused outright
+                        --
+                        -- The author's own row break reaches both (`if {- c -} f`
+                        -- ⏎ `a then`), so this is not a question about comments
+                        -- breaking rows; it is a question about whether the
+                        -- condition ended up on one row, whatever put it there.
+                        --
+                        -- So the inline arm is offered, not assumed: assemble it,
+                        -- and keep it only if it came back on one line. Measured,
+                        -- not predicted -- and it costs no extra rendering, since
+                        -- both assemblies run over the SAME `renderFlowItems`
+                        -- output and `assembleFlow` only composes boxes. (Until
+                        -- 2026-08-21 a `commentBreaksFlowRowDeep` predicate stood
+                        -- here instead, forcing the vertical arm when a comment
+                        -- inside the condition would end its line. That is the
+                        -- subset of this that a comment causes; deleting it moved
+                        -- no byte of the corpus.)
+                        --
+                        -- Asking at all is worth doing only when a comment leads
+                        -- the condition: that is the whole of what the two
+                        -- `FlowStart`s disagree about (`nodesLeadWithComment`).
+                        condBoxFrom condItems =
+                            if forceVertical then
+                                assembleFlow FP.OwnStart 0 condItems
+
+                            else if not (nodesLeadWithComment condNodes) then
+                                assembleFlow FP.InlineStart 0 condItems
+
+                            else
+                                when assembleFlow FP.InlineStart 0 condItems is
+                                    Ok inlineBox ->
+                                        if isSingleLine inlineBox then
+                                            Ok inlineBox
+
+                                        else
+                                            assembleFlow FP.OwnStart 0 condItems
+
+                                    Err _ ->
+                                        -- The inline assembly has no rule for
+                                        -- this item after a comment; the own-line
+                                        -- one does not need one, because the item
+                                        -- no longer follows anything on its row.
+                                        -- If it fails too, its error is the one
+                                        -- worth reporting -- same items, same
+                                        -- builders.
+                                        assembleFlow FP.OwnStart 0 condItems
                     in
                     makePBox (lpnShape ifNode) (lpnChildren ifNode)
                         |> Result.andThen
                             (\ifBox ->
-                                -- Arm split: the author-broken form renders the
-                                -- condition as a standalone flow; the inline form
-                                -- continues the `if `-line, so a leading
-                                -- single-line block comment stays inline
-                                -- (`if {- c -} tertiaryBoolValue then`).
-                                (if renderVertical then
-                                    buildFlowBox 0 condNodes
-
-                                 else
-                                    buildFlowBoxInline 0 condNodes
+                                -- One render of the condition's children, from
+                                -- which `condBoxFrom` picks the arm: the
+                                -- author-broken form assembles the condition as a
+                                -- standalone flow, the inline form continues the
+                                -- `if `-line, so a leading single-line block
+                                -- comment stays inline as long as the condition
+                                -- fits (`if {- c -} tertiaryBoolValue then`).
+                                (renderFlowItems condNodes
+                                    |> Result.andThen condBoxFrom
                                 )
                                     |> Result.andThen
                                         (\condBox ->
                                             makePBox (lpnShape thenNode) (lpnChildren thenNode)
                                                 |> Result.andThen
                                                     (\thenBox ->
-                                                        if renderVertical then
+                                                        if forceVertical then
                                                             Ok (B.stack1 [ ifBox, B.indent condBox, thenBox ])
 
                                                         else
@@ -1999,7 +2036,11 @@ makeRecordUpdateVerticalBox baseBox children =
 
 
 {-| Render a `when … is` expression. Header `when <subject> is` stays inline
-unless the author broke it across rows (then `when` / subject +4 / `is`); each
+unless the author broke it across rows (then `when` / subject +4 / `is`), or a
+comment leads the subject and the header did not fit on one row — the `if`
+condition's rule one level out, and for the same reason (see `condBoxFrom`
+there): the comment holds the header's row, and the subject's real first token
+then starts below it, past where the parser measures the continuation from. Each
 branch sits at +4 (`branchNest`), blank-line separated (elm-format). -}
 makeWhenFlowBox : Bool -> Array LPNode -> Result String Box
 makeWhenFlowBox forceVertical children =
@@ -2019,29 +2060,59 @@ makeWhenFlowBox forceVertical children =
 
                         Just { rest = scrutineeNodes } ->
                             let
-                                -- Same rule as an `if` condition, for the same
-                                -- reason: `when <subject> is` is one row, and a
-                                -- comment anywhere inside the subject breaks it.
-                                -- The header had no comment-awareness at all, so
-                                -- a leading comment plus a nested row-breaking one
-                                -- hit the same unrenderable flow.
-                                renderVertical =
-                                    forceVertical || commentBreaksFlowRowDeep scrutineeNodes
+                                -- `withoutBranches` is `when` ++ subject ++ `is`,
+                                -- so the subject's own items are the middle of the
+                                -- header's. Slicing them out rather than rendering
+                                -- `scrutineeNodes` again keeps both header shapes
+                                -- on ONE render of the subject.
+                                --
+                                -- A function, not a `let` value: Gren evaluates
+                                -- a `let` binding whether or not the branch that
+                                -- uses it is taken, and two of the three below
+                                -- never are.
+                                verticalHeader hdrItems =
+                                    assembleFlow FP.OwnStart 0 (Array.slice 1 (Array.length hdrItems - 1) hdrItems)
+                                        |> Result.map
+                                            (\scrut ->
+                                                B.stack1
+                                                    [ B.line (B.keyword "when")
+                                                    , B.indent scrut
+                                                    , B.line (B.keyword "is")
+                                                    ]
+                                            )
 
-                                headerResult =
-                                    if renderVertical then
-                                        buildFlowBox 0 scrutineeNodes
-                                            |> Result.map
-                                                (\scrut ->
-                                                    B.stack1
-                                                        [ B.line (B.keyword "when")
-                                                        , B.indent scrut
-                                                        , B.line (B.keyword "is")
-                                                        ]
-                                                )
+                                headerFrom hdrItems =
+                                    if forceVertical then
+                                        verticalHeader hdrItems
+
+                                    else if not (nodesLeadWithComment scrutineeNodes) then
+                                        assembleFlow FP.OwnStart 0 hdrItems
 
                                     else
-                                        buildFlowBox 0 withoutBranches
+                                        -- The `if` condition's rule, one level
+                                        -- out: a comment leading the SUBJECT sits
+                                        -- mid-flow here (the `when` keyword is the
+                                        -- flow's first item), so it holds the
+                                        -- header's row just the same, and the
+                                        -- moment the subject stops fitting on that
+                                        -- row the header has to become the
+                                        -- three-line form. Measured, not
+                                        -- predicted; the items are already
+                                        -- rendered either way.
+                                        when assembleFlow FP.OwnStart 0 hdrItems is
+                                            Ok hdr ->
+                                                if isSingleLine hdr then
+                                                    Ok hdr
+
+                                                else
+                                                    verticalHeader hdrItems
+
+                                            Err _ ->
+                                                verticalHeader hdrItems
+
+                                headerResult =
+                                    renderFlowItems withoutBranches
+                                        |> Result.andThen headerFrom
 
                                 branchesResult =
                                     renderWhenBranchesBox (lpnChildren branchesBlock)
@@ -4074,18 +4145,26 @@ assembleFlowImpl measure flowStart flowIndent items =
                                                         -- multi-line, `UnclassifiedCarrying`, and NOT a
                                                         -- `ParenBlock`. The only boxes that are both
                                                         -- `LeafItem` (the `_ ->` in `factsFor`) and
-                                                        -- `UnclassifiedCarrying` are `IfCondition`,
-                                                        -- `WhenFlow`, and a raw `Binop` — none of which
-                                                        -- can occupy this slot: a raw `Binop` is never a
-                                                        -- flow sibling (`flattenBinopNodes` turns nested
-                                                        -- operators into `OpAndRhs`/`NestCarrying`), and a
-                                                        -- multi-line `when`/`if` operand only ever gets
-                                                        -- there by spanning source rows, which forces the
-                                                        -- binop vertical and routes it to the broken
-                                                        -- assembler (`assembleBrokenWithComments`), never
-                                                        -- this inline `SoftSep`. A `when`/`if` following an
-                                                        -- operator is wrapped `OpAndRhs` (`NestCarrying`,
-                                                        -- handled above), not a bare `SoftSep` item.
+                                                        -- `UnclassifiedCarrying` are `WhenFlow` and a raw
+                                                        -- `Binop` — neither of which can occupy this slot:
+                                                        -- a raw `Binop` is never a flow sibling
+                                                        -- (`flattenBinopNodes` turns nested operators into
+                                                        -- `OpAndRhs`/`NestCarrying`), and a multi-line
+                                                        -- `when` operand only ever gets there by spanning
+                                                        -- source rows, which forces the binop vertical and
+                                                        -- routes it to the broken assembler
+                                                        -- (`assembleBrokenWithComments`), never this inline
+                                                        -- `SoftSep`. A `when`/`if` following an operator is
+                                                        -- wrapped `OpAndRhs` (`NestCarrying`, handled
+                                                        -- above), not a bare `SoftSep` item.
+                                                        --
+                                                        -- `IfCondition` WAS on that list and was not
+                                                        -- unreachable: an `if` is a flat run of flow
+                                                        -- siblings, so a comment leading it (rule C2 on a
+                                                        -- `,` — `[ 1 {- k -}, if ⏎ cond ⏎ then … ]`) makes
+                                                        -- the author-broken header a non-first soft-glue
+                                                        -- item with no operator wrapper in sight. It is
+                                                        -- `NestCarrying` now (2026-08-21).
                                                         Err "unreachable: multi-line non-paren unclassified soft-glue item"
 
                 FP.OwnLine ->

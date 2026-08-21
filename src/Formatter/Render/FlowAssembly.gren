@@ -644,10 +644,34 @@ lines land per the item's own alignment):
     line by the prefix's exact width — matching the align anchor.
   - `NestCarrying` — nested relative to the flow's base, not the glue column:
     `AcrossOrVertical` (the flow fold / broken call at +grenIndent), `OpAndRhs`
-    / `Glue` / `PrefixGlue` (inline flows at +0), and pipelines (steps at
-    +grenIndent). Glue first-line-only: the continuation lines already carry the
-    item's own indent relative to the flow base, which the flow's final
-    `applyIndent flowIndent` (its outer nest) completes.
+    / `Glue` / `PrefixGlue` (inline flows at +0), pipelines (steps at
+    +grenIndent), and the two block headers `IfCondition` / `WhenFlow`, each of
+    which stacks its own body under itself with `B.indent`. Glue
+    first-line-only: the continuation lines already carry the item's own indent
+    relative to the flow base, which the flow's final `applyIndent flowIndent`
+    (its outer nest) completes.
+
+    The two block headers were `UnclassifiedCarrying` until 2026-08-21, on the
+    argument that a multi-line `if`/`when` can only ever follow an OPERATOR,
+    where it arrives wrapped in an `OpAndRhs`. A LEADING COMMENT needs no
+    operator: rule C2 hands a `{- c -}` written across a `,` to the item that
+    follows, and an `if` is a flat run of flow siblings, so the comment lands in
+    front of a bare multi-line `IfCondition` (`[ 0 {- c -}, if ⏎ cond ⏎ then …
+    ]`). The comment does it inside an `OpAndRhs` too, which is how a `when`
+    reached the slot the wrapper was supposed to keep it out of
+    (`a + {- c -} when y is …`). Both refused the file.
+
+    A raw `Binop` — the third name on that list — stays `UnclassifiedCarrying`,
+    and deliberately: the only shapes that reached the slot with one
+    (`if {- c -} a ⏎ + b then`, `when {- c -} a ⏎ + b is`) were a leading comment
+    on a header's own multi-line condition/subject, and gluing the comment onto
+    the chain's first line is not the layout they want — it leaves the comment
+    holding the condition's row, which the parser then measures the continuation
+    indent from. Those two headers now go vertical when their content does not
+    fit on the header row (`condBoxFrom` in `makeIfConditionBox`, `headerFrom`
+    in `makeWhenFlowBox`), which puts the comment on its own row; with that in
+    place a bare multi-line `Binop` really is unreachable here. Adding the entry
+    anyway trades the crash for an oscillation — see `docs/llm/attic.md`.
   - `UnclassifiedCarrying` — everything else must stay an `Err` fallback:
     guessing produces a Box-only layout, the exact divergence class the
     shared FlowPolicy core exists to prevent.
@@ -737,6 +761,17 @@ softGlueAlignmentByType node =
             NestCarrying
 
         Pipeline _ ->
+            NestCarrying
+
+        IfCondition _ ->
+            -- `stack1 [ if, B.indent cond, then ]` in the author-broken arm:
+            -- the condition one `Tab` from the header's own base and `then`
+            -- back at it — a nest, like the broken call above.
+            NestCarrying
+
+        WhenFlow _ ->
+            -- `stack1 [ header, B.indent branches ]`, the same nest one level
+            -- up: the branches hang off the `when`'s own base.
             NestCarrying
 
         _ ->

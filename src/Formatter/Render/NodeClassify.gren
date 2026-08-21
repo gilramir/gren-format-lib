@@ -1,6 +1,5 @@
 module Formatter.Render.NodeClassify exposing
     ( commentBreaksFlowRow
-    , commentBreaksFlowRowDeep
     , commentEndsItsLine
     , commentTextCanRide
     , fieldValueDropsToOwnLine
@@ -21,6 +20,7 @@ module Formatter.Render.NodeClassify exposing
     , leafValue
     , literalCommentsRideFlatLine
     , nodeIsComment
+    , nodesLeadWithComment
     , parenContentIsLambdaHead
     , rowsSpanMultiple
     , signatureForceVertical
@@ -58,6 +58,24 @@ import Formatter.Render.Box as B
 nodeIsComment : LPNode -> Bool
 nodeIsComment node =
     shapeIsComment (lpnShape node)
+
+
+{-| True when a flow's first node is a comment — the one arrangement under which
+a flow's `FlowStart` changes its box at all. `InlineStart` keeps such a comment
+on the line the caller has already begun, `OwnStart` drops it to its own; with
+any other first node the two assemblies produce the same box, so the caller has
+nothing to choose between.
+
+Structural: reads the first child's shape, no rows and no rendered text.
+-}
+nodesLeadWithComment : Array LPNode -> Bool
+nodesLeadWithComment nodes =
+    when Array.first nodes is
+        Just first ->
+            nodeIsComment first
+
+        Nothing ->
+            False
 
 
 -- True when `node` or any descendant is a comment. Used to route a
@@ -180,57 +198,6 @@ commentBreaksFlowRow children =
                 { broke = acc.broke || acc.pending, pending = False }
     in
     (Array.foldl step { broke = False, pending = False } children).broke
-
-
-{-| `commentBreaksFlowRow`, asked of the whole SUBTREE rather than of one row of
-siblings: does any comment anywhere under these nodes push a later token onto a
-new row?
-
-The shallow version answers for a flow whose own `forceVertical` it is keeping
-honest, and a nested flow keeps its own. An `if`/`when` HEADER is the case where
-that is not enough: `if <cond> then` is one row spanning the condition and
-everything inside it, so a comment nested one level down — in the condition's
-call, or in its binop chain — decides the header's shape just as much as one
-written directly between the header's own tokens. Asked shallowly, the header
-committed to the inline arm and then could not honour it:
-
-    if {-c-} a {- x       ->  Err "unreachable: multi-line non-paren
-             y -} > 0 then     unclassified soft-glue item"
-
-    if {-c-} f a {- x     ->  formats, but the output does not reparse: the
-              y -} b then      leading comment holds the condition's first
-                               row, so the parser measures the continuation
-                               indent from `f` and reads `b` as a dedent
-
-Both need a LEADING comment as well, which is the whole of what the two arms
-disagree about — with no leading comment the inline and vertical builds of a
-condition are the same box, so nothing outside that pair changes shape.
-
-Walks children depth-first, which is token order, and applies the same rule at
-every level: this is a question about rows, and a row does not care how deeply
-nested the comment sitting in it is. -}
-commentBreaksFlowRowDeep : Array LPNode -> Bool
-commentBreaksFlowRowDeep children =
-    commentBreaksFlowRow (flattenFlowTokens children)
-
-
-{-| Every node of a subtree in depth-first (token) order, with each container
-replaced by its children. Comments and leaves have no children and stand for
-themselves. -}
-flattenFlowTokens : Array LPNode -> Array LPNode
-flattenFlowTokens children =
-    Array.flatten
-        (Array.map
-            (\node ->
-                when lpnChildren node is
-                    [] ->
-                        [ node ]
-
-                    kids ->
-                        flattenFlowTokens kids
-            )
-            children
-        )
 
 
 {-| True when every comment among a bracketed literal's direct children can ride

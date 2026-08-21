@@ -1,0 +1,130 @@
+module SeparatorCommentBeforeIfItem exposing (..)
+
+-- A `{- c -}` written across a bracket's `,` leads the item that FOLLOWS (rule
+-- C2), and rides that separator's row. When the item is an author-broken `if`,
+-- that used to refuse the whole file.
+--
+-- An `if` is not one node: it is a flat run of flow siblings (the `IfCondition`
+-- header, the branch bodies, the `else`). So the comment lands in front of the
+-- HEADER, which puts a multi-line `IfCondition` in a non-first soft-glue slot --
+-- a slot `softGlueAlignment` had listed as unreachable, on the argument that a
+-- multi-line `if` can only ever follow an operator, where it arrives wrapped in
+-- an `OpAndRhs`. A leading comment needs no operator. The header is
+-- `NestCarrying`: its vertical arm stacks `if` / cond+Tab / `then` around its
+-- own base, exactly as a broken call does, so the comment glues onto the first
+-- line and the condition and `then` stay where the author's `if` put them.
+--
+-- The same table entry covers `WhenFlow`, which stacks its branches under its
+-- own header the same way. A `when` is ONE node, so no bracket can put it in
+-- this slot -- but an operator's own flow can, which is the slot the `OpAndRhs`
+-- wrapper was supposed to make impossible. `whenAfterOperatorComment` is that
+-- one; the fuzzrun never reached it.
+--
+-- Found by the 2026-08-21 fuzzrun (seeds 10272479 and 10273327, both this one
+-- shape).
+
+
+brokenIfAfterSeparatorComment =
+    [ 0
+    , {- c -} if
+        item
+      then
+        0
+
+      else
+        1
+    ]
+
+
+-- THE TWIN that always worked: a single-line condition renders the header on one
+-- line, so the item never reaches the multi-line arm at all.
+
+
+inlineIfTwin =
+    [ 0
+    , {- c -} if item then
+        0
+
+      else
+        1
+    ]
+
+
+-- THE `--` TWIN: a line comment ends its own row, so the header starts a fresh
+-- line and joins through `IndentNoBreak` rather than the soft glue.
+
+
+lineCommentTwin =
+    [ 0
+    , -- c
+      if
+        item
+      then
+        0
+
+      else
+        1
+    ]
+
+
+-- THE OPENER SLOT: at the `[` the comment leads the first item, which is a
+-- different slot -- the comment stands on its own row there.
+
+
+openerTwin =
+    [ {- c -}
+      if
+        item
+      then
+        0
+
+      else
+        1
+    ]
+
+
+-- THE SHAPE NEXT DOOR: a `when` is a single node, so it was never in this slot;
+-- it glues after the comment as any other multi-line item does.
+
+
+whenTwin =
+    [ 0
+    , {- c -} when x is
+        _ ->
+            0
+    ]
+
+
+-- THE OPERATOR SLOT: a comment leading the `when` inside an `OpAndRhs`. The
+-- wrapper is what the alignment table's unreachability argument rested on, and
+-- a comment walks straight past it.
+
+
+whenAfterOperatorComment =
+    a
+        + {- c -} when y is
+            _ ->
+                0
+
+
+-- The same, written flat.
+
+
+whenAfterOperatorCommentFlat =
+    a + {- c -} when y is
+        _ ->
+            0
+
+
+-- An author-broken `when` HEADER in the bracket slot: the header's own vertical
+-- arm, glued after the comment.
+
+
+brokenWhenAfterSeparatorComment =
+    [ 0
+    , {- c -} when
+        y
+      is
+        _ ->
+            0
+    ]

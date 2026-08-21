@@ -191,6 +191,36 @@ table now lives under divergence #10 with no exceptions in it, and the
 current docs sees a rule with no exceptions and no trace that an exception was
 ever tried.
 
+### `Binop` as a `NestCarrying` soft-glue item, to stop a header crash
+
+**The bug.** `softGlueAlignment`'s table listed `IfCondition`, `WhenFlow` and a
+raw `Binop` as `UnclassifiedCarrying` — "cannot occupy a non-first soft-glue
+slot" — on the argument that a multi-line `if`/`when`/chain can only ever follow
+an OPERATOR, where it arrives wrapped in an `OpAndRhs`. A LEADING COMMENT needs
+no operator, and all three were reachable: `[ 0 {- c -}, if ⏎ cond ⏎ then … ]`,
+`a + {- c -} when y is …`, and `if {- c -} a ⏎ + b then`. Each refused the file
+with "unreachable: multi-line non-paren unclassified soft-glue item".
+
+**What was tried.** All three added to the table as `NestCarrying`, which is
+what each box's shape says they are. The first two are right and shipped
+(2026-08-21). The third turned a crash into an OSCILLATION: the only shapes that
+reach the slot with a raw `Binop` are a header's own condition/subject
+(`if {- c -} a ⏎ + b then`), and gluing the comment onto the chain's first line
+leaves it holding the condition's row — so the enclosing header stacks it, the
+comment becomes line-leading on reparse, its role changes, and the second format
+moves it. Measured, not reasoned: `--show` reported the two passes differing.
+
+**What was done instead.** The two headers now render vertical when their
+content does not fit on the header row (`condBoxFrom` in `makeIfConditionBox`,
+`headerFrom` in `makeWhenFlowBox`), which puts the comment on its own row where
+the output reparses. With that in place a bare multi-line `Binop` really is
+unreachable in the slot, so the table entry was never needed — the third name
+stays `UnclassifiedCarrying` and the table's docstring says why.
+
+**The cost line.** A crash and an oscillation are not interchangeable. Silencing
+the crash was one line and looked like progress; it moved the failure to a gate
+that ran later and would have read as a regression from an unrelated change.
+
 ---
 
 ## Deferred, with the measurement

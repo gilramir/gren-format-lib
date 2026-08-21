@@ -1,16 +1,23 @@
-module HeaderNestedBreakingComment exposing (byCall, byParen, byWhen, midChain)
+module HeaderNestedBreakingComment exposing (..)
 
--- `if <cond> then` and `when <subject> is` are each ONE row spanning the whole
--- condition, so a comment nested inside the condition's call or binop chain
--- settles the header's shape just as a comment between the header's own tokens
--- does. The scan that kept the header honest looked only at the condition's
--- direct children, so a LEADING comment plus a nested row-breaking one took the
--- inline arm and then could not honour it: the binop form hit the flow
--- assembler's "unreachable multi-line non-paren unclassified soft-glue item"
--- and refused the file, and the call form formatted but left the leading
--- comment holding the condition's first row -- which made the parser measure
--- the continuation indent from the first real token, so the output would not
--- reparse.
+-- A comment leading an `if` condition or a `when` subject may hold that row
+-- only while the condition FITS on it. The moment it does not, the row belongs
+-- to the comment and the condition's real first token starts BELOW it, indented
+-- past where the parser measures the continuation from: the call form formats
+-- into output that will not reparse (`b` reads as a dedent from `f`), and the
+-- binop form hits the flow assembler's "unreachable multi-line non-paren
+-- unclassified soft-glue item" and refuses the file outright.
+--
+-- The header therefore OFFERS the inline arm rather than assuming it: assemble
+-- it, keep it only if it came back on one line, else fall to `if` / condition
+-- +4 / `then`, where the comment stands on its own row. Measured, not
+-- predicted, and free -- both assemblies run over one `renderFlowItems` pass.
+--
+-- The first four declarations reach it through a NESTED row-breaking comment;
+-- until 2026-08-21 a `commentBreaksFlowRowDeep` scan predicted exactly those.
+-- The rest reach it through the author's own row break, which no comment scan
+-- can see, and were still broken after it. `stillInline` is the boundary the
+-- rule must not cross.
 byCall : (Int -> Int -> Int) -> Int -> Int -> Int
 byCall f a b =
     if {-c-} f a {- x
@@ -50,3 +57,81 @@ byWhen a =
 
         False ->
             0
+
+
+-- THE AUTHOR'S OWN BREAK, which no comment scan sees. A call condition: this is
+-- the shape that formatted into output no parser would take back.
+
+
+authorBrokenCall : (Int -> Int) -> Int
+authorBrokenCall f =
+    if {- c -} f
+        0
+    then
+        1
+
+    else
+        0
+
+
+-- The binop spelling of the same thing -- the one that refused the file.
+
+
+authorBrokenBinop : Int -> Int
+authorBrokenBinop a =
+    if {- c -} a
+        > 0
+    then
+        1
+
+    else
+        0
+
+
+-- A condition that breaks because its own CONTENT is a broken literal, with
+-- nothing comment-shaped about the break at all.
+
+
+authorBrokenLiteral : Array Int -> Int
+authorBrokenLiteral xs =
+    if {- c -} [ 1
+               , 2
+               ]
+        == xs
+    then
+        1
+
+    else
+        0
+
+
+-- The `when` subject, one level out: the comment sits mid-flow there (the
+-- `when` keyword is the header flow's first item) and holds the row just the
+-- same.
+
+
+authorBrokenWhenSubject : Int -> Int
+authorBrokenWhenSubject a =
+    when {- c -} a
+        > 0
+    is
+        True ->
+            1
+
+        False ->
+            0
+
+
+-- THE BOUNDARY: a condition that fits keeps the comment on the header's row.
+-- Breaking these would be the regression this rule is one measurement away from.
+
+
+stillInline : Int -> Int
+stillInline x =
+    if {- c -} x > 0 then
+        when {- c -} x is
+            _ ->
+                1
+
+    else
+        0
