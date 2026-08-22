@@ -3,12 +3,12 @@ module Formatter.Render.NodeClassify exposing
     , commentEndsItsLine
     , commentTextCanRide
     , fieldValueDropsToOwnLine
-    , isColonLeaf
-    , isDroppingSignatureRecordNode
+    , isBackwardContinuation
     , isBareBlockOperand
     , isBareLambdaOperand
+    , isColonLeaf
+    , isDroppingSignatureRecordNode
     , isEmptyLine
-    , isBackwardContinuation
     , isGluedLambdaField
     , isMultilineLambdaParenBlockBox
     , isOpAndRhsNode

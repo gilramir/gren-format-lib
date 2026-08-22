@@ -30,11 +30,11 @@ import Formatter.Render.Box as B exposing (Box(..))
 import Formatter.Render.BoxOps exposing
     ( applyIndent
     , boxLine
-    , joinInline
     , glueCommentSuffix
     , glueLeadingCommentPrefix
     , grenIndent
     , isSingleLine
+    , joinInline
     )
 import Formatter.Render.CommentBox exposing
     ( commentNodeBox
@@ -380,7 +380,6 @@ makeBackwardPipelineBox renderers forceVertical children =
                                                                 leading
                                                         , glued = split.glued
                                                         , rest = split.rest
-
                                                         -- The author's break INSIDE this step,
                                                         -- which the step carries because the
                                                         -- call node that recorded it is
@@ -813,7 +812,6 @@ backwardPlainBody renderers forceVertical seedBox leadGlued glueForcesBreak opLi
                         )
                         (stepLeadBoxes leadGlued seedBox)
             )
-
 
 
 {-| Render a `<|` step body: a body that is a call with a child that renders

@@ -2879,7 +2879,7 @@ prevBlockGlueRow commentIsMultiline node =
             if info.forceVertical || parenContentAlwaysBreaks node then
                 lastRenderedRow node
 
-            else
+            else if
                 -- A single-line paren still CLOSES, and its `)` is a token a
                 -- same-row comment can glue onto. The flow arm above already
                 -- answers exactly that for the identical shape one level up:
@@ -2908,11 +2908,12 @@ prevBlockGlueRow commentIsMultiline node =
                 -- deliberate answer `PipelineComments` pins -- it moves to the
                 -- STEP's column, the one place a reparse can read it back as the
                 -- same comment.
-                if commentIsMultiline then
-                    -1
+                commentIsMultiline
+            then
+                -1
 
-                else
-                    bracketClosingRow node
+            else
+                bracketClosingRow node
 
         AllAcrossOrAllVertical ListParen ->
             if bracketRendersMultiline node || commentIsMultiline then
