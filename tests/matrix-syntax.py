@@ -1290,10 +1290,13 @@ def has_no_elm_twin(elm_source, base_source):
         valid Elm counterpart at all, so there is nothing for `to_elm` to fix and
         no elm-format output that could exist to compare against.
 
-    The whole class here is one difference: **gren lets a declaration start in
-    any column and Elm requires column 1.** Splicing a comment in front of a
-    declaration's name pushes the name right, and gren keeps a comment on the row
-    the author wrote it on, so the name stays there:
+    The whole class here is one difference: **`compiler-common` lets a
+    declaration start in any column, where Elm requires column 1.** It is an
+    upstream parser bug, not a language difference -- the real Gren compiler
+    requires column 1 too (compiler-common#37), so these cells retire when it is
+    fixed. Splicing a comment in front of a declaration's name pushes the name
+    right, and gren keeps a comment on the row the author wrote it on, so the
+    name stays there:
 
         foo : a
         {- ¤ -} foo =      gren: parses, formats, is a fixed point
@@ -1751,7 +1754,8 @@ def report_comment_parity(results, baseline, update, verbose=False, base_pairs=N
         shapes = collections.Counter(f'{r["kind"]}.{r["position"]} in {r["context"]}'
                                      for r in no_twin)
         print(f"  {len(no_twin)} cells have NO ELM TWIN -- oracle 4 skipped, not a failure.\n"
-              f"     gren lets a declaration start in any column; Elm requires column 1, and\n"
+              f"     compiler-common lets a declaration start in any column; Elm requires\n"
+              f"     column 1, and so does the real Gren compiler (compiler-common#37). And\n"
               f"     gren keeps a comment on the row it was written on, so the name stays\n"
               f"     right of it. Elm's parser refuses the program, so no elm-format output\n"
               f"     exists to compare against. Oracles 1-3 still ran on all {len(no_twin)}.\n"

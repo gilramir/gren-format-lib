@@ -14,6 +14,7 @@ nothing is going wrong.
 - [A continuation line at the same column as the body above it](#a-continuation-line-at-the-same-column-as-the-body-above-it)
   - [At the top level it rewrites the file instead of refusing it](#at-the-top-level-it-rewrites-the-file-instead-of-refusing-it)
   - [The same misparse reached by a comment, where the columns are not equal](#the-same-misparse-reached-by-a-comment-where-the-columns-are-not-equal)
+- [A declaration that doesn't start in column 1 is accepted](#a-declaration-that-doesnt-start-in-column-1-is-accepted)
 - [Output today's compiler rejects, that the next one will accept](#output-todays-compiler-rejects-that-the-next-one-will-accept)
 - [A binary `-` whose right operand starts at the operator's own column](#a-binary---whose-right-operand-starts-at-the-operators-own-column)
 - [An integer literal just below 2^53 is silently rewritten](#an-integer-literal-just-below-253-is-silently-rewritten)
@@ -128,10 +129,17 @@ section.
 Both failure modes above are loud: you either get a parse error or a file that
 still means what you wrote. There is a third, and it is neither. When the
 stranded token sits at the **top level** of a declaration's body, the enclosing
-scope that absorbs it is the *module*, and a module can start a declaration in
-any column ([elm-format comparison
-#31](elmFormatComparison.md#divergence-31)). So the parser takes the stray row
-for the **head of a new declaration** and reads forward until it finds an `=`.
+scope that absorbs it is the *module* — and `compiler-common` lets a declaration
+head start in any column, where both the real Gren compiler and Elm require
+column 1
+([compiler-common#37](https://github.com/gren-lang/compiler-common/issues/37),
+[elm-format comparison #31](elmFormatComparison.md#divergence-31)). So the parser
+takes the stray row for the **head of a new declaration** and reads forward until
+it finds an `=`.
+
+It therefore takes **two** upstream bugs to get here, and fixing either one is
+enough to remove this outcome: #14 ends the body early at the stray row, and #37
+turns that stranded row into a declaration instead of an error.
 
 ```gren
 init env =
@@ -227,6 +235,91 @@ The full write-up, with both `--pre-ast` dumps and the `gren make` type error
 that pins down the real compiler's reading, is in
 `gren-format/parser-same-column-continuation-bug.md`, and on
 compiler-common#14.
+
+## A declaration that doesn't start in column 1 is accepted
+
+A top-level declaration must begin in column 1. Elm requires it, and so does the
+real Gren compiler — `chompDecls` guards every declaration with
+`Space.checkFreshLine E.DeclStart`, which is literally `col == 1`.
+`compiler-common` does not: its `declarationLoopParser` loops `Declaration.parser`
+with no column test at all, so a declaration head that starts anywhere is read as
+a declaration. Tracked at
+[compiler-common#37](https://github.com/gren-lang/compiler-common/issues/37).
+
+Whether an off-column head is *reached* is not itself a column rule: the
+declaration above it absorbs the name as an application argument whenever it can,
+and what ends that declaration is its body's own indent scoping. So the shape is
+fiddly to write on purpose and does not turn up by accident.
+
+It costs two different things depending on whether a comment is involved.
+
+**Without a comment, gren-format quietly repairs the file.** The names normalize
+back to column 1, and the output compiles:
+
+```gren
+-- you write (rejected by gren 0.6.6):    -- gren-format writes (compiles):
+one =                                     one =
+    1                                         1
+
+
+a =                                       a =
+            one                               one
+
+
+        b =                               b =
+    2                                         2
+```
+
+That is benign in itself, but it means `gren-format --show` exiting 0 is **not**
+evidence that the file you handed it would build. Nothing in the pipeline asks
+the real compiler.
+
+**With a comment in front of the name, the output is refused too.** Because
+gren-format never moves a comment off the row it was written on
+([C7](commentHandling.md#c7--comments-written-together-stay-together-comments-written-apart-stay-apart)),
+the name stays right of the comment in the output, so the off-column head
+survives formatting:
+
+```gren
+module M exposing (foo)
+
+
+{- lead -} foo =
+    1
+```
+
+is a fixed point — gren-format formats it to itself, exit 0 — and gren 0.6.6
+refuses both the input and that output:
+
+```
+-- SYNTAX PROBLEM --------------------------------------------------- src/M.gren
+
+I got stuck here:
+
+4| {- lead -} foo =
+              ^
+```
+
+**This is not the same class as [the section
+below](#output-todays-compiler-rejects-that-the-next-one-will-accept).** There,
+`compiler-common` is *deliberately* more permissive and the formatted output
+becomes correct when the new compiler ships. Here the permissiveness is a bug,
+and the fix goes the other way: #37 will make `compiler-common` reject these
+files too, at which point this entry retires rather than becoming the spec.
+
+It also has a second, worse consequence in combination with
+[compiler-common#14](https://github.com/gren-lang/compiler-common/issues/14) —
+see [At the top level it rewrites the file instead of refusing
+it](#at-the-top-level-it-rewrites-the-file-instead-of-refusing-it), where a
+stray row of a mis-scoped body becomes a declaration nobody wrote. Fixing either
+bug removes that outcome.
+
+The elm-format side of the same fact is
+[divergence #31](elmFormatComparison.md#divergence-31), which is the one
+catalogue entry that is a bug rather than a decision.
+
+Workaround: start declarations in column 1, and give a comment above a
+declaration a row of its own — `-- lead` ⏎ `foo =` formats and compiles.
 
 ## Output today's compiler rejects, that the next one will accept
 
