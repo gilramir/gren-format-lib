@@ -864,7 +864,7 @@ rather than the value the chain produces? A continuation is a lambda handed
 chain's base column; every other body starts at base + 4.
 
 The three cases the Gren lead settled all fall out of asking exactly that, of
-the body's **top node** (`docs/settledDecisions.md` §5):
+the body's **top node** (`docs/settledDecisions.md`, "Which bodies are continuations"):
 
   - a multi-step run (`withRetries 3 <| Task.mapError toReport <| \a -> …`) is
     not one, because the lambda is not handed to the seed — **Case 1**, +4;

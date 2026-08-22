@@ -7,7 +7,7 @@ converting the Gren code to Elm, ran them through
 `elm-format` and catalogued every divergence. This is the full catalogue.
 [Divergence #10](#divergence-10) — redundant parens — is the one that shows up
 most on real code, and it is a
-[settled decision](settledDecisions.md#redundant-parens-are-never-stripped)
+[settled decision](settledDecisions.md#sd4-redundant-parens-are-never-stripped)
 rather than a gap.
 
 Before the specific findings, it helps to see how alike the two tools are
@@ -482,7 +482,7 @@ if it stops being — an entry with no fixture, or a fixture with no entry.
     exceptions**: every row keeps exactly what was written, at every nesting
     depth and in every position, including call arguments.
 
-    Keeping them is a [settled decision](settledDecisions.md#redundant-parens-are-never-stripped),
+    Keeping them is a [settled decision](settledDecisions.md#sd4-redundant-parens-are-never-stripped),
     not a gap. See also [Function application](formatterRules.md#function-application).
 
 11. <a id="divergence-11"></a>**Doc-comment body contents** elm-format reaches *inside*
@@ -1961,7 +1961,7 @@ if it stops being — an entry with no fixture, or a fixture with no entry.
 
     Why each went the way it did — and one sub-case, what happens *inside* a
     multi-step run — is in
-    [`settledDecisions.md`](settledDecisions.md#5-which-bodies-are-continuations).
+    [`settledDecisions.md`](settledDecisions.md#which-bodies-are-continuations).
 
     Note what R2 emits: a token at exactly the column of the row above it, which
     is the shape family of

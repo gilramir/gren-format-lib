@@ -1964,7 +1964,7 @@ multilineSeed =
 This is [divergence #33](elmFormatComparison.md#divergence-33) — `elm-format`
 staircases every one of these. The full statement, and which bodies count as
 continuations, is in
-[`settledDecisions.md`](settledDecisions.md#a-lambda-after--keeps-its-head-on-the-operators-row).
+[`settledDecisions.md`](settledDecisions.md#sd5-a-lambda-after--keeps-its-head-on-the-operators-row).
 
 A comment just before a `|>` step travels with that step:
 

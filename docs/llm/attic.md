@@ -170,7 +170,7 @@ positional call-argument slot can never make parens load-bearing, so stripping
 there is provably meaning-preserving, which is exactly what elm-format relies
 on. That reasoning is correct and it is not the reason the code was removed.
 Keeping every paren in *every* position is a
-[settled decision](../settledDecisions.md#redundant-parens-are-never-stripped);
+[settled decision](../settledDecisions.md#sd4-redundant-parens-are-never-stripped);
 consistency across positions is the rule, and being more explicit than
 elm-format is [divergence #10](../elmFormatComparison.md#divergence-10), not a
 gap to close.

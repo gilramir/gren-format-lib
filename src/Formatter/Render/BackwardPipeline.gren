@@ -594,9 +594,10 @@ Where the body then goes is R2, and there are three answers, one per row of the
 `when` below:
 
   - **on the head's row**, when the author put it there and it renders on one
-    row. That is the one-row lambda `docs/settledDecisions.md` §4 exempts, and
-    the author's choice is the only thing that decides it — R1 never pulls a
-    body up onto the `->` row, and never pushes one off it.
+    row. That is the one-row lambda `docs/settledDecisions.md` exempts under
+    "One-row lambdas", and the author's choice is the only thing that decides
+    it — R1 never pulls a body up onto the `->` row, and never pushes one off
+    it.
   - **at the base column**, when the body is itself the next step of the chain
     (`isBackwardContinuation`). This is the flattening: *n* continuations become
     *n* rows at one column.
