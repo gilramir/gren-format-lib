@@ -18,6 +18,7 @@ code, and why the places they *don't* look the way they do.
 
 - [The idea both formatters share](#the-idea-both-formatters-share)
 - [The one way they actually differ](#the-one-way-they-actually-differ)
+- [Line endings: both normalize to LF](#line-endings-both-normalize-to-lf)
 - [Divergence catalogue](#divergence-catalogue)
   - [#1 Blank lines: comment- vs declaration-attached](#divergence-1)
   - [#2 Multi-line block comment's closing `-}`](#divergence-2)
@@ -85,6 +86,71 @@ running it twice must produce byte-for-byte identical output (see
 comments never leave the spot they were parsed into. The upside of
 gren-format's choice is that it always agrees with the real language — it can
 never drift from what the compiler actually accepts.
+
+## Line endings: both normalize to LF
+
+`gren-format` rewrites CRLF line endings to LF, even where the author wrote
+CRLF. This is not a divergence: it is what `elm-format` has always done, and
+the two agree on every part of it. Neither tool has a flag to preserve the
+author's line endings.
+
+**Both accept CRLF on input.** elm-format's newline parser takes either form
+(`elm-format-lib/src/Parse/Whitespace.hs`):
+
+```haskell
+simpleNewline =
+  do  _ <- try (string "\r\n") <|> string "\n"
+```
+
+and its string-literal scanner special-cases a `0x0D` followed by a newline
+separately, in both the single-quoted and the triple-quoted reader
+(`elm-format-lib/src/Parse/String.hs`), so a CRLF *inside* a literal is
+consumed as one newline as well — the 0.6.0-alpha changelog entry "For Windows, CRLF
+newlines no longer corrupt literal strings". gren-format gets there a different
+way: it normalizes once at the read boundary (`Format.normalizeLineEndings`,
+called from both places a source string enters the tool) rather than teaching
+each construct about `\r`. The result is the same, multiline strings included.
+
+**Both write LF, unconditionally.** elm-format's renderer emits `'\n'`
+(`render` in `elm-format-lib/src/Box.hs`), and its writers are byte-oriented,
+so the Haskell runtime does no newline translation of its own even on Windows:
+
+```haskell
+writeUtf8File path content = writeFileBS path $ encodeUtf8 content
+writeStdout content = liftIO $ putBS $ encodeUtf8 content
+```
+
+**A bare CR is not a line ending in either tool.** Classic-Mac `\r`-only files
+are a parse error on both sides. elm-format is explicit about it: its parser
+advances the column, not the row, on a `\r`
+(`elm-format-lib/src/Parse/ParsecAdapter.hs`), following parsec's actual
+behaviour rather than parsec's documentation. Gren's parser does the same, so
+a `\r`-only file reads as one enormous line and fails.
+
+**A CRLF-but-otherwise-formatted file counts as unformatted in both.** This is
+the consequence worth stating, because it is the one a caller can get wrong.
+Take a file that is byte-identical to the formatter's output except that its
+lines end in CRLF:
+
+- `elm-format --validate` reports `File is not formatted with elm-format` and
+  exits 1; `elm-format --yes` rewrites it to LF.
+- `gren-format` rewrites it too, and `gren-format --diff` reports it — with an
+  empty line diff, so it names the reason on a `\ ` note line instead:
+  `\ Only the line endings differ (CRLF becomes LF).`
+
+gren-format asks that question of the **raw** bytes read from disk, never of
+the normalized text (`Format.isAlreadyFormatted`). Comparing normalized text
+against formatted output makes such a file equal to its own output, so it is
+declared already-formatted and keeps its `\r`s forever — which is exactly what
+the path-argument mode did until the read boundary started returning both the
+raw and the normalized form.
+
+Line endings are therefore the one piece of the author's whitespace that
+gren-format does not preserve. Everything else about how the code was written
+is layout the formatter honours; see
+[The idea both formatters share](#the-idea-both-formatters-share), and
+[#9](#divergence-9) for the separate question of what a *literal's* spelling is
+allowed to be normalized to.
 
 ## Divergence catalogue
 
