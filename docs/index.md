@@ -253,6 +253,7 @@ packages that affect the output of `gren-format`.
 * [compiler-common#34 - Expand the recording of the original string for some literals
 ](https://github.com/gren-lang/compiler-common/issues/34)
 * [compiler-common#35 - A binops minus sign ("-") split across rows is parsed as negation when the right operand happens to start at the column immediately after the minus sign](https://github.com/gren-lang/compiler-common/issues/35)
+* [compiler-common#37 - A top-level declaration is accepted at any column; the Haskell-based compiler requires column 1](https://github.com/gren-lang/compiler-common/issues/37)
 * [core#134 - String.toInt returns the wrong value for 24 exactly-representable integers near 2^53
  ](https://github.com/gren-lang/core/issues/134)
 
