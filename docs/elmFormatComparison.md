@@ -52,7 +52,7 @@ code, and why the places they *don't* look the way they do.
   - [#31 A declaration that doesn't start in column 1](#divergence-31)
   - [#32 A lambda head broken across rows keeps its `->`](#divergence-32)
   - [#33 A lambda after `<|` keeps its head on the operator's row](#divergence-33)
-  - [#34 A bare operand after `|>` glues; elm-format adds parentheses](#divergence-34)
+  - [#34 A bare operand after `|>` keeps its head; elm-format adds parens](#divergence-34)
 - [Out of scope for comparison](#out-of-scope-for-comparison)
 
 
@@ -1723,13 +1723,14 @@ if it stops being — an entry with no fixture, or a fixture with no entry.
 
 33. <a id="divergence-33"></a>**A lambda after `<|` keeps its head on the
     operator's row, and a chain of them sits at one column; elm-format builds a
-    staircase.** Three rules, all gren's alone. **R1**: when the right-hand
-    operand of `<|` is a lambda, the `\`, its parameters and the `->` stay on the
-    `<|`'s row, and only the body moves. **R2**: a body that is itself another
-    `… <| \… ->` starts at the *same* column as the row above it; any other body
-    starts at +4. **R3**: the body that closes a chain always takes a row of its
-    own, even where you wrote it on the `->` row. Together they turn a chain of
-    *n* continuations into *n* rows at one column, closed by a body at +4.
+    staircase.** Gren-format uses 3 rules here. **R1**: when the right-hand
+    operand of `<|` is a lambda, the lambda's *head* — the `\`, its parameters
+    and the `->` — stays on the `<|`'s row, and only the body moves. **R2**: a
+    body that is itself another `… <| \… ->` starts at the *same* column as the
+    row above it; any other body starts at +4. **R3**: the body that finishes a
+    chain always takes a row of its own, even where you wrote it on the `->` row.
+    Together they turn a chain of *n* continuations into *n* rows at one column,
+    closed by a body at +4.
 
     ```gren
     -- you write (and this is also what gren-format gives back):
@@ -1752,41 +1753,58 @@ if it stops being — an entry with no fixture, or a fixture with no entry.
                                 done fsPermission cpPermission httpPermission
     ```
 
-    The staircase is not wrong — it is exactly the nesting the code has, `<|`
+    The staircase form shows the nesting the code has, `<|`
     being right-associative with a lambda swallowing everything to its right. It
     is that every step costs eight columns and the depth is unbounded:
-    `compiler/src/Main.gren`'s six-step opener puts its `let` at column 52.
+    `compiler/src/Main.gren`'s six-step opener would put its`let` at column 52.
+    Gren chooses the aligned form instead.
 
-    **Why gren parts company here.** `Task.await`'s own doc comment in
-    `core/src/Task.gren` teaches this shape, and `Task.await` / `Init.await`
-    exist for it. It is also the majority spelling in real Gren code: across the
-    45 published packages in `gren-format-preview`, read at `git HEAD` so the
-    numbers are what authors *wrote*, the flat spelling wins 1790 sites to 745 —
-    and the choice is per package, packages being internally consistent. And it
-    makes `<|` agree with its neighbours: `>>`, `++` and user-defined operators
-    already keep a bare lambda's head on the operator's row, and so does `|>`
-    with a parenthesized direct operand, where elm-format agrees with gren.
-    elm-format's staircase comes from its generic right-associative operator
-    machinery, which stacks as soon as the right side is not single-line and has
-    no idea a lambda is special.
 
     **Normalization, not preference.** Both spellings come back as the aligned
     form; where the author put the `\` decides nothing. Everywhere else in
     gren-format a row choice decides whether *one* construct is inline or broken,
     but here it would decide the indentation of everything below it.
 
-    Four boundaries, each settled and each with its own case in the fixture:
+    There are 5 special situations:
 
     - **A multi-line left-hand side turns R1 off** — a call whose arguments you
-      broke, a multi-row record, array or paren keeps the staircase. Gluing there
-      would put the head on a row starting well right of the base column while R2
-      pulls its body back to the base.
-    - **A one-row lambda is untouched — unless it is a step of a chain.**
+      broke, a multi-row record, array or paren keeps the staircase. Leaving the
+      head up there would start it well right of the base column, while R2 pulls
+      its body back to the base. The same `<|` twice, differing only in whether
+      the left-hand side is one row:
+
+      ```gren
+      -- you write:
+      init env =
+          Init.await
+              FileSystem.initialize
+              env <| \fsPermission ->
+          done fsPermission
+
+
+      initShort env =
+          Init.await FileSystem.initialize env <| \fsPermission ->
+          done fsPermission
+
+      -- gren-format gives back:
+      init env =
+          Init.await
+              FileSystem.initialize
+              env <|
+              \fsPermission ->
+                  done fsPermission
+
+
+      initShort env =
+          Init.await FileSystem.initialize env <| \fsPermission ->
+              done fsPermission
+      ```
+    - **A one-row lambda is untouched if it is not a step in a chain.**
       `await one <| \a -> done a` is one row because the author wrote it that
-      way, and stays one row. Written as the last step of a chain, R3 moves its
+      way, and stays one row. It is not a chain of binops; it is just oen
+      binop. Written as the last step of a chain, R3 moves its
       body down: the +4 row is the chain's closing mark, not a record of a body
-      that happened to break, so a row at the chain's column always holds a
-      whole step and nothing else. The boundary is how many `<|`s there are, not
+      that happened to break. The boundary is how many `<|`s there are, not
       how many rows you used — a whole chain written on one row normalizes:
 
       ```gren
@@ -1801,24 +1819,119 @@ if it stops being — an entry with no fixture, or a fixture with no entry.
           Init.await Terminal.initialize <| \terminalPermission ->
               done fsPermission
       ```
-    - **A multi-line lambda *head* still glues**, its continuation rows lining up
-      under the `\`. Only a comment can break a head at all — that is
-      [#32](#divergence-32) — and this is the same trade #32 already took.
-    - **A comment between the `<|` and the `\` glues only if it can ride**: a
-      single-line `{- … -}` the author put on the operator's row does, and a
-      `--`, a multi-row `{- … -}`, or one the author gave a row of its own
-      ([#30](#divergence-30)) keeps the pre-R1 staircase for that step.
-    - **A comment beside the `->` leads the body, and the head still glues.**
+    - **A head that spans several rows stays on the `<|`'s row too.** R1 does not
+      ask how long the head is: the `\` sits after the `<|` as always, and the
+      head's remaining rows continue underneath it instead of the whole head
+      dropping to a row of its own. Only a comment can break a head at all — that
+      is [#32](#divergence-32) — and this is the same trade #32 already took.
+
+      ```gren
+      -- you write:
+      init env =
+          Init.await FileSystem.initialize <| \{ readPermission -- only reads
+              , writePermission } ->
+          done readPermission writePermission
+
+      -- gren-format gives back:
+      init env =
+          Init.await FileSystem.initialize <| \{ readPermission -- only reads
+                                               , writePermission
+                                               } ->
+              done readPermission writePermission
+      ```
+    - **A comment between the `<|` and the `\` keeps R1 only if the comment
+      itself fits on the operator's row**: a single-line `{- … -}` the author
+      wrote there does, and a `--`, a multi-row `{- … -}`, or one the author gave
+      a row of its own ([#30](#divergence-30)) sends that step back to the
+      staircase.
+
+      ```gren
+      -- you write:
+      rides env =
+          Init.await FileSystem.initialize <| {- fs -} \fsPermission ->
+          done fsPermission
+
+
+      stairs env =
+          Init.await FileSystem.initialize <| -- fs
+          \fsPermission ->
+          done fsPermission
+
+      -- gren-format gives back:
+      rides env =
+          Init.await FileSystem.initialize <| {- fs -} \fsPermission ->
+              done fsPermission
+
+
+      stairs env =
+          Init.await FileSystem.initialize <|
+              -- fs
+              \fsPermission ->
+                  done fsPermission
+      ```
+    - **A comment beside the `->` leads the body, and the head does not move.**
       The arrow carries no position, so writing the comment before it or after
       it gives the formatter the same three facts ([#22](#divergence-22)) and it
       snaps to the body's side ([#16](#divergence-16)).
 
-    Which bodies count as continuations for R2 is three further questions, all
-    answered in
-    [`settledDecisions.md`](settledDecisions.md#5-which-bodies-are-continuations):
-    a multi-step run ending in a lambda does not (+4), a continuation whose own
-    body fits on one row does (+0) — and R3 then moves that body down — and a
-    *parenthesized* continuation does not (+4).
+      ```gren
+      -- you write, either of these:
+      run env =
+          Init.await FileSystem.initialize <| \fsPermission {- go -} ->
+          done fsPermission
+
+      run env =
+          Init.await FileSystem.initialize <| \fsPermission -> {- go -}
+          done fsPermission
+
+      -- gren-format gives back, from both:
+      run env =
+          Init.await FileSystem.initialize <| \fsPermission ->
+              {- go -}
+              done fsPermission
+      ```
+
+    Which bodies count as continuations for R2 is three further questions. All
+    three are decided, and here is each as its own small chain — the formatter's
+    actual output, pinned by
+    `tests/testfiles/BinopsAndPipelines/BackPipeContinuationAlignment`:
+
+    ```gren
+    -- Case 1 — a multi-step run ending in a lambda is NOT a continuation: +4.
+    --          The lambda is handed to `Task.mapError toReport` rather than to
+    --          the leftmost expression `withRetries 3`, so this is not the plain
+    --          `seed <| lambda` shape R2 was written for.
+    case1 =
+        Init.await one <| \a ->
+            withRetries 3 <|
+                Task.mapError toReport <| \attempt ->
+                    done attempt
+
+
+    -- Case 2 — a continuation whose own body fits on one row IS one: +0, the
+    --          same `seed <| lambda` shape as every other row of the chain. R3
+    --          then moves that body to the row below, so `done a b` lands there
+    --          whether or not you wrote it on the `->` row.
+    case2 =
+        Init.await one <| \a ->
+        Init.await two <| \b ->
+            done a b
+
+
+    -- Case 3 — a *parenthesized* continuation is NOT one: +4. The parens are
+    --          the author's mark that the inner expression is a value rather
+    --          than the next step of the chain. R3 does not reach inside them
+    --          either, so a one-row lambda in there keeps its row.
+    case3 =
+        Init.await one <| \a ->
+            (Init.await two <| \b ->
+                done a b
+            )
+    ```
+
+    Why each went the way it did — and one sub-case, what happens *inside* a
+    multi-step run — is in
+    [`settledDecisions.md`](settledDecisions.md#5-which-bodies-are-continuations).
 
     Note what R2 emits: a token at exactly the column of the row above it, which
     is the shape family of
@@ -1828,13 +1941,43 @@ if it stops being — an entry with no fixture, or a fixture with no entry.
     a statement list, so a second statement written at that column is a parse
     error rather than the reading the author intended. It fails loudly.
 
+    ```gren
+    -- you write, taking the aligned rows for a list of statements and adding
+    -- one more:
+    init env =
+        let
+            started =
+                Init.await FileSystem.initialize <| \fsPermission ->
+                Init.await Terminal.initialize <| \terminalPermission ->
+                    done fsPermission terminalPermission
+                cleanup env
+        in
+        started
+    ```
+
+    `cleanup env` sits at the chain's column, and nothing reads it as the next
+    statement. gren-format refuses the file — `FAILED TO PARSE`, with the caret
+    on the `in` — because the binding's body scoped its indent to the column of
+    the first `Init.await` and a token back at exactly that column ends the body
+    early. That refusal is #14 itself. The real compiler does parse the text, but
+    it reads `cleanup env` as *more arguments* to the row above and stops on the
+    type error that gives. So the two disagree about which error you get, and
+    agree that the row is not a statement — contrast
+    [#34](#divergence-34)'s swallowed `|>` step, which compiles.
+
+    One arrangement is not so obvious, and it is #14's, not R2's: at the **top level**
+    a module can take the stray row for a new declaration, so the file formats
+    with no complaint and comes back meaning something else. That one is written
+    up in
+    [`knownLimitations.md`](knownLimitations.md#at-the-top-level-it-rewrites-the-file-instead-of-refusing-it).
+
 34. <a id="divergence-34"></a>**A bare operand after `|>` keeps its head on the
     operator's row; elm-format parenthesizes it instead.** A lambda, an `if`, a
     `when` and a `let` are all legal right operands of `|>` with no parentheses
     around them. gren-format keeps such an operand's head on the `|>`'s row and
     lets the rest fall below it, the way it treats every other operand that
     breaks. elm-format wraps the operand in parentheses **it adds itself**, and
-    then glues the `(` in exactly that spot.
+    then puts the `(` in exactly that spot.
 
     ```gren
     -- gren-format:
@@ -1863,11 +2006,12 @@ if it stops being — an entry with no fixture, or a fixture with no entry.
     is the same rule as [#10](#divergence-10) seen from the other side: parens
     the author wrote are never stripped, and parens the author did not write are
     never added — punctuation is the author's, not the formatter's. Once that is
-    fixed, gluing is the only remaining choice that does not strand `|>` alone
-    on a row of its own, a shape gren-format produces nowhere else. It also
-    makes `|>` agree with its neighbours: `>>`, `++` and user-defined operators
-    already glue a bare lambda or a bare block head, and `<|` glues a bare
-    lambda ([#33](#divergence-33)).
+    fixed, keeping the head up on the operator's row is the only remaining
+    choice that does not strand `|>` alone on a row of its own, a shape
+    gren-format produces nowhere else. It also makes `|>` agree with its
+    neighbours: `>>`, `++` and user-defined operators already keep a bare lambda
+    or a bare block head on their row, and so does `<|`
+    ([#33](#divergence-33)).
 
     The two formatters agree exactly where the author *did* write the parens —
     `|> (if …)` comes back identically from both — so the divergence is over the

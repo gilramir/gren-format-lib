@@ -12,6 +12,7 @@ nothing is going wrong.
 - [A compiler bug with field access on a record-update base](#a-compiler-bug-with-field-access-on-a-record-update-base)
 - [An unparenthesized constructor pattern can't be aliased with `as`](#an-unparenthesized-constructor-pattern-cant-be-aliased-with-as)
 - [A continuation line at the same column as the body above it](#a-continuation-line-at-the-same-column-as-the-body-above-it)
+  - [At the top level it rewrites the file instead of refusing it](#at-the-top-level-it-rewrites-the-file-instead-of-refusing-it)
   - [The same misparse reached by a comment, where the columns are not equal](#the-same-misparse-reached-by-a-comment-where-the-columns-are-not-equal)
 - [Output today's compiler rejects, that the next one will accept](#output-todays-compiler-rejects-that-the-next-one-will-accept)
 - [A binary `-` whose right operand starts at the operator's own column](#a-binary---whose-right-operand-starts-at-the-operators-own-column)
@@ -118,7 +119,74 @@ v =                       v =
 ```
 
 The output still means the same thing to the real compiler as the input did, so
-the damage is layout, plus the outright refusal in the `let` / `when` cases.
+the damage is layout, plus the outright refusal in the `let` / `when` cases — in
+the two shapes above. At the top level it is worse than that; see the next
+section.
+
+### At the top level it rewrites the file instead of refusing it
+
+Both failure modes above are loud: you either get a parse error or a file that
+still means what you wrote. There is a third, and it is neither. When the
+stranded token sits at the **top level** of a declaration's body, the enclosing
+scope that absorbs it is the *module*, and a module can start a declaration in
+any column ([elm-format comparison
+#31](elmFormatComparison.md#divergence-31)). So the parser takes the stray row
+for the **head of a new declaration** and reads forward until it finds an `=`.
+
+```gren
+init env =
+    await env <| \a ->
+    await env <| \b ->
+        a + b
+    cleanup env
+
+
+helper y =
+    y
+```
+
+`cleanup env` is at the column of the two chain rows — written as one more step
+of the chain. gren-format formats the file without complaint, exit status 0, and
+hands back:
+
+```gren
+init env =
+    await env <| \a ->
+    await env <| \b ->
+        a + b
+
+
+cleanup env helper y =
+    y
+```
+
+`init`'s body has lost its last row, `helper` is no longer declared at all, and a
+declaration of `cleanup` nobody wrote has appeared — with `helper`'s body. The
+real compiler reads the same input the other way, as two more arguments to the
+row above, and reports a type error inside `init`. Input and output are
+therefore different programs, and the input's error is not the output's: the
+input fails inside `init`, while the output leaves `init` alone and declares
+`cleanup` — which, in the module where `cleanup` really is declared, comes back
+as a name clash on it.
+
+**No check here can see it.** The AST comparison holds the formatter's parse of
+the input against its parse of the output, and both are the same misparse; the
+idempotency check re-formats a file that is, on its own reading, well-formed.
+Only the real compiler disagrees, and nothing in the pipeline asks it.
+
+Which of the three outcomes you get is decided by what follows the stray row,
+not by the row itself:
+
+| what follows the stray row | outcome |
+|---|---|
+| a `let` or `when` scope closing (`in`, the next branch) | parse error — nothing can absorb the token |
+| end of file | parse error |
+| a declaration **with** a type annotation | parse error — the `:` cannot be absorbed into a head |
+| a declaration **without** one | the silent rewrite above |
+
+Most top-level declarations in real code carry an annotation, which is why the
+loud form is the one usually met. The workaround is #14's: indent the
+continuation past the first row of the body.
 
 ### The same misparse reached by a comment, where the columns are not equal
 
