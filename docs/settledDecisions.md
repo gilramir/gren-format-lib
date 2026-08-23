@@ -10,6 +10,7 @@ than needing a reviewer to notice.
 - [SD2. `import … exposing` stays on the `import` line](#sd2-import--exposing-stays-on-the-import-line)
 - [SD3. Open and close brackets align vertically](#sd3-open-and-close-brackets-align-vertically)
 - [SD4. Redundant parens are never stripped](#sd4-redundant-parens-are-never-stripped)
+- [SD4b. Pattern parens are synthesized, not preserved](#sd4b-pattern-parens-are-synthesized-not-preserved)
 - [SD5. A lambda after `<|` keeps its head on the operator's row](#sd5-a-lambda-after--keeps-its-head-on-the-operators-row)
   - [R1 — head glue](#r1--head-glue)
   - [R2 — continuation alignment](#r2--continuation-alignment)
@@ -98,9 +99,16 @@ and `tests/testfiles/PipelineComments/BackwardPipeMultilineSeed.formatted.gren`.
 ## SD4. Redundant parens are never stripped
 
 **The decision.** Parens that carry no meaning are kept exactly where you wrote
-them — in every position, at every nesting depth, with no exceptions. Around a
-`when`, `if`, or `let`; around a binary operator's operand; around a call
-argument; stacked two or three deep. gren-format never removes one.
+them — in every **expression** and **type** position, at every nesting depth.
+Around a `when`, `if`, or `let`; around a binary operator's operand; around a
+call argument; stacked two or three deep. gren-format never removes one.
+
+**Scope: this rule is about expressions and types, not patterns.** It can be,
+because the AST records the parens: `Src.Expr_` has a `Parens` constructor and
+`Src.Type_` a `TParens`. `Src.Pattern_` **has neither**, so a pattern's parens
+never reach the formatter and there is nothing to preserve. Pattern parens are
+therefore *synthesized from need*, not echoed — see
+[SD4b](#sd4b-pattern-parens-are-synthesized-not-preserved).
 
 **What it looks like.**
 
@@ -138,6 +146,42 @@ own. Take the paren away and the block simply starts the line. You cannot keep
 the parens *and* get elm-format's columns; it is one difference, not two.
 
 **Pinned by.** `tests/testfiles/Divergence/D10RedundantParens.formatted.gren`.
+
+---
+
+## SD4b. Pattern parens are synthesized, not preserved
+
+**The decision.** Not really a decision — a consequence. `Src.Pattern_` has no
+paren constructor, so the formatter cannot know whether the author wrote
+`(Just y)` or `Just y`. It emits parens exactly where the pattern *needs* them
+and nowhere else, which means a pattern paren that is not needed **is dropped**:
+
+```gren
+-- you wrote:                        gren-format emits:
+when x is                            when x is
+    ({a} as whole) ->                    { a } as whole ->
+    { value = (Just y) } ->              { value = Just y } ->
+```
+
+This is invisible to the AST-comparison gate, and correctly so: the two spellings
+parse to the same `Pattern_`.
+
+**Where parens are emitted.** `InsertPatterns.argNeedsParens` — an `as`-alias, or
+a constructor applied to a payload — for a space-separated argument or a
+constructor payload. The `as`-alias *base* uses a strictly stricter test,
+`aliasBaseNeedsParens`, because the parser is stricter there than the language
+is: bare `as` fails after **any** constructor pattern including a 0-arg one, and
+after a bare `Int` literal, so `Nothing as whole` and `0 as n` do not parse.
+That stricter rule is a **parser workaround**, and it is why the dangerous case
+survives — `(Just y) as whole` keeps its parens (compiler-common#31, see
+[knownLimitations](knownLimitations.md#an-unparenthesized-constructor-pattern-cant-be-aliased-with-as)).
+
+**Why this matters beyond cosmetics.** Dropping a paren *deletes tokens*, which
+can move a comment's anchor. That is the one rewrite class the fixed-point
+argument does not cover; see the paper draft's §5.6.
+
+**Pinned by.** `tests/testfiles/HeaderComments/Ambiguous.formatted.gren` and
+`tests/testfiles/PatternsAndLiterals/CtorAppNestedPattern.formatted.gren`.
 This is [divergence #10](elmFormatComparison.md#divergence-10), the most common
 difference between the two formatters on real code; that entry has the full
 side-by-side table of what each formatter strips. See also

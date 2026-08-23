@@ -425,7 +425,7 @@ takeGluedLeadingIdxHelp : Array LPNode -> Int -> Builder.Builder LPNode -> { lea
 takeGluedLeadingIdxHelp nodes i leadingAcc =
     when Array.get i nodes is
         Just node ->
-            if isCommentOrigRows node && startsOnRowIdx (origRowsLast node + 1) nodes (i + 1) then
+            if isCommentOrigRows node && leadsNodeAtIdx node nodes (i + 1) then
                 takeGluedLeadingIdxHelp nodes (i + 1) (Builder.pushLast node leadingAcc)
 
             else
@@ -490,7 +490,12 @@ takeIndentedTrailingIdxHelp : Int -> Array LPNode -> Int -> Builder.Builder LPNo
 takeIndentedTrailingIdxHelp prevLastRow nodes i acc =
     when Array.get i nodes is
         Just node ->
-            if isCommentOrigRows node && origRowsFirst node == prevLastRow + 1 && commentFirstCol node > 1 then
+            if
+                isCommentOrigRows node
+                    && origRowsFirst node == prevLastRow + 1
+                    && commentFirstCol node > 1
+                    && not (writtenInsideNodeAtIdx node nodes (i + 1))
+            then
                 takeIndentedTrailingIdxHelp (origRowsLast node) nodes (i + 1) (Builder.pushLast node acc)
 
             else
@@ -498,6 +503,48 @@ takeIndentedTrailingIdxHelp prevLastRow nodes i acc =
 
         Nothing ->
             { trailing = Builder.toArray acc, afterTrailingIndex = i }
+
+
+{-| True when `comment` was written **inside** the statement of the node at
+index `i` — that is, the comment ends on the very row that node begins on.
+
+For two top-level nodes that can only mean one thing. A top-level node starts at
+column 1, so nothing else can share its first row and still end before it; the
+comment must have been written within the statement itself:
+
+    import {- x
+       y -} Dict
+
+Here the comment spans rows 4–5 and `import Dict`'s `OriginalRows` also begins
+on row 5. `Formatter.Logical.Comments` promotes such a comment to a *sibling*
+`OriginalRows` between the two imports, which is why the sorter meets it at all.
+
+This one predicate resolves both of the sorter's row rules, and getting it wrong
+either way was the bug reported in the paper draft's §5.6 as an **anchor move** —
+a rewrite that relocates a comment and thereby flips a decision keyed on where it
+sat. The formatter's own output puts this comment on its own rows at column 1
+above the import, and *both* rules below then answer differently than they did on
+the author's spelling, so a second format sorted differently from the first.
+-}
+writtenInsideNodeAtIdx : LPNode -> Array LPNode -> Int -> Bool
+writtenInsideNodeAtIdx comment nodes i =
+    startsOnRowIdx (origRowsLast comment) nodes i
+
+
+{-| True when `comment` is the leading comment of the node at index `i`: either
+the node starts on the row **after** the comment ends — the ordinary
+line-leading comment written above its import — or the comment was written
+inside that node's own statement (`writtenInsideNodeAtIdx`).
+
+Both mean the comment belongs to the node below it, so both are taken. Refusing
+the second case used to leave a non-import node sitting between two imports,
+which **ended the run** (`collectRun`) — violating the module doc's rule that a
+blank line is the only run boundary and comments never break a run.
+-}
+leadsNodeAtIdx : LPNode -> Array LPNode -> Int -> Bool
+leadsNodeAtIdx comment nodes i =
+    startsOnRowIdx (origRowsLast comment + 1) nodes i
+        || writtenInsideNodeAtIdx comment nodes i
 
 
 -- True when the node at index `i` of `nodes` starts on `row`.
