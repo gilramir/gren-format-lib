@@ -15,14 +15,53 @@ break it threw away. See the "layout oracles" section and GENERATOR.md.
 See GENERATOR.md for the full design (oracles, legal-layout emission, shrinking,
 artifact management). Rebuild the app first: `cd ../../gren-format && ./build.sh`.
 
+A tenth oracle is opt-in: `--diff-against OTHER_APP` also formats every module
+with a second binary and reports any byte difference. That turns the sweep from
+"is this output self-consistent?" into "did this change any output?", which is
+the question a refactor actually raises -- a refactor's failure mode is a
+DIFFERENT layout, not an invalid one, and every other oracle here judges one
+binary against itself. See "differential runs" below.
+
     ./gen-random.py -n 2000 -j 12          # sweep
     ./gen-random.py --seed 12345           # replay one master seed, verbose
     ./gen-random.py --promote 12345 --name Foo --dir BracketComments  # promote to a fixture
+    ./gen-random.py -n 50000 -j 12 --diff-against /path/to/app.baseline   # differential
+
+
+## Differential runs
+
+Build the baseline binary FIRST and keep it somewhere stable -- `gren-format`'s
+`gren.json` pins the library as a published package, so building a baseline is
+"set the pin, build, copy the app aside, set the pin back":
+
+    cd ../../gren-format
+    sed -i 's|"local:../gren-format-lib"|"1.0.1"|' gren.json   # or whichever baseline
+    ./build.sh && cp app /tmp/app.baseline
+    sed -i 's|"1.0.1"|"local:../gren-format-lib"|' gren.json
+    ./build.sh                                                  # back to your tree
+
+Check you really built two different binaries before trusting a clean result --
+`grep -c <an-identifier-only-your-change-has> app /tmp/app.baseline`. Two
+identical binaries produce a beautiful green.
+
+Findings land in two buckets, kept apart because they mean different things:
+
+  - `layout-drift` -- both binaries formatted the module, and the bytes differ.
+    For a refactor this is the finding. For a genuine version-to-version
+    comparison it is expected wherever a rule changed, so read it as a diff to
+    review rather than a failure.
+  - `ref-error` -- the baseline could not format a module the current binary
+    can. Across versions that is usually just newer syntax, so it is counted
+    but not treated as a find.
+
+`fuzzrun.py` passes extra flags through, so a long distributed run is the same
+command it always was with `--diff-against` added.
 """
 
 import argparse
 import concurrent.futures
 import copy
+import difflib
 import hashlib
 import json
 import os
@@ -2992,6 +3031,16 @@ def run_app(args, timeout=60):
                           text=True, timeout=timeout)
 
 
+# Set by --diff-against. `None` disables oracle 10 entirely, so a plain sweep
+# pays nothing for it.
+_REF_APP = None
+
+
+def run_ref_app(args, timeout=60):
+    return subprocess.run(["node", _REF_APP] + args, capture_output=True,
+                          text=True, timeout=timeout)
+
+
 def first_real_line(out):
     for line in out.splitlines():
         s = line.strip()
@@ -3215,6 +3264,33 @@ def check(src, tmpdir, m=None):
     out = show.stdout + show.stderr
     if show.returncode != 0:
         return show_failure_class(out), {"msg": first_real_line(out), "stderr": out}
+
+    # Oracle 10 (opt-in, --diff-against): does a SECOND binary format this module
+    # to the same bytes?
+    #
+    # Every other oracle here judges one binary against itself: they ask whether
+    # the output is stable, AST-preserving, comment-preserving and shaped the way
+    # the author wrote it. A refactor that is supposed to change nothing can
+    # satisfy all of them and still have moved a layout decision, because the
+    # moved decision is stable, AST-preserving, comment-preserving and plausible.
+    # The only oracle for "did this change anything?" is the other binary.
+    #
+    # Placed straight after oracle 2 so a drift is reported against a module the
+    # binary under test formatted cleanly -- a difference from a baseline is only
+    # interesting once our own side is known good.
+    if _REF_APP is not None:
+        try:
+            ref = run_ref_app(["--show", inp])
+        except subprocess.TimeoutExpired:
+            return "ref-error", {"msg": "baseline format timed out (>60s)"}
+        if ref.returncode != 0:
+            # The baseline cannot format what we can. Across versions that is
+            # usually syntax it predates, so it is counted apart from a drift
+            # rather than called a find.
+            return "ref-error", {"msg": first_real_line(ref.stdout + ref.stderr)}
+        if ref.stdout != show.stdout:
+            return "layout-drift", {"msg": "output differs from --diff-against baseline",
+                                    "ours": show.stdout, "theirs": ref.stdout}
 
     # Oracle 3: comment preservation (the 4th oracle the generator enables).
     formatted = show.stdout
@@ -4222,6 +4298,14 @@ def write_report(fdir, seed, bucket, detail, src_full, src_min, tmpdir,
                    "max_depth": max_depth, "comment_rate": comment_rate,
                    "app_build": app_build_id()}, f, indent=2)
     # relevant diff per class
+    if bucket == "layout-drift":
+        ours = detail.get("ours", "").splitlines()
+        theirs = detail.get("theirs", "").splitlines()
+        lines.append("DIFF (--- baseline / +++ this build):")
+        lines.extend(difflib.unified_diff(theirs, ours,
+                                          fromfile="baseline", tofile="this build",
+                                          lineterm="", n=3))
+        lines.append("")
     if bucket == "comment-loss":
         lines.append("MISSING (in input, absent from output):")
         for t, v, n in detail.get("missing", []):
@@ -4249,7 +4333,6 @@ def write_report(fdir, seed, bucket, detail, src_full, src_min, tmpdir,
                 f.write(a)
             with open(os.path.join(fdir, "permuted.formatted.gren"), "w") as f:
                 f.write(b)
-            import difflib
             lines.append("format(input) vs format(permuted):")
             lines += list(difflib.unified_diff(
                 a.splitlines(), b.splitlines(),
@@ -4266,7 +4349,6 @@ def write_report(fdir, seed, bucket, detail, src_full, src_min, tmpdir,
             if f2 is not None:
                 with open(os.path.join(fdir, "formatted2.gren"), "w") as f:
                     f.write(f2)
-                import difflib
                 diff = difflib.unified_diff(f1.splitlines(), f2.splitlines(),
                                             "format1", "format2", lineterm="")
                 lines.append("format1 vs format2:")
@@ -4330,7 +4412,6 @@ def write_report(fdir, seed, bucket, detail, src_full, src_min, tmpdir,
         if removed2 is not None:
             with open(os.path.join(fdir, "rui2.gren"), "w") as f:
                 f.write(removed2)
-            import difflib
             lines.append("removal pass 1 vs pass 2:")
             lines += list(difflib.unified_diff(
                 removed.splitlines(), removed2.splitlines(),
@@ -4479,6 +4560,11 @@ def main():
                          "failures against a new build.")
     ap.add_argument("--json", action="store_true",
                     help="with --seeds: one JSON verdict per line on stdout")
+    ap.add_argument("--diff-against", metavar="APP", default=None,
+                    help="also format every module with this second gren-format "
+                         "binary and report byte differences (oracle 10). Turns "
+                         "the sweep into a regression oracle for a refactor; see "
+                         "the module docstring.")
     ap.add_argument("--promote", type=int, metavar="SEED")
     ap.add_argument("--name", help="fixture name for --promote")
     ap.add_argument("--dir", help="suite directory under testfiles/ for --promote "
@@ -4487,8 +4573,17 @@ def main():
                                   "line to")
     args = ap.parse_args()
 
-    global _SHRINK_CAP
+    global _SHRINK_CAP, _REF_APP
     _SHRINK_CAP = args.max_shrinks
+    if args.diff_against:
+        _REF_APP = os.path.abspath(args.diff_against)
+        if not os.path.exists(_REF_APP):
+            print("--diff-against: no such binary: %s" % _REF_APP, file=sys.stderr)
+            return 2
+        if os.path.abspath(APP) == _REF_APP:
+            print("--diff-against: that is the binary under test; a run comparing "
+                  "one binary with itself passes vacuously.", file=sys.stderr)
+            return 2
     crate = 0.0 if args.no_comments else args.comment_rate
 
     if args.promote is not None:
@@ -4584,7 +4679,7 @@ def main():
              "sort-order", "predicate-lie", "rui-crash", "rui-ast-mismatch",
              "rui-non-idempotent", "rui-not-fixpoint", "rui-comment-order",
              "stranded-operator", "spontaneous-break", "break-ignored",
-             "timeout", "gen-error", "quarantine"]
+             "layout-drift", "timeout", "gen-error", "quarantine", "ref-error"]
     counts = {b: len(v) for b, v in buckets.items()}
     ok = counts.get("ok", 0)
     finds = sum(counts.get(b, 0) for b in
@@ -4592,7 +4687,8 @@ def main():
                  "sort-order", "predicate-lie", "rui-crash",
                  "rui-ast-mismatch", "rui-non-idempotent", "rui-not-fixpoint",
                  "rui-comment-order", "stranded-operator",
-                 "spontaneous-break", "break-ignored", "timeout"))
+                 "spontaneous-break", "break-ignored", "layout-drift",
+                 "timeout"))
     summary_lines = ["%d/%d clean" % (ok, len(seeds)),
                      "app build: %s" % app_build_id(), ""]
     for b in order:

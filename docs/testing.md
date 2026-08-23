@@ -634,6 +634,52 @@ most one argument (`Ctor a b` doesn't parse; multi-field variants carry a
 record instead) — a fact the generator's pattern grammar has to encode rather
 than assume.
 
+### Differential runs (`--diff-against`)
+
+Every oracle above judges one binary against itself: stable, AST-preserving,
+comment-preserving, shaped the way the author wrote it. A **refactor** that is
+meant to change nothing can satisfy all of them and still have moved a layout
+decision — the moved decision is stable, AST-preserving, comment-preserving and
+perfectly plausible. Nothing in a single-binary sweep can see that.
+
+`--diff-against` supplies the missing oracle: format every generated module with
+a second binary too, and report any byte difference.
+
+```bash
+./gen-random.py -n 50000 -j 12 --diff-against /tmp/app.baseline
+```
+
+Two buckets, kept apart because they mean different things:
+
+- **`layout-drift`** — both binaries formatted the module and the bytes differ.
+  For a refactor that is *the* finding. For a real version-to-version comparison
+  it is expected wherever a rule changed, so read it as a diff to review. The
+  failure report contains the unified diff, baseline on the `---` side.
+- **`ref-error`** — the baseline could not format something the current binary
+  can. Across versions that is usually just newer syntax, so it is counted but
+  not called a find.
+
+**Building the baseline.** `gren-format/gren.json` pins the library as a
+*published* package, so a baseline is "set the pin, build, copy the app aside,
+set the pin back":
+
+```bash
+cd ../../gren-format
+sed -i 's|"local:../gren-format-lib"|"1.0.1"|' gren.json
+./build.sh && cp app /tmp/app.baseline
+sed -i 's|"1.0.1"|"local:../gren-format-lib"|' gren.json
+./build.sh
+```
+
+**Check you built two different binaries before trusting a clean result** —
+`grep -c <an-identifier-only-your-change-has> app /tmp/app.baseline`. Comparing a
+binary with itself produces a beautiful, meaningless green; passing the app under
+test as `--diff-against` is refused outright for that reason, but a stale copy of
+it is not detectable and is the easy mistake here.
+
+This composes with `fuzzrun.py`, which passes flags through — so a long
+distributed differential is the usual command with `--diff-against` added.
+
 ### Long sweeps
 
 The command above sweeps a range and exits. To grind through hundreds of
@@ -649,7 +695,8 @@ use `fuzzrun.py`, which drives this generator. See
 
 ### Where the code lives
 
-- **`tests/gen-random.py`** — the generator, shrinker, and oracle driver.
+- **`tests/gen-random.py`** — the generator, shrinker, and oracle driver
+  (including `--diff-against`).
 - **`GENERATOR.md`** — the full design spec (grammar, depth bounds, shrinking
   algorithm).
 - **`tests/fuzzrun.py`** — the long-sweep coordinator ([fuzzTesting.md](fuzzTesting.md)).

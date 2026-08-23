@@ -465,3 +465,20 @@ left out are in [distributedFuzzing.md](distributedFuzzing.md).
   parse `report.txt`.
 - **`GENERATOR.md`** — the generator's design: grammar, oracles, shrinking.
 - **[testing.md](testing.md)** — every other gate in this repo.
+
+
+## Differential long runs
+
+`gen-random.py --diff-against OTHER_APP` formats every module with a second
+binary as well and reports byte differences (`layout-drift`). `fuzzrun.py` passes
+extra flags through to the generator, so a long distributed differential is the
+usual run with that flag added — the cursor, chunking and failure store all work
+unchanged.
+
+This is the shape to use when the question is "did this refactor change any
+output?" rather than "is this output self-consistent?". Every other oracle in the
+generator judges one binary against itself and is blind to a layout decision that
+merely *moved*. See the `--diff-against` section of
+[testing.md](testing.md#differential-runs---diff-against) for how to build the
+baseline, and for the warning about comparing a binary with a stale copy of
+itself.

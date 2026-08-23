@@ -41,7 +41,7 @@ where its code lives):
 | `check-decision-stability.py` | *which* layout decision moved between two formats (same flags) |
 | `repro.py <fixture> <kind> <gap>` | reproduce one finding from either gate's label |
 | `matrix-syntax.py` | construct × context matrix; `--comments` adds the comment axis |
-| `gen-random.py` / `fuzzrun.py` | random-module property testing; long/distributed sweeps |
+| `gen-random.py` / `fuzzrun.py` | random-module property testing; long/distributed sweeps. `--diff-against APP` adds the differential oracle — the only one that answers "did this refactor change any output?" |
 | `fuzz-whitespace.py` | output survives whitespace perturbation of the input |
 | `audit-predicates.py` | predicates claiming a break the renderer does not emit |
 | `fuzz-project.py` | the modes that WRITE FILES (no-arg project run, paths, `--remove-unused-imports`) |
