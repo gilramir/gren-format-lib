@@ -1,9 +1,12 @@
 module Formatter.RenderTree exposing
     ( RenderNode
+    , RenderShape(..)
+    , commentFacts
     , commentGluesToPrevious
     , commentLeadsLine
     , commentLeadsNext
     , commentRidesInline
+    , commentRole
     , commentTrailsHead
     , lower
     , rnChildren
@@ -16,6 +19,9 @@ module Formatter.RenderTree exposing
     , rnVariantsSpanRows
     , rnWithShape
     , roleIs
+    , shapeGluesToPrevious
+    , shapeIsComment
+    , shapeRoleIs
     )
 
 {-| The render tree: an `LPNode` with the source positions taken off it.
@@ -80,9 +86,12 @@ at build time like `AcrossOrVertical`'s `forceVertical`.
 -}
 
 import Formatter.Logical.LogicalPrintingTree as LPT exposing
-    ( CommentRole(..)
+    ( CommentFacts
+    , CommentRole(..)
     , LPNode
-    , LPShape(..)
+    , ListBrackets
+    , PrefixKind
+    , SyntaxType
     , firstRowInSubtree
     , lpnBracketStart
     , lpnChildren
@@ -90,9 +99,149 @@ import Formatter.Logical.LogicalPrintingTree as LPT exposing
     , lpnHasComment
     , lpnMaxRow
     , lpnShape
-    , shapeIsComment
-    , shapeRoleIs
+    , roleGlues
     )
+
+
+{-| `LPShape` with the source positions taken off it.
+
+Eight of `LPShape`'s constructors carry a `Located` payload and one
+(`OriginalRows`) carries a pair of raw source rows. The renderer reads the
+`.value` of the first eight and the `.stype` of the ninth -- never a `.start`,
+an `.end`, a `.first` or a `.last`. This type is that fact made structural: the
+positions are not present, so reading one is a compile error rather than
+something a grep has to notice.
+
+`OriginalRows` is the one worth naming. It carried `{ first : Int, last : Int,
+stype : SyntaxType }` -- two literal source rows -- and the checker this type
+replaces would never have caught a read of them: its regex knew eight accessor
+NAMES and `.start.row` / `.end.col`, and `r.first` is neither. Here it is simply
+a `SyntaxType`, because that is all the renderer ever wanted.
+
+Everything else is `LPShape` unchanged, including the shared value types
+(`ListBrackets`, `RecordKind`, `PrefixKind`, `SyntaxType`, `CommentRole`) --
+those carry no positions, so there is nothing to strip and no reason to mirror
+them. -}
+type RenderShape
+    = RootBox
+    | OriginalRows SyntaxType
+    | EmptyLine
+    | UnbreakableText String
+    | SynthesizedText String
+    | SingleLineComment { text : String, role : CommentRole }
+    | BlockComment { text : String, role : CommentRole }
+    | DocComment String
+    | AcrossOrVertical { forceVertical : Bool, checkContentVertical : Bool }
+    | IfCondition { forceVertical : Bool }
+    | AllAcrossOrAllVertical ListBrackets
+    | AlwaysVertical ListBrackets
+    | RecordUpdate { name : String, forceVertical : Bool }
+    | EmptyBracketed ListBrackets
+    | IndentedBlock
+    | PipelineStep { forceVertical : Bool }
+    | Pipeline { forceVertical : Bool, op : String }
+    | BodyBlock
+    | WhenBranch
+    | WhenBranchPattern
+    | ParenBlock { forceVertical : Bool, checkContentVertical : Bool, contentAlwaysBreaks : Bool }
+    | OpAndRhs
+    | Binop { forceVertical : Bool }
+    | WhenFlow { forceVertical : Bool }
+    | PrefixGlue PrefixKind
+    | Glue
+    | SoftIndentedBlock
+    | MultilineString (Array String)
+
+
+{-| Strip the positions from one shape. Total over `LPShape`, so a constructor
+added there is a compile error here until it is mapped -- which is the whole
+point of mirroring the type rather than reusing it. -}
+lowerShape : LPT.LPShape -> RenderShape
+lowerShape shape =
+    when shape is
+        LPT.RootBox ->
+            RootBox
+
+        LPT.OriginalRows r ->
+            OriginalRows r.stype
+
+        LPT.EmptyLine ->
+            EmptyLine
+
+        LPT.UnbreakableText loc ->
+            UnbreakableText loc.value
+
+        LPT.SynthesizedText t ->
+            SynthesizedText t
+
+        LPT.SingleLineComment c ->
+            SingleLineComment { text = c.loc.value, role = c.role }
+
+        LPT.BlockComment c ->
+            BlockComment { text = c.loc.value, role = c.role }
+
+        LPT.DocComment loc ->
+            DocComment loc.value
+
+        LPT.AcrossOrVertical r ->
+            AcrossOrVertical r
+
+        LPT.IfCondition r ->
+            IfCondition r
+
+        LPT.AllAcrossOrAllVertical b ->
+            AllAcrossOrAllVertical b
+
+        LPT.AlwaysVertical b ->
+            AlwaysVertical b
+
+        LPT.RecordUpdate r ->
+            RecordUpdate { name = r.name.value, forceVertical = r.forceVertical }
+
+        LPT.EmptyBracketed loc ->
+            EmptyBracketed loc.value
+
+        LPT.IndentedBlock ->
+            IndentedBlock
+
+        LPT.PipelineStep r ->
+            PipelineStep r
+
+        LPT.Pipeline r ->
+            Pipeline r
+
+        LPT.BodyBlock ->
+            BodyBlock
+
+        LPT.WhenBranch ->
+            WhenBranch
+
+        LPT.WhenBranchPattern ->
+            WhenBranchPattern
+
+        LPT.ParenBlock r ->
+            ParenBlock r
+
+        LPT.OpAndRhs ->
+            OpAndRhs
+
+        LPT.Binop r ->
+            Binop r
+
+        LPT.WhenFlow r ->
+            WhenFlow r
+
+        LPT.PrefixGlue loc ->
+            PrefixGlue loc.value
+
+        LPT.Glue ->
+            Glue
+
+        LPT.SoftIndentedBlock ->
+            SoftIndentedBlock
+
+        LPT.MultilineString loc ->
+            MultilineString loc.value
 
 
 {-| A logical-printing-tree node with no source positions on it.
@@ -105,7 +254,7 @@ made-up flag.
 -}
 type RenderNode
     = RenderNode
-        { shape : LPShape
+        { shape : RenderShape
         , children : Array RenderNode
         , hasComment : Bool
         , sharesRowWithPrevItem : Bool
@@ -132,7 +281,7 @@ lowerNode sharesRow node =
             lpnChildren node
     in
     RenderNode
-        { shape = lpnShape node
+        { shape = lowerShape (lpnShape node)
         , children = lowerChildren children
         , hasComment = lpnHasComment node
         , sharesRowWithPrevItem = sharesRow
@@ -155,7 +304,7 @@ lowerChildren children =
     (Array.foldl
         (\child acc ->
             { prev =
-                if shapeIsComment (lpnShape child) then
+                if LPT.shapeIsComment (lpnShape child) then
                     acc.prev
 
                 else
@@ -198,7 +347,7 @@ childRowsSpanMultiple children =
     let
         rows =
             children
-                |> Array.keepIf (\n -> not (shapeIsComment (lpnShape n)))
+                |> Array.keepIf (\n -> not (LPT.shapeIsComment (lpnShape n)))
                 |> Array.map firstRowInSubtree
     in
     when Array.popFirst rows is
@@ -300,10 +449,10 @@ splitAtArrows nodes =
 leafText : LPNode -> Maybe String
 leafText node =
     when lpnShape node is
-        UnbreakableText locs ->
+        LPT.UnbreakableText locs ->
             Just locs.value
 
-        SynthesizedText s ->
+        LPT.SynthesizedText s ->
             Just s
 
         _ ->
@@ -321,7 +470,7 @@ segFirstRow : Array LPNode -> Int
 segFirstRow seg =
     Array.foldl
         (\node acc ->
-            if leafText node == Just "->" || shapeIsComment (lpnShape node) then
+            if leafText node == Just "->" || LPT.shapeIsComment (lpnShape node) then
                 acc
 
             else
@@ -359,7 +508,7 @@ segLastRow : Array LPNode -> Int
 segLastRow seg =
     Array.foldl
         (\node acc ->
-            if leafText node == Just "->" || shapeIsComment (lpnShape node) then
+            if leafText node == Just "->" || LPT.shapeIsComment (lpnShape node) then
                 acc
 
             else
@@ -372,7 +521,7 @@ segLastRow seg =
 -- ═══ ACCESSORS ═══
 
 
-rnShape : RenderNode -> LPShape
+rnShape : RenderNode -> RenderShape
 rnShape node =
     when node is
         RenderNode r ->
@@ -416,7 +565,7 @@ rnReplaceChildren old newChildren =
 {-| Swap a node's shape, keeping its children and flags. `hasComment` is
 recomputed for the reason `LogicalPrintingTree.lpnWithShape` gives: swap a
 comment shape for a non-comment one and the old answer is simply wrong. -}
-rnWithShape : LPShape -> RenderNode -> RenderNode
+rnWithShape : RenderShape -> RenderNode -> RenderNode
 rnWithShape newShape node =
     when node is
         RenderNode r ->
@@ -432,6 +581,63 @@ rnWithShape newShape node =
 -- The `LPNode` spellings of these live in `LogicalPrintingTree`, beside
 -- `CommentRole` itself; both delegate to the same shape-level core there, so the
 -- rule has one implementation and two node types ask it.
+
+
+{-| Whether a shape is itself a comment (rather than merely containing one).
+`LogicalPrintingTree.shapeIsComment` for the other tree. -}
+shapeIsComment : RenderShape -> Bool
+shapeIsComment shape =
+    when shape is
+        SingleLineComment _ ->
+            True
+
+        BlockComment _ ->
+            True
+
+        DocComment _ ->
+            True
+
+        _ ->
+            False
+
+
+{-| The `CommentRole` of a comment shape, or `Nothing` for a non-comment (and
+for `DocComment`, which carries no role). -}
+commentRole : RenderShape -> Maybe CommentRole
+commentRole shape =
+    Maybe.map .role (commentFacts shape)
+
+
+{-| This shape's `CommentFacts`, the currency `spanTrailingOwnLine` takes so
+that one implementation of that peel serves both trees. -}
+commentFacts : RenderShape -> Maybe CommentFacts
+commentFacts shape =
+    when shape is
+        SingleLineComment c ->
+            Just { role = c.role, bringsOwnRows = False }
+
+        BlockComment c ->
+            Just { role = c.role, bringsOwnRows = String.contains "\n" c.text }
+
+        _ ->
+            Nothing
+
+
+shapeRoleIs : CommentRole -> RenderShape -> Bool
+shapeRoleIs role shape =
+    commentRole shape == Just role
+
+
+{-| Does a comment glue onto what precedes it, rather than take a line of its
+own? `False` for any non-comment shape. -}
+shapeGluesToPrevious : RenderShape -> Bool
+shapeGluesToPrevious shape =
+    when commentRole shape is
+        Just role ->
+            LPT.roleGlues role
+
+        Nothing ->
+            False
 
 
 roleIs : CommentRole -> RenderNode -> Bool
@@ -463,7 +669,7 @@ commentRidesInline =
 own? `False` for any non-comment node. -}
 commentGluesToPrevious : RenderNode -> Bool
 commentGluesToPrevious node =
-    LPT.shapeGluesToPrevious (rnShape node)
+    shapeGluesToPrevious (rnShape node)
 
 
 -- ═══ PRECOMPUTED AUTHOR-INTENT FLAGS ═══

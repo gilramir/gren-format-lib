@@ -33,7 +33,7 @@ module Formatter.Render.NodeClassify exposing
 
 {-| Boolean predicates and small structural queries over render-tree nodes.
 
-Everything here reads a node's `LPShape`, its children, or its comment text.
+Everything here reads a node's `RenderShape`, its children, or its comment text.
 Nothing here can read a source row: the render layer's `RenderNode`
 (`Formatter.RenderTree`) has no position fields on it, which is what makes the
 "placement is decided in `Comments.gren`, never re-derived at render time"
@@ -42,19 +42,19 @@ barrier a compile error rather than a convention.
 
 import Formatter.Logical.LogicalPrintingTree exposing
     ( CommentRole(..)
-    , LPShape(..)
     , ListBrackets(..)
     , PrefixKind(..)
     , RecordKind(..)
-    , commentRole
-    , shapeIsComment
     )
 import Formatter.Render.Box as B
 import Formatter.RenderTree exposing
     ( RenderNode
+    , RenderShape(..)
+    , commentRole
     , rnChildren
     , rnHasComment
     , rnShape
+    , shapeIsComment
     )
 
 
@@ -113,8 +113,8 @@ rows are indistinguishable from any other multi-row box's.) -}
 subtreeEndsWithMultilineBlockComment : RenderNode -> Bool
 subtreeEndsWithMultilineBlockComment node =
     when rnShape node is
-        BlockComment { loc } ->
-            String.contains "\n" loc.value
+        BlockComment { text } ->
+            String.contains "\n" text
 
         AllAcrossOrAllVertical _ ->
             False
@@ -150,11 +150,11 @@ commentEndsItsLine node =
         SingleLineComment _ ->
             True
 
-        BlockComment { loc } ->
-            String.contains "\n" loc.value
+        BlockComment { text } ->
+            String.contains "\n" text
 
-        DocComment loc ->
-            String.contains "\n" loc.value
+        DocComment text ->
+            String.contains "\n" text
 
         _ ->
             False
@@ -257,8 +257,8 @@ only this half left to ask. -}
 commentTextCanRide : RenderNode -> Bool
 commentTextCanRide node =
     when rnShape node is
-        BlockComment { loc } ->
-            not (String.contains "\n" loc.value)
+        BlockComment { text } ->
+            not (String.contains "\n" text)
 
         _ ->
             False
@@ -351,8 +351,8 @@ isBlockKeywordHead headNode =
         WhenFlow _ ->
             True
 
-        UnbreakableText loc ->
-            loc.value == "let"
+        UnbreakableText text ->
+            text == "let"
 
         _ ->
             False
@@ -432,8 +432,8 @@ once in `Comments.gren` and stored as a `CommentRole`, and
 leafValue : RenderNode -> Maybe String
 leafValue node =
     when rnShape node is
-        UnbreakableText locs ->
-            Just locs.value
+        UnbreakableText text ->
+            Just text
 
         SynthesizedText s ->
             Just s
@@ -759,8 +759,8 @@ isLambdaHeadNode node =
     when Array.first (Array.keepIf (\n -> not (nodeIsComment n)) (rnChildren node)) is
         Just firstChild ->
             when rnShape firstChild is
-                PrefixGlue loc ->
-                    loc.value == PrefixLambdaHead
+                PrefixGlue kind ->
+                    kind == PrefixLambdaHead
 
                 _ ->
                     False

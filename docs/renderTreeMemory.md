@@ -1,9 +1,9 @@
 # What lowering to a RenderNode costs
 
-`Formatter.RenderTree.lower` builds a **second tree**: one `RenderNode` per
-`LPNode`, allocated up front, alive at the same time as the LPT it came from.
-That is the price of making the render barrier a compile-time property
-(see [Testing gates](testing.md#render-invariant-check-check-render-invariantpy)
+`Formatter.RenderTree.lower` builds a **second tree**: one `RenderNode` and one
+`RenderShape` per `LPNode`, allocated up front, alive at the same time as the LPT
+they came from. That is the price of making the render barrier a compile-time property
+(see [Testing gates](testing.md#the-render-invariant-no-script--the-compiler-enforces-it)
 for what the barrier is and why it is worth a type rather than a grep).
 
 The obvious worry is memory bloat. Measured, it is **not detectable** on real
@@ -12,8 +12,9 @@ tree and it costs nothing" is the kind of claim nobody should take on trust, and
 because the *method* matters more than the numbers: the first instrument reached
 for gave a confidently wrong answer.
 
-Measured 2026-08-23, node 22, on the Tier 1 branch vs. the published
-`gilramir/gren-format-lib` 1.0.1 immediately before it.
+Measured 2026-08-23, node 22, twice: Tier 1 (the node wrapper) against the
+published `gilramir/gren-format-lib` 1.0.1 before it, and Tier 2 (the shape)
+against Tier 1.
 
 
 ## Peak RSS is the wrong instrument
@@ -44,15 +45,16 @@ What actually matters is how much live heap the work *requires*. Bisect
 `--max-old-space-size` for the smallest value in which each binary can still
 format the file (±2 MB, the bisect's own resolution):
 
-| file | before | after |
-|---|---|---|
-| PrettyExpressive.gren (108K) | 21 M | 23 M |
-| Comments.gren (161K) | 25 M | 25 M |
-| MakeRenderBox.gren (230K) | 33 M | 33 M |
-| CssHslReferenceData.gren (365K) | 23 M | 23 M |
+| file | 1.0.1 | Tier 1 | Tier 2 |
+|---|---|---|---|
+| PrettyExpressive.gren (108K) | 21 M | 23 M | 21 M |
+| Comments.gren (161K) | 25 M | 25 M | 25 M |
+| MakeRenderBox.gren (230K) | 33 M | 33 M | 33 M |
+| CssHslReferenceData.gren (365K) | 23 M | 23 M | 25 M |
 
-Three of four unchanged; the fourth differs by one bisect step. The live-heap
-requirement is the same.
+Three of four unchanged at each step, with one file moving by a single bisect
+step each time — and not the same file, which is itself a sign that the
+movement is resolution and not signal. The live-heap requirement is the same.
 
 (Note that the 365K file needs *less* heap than the 230K one — size is not the
 variable, shape is. `CssHslReferenceData.gren` is a huge flat table;
@@ -61,14 +63,20 @@ variable, shape is. `CssHslReferenceData.gren` is a huge flat table;
 
 ## Why it is this cheap
 
-1. **`RenderNode` shares the `LPShape`.** `lower` copies a pointer, not a
-   payload. The bytes in this tree are in the `Located String`s — comment text,
-   identifiers, literals — and every one of them is pointed at, not duplicated.
-2. **`RenderNode` is smaller than `LPNode`.** Seven fields against eleven: the
-   position cache it drops (`firstPos`, `lastPos`, `minRow`, `maxRow`,
-   `lastBracketEnd`, `bracketStart`, and the two bracket booleans) is bigger than
-   the four booleans it adds. A node-for-node parallel tree is still cheaper per
-   node than the tree it parallels.
+1. **The strings are never copied.** Tier 1's `RenderNode` shared the `LPShape`
+   outright; Tier 2 allocates a `RenderShape` per node instead, so that sharing
+   is gone — but what it copies out of each `Located` is a *reference* to the
+   same string. The bytes in this tree are the comment text, the identifiers and
+   the literals, and not one of them is duplicated at either step. What Tier 2
+   adds is one small constructor object per node, not the content.
+2. **Both replacements are smaller than what they replace.** `RenderNode` has
+   seven fields to `LPNode`'s eleven: the position cache it drops (`firstPos`,
+   `lastPos`, `minRow`, `maxRow`, `lastBracketEnd`, `bracketStart`, and the two
+   bracket booleans) outweighs the four booleans it adds. `RenderShape` likewise
+   drops a `Located` wrapper — two positions, four integers — from eight
+   constructors and two whole integers from `OriginalRows`, and adds nothing.
+   A node-for-node parallel tree is still cheaper per node than the tree it
+   parallels.
 3. **The LPT was never the dominant term.** The parser's AST and `Context`, the
    `Box` tree, and the output strings all coexist with it.
 
@@ -76,13 +84,21 @@ Both trees genuinely are alive at once — `renderRoot`'s `root` parameter keeps
 the LPT reachable while `lower`'s result is in use — so this is not a case of one
 replacing the other. It simply does not amount to much.
 
+Point 1 is worth keeping in view if this is ever revisited: it is the reason the
+answer survived Tier 2, and it is the assumption that would break first. A
+future change that copied a `Located`'s *content* rather than its reference, or
+that gave `RenderShape` a field the `LPShape` does not already hold, would not be
+covered by this measurement.
+
 
 ## Recursion depth
 
 `lower` is a new recursive descent over the whole tree, so the nesting ceiling
-could have dropped. It did not. `tests/pathological-nesting.py`, run against both
-binaries, reports every shape same-or-deeper afterwards — `lambda` 411 → 419,
-`pipeparenarg` 234 → 237, `pipelambda` 189 → 191, the rest unchanged.
+could have dropped. It did not. `tests/pathological-nesting.py`, run against the
+1.0.1 and Tier 1 binaries, reports every shape same-or-deeper afterwards —
+`lambda` 411 → 419, `pipeparenarg` 234 → 237, `pipelambda` 189 → 191, the rest
+unchanged. Tier 2 adds no descent of its own: `lowerShape` is flat, called once
+per node from the walk that already existed.
 
 That gate's standing `FAIL: 5 shape(s) break in the FORMATTER before the parser's
 own depth limit` is **identical before and after**. It is a pre-existing finding

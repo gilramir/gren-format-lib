@@ -51,7 +51,7 @@ digraph CommentPipeline {
 
     // ── The barrier ──────────────────────────────────────────────
     node [shape=box, style="filled", fillcolor="#fffbe6", color="#c9a227", fontcolor="#4a3b06", fontsize=10];
-    barrier [label="SOURCE ROWS END HERE\nNo Render/* code may read a row or a position to decide placement.\nEnforced by tests/check-render-invariant.py."];
+    barrier [label="SOURCE ROWS END HERE\nNo Render/* code may read a row or a position to decide placement.\nEnforced by the compiler: RenderTree.lower strips them (RenderNode / RenderShape)."];
 
     // ── Flow ─────────────────────────────────────────────────────
     source -> parse;

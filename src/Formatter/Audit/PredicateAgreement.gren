@@ -68,7 +68,6 @@ vacuous by construction, and shrinking it to that was the goal.
 
 import Formatter.Logical.LogicalPrintingTree exposing
     ( LPNode
-    , LPShape(..)
     , lpnChildren
     , lpnFirstPos
     , stypeToString
@@ -87,6 +86,7 @@ import Formatter.Render.NodeClassify exposing
     )
 import Formatter.RenderTree exposing
     ( RenderNode
+    , RenderShape(..)
     , lower
     , rnChildren
     , rnShape
@@ -113,10 +113,10 @@ because it is the shape any future recursive predicate would need, and because a
 all carry `claim == True` by construction; `flowCommentFindings` also reports
 `False`, and the two read as opposite complaints.
 
-`boxKind` is misnamed: it holds `shapeKindName (rnShape node)`, an `LPShape`
+`boxKind` is misnamed: it holds `shapeKindName (rnShape node)`, an `RenderShape`
 constructor name, not a `Formatter.Render.Box` -- the two are different things
 (a shape says what kind of node this is, a `Box` says where its characters
-land), and the name dates from before `LPBox` was renamed to `LPShape`.
+land), and the name dates from before `LPBox` was renamed to `RenderShape`.
 `shapeKind` is what it should be called. It is deliberately NOT renamed: the
 field is a JSON key in the `--audit-predicates` output, read by
 `audit-predicates.py`, `matrix-syntax.py`, `gen-random.py` and the two
@@ -462,7 +462,7 @@ renderedFlow nodes =
 routes its children somewhere else -- a bracket container, a binop chain, a
 `when` -- is not what this predicate is asked about.
 -}
-dispatchesToGluingFlow : LPShape -> Bool
+dispatchesToGluingFlow : RenderShape -> Bool
 dispatchesToGluingFlow shape =
     when shape is
         AcrossOrVertical _ ->
@@ -548,7 +548,7 @@ makeFinding name src node box liesBelow =
 kind, or whether the author already forced it vertical) -- enough to tell one
 finding's shape from another's without going back to `--lpt`.
 -}
-shapeKindName : LPShape -> String
+shapeKindName : RenderShape -> String
 shapeKindName shape =
     let
         forced fv =
@@ -562,8 +562,8 @@ shapeKindName shape =
         RootBox ->
             "RootBox"
 
-        OriginalRows r ->
-            "OriginalRows " ++ stypeToString r.stype
+        OriginalRows stype ->
+            "OriginalRows " ++ stypeToString stype
 
         EmptyLine ->
             "EmptyLine"

@@ -65,12 +65,12 @@ surfaced before facts are built.
 
 import Formatter.Logical.LogicalPrintingTree exposing
     ( CommentRole(..)
-    , LPShape(..)
     , ListBrackets(..)
     , roleGlues
     )
 import Formatter.RenderTree exposing
     ( RenderNode
+    , RenderShape(..)
     , commentGluesToPrevious
     , commentLeadsNext
     )

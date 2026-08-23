@@ -36,10 +36,8 @@ module Formatter.Render.FlowAssembly exposing
 import Formatter.Logical.BinopPrecedence exposing (binopMinPrecedence, binopPrecedence)
 import Formatter.Logical.LogicalPrintingTree exposing
     ( CommentRole(..)
-    , LPShape(..)
     , ListBrackets(..)
     , RecordKind(..)
-    , commentRole
     , roleGlues
     )
 import Formatter.Render.BinopLayout exposing (isChainBreakingOperandShape)
@@ -64,7 +62,9 @@ import Formatter.Render.NodeClassify exposing
     )
 import Formatter.RenderTree exposing
     ( RenderNode
+    , RenderShape(..)
     , commentGluesToPrevious
+    , commentRole
     , rnChildren
     , rnHasSourceContent
     , rnShape

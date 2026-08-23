@@ -29,7 +29,6 @@ module Formatter.Render.CommentBox exposing
 
 import Formatter.Logical.LogicalPrintingTree exposing
     ( CommentRole(..)
-    , LPShape(..)
     , spanTrailingOwnLine
     )
 import Formatter.Render.Box as B exposing (Box(..))
@@ -46,6 +45,8 @@ import Formatter.Render.NodeClassify exposing
     )
 import Formatter.RenderTree exposing
     ( RenderNode
+    , RenderShape(..)
+    , commentFacts
     , commentGluesToPrevious
     , commentLeadsLine
     , commentLeadsNext
@@ -129,8 +130,8 @@ bracket, so it Errs rather than silently drop the comment. -}
 emptyBracketedCommentLine : RenderNode -> Result String B.Line
 emptyBracketedCommentLine node =
     when rnShape node is
-        BlockComment { loc } ->
-            if String.contains "\n" loc.value then
+        BlockComment { text } ->
+            if String.contains "\n" text then
                 -- Not a crash: an `Err` here is the "can't fit the one-line form"
                 -- signal that the `EmptyBracketed` arm catches and renders
                 -- vertically instead (a multi-line block comment has no inline
@@ -138,7 +139,7 @@ emptyBracketedCommentLine node =
                 Err "box: empty-bracket comment is multi-line (caller renders vertically)"
 
             else
-                Ok (B.literal ("{-" ++ loc.value ++ "-}"))
+                Ok (B.literal ("{-" ++ text ++ "-}"))
 
         _ ->
             -- Not a crash: same caught "no inline form" signal — a `--` line
@@ -320,8 +321,8 @@ spanOperatorRowComments nodes =
                 SingleLineComment { role } ->
                     role /= LeadsLine
 
-                BlockComment { loc, role } ->
-                    String.contains "\n" loc.value && role /= LeadsLine
+                BlockComment { text, role } ->
+                    String.contains "\n" text && role /= LeadsLine
 
                 _ ->
                     False
@@ -368,7 +369,7 @@ property of the role and of nothing else, and `Formatter.Logical.Comments` needs
 the same answer while being unable to import this module. -}
 spanTrailingOwnLineComments : Array RenderNode -> { body : Array RenderNode, trailing : Array RenderNode }
 spanTrailingOwnLineComments nodes =
-    spanTrailingOwnLine rnShape nodes
+    spanTrailingOwnLine (rnShape >> commentFacts) nodes
 
 
 -- Peel trailing comments off a block body / forward pipeline step: single-line
@@ -392,8 +393,8 @@ peelTrailingCommentNodes nodes =
                             else
                                 go initial ([ last ] ++ acc) True
 
-                        BlockComment { loc } ->
-                            if String.contains "\n" loc.value then
+                        BlockComment { text } ->
+                            if String.contains "\n" text then
                                 { bodyNodes = remaining, trailing = acc }
 
                             else
@@ -435,18 +436,18 @@ standalone root child, already carrying its own closing delimiter). -}
 commentNodeBox : RenderNode -> Result String Box
 commentNodeBox node =
     when rnShape node is
-        SingleLineComment { loc } ->
-            Ok (B.line (B.lineComment ("--" ++ loc.value)))
+        SingleLineComment { text } ->
+            Ok (B.line (B.lineComment ("--" ++ text)))
 
-        BlockComment { loc } ->
-            if String.contains "\n" loc.value then
-                multiLineBlockCommentBox loc.value
+        BlockComment { text } ->
+            if String.contains "\n" text then
+                multiLineBlockCommentBox text
 
             else
-                Ok (B.line (B.literal ("{-" ++ loc.value ++ "-}")))
+                Ok (B.line (B.literal ("{-" ++ text ++ "-}")))
 
-        DocComment loc ->
-            Ok (B.line (B.literal (docCommentString loc.value)))
+        DocComment text ->
+            Ok (B.line (B.literal (docCommentString text)))
 
         _ ->
             Err "box: not a comment node"

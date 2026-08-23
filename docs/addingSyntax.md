@@ -925,8 +925,8 @@ support for a new construct", for the required reading. The short version:
   read there is a **compile error**. If a decision genuinely needs a source row,
   precompute it as a boolean in `RenderTree.lower` and read the flag in the
   renderer — that is what the four existing flags are.
-  `tests/check-render-invariant.py` still fails the build on the one spelling the
-  types miss, a `.start.row` off an `LPShape`'s `Located` payload.
+  There is no script backing this up any more, and none is needed: the shapes
+  the renderer sees (`RenderShape`) do not carry the positions either.
 
 ### 6. Render it — `MakeRenderBox.renderNodeBox`
 Add an arm to the `renderNodeBox` `when shape is …` dispatch (and to the
@@ -1052,8 +1052,7 @@ node ../../gren-format/app --show <Name>.dirty.gren > testfiles/<SuiteDir>/<Name
 **Read it** to confirm it is actually canonical before trusting it.
 
 **The standing gates** guard the cross-cutting properties. `run-tests.sh` runs
-two of them itself, before it builds: `check-render-invariant.py` (the residue of
-the barrier that the type checker does not cover — step 5 above) and
+one of them itself, before it builds:
 `check-divergence-index.py` (the divergence catalogue and its fixture suite stay
 1:1). The rest are run by hand and need a fresh build of `gren-format/app` —
 **rebuild it first** (`cd ../gren-format && ./build.sh`), since every one of them

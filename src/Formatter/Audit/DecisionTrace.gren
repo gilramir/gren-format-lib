@@ -115,7 +115,6 @@ it comes down; guessing at one is how the report starts lying.
 
 import Formatter.Logical.LogicalPrintingTree exposing
     ( LPNode
-    , LPShape(..)
     , SyntaxType(..)
     , bracketsToString
     , roleToString
@@ -132,6 +131,7 @@ import Formatter.Render.NodeClassify exposing
     )
 import Formatter.RenderTree exposing
     ( RenderNode
+    , RenderShape(..)
     , lower
     , rnChildren
     , rnShape
@@ -414,7 +414,7 @@ nodeDecisions decl node =
             ]
 
         EmptyBracketed brackets ->
-            [ say "BracketContainer.shape" ("empty:" ++ bracketsToString brackets.value) ]
+            [ say "BracketContainer.shape" ("empty:" ++ bracketsToString brackets) ]
 
         SingleLineComment c ->
             [ say "Comment.role" (roleToString c.role)
@@ -428,8 +428,8 @@ nodeDecisions decl node =
             , flag "Comment.textCanRide" (commentTextCanRide node)
             ]
 
-        OriginalRows r ->
-            when r.stype is
+        OriginalRows stype ->
+            when stype is
                 StFunctionSignature ->
                     -- The decision NAME is kept, though the function behind it
                     -- moved to `Formatter.RenderTree` and was renamed there: it
@@ -473,8 +473,8 @@ moving in or out of the root does not renumber the ones after it. -}
 isDeclarationChild : RenderNode -> Bool
 isDeclarationChild node =
     when rnShape node is
-        OriginalRows r ->
-            when r.stype is
+        OriginalRows stype ->
+            when stype is
                 StSingleLineComment ->
                     False
 
@@ -503,8 +503,8 @@ declarationName node =
 declStype : RenderNode -> SyntaxType
 declStype node =
     when rnShape node is
-        OriginalRows r ->
-            r.stype
+        OriginalRows stype ->
+            stype
 
         _ ->
             StFunctionDeclaration
@@ -513,8 +513,8 @@ declStype node =
 firstLiteralToken : RenderNode -> Maybe String
 firstLiteralToken node =
     when rnShape node is
-        UnbreakableText loc ->
-            Just loc.value
+        UnbreakableText text ->
+            Just text
 
         _ ->
             Array.foldl

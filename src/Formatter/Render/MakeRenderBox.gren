@@ -14,11 +14,9 @@ signatures, and comments — each laid out to match elm-format.
 import Formatter.Logical.BinopPrecedence exposing (binopMinPrecedence)
 import Formatter.Logical.LogicalPrintingTree exposing
     ( CommentRole(..)
-    , LPShape(..)
     , ListBrackets(..)
     , RecordKind(..)
     , SyntaxType(..)
-    , commentRole
     , prefixGlyph
     , spanTrailingOwnLine
     )
@@ -115,6 +113,9 @@ import Formatter.Render.NodeClassify exposing
     )
 import Formatter.RenderTree exposing
     ( RenderNode
+    , RenderShape(..)
+    , commentFacts
+    , commentRole
     , rnChildren
     , rnShape
     , rnTypeSegmentsBroken
@@ -129,7 +130,7 @@ for the whole file. -}
 renderNodeBox : RenderNode -> Result String Box
 renderNodeBox node =
     when rnShape node is
-        OriginalRows { stype = stype } ->
+        OriginalRows stype ->
             let
                 { leading, rest } =
                     peelLeadingInlineComments (rnChildren node)
@@ -479,11 +480,11 @@ verticalBinopChainBox ops operandItems =
                                     (Array.map2 (\opNode opItem -> { text = opText opNode, item = opItem }) ops opItems)
 
                             op0 =
-                                spanTrailingOwnLine (\i -> rnShape i.node) grouped.firstGroup
+                                spanTrailingOwnLine (\i -> commentFacts (rnShape i.node)) grouped.firstGroup
 
                             segData =
                                 Array.map
-                                    (\g -> { op = g.op, split = spanTrailingOwnLine (\i -> rnShape i.node) g.items })
+                                    (\g -> { op = g.op, split = spanTrailingOwnLine (\i -> commentFacts (rnShape i.node)) g.items })
                                     grouped.rest
                         in
                         renderOperandContent op0.body
@@ -696,11 +697,17 @@ makeUnionBodyBox bodyNode =
 
 {-| Always-vertical union body with comment siblings: one variant per line; a
 comment on the same row as the variant it trails is appended inline
-(`B.addSuffix`), one on its own
-row renders on its own line. A variant's "last row" is `max(lpnLastPos,
-lpnLastBracketEnd)` — NOT `lpnMaxRow`, which a multi-line block comment inside the
-variant would widen, shifting a trailing comment to its own line (non-idempotent).
-A multi-line block-comment SIBLING (rare) falls back. -}
+(`B.addSuffix`), one on its own row renders on its own line. A multi-line
+block-comment SIBLING (rare) falls back.
+
+"On the same row" is the comment's stored `CommentRole`, not a row comparison.
+This used to say the variant's last row was `max(lpnLastPos, lpnLastBracketEnd)`
+and NOT `lpnMaxRow`, because a multi-line block comment inside the variant widens
+the latter and would shift a trailing comment to its own line
+(non-idempotent) — a distinction between three position accessors, each a way to
+get it wrong. None of the three is reachable from here any more (see
+`Formatter.RenderTree`), and the role the classifier assigned cannot be widened
+by anything the renderer does. -}
 makeUnionBodyVerticalBox : Array RenderNode -> Result String Box
 makeUnionBodyVerticalBox nodes =
     let
@@ -2732,11 +2739,11 @@ makeExposingListBox forceVertical children =
 
 
 {-| Render one LPT shape to a Box. Err for unported constructs. -}
-makePBox : LPShape -> Array RenderNode -> Result String Box
+makePBox : RenderShape -> Array RenderNode -> Result String Box
 makePBox shape children =
     when shape is
-        UnbreakableText locs ->
-            Ok (B.line (B.literal locs.value))
+        UnbreakableText text ->
+            Ok (B.line (B.literal text))
 
         SynthesizedText s ->
             Ok (B.line (B.literal s))
@@ -2791,7 +2798,7 @@ makePBox shape children =
             -- (`\[ a {- c -}\n, b\n] -> …`) aligns under the opening bracket.
             -- `buildFlowBoxInline` keeps a leading comment in the inner on-line.
             buildFlowBoxInline 0 children
-                |> Result.map (\inner -> B.prefix (B.literal (prefixGlyph prefix.value)) inner)
+                |> Result.map (\inner -> B.prefix (B.literal (prefixGlyph prefix)) inner)
 
         AllAcrossOrAllVertical bracket ->
             makeLiteralBox { forceMultiline = False } bracket children
@@ -2799,8 +2806,8 @@ makePBox shape children =
         AlwaysVertical bracket ->
             makeLiteralBox { forceMultiline = True } bracket children
 
-        EmptyBracketed loc ->
-            when bracketPunc loc.value is
+        EmptyBracketed brackets ->
+            when bracketPunc brackets is
                 { left = left, right = right } ->
                     if Array.isEmpty children then
                         Ok (B.line (B.row [ B.punc left, B.punc right ]))
@@ -2847,7 +2854,7 @@ makePBox shape children =
             makeOpAndRhsBox children
 
         RecordUpdate { name, forceVertical } ->
-            makeRecordUpdateBox name.value forceVertical children
+            makeRecordUpdateBox name forceVertical children
 
         IfCondition { forceVertical } ->
             makeIfConditionBox forceVertical children
@@ -2870,7 +2877,7 @@ makePBox shape children =
         ParenBlock { forceVertical, checkContentVertical } ->
             makeParenBlockBox { forceVertical = forceVertical, checkContentVertical = checkContentVertical } children
 
-        MultilineString loc ->
+        MultilineString sourceLines ->
             -- A `"""…"""` literal: opening `"""`, one line per content element,
             -- closing `"""`, stacked. Box stacking aligns to the box's column
             -- intrinsically when the flow indents it, so continuation lines land
@@ -2893,7 +2900,7 @@ makePBox shape children =
                         B.line (B.literal s)
 
                 contentLines =
-                    Array.map contentLine loc.value
+                    Array.map contentLine sourceLines
             in
             Ok (B.stack1 ([ quote ] ++ contentLines ++ [ quote ]))
 
@@ -3059,8 +3066,8 @@ makeParenBlockBoxWithParts flags children =
                 IfCondition _ ->
                     noParts (blockInParenBox children)
 
-                UnbreakableText loc ->
-                    if loc.value == "let" then
+                UnbreakableText text ->
+                    if text == "let" then
                         noParts (blockInParenBox children)
 
                     else
@@ -3477,18 +3484,18 @@ renderFlowItems nodes =
 renderFlowItem : RenderNode -> Result String FlowItem
 renderFlowItem node =
     when rnShape node is
-        SingleLineComment { loc } ->
+        SingleLineComment { text } ->
             Ok
                 { node = node
                 , box = B.blankLine
                 , isBlock = False
-                , comment = Just { box = B.line (B.lineComment ("--" ++ loc.value)), isLineComment = True, multiLine = False }
+                , comment = Just { box = B.line (B.lineComment ("--" ++ text)), isLineComment = True, multiLine = False }
                 , lambdaBodyBox = Nothing
                 }
 
-        BlockComment { loc } ->
-            if String.contains "\n" loc.value then
-                multiLineBlockCommentBox loc.value
+        BlockComment { text } ->
+            if String.contains "\n" text then
+                multiLineBlockCommentBox text
                     |> Result.map
                         (\cbox ->
                             { node = node
@@ -3504,7 +3511,7 @@ renderFlowItem node =
                     { node = node
                     , box = B.blankLine
                     , isBlock = False
-                    , comment = Just { box = B.line (B.literal ("{-" ++ loc.value ++ "-}")), isLineComment = False, multiLine = False }
+                    , comment = Just { box = B.line (B.literal ("{-" ++ text ++ "-}")), isLineComment = False, multiLine = False }
                     , lambdaBodyBox = Nothing
                     }
 

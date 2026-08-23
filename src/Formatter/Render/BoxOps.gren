@@ -18,10 +18,10 @@ module Formatter.Render.BoxOps exposing
 {-| Low-level `Box`/`Line` manipulation helpers shared by the renderer.
 -}
 
-import Formatter.Logical.LogicalPrintingTree exposing (LPShape(..))
 import Formatter.Render.Box as B exposing (Box(..))
 import Formatter.RenderTree exposing
     ( RenderNode
+    , RenderShape(..)
     , rnShape
     )
 

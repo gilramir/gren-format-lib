@@ -1,5 +1,6 @@
 module Formatter.Logical.LogicalPrintingTree exposing
-    ( CommentRole(..)
+    ( CommentFacts
+    , CommentRole(..)
     , LPNode
     , LPShape(..)
     , ListBrackets(..)
@@ -42,6 +43,7 @@ module Formatter.Logical.LogicalPrintingTree exposing
     , roleGlues
     , roleIs
     , roleToString
+    , shapeCommentFacts
     , shapeGluesToPrevious
     , shapeIsComment
     , shapeRendersOwnLine
@@ -821,10 +823,9 @@ So: scan back over comments, and split at the EARLIEST line-leading one. A run w
 no line-leading member at all peels nothing, exactly as before.
 
 Polymorphic in the element so the pre-rendered `FlowItem` path shares it, and
-taken at the **shape** rather than the node so both stages share it: pass
-`lpnShape` for a plain `LPNode` array, `rnShape` for a `RenderNode` one,
-`(.node >> rnShape)` for flow items. Everything it asks is a property of the
-shape, so nothing is lost by not seeing the node.
+taken as a `Maybe CommentFacts` extractor rather than a shape so that both
+stages share it -- their shape types differ (see `CommentFacts`), but the two
+questions this asks do not.
 
 **Lives here, beside `CommentRole`, for the reason `roleGlues` does**: which
 comments form a trailing own-line run is a property of the role and of nothing
@@ -836,15 +837,31 @@ attachment pass and the renderer must agree on, implemented twice by necessity,
 is the shape this module exists to dissolve: both import `LogicalPrintingTree`
 already, so the necessity was in the placement, not in the rule.
 -}
-spanTrailingOwnLine : (a -> LPShape) -> Array a -> { body : Array a, trailing : Array a }
-spanTrailingOwnLine toShape items =
+spanTrailingOwnLine : (a -> Maybe CommentFacts) -> Array a -> { body : Array a, trailing : Array a }
+spanTrailingOwnLine toFacts items =
     let
+        leadsLine item =
+            when toFacts item is
+                Just facts ->
+                    facts.role == LeadsLine
+
+                Nothing ->
+                    False
+
+        rendersOwnLine item =
+            when toFacts item is
+                Just facts ->
+                    facts.role == LeadsLine && facts.bringsOwnRows
+
+                Nothing ->
+                    False
+
         -- The original rule, unchanged: the maximal suffix of `LeadsLine`
         -- comments.
         plain remaining acc =
             when Array.popLast remaining is
                 Just { last, initial } ->
-                    if shapeRoleIs LeadsLine (toShape last) then
+                    if leadsLine last then
                         plain initial (Array.pushFirst last acc)
 
                     else
@@ -866,13 +883,13 @@ spanTrailingOwnLine toShape items =
         extended remaining acc best =
             when Array.popLast remaining is
                 Just { last, initial } ->
-                    when commentRole (toShape last) is
+                    when toFacts last is
                         Just _ ->
                             let
                                 grown =
                                     Array.pushFirst last acc
                             in
-                            if shapeRendersOwnLine (toShape last) then
+                            if rendersOwnLine last then
                                 extended initial grown (Just { body = initial, trailing = grown })
 
                             else
@@ -918,19 +935,46 @@ commentRendersOwnLine node =
     shapeRendersOwnLine (lpnShape node)
 
 
-{-| `commentRendersOwnLine` at the shape -- see `shapeRoleIs`. `spanTrailingOwnLine`
-below calls this one, which is what lets a single implementation of that split
-serve both stages. -}
+{-| `commentRendersOwnLine` at the shape -- see `shapeRoleIs`. -}
 shapeRendersOwnLine : LPShape -> Bool
 shapeRendersOwnLine shape =
-    shapeRoleIs LeadsLine shape
-        && (when shape is
-                BlockComment c ->
-                    String.contains "\n" c.loc.value
+    when shapeCommentFacts shape is
+        Just facts ->
+            facts.role == LeadsLine && facts.bringsOwnRows
 
-                _ ->
-                    False
-           )
+        Nothing ->
+            False
+
+
+{-| Everything `spanTrailingOwnLine` needs to know about one element: the
+comment's role, and whether it brings rows of its own (a multi-line `{- … -}`).
+
+It exists so that ONE implementation of that peel can serve both stages. The
+render layer's shapes are a different type from these ones
+(`Formatter.RenderTree.RenderShape`, which is this type with the source
+positions taken off), so the split cannot be written against `LPShape` and still
+be callable from the renderer -- but both can answer these two questions, and
+those two are all the rule ever asks. -}
+type alias CommentFacts =
+    { role : CommentRole
+    , bringsOwnRows : Bool
+    }
+
+
+{-| The `CommentFacts` of a shape, or `Nothing` for a non-comment (and for
+`DocComment`, which carries no role -- matching `commentRole`'s domain
+exactly). -}
+shapeCommentFacts : LPShape -> Maybe CommentFacts
+shapeCommentFacts shape =
+    when shape is
+        SingleLineComment c ->
+            Just { role = c.role, bringsOwnRows = False }
+
+        BlockComment c ->
+            Just { role = c.role, bringsOwnRows = String.contains "\n" c.loc.value }
+
+        _ ->
+            Nothing
 
 
 {-| Rebuild a comment leaf carrying `role`. A no-op on any other node. Role

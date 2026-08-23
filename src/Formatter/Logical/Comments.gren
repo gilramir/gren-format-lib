@@ -146,6 +146,7 @@ import Formatter.Logical.LogicalPrintingTree exposing
     , lpnReplaceChildren
     , lpnSetCommentRole
     , lpnShape
+    , shapeCommentFacts
     , spanTrailingOwnLine
     , subtreeRowRange
     )
@@ -265,7 +266,7 @@ movePipelineStepTrailers children =
                             acc.pending ++ lpnChildren child
 
                         split =
-                            spanTrailingOwnLine lpnShape kids
+                            spanTrailingOwnLine (lpnShape >> shapeCommentFacts) kids
                     in
                     { pending = split.trailing
                     , out = Array.pushLast (lpnReplaceChildren child split.body) acc.out

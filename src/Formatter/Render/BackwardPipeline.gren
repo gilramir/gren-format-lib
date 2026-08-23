@@ -16,10 +16,7 @@ did it in the small (`renderHeaderIndentedBody`, `literalItemRenderer`).
 from it and from nothing else — `makePipelineBox` was the cluster's sole caller.
 -}
 
-import Formatter.Logical.LogicalPrintingTree exposing
-    ( CommentRole(..)
-    , LPShape(..)
-    )
+import Formatter.Logical.LogicalPrintingTree exposing (CommentRole(..))
 import Formatter.Render.Box as B exposing (Box(..))
 import Formatter.Render.BoxOps exposing
     ( applyIndent
@@ -61,6 +58,7 @@ import Formatter.Render.NodeClassify exposing
     )
 import Formatter.RenderTree exposing
     ( RenderNode
+    , RenderShape(..)
     , commentLeadsLine
     , rnChildren
     , rnReplaceChildren
@@ -211,8 +209,8 @@ makeBackwardPipelineBox renderers forceVertical children =
                                 SingleLineComment _ ->
                                     True
 
-                                BlockComment { loc } ->
-                                    String.contains "\n" loc.value
+                                BlockComment { text } ->
+                                    String.contains "\n" text
 
                                 DocComment _ ->
                                     True

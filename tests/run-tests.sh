@@ -16,9 +16,12 @@ if [ "${1:-}" = "--coverage" ]; then
   exec "${COV}" "$@"
 fi
 
-# Architecture invariant: no Render/* code may read a
-# source row/position to make a layout or comment-placement decision.
-python3 "$(dirname "$(realpath "$0")")/check-render-invariant.py" || exit 1
+# (The architecture invariant that used to be checked here -- no Render/* code
+# may read a source row/position to decide layout or comment placement -- is now
+# enforced by the Gren compiler. `Formatter.RenderTree` hands the render layer a
+# `RenderNode`/`RenderShape` pair with no positions on them at all, so a row read
+# under src/Formatter/Render/ does not typecheck. check-render-invariant.py was
+# deleted; see docs/testing.md.)
 
 # The divergence catalogue and its fixture suite must stay 1:1 (see
 # check-divergence-index.py). Checked here so drift is named, rather than

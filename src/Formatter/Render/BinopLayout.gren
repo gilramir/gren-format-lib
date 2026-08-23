@@ -10,10 +10,7 @@ module Formatter.Render.BinopLayout exposing
 -}
 
 import Formatter.Logical.BinopPrecedence exposing (binopPrecedence)
-import Formatter.Logical.LogicalPrintingTree exposing
-    ( CommentRole(..)
-    , LPShape(..)
-    )
+import Formatter.Logical.LogicalPrintingTree exposing (CommentRole(..))
 import Formatter.Render.Box as B exposing (Box(..))
 import Formatter.Render.NodeClassify exposing
     ( commentBreaksFlowRow
@@ -21,6 +18,7 @@ import Formatter.Render.NodeClassify exposing
     )
 import Formatter.RenderTree exposing
     ( RenderNode
+    , RenderShape(..)
     , rnChildren
     , rnShape
     )
@@ -90,7 +88,7 @@ opText node =
 bracket literal (record / array / record update) or a parenthesized expression
 (`(a\n+ b)`). A `MultilineString` is deliberately absent — elm-format keeps a
 multi-line string operand glued inline, and gren matches. -}
-isChainBreakingOperandShape : LPShape -> Bool
+isChainBreakingOperandShape : RenderShape -> Bool
 isChainBreakingOperandShape shape =
     when shape is
         AllAcrossOrAllVertical _ ->
